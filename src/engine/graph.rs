@@ -16,7 +16,17 @@ pub(super) fn validate_modules(modules: &[Module]) -> AppResult<()> {
     }
 
     for module in modules {
+        let mut dependencies = BTreeSet::new();
         for dependency in &module.dependencies {
+            if !dependencies.insert(dependency) {
+                return Err(AppError::invalid_input(
+                    "modules",
+                    format!(
+                        "module '{}' has duplicate dependency '{}'",
+                        module.name, dependency
+                    ),
+                ));
+            }
             if !names.contains(dependency) {
                 return Err(AppError::invalid_input(
                     "modules",
@@ -39,10 +49,11 @@ pub(super) fn dependency_counts(
     let mut dependents: BTreeMap<ModuleId, Vec<ModuleId>> = BTreeMap::new();
 
     for module in modules {
-        remaining.insert(module.name.clone(), module.dependencies.len());
-        for dependency in &module.dependencies {
+        let dependencies: BTreeSet<_> = module.dependencies.iter().cloned().collect();
+        remaining.insert(module.name.clone(), dependencies.len());
+        for dependency in dependencies {
             dependents
-                .entry(dependency.clone())
+                .entry(dependency)
                 .or_default()
                 .push(module.name.clone());
         }

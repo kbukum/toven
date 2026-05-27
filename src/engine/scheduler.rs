@@ -118,6 +118,14 @@ mod tests {
     }
 
     #[test]
+    fn rejects_duplicate_dependencies() {
+        let error = ready_waves(&[module("a", &["b", "b"]), module("b", &[])])
+            .expect_err("duplicate dependency should fail");
+
+        assert!(error.message.contains("duplicate dependency"));
+    }
+
+    #[test]
     fn rejects_cycles() {
         let error = ready_waves(&[module("a", &["b"]), module("b", &["a"])])
             .expect_err("cycle should fail");

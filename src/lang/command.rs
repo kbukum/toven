@@ -18,6 +18,7 @@ const DISCOVERY_COMMAND_MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 pub struct CommandAdapter {
     language: String,
     argv: Vec<String>,
+    field: String,
     config: ProcessConfig,
 }
 
@@ -45,6 +46,7 @@ impl CommandAdapter {
         Ok(Self {
             language: language.into(),
             argv,
+            field: field.to_string(),
             config: discovery_process_config(),
         })
     }
@@ -54,7 +56,7 @@ impl CommandAdapter {
         let mut iter = rendered.into_iter();
         let program = iter
             .next()
-            .ok_or_else(|| AppError::invalid_input("discovery_command", "missing program"))?;
+            .ok_or_else(|| AppError::invalid_input(&self.field, "missing program"))?;
 
         let stdin = serde_json::to_vec(request).map_err(AppError::internal)?;
         Ok(Command::new(program)
@@ -76,13 +78,13 @@ impl LangAdapter for CommandAdapter {
 
         if result.stdout_truncated {
             return Err(AppError::invalid_input(
-                "discovery_command",
+                &self.field,
                 "discovery command stdout exceeded capture limit",
             ));
         }
         if result.stderr_truncated {
             return Err(AppError::invalid_input(
-                "discovery_command",
+                &self.field,
                 "discovery command stderr exceeded capture limit",
             ));
         }
@@ -90,13 +92,13 @@ impl LangAdapter for CommandAdapter {
         let response: DiscoverResponse =
             serde_json::from_slice(&result.stdout_bytes).map_err(|error| {
                 AppError::invalid_input(
-                    "discovery_command",
+                    &self.field,
                     format!("failed to parse discovery response JSON: {error}"),
                 )
             })?;
         if response.schema_version != DISCOVERY_SCHEMA_VERSION {
             return Err(AppError::invalid_input(
-                "discovery_command",
+                &self.field,
                 format!(
                     "unsupported discovery response schema {}",
                     response.schema_version
@@ -192,13 +194,14 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn reports_invalid_discovery_json() {
-        let adapter = CommandAdapter::new(
+        let adapter = CommandAdapter::with_field(
             "custom",
             vec![
                 "/bin/sh".to_string(),
                 "-c".to_string(),
                 "cat >/dev/null; printf not-json".to_string(),
             ],
+            "profiles.custom.discovery_command",
         )
         .expect("adapter builds");
 
@@ -209,7 +212,36 @@ mod tests {
             })
             .expect_err("invalid json should fail");
 
-        assert!(error.message.contains("discovery_command"));
+        assert!(error.message.contains("profiles.custom.discovery_command"));
         assert!(error.message.contains("JSON"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn reports_schema_mismatch_with_config_field() {
+        let adapter = CommandAdapter::with_field(
+            "custom",
+            vec![
+                "/bin/sh".to_string(),
+                "-c".to_string(),
+                r#"cat >/dev/null; printf '\173"schema_version":0,"modules":[]\175'"#.to_string(),
+            ],
+            "profiles.custom.discovery_command",
+        )
+        .expect("adapter builds");
+
+        let error = adapter
+            .discover(&DiscoverRequest {
+                schema_version: DISCOVERY_SCHEMA_VERSION,
+                workspace_root: std::env::current_dir().expect("current dir"),
+            })
+            .expect_err("schema mismatch should fail");
+
+        assert!(error.message.contains("profiles.custom.discovery_command"));
+        assert!(
+            error
+                .message
+                .contains("unsupported discovery response schema")
+        );
     }
 }
