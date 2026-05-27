@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package, PackageId};
+use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Node, Package, PackageId};
 
 use crate::core::{AppError, AppResult, Module, ModuleId};
 
@@ -44,6 +44,17 @@ fn modules_from_metadata(metadata: &Metadata) -> AppResult<Vec<Module>> {
         .iter()
         .map(|package| (package.id.clone(), package))
         .collect();
+    let nodes_by_id: BTreeMap<PackageId, &Node> =
+        metadata
+            .resolve
+            .as_ref()
+            .map_or_else(BTreeMap::new, |resolve| {
+                resolve
+                    .nodes
+                    .iter()
+                    .map(|node| (node.id.clone(), node))
+                    .collect()
+            });
     let mut modules = Vec::with_capacity(workspace_ids.len());
 
     for package in metadata.workspace_packages() {
@@ -51,7 +62,7 @@ fn modules_from_metadata(metadata: &Metadata) -> AppResult<Vec<Module>> {
         let root = package_root(package, workspace_root)?;
         modules.push(Module {
             dependencies: workspace_dependencies(
-                metadata,
+                &nodes_by_id,
                 &packages_by_id,
                 &workspace_ids,
                 package,
@@ -93,15 +104,12 @@ fn package_root(package: &Package, workspace_root: &Path) -> AppResult<PathBuf> 
 }
 
 fn workspace_dependencies(
-    metadata: &Metadata,
+    nodes_by_id: &BTreeMap<PackageId, &Node>,
     packages_by_id: &BTreeMap<PackageId, &Package>,
     workspace_ids: &BTreeSet<PackageId>,
     package: &Package,
 ) -> AppResult<Vec<ModuleId>> {
-    let Some(resolve) = &metadata.resolve else {
-        return Ok(Vec::new());
-    };
-    let Some(node) = resolve.nodes.iter().find(|node| node.id == package.id) else {
+    let Some(node) = nodes_by_id.get(&package.id) else {
         return Ok(Vec::new());
     };
 
@@ -140,8 +148,29 @@ fn source_patterns(root: &Path) -> Vec<String> {
 }
 
 fn normalize_pattern(path: &Path) -> String {
-    let value = path.to_string_lossy();
+    let value = path.to_string_lossy().replace('\\', "/");
     value
         .strip_prefix("./")
-        .map_or_else(|| value.to_string(), ToString::to_string)
+        .map_or_else(|| value.clone(), ToString::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::normalize_pattern;
+
+    #[test]
+    fn normalizes_dot_prefixed_patterns() {
+        assert_eq!(normalize_pattern(Path::new("./src/**")), "src/**");
+        assert_eq!(normalize_pattern(Path::new(".\\src\\**")), "src/**");
+    }
+
+    #[test]
+    fn normalizes_glob_separators() {
+        assert_eq!(
+            normalize_pattern(Path::new("crates\\app\\src\\**")),
+            "crates/app/src/**"
+        );
+    }
 }
