@@ -1,7 +1,10 @@
 //! Rust workspace discovery adapter.
 
 use crate::{
-    core::{AppResult, DISCOVERY_SCHEMA_VERSION, DiscoverRequest, DiscoverResponse, LangAdapter},
+    core::{
+        AppResult, DISCOVERY_SCHEMA_VERSION, DiscoverRequest, DiscoverResponse, LangAdapter,
+        validate_discovery_request_schema,
+    },
     lang::rust::metadata::discover_modules,
 };
 
@@ -23,6 +26,8 @@ impl LangAdapter for RustAdapter {
     }
 
     fn discover(&self, request: &DiscoverRequest) -> AppResult<DiscoverResponse> {
+        validate_discovery_request_schema("discovery_request.schema_version", request)?;
+
         let modules = discover_modules(&request.workspace_root)?;
         Ok(DiscoverResponse {
             schema_version: DISCOVERY_SCHEMA_VERSION,
@@ -81,6 +86,23 @@ mod tests {
             !app.dependencies
                 .iter()
                 .any(|dependency| { dependency.as_str() == "fixture-test-util" })
+        );
+    }
+
+    #[test]
+    fn rejects_request_schema_mismatch_before_metadata_discovery() {
+        let error = RustAdapter::new()
+            .discover(&DiscoverRequest {
+                schema_version: 0,
+                workspace_root: std::path::PathBuf::from("/path/that/should/not/be/read"),
+            })
+            .expect_err("schema mismatch should fail before metadata discovery");
+
+        assert!(error.message.contains("discovery_request.schema_version"));
+        assert!(
+            error
+                .message
+                .contains("unsupported discovery request schema")
         );
     }
 }

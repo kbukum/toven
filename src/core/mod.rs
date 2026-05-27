@@ -40,3 +40,10 @@ pub(crate) fn validate_templates(field: impl AsRef<str>, values: &[String]) -> A
 pub(crate) fn validate_template(field: impl AsRef<str>, value: &str) -> AppResult<()> {
     validation::validate_template(field, value)
 }
+
+pub(crate) fn validate_discovery_request_schema(
+    field: impl AsRef<str>,
+    request: &DiscoverRequest,
+) -> AppResult<()> {
+    protocol::validate_discovery_request_schema(field, request)
+}

@@ -6,7 +6,7 @@ use rskit_process::{Command, ProcessConfig};
 
 use crate::core::{
     AppError, AppResult, DISCOVERY_SCHEMA_VERSION, DiscoverRequest, DiscoverResponse, LangAdapter,
-    Placeholder, Template, TemplatePart,
+    Placeholder, Template, TemplatePart, validate_discovery_request_schema,
 };
 
 const DISCOVERY_COMMAND_TIMEOUT_SECS: u64 = 120;
@@ -72,6 +72,8 @@ impl LangAdapter for CommandAdapter {
     }
 
     fn discover(&self, request: &DiscoverRequest) -> AppResult<DiscoverResponse> {
+        validate_discovery_request_schema(&self.field, request)?;
+
         let command = self.render_command(request)?;
         let result = rskit_process::run(&command, &self.config)?;
         result.check()?;
@@ -189,6 +191,35 @@ mod tests {
 
         assert!(error.message.contains("discovery_command"));
         assert!(error.message.contains("workspace.root"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn rejects_request_schema_mismatch_before_running_command() {
+        let adapter = CommandAdapter::with_field(
+            "custom",
+            vec![
+                "/bin/sh".to_string(),
+                "-c".to_string(),
+                "exit 99".to_string(),
+            ],
+            "profiles.custom.discovery_command",
+        )
+        .expect("adapter builds");
+
+        let error = adapter
+            .discover(&DiscoverRequest {
+                schema_version: 0,
+                workspace_root: std::env::current_dir().expect("current dir"),
+            })
+            .expect_err("schema mismatch should fail before command execution");
+
+        assert!(error.message.contains("profiles.custom.discovery_command"));
+        assert!(
+            error
+                .message
+                .contains("unsupported discovery request schema")
+        );
     }
 
     #[test]
