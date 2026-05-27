@@ -8,13 +8,13 @@ use crate::core::{AppError, AppResult, PresetDefinition};
 #[derive(
     Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Hash, serde::Deserialize, serde::Serialize,
 )]
+#[serde(try_from = "String", into = "String")]
 pub struct ModuleId(String);
 
 impl ModuleId {
     /// Create a module identifier from a validated string.
-    #[must_use]
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
+    pub fn new(value: impl Into<String>) -> AppResult<Self> {
+        Self::parse(value)
     }
 
     /// Return the identifier as a string slice.
@@ -33,6 +33,20 @@ impl ModuleId {
             ));
         }
         Ok(Self(value))
+    }
+}
+
+impl TryFrom<String> for ModuleId {
+    type Error = AppError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::parse(value)
+    }
+}
+
+impl From<ModuleId> for String {
+    fn from(value: ModuleId) -> Self {
+        value.0
     }
 }
 
@@ -180,7 +194,7 @@ mod tests {
 
     #[test]
     fn module_id_exposes_value() {
-        let id = ModuleId::new("core");
+        let id = ModuleId::new("core").expect("module id parses");
 
         assert_eq!(id.as_str(), "core");
     }
@@ -197,5 +211,23 @@ mod tests {
         let id = ModuleId::from_str("api").expect("module id parses");
 
         assert_eq!(id.to_string(), "api");
+    }
+
+    #[test]
+    fn module_id_try_from_rejects_empty_values() {
+        let error = ModuleId::try_from(String::from(" ")).expect_err("empty value should fail");
+
+        assert!(error.message.contains("module name"));
+    }
+
+    #[test]
+    fn module_id_deserialization_rejects_empty_values() {
+        use serde::Deserialize as _;
+
+        let deserializer =
+            serde::de::value::StringDeserializer::<serde::de::value::Error>::new(" ".to_string());
+        let error = ModuleId::deserialize(deserializer).expect_err("empty value should fail");
+
+        assert!(error.to_string().contains("module name"));
     }
 }

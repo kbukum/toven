@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use crate::core::Module;
 
 /// Request passed to a language adapter during discovery.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct DiscoverRequest {
     /// Workspace root for the project being inspected.
     pub workspace_root: PathBuf,

@@ -27,12 +27,13 @@ from source after cloning the repository.
   default; shell execution must be opted into intentionally.
 - **Preset catalog** — reusable task definitions are TOML data, not hard-coded
   command branches.
-- **Real repository fixtures** — integration fixtures dogfood Toven against the
-  sibling kits (`rskit`, `gokit`, and `pykit`) as language support lands.
+- **Real repository fixtures** — integration fixtures dogfood Toven against
+  checked-in kit submodules, starting with `rskit`, as language support lands.
 
 ## Local development
 
 ```bash
+git submodule update --init --recursive
 make check
 make coverage
 make release-artifacts

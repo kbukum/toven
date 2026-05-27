@@ -44,7 +44,7 @@ impl Template {
 
         while let Some(start) = remaining.find('{') {
             if start > 0 {
-                parts.push(TemplatePart::Literal(remaining[..start].to_string()));
+                push_literal(&mut parts, value, &remaining[..start])?;
             }
             let after_open = &remaining[start + 1..];
             let Some(end) = after_open.find('}') else {
@@ -59,7 +59,7 @@ impl Template {
         }
 
         if !remaining.is_empty() {
-            parts.push(TemplatePart::Literal(remaining.to_string()));
+            push_literal(&mut parts, value, remaining)?;
         }
 
         Ok(Self { parts })
@@ -96,6 +96,17 @@ impl Template {
         }
         Ok(rendered)
     }
+}
+
+fn push_literal(parts: &mut Vec<TemplatePart>, source: &str, literal: &str) -> AppResult<()> {
+    if literal.contains('}') {
+        return Err(AppError::invalid_input(
+            "template",
+            format!("unmatched closing placeholder brace in '{source}'"),
+        ));
+    }
+    parts.push(TemplatePart::Literal(literal.to_string()));
+    Ok(())
 }
 
 fn render_placeholder(
@@ -197,9 +208,17 @@ mod tests {
     }
 
     #[test]
+    fn rejects_unmatched_closing_braces() {
+        let error = Template::parse("cargo } {module.name}")
+            .expect_err("unmatched closing brace should fail");
+
+        assert!(error.message.contains("unmatched closing"));
+    }
+
+    #[test]
     fn renders_workspace_and_module_scalar_placeholders() {
         let module = crate::core::Module {
-            name: crate::core::ModuleId::new("api"),
+            name: crate::core::ModuleId::new("api").expect("module id parses"),
             package: Some("api-pkg".to_string()),
             root: "crates/api".into(),
             dependencies: Vec::new(),
@@ -219,7 +238,7 @@ mod tests {
     #[test]
     fn module_package_falls_back_to_module_name() {
         let module = crate::core::Module {
-            name: crate::core::ModuleId::new("api"),
+            name: crate::core::ModuleId::new("api").expect("module id parses"),
             package: None,
             root: "crates/api".into(),
             dependencies: Vec::new(),

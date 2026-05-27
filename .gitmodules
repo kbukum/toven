@@ -1,0 +1,3 @@
+[submodule "rskit"]
+	path = rskit
+	url = https://github.com/kbukum/rskit.git
