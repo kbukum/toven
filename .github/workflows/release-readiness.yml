@@ -18,6 +18,7 @@ concurrency:
 
 env:
   COSIGN_VERSION: v2.6.0
+  REQUIRE_PUBLISHABLE_PACKAGE: ${{ startsWith(github.ref, 'refs/tags/v') && '1' || '0' }}
   RUST_VERSION: "1.94"
 
 jobs:
