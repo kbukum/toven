@@ -1,6 +1,7 @@
 # Toven
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/kbukum/toven/actions/workflows/ci.yml/badge.svg)](https://github.com/kbukum/toven/actions/workflows/ci.yml)
 
 Toven is a fast, argv-first development and CI task planner for multi-module
 repositories. It discovers workspace modules, orders work by dependency graph,

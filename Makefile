@@ -1,4 +1,4 @@
-.PHONY: check fmt fmt-check lint test doc dist-plan coverage
+.PHONY: check fmt fmt-check lint test doc dist-plan coverage act-ci
 
 check: fmt-check lint test doc dist-plan
 
@@ -23,3 +23,6 @@ dist-plan:
 
 coverage:
 	cargo llvm-cov --lcov --ignore-filename-regex 'src/main.rs' --fail-under-lines 85 --fail-under-functions 80
+
+act-ci:
+	act pull_request -W .github/workflows/ci.yml
