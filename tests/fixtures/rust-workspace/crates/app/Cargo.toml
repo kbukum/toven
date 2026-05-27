@@ -1,0 +1,10 @@
+[package]
+name = "fixture-app"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+fixture-core.workspace = true
+
+[dev-dependencies]
+fixture-test-util = { path = "../test-util" }

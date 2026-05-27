@@ -15,7 +15,7 @@ pub use model::{
     Workspace,
 };
 pub use preset::PresetDefinition;
-pub use protocol::{DiscoverRequest, DiscoverResponse};
+pub use protocol::{DISCOVERY_SCHEMA_VERSION, DiscoverRequest, DiscoverResponse};
 pub use template::{Placeholder, Template, TemplatePart};
 
 pub(crate) fn validate_name(field: impl AsRef<str>, value: &str) -> AppResult<()> {
@@ -39,4 +39,11 @@ pub(crate) fn validate_templates(field: impl AsRef<str>, values: &[String]) -> A
 
 pub(crate) fn validate_template(field: impl AsRef<str>, value: &str) -> AppResult<()> {
     validation::validate_template(field, value)
+}
+
+pub(crate) fn validate_discovery_request_schema(
+    field: impl AsRef<str>,
+    request: &DiscoverRequest,
+) -> AppResult<()> {
+    protocol::validate_discovery_request_schema(field, request)
 }

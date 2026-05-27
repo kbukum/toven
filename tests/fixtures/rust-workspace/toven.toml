@@ -1,0 +1,12 @@
+[workspace]
+name = "fixture"
+root = "."
+
+[profiles.rust]
+language = "rust"
+execution = "batch-ready"
+module_arg_template = ["-p", "{module.package}"]
+resource_group = "cargo:{workspace.root}"
+
+[profiles.rust.tasks]
+test = { argv = ["cargo", "test", "{module.args}", "{args}"] }
