@@ -24,7 +24,7 @@ pub enum Placeholder {
 impl Placeholder {
     /// Return the user-facing template token for this placeholder.
     #[must_use]
-    pub fn as_token(self) -> &'static str {
+    pub const fn as_token(self) -> &'static str {
         match self {
             Self::Args => "args",
             Self::WorkspaceRoot => "workspace.root",

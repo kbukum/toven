@@ -33,10 +33,12 @@ coverage:
 	cargo llvm-cov --lcov --ignore-filename-regex 'src/main.rs' --fail-under-lines 85 --fail-under-functions 80
 
 release-dry-run:
-	cargo package --locked $(CARGO_PACKAGE_DIRTY_FLAG) --list >/dev/null
-	@if [ "$(REQUIRE_PUBLISHABLE_PACKAGE)" = "1" ] || [ "$(HAS_PATH_DEPENDENCIES)" != "1" ]; then \
+	@set -e; \
+	if [ "$(REQUIRE_PUBLISHABLE_PACKAGE)" = "1" ] || [ "$(HAS_PATH_DEPENDENCIES)" != "1" ]; then \
+		cargo package --locked $(CARGO_PACKAGE_DIRTY_FLAG) --list >/dev/null; \
 		cargo publish --dry-run --locked $(CARGO_PACKAGE_DIRTY_FLAG); \
 	else \
+		cargo package --locked $(CARGO_PACKAGE_DIRTY_FLAG) --no-verify --list >/dev/null; \
 		echo "Skipping cargo publish --dry-run because Cargo.toml contains pre-release path dependencies."; \
 		echo "Set REQUIRE_PUBLISHABLE_PACKAGE=1 once those dependencies are published."; \
 	fi
