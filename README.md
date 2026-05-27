@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/kbukum/toven/actions/workflows/ci.yml/badge.svg)](https://github.com/kbukum/toven/actions/workflows/ci.yml)
 [![Supply Chain](https://github.com/kbukum/toven/actions/workflows/supply-chain.yml/badge.svg)](https://github.com/kbukum/toven/actions/workflows/supply-chain.yml)
+[![Release Readiness](https://github.com/kbukum/toven/actions/workflows/release-readiness.yml/badge.svg)](https://github.com/kbukum/toven/actions/workflows/release-readiness.yml)
 
 Toven is a fast, argv-first development and CI task planner for multi-module
 repositories. It discovers workspace modules, orders work by dependency graph,
@@ -34,12 +35,17 @@ from source after cloning the repository.
 ```bash
 make check
 make coverage
+make release-artifacts
 cargo run -- --help
 ```
 
 The current scaffold builds as a standalone Rust CLI. Toven will add the
 planning engine, language discovery, preset resolution, and execution wiring in
 focused follow-up pull requests.
+
+`make release-artifacts` stages the crates.io package and checksum manifest in
+`dist/`. CI also generates a CycloneDX SBOM and checks Sigstore tooling without
+publishing the crate; version-tag runs attach GitHub provenance attestations.
 
 ## Community
 

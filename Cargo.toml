@@ -12,6 +12,7 @@ description = "Fast, argv-first development and CI task planning for multi-modul
 readme = "README.md"
 keywords = ["ci", "cli", "developer-tools", "task-runner"]
 categories = ["command-line-utilities", "development-tools"]
+include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
 
 [dependencies]
 clap = "4.5.50"
