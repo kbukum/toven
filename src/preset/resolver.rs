@@ -38,13 +38,23 @@ impl PresetResolver {
 
     /// Resolve a preset for `language` and `name`.
     pub fn resolve(&self, language: &str, name: &str) -> AppResult<PresetDefinition> {
+        self.resolve_for_field("preset", language, name)
+    }
+
+    pub(crate) fn resolve_for_field(
+        &self,
+        field: impl AsRef<str>,
+        language: &str,
+        name: &str,
+    ) -> AppResult<PresetDefinition> {
+        let field = field.as_ref();
         validate_identifier("preset.language", language)?;
         validate_identifier("preset.name", name)?;
 
         let searched = self.search_paths(language, name);
         let Some(path) = first_existing_file(&searched)? else {
             return Err(AppError::invalid_input(
-                "preset",
+                field,
                 format!(
                     "preset '{name}' not found for language '{language}'; searched: {}",
                     searched
@@ -116,7 +126,12 @@ fn validate_preset(
             ),
         ));
     }
-    validate_command_template(format!("preset '{}'.argv", path.display()), &preset.argv)?;
+    validate_command_template("preset.argv", &preset.argv).map_err(|error| {
+        AppError::invalid_input(
+            "preset.argv",
+            format!("preset file '{}': {}", path.display(), error.message),
+        )
+    })?;
     Ok(())
 }
 
@@ -202,6 +217,12 @@ mod tests {
             .resolve("rust", "check")
             .expect_err("invalid template should fail");
 
+        assert!(error.message.contains("preset.argv"));
+        assert!(
+            error
+                .message
+                .contains(".toven/lang/rust/presets/check.toml")
+        );
         assert!(error.message.contains("unknown placeholder"));
     }
 }

@@ -252,6 +252,7 @@ mod tests {
 
         let error = load_workspace(&config_path).expect_err("missing preset should fail");
 
+        assert!(error.message.contains("profiles.rust.tasks.test.preset"));
         assert!(error.message.contains("preset 'missing' not found"));
         assert!(
             error

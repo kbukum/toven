@@ -32,11 +32,13 @@ pub(super) fn normalize_task(
             TaskCommand::Argv(argv)
         }
         (None, Some(preset)) => {
-            validate_identifier(
-                format!("profiles.{profile_name}.tasks.{name}.preset"),
+            let preset_field = format!("profiles.{profile_name}.tasks.{name}.preset");
+            validate_identifier(&preset_field, &preset)?;
+            TaskCommand::ResolvedPreset(resolver.resolve_for_field(
+                &preset_field,
+                language,
                 &preset,
-            )?;
-            TaskCommand::ResolvedPreset(resolver.resolve(language, &preset)?)
+            )?)
         }
         (Some(_), Some(_)) => {
             return Err(AppError::invalid_input(
