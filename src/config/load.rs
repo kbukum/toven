@@ -154,6 +154,75 @@ mod tests {
     }
 
     #[test]
+    fn reports_invalid_module_arg_template_with_config_path() {
+        let root = rskit_testutil::test_workspace!("invalid-module-arg-template");
+        let config_path = root
+            .copy_fixture("config/invalid-module-arg-template.toml", "toven.toml")
+            .expect("copy config fixture");
+
+        let error = load_workspace(&config_path).expect_err("invalid module template should fail");
+
+        assert!(error.message.contains("profiles.rust.module_arg_template"));
+        assert!(error.message.contains("unknown placeholder"));
+    }
+
+    #[test]
+    fn reports_invalid_resource_group_with_config_path() {
+        let root = rskit_testutil::test_workspace!("invalid-resource-group");
+        let config_path = root
+            .copy_fixture("config/invalid-resource-group.toml", "toven.toml")
+            .expect("copy config fixture");
+
+        let error = load_workspace(&config_path).expect_err("invalid resource group should fail");
+
+        assert!(error.message.contains("profiles.rust.resource_group"));
+        assert!(error.message.contains("unknown placeholder"));
+    }
+
+    #[test]
+    fn rejects_empty_task_argv() {
+        let root = rskit_testutil::test_workspace!("empty-task-argv");
+        let config_path = root
+            .copy_fixture("config/empty-task-argv.toml", "toven.toml")
+            .expect("copy config fixture");
+
+        let error = load_workspace(&config_path).expect_err("empty argv should fail");
+
+        assert!(error.message.contains("profiles.rust.tasks.test.argv"));
+        assert!(error.message.contains("at least one argv item is required"));
+    }
+
+    #[test]
+    fn rejects_task_with_argv_and_preset() {
+        let root = rskit_testutil::test_workspace!("task-both-argv-preset");
+        let config_path = root
+            .copy_fixture("config/task-both-argv-preset.toml", "toven.toml")
+            .expect("copy config fixture");
+
+        let error = load_workspace(&config_path).expect_err("ambiguous task command should fail");
+
+        assert!(error.message.contains("profiles.rust.tasks.test"));
+        assert!(
+            error
+                .message
+                .contains("either 'argv' or 'preset', not both")
+        );
+    }
+
+    #[test]
+    fn rejects_task_without_argv_or_preset() {
+        let root = rskit_testutil::test_workspace!("task-missing-command");
+        let config_path = root
+            .copy_fixture("config/task-missing-command.toml", "toven.toml")
+            .expect("copy config fixture");
+
+        let error = load_workspace(&config_path).expect_err("missing task command should fail");
+
+        assert!(error.message.contains("profiles.rust.tasks.test"));
+        assert!(error.message.contains("either 'argv' or 'preset'"));
+    }
+
+    #[test]
     fn resolves_project_local_presets() {
         let root = rskit_testutil::test_workspace!("preset");
         let config_path = root
