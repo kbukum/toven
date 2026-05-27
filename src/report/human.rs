@@ -31,7 +31,7 @@ pub fn render_human_plan(plan: &Plan) -> AppResult<String> {
         )
         .expect("write string");
         writeln!(&mut output, "resource_group: {resource_group}").expect("write string");
-        writeln!(&mut output, "argv: {}", argv.join(" ")).expect("write string");
+        writeln!(&mut output, "argv: {argv:?}").expect("write string");
         let modules = unit
             .modules
             .iter()

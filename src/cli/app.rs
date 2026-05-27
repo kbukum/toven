@@ -168,7 +168,7 @@ mod tests {
         assert!(stderr.is_empty());
         let stdout = String::from_utf8(stdout).expect("stdout is utf-8");
         assert!(stdout.contains("workspace: fixture"));
-        assert!(stdout.contains("cargo test"));
+        assert!(stdout.contains(r#"argv: ["cargo", "test""#));
         assert!(stdout.contains("--release"));
         assert!(stdout.contains("fixture-core"));
     }

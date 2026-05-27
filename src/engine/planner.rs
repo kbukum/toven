@@ -8,7 +8,7 @@ use crate::{
         ExecutionUnit, Plan, Profile, Task, TaskCommand, Workspace,
     },
     engine::scheduler::ready_waves,
-    exec::render_execution_unit,
+    exec::{render_execution_unit, render_resource_group},
     lang::LangRegistry,
 };
 
@@ -136,6 +136,7 @@ fn plan_profile_task(
 
     for unit in &units {
         render_execution_unit(unit, &workspace.root)?;
+        render_resource_group(unit, &workspace.root)?;
     }
     Ok(units)
 }
@@ -187,4 +188,61 @@ fn available_tasks(workspace: &Workspace) -> String {
         })
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use crate::{
+        core::{ExecutionMode, Module, ModuleId, Profile, Task, TaskCommand, Workspace},
+        engine::planner::plan_profile_task,
+    };
+
+    fn module(name: &str) -> Module {
+        Module {
+            name: ModuleId::new(name).expect("module id"),
+            package: Some(format!("{name}-pkg")),
+            root: PathBuf::from(name),
+            dependencies: Vec::new(),
+            source_patterns: Vec::new(),
+        }
+    }
+
+    fn task() -> Task {
+        Task {
+            name: "test".to_string(),
+            command: TaskCommand::Argv(vec!["cargo".to_string(), "test".to_string()]),
+        }
+    }
+
+    #[test]
+    fn validates_resource_group_during_planning() {
+        let workspace = Workspace {
+            schema: 1,
+            name: "fixture".to_string(),
+            root: PathBuf::from("/workspace"),
+            profiles: Vec::new(),
+        };
+        let profile = Profile {
+            name: "rust".to_string(),
+            language: "rust".to_string(),
+            discovery_command: None,
+            execution: ExecutionMode::BatchReady,
+            module_arg_template: Vec::new(),
+            resource_group: "cargo:{module.package}".to_string(),
+            tasks: vec![task()],
+        };
+
+        let error = plan_profile_task(
+            &workspace,
+            &profile,
+            &profile.tasks[0],
+            vec![module("core"), module("app")],
+            &[],
+        )
+        .expect_err("invalid resource group should fail during planning");
+
+        assert!(error.message.contains("resource_group"));
+    }
 }

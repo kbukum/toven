@@ -23,5 +23,5 @@ pub(super) fn run_plan(matches: &ArgMatches, stdout: &mut impl Write) -> AppResu
 
     let workspace = load_workspace(config)?;
     let plan = plan_workspace(workspace, task, &passthrough_args, &LangRegistry::default())?;
-    writeln!(stdout, "{}", render_human_plan(&plan)?).map_err(crate::core::AppError::internal)
+    write!(stdout, "{}", render_human_plan(&plan)?).map_err(crate::core::AppError::internal)
 }

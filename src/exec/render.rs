@@ -33,7 +33,7 @@ pub fn render_execution_unit(
         reject_batch_scalar_module_placeholders("argv", unit, value, &template)?;
         argv.push(template.render_scalar(
             workspace_root,
-            scalar_module(unit, template_contains_module_scalar(&template))?,
+            scalar_module("argv", unit, template_contains_module_scalar(&template))?,
         )?);
     }
     Ok(argv)
@@ -50,7 +50,11 @@ pub fn render_resource_group(unit: &ExecutionUnit, workspace_root: &Path) -> App
     )?;
     template.render_scalar(
         workspace_root,
-        scalar_module(unit, template_contains_module_scalar(&template))?,
+        scalar_module(
+            "resource_group",
+            unit,
+            template_contains_module_scalar(&template),
+        )?,
     )
 }
 
@@ -71,7 +75,11 @@ fn render_module_args(unit: &ExecutionUnit, workspace_root: &Path) -> AppResult<
     Ok(rendered)
 }
 
-fn scalar_module(unit: &ExecutionUnit, required: bool) -> AppResult<Option<&Module>> {
+fn scalar_module<'a>(
+    field: &str,
+    unit: &'a ExecutionUnit,
+    required: bool,
+) -> AppResult<Option<&'a Module>> {
     if !required {
         return Ok(None);
     }
@@ -79,7 +87,7 @@ fn scalar_module(unit: &ExecutionUnit, required: bool) -> AppResult<Option<&Modu
         return Ok(unit.modules.first());
     }
     Err(AppError::invalid_input(
-        "argv",
+        field,
         "scalar module placeholders require exactly one module",
     ))
 }
@@ -135,7 +143,7 @@ fn template_contains_module_scalar(template: &Template) -> bool {
 mod tests {
     use crate::{
         core::{ExecutionMode, ExecutionUnit, Module, ModuleId},
-        exec::render_execution_unit,
+        exec::{render_execution_unit, render_resource_group},
     };
 
     fn module(name: &str) -> Module {
@@ -212,5 +220,21 @@ mod tests {
         .expect_err("batch scalar module placeholder should fail");
 
         assert!(error.message.contains("scalar module"));
+    }
+
+    #[test]
+    fn reports_resource_group_field_for_scalar_module_errors() {
+        let mut unit = unit(
+            vec!["cargo".to_string()],
+            vec![module("core"), module("app")],
+        );
+        unit.mode = ExecutionMode::SpawnEach;
+        unit.resource_group = "cargo:{module.package}".to_string();
+
+        let error = render_resource_group(&unit, std::path::Path::new("/workspace"))
+            .expect_err("resource group with many modules should fail");
+
+        assert!(error.message.contains("resource_group"));
+        assert!(!error.message.contains("invalid argv"));
     }
 }

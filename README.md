@@ -12,9 +12,9 @@ and renders reviewable command batches before execution.
 ## Status
 
 **Pre-alpha.** The current implementation includes strict configuration loading
-and filesystem preset resolution. Rust workspace discovery, dependency batching,
-human-readable plan output, command execution, cache-backed skipping, and
-additional language adapters will be added in follow-up phases.
+filesystem preset resolution, Rust workspace discovery, dependency-aware
+batching, and human-readable plan output. Command execution, cache-backed
+skipping, and additional language adapters will be added in follow-up phases.
 
 Toven is not published to crates.io yet. Until the first alpha release, install
 from source after cloning the repository.
@@ -40,9 +40,10 @@ make release-artifacts
 cargo run -- --help
 ```
 
-The current scaffold builds as a standalone Rust CLI with configuration and
-preset-loading foundations. Toven will add language discovery, the planning
-engine, and execution wiring in focused follow-up pull requests.
+The current scaffold builds as a standalone Rust CLI with configuration,
+preset-loading, Rust discovery, and reviewable planning foundations. Toven will
+add execution wiring and cache-backed skipping in focused follow-up pull
+requests.
 
 ## Configuration preview
 
