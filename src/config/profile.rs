@@ -55,8 +55,8 @@ fn normalize_profile(
     config: ProfileConfig,
     resolver: &PresetResolver,
 ) -> AppResult<Profile> {
-    validate_identifier("profiles", &name)?;
-    validate_identifier("profiles.language", &config.language)?;
+    validate_identifier(format!("profiles.{name}"), &name)?;
+    validate_identifier(format!("profiles.{name}.language"), &config.language)?;
     validate_discovery_command(&name, config.discovery_command.as_deref())?;
 
     if config.tasks.is_empty() {

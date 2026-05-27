@@ -1,0 +1,9 @@
+[workspace]
+name = "demo"
+root = "."
+
+[profiles."bad/name"]
+language = "rust"
+
+[profiles."bad/name".tasks]
+test = { argv = ["cargo", "test"] }

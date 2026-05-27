@@ -118,6 +118,42 @@ mod tests {
     }
 
     #[test]
+    fn reports_invalid_profile_name_with_config_path() {
+        let root = rskit_testutil::test_workspace!("invalid-profile-name");
+        let config_path = root
+            .copy_fixture("config/invalid-profile-name.toml", "toven.toml")
+            .expect("copy config fixture");
+
+        let error = load_workspace(&config_path).expect_err("invalid profile name should fail");
+
+        assert!(error.message.contains("profiles.bad/name"));
+    }
+
+    #[test]
+    fn reports_invalid_profile_language_with_config_path() {
+        let root = rskit_testutil::test_workspace!("invalid-profile-language");
+        let config_path = root
+            .copy_fixture("config/invalid-profile-language.toml", "toven.toml")
+            .expect("copy config fixture");
+
+        let error = load_workspace(&config_path).expect_err("invalid profile language should fail");
+
+        assert!(error.message.contains("profiles.rust.language"));
+    }
+
+    #[test]
+    fn reports_invalid_task_name_with_config_path() {
+        let root = rskit_testutil::test_workspace!("invalid-task-name");
+        let config_path = root
+            .copy_fixture("config/invalid-task-name.toml", "toven.toml")
+            .expect("copy config fixture");
+
+        let error = load_workspace(&config_path).expect_err("invalid task name should fail");
+
+        assert!(error.message.contains("profiles.rust.tasks.bad/task"));
+    }
+
+    #[test]
     fn resolves_project_local_presets() {
         let root = rskit_testutil::test_workspace!("preset");
         let config_path = root

@@ -23,7 +23,7 @@ pub(super) fn normalize_task(
     config: TaskConfig,
     resolver: &PresetResolver,
 ) -> AppResult<Task> {
-    validate_identifier("tasks", &name)?;
+    validate_identifier(format!("profiles.{profile_name}.tasks.{name}"), &name)?;
 
     let command = match (config.argv, config.preset) {
         (Some(argv), None) => {
