@@ -1,5 +1,7 @@
 # Toven
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Toven is a fast, argv-first development and CI task planner for multi-module
 repositories. It discovers workspace modules, orders work by dependency graph,
 and renders reviewable command batches before execution.
@@ -10,6 +12,9 @@ and renders reviewable command batches before execution.
 configuration loading, preset resolution, Rust workspace discovery, dependency
 batching, and human-readable plan output. Command execution, cache-backed
 skipping, and additional language adapters will be added in follow-up phases.
+
+Toven is not published to crates.io yet. Until the first alpha release, install
+from source after cloning the repository.
 
 ## Design
 
@@ -32,6 +37,16 @@ make coverage
 Toven uses path dependencies from the sibling `rskit` checkout during local
 development.
 
+## Community
+
+Contributions and issue reports are welcome. Please read:
+
+- [Contributing Guide](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security Policy](SECURITY.md)
+- [Governance](GOVERNANCE.md)
+- [Maintainers](MAINTAINERS.md)
+
 ## Repository workflow
 
 Changes use Conventional Commits and small pull requests. Start with the
@@ -40,4 +55,4 @@ fixture coverage through focused review branches.
 
 ## License
 
-MIT
+Toven is distributed under the terms of the [MIT License](LICENSE).

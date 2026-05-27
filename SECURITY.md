@@ -1,7 +1,5 @@
 # Security Policy
 
-# Security Policy
-
 Report vulnerabilities privately through GitHub security advisories for
 `kbukum/toven`. Do not open public issues for suspected vulnerabilities.
 
