@@ -32,6 +32,12 @@ impl ModuleId {
                 "module name cannot be empty",
             ));
         }
+        if value != value.trim() {
+            return Err(AppError::invalid_input(
+                "module.name",
+                "module name cannot contain leading or trailing whitespace",
+            ));
+        }
         Ok(Self(value))
     }
 }
@@ -207,6 +213,13 @@ mod tests {
     }
 
     #[test]
+    fn module_id_parse_rejects_surrounding_whitespace() {
+        let error = ModuleId::parse(" api ").expect_err("surrounding whitespace should fail");
+
+        assert!(error.message.contains("leading or trailing whitespace"));
+    }
+
+    #[test]
     fn module_id_implements_from_str() {
         let id = ModuleId::from_str("api").expect("module id parses");
 
@@ -221,6 +234,14 @@ mod tests {
     }
 
     #[test]
+    fn module_id_try_from_rejects_surrounding_whitespace() {
+        let error = ModuleId::try_from(String::from(" api "))
+            .expect_err("surrounding whitespace should fail");
+
+        assert!(error.message.contains("leading or trailing whitespace"));
+    }
+
+    #[test]
     fn module_id_deserialization_rejects_empty_values() {
         use serde::Deserialize as _;
 
@@ -229,5 +250,18 @@ mod tests {
         let error = ModuleId::deserialize(deserializer).expect_err("empty value should fail");
 
         assert!(error.to_string().contains("module name"));
+    }
+
+    #[test]
+    fn module_id_deserialization_rejects_surrounding_whitespace() {
+        use serde::Deserialize as _;
+
+        let deserializer = serde::de::value::StringDeserializer::<serde::de::value::Error>::new(
+            " api ".to_string(),
+        );
+        let error =
+            ModuleId::deserialize(deserializer).expect_err("surrounding whitespace should fail");
+
+        assert!(error.to_string().contains("leading or trailing whitespace"));
     }
 }

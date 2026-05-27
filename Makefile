@@ -49,7 +49,7 @@ release-artifacts:
 		cp target/package/toven-*.crate dist/; \
 	else \
 		echo "Building pre-release source artifact because Cargo.toml contains path dependencies."; \
-		tar --exclude ./.git --exclude ./target --exclude ./dist --exclude ./tmp -czf dist/toven-$(PACKAGE_VERSION)-source.tar.gz .; \
+		tar --exclude './.git' --exclude '*/.git' --exclude './target' --exclude './dist' --exclude './tmp' -czf dist/toven-$(PACKAGE_VERSION)-source.tar.gz .; \
 	fi
 	( cd dist && shasum -a 256 * > SHA256SUMS )
 
