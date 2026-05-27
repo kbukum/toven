@@ -15,12 +15,15 @@ categories = ["command-line-utilities", "development-tools"]
 include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
 
 [dependencies]
+cargo_metadata = "0.23.1"
 clap = "4.5.50"
 rskit-config = { version = "0.1.0", path = "rskit/core/rskit-config" }
 rskit-errors = { version = "0.1.0", path = "rskit/core/rskit-errors" }
 rskit-fs = { version = "0.1.0", path = "rskit/core/rskit-fs", default-features = false }
+rskit-process = { version = "0.1.0", path = "rskit/core/rskit-process" }
 rskit-validation = { version = "0.1.0", path = "rskit/core/rskit-validation" }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.150"
 
 [dev-dependencies]
 rskit-testutil = { version = "0.1.0", path = "rskit/core/rskit-testutil" }

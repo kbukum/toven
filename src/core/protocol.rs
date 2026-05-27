@@ -4,9 +4,14 @@ use std::path::PathBuf;
 
 use crate::core::Module;
 
+/// Current discovery protocol schema version.
+pub const DISCOVERY_SCHEMA_VERSION: u16 = 1;
+
 /// Request passed to a language adapter during discovery.
 #[derive(Debug, Clone, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct DiscoverRequest {
+    /// Discovery schema version.
+    pub schema_version: u16,
     /// Workspace root for the project being inspected.
     pub workspace_root: PathBuf,
 }

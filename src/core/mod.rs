@@ -15,7 +15,7 @@ pub use model::{
     Workspace,
 };
 pub use preset::PresetDefinition;
-pub use protocol::{DiscoverRequest, DiscoverResponse};
+pub use protocol::{DISCOVERY_SCHEMA_VERSION, DiscoverRequest, DiscoverResponse};
 pub use template::{Placeholder, Template, TemplatePart};
 
 pub(crate) fn validate_name(field: impl AsRef<str>, value: &str) -> AppResult<()> {
