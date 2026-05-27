@@ -1,10 +1,10 @@
 //! Library entrypoint for Toven.
 //!
-//! The public API is intentionally small while the project foundation lands.
-//! Planning, discovery, and execution contracts will be added through focused
-//! follow-up pull requests.
+//! The public API exposes the CLI entrypoint and core planning contracts used
+//! by upcoming discovery, scheduling, and rendering work.
 
 pub mod cli;
+pub mod core;
 
 /// Current package version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

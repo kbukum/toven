@@ -18,6 +18,7 @@ concurrency:
 
 env:
   COSIGN_VERSION: v2.6.0
+  REQUIRE_PUBLISHABLE_PACKAGE: ${{ startsWith(github.ref, 'refs/tags/v') && '1' || '0' }}
   RUST_VERSION: "1.94"
 
 jobs:
@@ -28,6 +29,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          submodules: recursive
 
       - name: Install Rust toolchain
         run: |
@@ -44,6 +47,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          submodules: recursive
 
       - name: Install Rust toolchain
         run: |
@@ -70,6 +75,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          submodules: recursive
 
       - name: Generate CycloneDX SBOM
         uses: anchore/sbom-action@f8bdd1d8ac5e901a77a92f111440fdb1b593736b # v0.20.6
@@ -109,6 +116,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          submodules: recursive
 
       - name: Build release artifacts
         run: |
