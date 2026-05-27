@@ -1,0 +1,17 @@
+name: Feature request
+description: Propose a Toven capability
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow should Toven improve?
+    validations:
+      required: true
+  - type: textarea
+    id: design
+    attributes:
+      label: Proposed design
+      description: Describe how this fits Toven's argv-first orchestration model.
