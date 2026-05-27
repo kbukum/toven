@@ -32,10 +32,12 @@ from source after cloning the repository.
 ```bash
 make check
 make coverage
+cargo run -- --help
 ```
 
-Toven uses path dependencies from the sibling `rskit` checkout during local
-development.
+The current scaffold builds as a standalone Rust CLI. Toven will add the
+planning engine, language discovery, preset resolution, and execution wiring in
+focused follow-up pull requests.
 
 ## Community
 

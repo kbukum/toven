@@ -7,12 +7,9 @@ By participating, you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Local setup
 
-Install the Rust toolchain from `rust-toolchain.toml`, then install the local
-tools used by `make check`:
-
-```bash
-cargo install cargo-nextest cargo-deny cargo-llvm-cov
-```
+Install the Rust toolchain from `rust-toolchain.toml`. The required formatting,
+linting, test, documentation, and build checks run through standard Cargo
+commands.
 
 ## Checks
 
@@ -22,8 +19,9 @@ make coverage
 make dist-plan
 ```
 
-`make check` runs formatting, clippy, tests, docs, cargo-deny, and the
-structure guard that keeps product areas in separate internal modules.
+`make check` runs formatting, clippy, tests, docs, metadata validation, and a
+release build. `make coverage` requires `cargo-llvm-cov` and is run separately
+until coverage CI lands.
 
 Run the checks that match the files you changed before opening a pull request.
 Broader gates run in CI as implementation branches add the corresponding
@@ -31,17 +29,9 @@ workflow coverage.
 
 ## Local CI parity
 
-Use `nektos/act` for workflow parity where GitHub-hosted services are not
-required:
-
-```bash
-make act-ci
-make act-codeql
-make act-release-dry-run
-```
-
-CodeQL and release signing/provenance remain GitHub-hosted validation paths;
-the local substitutes are `make check`, `make coverage`, and `make dist-plan`.
+Use `nektos/act` for workflow parity once CI workflows land. CodeQL and release
+signing/provenance remain GitHub-hosted validation paths; the local substitutes
+are `make check`, `make coverage`, and `make dist-plan`.
 
 ## Commit style
 
