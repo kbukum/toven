@@ -1,0 +1,44 @@
+[package]
+name = "toven"
+version = "0.1.0-alpha.1"
+edition = "2024"
+rust-version = "1.94"
+license = "MIT"
+authors = ["Toven contributors"]
+repository = "https://github.com/kbukum/toven"
+homepage = "https://github.com/kbukum/toven"
+documentation = "https://docs.rs/toven"
+description = "Fast, argv-first development and CI task planning for multi-module repositories"
+readme = "README.md"
+keywords = ["ci", "cli", "developer-tools", "task-runner"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+clap = "4.5.50"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+unused_imports = "warn"
+unused_variables = "warn"
+unreachable_pub = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 1
