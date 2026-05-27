@@ -9,7 +9,7 @@ use crate::core::{
     Placeholder, Template, TemplatePart,
 };
 
-const DISCOVERY_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+const DISCOVERY_COMMAND_TIMEOUT: Duration = Duration::from_mins(2);
 const DISCOVERY_COMMAND_MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 
 /// Language adapter that delegates discovery to a user-provided command.
@@ -190,7 +190,7 @@ mod tests {
     fn reports_invalid_discovery_json() {
         let adapter = CommandAdapter::new(
             "custom",
-            vec!["/bin/echo".to_string(), "not-json".to_string()],
+            vec!["/usr/bin/printf".to_string(), "not-json".to_string()],
         )
         .expect("adapter builds");
 
