@@ -159,8 +159,11 @@ mod tests {
         let adapter = CommandAdapter::new(
             "custom",
             vec![
-                "/usr/bin/printf".to_string(),
-                format!(r#"\173"schema_version":{DISCOVERY_SCHEMA_VERSION},"modules":[]\175"#),
+                "/bin/sh".to_string(),
+                "-c".to_string(),
+                format!(
+                    r#"cat >/dev/null; printf '\173"schema_version":{DISCOVERY_SCHEMA_VERSION},"modules":[]\175'"#
+                ),
             ],
         )
         .expect("adapter builds");
@@ -190,7 +193,11 @@ mod tests {
     fn reports_invalid_discovery_json() {
         let adapter = CommandAdapter::new(
             "custom",
-            vec!["/usr/bin/printf".to_string(), "not-json".to_string()],
+            vec![
+                "/bin/sh".to_string(),
+                "-c".to_string(),
+                "cat >/dev/null; printf not-json".to_string(),
+            ],
         )
         .expect("adapter builds");
 
