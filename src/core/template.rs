@@ -1,6 +1,6 @@
 //! Shared argv/resource template parser.
 
-use std::path::Path;
+use std::{fmt, path::Path};
 
 use crate::core::{AppError, AppResult, Module};
 
@@ -19,6 +19,27 @@ pub enum Placeholder {
     ModulePath,
     /// Repeated per-module selector arguments.
     ModuleArgs,
+}
+
+impl Placeholder {
+    /// Return the user-facing template token for this placeholder.
+    #[must_use]
+    pub fn as_token(self) -> &'static str {
+        match self {
+            Self::Args => "args",
+            Self::WorkspaceRoot => "workspace.root",
+            Self::ModuleName => "module.name",
+            Self::ModulePackage => "module.package",
+            Self::ModulePath => "module.path",
+            Self::ModuleArgs => "module.args",
+        }
+    }
+}
+
+impl fmt::Display for Placeholder {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_token())
+    }
 }
 
 /// One parsed template part.
@@ -140,18 +161,18 @@ fn render_placeholder(
 fn missing_module(placeholder: Placeholder) -> AppError {
     AppError::invalid_input(
         "template",
-        format!("placeholder '{placeholder:?}' requires a module"),
+        format!("placeholder '{placeholder}' requires a module"),
     )
 }
 
 fn parse_placeholder(token: &str) -> AppResult<Placeholder> {
     match token {
-        "args" => Ok(Placeholder::Args),
-        "workspace.root" => Ok(Placeholder::WorkspaceRoot),
-        "module.name" => Ok(Placeholder::ModuleName),
-        "module.package" => Ok(Placeholder::ModulePackage),
-        "module.path" => Ok(Placeholder::ModulePath),
-        "module.args" => Ok(Placeholder::ModuleArgs),
+        token if token == Placeholder::Args.as_token() => Ok(Placeholder::Args),
+        token if token == Placeholder::WorkspaceRoot.as_token() => Ok(Placeholder::WorkspaceRoot),
+        token if token == Placeholder::ModuleName.as_token() => Ok(Placeholder::ModuleName),
+        token if token == Placeholder::ModulePackage.as_token() => Ok(Placeholder::ModulePackage),
+        token if token == Placeholder::ModulePath.as_token() => Ok(Placeholder::ModulePath),
+        token if token == Placeholder::ModuleArgs.as_token() => Ok(Placeholder::ModuleArgs),
         "" => Err(AppError::invalid_input(
             "template",
             "placeholder cannot be empty",
@@ -184,6 +205,16 @@ mod tests {
                 TemplatePart::Placeholder(Placeholder::Args),
             ]
         );
+    }
+
+    #[test]
+    fn exposes_placeholder_tokens() {
+        assert_eq!(Placeholder::Args.as_token(), "args");
+        assert_eq!(Placeholder::WorkspaceRoot.to_string(), "workspace.root");
+        assert_eq!(Placeholder::ModuleName.to_string(), "module.name");
+        assert_eq!(Placeholder::ModulePackage.to_string(), "module.package");
+        assert_eq!(Placeholder::ModulePath.to_string(), "module.path");
+        assert_eq!(Placeholder::ModuleArgs.to_string(), "module.args");
     }
 
     #[test]
@@ -261,6 +292,8 @@ mod tests {
             .expect_err("module placeholder requires module");
 
         assert!(error.message.contains("requires a module"));
+        assert!(error.message.contains("module.name"));
+        assert!(!error.message.contains("ModuleName"));
     }
 
     #[test]
