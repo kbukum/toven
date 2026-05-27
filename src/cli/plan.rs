@@ -10,12 +10,15 @@ use crate::{
 };
 
 pub(super) fn run_plan(matches: &ArgMatches, stdout: &mut impl Write) -> AppResult<()> {
-    let config = matches
-        .get_one::<String>("config")
-        .map_or_else(|| PathBuf::from("toven.toml"), PathBuf::from);
+    let config = PathBuf::from(
+        matches
+            .get_one::<String>("config")
+            .expect("clap supplies the plan config default"),
+    );
     let task = matches
         .get_one::<String>("task")
-        .map_or("test", String::as_str);
+        .expect("clap supplies the plan task default")
+        .as_str();
     let passthrough_args = matches
         .get_many::<String>("args")
         .map(|values| values.cloned().collect::<Vec<_>>())
