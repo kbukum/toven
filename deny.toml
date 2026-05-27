@@ -13,6 +13,7 @@ yanked = "deny"
 [licenses]
 allow = [
     "Apache-2.0",
+    "BSD-3-Clause",
     "MIT",
     "Unicode-3.0",
 ]
@@ -22,6 +23,11 @@ confidence-threshold = 0.8
 multiple-versions = "warn"
 wildcards = "deny"
 deny = []
+skip-tree = [
+    { crate = "rskit-config", reason = "rskit submodule crate uses path-only internal workspace dependencies", depth = 0 },
+    { crate = "rskit-fs", reason = "rskit submodule crate uses path-only internal workspace dependencies", depth = 0 },
+    { crate = "rskit-validation", reason = "rskit submodule crate uses path-only internal workspace dependencies", depth = 0 },
+]
 
 [sources]
 unknown-registry = "deny"
