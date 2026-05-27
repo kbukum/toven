@@ -1,19 +1,16 @@
-//! Conversion from strict config documents to core planning contracts.
+//! Config loading and normalization orchestration.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::{
-    config::{ConfigDocument, ProfileConfig, TaskConfig},
-    core::{AppError, AppResult, ExecutionMode, Profile, Task, TaskCommand, Workspace},
-    preset::PresetResolver,
-    validation::{
-        validate_command_template, validate_identifier, validate_name, validate_template,
-        validate_templates,
+    config::{
+        ConfigDocument,
+        profile::normalize_profiles,
+        workspace::{build_workspace, normalize_workspace_config},
     },
+    core::{AppResult, Workspace},
+    preset::PresetResolver,
 };
-
-const SUPPORTED_SCHEMA: u16 = 1;
-const DEFAULT_RESOURCE_GROUP: &str = "{workspace.root}";
 
 /// Load and normalize a `toven.toml` file.
 pub fn load_workspace(path: impl AsRef<Path>) -> AppResult<Workspace> {
@@ -28,11 +25,9 @@ pub fn normalize_config(
     config_path: impl AsRef<Path>,
 ) -> AppResult<Workspace> {
     let config_path = config_path.as_ref();
-    let schema = validate_schema(document.workspace.schema)?;
-    let config_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
-    let root = normalize_root(config_dir, document.workspace.root.as_deref())?;
-    let resolver = PresetResolver::new(root.clone());
-    normalize_resolved_config(document, schema, root, &resolver)
+    let workspace = normalize_workspace_config(document.workspace, config_path)?;
+    let resolver = PresetResolver::new(workspace.root.clone());
+    normalize_resolved_config(document.profiles, workspace, &resolver)
 }
 
 #[cfg(test)]
@@ -41,168 +36,17 @@ fn normalize_config_with_resolver(
     config_path: &Path,
     resolver: &PresetResolver,
 ) -> AppResult<Workspace> {
-    let schema = validate_schema(document.workspace.schema)?;
-    let config_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
-    let root = normalize_root(config_dir, document.workspace.root.as_deref())?;
-    normalize_resolved_config(document, schema, root, resolver)
+    let workspace = normalize_workspace_config(document.workspace, config_path)?;
+    normalize_resolved_config(document.profiles, workspace, resolver)
 }
 
 fn normalize_resolved_config(
-    document: ConfigDocument,
-    schema: u16,
-    root: PathBuf,
+    profiles: std::collections::BTreeMap<String, crate::config::ProfileConfig>,
+    workspace: crate::config::workspace::NormalizedWorkspace,
     resolver: &PresetResolver,
 ) -> AppResult<Workspace> {
-    let name = match document.workspace.name {
-        Some(name) => {
-            validate_name("workspace.name", &name)?;
-            name
-        }
-        None => root
-            .file_name()
-            .and_then(|name| name.to_str())
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or("workspace")
-            .to_string(),
-    };
-
-    if document.profiles.is_empty() {
-        return Err(AppError::invalid_input(
-            "profiles",
-            "at least one profile is required",
-        ));
-    }
-
-    let mut profiles = Vec::with_capacity(document.profiles.len());
-    for (profile_name, profile) in document.profiles {
-        profiles.push(normalize_profile(profile_name, profile, resolver)?);
-    }
-
-    Ok(Workspace {
-        schema,
-        name,
-        root,
-        profiles,
-    })
-}
-
-fn validate_schema(schema: Option<u16>) -> AppResult<u16> {
-    let schema = schema.unwrap_or(SUPPORTED_SCHEMA);
-    if schema != SUPPORTED_SCHEMA {
-        return Err(AppError::invalid_input(
-            "workspace.schema",
-            format!("unsupported schema {schema}; supported schema is {SUPPORTED_SCHEMA}"),
-        ));
-    }
-    Ok(schema)
-}
-
-fn normalize_root(config_dir: &Path, root: Option<&Path>) -> AppResult<PathBuf> {
-    let root = root.unwrap_or_else(|| Path::new("."));
-    let root = if root.is_absolute() {
-        root.to_path_buf()
-    } else {
-        config_dir.join(root)
-    };
-    rskit_fs::canonicalize(&root).map_err(|error| {
-        AppError::invalid_input(
-            "workspace.root",
-            format!("failed to resolve workspace root '{}'", root.display()),
-        )
-        .with_cause(error)
-    })
-}
-
-fn normalize_profile(
-    name: String,
-    config: ProfileConfig,
-    resolver: &PresetResolver,
-) -> AppResult<Profile> {
-    validate_identifier("profiles", &name)?;
-    validate_identifier("profiles.language", &config.language)?;
-    if let Some(discovery_command) = &config.discovery_command {
-        validate_command_template(
-            format!("profiles.{name}.discovery_command"),
-            discovery_command,
-        )?;
-    }
-
-    if config.tasks.is_empty() {
-        return Err(AppError::invalid_input(
-            format!("profiles.{name}.tasks"),
-            "at least one task is required",
-        ));
-    }
-
-    let module_arg_template = config.module_arg_template.unwrap_or_default();
-    validate_templates(
-        format!("profiles.{name}.module_arg_template"),
-        &module_arg_template,
-    )?;
-
-    let resource_group = config
-        .resource_group
-        .unwrap_or_else(|| DEFAULT_RESOURCE_GROUP.to_string());
-    validate_template(format!("profiles.{name}.resource_group"), &resource_group)?;
-
-    let mut tasks = Vec::with_capacity(config.tasks.len());
-    for (task_name, task) in config.tasks {
-        tasks.push(normalize_task(
-            &name,
-            &config.language,
-            task_name,
-            task,
-            resolver,
-        )?);
-    }
-
-    Ok(Profile {
-        name,
-        language: config.language,
-        discovery_command: config.discovery_command,
-        execution: config.execution.unwrap_or(ExecutionMode::SpawnEach),
-        module_arg_template,
-        resource_group,
-        tasks,
-    })
-}
-
-fn normalize_task(
-    profile_name: &str,
-    language: &str,
-    name: String,
-    config: TaskConfig,
-    resolver: &PresetResolver,
-) -> AppResult<Task> {
-    validate_identifier("tasks", &name)?;
-
-    let command = match (config.argv, config.preset) {
-        (Some(argv), None) => {
-            validate_command_template(format!("profiles.{profile_name}.tasks.{name}.argv"), &argv)?;
-            TaskCommand::Argv(argv)
-        }
-        (None, Some(preset)) => {
-            validate_identifier(
-                format!("profiles.{profile_name}.tasks.{name}.preset"),
-                &preset,
-            )?;
-            TaskCommand::ResolvedPreset(resolver.resolve(language, &preset)?)
-        }
-        (Some(_), Some(_)) => {
-            return Err(AppError::invalid_input(
-                format!("profiles.{profile_name}.tasks.{name}"),
-                "task must define either 'argv' or 'preset', not both",
-            ));
-        }
-        (None, None) => {
-            return Err(AppError::invalid_input(
-                format!("profiles.{profile_name}.tasks.{name}"),
-                "task must define either 'argv' or 'preset'",
-            ));
-        }
-    };
-
-    Ok(Task { name, command })
+    let profiles = normalize_profiles(profiles, resolver)?;
+    Ok(build_workspace(workspace, profiles))
 }
 
 #[cfg(test)]

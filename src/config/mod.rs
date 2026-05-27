@@ -1,7 +1,13 @@
 //! Project configuration loading and normalization.
 
 mod document;
-mod normalize;
+mod load;
+mod profile;
+mod task;
+mod workspace;
 
-pub use document::{ConfigDocument, ProfileConfig, TaskConfig, WorkspaceConfig};
-pub use normalize::{load_workspace, normalize_config};
+pub use document::ConfigDocument;
+pub use load::{load_workspace, normalize_config};
+pub use profile::ProfileConfig;
+pub use task::TaskConfig;
+pub use workspace::WorkspaceConfig;
