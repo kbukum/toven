@@ -1,6 +1,6 @@
-.PHONY: check fmt fmt-check lint test doc dist-plan coverage act-ci
+.PHONY: check fmt fmt-check lint test doc deny dist-plan coverage act-ci act-supply-chain
 
-check: fmt-check lint test doc dist-plan
+check: fmt-check lint test doc deny dist-plan
 
 fmt:
 	cargo fmt --all
@@ -17,6 +17,9 @@ test:
 doc:
 	RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
 
+deny:
+	cargo deny check advisories bans licenses sources
+
 dist-plan:
 	cargo metadata --format-version 1 --no-deps >/dev/null
 	cargo build --release --all-features
@@ -26,3 +29,6 @@ coverage:
 
 act-ci:
 	act pull_request -W .github/workflows/ci.yml
+
+act-supply-chain:
+	act pull_request -W .github/workflows/supply-chain.yml
