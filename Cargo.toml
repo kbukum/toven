@@ -16,8 +16,14 @@ include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
 
 [dependencies]
 clap = "4.5.50"
+rskit-config = { version = "0.1.0", path = "rskit/core/rskit-config" }
 rskit-errors = { version = "0.1.0", path = "rskit/core/rskit-errors" }
-serde = { version = "1.0.228", features = ["derive"] }
+rskit-fs = { version = "0.1.0", path = "rskit/core/rskit-fs", default-features = false }
+rskit-validation = { version = "0.1.0", path = "rskit/core/rskit-validation" }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+rskit-testutil = { version = "0.1.0", path = "rskit/core/rskit-testutil" }
 
 [lints.rust]
 unsafe_code = "forbid"

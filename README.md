@@ -44,6 +44,31 @@ The current scaffold builds as a standalone Rust CLI. Toven will add the
 planning engine, language discovery, preset resolution, and execution wiring in
 focused follow-up pull requests.
 
+## Configuration preview
+
+Toven loads strict TOML from `toven.toml`. Unknown fields are rejected early,
+workspace roots are resolved relative to the config file, and command templates
+are validated before planning.
+
+```toml
+[workspace]
+name = "demo"
+root = "."
+
+[profiles.rust]
+language = "rust"
+execution = "batch-ready"
+module_arg_template = ["-p", "{module.package}"]
+resource_group = "cargo:{workspace.root}"
+
+[profiles.rust.tasks]
+test = { argv = ["cargo", "test", "{module.args}", "{args}"] }
+```
+
+Tasks can also reference preset files. Project presets are resolved before user
+presets from `.toven/lang/<language>/presets/<name>.toml`; user presets use the
+same layout under the current user's home directory.
+
 `make release-artifacts` stages the crates.io package and checksum manifest in
 `dist/`. CI also generates a CycloneDX SBOM and checks Sigstore tooling without
 publishing the crate; version-tag runs attach GitHub provenance attestations.

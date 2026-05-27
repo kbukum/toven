@@ -1,0 +1,6 @@
+[profiles.rust]
+language = "rust"
+package_manager = "cargo"
+
+[profiles.rust.tasks]
+test = { argv = ["cargo", "test"] }

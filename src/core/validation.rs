@@ -1,0 +1,65 @@
+use rskit_validation::Validator;
+
+use super::{AppError, AppResult, Template};
+
+pub(super) fn validate_name(field: impl AsRef<str>, value: &str) -> AppResult<()> {
+    let field = field.as_ref();
+    Validator::new()
+        .required(field, value)
+        .custom(
+            value == value.trim(),
+            field,
+            "cannot contain leading or trailing whitespace",
+        )
+        .validate()
+}
+
+pub(super) fn validate_identifier(field: impl AsRef<str>, value: &str) -> AppResult<()> {
+    let field = field.as_ref();
+    Validator::new()
+        .required(field, value)
+        .custom(
+            value == value.trim(),
+            field,
+            "cannot contain leading or trailing whitespace",
+        )
+        .custom(
+            !value.contains(['/', '\\', ':']) && value != "." && value != "..",
+            field,
+            "cannot contain path separators or traversal markers",
+        )
+        .validate()
+}
+
+pub(super) fn validate_command_template(
+    field: impl AsRef<str>,
+    values: &[String],
+) -> AppResult<()> {
+    let field = field.as_ref();
+    if values.is_empty() {
+        return Err(AppError::invalid_input(
+            field,
+            "at least one argv item is required",
+        ));
+    }
+    validate_templates(field, values)
+}
+
+pub(super) fn validate_templates(field: impl AsRef<str>, values: &[String]) -> AppResult<()> {
+    let field = field.as_ref();
+    for value in values {
+        validate_template(field, value)?;
+    }
+    Ok(())
+}
+
+pub(super) fn validate_template(field: impl AsRef<str>, value: &str) -> AppResult<()> {
+    let field = field.as_ref();
+    Template::parse(value).map_err(|error| {
+        AppError::invalid_input(
+            field,
+            format!("invalid template '{value}': {}", error.message),
+        )
+    })?;
+    Ok(())
+}

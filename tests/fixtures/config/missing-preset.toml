@@ -1,0 +1,5 @@
+[profiles.rust]
+language = "rust"
+
+[profiles.rust.tasks]
+test = { preset = "missing" }

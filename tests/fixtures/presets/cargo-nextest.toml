@@ -1,0 +1,5 @@
+[preset]
+name = "cargo-nextest"
+language = "rust"
+argv = ["cargo", "nextest", "run", "{module.args}", "{args}"]
+shared_inputs = ["Cargo.lock"]
