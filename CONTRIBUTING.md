@@ -7,9 +7,13 @@ By participating, you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Local setup
 
-Install the Rust toolchain from `rust-toolchain.toml`. The required formatting,
-linting, test, documentation, and build checks run through standard Cargo
-commands.
+Install the Rust toolchain from `rust-toolchain.toml`, then install the local
+tools used by the supply-chain and coverage gates:
+
+```bash
+cargo install cargo-deny --locked --version 0.19.0
+cargo install cargo-llvm-cov --locked --version 0.8.5
+```
 
 ## Checks
 
@@ -19,9 +23,9 @@ make coverage
 make dist-plan
 ```
 
-`make check` runs formatting, clippy, tests, docs, metadata validation, and a
-release build. `make coverage` requires `cargo-llvm-cov` and is run separately
-until coverage CI lands.
+`make check` runs formatting, clippy, tests, docs, dependency/license audit,
+metadata validation, and a release build. `make coverage` enforces the current
+coverage threshold.
 
 Run the checks that match the files you changed before opening a pull request.
 Broader gates run in CI as implementation branches add the corresponding
@@ -34,6 +38,7 @@ are not required:
 
 ```bash
 make act-ci
+make act-supply-chain
 ```
 
 CodeQL and release signing/provenance remain GitHub-hosted validation paths; the
