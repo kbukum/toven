@@ -3,6 +3,8 @@
 Toven follows Conventional Commits, small reviewable pull requests, and quality
 gates that stay close to the implementation phase being changed.
 
+By participating, you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Local setup
 
 Install the Rust toolchain from `rust-toolchain.toml`, then install the local
@@ -51,3 +53,6 @@ Use Conventional Commits such as `feat: add scheduler model`,
 Keep pull requests focused on one reviewable step. Describe the user-visible or
 architectural change at a high level, and list validation evidence rather than
 restating every changed file.
+
+For significant design changes, open a discussion or issue before implementation
+so maintainers can align on the direction early.
