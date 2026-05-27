@@ -21,11 +21,14 @@ cargo install cargo-llvm-cov --locked --version 0.8.5
 make check
 make coverage
 make dist-plan
+make release-artifacts
 ```
 
 `make check` runs formatting, clippy, tests, docs, dependency/license audit,
-metadata validation, and a release build. `make coverage` enforces the current
-coverage threshold.
+metadata validation, release packaging dry-run, and a release build.
+`make coverage` enforces the current coverage threshold. `make
+release-artifacts` stages the crate archive and checksum manifest without
+publishing.
 
 Run the checks that match the files you changed before opening a pull request.
 Broader gates run in CI as implementation branches add the corresponding
@@ -39,10 +42,12 @@ are not required:
 ```bash
 make act-ci
 make act-supply-chain
+make act-release-readiness
 ```
 
-CodeQL and release signing/provenance remain GitHub-hosted validation paths; the
-local substitutes are `make check`, `make coverage`, and `make dist-plan`.
+CodeQL, artifact signing, and provenance attestations remain GitHub-hosted
+validation paths; the local substitutes are `make check`, `make coverage`, and
+`make release-artifacts`.
 
 ## Commit style
 
