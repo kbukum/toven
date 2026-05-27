@@ -29,9 +29,15 @@ workflow coverage.
 
 ## Local CI parity
 
-Use `nektos/act` for workflow parity once CI workflows land. CodeQL and release
-signing/provenance remain GitHub-hosted validation paths; the local substitutes
-are `make check`, `make coverage`, and `make dist-plan`.
+Use `nektos/act` for pull request workflow parity where GitHub-hosted services
+are not required:
+
+```bash
+make act-ci
+```
+
+CodeQL and release signing/provenance remain GitHub-hosted validation paths; the
+local substitutes are `make check`, `make coverage`, and `make dist-plan`.
 
 ## Commit style
 
