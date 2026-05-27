@@ -8,6 +8,8 @@ use crate::{
     lang::rust::metadata::discover_modules,
 };
 
+const RUST_LANGUAGE: &str = "rust";
+
 /// Rust adapter backed by `cargo metadata`.
 #[derive(Debug, Default, Clone)]
 pub struct RustAdapter;
@@ -21,8 +23,8 @@ impl RustAdapter {
 }
 
 impl LangAdapter for RustAdapter {
-    fn language(&self) -> &'static str {
-        "rust"
+    fn language(&self) -> &str {
+        RUST_LANGUAGE
     }
 
     fn discover(&self, request: &DiscoverRequest) -> AppResult<DiscoverResponse> {
