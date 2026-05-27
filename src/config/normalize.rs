@@ -1,9 +1,9 @@
-//! Conversion from strict raw config to core planning contracts.
+//! Conversion from strict config documents to core planning contracts.
 
 use std::path::{Path, PathBuf};
 
 use crate::{
-    config::{RawConfig, RawProfile, RawTask},
+    config::{ConfigDocument, ProfileConfig, TaskConfig},
     core::{AppError, AppResult, ExecutionMode, Profile, Task, TaskCommand, Workspace},
     preset::PresetResolver,
     validation::{
@@ -18,39 +18,42 @@ const DEFAULT_RESOURCE_GROUP: &str = "{workspace.root}";
 /// Load and normalize a `toven.toml` file.
 pub fn load_workspace(path: impl AsRef<Path>) -> AppResult<Workspace> {
     let path = path.as_ref();
-    let raw = rskit_config::ConfigLoader::toml(path).load::<RawConfig>()?;
-    normalize_config(raw, path)
+    let document = rskit_config::ConfigLoader::toml(path).load::<ConfigDocument>()?;
+    normalize_config(document, path)
 }
 
-/// Normalize raw config loaded from `config_path`.
-pub fn normalize_config(raw: RawConfig, config_path: impl AsRef<Path>) -> AppResult<Workspace> {
+/// Normalize a config document loaded from `config_path`.
+pub fn normalize_config(
+    document: ConfigDocument,
+    config_path: impl AsRef<Path>,
+) -> AppResult<Workspace> {
     let config_path = config_path.as_ref();
-    let schema = validate_schema(raw.workspace.schema)?;
+    let schema = validate_schema(document.workspace.schema)?;
     let config_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
-    let root = normalize_root(config_dir, raw.workspace.root.as_deref())?;
+    let root = normalize_root(config_dir, document.workspace.root.as_deref())?;
     let resolver = PresetResolver::new(root.clone());
-    normalize_resolved_config(raw, schema, root, &resolver)
+    normalize_resolved_config(document, schema, root, &resolver)
 }
 
 #[cfg(test)]
 fn normalize_config_with_resolver(
-    raw: RawConfig,
+    document: ConfigDocument,
     config_path: &Path,
     resolver: &PresetResolver,
 ) -> AppResult<Workspace> {
-    let schema = validate_schema(raw.workspace.schema)?;
+    let schema = validate_schema(document.workspace.schema)?;
     let config_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
-    let root = normalize_root(config_dir, raw.workspace.root.as_deref())?;
-    normalize_resolved_config(raw, schema, root, resolver)
+    let root = normalize_root(config_dir, document.workspace.root.as_deref())?;
+    normalize_resolved_config(document, schema, root, resolver)
 }
 
 fn normalize_resolved_config(
-    raw: RawConfig,
+    document: ConfigDocument,
     schema: u16,
     root: PathBuf,
     resolver: &PresetResolver,
 ) -> AppResult<Workspace> {
-    let name = match raw.workspace.name {
+    let name = match document.workspace.name {
         Some(name) => {
             validate_name("workspace.name", &name)?;
             name
@@ -63,15 +66,15 @@ fn normalize_resolved_config(
             .to_string(),
     };
 
-    if raw.profiles.is_empty() {
+    if document.profiles.is_empty() {
         return Err(AppError::invalid_input(
             "profiles",
             "at least one profile is required",
         ));
     }
 
-    let mut profiles = Vec::with_capacity(raw.profiles.len());
-    for (profile_name, profile) in raw.profiles {
+    let mut profiles = Vec::with_capacity(document.profiles.len());
+    for (profile_name, profile) in document.profiles {
         profiles.push(normalize_profile(profile_name, profile, resolver)?);
     }
 
@@ -112,41 +115,41 @@ fn normalize_root(config_dir: &Path, root: Option<&Path>) -> AppResult<PathBuf> 
 
 fn normalize_profile(
     name: String,
-    raw: RawProfile,
+    config: ProfileConfig,
     resolver: &PresetResolver,
 ) -> AppResult<Profile> {
     validate_identifier("profiles", &name)?;
-    validate_identifier("profiles.language", &raw.language)?;
-    if let Some(discovery_command) = &raw.discovery_command {
+    validate_identifier("profiles.language", &config.language)?;
+    if let Some(discovery_command) = &config.discovery_command {
         validate_command_template(
             format!("profiles.{name}.discovery_command"),
             discovery_command,
         )?;
     }
 
-    if raw.tasks.is_empty() {
+    if config.tasks.is_empty() {
         return Err(AppError::invalid_input(
             format!("profiles.{name}.tasks"),
             "at least one task is required",
         ));
     }
 
-    let module_arg_template = raw.module_arg_template.unwrap_or_default();
+    let module_arg_template = config.module_arg_template.unwrap_or_default();
     validate_templates(
         format!("profiles.{name}.module_arg_template"),
         &module_arg_template,
     )?;
 
-    let resource_group = raw
+    let resource_group = config
         .resource_group
         .unwrap_or_else(|| DEFAULT_RESOURCE_GROUP.to_string());
     validate_template(format!("profiles.{name}.resource_group"), &resource_group)?;
 
-    let mut tasks = Vec::with_capacity(raw.tasks.len());
-    for (task_name, task) in raw.tasks {
+    let mut tasks = Vec::with_capacity(config.tasks.len());
+    for (task_name, task) in config.tasks {
         tasks.push(normalize_task(
             &name,
-            &raw.language,
+            &config.language,
             task_name,
             task,
             resolver,
@@ -155,9 +158,9 @@ fn normalize_profile(
 
     Ok(Profile {
         name,
-        language: raw.language,
-        discovery_command: raw.discovery_command,
-        execution: raw.execution.unwrap_or(ExecutionMode::SpawnEach),
+        language: config.language,
+        discovery_command: config.discovery_command,
+        execution: config.execution.unwrap_or(ExecutionMode::SpawnEach),
         module_arg_template,
         resource_group,
         tasks,
@@ -168,12 +171,12 @@ fn normalize_task(
     profile_name: &str,
     language: &str,
     name: String,
-    raw: RawTask,
+    config: TaskConfig,
     resolver: &PresetResolver,
 ) -> AppResult<Task> {
     validate_identifier("tasks", &name)?;
 
-    let command = match (raw.argv, raw.preset) {
+    let command = match (config.argv, config.preset) {
         (Some(argv), None) => {
             validate_command_template(format!("profiles.{profile_name}.tasks.{name}.argv"), &argv)?;
             TaskCommand::Argv(argv)
@@ -210,7 +213,7 @@ mod tests {
         preset::PresetResolver,
     };
 
-    use super::{RawConfig, normalize_config_with_resolver};
+    use super::{ConfigDocument, normalize_config_with_resolver};
 
     #[test]
     fn loads_direct_argv_config() {
@@ -343,12 +346,12 @@ mod tests {
         let config_path = root
             .copy_fixture("config/preset-check-workspace.toml", "toven.toml")
             .expect("copy config fixture");
-        let raw: RawConfig = rskit_config::ConfigLoader::toml(&config_path)
+        let document: ConfigDocument = rskit_config::ConfigLoader::toml(&config_path)
             .load()
-            .expect("load raw config fixture");
+            .expect("load config document fixture");
         let resolver = PresetResolver::new(root.path().to_path_buf()).without_user_home();
 
-        let error = normalize_config_with_resolver(raw, &config_path, &resolver)
+        let error = normalize_config_with_resolver(document, &config_path, &resolver)
             .expect_err("missing preset");
 
         assert!(error.message.contains("searched:"));
