@@ -149,6 +149,16 @@ pub enum ExecutionMode {
     WorkspaceOnce,
 }
 
+impl std::fmt::Display for ExecutionMode {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::SpawnEach => "spawn-each",
+            Self::BatchReady => "batch-ready",
+            Self::WorkspaceOnce => "workspace-once",
+        })
+    }
+}
+
 /// Scheduler node state.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum NodeState {

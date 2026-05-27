@@ -78,8 +78,13 @@ where
             _ => ExitCode::SUCCESS,
         },
         Err(error) => {
-            let _ = write!(stderr, "{error}");
-            ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(1))
+            let exit_code = error.exit_code();
+            if exit_code == 0 {
+                let _ = write!(stdout, "{error}");
+            } else {
+                let _ = write!(stderr, "{error}");
+            }
+            ExitCode::from(u8::try_from(exit_code).unwrap_or(1))
         }
     }
 }
@@ -115,6 +120,19 @@ mod tests {
     #[test]
     fn run_from_reports_usage_errors() {
         assert_eq!(run_from(["toven", "--unknown"]), ExitCode::from(2));
+    }
+
+    #[test]
+    fn run_with_io_writes_help_to_stdout() {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let code = run_with_io(["toven", "--help"], &mut stdout, &mut stderr);
+
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert!(stderr.is_empty());
+        let stdout = String::from_utf8(stdout).expect("stdout is utf-8");
+        assert!(stdout.contains("Fast, argv-first development and CI task planning"));
     }
 
     #[test]

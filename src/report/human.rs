@@ -3,7 +3,8 @@
 use std::fmt::Write as _;
 
 use crate::{
-    core::{AppResult, ExecutionMode, Plan},
+    core::AppResult,
+    core::Plan,
     exec::{render_execution_unit, render_resource_group},
 };
 
@@ -25,9 +26,7 @@ pub fn render_human_plan(plan: &Plan) -> AppResult<String> {
         writeln!(
             &mut output,
             "profile: {} task: {} mode: {}",
-            unit.profile,
-            unit.task,
-            execution_mode_name(unit.mode)
+            unit.profile, unit.task, unit.mode
         )
         .expect("write string");
         writeln!(&mut output, "resource_group: {resource_group}").expect("write string");
@@ -42,12 +41,4 @@ pub fn render_human_plan(plan: &Plan) -> AppResult<String> {
     }
 
     Ok(output)
-}
-
-const fn execution_mode_name(mode: ExecutionMode) -> &'static str {
-    match mode {
-        ExecutionMode::SpawnEach => "spawn-each",
-        ExecutionMode::BatchReady => "batch-ready",
-        ExecutionMode::WorkspaceOnce => "workspace-once",
-    }
 }

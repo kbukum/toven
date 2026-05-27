@@ -9,7 +9,8 @@ use crate::core::{
     Placeholder, Template, TemplatePart,
 };
 
-const DISCOVERY_COMMAND_TIMEOUT: Duration = Duration::from_mins(2);
+const DISCOVERY_COMMAND_TIMEOUT_SECS: u64 = 120;
+const DISCOVERY_COMMAND_TIMEOUT: Duration = Duration::from_secs(DISCOVERY_COMMAND_TIMEOUT_SECS);
 const DISCOVERY_COMMAND_MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 
 /// Language adapter that delegates discovery to a user-provided command.

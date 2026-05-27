@@ -11,10 +11,10 @@ and renders reviewable command batches before execution.
 
 ## Status
 
-**Pre-alpha.** The current implementation includes strict configuration loading
-filesystem preset resolution, Rust workspace discovery, dependency-aware
-batching, and human-readable plan output. Command execution, cache-backed
-skipping, and additional language adapters will be added in follow-up phases.
+**Pre-alpha.** The current implementation includes strict configuration loading,
+filesystem preset resolution, Rust workspace discovery, dependency-aware batching,
+and human-readable plan output. Command execution, cache-backed skipping, and
+additional language adapters will be added in follow-up phases.
 
 Toven is not published to crates.io yet. Until the first alpha release, install
 from source after cloning the repository.

@@ -103,19 +103,11 @@ fn reject_batch_scalar_module_placeholders(
             field,
             format!(
                 "template '{value}' cannot use scalar module placeholders with {}",
-                execution_mode_name(unit.mode)
+                unit.mode
             ),
         ));
     }
     Ok(())
-}
-
-const fn execution_mode_name(mode: ExecutionMode) -> &'static str {
-    match mode {
-        ExecutionMode::SpawnEach => "spawn-each",
-        ExecutionMode::BatchReady => "batch-ready",
-        ExecutionMode::WorkspaceOnce => "workspace-once",
-    }
 }
 
 fn ensure_exact_placeholder(

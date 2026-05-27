@@ -54,14 +54,14 @@ pub(super) fn ready_waves(modules: &[Module]) -> AppResult<Vec<Vec<Module>>> {
     }
 
     if !remaining.is_empty() {
-        let cycle = remaining
+        let modules = remaining
             .keys()
             .map(ToString::to_string)
             .collect::<Vec<_>>()
-            .join(" -> ");
+            .join(", ");
         return Err(AppError::invalid_input(
             "modules",
-            format!("module dependency cycle detected: {cycle}"),
+            format!("module dependency cycle detected among: {modules}"),
         ));
     }
 
