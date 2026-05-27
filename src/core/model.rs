@@ -1,0 +1,201 @@
+//! Language-agnostic module model.
+
+use std::{fmt, path::PathBuf, str::FromStr};
+
+use crate::core::{AppError, AppResult, PresetDefinition};
+
+/// Unique module identifier within a workspace.
+#[derive(
+    Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Hash, serde::Deserialize, serde::Serialize,
+)]
+pub struct ModuleId(String);
+
+impl ModuleId {
+    /// Create a module identifier from a validated string.
+    #[must_use]
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    /// Return the identifier as a string slice.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Parse and validate a module identifier.
+    pub fn parse(value: impl Into<String>) -> AppResult<Self> {
+        let value = value.into();
+        if value.trim().is_empty() {
+            return Err(AppError::invalid_input(
+                "module.name",
+                "module name cannot be empty",
+            ));
+        }
+        Ok(Self(value))
+    }
+}
+
+impl fmt::Display for ModuleId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl FromStr for ModuleId {
+    type Err = AppError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value)
+    }
+}
+
+/// A discovered module independent of language-specific manifests.
+#[derive(Debug, Clone, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct Module {
+    /// Unique module identifier.
+    pub name: ModuleId,
+    /// Optional package name used by command templates.
+    pub package: Option<String>,
+    /// Module root relative to the workspace root.
+    pub root: PathBuf,
+    /// Module identifiers this module depends on.
+    pub dependencies: Vec<ModuleId>,
+    /// Glob-like source patterns relative to the workspace root.
+    pub source_patterns: Vec<String>,
+}
+
+/// Project workspace to plan.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Workspace {
+    /// Configuration schema version.
+    pub schema: u16,
+    /// Human-readable workspace name.
+    pub name: String,
+    /// Absolute or invocation-relative workspace root.
+    pub root: PathBuf,
+    /// Profiles defined for the workspace.
+    pub profiles: Vec<Profile>,
+}
+
+/// Language profile that owns tasks and discovery settings.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Profile {
+    /// Profile name from the config table.
+    pub name: String,
+    /// Language identifier.
+    pub language: String,
+    /// Optional command adapter override.
+    pub discovery_command: Option<Vec<String>>,
+    /// Execution mode for tasks in this profile.
+    pub execution: ExecutionMode,
+    /// Template for rendering one module selector.
+    pub module_arg_template: Vec<String>,
+    /// Resource group template used for scheduling/reporting.
+    pub resource_group: String,
+    /// Tasks configured for this profile.
+    pub tasks: Vec<Task>,
+}
+
+/// Configured task.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Task {
+    /// Task name.
+    pub name: String,
+    /// Command source.
+    pub command: TaskCommand,
+}
+
+/// Source of a task command.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum TaskCommand {
+    /// Resolve a named preset for the profile language.
+    Preset(String),
+    /// Use direct argv from config.
+    Argv(Vec<String>),
+    /// Fully resolved preset definition.
+    ResolvedPreset(PresetDefinition),
+}
+
+/// How ready modules become execution units.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExecutionMode {
+    /// One command per ready module.
+    SpawnEach,
+    /// One command per compatible ready set.
+    BatchReady,
+    /// One command for the whole workspace.
+    WorkspaceOnce,
+}
+
+/// Scheduler node state.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum NodeState {
+    /// Waiting for prerequisites.
+    Pending,
+    /// Available to plan.
+    Ready,
+    /// Satisfied by an execution unit or cache hit.
+    Satisfied,
+}
+
+/// Planned command unit.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ExecutionUnit {
+    /// Stable unit identifier.
+    pub id: String,
+    /// Profile name.
+    pub profile: String,
+    /// Task name.
+    pub task: String,
+    /// Execution mode.
+    pub mode: ExecutionMode,
+    /// Resource group after template rendering.
+    pub resource_group: String,
+    /// Modules covered by this unit.
+    pub modules: Vec<Module>,
+    /// Argv template to render.
+    pub argv_template: Vec<String>,
+    /// Per-module selector template.
+    pub module_arg_template: Vec<String>,
+    /// Extra user args injected through `{args}`.
+    pub passthrough_args: Vec<String>,
+}
+
+/// Complete plan emitted by `toven plan`.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Plan {
+    /// Workspace metadata.
+    pub workspace: Workspace,
+    /// Execution units in release order.
+    pub units: Vec<ExecutionUnit>,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::ModuleId;
+
+    #[test]
+    fn module_id_exposes_value() {
+        let id = ModuleId::new("core");
+
+        assert_eq!(id.as_str(), "core");
+    }
+
+    #[test]
+    fn module_id_parse_rejects_empty_values() {
+        let error = ModuleId::parse(" ").expect_err("empty value should fail");
+
+        assert!(error.message.contains("module name"));
+    }
+
+    #[test]
+    fn module_id_implements_from_str() {
+        let id = ModuleId::from_str("api").expect("module id parses");
+
+        assert_eq!(id.to_string(), "api");
+    }
+}

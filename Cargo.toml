@@ -16,6 +16,7 @@ include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
 
 [dependencies]
 clap = "4.5.50"
+serde = { version = "1.0.228", features = ["derive"] }
 
 [lints.rust]
 unsafe_code = "forbid"

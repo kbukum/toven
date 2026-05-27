@@ -5,6 +5,7 @@
 //! follow-up pull requests.
 
 pub mod cli;
+pub mod core;
 
 /// Current package version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
