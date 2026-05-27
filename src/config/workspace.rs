@@ -2,10 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{
-    core::{AppError, AppResult, Profile, Workspace},
-    validation::validate_name,
-};
+use crate::core::{AppError, AppResult, Profile, Workspace, validate_name};
 
 const SUPPORTED_SCHEMA: u16 = 1;
 

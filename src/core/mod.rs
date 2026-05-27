@@ -16,3 +16,5 @@ pub use model::{
 pub use preset::PresetDefinition;
 pub use protocol::{DiscoverRequest, DiscoverResponse};
 pub use template::{Placeholder, Template, TemplatePart};
+
+include!("validation.rs");

@@ -118,7 +118,7 @@ mod tests {
     }
 
     #[test]
-    fn reports_invalid_profile_name_with_config_path() {
+    fn reports_invalid_profile_name_field() {
         let root = rskit_testutil::test_workspace!("invalid-profile-name");
         let config_path = root
             .copy_fixture("config/invalid-profile-name.toml", "toven.toml")
@@ -130,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn reports_invalid_profile_language_with_config_path() {
+    fn reports_invalid_profile_language_field() {
         let root = rskit_testutil::test_workspace!("invalid-profile-language");
         let config_path = root
             .copy_fixture("config/invalid-profile-language.toml", "toven.toml")
@@ -142,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn reports_invalid_task_name_with_config_path() {
+    fn reports_invalid_task_name_field() {
         let root = rskit_testutil::test_workspace!("invalid-task-name");
         let config_path = root
             .copy_fixture("config/invalid-task-name.toml", "toven.toml")
@@ -154,7 +154,7 @@ mod tests {
     }
 
     #[test]
-    fn reports_invalid_module_arg_template_with_config_path() {
+    fn reports_invalid_module_arg_template_field() {
         let root = rskit_testutil::test_workspace!("invalid-module-arg-template");
         let config_path = root
             .copy_fixture("config/invalid-module-arg-template.toml", "toven.toml")
@@ -167,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn reports_invalid_resource_group_with_config_path() {
+    fn reports_invalid_resource_group_field() {
         let root = rskit_testutil::test_workspace!("invalid-resource-group");
         let config_path = root
             .copy_fixture("config/invalid-resource-group.toml", "toven.toml")

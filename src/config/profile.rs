@@ -4,11 +4,11 @@ use std::collections::BTreeMap;
 
 use crate::{
     config::{TaskConfig, task::normalize_task},
-    core::{AppError, AppResult, ExecutionMode, Profile},
-    preset::PresetResolver,
-    validation::{
-        validate_command_template, validate_identifier, validate_template, validate_templates,
+    core::{
+        AppError, AppResult, ExecutionMode, Profile, validate_command_template,
+        validate_identifier, validate_template, validate_templates,
     },
+    preset::PresetResolver,
 };
 
 const DEFAULT_RESOURCE_GROUP: &str = "{workspace.root}";

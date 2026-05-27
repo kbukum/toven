@@ -1,9 +1,10 @@
 //! Task-level config normalization.
 
 use crate::{
-    core::{AppError, AppResult, Task, TaskCommand},
+    core::{
+        AppError, AppResult, Task, TaskCommand, validate_command_template, validate_identifier,
+    },
     preset::PresetResolver,
-    validation::{validate_command_template, validate_identifier},
 };
 
 /// Task definition from `toven.toml`.

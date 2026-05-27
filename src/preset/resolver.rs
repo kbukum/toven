@@ -2,9 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{
-    core::{AppError, AppResult, PresetDefinition},
-    validation::{validate_command_template, validate_identifier},
+use crate::core::{
+    AppError, AppResult, PresetDefinition, validate_command_template, validate_identifier,
 };
 
 /// Filesystem preset resolver.

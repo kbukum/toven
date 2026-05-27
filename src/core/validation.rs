@@ -1,8 +1,6 @@
 use rskit_validation::Validator;
 
-use crate::core::{AppError, AppResult, Template};
-
-pub(crate) fn validate_name(field: impl AsRef<str>, value: &str) -> AppResult<()> {
+pub(crate) fn validate_name(field: impl AsRef<str>, value: &str) -> crate::core::AppResult<()> {
     let field = field.as_ref();
     Validator::new()
         .required(field, value)
@@ -14,7 +12,10 @@ pub(crate) fn validate_name(field: impl AsRef<str>, value: &str) -> AppResult<()
         .validate()
 }
 
-pub(crate) fn validate_identifier(field: impl AsRef<str>, value: &str) -> AppResult<()> {
+pub(crate) fn validate_identifier(
+    field: impl AsRef<str>,
+    value: &str,
+) -> crate::core::AppResult<()> {
     let field = field.as_ref();
     Validator::new()
         .required(field, value)
@@ -34,10 +35,10 @@ pub(crate) fn validate_identifier(field: impl AsRef<str>, value: &str) -> AppRes
 pub(crate) fn validate_command_template(
     field: impl AsRef<str>,
     values: &[String],
-) -> AppResult<()> {
+) -> crate::core::AppResult<()> {
     let field = field.as_ref();
     if values.is_empty() {
-        return Err(AppError::invalid_input(
+        return Err(crate::core::AppError::invalid_input(
             field,
             "at least one argv item is required",
         ));
@@ -45,7 +46,10 @@ pub(crate) fn validate_command_template(
     validate_templates(field, values)
 }
 
-pub(crate) fn validate_templates(field: impl AsRef<str>, values: &[String]) -> AppResult<()> {
+pub(crate) fn validate_templates(
+    field: impl AsRef<str>,
+    values: &[String],
+) -> crate::core::AppResult<()> {
     let field = field.as_ref();
     for value in values {
         validate_template(field, value)?;
@@ -53,10 +57,10 @@ pub(crate) fn validate_templates(field: impl AsRef<str>, values: &[String]) -> A
     Ok(())
 }
 
-pub(crate) fn validate_template(field: impl AsRef<str>, value: &str) -> AppResult<()> {
+pub(crate) fn validate_template(field: impl AsRef<str>, value: &str) -> crate::core::AppResult<()> {
     let field = field.as_ref();
-    Template::parse(value).map_err(|error| {
-        AppError::invalid_input(
+    crate::core::Template::parse(value).map_err(|error| {
+        crate::core::AppError::invalid_input(
             field,
             format!("invalid template '{value}': {}", error.message),
         )
