@@ -22,15 +22,46 @@ binary_path() {
   printf '%s/target/debug/toven\n' "$ROOT"
 }
 
+toml_string() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\b'/\\b}"
+  value="${value//$'\t'/\\t}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\f'/\\f}"
+  value="${value//$'\r'/\\r}"
+
+  if LC_ALL=C printf '%s' "$value" | grep -q '[[:cntrl:]]'; then
+    echo "error: unsupported control character in TOML string" >&2
+    exit 2
+  fi
+
+  printf '"%s"' "$value"
+}
+
+validate_smoke_name() {
+  local name="$1"
+  if [[ ! "$name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "error: smoke names may only contain letters, numbers, '.', '_', and '-'" >&2
+    exit 2
+  fi
+}
+
 generated_config() {
   local name="$1"
   local repo="$2"
   local config="$3"
+  local quoted_name
+  local quoted_repo
+
+  quoted_name="$(toml_string "$name")"
+  quoted_repo="$(toml_string "$repo")"
 
   cat >"$config" <<EOF
 [workspace]
-name = "$name"
-root = "$repo"
+name = $quoted_name
+root = $quoted_repo
 
 [profiles.rust]
 language = "rust"
@@ -79,6 +110,7 @@ clone_repo() {
     usage >&2
     exit 2
   fi
+  validate_smoke_name "$name"
   mkdir -p "$ROOT/.toven/smoke/repos"
   git clone "$url" "$ROOT/.toven/smoke/repos/$name"
 }
@@ -91,6 +123,7 @@ add_submodule() {
     usage >&2
     exit 2
   fi
+  validate_smoke_name "$name"
   mkdir -p "$ROOT/smoke/repos"
   git submodule add "$url" "$ROOT/smoke/repos/$name"
 }
@@ -100,10 +133,14 @@ write_case() {
   local repo="$2"
   shift 2
 
+  validate_smoke_name "$name"
   mkdir -p "$ROOT/smoke/cases" "$ROOT/smoke/expected"
   {
-    printf 'name = "%s"\n' "$name"
-    printf 'repo = "%s"\n' "$repo"
+    printf 'name = '
+    toml_string "$name"
+    printf '\nrepo = '
+    toml_string "$repo"
+    printf '\n'
     printf 'task = "test"\n'
     printf 'args = ['
     local first=1
@@ -112,10 +149,12 @@ write_case() {
         printf ', '
       fi
       first=0
-      printf '"%s"' "$arg"
+      toml_string "$arg"
     done
     printf ']\n'
-    printf 'expected = "smoke/expected/%s.plan.txt"\n' "$name"
+    printf 'expected = '
+    toml_string "smoke/expected/$name.plan.txt"
+    printf '\n'
   } >"$ROOT/smoke/cases/$name.toml"
 }
 
@@ -154,6 +193,7 @@ purge_repo() {
     usage >&2
     exit 2
   fi
+  validate_smoke_name "$name"
 
   if [[ -d "$ROOT/.toven/smoke/repos/$name" ]]; then
     rm -rf "$ROOT/.toven/smoke/repos/$name"
@@ -175,6 +215,7 @@ update_case() {
     usage >&2
     exit 2
   fi
+  validate_smoke_name "$name"
   if [[ "${TOVEN_SMOKE_BLESS:-}" != "1" ]]; then
     echo "error: set TOVEN_SMOKE_BLESS=1 to update managed smoke expectations" >&2
     exit 2

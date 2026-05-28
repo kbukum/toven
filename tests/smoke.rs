@@ -2,7 +2,9 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    env, fs,
+    env,
+    fmt::Write as _,
+    fs,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -10,6 +12,7 @@ use std::{
 use cargo_metadata::{DependencyKind, MetadataCommand, PackageId};
 
 #[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SmokeCase {
     name: Option<String>,
     repo: PathBuf,
@@ -151,10 +154,12 @@ fn isolated_repo(
 }
 
 fn generated_config(name: &str, repo: &Path) -> String {
+    let name = toml_string(name);
+    let repo = toml_string(repo.to_str().expect("smoke repo path is utf-8"));
     format!(
         r#"[workspace]
-name = "{name}"
-root = "{}"
+name = {name}
+root = {repo}
 
 [profiles.rust]
 language = "rust"
@@ -164,9 +169,30 @@ resource_group = "cargo:{{workspace.root}}"
 
 [profiles.rust.tasks]
 test = {{ argv = ["cargo", "test", "{{module.args}}", "{{args}}"] }}
-"#,
-        repo.display()
+"#
     )
+}
+
+fn toml_string(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len() + 2);
+    escaped.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\u{08}' => escaped.push_str("\\b"),
+            '\t' => escaped.push_str("\\t"),
+            '\n' => escaped.push_str("\\n"),
+            '\u{0C}' => escaped.push_str("\\f"),
+            '\r' => escaped.push_str("\\r"),
+            character if character.is_control() => {
+                write!(escaped, "\\u{:04X}", character as u32).expect("write escaped character");
+            }
+            character => escaped.push(character),
+        }
+    }
+    escaped.push('"');
+    escaped
 }
 
 fn run_toven_plan(config: &Path, task: &str, args: Option<&Vec<String>>) -> String {
@@ -307,4 +333,34 @@ fn canonicalize(path: &Path, case_name: &str) -> PathBuf {
 
 fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+#[test]
+fn generated_config_escapes_toml_strings() {
+    let repo = Path::new("/tmp/repo\"\\\t");
+    let config = generated_config("case\"\\\n", repo);
+    let parsed = toml::from_str::<toml::Value>(&config).expect("generated config is valid TOML");
+
+    assert_eq!(parsed["workspace"]["name"].as_str(), Some("case\"\\\n"));
+    assert_eq!(
+        parsed["workspace"]["root"].as_str(),
+        Some("/tmp/repo\"\\\t")
+    );
+}
+
+#[test]
+fn smoke_case_rejects_unknown_fields() {
+    let error = toml::from_str::<SmokeCase>(
+        r#"
+repo = "repo"
+expected = "expected.plan.txt"
+argz = []
+"#,
+    )
+    .expect_err("unknown smoke case fields should fail parsing");
+
+    assert!(
+        error.to_string().contains("unknown field"),
+        "unexpected parse error: {error}"
+    );
 }
