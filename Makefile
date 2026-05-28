@@ -3,7 +3,7 @@ REQUIRE_PUBLISHABLE_PACKAGE ?= 0
 HAS_PATH_DEPENDENCIES := $(shell grep -Eq 'path[[:space:]]*=' Cargo.toml && echo 1 || echo 0)
 PACKAGE_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 
-.PHONY: check fmt fmt-check lint test doc deny dist-plan coverage release-dry-run release-artifacts act-ci act-supply-chain act-release-readiness
+.PHONY: check fmt fmt-check lint test smoke smoke-repo smoke-clone smoke-add-submodule smoke-add-case smoke-add-managed-submodule smoke-purge smoke-update doc deny dist-plan coverage release-dry-run release-artifacts act-ci act-supply-chain act-release-readiness
 
 check: fmt-check lint test doc deny dist-plan release-dry-run
 
@@ -18,6 +18,30 @@ lint:
 
 test:
 	cargo test --all-targets --all-features
+
+smoke:
+	./scripts/smoke.sh run
+
+smoke-repo:
+	./scripts/smoke.sh repo "$(REPO)" $(ARGS)
+
+smoke-clone:
+	./scripts/smoke.sh clone "$(URL)" "$(NAME)"
+
+smoke-add-submodule:
+	./scripts/smoke.sh add-submodule "$(URL)" "$(NAME)"
+
+smoke-add-case:
+	./scripts/smoke.sh add-case "$(NAME)" "$(REPO)" $(ARGS)
+
+smoke-add-managed-submodule:
+	./scripts/smoke.sh add-managed-submodule "$(URL)" "$(NAME)" $(ARGS)
+
+smoke-purge:
+	./scripts/smoke.sh purge "$(NAME)"
+
+smoke-update:
+	./scripts/smoke.sh update "$(NAME)"
 
 doc:
 	RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features

@@ -1,0 +1,38 @@
+workspace: rskit-core
+root: <WORKSPACE_ROOT>
+
+unit: rust/test/w0/batch
+profile: rust task: test mode: batch-ready
+resource_group: cargo:<WORKSPACE_ROOT>
+argv: ["cargo", "test", "-p", "rskit-errors", "-p", "rskit-util", "-p", "rskit-version", "--release"]
+modules: rskit-errors, rskit-util, rskit-version
+
+unit: rust/test/w1/batch
+profile: rust task: test mode: batch-ready
+resource_group: cargo:<WORKSPACE_ROOT>
+argv: ["cargo", "test", "-p", "rskit-ai", "-p", "rskit-authz", "-p", "rskit-cache", "-p", "rskit-chain", "-p", "rskit-cli", "-p", "rskit-component", "-p", "rskit-di", "-p", "rskit-encryption", "-p", "rskit-fs", "-p", "rskit-hook", "-p", "rskit-observability", "-p", "rskit-pipeline", "-p", "rskit-process", "-p", "rskit-provider", "-p", "rskit-resilience", "-p", "rskit-schema", "-p", "rskit-security", "-p", "rskit-sse", "-p", "rskit-stateful", "-p", "rskit-validation", "-p", "rskit-vectorstore", "--release"]
+modules: rskit-ai, rskit-authz, rskit-cache, rskit-chain, rskit-cli, rskit-component, rskit-di, rskit-encryption, rskit-fs, rskit-hook, rskit-observability, rskit-pipeline, rskit-process, rskit-provider, rskit-resilience, rskit-schema, rskit-security, rskit-sse, rskit-stateful, rskit-validation, rskit-vectorstore
+
+unit: rust/test/w2/batch
+profile: rust task: test mode: batch-ready
+resource_group: cargo:<WORKSPACE_ROOT>
+argv: ["cargo", "test", "-p", "rskit-config", "-p", "rskit-dag", "-p", "rskit-dataset", "-p", "rskit-discovery", "-p", "rskit-embedding", "-p", "rskit-git", "-p", "rskit-grpc", "-p", "rskit-http", "-p", "rskit-httpclient", "-p", "rskit-storage", "-p", "rskit-tool", "-p", "rskit-worker", "--release"]
+modules: rskit-config, rskit-dag, rskit-dataset, rskit-discovery, rskit-embedding, rskit-git, rskit-grpc, rskit-http, rskit-httpclient, rskit-storage, rskit-tool, rskit-worker
+
+unit: rust/test/w3/batch
+profile: rust task: test mode: batch-ready
+resource_group: cargo:<WORKSPACE_ROOT>
+argv: ["cargo", "test", "-p", "rskit-auth", "-p", "rskit-bench", "-p", "rskit-inference", "-p", "rskit-llm", "-p", "rskit-logging", "-p", "rskit-media", "-p", "rskit-skill", "-p", "rskit-testutil", "--release"]
+modules: rskit-auth, rskit-bench, rskit-inference, rskit-llm, rskit-logging, rskit-media, rskit-skill, rskit-testutil
+
+unit: rust/test/w4/batch
+profile: rust task: test mode: batch-ready
+resource_group: cargo:<WORKSPACE_ROOT>
+argv: ["cargo", "test", "-p", "rskit-agent", "-p", "rskit-bootstrap", "-p", "rskit-mcp", "--release"]
+modules: rskit-agent, rskit-bootstrap, rskit-mcp
+
+unit: rust/test/w5/batch
+profile: rust task: test mode: batch-ready
+resource_group: cargo:<WORKSPACE_ROOT>
+argv: ["cargo", "test", "-p", "rskit", "-p", "rskit-database", "-p", "rskit-messaging", "-p", "rskit-server", "--release"]
+modules: rskit, rskit-database, rskit-messaging, rskit-server
