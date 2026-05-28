@@ -1,0 +1,5 @@
+name = "tokio"
+repo = "smoke/repos/tokio"
+task = "test"
+args = ["--all-features"]
+expected = "smoke/expected/tokio.plan.txt"

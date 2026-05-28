@@ -27,6 +27,7 @@ serde_json = "1.0.150"
 
 [dev-dependencies]
 rskit-testutil = { version = "0.1.0", path = "rskit/core/rskit-testutil" }
+toml = "1.1.2"
 
 [lints.rust]
 unsafe_code = "forbid"

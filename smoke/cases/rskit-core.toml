@@ -1,0 +1,6 @@
+name = "rskit-core"
+repo = "rskit/core"
+copy_root = "rskit"
+task = "test"
+args = ["--release"]
+expected = "smoke/expected/rskit-core.plan.txt"

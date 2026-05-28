@@ -45,6 +45,32 @@ preset-loading, Rust discovery, and reviewable planning foundations. Toven will
 add execution wiring and cache-backed skipping in focused follow-up pull
 requests.
 
+## Smoke testing real repositories
+
+Toven has two smoke modes:
+
+- Managed smoke tests run the real `toven` binary against committed cases under
+  `smoke/cases/` and compare normalized output with `smoke/expected/`.
+- Ad-hoc smoke runs let contributors test any local or cloned repository without
+  committing an expectation file.
+
+```bash
+make smoke
+make smoke-repo REPO=/path/to/repo ARGS="--release"
+make smoke-clone URL=https://github.com/kbukum/rskit NAME=rskit
+make smoke-add-submodule URL=https://github.com/example/repo NAME=repo
+make smoke-add-case NAME=repo REPO=smoke/repos/repo ARGS="--all-features"
+make smoke-add-managed-submodule URL=https://github.com/example/repo NAME=repo ARGS="--all-features"
+TOVEN_SMOKE_BLESS=1 make smoke-update NAME=rskit-core
+make smoke-purge NAME=rskit
+```
+
+Managed cases should use stable public repositories or pinned submodules. Local
+scratch clones live under ignored `.toven/smoke/repos/`; committed smoke
+repositories belong under `smoke/repos/`. Managed tests run against temporary
+copies and verify both normalized binary output and Cargo workspace dependency
+waves.
+
 ## Configuration preview
 
 Toven loads strict TOML from `toven.toml`. Unknown fields are rejected early,
