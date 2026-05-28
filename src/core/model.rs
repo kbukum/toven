@@ -137,6 +137,20 @@ pub enum TaskCommand {
     ResolvedPreset(PresetDefinition),
 }
 
+/// Renderable source metadata for a planned command.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum CommandOrigin {
+    /// Command argv was defined directly in project config.
+    DirectArgv,
+    /// Command argv came from a resolved preset.
+    Preset {
+        /// Preset name requested by the task.
+        name: String,
+        /// Preset language.
+        language: String,
+    },
+}
+
 /// How ready modules become execution units.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -179,6 +193,8 @@ pub struct ExecutionUnit {
     pub profile: String,
     /// Task name.
     pub task: String,
+    /// Source metadata for the command.
+    pub command_origin: CommandOrigin,
     /// Execution mode.
     pub mode: ExecutionMode,
     /// Resource group after template rendering.

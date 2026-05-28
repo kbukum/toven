@@ -1307,6 +1307,7 @@ dependencies = [
  "rskit-process",
  "rskit-testutil",
  "rskit-validation",
+ "rskit-version",
  "serde",
  "serde_json",
  "toml",

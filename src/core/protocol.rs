@@ -1,5 +1,7 @@
 //! Discovery protocol shared by native and command adapters.
 
+#![allow(clippy::redundant_pub_crate)]
+
 use std::path::PathBuf;
 
 use crate::core::{AppError, AppResult, Module};
@@ -25,7 +27,7 @@ pub struct DiscoverResponse {
     pub modules: Vec<Module>,
 }
 
-pub(super) fn validate_discovery_request_schema(
+pub(crate) fn validate_discovery_request_schema(
     field: impl AsRef<str>,
     request: &DiscoverRequest,
 ) -> AppResult<()> {

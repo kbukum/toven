@@ -1,8 +1,10 @@
+#![allow(clippy::redundant_pub_crate)]
+
 use rskit_validation::Validator;
 
 use super::{AppError, AppResult, Template};
 
-pub(super) fn validate_name(field: impl AsRef<str>, value: &str) -> AppResult<()> {
+pub(crate) fn validate_name(field: impl AsRef<str>, value: &str) -> AppResult<()> {
     let field = field.as_ref();
     Validator::new()
         .required(field, value)
@@ -14,7 +16,7 @@ pub(super) fn validate_name(field: impl AsRef<str>, value: &str) -> AppResult<()
         .validate()
 }
 
-pub(super) fn validate_identifier(field: impl AsRef<str>, value: &str) -> AppResult<()> {
+pub(crate) fn validate_identifier(field: impl AsRef<str>, value: &str) -> AppResult<()> {
     let field = field.as_ref();
     Validator::new()
         .required(field, value)
@@ -31,7 +33,7 @@ pub(super) fn validate_identifier(field: impl AsRef<str>, value: &str) -> AppRes
         .validate()
 }
 
-pub(super) fn validate_command_template(
+pub(crate) fn validate_command_template(
     field: impl AsRef<str>,
     values: &[String],
 ) -> AppResult<()> {
@@ -45,7 +47,7 @@ pub(super) fn validate_command_template(
     validate_templates(field, values)
 }
 
-pub(super) fn validate_templates(field: impl AsRef<str>, values: &[String]) -> AppResult<()> {
+pub(crate) fn validate_templates(field: impl AsRef<str>, values: &[String]) -> AppResult<()> {
     let field = field.as_ref();
     for value in values {
         validate_template(field, value)?;
@@ -53,7 +55,7 @@ pub(super) fn validate_templates(field: impl AsRef<str>, values: &[String]) -> A
     Ok(())
 }
 
-pub(super) fn validate_template(field: impl AsRef<str>, value: &str) -> AppResult<()> {
+pub(crate) fn validate_template(field: impl AsRef<str>, value: &str) -> AppResult<()> {
     let field = field.as_ref();
     Template::parse(value).map_err(|error| {
         AppError::invalid_input(

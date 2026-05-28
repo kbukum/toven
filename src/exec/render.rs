@@ -156,7 +156,7 @@ fn resource_group_field(unit: &ExecutionUnit) -> String {
 #[cfg(test)]
 mod tests {
     use crate::{
-        core::{ExecutionMode, ExecutionUnit, Module, ModuleId},
+        core::{CommandOrigin, ExecutionMode, ExecutionUnit, Module, ModuleId},
         exec::{render_execution_unit, render_resource_group},
     };
 
@@ -175,6 +175,7 @@ mod tests {
             id: "unit".to_string(),
             profile: "rust".to_string(),
             task: "test".to_string(),
+            command_origin: CommandOrigin::DirectArgv,
             mode: ExecutionMode::BatchReady,
             resource_group: "{workspace.root}".to_string(),
             modules,

@@ -3,9 +3,9 @@ REQUIRE_PUBLISHABLE_PACKAGE ?= 0
 HAS_PATH_DEPENDENCIES := $(shell grep -Eq 'path[[:space:]]*=' Cargo.toml && echo 1 || echo 0)
 PACKAGE_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 
-.PHONY: check fmt fmt-check lint test smoke smoke-repo smoke-clone smoke-add-submodule smoke-add-case smoke-add-managed-submodule smoke-purge smoke-update doc deny dist-plan coverage release-dry-run release-artifacts act-ci act-supply-chain act-release-readiness
+.PHONY: check fmt fmt-check lint test structure smoke smoke-repo smoke-clone smoke-add-submodule smoke-add-case smoke-add-managed-submodule smoke-purge smoke-update doc deny dist-plan coverage release-dry-run release-artifacts act-ci act-supply-chain act-release-readiness
 
-check: fmt-check lint test doc deny dist-plan release-dry-run
+check: fmt-check lint test structure doc deny dist-plan release-dry-run
 
 fmt:
 	cargo fmt --all
@@ -18,6 +18,9 @@ lint:
 
 test:
 	TOVEN_SMOKE_SKIP_MANAGED=1 cargo test --all-targets --all-features
+
+structure:
+	./scripts/check-structure.sh
 
 smoke:
 	./scripts/smoke.sh run
