@@ -53,16 +53,13 @@ fn managed_smoke_cases_match_expected_binary_output() {
         matched += 1;
 
         let source_repo = canonicalize(&root.join(&case.repo), &case_name);
-        let (_fixture, repo) = isolated_repo(&root, &case, &case_name, &source_repo);
-        let config = case_config(&root, &case, &case_name, &repo);
+        let (fixture, repo) = isolated_repo(&root, &case, &case_name, &source_repo);
+        let config = case_config(&root, &case, &case_name, &repo, &fixture);
         let output = run_toven_plan(
             &config,
             case.task.as_deref().unwrap_or("test"),
             case.args.as_ref(),
         );
-        if case.config.is_none() {
-            let _ = fs::remove_file(&config);
-        }
         let normalized = normalize_output(&output, &repo);
         assert_cargo_waves_match_output(&case_name, &repo, &normalized);
         let expected_path = root.join(&case.expected);
@@ -101,17 +98,54 @@ fn load_case(path: &Path) -> SmokeCase {
     toml::from_str(&content).unwrap_or_else(|error| panic!("parse {}: {error}", path.display()))
 }
 
-fn case_config(root: &Path, case: &SmokeCase, case_name: &str, repo: &Path) -> PathBuf {
+fn case_config(
+    root: &Path,
+    case: &SmokeCase,
+    case_name: &str,
+    repo: &Path,
+    fixture: &rskit_fs::TempDir,
+) -> PathBuf {
     if let Some(config) = &case.config {
-        return root.join(config);
+        return isolated_case_config(root, config, case_name, repo, fixture);
     }
 
-    let path = env::temp_dir().join(format!(
-        "toven-smoke-{case_name}-{}.toml",
-        std::process::id()
-    ));
-    fs::write(&path, generated_config(case_name, repo)).expect("write generated smoke config");
-    path
+    fixture
+        .write_file(
+            "generated-toven.toml",
+            generated_config(case_name, repo).as_bytes(),
+        )
+        .expect("write generated smoke config")
+}
+
+fn isolated_case_config(
+    root: &Path,
+    config: &Path,
+    case_name: &str,
+    repo: &Path,
+    fixture: &rskit_fs::TempDir,
+) -> PathBuf {
+    let source = root.join(config);
+    let content = fs::read_to_string(&source)
+        .unwrap_or_else(|error| panic!("read smoke config {}: {error}", source.display()));
+    let mut document = toml::from_str::<toml::Table>(&content)
+        .unwrap_or_else(|error| panic!("parse smoke config {}: {error}", source.display()));
+    let workspace = document
+        .entry("workspace")
+        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+    let workspace = workspace.as_table_mut().unwrap_or_else(|| {
+        panic!(
+            "smoke config {} workspace must be a TOML table",
+            source.display()
+        )
+    });
+    workspace.insert(
+        "root".to_string(),
+        toml::Value::String(repo.to_string_lossy().into_owned()),
+    );
+
+    fixture
+        .write_file("isolated-toven.toml", document.to_string().as_bytes())
+        .unwrap_or_else(|error| panic!("write isolated smoke config for {case_name}: {error}"))
 }
 
 fn isolated_repo(
@@ -366,5 +400,41 @@ argz = []
     assert!(
         error.to_string().contains("unknown field"),
         "unexpected parse error: {error}"
+    );
+}
+
+#[test]
+fn custom_case_config_points_workspace_root_at_isolated_repo() {
+    let root = rskit_fs::TempDir::new().expect("create root temp dir");
+    let fixture = rskit_fs::TempDir::new().expect("create fixture temp dir");
+    let repo = fixture.child("copy").expect("resolve isolated repo");
+    fs::create_dir_all(&repo).expect("create isolated repo");
+    root.write_file(
+        "source/toven.toml",
+        br#"
+[workspace]
+name = "demo"
+root = "."
+"#,
+    )
+    .expect("write source config");
+    let case = SmokeCase {
+        name: Some("custom".to_string()),
+        repo: PathBuf::from("source"),
+        copy_root: None,
+        task: None,
+        args: None,
+        expected: PathBuf::from("expected.plan.txt"),
+        config: Some(PathBuf::from("source/toven.toml")),
+    };
+
+    let config = case_config(root.path(), &case, "custom", &repo, &fixture);
+    let config_content = fs::read_to_string(config).expect("read isolated config");
+    let parsed = toml::from_str::<toml::Table>(&config_content).expect("isolated config is TOML");
+
+    assert_eq!(parsed["workspace"]["name"].as_str(), Some("demo"));
+    assert_eq!(
+        parsed["workspace"]["root"].as_str(),
+        Some(repo.to_string_lossy().as_ref())
     );
 }

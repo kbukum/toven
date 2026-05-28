@@ -87,11 +87,17 @@ run_repo() {
   local bin
   bin="$(binary_path)"
 
-  local config="$repo/toven.toml"
+  local temp_dir
+  temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/toven-smoke.XXXXXX")"
+  local isolated_repo="$temp_dir/repo"
+  mkdir -p "$isolated_repo"
+  cp -R "$repo"/. "$isolated_repo"
+
+  local config="$isolated_repo/toven.toml"
   local temp_config=""
   if [[ ! -f "$config" ]]; then
-    temp_config="$(mktemp "${TMPDIR:-/tmp}/toven-smoke.XXXXXX.toml")"
-    generated_config "$(basename "$repo")" "$repo" "$temp_config"
+    temp_config="$temp_dir/toven.toml"
+    generated_config "$(basename "$repo")" "$isolated_repo" "$temp_config"
     config="$temp_config"
     echo "warning: $repo has no toven.toml; using generated Rust planning config for smoke only" >&2
   fi
@@ -99,9 +105,7 @@ run_repo() {
   local status=0
   "$bin" plan --config "$config" --task test -- "$@" || status=$?
 
-  if [[ -n "$temp_config" ]]; then
-    rm -f "$temp_config"
-  fi
+  rm -rf "$temp_dir"
 
   return "$status"
 }
