@@ -84,6 +84,9 @@ run_repo() {
   shift || true
 
   repo="$(cd "$repo" && pwd)"
+  local bin
+  bin="$(binary_path)"
+
   local config="$repo/toven.toml"
   local temp_config=""
   if [[ ! -f "$config" ]]; then
@@ -93,13 +96,14 @@ run_repo() {
     echo "warning: $repo has no toven.toml; using generated Rust planning config for smoke only" >&2
   fi
 
-  local bin
-  bin="$(binary_path)"
-  "$bin" plan --config "$config" --task test -- "$@"
+  local status=0
+  "$bin" plan --config "$config" --task test -- "$@" || status=$?
 
   if [[ -n "$temp_config" ]]; then
     rm -f "$temp_config"
   fi
+
+  return "$status"
 }
 
 clone_repo() {

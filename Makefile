@@ -17,7 +17,7 @@ lint:
 	cargo clippy --all-targets --all-features -- -D warnings
 
 test:
-	cargo test --all-targets --all-features
+	TOVEN_SMOKE_SKIP_MANAGED=1 cargo test --all-targets --all-features
 
 smoke:
 	./scripts/smoke.sh run

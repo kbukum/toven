@@ -25,12 +25,12 @@ make dist-plan
 make release-artifacts
 ```
 
-`make check` runs formatting, clippy, tests, docs, dependency/license audit,
-metadata validation, release packaging dry-run, and a release build.
-Managed smoke cases run through the normal test target; `make smoke` is the
-focused binary-level real-repository smoke gate. `make coverage` enforces the
-current coverage threshold. `make release-artifacts` stages the crate archive
-and checksum manifest without publishing.
+`make check` runs formatting, clippy, regular tests, docs,
+dependency/license audit, metadata validation, release packaging dry-run, and a
+release build. `make smoke` is the focused binary-level real-repository smoke
+gate. `make coverage` enforces the current coverage threshold.
+`make release-artifacts` stages the crate archive and checksum manifest without
+publishing.
 
 Run the checks that match the files you changed before opening a pull request.
 Broader gates run in CI as implementation branches add the corresponding

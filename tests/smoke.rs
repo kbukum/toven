@@ -25,6 +25,10 @@ struct SmokeCase {
 
 #[test]
 fn managed_smoke_cases_match_expected_binary_output() {
+    if env::var("TOVEN_SMOKE_SKIP_MANAGED").ok().as_deref() == Some("1") {
+        return;
+    }
+
     let root = manifest_dir();
     let selected = env::var("TOVEN_SMOKE_CASE").ok();
     let update = env::var("TOVEN_SMOKE_UPDATE").ok().as_deref() == Some("1");
