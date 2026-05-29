@@ -101,7 +101,10 @@ fn longest_root_match<'a>(
 }
 
 fn path_matches_root(path: &Path, root: &Path) -> bool {
-    root.as_os_str().is_empty() || root == Path::new(".") || path == root || path.starts_with(root)
+    if root.as_os_str().is_empty() || root == Path::new(".") {
+        return path == root;
+    }
+    path == root || path.starts_with(root)
 }
 
 fn is_workspace_root_file(path: &Path) -> bool {
@@ -192,5 +195,23 @@ mod tests {
 
         assert_eq!(affected.closure.len(), 3);
         assert_eq!(affected.global_paths, [PathBuf::from("Cargo.lock")]);
+    }
+
+    #[test]
+    fn nested_unmatched_paths_fail_closed_even_with_root_module() {
+        let modules = [
+            module("root", ".", &[]),
+            module("app", "crates/app", &["root"]),
+            module("util", "crates/util", &[]),
+        ];
+
+        let affected =
+            affected_modules(&modules, &[ChangedPath::new(".github/workflows/ci.yml")]).unwrap();
+
+        assert_eq!(affected.closure.len(), 3);
+        assert_eq!(
+            affected.global_paths,
+            [PathBuf::from(".github/workflows/ci.yml")]
+        );
     }
 }

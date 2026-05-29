@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::{AppError, AppResult, Module, ModuleId};
 
-pub(crate) fn dependents_closure(
+pub(super) fn dependents_closure(
     modules: &[Module],
     seeds: &BTreeSet<ModuleId>,
 ) -> AppResult<BTreeSet<ModuleId>> {

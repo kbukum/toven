@@ -27,7 +27,7 @@ pub struct BaselineContext {
 /// Baseline provider contract.
 pub trait BaselineProvider: Send + Sync {
     /// Provider name.
-    fn name(&self) -> &str;
+    fn name(&self) -> &'static str;
     /// Resolve a baseline.
     fn resolve(&self, ctx: &BaselineContext) -> AppResult<Baseline>;
 }
@@ -49,7 +49,7 @@ impl ExplicitBaselineProvider {
 }
 
 impl BaselineProvider for ExplicitBaselineProvider {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "explicit"
     }
 
@@ -96,7 +96,7 @@ impl GitRefBaselineProvider {
 }
 
 impl BaselineProvider for GitRefBaselineProvider {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "git-ref"
     }
 
@@ -124,7 +124,7 @@ impl MergeBaseBaselineProvider {
 }
 
 impl BaselineProvider for MergeBaseBaselineProvider {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "merge-base"
     }
 

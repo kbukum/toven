@@ -36,10 +36,10 @@ pub fn changed_paths(workspace: &Workspace, baseline: &Baseline) -> AppResult<Ve
         .with_cause(error)
     })? {
         insert_repo_path(&workspace_prefix, &mut paths, entry.path);
-        if matches!(entry.status, FileStatus::Deleted | FileStatus::Renamed) {
-            if let Some(old_path) = entry.old_path {
-                insert_repo_path(&workspace_prefix, &mut paths, old_path);
-            }
+        if matches!(entry.status, FileStatus::Deleted | FileStatus::Renamed)
+            && let Some(old_path) = entry.old_path
+        {
+            insert_repo_path(&workspace_prefix, &mut paths, old_path);
         }
     }
 

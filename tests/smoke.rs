@@ -606,7 +606,7 @@ fn expected_affected_modules(repo: &Path, changes: &[SmokeChange]) -> BTreeSet<S
             return all;
         }
 
-        let changed = repo.join(&change.path);
+        let changed_path = repo.join(&change.path);
         let mut owner = None;
         for package in metadata.workspace_packages() {
             let package_root = package
@@ -614,7 +614,7 @@ fn expected_affected_modules(repo: &Path, changes: &[SmokeChange]) -> BTreeSet<S
                 .parent()
                 .expect("package manifest has parent")
                 .as_std_path();
-            if changed.starts_with(package_root)
+            if changed_path.starts_with(package_root)
                 && owner.as_ref().is_none_or(|owner: &(String, PathBuf)| {
                     let owner_root = &owner.1;
                     package_root.components().count() > owner_root.components().count()
@@ -700,9 +700,7 @@ fn output_module_set(output: &str) -> BTreeSet<String> {
             );
         } else if line == "modules:" {
             in_affected_modules = true;
-        } else if in_affected_modules && line == "changed paths:" {
-            in_affected_modules = false;
-        } else if in_affected_modules && line.is_empty() {
+        } else if in_affected_modules && (line == "changed_paths:" || line.is_empty()) {
             in_affected_modules = false;
         } else if in_affected_modules && let Some(module) = line.strip_prefix("- ") {
             let module = module.split_once(" (").map_or(module, |(module, _)| module);
