@@ -1,11 +1,11 @@
 //! Execution unit planning.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     core::{
         AppError, AppResult, CommandOrigin, DISCOVERY_SCHEMA_VERSION, DiscoverRequest,
-        ExecutionMode, ExecutionUnit, Plan, Profile, Task, TaskCommand, Workspace,
+        ExecutionMode, ExecutionUnit, ModuleId, Plan, Profile, Task, TaskCommand, Workspace,
     },
     engine::scheduler::ready_waves,
     exec::{render_execution_unit, render_resource_group},
@@ -19,6 +19,17 @@ pub fn plan_workspace(
     passthrough_args: &[String],
     registry: &LangRegistry,
 ) -> AppResult<Plan> {
+    plan_workspace_filtered(workspace, task_name, passthrough_args, registry, None)
+}
+
+/// Build a task plan for modules included by `module_filter`.
+pub fn plan_workspace_filtered(
+    workspace: Workspace,
+    task_name: &str,
+    passthrough_args: &[String],
+    registry: &LangRegistry,
+    module_filter: Option<&BTreeSet<ModuleId>>,
+) -> AppResult<Plan> {
     let mut units = Vec::new();
     let mut matched = false;
     let mut discovery_cache = BTreeMap::new();
@@ -30,6 +41,7 @@ pub fn plan_workspace(
         matched = true;
         let modules =
             discover_profile_modules(&workspace, profile, registry, &mut discovery_cache)?;
+        let modules = filter_modules(modules, module_filter);
         units.extend(plan_profile_task(
             &workspace,
             profile,
@@ -50,6 +62,27 @@ pub fn plan_workspace(
     }
 
     Ok(Plan { workspace, units })
+}
+
+fn filter_modules(
+    modules: Vec<crate::core::Module>,
+    module_filter: Option<&BTreeSet<ModuleId>>,
+) -> Vec<crate::core::Module> {
+    let Some(module_filter) = module_filter else {
+        return modules;
+    };
+    modules
+        .into_iter()
+        .filter_map(|mut module| {
+            if !module_filter.contains(&module.name) {
+                return None;
+            }
+            module
+                .dependencies
+                .retain(|dependency| module_filter.contains(dependency));
+            Some(module)
+        })
+        .collect()
 }
 
 fn discover_profile_modules(
@@ -91,6 +124,10 @@ fn plan_profile_task(
     let command = task_command(task)?;
     let waves = ready_waves(&modules)?;
     let mut units = Vec::new();
+
+    if modules.is_empty() {
+        return Ok(units);
+    }
 
     match profile.execution {
         ExecutionMode::SpawnEach => {
@@ -238,6 +275,7 @@ mod tests {
             schema: 1,
             name: "fixture".to_string(),
             root: PathBuf::from("/workspace"),
+            base_ref: None,
             profiles: Vec::new(),
         };
         let profile = Profile {
@@ -260,5 +298,30 @@ mod tests {
         .expect_err("invalid resource group should fail during planning");
 
         assert!(error.message.contains("resource_group"));
+    }
+
+    #[test]
+    fn does_not_emit_workspace_unit_for_empty_module_set() {
+        let workspace = Workspace {
+            schema: 1,
+            name: "fixture".to_string(),
+            root: PathBuf::from("/workspace"),
+            base_ref: None,
+            profiles: Vec::new(),
+        };
+        let profile = Profile {
+            name: "rust".to_string(),
+            language: "rust".to_string(),
+            discovery_command: None,
+            execution: ExecutionMode::WorkspaceOnce,
+            module_arg_template: Vec::new(),
+            resource_group: "cargo:{workspace.root}".to_string(),
+            tasks: vec![task()],
+        };
+
+        let units = plan_profile_task(&workspace, &profile, &profile.tasks[0], Vec::new(), &[])
+            .expect("empty planning succeeds");
+
+        assert!(units.is_empty());
     }
 }

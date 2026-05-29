@@ -1,0 +1,125 @@
+//! `toven affected` command.
+
+use std::{collections::BTreeMap, io::Write, path::PathBuf};
+
+use clap::ArgMatches;
+
+use crate::{
+    config::load_workspace,
+    core::{AppError, AppResult, Module, ModuleId, Workspace},
+    engine::{affected::affected_modules, plan_workspace},
+    git::{
+        affected::changed_paths,
+        baseline::{
+            BaselineContext, BaselineProvider, ExplicitBaselineProvider, GitRefBaselineProvider,
+            MergeBaseBaselineProvider,
+        },
+    },
+    lang::LangRegistry,
+};
+
+pub(super) fn run_affected(matches: &ArgMatches, stdout: &mut impl Write) -> AppResult<()> {
+    let config = PathBuf::from(
+        matches
+            .get_one::<String>("config")
+            .expect("clap supplies the affected config default"),
+    );
+    let task = matches
+        .get_one::<String>("task")
+        .expect("clap supplies the affected task default")
+        .as_str();
+    let workspace = load_workspace(config)?;
+    let affected = resolve_affected_modules(&workspace, task, matches)?;
+
+    writeln!(
+        stdout,
+        "baseline: {} {}",
+        affected.provider, affected.revision
+    )
+    .map_err(AppError::internal)?;
+    if affected.changed_paths.is_empty() {
+        writeln!(stdout, "changed_paths: none").map_err(AppError::internal)?;
+    } else {
+        writeln!(stdout, "changed_paths:").map_err(AppError::internal)?;
+        for path in &affected.changed_paths {
+            writeln!(stdout, "- {}", path.display()).map_err(AppError::internal)?;
+        }
+    }
+    if affected.closure.is_empty() {
+        writeln!(stdout, "modules: none").map_err(AppError::internal)?;
+    } else {
+        writeln!(stdout, "modules:").map_err(AppError::internal)?;
+        for module in &affected.closure {
+            let reason = if affected.direct.contains(module) {
+                "direct"
+            } else {
+                "dependent"
+            };
+            writeln!(stdout, "- {module} ({reason})").map_err(AppError::internal)?;
+        }
+    }
+    Ok(())
+}
+
+pub(super) struct CliAffectedModules {
+    pub(super) provider: String,
+    pub(super) revision: String,
+    pub(super) changed_paths: Vec<PathBuf>,
+    pub(super) direct: std::collections::BTreeSet<ModuleId>,
+    pub(super) closure: std::collections::BTreeSet<ModuleId>,
+}
+
+pub(super) fn resolve_affected_modules(
+    workspace: &Workspace,
+    task: &str,
+    matches: &ArgMatches,
+) -> AppResult<CliAffectedModules> {
+    let provider = baseline_provider(workspace, matches)?;
+    let baseline = provider.resolve(&BaselineContext {
+        workspace_root: workspace.root.clone(),
+    })?;
+    let changed = changed_paths(workspace, &baseline)?;
+    let plan = plan_workspace(workspace.clone(), task, &[], &LangRegistry::default())?;
+    let modules = modules_from_plan(&plan.units);
+    let affected = affected_modules(&modules, &changed)?;
+
+    Ok(CliAffectedModules {
+        provider: baseline.provider,
+        revision: baseline.oid,
+        changed_paths: changed.into_iter().map(|path| path.path).collect(),
+        direct: affected.direct,
+        closure: affected.closure,
+    })
+}
+
+fn baseline_provider(
+    workspace: &Workspace,
+    matches: &ArgMatches,
+) -> AppResult<Box<dyn BaselineProvider>> {
+    let explicit_base = matches.get_one::<String>("base").cloned();
+    let base = explicit_base.clone().or_else(|| workspace.base_ref.clone());
+    let merge_base = matches.get_flag("merge-base");
+
+    match (base, merge_base, explicit_base.is_some()) {
+        (Some(base), true, _) => Ok(Box::new(MergeBaseBaselineProvider::new(base))),
+        (Some(base), false, true) => Ok(Box::new(ExplicitBaselineProvider::new(base))),
+        (Some(base), false, false) => Ok(Box::new(GitRefBaselineProvider::new(base))),
+        (None, true, _) => Err(AppError::invalid_input(
+            "base",
+            "--merge-base requires --base or workspace.base_ref",
+        )),
+        (None, false, _) => Ok(Box::new(ExplicitBaselineProvider::new("HEAD"))),
+    }
+}
+
+fn modules_from_plan(units: &[crate::core::ExecutionUnit]) -> Vec<Module> {
+    let mut modules = BTreeMap::new();
+    for unit in units {
+        for module in &unit.modules {
+            modules
+                .entry(module.name.clone())
+                .or_insert_with(|| module.clone());
+        }
+    }
+    modules.into_values().collect()
+}

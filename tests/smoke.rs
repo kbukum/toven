@@ -4,7 +4,8 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     env,
     fmt::Write as _,
-    fs,
+    fs::{self, OpenOptions},
+    io::Write,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -17,10 +18,44 @@ struct SmokeCase {
     name: Option<String>,
     repo: PathBuf,
     copy_root: Option<PathBuf>,
+    #[serde(default)]
+    command: SmokeCommand,
+    #[serde(default)]
+    affected: bool,
+    base: Option<String>,
+    #[serde(default)]
+    merge_base: bool,
+    branch: Option<String>,
+    changes: Option<Vec<SmokeChange>>,
     task: Option<String>,
     args: Option<Vec<String>>,
     expected: PathBuf,
     config: Option<PathBuf>,
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum SmokeCommand {
+    #[default]
+    Plan,
+    Affected,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SmokeChange {
+    path: PathBuf,
+    #[serde(default)]
+    mode: SmokeChangeMode,
+    content: String,
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum SmokeChangeMode {
+    #[default]
+    Append,
+    Write,
 }
 
 #[test]
@@ -54,14 +89,20 @@ fn managed_smoke_cases_match_expected_binary_output() {
 
         let source_repo = canonicalize(&root.join(&case.repo), &case_name);
         let (fixture, repo) = isolated_repo(&root, &case, &case_name, &source_repo);
+        prepare_git_fixture(&case, &case_name, &repo);
         let config = case_config(&root, &case, &case_name, &repo, &fixture);
-        let output = run_toven_plan(
+        let output = run_toven(
+            &case,
             &config,
             case.task.as_deref().unwrap_or("test"),
             case.args.as_ref(),
         );
         let normalized = normalize_output(&output, &repo);
-        assert_cargo_waves_match_output(&case_name, &repo, &normalized);
+        if case.affected || matches!(case.command, SmokeCommand::Affected) {
+            assert_affected_modules_match_metadata(&case_name, &repo, &case, &normalized);
+        } else {
+            assert_cargo_waves_match_output(&case_name, &repo, &normalized);
+        }
         let expected_path = root.join(&case.expected);
 
         if update {
@@ -233,18 +274,164 @@ fn toml_string(value: &str) -> String {
     escaped
 }
 
-fn run_toven_plan(config: &Path, task: &str, args: Option<&Vec<String>>) -> String {
+fn prepare_git_fixture(case: &SmokeCase, case_name: &str, repo: &Path) {
+    if !case.needs_git_fixture() {
+        return;
+    }
+
+    remove_copied_git_metadata(repo, case_name);
+    run_git(
+        repo,
+        case_name,
+        &["init", "--initial-branch=main", "--quiet"],
+    );
+    run_git(repo, case_name, &["config", "user.name", "Toven Smoke"]);
+    run_git(
+        repo,
+        case_name,
+        &["config", "user.email", "toven-smoke@example.invalid"],
+    );
+    run_git(repo, case_name, &["add", "-A"]);
+    run_git(repo, case_name, &["commit", "--quiet", "-m", "baseline"]);
+
+    if let Some(branch) = &case.branch {
+        run_git(repo, case_name, &["checkout", "--quiet", "-b", branch]);
+    }
+    apply_changes(repo, case_name, case.changes.as_deref().unwrap_or(&[]));
+    if case.branch.is_some() {
+        run_git(repo, case_name, &["add", "-A"]);
+        run_git(
+            repo,
+            case_name,
+            &["commit", "--quiet", "-m", "affected changes"],
+        );
+    }
+}
+
+impl SmokeCase {
+    fn needs_git_fixture(&self) -> bool {
+        self.affected
+            || matches!(self.command, SmokeCommand::Affected)
+            || self.base.is_some()
+            || self.branch.is_some()
+            || self
+                .changes
+                .as_ref()
+                .is_some_and(|changes| !changes.is_empty())
+    }
+}
+
+fn remove_copied_git_metadata(repo: &Path, case_name: &str) {
+    let git = repo.join(".git");
+    let Ok(metadata) = fs::symlink_metadata(&git) else {
+        return;
+    };
+    if metadata.is_dir() {
+        fs::remove_dir_all(&git)
+            .unwrap_or_else(|error| panic!("remove copied .git for {case_name}: {error}"));
+    } else {
+        fs::remove_file(&git)
+            .unwrap_or_else(|error| panic!("remove copied .git for {case_name}: {error}"));
+    }
+}
+
+fn apply_changes(repo: &Path, case_name: &str, changes: &[SmokeChange]) {
+    for change in changes {
+        let target = repo.join(&change.path);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).unwrap_or_else(|error| {
+                panic!(
+                    "create smoke change parent {} for {case_name}: {error}",
+                    parent.display()
+                )
+            });
+        }
+        match change.mode {
+            SmokeChangeMode::Append => {
+                let mut file = OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&target)
+                    .unwrap_or_else(|error| {
+                        panic!(
+                            "open smoke change target {} for {case_name}: {error}",
+                            target.display()
+                        )
+                    });
+                file.write_all(change.content.as_bytes())
+                    .unwrap_or_else(|error| {
+                        panic!(
+                            "append smoke change target {} for {case_name}: {error}",
+                            target.display()
+                        )
+                    });
+            }
+            SmokeChangeMode::Write => {
+                fs::write(&target, &change.content).unwrap_or_else(|error| {
+                    panic!(
+                        "write smoke change target {} for {case_name}: {error}",
+                        target.display()
+                    )
+                });
+            }
+        }
+    }
+}
+
+fn run_git(repo: &Path, case_name: &str, args: &[&str]) {
+    let output = Command::new("git")
+        .current_dir(repo)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_AUTHOR_DATE", "2001-02-03T04:05:06Z")
+        .env("GIT_COMMITTER_DATE", "2001-02-03T04:05:06Z")
+        .args([
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "gc.auto=0",
+        ])
+        .args(args)
+        .output()
+        .unwrap_or_else(|error| panic!("run git for smoke case {case_name}: {error}"));
+    assert!(
+        output.status.success(),
+        "git {:?} failed for smoke case {case_name} with {}\nstdout:\n{}\nstderr:\n{}",
+        args,
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn run_toven(case: &SmokeCase, config: &Path, task: &str, args: Option<&Vec<String>>) -> String {
     let mut command = Command::new(env!("CARGO_BIN_EXE_toven"));
     command
         .env("LC_ALL", "C")
         .env("NO_COLOR", "1")
-        .arg("plan")
+        .arg(match case.command {
+            SmokeCommand::Plan => "plan",
+            SmokeCommand::Affected => "affected",
+        })
         .arg("--config")
         .arg(config)
         .arg("--task")
         .arg(task);
 
-    if let Some(args) = args {
+    if case.affected {
+        command.arg("--affected");
+    }
+    if let Some(base) = &case.base {
+        command.arg("--base").arg(base);
+    }
+    if case.merge_base {
+        command.arg("--merge-base");
+    }
+    if matches!(case.command, SmokeCommand::Plan)
+        && let Some(args) = args
+    {
         command.arg("--").args(args);
     }
 
@@ -270,6 +457,25 @@ fn normalize_output(output: &str, repo: &Path) -> String {
         .replace("\r\n", "\n")
         .replace('\\', "/")
         .replace(&repo, "<WORKSPACE_ROOT>")
+        .lines()
+        .map(normalize_git_oid_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + if output.ends_with('\n') { "\n" } else { "" }
+}
+
+fn normalize_git_oid_line(line: &str) -> String {
+    let Some(rest) = line.strip_prefix("baseline: ") else {
+        return line.to_string();
+    };
+    let Some((provider, oid)) = rest.rsplit_once(' ') else {
+        return line.to_string();
+    };
+    if oid.len() == 40 && oid.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        format!("baseline: {provider} <OID>")
+    } else {
+        line.to_string()
+    }
 }
 
 fn assert_cargo_waves_match_output(case_name: &str, repo: &Path, normalized_output: &str) {
@@ -364,6 +570,153 @@ fn output_waves(output: &str) -> Vec<Vec<String>> {
         .collect()
 }
 
+fn assert_affected_modules_match_metadata(
+    case_name: &str,
+    repo: &Path,
+    case: &SmokeCase,
+    normalized_output: &str,
+) {
+    let expected = expected_affected_modules(repo, case.changes.as_deref().unwrap_or(&[]));
+    let actual = output_module_set(normalized_output);
+    assert_eq!(
+        actual, expected,
+        "smoke case {case_name} affected module set"
+    );
+}
+
+fn expected_affected_modules(repo: &Path, changes: &[SmokeChange]) -> BTreeSet<String> {
+    if changes.is_empty() {
+        return BTreeSet::new();
+    }
+
+    let metadata = MetadataCommand::new()
+        .manifest_path(repo.join("Cargo.toml"))
+        .current_dir(repo)
+        .exec()
+        .expect("read smoke repo cargo metadata");
+    let all = metadata
+        .workspace_packages()
+        .iter()
+        .map(|package| package.name.to_string())
+        .collect::<BTreeSet<_>>();
+    let mut direct = BTreeSet::new();
+
+    for change in changes {
+        if change.path.components().count() == 1 {
+            return all;
+        }
+
+        let changed = repo.join(&change.path);
+        let mut owner = None;
+        for package in metadata.workspace_packages() {
+            let package_root = package
+                .manifest_path
+                .parent()
+                .expect("package manifest has parent")
+                .as_std_path();
+            if changed.starts_with(package_root)
+                && owner.as_ref().is_none_or(|owner: &(String, PathBuf)| {
+                    let owner_root = &owner.1;
+                    package_root.components().count() > owner_root.components().count()
+                })
+            {
+                owner = Some((package.name.to_string(), package_root.to_path_buf()));
+            }
+        }
+
+        let Some((owner, _)) = owner else {
+            return all;
+        };
+        direct.insert(owner);
+    }
+
+    reverse_dependent_closure(&metadata, direct)
+}
+
+fn reverse_dependent_closure(
+    metadata: &cargo_metadata::Metadata,
+    mut affected: BTreeSet<String>,
+) -> BTreeSet<String> {
+    let workspace_roots = metadata
+        .workspace_packages()
+        .iter()
+        .map(|package| {
+            (
+                package
+                    .manifest_path
+                    .parent()
+                    .expect("package manifest has parent")
+                    .as_std_path()
+                    .to_path_buf(),
+                package.name.to_string(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let workspace_names = metadata
+        .workspace_packages()
+        .iter()
+        .map(|package| package.name.to_string())
+        .collect::<BTreeSet<_>>();
+    let mut reverse = BTreeMap::<String, BTreeSet<String>>::new();
+
+    for package in metadata.workspace_packages() {
+        for dependency in &package.dependencies {
+            let dependency_name = dependency
+                .path
+                .as_ref()
+                .and_then(|path| workspace_roots.get(path.as_std_path()).cloned())
+                .or_else(|| workspace_names.get(dependency.name.as_str()).cloned());
+            if let Some(dependency_name) = dependency_name {
+                reverse
+                    .entry(dependency_name)
+                    .or_default()
+                    .insert(package.name.to_string());
+            }
+        }
+    }
+
+    let mut queue = affected.iter().cloned().collect::<Vec<_>>();
+    while let Some(module) = queue.pop() {
+        for dependent in reverse.get(&module).into_iter().flatten() {
+            if affected.insert(dependent.clone()) {
+                queue.push(dependent.clone());
+            }
+        }
+    }
+
+    affected
+}
+
+fn output_module_set(output: &str) -> BTreeSet<String> {
+    let mut modules = BTreeSet::new();
+    let mut in_affected_modules = false;
+    for line in output.lines() {
+        if let Some(batch_modules) = line.strip_prefix("modules: ") {
+            modules.extend(
+                batch_modules
+                    .split(", ")
+                    .filter(|module| !module.is_empty())
+                    .map(ToString::to_string),
+            );
+        } else if line == "modules:" {
+            in_affected_modules = true;
+        } else if in_affected_modules && line == "changed paths:" {
+            in_affected_modules = false;
+        } else if in_affected_modules && line.is_empty() {
+            in_affected_modules = false;
+        } else if in_affected_modules && let Some(module) = line.strip_prefix("- ") {
+            let module = module.split_once(" (").map_or(module, |(module, _)| module);
+            modules.insert(module.to_string());
+        } else if let Some(module) = line.strip_prefix("- ") {
+            debug_assert!(
+                !module.contains(" (direct)") && !module.contains(" (dependent)"),
+                "module-like affected line was not parsed in a modules section: {line}"
+            );
+        }
+    }
+    modules
+}
+
 fn canonicalize(path: &Path, case_name: &str) -> PathBuf {
     fs::canonicalize(path)
         .unwrap_or_else(|error| panic!("smoke case {case_name} repo {}: {error}", path.display()))
@@ -422,6 +775,12 @@ root = "."
         name: Some("custom".to_string()),
         repo: PathBuf::from("source"),
         copy_root: None,
+        command: SmokeCommand::Plan,
+        affected: false,
+        base: None,
+        merge_base: false,
+        branch: None,
+        changes: None,
         task: None,
         args: None,
         expected: PathBuf::from("expected.plan.txt"),

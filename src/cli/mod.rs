@@ -1,5 +1,6 @@
 //! CLI composition root.
 
+mod affected;
 mod app;
 mod plan;
 

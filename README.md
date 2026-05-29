@@ -13,8 +13,9 @@ and renders reviewable command batches before execution.
 
 **Pre-alpha.** The current implementation includes strict configuration loading,
 filesystem preset resolution, Rust workspace discovery, dependency-aware batching,
-and human-readable plan output. Command execution, cache-backed skipping, and
-additional language adapters will be added in follow-up phases.
+affected-module planning, and human-readable plan output. Command execution,
+cache-backed skipping, and additional language adapters will be added in
+follow-up phases.
 
 Toven is not published to crates.io yet. Until the first alpha release, install
 from source after cloning the repository.
@@ -41,9 +42,9 @@ cargo run -- --help
 ```
 
 The current scaffold builds as a standalone Rust CLI with configuration,
-preset-loading, Rust discovery, and reviewable planning foundations. Toven will
-add execution wiring and cache-backed skipping in focused follow-up pull
-requests.
+preset-loading, Rust discovery, affected detection, and reviewable planning
+foundations. Toven will add execution wiring and cache-backed skipping in
+focused follow-up pull requests.
 
 ## Smoke testing real repositories
 
@@ -95,6 +96,18 @@ test = { argv = ["cargo", "test", "{module.args}", "{args}"] }
 Tasks can also reference preset files. Project presets are resolved before user
 presets from `.toven/lang/<language>/presets/<name>.toml`; user presets use the
 same layout under the current user's home directory.
+
+Affected planning narrows a plan to modules changed since a git baseline plus
+their reverse dependents:
+
+```bash
+cargo run -- plan --affected --base origin/main --merge-base
+cargo run -- affected --base origin/main --merge-base
+```
+
+Set `workspace.base_ref` in `toven.toml` to provide a default baseline. Without
+`--base` or `workspace.base_ref`, affected detection compares `HEAD` to `HEAD`
+and only local staged, unstaged, and untracked changes are considered.
 
 `make release-artifacts` stages the crates.io package and checksum manifest in
 `dist/`. CI also generates a CycloneDX SBOM and checks Sigstore tooling without

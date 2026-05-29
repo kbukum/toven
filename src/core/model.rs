@@ -94,6 +94,8 @@ pub struct Workspace {
     pub name: String,
     /// Absolute or invocation-relative workspace root.
     pub root: PathBuf,
+    /// Default git baseline reference for affected detection.
+    pub base_ref: Option<String>,
     /// Profiles defined for the workspace.
     pub profiles: Vec<Profile>,
 }

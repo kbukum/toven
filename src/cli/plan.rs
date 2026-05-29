@@ -5,7 +5,11 @@ use std::{io::Write, path::PathBuf};
 use clap::ArgMatches;
 
 use crate::{
-    config::load_workspace, core::AppResult, engine::plan_workspace, lang::LangRegistry,
+    cli::affected::resolve_affected_modules,
+    config::load_workspace,
+    core::AppResult,
+    engine::{plan_workspace, plan_workspace_filtered},
+    lang::LangRegistry,
     report::render_human_plan,
 };
 
@@ -25,6 +29,17 @@ pub(super) fn run_plan(matches: &ArgMatches, stdout: &mut impl Write) -> AppResu
         .unwrap_or_default();
 
     let workspace = load_workspace(config)?;
-    let plan = plan_workspace(workspace, task, &passthrough_args, &LangRegistry::default())?;
+    let plan = if matches.get_flag("affected") {
+        let affected = resolve_affected_modules(&workspace, task, matches)?;
+        plan_workspace_filtered(
+            workspace,
+            task,
+            &passthrough_args,
+            &LangRegistry::default(),
+            Some(&affected.closure),
+        )?
+    } else {
+        plan_workspace(workspace, task, &passthrough_args, &LangRegistry::default())?
+    };
     write!(stdout, "{}", render_human_plan(&plan)?).map_err(crate::core::AppError::internal)
 }
