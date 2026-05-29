@@ -121,13 +121,14 @@ fn plan_profile_task(
     modules: Vec<crate::core::Module>,
     passthrough_args: &[String],
 ) -> AppResult<Vec<ExecutionUnit>> {
-    let command = task_command(task)?;
-    let waves = ready_waves(&modules)?;
     let mut units = Vec::new();
 
     if modules.is_empty() {
         return Ok(units);
     }
+
+    let command = task_command(task)?;
+    let waves = ready_waves(&modules)?;
 
     match profile.execution {
         ExecutionMode::SpawnEach => {

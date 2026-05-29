@@ -691,7 +691,9 @@ fn output_module_set(output: &str) -> BTreeSet<String> {
     let mut modules = BTreeSet::new();
     let mut in_affected_modules = false;
     for line in output.lines() {
-        if let Some(batch_modules) = line.strip_prefix("modules: ") {
+        if line == "modules: none" {
+            in_affected_modules = false;
+        } else if let Some(batch_modules) = line.strip_prefix("modules: ") {
             modules.extend(
                 batch_modules
                     .split(", ")

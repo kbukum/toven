@@ -257,8 +257,18 @@ mod tests {
 
     fn git<const N: usize>(cwd: &Path, args: [&str; N]) {
         let output = Command::new("git")
-            .args(args)
             .current_dir(cwd)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .args([
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                "gc.auto=0",
+            ])
+            .args(args)
             .output()
             .expect("run git");
         assert!(
@@ -270,8 +280,18 @@ mod tests {
 
     fn git_stdout<const N: usize>(cwd: &Path, args: [&str; N]) -> String {
         let output = Command::new("git")
-            .args(args)
             .current_dir(cwd)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .args([
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                "gc.auto=0",
+            ])
+            .args(args)
             .output()
             .expect("run git");
         assert!(
