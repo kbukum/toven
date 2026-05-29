@@ -14,3 +14,24 @@ pub mod report;
 
 /// Current package version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Current package version metadata using the shared rskit version shape.
+#[must_use]
+pub fn version_info() -> rskit_version::VersionInfo {
+    rskit_version::VersionInfo {
+        version: VERSION.to_string(),
+        git_commit: String::new(),
+        git_branch: String::new(),
+        build_time: String::new(),
+        rust_version: String::new(),
+        is_release: VERSION != "dev" && !VERSION.contains("dirty"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn version_info_reports_toven_package_version() {
+        assert_eq!(crate::version_info().package_version(), crate::VERSION);
+    }
+}

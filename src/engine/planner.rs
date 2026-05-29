@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use crate::{
     core::{
-        AppError, AppResult, DISCOVERY_SCHEMA_VERSION, DiscoverRequest, ExecutionMode,
-        ExecutionUnit, Plan, Profile, Task, TaskCommand, Workspace,
+        AppError, AppResult, CommandOrigin, DISCOVERY_SCHEMA_VERSION, DiscoverRequest,
+        ExecutionMode, ExecutionUnit, Plan, Profile, Task, TaskCommand, Workspace,
     },
     engine::scheduler::ready_waves,
     exec::{render_execution_unit, render_resource_group},
@@ -88,7 +88,7 @@ fn plan_profile_task(
     modules: Vec<crate::core::Module>,
     passthrough_args: &[String],
 ) -> AppResult<Vec<ExecutionUnit>> {
-    let argv_template = task_argv(task)?;
+    let command = task_command(task)?;
     let waves = ready_waves(&modules)?;
     let mut units = Vec::new();
 
@@ -104,7 +104,7 @@ fn plan_profile_task(
                             profile.name, task.name, module.name
                         ),
                         vec![module],
-                        argv_template.clone(),
+                        command.clone(),
                         passthrough_args.to_owned(),
                     ));
                 }
@@ -117,7 +117,7 @@ fn plan_profile_task(
                     task,
                     format!("{}/{}/w{wave_index}/batch", profile.name, task.name),
                     wave,
-                    argv_template.clone(),
+                    command.clone(),
                     passthrough_args.to_owned(),
                 ));
             }
@@ -128,7 +128,7 @@ fn plan_profile_task(
                 task,
                 format!("{}/{}/workspace", profile.name, task.name),
                 modules,
-                argv_template,
+                command,
                 passthrough_args.to_owned(),
             ));
         }
@@ -146,26 +146,42 @@ fn unit(
     task: &Task,
     id: String,
     modules: Vec<crate::core::Module>,
-    argv_template: Vec<String>,
+    command: PlannedCommand,
     passthrough_args: Vec<String>,
 ) -> ExecutionUnit {
     ExecutionUnit {
         id,
         profile: profile.name.clone(),
         task: task.name.clone(),
+        command_origin: command.origin,
         mode: profile.execution,
         resource_group: profile.resource_group.clone(),
         modules,
-        argv_template,
+        argv_template: command.argv_template,
         module_arg_template: profile.module_arg_template.clone(),
         passthrough_args,
     }
 }
 
-fn task_argv(task: &Task) -> AppResult<Vec<String>> {
+#[derive(Clone)]
+struct PlannedCommand {
+    argv_template: Vec<String>,
+    origin: CommandOrigin,
+}
+
+fn task_command(task: &Task) -> AppResult<PlannedCommand> {
     match &task.command {
-        TaskCommand::Argv(argv) => Ok(argv.clone()),
-        TaskCommand::ResolvedPreset(preset) => Ok(preset.argv.clone()),
+        TaskCommand::Argv(argv) => Ok(PlannedCommand {
+            argv_template: argv.clone(),
+            origin: CommandOrigin::DirectArgv,
+        }),
+        TaskCommand::ResolvedPreset(preset) => Ok(PlannedCommand {
+            argv_template: preset.argv.clone(),
+            origin: CommandOrigin::Preset {
+                name: preset.name.clone(),
+                language: preset.language.clone(),
+            },
+        }),
         TaskCommand::Preset(name) => Err(AppError::invalid_input(
             "task",
             format!("task preset '{name}' was not resolved"),
