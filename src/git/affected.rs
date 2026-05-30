@@ -43,7 +43,16 @@ pub fn changed_paths(workspace: &Workspace, baseline: &Baseline) -> AppResult<Ve
         }
     }
 
-    for entry in repo.status()? {
+    for entry in repo.status().map_err(|error| {
+        AppError::invalid_input(
+            "workspace.root",
+            format!(
+                "failed to read git status from '{}'",
+                workspace.root.display()
+            ),
+        )
+        .with_cause(error)
+    })? {
         insert_repo_path(&workspace_prefix, &mut paths, entry.path);
     }
 

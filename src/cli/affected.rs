@@ -7,7 +7,7 @@ use clap::ArgMatches;
 use crate::{
     config::load_workspace,
     core::{AppError, AppResult, Module, ModuleId, Workspace},
-    engine::{affected::affected_modules, plan_workspace},
+    engine::{DiscoveredTaskProfile, affected::affected_modules, discover_workspace_task_profiles},
     git::{
         affected::changed_paths,
         baseline::{
@@ -29,7 +29,9 @@ pub(super) fn run_affected(matches: &ArgMatches, stdout: &mut impl Write) -> App
         .expect("clap supplies the affected task default")
         .as_str();
     let workspace = load_workspace(config)?;
-    let affected = resolve_affected_modules(&workspace, task, matches)?;
+    let discovered = discover_workspace_task_profiles(&workspace, task, &LangRegistry::default())?;
+    let modules = modules_from_discovered(&discovered);
+    let affected = resolve_affected_modules(&workspace, matches, &modules)?;
 
     writeln!(
         stdout,
@@ -71,17 +73,15 @@ pub(super) struct CliAffectedModules {
 
 pub(super) fn resolve_affected_modules(
     workspace: &Workspace,
-    task: &str,
     matches: &ArgMatches,
+    modules: &[Module],
 ) -> AppResult<CliAffectedModules> {
     let provider = baseline_provider(workspace, matches)?;
     let baseline = provider.resolve(&BaselineContext {
         workspace_root: workspace.root.clone(),
     })?;
     let changed = changed_paths(workspace, &baseline)?;
-    let plan = plan_workspace(workspace.clone(), task, &[], &LangRegistry::default())?;
-    let modules = modules_from_plan(&plan.units);
-    let affected = affected_modules(&modules, &changed)?;
+    let affected = affected_modules(modules, &changed)?;
 
     Ok(CliAffectedModules {
         provider: baseline.provider,
@@ -112,10 +112,10 @@ fn baseline_provider(
     }
 }
 
-fn modules_from_plan(units: &[crate::core::ExecutionUnit]) -> Vec<Module> {
+pub(super) fn modules_from_discovered(discovered: &[DiscoveredTaskProfile]) -> Vec<Module> {
     let mut modules = BTreeMap::new();
-    for unit in units {
-        for module in &unit.modules {
+    for profile in discovered {
+        for module in &profile.modules {
             modules
                 .entry(module.name.clone())
                 .or_insert_with(|| module.clone());

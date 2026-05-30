@@ -102,6 +102,8 @@ fn managed_smoke_cases_match_expected_binary_output() {
         let (fixture, repo) = isolated_repo(&root, &case, &case_name, &source_repo);
         prepare_git_fixture(&case, &case_name, &repo);
         let config = case_config(&root, &case, &case_name, &repo, &fixture);
+        let expected_affected = (case.affected || matches!(case.command, SmokeCommand::Affected))
+            .then(|| expected_affected_modules(&repo, &case));
         let output = run_toven(
             &case,
             &config,
@@ -109,8 +111,8 @@ fn managed_smoke_cases_match_expected_binary_output() {
             case.args.as_ref(),
         );
         let normalized = normalize_output(&output, &repo);
-        if case.affected || matches!(case.command, SmokeCommand::Affected) {
-            assert_affected_modules_match_metadata(&case_name, &repo, &case, &normalized);
+        if let Some(expected_affected) = expected_affected {
+            assert_affected_modules_match_metadata(&case_name, &expected_affected, &normalized);
         } else {
             assert_cargo_waves_match_output(&case_name, &repo, &normalized);
         }
@@ -290,7 +292,7 @@ fn prepare_git_fixture(case: &SmokeCase, case_name: &str, repo: &Path) {
         return;
     }
 
-    remove_copied_git_metadata(repo, case_name);
+    remove_copied_repo_state(repo, case_name);
     run_git(
         repo,
         case_name,
@@ -332,9 +334,10 @@ impl SmokeCase {
     }
 }
 
-fn remove_copied_git_metadata(repo: &Path, case_name: &str) {
+fn remove_copied_repo_state(repo: &Path, case_name: &str) {
     let git = repo.join(".git");
     let Ok(metadata) = fs::symlink_metadata(&git) else {
+        remove_copied_target_dir(repo, case_name);
         return;
     };
     if metadata.is_dir() {
@@ -343,6 +346,15 @@ fn remove_copied_git_metadata(repo: &Path, case_name: &str) {
     } else {
         fs::remove_file(&git)
             .unwrap_or_else(|error| panic!("remove copied .git for {case_name}: {error}"));
+    }
+    remove_copied_target_dir(repo, case_name);
+}
+
+fn remove_copied_target_dir(repo: &Path, case_name: &str) {
+    let target = repo.join("target");
+    if target.exists() {
+        fs::remove_dir_all(&target)
+            .unwrap_or_else(|error| panic!("remove copied target for {case_name}: {error}"));
     }
 }
 
@@ -583,14 +595,12 @@ fn output_waves(output: &str) -> Vec<Vec<String>> {
 
 fn assert_affected_modules_match_metadata(
     case_name: &str,
-    repo: &Path,
-    case: &SmokeCase,
+    expected: &BTreeSet<String>,
     normalized_output: &str,
 ) {
-    let expected = expected_affected_modules(repo, case);
     let actual = output_module_set(normalized_output);
     assert_eq!(
-        actual, expected,
+        &actual, expected,
         "smoke case {case_name} affected module set"
     );
 }

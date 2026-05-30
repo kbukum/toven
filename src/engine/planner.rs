@@ -12,6 +12,17 @@ use crate::{
     lang::LangRegistry,
 };
 
+/// Modules discovered for one profile/task pair.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct DiscoveredTaskProfile {
+    /// Profile that owns the task.
+    pub profile: Profile,
+    /// Task selected from the profile.
+    pub task: Task,
+    /// Modules discovered for the profile.
+    pub modules: Vec<crate::core::Module>,
+}
+
 /// Build a task plan for every profile that defines `task_name`.
 pub fn plan_workspace(
     workspace: Workspace,
@@ -30,35 +41,62 @@ pub fn plan_workspace_filtered(
     registry: &LangRegistry,
     module_filter: Option<&BTreeSet<ModuleId>>,
 ) -> AppResult<Plan> {
-    let mut units = Vec::new();
-    let mut matched = false;
+    let discovered = discover_workspace_task_profiles(&workspace, task_name, registry)?;
+    plan_discovered_task_profiles(workspace, &discovered, passthrough_args, module_filter)
+}
+
+/// Discover modules for every profile that defines `task_name`.
+pub fn discover_workspace_task_profiles(
+    workspace: &Workspace,
+    task_name: &str,
+    registry: &LangRegistry,
+) -> AppResult<Vec<DiscoveredTaskProfile>> {
+    let mut discovered = Vec::new();
     let mut discovery_cache = BTreeMap::new();
 
     for profile in &workspace.profiles {
         let Some(task) = profile.tasks.iter().find(|task| task.name == task_name) else {
             continue;
         };
-        matched = true;
-        let modules =
-            discover_profile_modules(&workspace, profile, registry, &mut discovery_cache)?;
-        let modules = filter_modules(modules, module_filter);
-        units.extend(plan_profile_task(
-            &workspace,
-            profile,
-            task,
+        let modules = discover_profile_modules(workspace, profile, registry, &mut discovery_cache)?;
+        discovered.push(DiscoveredTaskProfile {
+            profile: profile.clone(),
+            task: task.clone(),
             modules,
-            passthrough_args,
-        )?);
+        });
     }
 
-    if !matched {
+    if discovered.is_empty() {
         return Err(AppError::invalid_input(
             "task",
             format!(
                 "task '{task_name}' is not defined by any profile; available tasks: {}",
-                available_tasks(&workspace)
+                available_tasks(workspace)
             ),
         ));
+    }
+
+    Ok(discovered)
+}
+
+/// Build a task plan from modules already discovered for the selected task.
+pub fn plan_discovered_task_profiles(
+    workspace: Workspace,
+    discovered: &[DiscoveredTaskProfile],
+    passthrough_args: &[String],
+    module_filter: Option<&BTreeSet<ModuleId>>,
+) -> AppResult<Plan> {
+    let mut units = Vec::new();
+
+    for discovered in discovered {
+        let modules = filter_modules(discovered.modules.clone(), module_filter);
+        units.extend(plan_profile_task(
+            &workspace,
+            &discovered.profile,
+            &discovered.task,
+            modules,
+            passthrough_args,
+        )?);
     }
 
     Ok(Plan { workspace, units })

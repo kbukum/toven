@@ -276,4 +276,39 @@ mod tests {
         assert!(stdout.contains("--release"));
         assert!(stdout.contains("fixture-core"));
     }
+
+    #[test]
+    fn plan_rejects_baseline_flags_without_affected() {
+        let root = rskit_testutil::test_workspace!("cli-plan-base-without-affected");
+        let workspace_path = root.path().join("rust-workspace");
+        rskit_fs::sync_io::tree::copy_tree(
+            &root
+                .fixture_path("rust-workspace")
+                .expect("rust fixture path"),
+            &workspace_path,
+            rskit_fs::sync_io::tree::CopyTreeOptions::default(),
+        )
+        .expect("copy rust fixture");
+        let config_path = workspace_path.join("toven.toml");
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let code = run_with_io(
+            [
+                "toven".to_string(),
+                "plan".to_string(),
+                "--config".to_string(),
+                config_path.display().to_string(),
+                "--base".to_string(),
+                "main".to_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(code, ExitCode::FAILURE);
+        assert!(stdout.is_empty());
+        let stderr = String::from_utf8(stderr).expect("stderr is utf-8");
+        assert!(stderr.contains("--base can only be used with --affected"));
+    }
 }

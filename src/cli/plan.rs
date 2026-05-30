@@ -5,10 +5,10 @@ use std::{io::Write, path::PathBuf};
 use clap::ArgMatches;
 
 use crate::{
-    cli::affected::resolve_affected_modules,
+    cli::affected::{modules_from_discovered, resolve_affected_modules},
     config::load_workspace,
-    core::AppResult,
-    engine::{plan_workspace, plan_workspace_filtered},
+    core::{AppError, AppResult},
+    engine::{discover_workspace_task_profiles, plan_discovered_task_profiles, plan_workspace},
     lang::LangRegistry,
     report::render_human_plan,
 };
@@ -30,16 +30,35 @@ pub(super) fn run_plan(matches: &ArgMatches, stdout: &mut impl Write) -> AppResu
 
     let workspace = load_workspace(config)?;
     let plan = if matches.get_flag("affected") {
-        let affected = resolve_affected_modules(&workspace, task, matches)?;
-        plan_workspace_filtered(
+        let discovered =
+            discover_workspace_task_profiles(&workspace, task, &LangRegistry::default())?;
+        let modules = modules_from_discovered(&discovered);
+        let affected = resolve_affected_modules(&workspace, matches, &modules)?;
+        plan_discovered_task_profiles(
             workspace,
-            task,
+            &discovered,
             &passthrough_args,
-            &LangRegistry::default(),
             Some(&affected.closure),
         )?
     } else {
+        reject_unused_affected_flags(matches)?;
         plan_workspace(workspace, task, &passthrough_args, &LangRegistry::default())?
     };
     write!(stdout, "{}", render_human_plan(&plan)?).map_err(crate::core::AppError::internal)
+}
+
+fn reject_unused_affected_flags(matches: &ArgMatches) -> AppResult<()> {
+    if matches.contains_id("base") {
+        return Err(AppError::invalid_input(
+            "base",
+            "--base can only be used with --affected",
+        ));
+    }
+    if matches.get_flag("merge-base") {
+        return Err(AppError::invalid_input(
+            "merge-base",
+            "--merge-base can only be used with --affected",
+        ));
+    }
+    Ok(())
 }
