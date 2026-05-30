@@ -33,7 +33,7 @@ pub(super) fn run_plan(matches: &ArgMatches, stdout: &mut impl Write) -> AppResu
         let changes = resolve_affected_changes(&workspace, matches)?;
         let discovered =
             discover_workspace_task_profiles(&workspace, task, &LangRegistry::default())?;
-        let modules = modules_from_discovered(&discovered);
+        let modules = modules_from_discovered(&discovered)?;
         let affected = resolve_affected_modules(changes, &modules)?;
         plan_discovered_task_profiles(
             workspace,

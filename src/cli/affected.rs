@@ -35,7 +35,7 @@ pub(super) fn run_affected(matches: &ArgMatches, stdout: &mut impl Write) -> App
     let workspace = load_workspace(config)?;
     let changes = resolve_affected_changes(&workspace, matches)?;
     let discovered = discover_workspace_task_profiles(&workspace, task, &LangRegistry::default())?;
-    let modules = modules_from_discovered(&discovered);
+    let modules = modules_from_discovered(&discovered)?;
     let affected = resolve_affected_modules(changes, &modules)?;
 
     writeln!(
@@ -134,14 +134,26 @@ fn baseline_provider(
     }
 }
 
-pub(super) fn modules_from_discovered(discovered: &[DiscoveredTaskProfile]) -> Vec<Module> {
+pub(super) fn modules_from_discovered(
+    discovered: &[DiscoveredTaskProfile],
+) -> AppResult<Vec<Module>> {
     let mut modules = BTreeMap::new();
     for profile in discovered {
         for module in &profile.modules {
-            modules
-                .entry(module.name.clone())
-                .or_insert_with(|| module.clone());
+            if let Some(existing) = modules.get(&module.name) {
+                if existing != module {
+                    return Err(AppError::invalid_input(
+                        "modules",
+                        format!(
+                            "profile '{}' discovered conflicting definition for module '{}'",
+                            profile.profile.name, module.name
+                        ),
+                    ));
+                }
+                continue;
+            }
+            modules.insert(module.name.clone(), module.clone());
         }
     }
-    modules.into_values().collect()
+    Ok(modules.into_values().collect())
 }
