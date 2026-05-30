@@ -1,4 +1,4 @@
-//! Plan reporting.
+//! Human and machine-readable reporting for plans, task runs, and run statistics.
 
 mod event;
 mod human;

@@ -102,7 +102,7 @@ pub(super) fn run_task(
             &mut reporter,
             stderr,
         ) {
-            reporter.run_failed(&error)?;
+            let _ = reporter.run_failed(&error);
             return Err(error);
         }
     }
