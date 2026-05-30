@@ -97,8 +97,9 @@ Tasks can also reference preset files. Project presets are resolved before user
 presets from `.toven/lang/<language>/presets/<name>.toml`; user presets use the
 same layout under the current user's home directory.
 
-Run a task directly with `toven <task>`. Successful executions write local cache
-records under `.toven/cache/`, and later runs skip modules whose exact source,
+Run a task directly with `toven <task>` or `toven run <task>` when the task name
+matches a built-in subcommand. Successful executions write local cache records
+under `.toven/cache/`, and later runs skip modules whose exact source,
 dependency, task, toolchain, shared-input, and cache-format inputs still match.
 Use `--force` to skip cache reads while writing fresh success records, or
 `--no-cache` to disable reads and writes. Use `--output jsonl` to reserve stdout
@@ -112,6 +113,7 @@ their reverse dependents:
 cargo run -- plan --affected --base origin/main --merge-base
 cargo run -- affected --base origin/main --merge-base
 cargo run -- test --affected --base origin/main --merge-base
+cargo run -- run modules
 cargo run -- explain fixture-core test --base origin/main --merge-base
 cargo run -- modules
 cargo run -- graph --format dot

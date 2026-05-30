@@ -134,6 +134,9 @@ fn explain_rejects_affected_toggle_and_conflicting_cache_flags() {
 #[test]
 fn developer_workflow_subcommands_parse() {
     command()
+        .try_get_matches_from(["toven", "run", "modules"])
+        .expect("explicit run invocation parses reserved task names");
+    command()
         .try_get_matches_from(["toven", "modules", "--task", "test"])
         .expect("modules invocation parses");
     command()
@@ -234,6 +237,21 @@ fn run_command_can_cache_args_when_task_allows_it() {
     );
     assert!(changed_args.1.contains("executed"));
     assert!(!changed_args.1.contains("cache hit: fixture-core smoke"));
+    assert_eq!(run_count(&workspace_path), 4);
+
+    let repeated_changed_args = run_smoke_with_args(&config_path, ["--debug"]);
+    assert_eq!(
+        repeated_changed_args.0,
+        ExitCode::SUCCESS,
+        "stderr:\n{}",
+        repeated_changed_args.2
+    );
+    assert!(
+        repeated_changed_args
+            .1
+            .contains("cache hit: fixture-core smoke")
+    );
+    assert!(!repeated_changed_args.1.contains("executed"));
     assert_eq!(run_count(&workspace_path), 4);
 }
 

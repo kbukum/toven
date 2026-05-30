@@ -4,7 +4,7 @@ use clap::{Arg, ArgAction, Command};
 
 /// Subcommands reserved by the CLI entrypoint.
 pub(super) const RESERVED_SUBCOMMANDS: &[&str] = &[
-    "help", "plan", "affected", "explain", "modules", "graph", "cache",
+    "help", "run", "plan", "affected", "explain", "modules", "graph", "cache",
 ];
 
 /// Build the top-level Toven command.
@@ -14,6 +14,7 @@ pub(super) fn command() -> Command {
         .about("Fast, argv-first development and CI task planning")
         .version(crate::VERSION)
         .subcommand_precedence_over_arg(true)
+        .subcommand(run_subcommand())
         .subcommand(plan_command())
         .subcommand(affected_command())
         .subcommand(explain_command())
@@ -26,6 +27,10 @@ pub(super) fn command() -> Command {
 #[must_use]
 pub(super) fn run_command() -> Command {
     run_args(Command::new("toven"))
+}
+
+fn run_subcommand() -> Command {
+    run_args(Command::new("run").about("Execute a task, including names reserved by subcommands"))
 }
 
 fn run_args(command: Command) -> Command {

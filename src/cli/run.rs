@@ -110,15 +110,19 @@ pub(super) fn run_task(
     Ok(())
 }
 
-fn execute_unit(
+fn execute_unit<W, E>(
     unit: ExecutionUnit,
     workspace_root: &std::path::Path,
     decisions: &CacheDecisions,
     task_cache: Option<&TaskCache>,
     options: &RunOptions,
-    reporter: &mut RunReporter<'_, impl Write>,
-    stderr: &mut impl Write,
-) -> AppResult<()> {
+    reporter: &mut RunReporter<'_, W>,
+    stderr: &mut E,
+) -> AppResult<()>
+where
+    W: Write,
+    E: Write,
+{
     let misses = unit
         .modules
         .iter()

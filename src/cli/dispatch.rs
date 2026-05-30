@@ -49,6 +49,7 @@ where
     match command().try_get_matches_from(args) {
         Ok(matches) => match matches.subcommand() {
             Some(("plan", matches)) => exit_from_result(run_plan(matches, stdout), stderr),
+            Some(("run", matches)) => exit_from_result(run_task(matches, stdout, stderr), stderr),
             Some(("affected", matches)) => exit_from_result(run_affected(matches, stdout), stderr),
             Some(("explain", matches)) => exit_from_result(run_explain(matches, stdout), stderr),
             Some(("modules", matches)) => exit_from_result(run_modules(matches, stdout), stderr),
