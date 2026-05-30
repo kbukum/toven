@@ -34,6 +34,7 @@ pub fn compute_source_hashes(workspace: &Workspace, modules: &[Module]) -> AppRe
         .with_cause(error)
     })?;
     let workspace_prefix = workspace_prefix(repo.root(), &workspace.root)?;
+    let ignore = IgnoreMatcher::new(&workspace.root, &workspace_prefix)?;
     let owners = PathOwners::new(modules);
     let mut buckets = HashBuckets::new(modules);
 
@@ -48,6 +49,7 @@ pub fn compute_source_hashes(workspace: &Workspace, modules: &[Module]) -> AppRe
         &repo,
         &workspace.root,
         &workspace_prefix,
+        &ignore,
         &owners,
         &mut buckets,
     )?;
@@ -71,6 +73,7 @@ pub fn compute_shared_inputs_hash(
         .with_cause(error)
     })?;
     let workspace_prefix = workspace_prefix(repo.root(), &workspace.root)?;
+    let ignore = IgnoreMatcher::new(&workspace.root, &workspace_prefix)?;
     let mut inputs = shared_inputs
         .iter()
         .map(|input| normalize_path(Path::new(input)))
@@ -88,12 +91,13 @@ pub fn compute_shared_inputs_hash(
         hash_field(&mut hasher, path_to_string(input).as_bytes());
         hash_field(
             &mut hasher,
-            hash_worktree_path(&workspace.root, input)?.as_bytes(),
+            hash_worktree_path(&workspace.root, input, &ignore)?.as_bytes(),
         );
         collect_shared_status_entries(
             &repo,
             &workspace.root,
             &workspace_prefix,
+            &ignore,
             input,
             &mut hasher,
         )?;
@@ -192,6 +196,55 @@ struct ModuleRoot {
     source_patterns: Vec<String>,
 }
 
+struct IgnoreMatcher {
+    ignored: BTreeSet<PathBuf>,
+}
+
+impl IgnoreMatcher {
+    fn new(workspace_root: &Path, workspace_prefix: &Path) -> AppResult<Self> {
+        let output = git_output_bytes(
+            workspace_root,
+            [
+                "status",
+                "--ignored",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=all",
+            ],
+        )?;
+        let mut ignored = BTreeSet::new();
+        for record in output
+            .split(|byte| *byte == 0)
+            .filter(|record| record.starts_with(b"!! "))
+        {
+            let path = std::str::from_utf8(&record[3..]).map_err(|error| {
+                AppError::new(
+                    ErrorCode::Internal,
+                    format!(
+                        "git listed a non-UTF-8 ignored path in '{}'",
+                        workspace_root.display()
+                    ),
+                )
+                .with_cause(error)
+            })?;
+            let repo_path = normalize_path(Path::new(path));
+            if workspace_prefix.as_os_str().is_empty() {
+                ignored.insert(repo_path);
+            } else if let Ok(workspace_path) = repo_path.strip_prefix(workspace_prefix) {
+                ignored.insert(normalize_path(workspace_path));
+            }
+        }
+        Ok(Self { ignored })
+    }
+
+    fn is_ignored(&self, path: &Path) -> bool {
+        let path = normalize_path(path);
+        self.ignored
+            .iter()
+            .any(|ignored| &path == ignored || path.starts_with(ignored))
+    }
+}
+
 fn collect_head_entries(
     repo: &rskit_git::Repo,
     workspace_prefix: &Path,
@@ -234,6 +287,7 @@ fn collect_worktree_status(
     repo: &rskit_git::Repo,
     workspace_root: &Path,
     workspace_prefix: &Path,
+    ignore: &IgnoreMatcher,
     owners: &PathOwners,
     buckets: &mut HashBuckets,
 ) -> AppResult<()> {
@@ -244,7 +298,7 @@ fn collect_worktree_status(
         let Some(path) = workspace_relative_status_path(workspace_prefix, &entry) else {
             continue;
         };
-        if should_skip_worktree_path(workspace_root, &path)? {
+        if should_skip_worktree_path(&path, ignore) {
             continue;
         }
         if !seen.insert((path.clone(), entry.state.to_string())) {
@@ -262,7 +316,7 @@ fn collect_worktree_status(
                 ],
             );
         }
-        let content_hash = hash_worktree_path(workspace_root, &path)?;
+        let content_hash = hash_worktree_path(workspace_root, &path, ignore)?;
         buckets.update(
             owner,
             "worktree",
@@ -277,6 +331,7 @@ fn collect_shared_status_entries(
     repo: &rskit_git::Repo,
     workspace_root: &Path,
     workspace_prefix: &Path,
+    ignore: &IgnoreMatcher,
     input: &Path,
     hasher: &mut blake3::Hasher,
 ) -> AppResult<()> {
@@ -287,7 +342,7 @@ fn collect_shared_status_entries(
         let Some(path) = workspace_relative_status_path(workspace_prefix, &entry) else {
             continue;
         };
-        if !path_is_or_is_inside(&path, input) || is_internal_cache_path(&path) {
+        if !path_is_or_is_inside(&path, input) || should_skip_worktree_path(&path, ignore) {
             continue;
         }
         if !seen.insert((path.clone(), entry.state.to_string())) {
@@ -304,46 +359,19 @@ fn collect_shared_status_entries(
         }
         hash_field(
             hasher,
-            hash_worktree_path(workspace_root, &path)?.as_bytes(),
+            hash_worktree_path(workspace_root, &path, ignore)?.as_bytes(),
         );
     }
     Ok(())
 }
 
-fn should_skip_worktree_path(workspace_root: &Path, path: &Path) -> AppResult<bool> {
-    Ok(is_internal_cache_path(path) || is_git_ignored(workspace_root, path)?)
+fn should_skip_worktree_path(path: &Path, ignore: &IgnoreMatcher) -> bool {
+    is_internal_cache_path(path) || ignore.is_ignored(path)
 }
 
 fn is_internal_cache_path(path: &Path) -> bool {
     let path = normalize_path(path);
     path == Path::new(".toven/cache") || path.starts_with(".toven/cache")
-}
-
-fn is_git_ignored(workspace_root: &Path, path: &Path) -> AppResult<bool> {
-    let status = Command::new("git")
-        .current_dir(workspace_root)
-        .args(["check-ignore", "-q", "--"])
-        .arg(path)
-        .status()
-        .map_err(|error| {
-            AppError::new(
-                ErrorCode::Internal,
-                format!("failed to check ignored status for '{}'", path.display()),
-            )
-            .with_cause(error)
-        })?;
-
-    match status.code() {
-        Some(0) => Ok(true),
-        Some(1) => Ok(false),
-        _ => Err(AppError::new(
-            ErrorCode::Internal,
-            format!(
-                "git check-ignore failed for '{}' with status {status}",
-                path.display()
-            ),
-        )),
-    }
 }
 
 fn workspace_relative_status_path(workspace_prefix: &Path, entry: &StatusEntry) -> Option<PathBuf> {
@@ -380,7 +408,11 @@ fn hash_index_path(
     Ok(hasher.finalize().to_hex().to_string())
 }
 
-fn hash_worktree_path(workspace_root: &Path, relative_path: &Path) -> AppResult<String> {
+fn hash_worktree_path(
+    workspace_root: &Path,
+    relative_path: &Path,
+    ignore: &IgnoreMatcher,
+) -> AppResult<String> {
     let path = workspace_root.join(relative_path);
     match fs::symlink_metadata(&path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
@@ -400,7 +432,7 @@ fn hash_worktree_path(workspace_root: &Path, relative_path: &Path) -> AppResult<
         Ok(metadata) if metadata.is_dir() && path.join(".git").exists() => {
             hash_nested_git_repo(&path)
         }
-        Ok(metadata) if metadata.is_dir() => hash_directory(workspace_root, relative_path),
+        Ok(metadata) if metadata.is_dir() => hash_directory(workspace_root, relative_path, ignore),
         Ok(_) => {
             let mut hasher = blake3::Hasher::new();
             hash_field(&mut hasher, b"special");
@@ -538,17 +570,22 @@ fn hash_nested_untracked_path(path: &Path) -> AppResult<String> {
     hash_file(path)
 }
 
-fn hash_directory(workspace_root: &Path, relative_path: &Path) -> AppResult<String> {
+fn hash_directory(
+    workspace_root: &Path,
+    relative_path: &Path,
+    ignore: &IgnoreMatcher,
+) -> AppResult<String> {
     let path = workspace_root.join(relative_path);
     let mut hasher = blake3::Hasher::new();
     hash_field(&mut hasher, b"directory");
-    hash_directory_into(workspace_root, &path, &mut hasher)?;
+    hash_directory_into(workspace_root, &path, ignore, &mut hasher)?;
     Ok(hasher.finalize().to_hex().to_string())
 }
 
 fn hash_directory_into(
     workspace_root: &Path,
     path: &Path,
+    ignore: &IgnoreMatcher,
     hasher: &mut blake3::Hasher,
 ) -> AppResult<()> {
     let mut entries = fs::read_dir(path)
@@ -571,7 +608,7 @@ fn hash_directory_into(
     for entry in entries {
         let path = entry.path();
         let rel = path.strip_prefix(workspace_root).unwrap_or(&path);
-        if should_skip_worktree_path(workspace_root, rel)? {
+        if should_skip_worktree_path(rel, ignore) {
             continue;
         }
         hash_field(hasher, path_to_string(rel).as_bytes());
@@ -583,12 +620,15 @@ fn hash_directory_into(
             .with_cause(error)
         })?;
         if metadata.file_type().is_symlink() {
-            hash_field(hasher, hash_worktree_path(workspace_root, rel)?.as_bytes());
+            hash_field(
+                hasher,
+                hash_worktree_path(workspace_root, rel, ignore)?.as_bytes(),
+            );
         } else if metadata.is_dir() && path.join(".git").exists() {
             hash_field(hasher, hash_nested_git_repo(&path)?.as_bytes());
         } else if metadata.is_dir() {
             hash_field(hasher, b"directory");
-            hash_directory_into(workspace_root, &path, hasher)?;
+            hash_directory_into(workspace_root, &path, ignore, hasher)?;
         } else if metadata.is_file() {
             hash_field(hasher, hash_file(&path)?.as_bytes());
         } else {
@@ -728,6 +768,46 @@ mod tests {
         let second = shared_hash_with_staged_content(&repo, &workspace, "two\n");
 
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn ignored_files_do_not_change_shared_directory_hash() {
+        let root = rskit_testutil::test_workspace!("cache-ignored-shared-directory");
+        let repo = root.path().join("repo");
+        fs::create_dir_all(repo.join("src")).expect("create repo tree");
+        fs::write(repo.join("src/lib.rs"), "base\n").expect("write source");
+        fs::write(repo.join(".gitignore"), "*.ignored\n").expect("write gitignore");
+        init_git_repo(&repo);
+        let workspace = workspace(&repo);
+
+        let before = compute_shared_inputs_hash(&workspace, &["src".to_string()])
+            .expect("shared input hash computes");
+        fs::write(repo.join("src/generated.ignored"), "ignored\n").expect("write ignored file");
+        let after = compute_shared_inputs_hash(&workspace, &["src".to_string()])
+            .expect("shared input hash recomputes");
+
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn ignored_files_do_not_change_subdirectory_workspace_hash() {
+        let root = rskit_testutil::test_workspace!("cache-ignored-subworkspace");
+        let repo = root.path().join("repo");
+        let workspace_root = repo.join("work");
+        fs::create_dir_all(workspace_root.join("src")).expect("create workspace tree");
+        fs::write(workspace_root.join("src/lib.rs"), "base\n").expect("write source");
+        fs::write(repo.join(".gitignore"), "work/src/*.ignored\n").expect("write gitignore");
+        init_git_repo(&repo);
+        let workspace = workspace(&workspace_root);
+
+        let before = compute_shared_inputs_hash(&workspace, &["src".to_string()])
+            .expect("shared input hash computes");
+        fs::write(workspace_root.join("src/generated.ignored"), "ignored\n")
+            .expect("write ignored file");
+        let after = compute_shared_inputs_hash(&workspace, &["src".to_string()])
+            .expect("shared input hash recomputes");
+
+        assert_eq!(before, after);
     }
 
     fn module_hash_with_staged_content(

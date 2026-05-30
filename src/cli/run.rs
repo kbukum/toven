@@ -1,13 +1,13 @@
 //! `toven <task>` execution command.
 
-use std::{io::Write, path::PathBuf, thread, time::Duration};
+use std::{io::Write, path::PathBuf, time::Duration};
 
 use clap::ArgMatches;
-use tokio_util::sync::CancellationToken;
 
 use crate::{
     cache::decision::{
-        CacheDecision, CacheDecisions, CacheMode, TaskCache, prepare_cache_decisions,
+        CACHE_DIRECTORY, CacheDecision, CacheDecisions, CacheMode, TaskCache,
+        prepare_cache_decisions,
     },
     cli::affected::{modules_from_discovered, resolve_affected_changes, resolve_affected_modules},
     config::load_workspace,
@@ -35,6 +35,7 @@ pub(super) fn run_task(
         .get_many::<String>("args")
         .map(|values| values.cloned().collect::<Vec<_>>())
         .unwrap_or_default();
+    reject_cache_flag_combinations(matches, &passthrough_args)?;
 
     let workspace = load_workspace(config)?;
     let registry = LangRegistry::default();
@@ -59,14 +60,14 @@ pub(super) fn run_task(
     let cache_mode = cache_mode(matches, &passthrough_args);
     let task_cache = cache_mode
         .writes_or_reads()
-        .then(|| TaskCache::new(workspace.root.join(".toven/cache/v1")))
+        .then(|| TaskCache::new(workspace.root.join(".toven/cache").join(CACHE_DIRECTORY)))
         .transpose()?;
     let decisions = prepare_cache_decisions(&full_plan, &cache_mode, task_cache.as_ref())?;
     let options = RunOptions {
         timeout: matches
             .get_one::<u64>("timeout-seconds")
             .map(|seconds| Duration::from_secs(*seconds)),
-        cancel: install_cancellation_handler()?,
+        cancel_on_ctrl_c: true,
     };
 
     for unit in exec_plan.units {
@@ -81,34 +82,6 @@ pub(super) fn run_task(
         )?;
     }
     Ok(())
-}
-
-fn install_cancellation_handler() -> AppResult<CancellationToken> {
-    let token = CancellationToken::new();
-    let cancel = token.clone();
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| {
-            AppError::new(ErrorCode::Internal, "failed to create signal runtime").with_cause(error)
-        })?;
-    thread::Builder::new()
-        .name("toven-signal".to_string())
-        .spawn(move || {
-            runtime.block_on(async move {
-                if tokio::signal::ctrl_c().await.is_ok() {
-                    cancel.cancel();
-                }
-            });
-        })
-        .map_err(|error| {
-            AppError::new(
-                ErrorCode::Internal,
-                "failed to install cancellation handler",
-            )
-            .with_cause(error)
-        })?;
-    Ok(token)
 }
 
 fn execute_unit(
@@ -160,7 +133,11 @@ fn execute_unit(
         writeln!(stderr, "warning: stderr capture truncated").map_err(AppError::internal)?;
     }
     if !output.result.success() {
-        return Err(process_error(&executable_unit, &output.result, options));
+        return Err(process_error(
+            &executable_unit,
+            &output.result,
+            output.cancelled,
+        ));
     }
 
     if let Some(task_cache) = task_cache {
@@ -184,7 +161,7 @@ fn decision_for<'a>(
 fn process_error(
     unit: &ExecutionUnit,
     result: &rskit_process::ProcessResult,
-    options: &RunOptions,
+    cancelled: bool,
 ) -> AppError {
     if result.timed_out {
         return AppError::new(
@@ -192,7 +169,7 @@ fn process_error(
             format!("execution unit '{}' timed out", unit.id),
         );
     }
-    if options.cancel.is_cancelled() {
+    if cancelled {
         return AppError::new(
             ErrorCode::Cancelled,
             format!("execution unit '{}' was cancelled", unit.id),
@@ -208,6 +185,19 @@ fn process_error(
                 .map_or_else(|| "signal".to_string(), |code| code.to_string())
         ),
     )
+}
+
+fn reject_cache_flag_combinations(
+    matches: &ArgMatches,
+    passthrough_args: &[String],
+) -> AppResult<()> {
+    if matches.get_flag("force") && !passthrough_args.is_empty() {
+        return Err(AppError::invalid_input(
+            "force",
+            "--force cannot be used with passthrough args because passthrough args disable cache",
+        ));
+    }
+    Ok(())
 }
 
 fn reject_unused_affected_flags(matches: &ArgMatches) -> AppResult<()> {
@@ -250,5 +240,67 @@ trait CacheModeExt {
 impl CacheModeExt for CacheMode {
     fn writes_or_reads(&self) -> bool {
         matches!(self, Self::ReadWrite | Self::Force)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::process_error;
+    use crate::core::{CommandOrigin, ExecutionMode, ExecutionUnit};
+
+    #[test]
+    fn process_error_reports_timeout() {
+        let error = process_error(&unit(), &result(None, true), false);
+
+        assert_eq!(error.code, crate::core::ErrorCode::Timeout);
+        assert!(error.message.contains("timed out"));
+    }
+
+    #[test]
+    fn process_error_reports_cancellation() {
+        let error = process_error(&unit(), &result(None, false), true);
+
+        assert_eq!(error.code, crate::core::ErrorCode::Cancelled);
+        assert!(error.message.contains("cancelled"));
+    }
+
+    #[test]
+    fn process_error_reports_exit_code() {
+        let error = process_error(&unit(), &result(Some(2), false), false);
+
+        assert_eq!(error.code, crate::core::ErrorCode::Internal);
+        assert!(error.message.contains("exit code 2"));
+    }
+
+    fn unit() -> ExecutionUnit {
+        ExecutionUnit {
+            id: "unit".to_string(),
+            profile: "profile".to_string(),
+            task: "test".to_string(),
+            command_origin: CommandOrigin::DirectArgv,
+            mode: ExecutionMode::SpawnEach,
+            resource_group: String::new(),
+            modules: Vec::new(),
+            argv_template: Vec::new(),
+            module_arg_template: Vec::new(),
+            passthrough_args: Vec::new(),
+            shared_inputs: Vec::new(),
+        }
+    }
+
+    fn result(exit_code: Option<i32>, timed_out: bool) -> rskit_process::ProcessResult {
+        rskit_process::ProcessResult {
+            exit_code,
+            stdout: String::new(),
+            stdout_bytes: Vec::new(),
+            stderr: String::new(),
+            stderr_bytes: Vec::new(),
+            stdout_truncated: false,
+            stderr_truncated: false,
+            duration: Duration::ZERO,
+            timed_out,
+        }
     }
 }

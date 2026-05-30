@@ -5,7 +5,7 @@ use std::{io::Write, path::PathBuf};
 use clap::ArgMatches;
 
 use crate::{
-    cache::decision::{CacheMode, CacheState, TaskCache, prepare_cache_decisions},
+    cache::decision::{CACHE_DIRECTORY, CacheMode, CacheState, TaskCache, prepare_cache_decisions},
     cli::affected::{modules_from_discovered, resolve_affected_changes, resolve_affected_modules},
     config::load_workspace,
     core::{AppError, AppResult, ModuleId},
@@ -40,7 +40,7 @@ pub(super) fn run_explain(matches: &ArgMatches, stdout: &mut impl Write) -> AppR
     let cache_mode = cache_mode(matches);
     let task_cache = cache_mode
         .writes_or_reads()
-        .then(|| TaskCache::new(workspace.root.join(".toven/cache/v1")))
+        .then(|| TaskCache::new(workspace.root.join(".toven/cache").join(CACHE_DIRECTORY)))
         .transpose()?;
     let decisions = prepare_cache_decisions(&full_plan, &cache_mode, task_cache.as_ref())?;
 

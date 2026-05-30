@@ -24,6 +24,8 @@ use crate::{
 
 /// Cache schema version for records and key composition.
 pub const CACHE_RECORD_SCHEMA: u16 = 2;
+/// Cache store path segment for the current record/key schema.
+pub const CACHE_DIRECTORY: &str = "v2";
 
 /// Effective cache mode for a command invocation.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -123,9 +125,13 @@ impl TaskCache {
         let Some(value) = self.runtime.block_on(self.store.get(key.as_str()))? else {
             return Ok(None);
         };
-        serde_json::from_str::<CacheRecord>(&value)
-            .map(Some)
-            .or_else(|_| Ok(None))
+        match serde_json::from_str::<CacheRecord>(&value) {
+            Ok(record) => Ok(Some(record)),
+            Err(_) => {
+                self.runtime.block_on(self.store.delete(key.as_str()))?;
+                Ok(None)
+            }
+        }
     }
 
     /// Store a successful execution record.
@@ -548,4 +554,32 @@ fn planned_modules(plan: &Plan) -> BTreeMap<PlannedKey, PlannedModule<'_>> {
 fn hash_field(hasher: &mut blake3::Hasher, value: &[u8]) {
     hasher.update(&(value.len() as u64).to_be_bytes());
     hasher.update(value);
+}
+
+#[cfg(test)]
+mod tests {
+    use rskit_cache::CacheStore;
+
+    use super::TaskCache;
+    use crate::cache::key::CacheKey;
+
+    #[test]
+    fn corrupt_cache_record_is_deleted_after_read() {
+        let root = rskit_testutil::test_workspace!("cache-corrupt-record");
+        let cache = TaskCache::new(root.path().join("cache")).expect("cache initializes");
+        let key = CacheKey::new("corrupt-record");
+
+        cache
+            .runtime
+            .block_on(cache.store.set(key.as_str(), "{", None))
+            .expect("corrupt value writes");
+
+        assert_eq!(cache.get_record(&key).expect("corrupt read succeeds"), None);
+        assert!(
+            !cache
+                .runtime
+                .block_on(cache.store.exists(key.as_str()))
+                .expect("cache existence checks")
+        );
+    }
 }

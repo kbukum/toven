@@ -68,12 +68,14 @@ fn add_run_args(command: Command) -> Command {
             Arg::new("no-cache")
                 .long("no-cache")
                 .action(ArgAction::SetTrue)
+                .conflicts_with("force")
                 .help("Disable cache reads and writes for execution"),
         )
         .arg(
             Arg::new("force")
                 .long("force")
                 .action(ArgAction::SetTrue)
+                .conflicts_with("no-cache")
                 .help("Skip cache reads but write successful execution records"),
         )
         .arg(
@@ -205,12 +207,14 @@ fn explain_command() -> Command {
             Arg::new("no-cache")
                 .long("no-cache")
                 .action(ArgAction::SetTrue)
+                .conflicts_with("force")
                 .help("Explain with cache disabled"),
         )
         .arg(
             Arg::new("force")
                 .long("force")
                 .action(ArgAction::SetTrue)
+                .conflicts_with("no-cache")
                 .help("Explain with cache reads skipped"),
         )
 }
@@ -393,6 +397,27 @@ mod tests {
     }
 
     #[test]
+    fn run_rejects_conflicting_cache_flags() {
+        command()
+            .try_get_matches_from(["toven", "smoke", "--no-cache", "--force"])
+            .expect_err("run rejects conflicting cache flags");
+    }
+
+    #[test]
+    fn explain_rejects_conflicting_cache_flags() {
+        command()
+            .try_get_matches_from([
+                "toven",
+                "explain",
+                "fixture-core",
+                "smoke",
+                "--no-cache",
+                "--force",
+            ])
+            .expect_err("explain rejects conflicting cache flags");
+    }
+
+    #[test]
     fn run_command_uses_cache_and_reruns_changed_affected_modules() {
         let root = rskit_testutil::test_workspace!("cli-run-cache");
         let workspace_path = root.path().join("rust-workspace");
@@ -462,6 +487,73 @@ mod tests {
                 "--merge-base",
             ])
             .expect("affected invocation parses");
+    }
+
+    #[test]
+    fn explain_command_reports_affected_and_cache_reasoning() {
+        let root = rskit_testutil::test_workspace!("cli-explain");
+        let workspace_path = root.path().join("rust-workspace");
+        copy_fixture_tree(&root, "rust-workspace", &workspace_path);
+        init_git_repo(&workspace_path);
+        let config_path = workspace_path.join("toven.toml");
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let code = run_with_io(
+            [
+                "toven".to_string(),
+                "explain".to_string(),
+                "fixture-core".to_string(),
+                "test".to_string(),
+                "--config".to_string(),
+                config_path.display().to_string(),
+                "--base".to_string(),
+                "HEAD".to_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert!(stderr.is_empty());
+        let stdout = String::from_utf8(stdout).expect("stdout is utf-8");
+        assert!(stdout.contains("module: fixture-core"));
+        assert!(stdout.contains("affected: yes (global)"));
+        assert!(stdout.contains("global_paths:"));
+        assert!(stdout.contains("cache: miss"));
+        assert!(stdout.contains("source_hash:"));
+        assert!(stdout.contains("task_hash:"));
+    }
+
+    #[test]
+    fn explain_command_reports_unknown_module() {
+        let root = rskit_testutil::test_workspace!("cli-explain-unknown-module");
+        let workspace_path = root.path().join("rust-workspace");
+        copy_fixture_tree(&root, "rust-workspace", &workspace_path);
+        init_git_repo(&workspace_path);
+        let config_path = workspace_path.join("toven.toml");
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let code = run_with_io(
+            [
+                "toven".to_string(),
+                "explain".to_string(),
+                "missing-module".to_string(),
+                "test".to_string(),
+                "--config".to_string(),
+                config_path.display().to_string(),
+                "--base".to_string(),
+                "HEAD".to_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(code, ExitCode::FAILURE);
+        assert!(stdout.is_empty());
+        let stderr = String::from_utf8(stderr).expect("stderr is utf-8");
+        assert!(stderr.contains("missing-module"));
     }
 
     fn run_cli<const N: usize>(args: [String; N]) -> (ExitCode, String, String) {
