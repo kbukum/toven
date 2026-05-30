@@ -1,13 +1,19 @@
 //! Stable cache key construction.
 
 /// Current cache key schema version.
-pub const CACHE_KEY_VERSION: &str = "toven-cache-v1";
+pub const CACHE_KEY_VERSION: &str = "toven-cache-v2";
 
 /// Hex-encoded BLAKE3 cache key.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct CacheKey(String);
 
 impl CacheKey {
+    /// Create a cache key from a precomputed hex value.
+    #[must_use]
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
     /// Return the hex-encoded key.
     #[must_use]
     pub fn as_str(&self) -> &str {

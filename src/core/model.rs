@@ -209,6 +209,8 @@ pub struct ExecutionUnit {
     pub module_arg_template: Vec<String>,
     /// Extra user args injected through `{args}`.
     pub passthrough_args: Vec<String>,
+    /// Preset-scoped input paths that affect every module using this unit.
+    pub shared_inputs: Vec<String>,
 }
 
 /// Complete plan emitted by `toven plan`.

@@ -57,7 +57,9 @@ pub(super) fn run_affected(matches: &ArgMatches, stdout: &mut impl Write) -> App
     } else {
         writeln!(stdout, "modules:").map_err(AppError::internal)?;
         for module in &affected.closure {
-            let reason = if affected.direct.contains(module) {
+            let reason = if !affected.global_paths.is_empty() {
+                "global"
+            } else if affected.direct.contains(module) {
                 "direct"
             } else {
                 "dependent"
@@ -72,6 +74,7 @@ pub(super) struct CliAffectedModules {
     pub(super) provider: String,
     pub(super) baseline_oid: String,
     pub(super) changed_paths: Vec<PathBuf>,
+    pub(super) global_paths: Vec<PathBuf>,
     pub(super) direct: std::collections::BTreeSet<ModuleId>,
     pub(super) closure: std::collections::BTreeSet<ModuleId>,
 }
@@ -109,6 +112,7 @@ pub(super) fn resolve_affected_modules(
         provider: changes.provider,
         baseline_oid: changes.baseline_oid,
         changed_paths: changes.changed.into_iter().map(|path| path.path).collect(),
+        global_paths: affected.global_paths,
         direct: affected.direct,
         closure: affected.closure,
     })
