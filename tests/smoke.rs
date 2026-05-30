@@ -11,6 +11,17 @@ use std::{
 };
 
 use cargo_metadata::{DependencyKind, MetadataCommand, PackageId};
+use toven::{
+    core::{DISCOVERY_SCHEMA_VERSION, DiscoverRequest, LangAdapter, Workspace},
+    engine::affected::affected_modules,
+    git::{
+        affected::changed_paths,
+        baseline::{
+            BaselineContext, BaselineProvider, ExplicitBaselineProvider, MergeBaseBaselineProvider,
+        },
+    },
+    lang::rust::RustAdapter,
+};
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -576,7 +587,7 @@ fn assert_affected_modules_match_metadata(
     case: &SmokeCase,
     normalized_output: &str,
 ) {
-    let expected = expected_affected_modules(repo, case.changes.as_deref().unwrap_or(&[]));
+    let expected = expected_affected_modules(repo, case);
     let actual = output_module_set(normalized_output);
     assert_eq!(
         actual, expected,
@@ -584,107 +595,46 @@ fn assert_affected_modules_match_metadata(
     );
 }
 
-fn expected_affected_modules(repo: &Path, changes: &[SmokeChange]) -> BTreeSet<String> {
-    if changes.is_empty() {
-        return BTreeSet::new();
-    }
+fn expected_affected_modules(repo: &Path, case: &SmokeCase) -> BTreeSet<String> {
+    let workspace = smoke_workspace(repo, case);
+    let baseline = smoke_baseline_provider(case)
+        .resolve(&BaselineContext {
+            workspace_root: repo.to_path_buf(),
+        })
+        .expect("resolve smoke baseline");
+    let changed = changed_paths(&workspace, &baseline).expect("read smoke changed paths");
+    let response = RustAdapter::new()
+        .discover(&DiscoverRequest {
+            schema_version: DISCOVERY_SCHEMA_VERSION,
+            workspace_root: repo.to_path_buf(),
+        })
+        .expect("discover smoke repo modules");
 
-    let metadata = MetadataCommand::new()
-        .manifest_path(repo.join("Cargo.toml"))
-        .current_dir(repo)
-        .exec()
-        .expect("read smoke repo cargo metadata");
-    let all = metadata
-        .workspace_packages()
-        .iter()
-        .map(|package| package.name.to_string())
-        .collect::<BTreeSet<_>>();
-    let mut direct = BTreeSet::new();
-
-    for change in changes {
-        if change.path.components().count() == 1 {
-            return all;
-        }
-
-        let changed_path = repo.join(&change.path);
-        let mut owner = None;
-        for package in metadata.workspace_packages() {
-            let package_root = package
-                .manifest_path
-                .parent()
-                .expect("package manifest has parent")
-                .as_std_path();
-            if changed_path.starts_with(package_root)
-                && owner.as_ref().is_none_or(|owner: &(String, PathBuf)| {
-                    let owner_root = &owner.1;
-                    package_root.components().count() > owner_root.components().count()
-                })
-            {
-                owner = Some((package.name.to_string(), package_root.to_path_buf()));
-            }
-        }
-
-        let Some((owner, _)) = owner else {
-            return all;
-        };
-        direct.insert(owner);
-    }
-
-    reverse_dependent_closure(&metadata, direct)
+    affected_modules(&response.modules, &changed)
+        .expect("compute smoke affected modules")
+        .closure
+        .into_iter()
+        .map(|module| module.to_string())
+        .collect()
 }
 
-fn reverse_dependent_closure(
-    metadata: &cargo_metadata::Metadata,
-    mut affected: BTreeSet<String>,
-) -> BTreeSet<String> {
-    let workspace_roots = metadata
-        .workspace_packages()
-        .iter()
-        .map(|package| {
-            (
-                package
-                    .manifest_path
-                    .parent()
-                    .expect("package manifest has parent")
-                    .as_std_path()
-                    .to_path_buf(),
-                package.name.to_string(),
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-    let workspace_names = metadata
-        .workspace_packages()
-        .iter()
-        .map(|package| package.name.to_string())
-        .collect::<BTreeSet<_>>();
-    let mut reverse = BTreeMap::<String, BTreeSet<String>>::new();
-
-    for package in metadata.workspace_packages() {
-        for dependency in &package.dependencies {
-            let dependency_name = dependency
-                .path
-                .as_ref()
-                .and_then(|path| workspace_roots.get(path.as_std_path()).cloned())
-                .or_else(|| workspace_names.get(dependency.name.as_str()).cloned());
-            if let Some(dependency_name) = dependency_name {
-                reverse
-                    .entry(dependency_name)
-                    .or_default()
-                    .insert(package.name.to_string());
-            }
-        }
+fn smoke_workspace(repo: &Path, case: &SmokeCase) -> Workspace {
+    Workspace {
+        schema: DISCOVERY_SCHEMA_VERSION,
+        name: case.name.clone().unwrap_or_else(|| "smoke".to_string()),
+        root: repo.to_path_buf(),
+        base_ref: case.base.clone(),
+        profiles: Vec::new(),
     }
+}
 
-    let mut queue = affected.iter().cloned().collect::<Vec<_>>();
-    while let Some(module) = queue.pop() {
-        for dependent in reverse.get(&module).into_iter().flatten() {
-            if affected.insert(dependent.clone()) {
-                queue.push(dependent.clone());
-            }
-        }
+fn smoke_baseline_provider(case: &SmokeCase) -> Box<dyn BaselineProvider> {
+    match (&case.base, case.merge_base) {
+        (Some(base), true) => Box::new(MergeBaseBaselineProvider::new(base)),
+        (Some(base), false) => Box::new(ExplicitBaselineProvider::new(base)),
+        (None, true) => panic!("smoke merge-base case requires base"),
+        (None, false) => Box::new(ExplicitBaselineProvider::new("HEAD")),
     }
-
-    affected
 }
 
 fn output_module_set(output: &str) -> BTreeSet<String> {
