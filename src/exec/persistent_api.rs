@@ -1,4 +1,5 @@
 //! Persistent execution facade used by command orchestration.
+#![allow(clippy::redundant_pub_crate)]
 
 use std::path::Path;
 

@@ -1,4 +1,6 @@
 //! Shared cancellation helpers for execution orchestration.
+#![allow(clippy::redundant_pub_crate)]
+
 use std::{
     sync::{
         Arc,

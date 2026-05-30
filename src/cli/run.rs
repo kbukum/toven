@@ -25,8 +25,8 @@ use crate::{
     },
     exec::{
         PersistentOutput, PersistentOutputStream, PersistentProcess, RunOptions,
-        cancel::{SharedCancellation, spawn_ctrl_c_handler, stop_ctrl_c_handler},
-        run_execution_unit, start_persistent_execution_unit_with_output,
+        SharedCancellation, run_execution_unit, spawn_ctrl_c_handler,
+        start_persistent_execution_unit_with_output, stop_ctrl_c_handler,
     },
     lang::LangRegistry,
     report::{OutputFormat, RunReporter},

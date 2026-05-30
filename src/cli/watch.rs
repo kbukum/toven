@@ -22,7 +22,7 @@ use crate::{
         affected::{ChangedPath, affected_modules},
         discover_workspace_task_profiles,
     },
-    exec::cancel::{
+    exec::{
         CtrlCHandler, SharedCancellation, spawn_ctrl_c_handler_with_notify, stop_ctrl_c_handler,
     },
     lang::LangRegistry,
@@ -302,7 +302,13 @@ fn send_watch_ctrl_c(event_tx: &mpsc::Sender<WatchEvent>, cancellation: &SharedC
 
 fn normalize_changed_path(root: &Path, path: &Path) -> Option<PathBuf> {
     let relative = path.strip_prefix(root).ok()?;
-    Some(relative.components().collect())
+    Some(normalize_relative_path(relative))
+}
+
+fn normalize_relative_path(path: &Path) -> PathBuf {
+    path.components()
+        .filter(|component| !matches!(component, Component::CurDir))
+        .collect()
 }
 
 fn is_ignored(path: &Path) -> bool {
@@ -321,7 +327,7 @@ fn is_ignored(path: &Path) -> bool {
 fn config_changed(root: &Path, config: &Path, changed: &[ChangedPath]) -> bool {
     let relative_config = config
         .strip_prefix(root)
-        .map_or_else(|_| config.to_path_buf(), Path::to_path_buf);
+        .map_or_else(|_| normalize_relative_path(config), normalize_relative_path);
     changed
         .iter()
         .any(|path| path.path == relative_config || path.path == Path::new("toven.toml"))
@@ -398,7 +404,7 @@ mod tests {
 
     use crate::{
         cli::commands::run_command, core::ModuleId, engine::affected::ChangedPath,
-        exec::cancel::SharedCancellation, report::OutputFormat,
+        exec::SharedCancellation, report::OutputFormat,
     };
 
     use super::{
@@ -448,6 +454,11 @@ mod tests {
         assert!(config_changed(
             Path::new("/workspace"),
             Path::new("/workspace/toven.toml"),
+            &[ChangedPath::new("toven.toml")],
+        ));
+        assert!(config_changed(
+            Path::new("/workspace"),
+            Path::new("./toven.toml"),
             &[ChangedPath::new("toven.toml")],
         ));
         assert!(!config_changed(

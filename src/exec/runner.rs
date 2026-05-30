@@ -4,7 +4,7 @@ use std::{ffi::OsString, path::Path, time::Duration};
 
 use crate::{
     core::{AppError, AppResult, ErrorCode, ExecutionUnit},
-    exec::{cancel::SharedCancellation, render_execution_unit},
+    exec::{SharedCancellation, render_execution_unit},
 };
 
 /// Execution options for one unit.
