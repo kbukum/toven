@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use rskit_git::{Differ, FileStatus, Repository};
+use rskit_git::{Differ, FileStatus};
 
 use crate::{
     core::{AppError, AppResult, Workspace},
@@ -25,7 +25,7 @@ pub fn changed_paths(workspace: &Workspace, baseline: &Baseline) -> AppResult<Ve
         )
         .with_cause(error)
     })?;
-    let workspace_prefix = workspace_prefix(repo.root(), &workspace.root)?;
+    let workspace_prefix = workspace_prefix(rskit_git::Repository::root(&repo), &workspace.root)?;
     let mut paths = BTreeMap::new();
     let diff_base = if baseline.oid.is_empty() {
         baseline.revision.as_str()

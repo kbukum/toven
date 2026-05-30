@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use rskit_git::{Inspector, LogReader};
+use rskit_git::Inspector;
 
 use crate::core::{AppError, AppResult};
 
@@ -146,16 +146,17 @@ impl BaselineProvider for MergeBaseBaselineProvider {
             )
             .with_cause(error)
         })?;
-        let oid = repo.merge_base("HEAD", &self.reference).map_err(|error| {
-            AppError::invalid_input(
-                "base",
-                format!(
-                    "failed to resolve merge-base of HEAD and '{}'",
-                    self.reference
-                ),
-            )
-            .with_cause(error)
-        })?;
+        let oid =
+            rskit_git::LogReader::merge_base(&repo, "HEAD", &self.reference).map_err(|error| {
+                AppError::invalid_input(
+                    "base",
+                    format!(
+                        "failed to resolve merge-base of HEAD and '{}'",
+                        self.reference
+                    ),
+                )
+                .with_cause(error)
+            })?;
         Ok(Baseline {
             provider: self.name().to_string(),
             revision: oid.to_string(),
