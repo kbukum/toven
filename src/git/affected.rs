@@ -27,13 +27,15 @@ pub fn changed_paths(workspace: &Workspace, baseline: &Baseline) -> AppResult<Ve
     })?;
     let workspace_prefix = workspace_prefix(repo.root(), &workspace.root)?;
     let mut paths = BTreeMap::new();
+    let diff_base = if baseline.oid.is_empty() {
+        baseline.revision.as_str()
+    } else {
+        baseline.oid.as_str()
+    };
 
-    for entry in repo.diff(&baseline.revision, "HEAD").map_err(|error| {
-        AppError::invalid_input(
-            "base",
-            format!("failed to diff '{}' against HEAD", baseline.revision),
-        )
-        .with_cause(error)
+    for entry in repo.diff(diff_base, "HEAD").map_err(|error| {
+        AppError::invalid_input("base", format!("failed to diff '{diff_base}' against HEAD"))
+            .with_cause(error)
     })? {
         insert_repo_path(&workspace_prefix, &mut paths, entry.path);
         if matches!(entry.status, FileStatus::Deleted | FileStatus::Renamed)
@@ -166,6 +168,53 @@ mod tests {
         assert!(paths.contains(&Path::new("module-a/src/lib.rs").to_path_buf()));
         assert!(paths.contains(&Path::new("module-b/src/new.rs").to_path_buf()));
         assert!(paths.contains(&Path::new("README.md").to_path_buf()));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn diffs_against_resolved_oid_when_revision_ref_moves() {
+        let root = unique_temp_dir("git-affected-moving-ref");
+        fs::create_dir_all(root.join("module-a/src")).unwrap();
+
+        git(&root, ["init"]);
+        git(&root, ["config", "user.email", "toven@example.invalid"]);
+        git(&root, ["config", "user.name", "Toven Test"]);
+        fs::write(root.join("module-a/src/lib.rs"), "pub fn base() {}\n").unwrap();
+        git(&root, ["add", "."]);
+        git(&root, ["commit", "-m", "base"]);
+        let base = git_stdout(&root, ["rev-parse", "HEAD"]);
+        git(&root, ["branch", "moving"]);
+
+        fs::write(
+            root.join("module-a/src/lib.rs"),
+            "pub fn changed_after_base() {}\n",
+        )
+        .unwrap();
+        git(&root, ["add", "."]);
+        git(&root, ["commit", "-m", "changed"]);
+        git(&root, ["branch", "-f", "moving", "HEAD"]);
+
+        let workspace = Workspace {
+            schema: 1,
+            name: "fixture".to_string(),
+            root: root.clone(),
+            base_ref: None,
+            profiles: Vec::new(),
+        };
+        let baseline = Baseline {
+            provider: "git-ref".to_string(),
+            revision: "moving".to_string(),
+            oid: base,
+        };
+
+        let changed_source = Path::new("module-a/src/lib.rs").to_path_buf();
+        let contains_changed_source = changed_paths(&workspace, &baseline)
+            .unwrap()
+            .into_iter()
+            .any(|path| path.path == changed_source);
+
+        assert!(contains_changed_source);
 
         fs::remove_dir_all(root).unwrap();
     }
