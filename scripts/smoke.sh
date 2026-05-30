@@ -144,11 +144,10 @@ write_case() {
   validate_smoke_name "$name"
   mkdir -p "$ROOT/smoke/cases" "$ROOT/smoke/expected"
   {
-    printf 'name = '
-    toml_string "$name"
-    printf '\nrepo = '
+    printf 'repo = '
     toml_string "$repo"
     printf '\n'
+    printf 'command = "plan"\n'
     printf 'task = "test"\n'
     printf 'args = ['
     local first=1
@@ -160,9 +159,6 @@ write_case() {
       toml_string "$arg"
     done
     printf ']\n'
-    printf 'expected = '
-    toml_string "smoke/expected/$name.plan.txt"
-    printf '\n'
   } >"$ROOT/smoke/cases/$name.toml"
 }
 
@@ -213,7 +209,10 @@ purge_repo() {
     rm -rf "$ROOT/.git/modules/smoke/repos/$name"
   fi
 
-  rm -f "$ROOT/smoke/cases/$name.toml" "$ROOT/smoke/expected/$name.plan.txt"
+  rm -f \
+    "$ROOT/smoke/cases/$name.toml" \
+    "$ROOT/smoke/expected/$name.snap" \
+    "$ROOT/smoke/expected/$name.plan.txt"
 }
 
 update_case() {
@@ -228,8 +227,8 @@ update_case() {
     echo "error: set TOVEN_SMOKE_BLESS=1 to update managed smoke expectations" >&2
     exit 2
   fi
-  TOVEN_SMOKE_UPDATE=1 TOVEN_SMOKE_CASE="$name" cargo test --test smoke --all-features
-  git --no-pager diff -- "smoke/expected/$name.plan.txt"
+  TOVEN_UPDATE_SMOKE_SNAPSHOTS=1 TOVEN_SMOKE_CASE="$name" cargo test --test smoke --all-features
+  git --no-pager diff -- "smoke/expected/$name.snap"
 }
 
 case "${1:-}" in

@@ -1,0 +1,31 @@
+## first-arg
+
+status: 0
+stdout:
+run: rust/arg-stamp/w0/smoke-core
+arg-stamp smoke-core alpha
+run: rust/arg-stamp/w1/smoke-app
+arg-stamp smoke-app alpha
+stderr:
+<empty>
+
+## second-arg
+
+status: 0
+stdout:
+run: rust/arg-stamp/w0/smoke-core
+arg-stamp smoke-core beta
+run: rust/arg-stamp/w1/smoke-app
+arg-stamp smoke-app beta
+stderr:
+<empty>
+
+## cached-second-arg
+
+status: 0
+stdout:
+cache hit: smoke-core arg-stamp
+cache hit: smoke-app arg-stamp
+stderr:
+<empty>
+

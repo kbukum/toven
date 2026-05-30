@@ -1,0 +1,13 @@
+fixture = "rust-workspace-basic"
+command = "affected"
+base = "HEAD"
+assert = "affected-modules"
+
+[[changes]]
+path = "Cargo.toml"
+content = """
+[workspace]
+members = ["crates/core", "crates/app", "crates/test-util"]
+resolver = "2"
+"""
+

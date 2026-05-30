@@ -1,0 +1,5 @@
+fixture = "non-rust-placeholder"
+command = "plan"
+assert = "none"
+expect_status = 1
+

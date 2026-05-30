@@ -1,0 +1,20 @@
+## first-run
+
+status: 0
+stdout:
+run: rust/shared-stamp/w0/smoke-core
+shared smoke-core
+run: rust/shared-stamp/w1/smoke-app
+shared smoke-app
+stderr:
+<empty>
+
+## cached-run
+
+status: 0
+stdout:
+cache hit: smoke-core shared-stamp
+cache hit: smoke-app shared-stamp
+stderr:
+<empty>
+

@@ -27,7 +27,7 @@ make release-artifacts
 
 `make check` runs formatting, clippy, regular tests, docs,
 dependency/license audit, metadata validation, release packaging dry-run, and a
-release build. `make smoke` is the focused binary-level real-repository smoke
+release build. `make smoke` is the focused binary-level fixture-backed smoke
 gate. `make coverage` enforces the current coverage threshold.
 `make release-artifacts` stages the crate archive and checksum manifest without
 publishing.

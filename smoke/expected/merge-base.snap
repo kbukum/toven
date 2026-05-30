@@ -1,0 +1,12 @@
+## affected
+
+status: 0
+stdout:
+baseline: <sha>
+changed_paths:
+- crates/app/src/lib.rs
+modules:
+- smoke-app (direct)
+stderr:
+<empty>
+

@@ -1,0 +1,3 @@
+[workspace]
+name = "non-rust-placeholder"
+root = "."
