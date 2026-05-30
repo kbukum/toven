@@ -133,6 +133,7 @@ fn empty_persistent_argv_reports_invalid_input() {
     };
 
     assert_eq!(error.code, crate::core::ErrorCode::InvalidInput);
+    assert!(error.message.contains("profiles.dev.tasks.server.argv"));
     assert!(error.message.contains("rendered an empty argv"));
 }
 

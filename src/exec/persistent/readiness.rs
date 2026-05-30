@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::{
     core::{AppError, AppResult, ExecutionUnit, PersistentReadiness},
-    exec::render_execution_unit,
+    exec::{render::argv_field, render_execution_unit},
 };
 
 use super::command::command_from_argv;
@@ -36,8 +36,7 @@ pub(super) fn readiness(
 }
 
 fn remap_ready_command_error(unit: &ExecutionUnit, error: AppError) -> AppError {
-    let argv_field = format!("profiles.{}.tasks.{}.argv", unit.profile, unit.task);
-    let argv_prefix = format!("invalid {argv_field}: ");
+    let argv_prefix = format!("invalid {}: ", argv_field(unit));
     match error.message.strip_prefix(&argv_prefix) {
         Some(reason) => {
             AppError::invalid_input(ready_command_field(unit), reason.to_string()).with_cause(error)

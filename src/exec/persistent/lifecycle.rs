@@ -5,6 +5,8 @@ use crate::{
     exec::{PersistentOutput, RunOptions, RunOutput, render_execution_unit},
 };
 
+use crate::exec::render::argv_field;
+
 use super::{
     command::command_from_argv,
     error::{persistent_exit_result_error, remap_start_error},
@@ -93,7 +95,7 @@ pub(in crate::exec) fn start_persistent_execution_unit_with_output(
     let argv = render_execution_unit(unit, workspace_root)?;
     let command = command_from_argv(&argv, workspace_root).map_err(|()| {
         AppError::invalid_input(
-            "argv",
+            argv_field(unit),
             format!("execution unit '{}' rendered an empty argv", unit.id),
         )
     })?;

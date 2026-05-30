@@ -4,8 +4,10 @@ use std::{ffi::OsString, path::Path, time::Duration};
 
 use crate::{
     core::{AppError, AppResult, ErrorCode, ExecutionUnit},
-    exec::{SharedCancellation, render_execution_unit},
+    exec::SharedCancellation,
 };
+
+use super::render::{argv_field, render_execution_unit};
 
 /// Execution options for one unit.
 #[derive(Debug, Clone, Default)]
@@ -38,7 +40,7 @@ pub fn run_execution_unit(
     let argv = render_execution_unit(unit, workspace_root)?;
     let Some((program, arguments)) = argv.split_first() else {
         return Err(AppError::invalid_input(
-            "argv",
+            argv_field(unit),
             format!("execution unit '{}' rendered an empty argv", unit.id),
         ));
     };
@@ -147,6 +149,7 @@ mod tests {
         .expect_err("empty argv is rejected");
 
         assert_eq!(error.code, crate::core::ErrorCode::InvalidInput);
+        assert!(error.message.contains("profiles.profile.tasks.test.argv"));
         assert!(error.message.contains("empty argv"));
     }
 
