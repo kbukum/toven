@@ -19,28 +19,32 @@ pub fn prepare(root: &Path, case: &SmokeCase, case_name: &str) -> PreparedSmokeR
     let source = case
         .copy_root
         .as_ref()
-        .map_or(source.clone(), |copy_root| source.join(copy_root));
+        .map_or_else(|| source.clone(), |copy_root| source.join(copy_root));
     copy_dir_recursive(&source, &repo);
+    let repo = fs::canonicalize(&repo).expect("canonicalize smoke fixture repo");
 
-    let config = if let Some(config) = &case.config {
-        let config_path = temp.path().join("toven.toml");
-        fs::write(
-            &config_path,
-            toml::to_string_pretty(config).expect("serialize generated smoke config"),
-        )
-        .expect("write generated smoke config");
-        config_path
-    } else {
-        let fixture_config = repo.join("toven.toml");
-        if fixture_config.exists() {
-            fixture_config
-        } else {
-            let config = generated_config(&repo);
+    let config = case.config.as_ref().map_or_else(
+        || {
+            let fixture_config = repo.join("toven.toml");
+            if fixture_config.exists() {
+                fixture_config
+            } else {
+                let config = generated_config(&repo);
+                let config_path = temp.path().join("toven.toml");
+                fs::write(&config_path, config).expect("write generated smoke config");
+                config_path
+            }
+        },
+        |config| {
             let config_path = temp.path().join("toven.toml");
-            fs::write(&config_path, config).expect("write generated smoke config");
+            fs::write(
+                &config_path,
+                toml::to_string_pretty(config).expect("serialize generated smoke config"),
+            )
+            .expect("write generated smoke config");
             config_path
-        }
-    };
+        },
+    );
 
     for setup in &case.setup {
         apply_setup(&repo, setup);
@@ -129,8 +133,16 @@ test = {{ argv = ["cargo", "check", "-q", "{{module.args}}"] }}
 
 fn git(repo: &Path, args: &[&str]) {
     let output = Command::new("git")
-        .args(args)
         .current_dir(repo)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .args([
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+        ])
+        .args(args)
         .output()
         .expect("run git");
     assert!(

@@ -11,6 +11,7 @@ mod repo_fixture;
 #[path = "smoke/snapshot.rs"]
 mod snapshot;
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
@@ -18,9 +19,15 @@ use case::SmokeCase;
 
 #[test]
 fn managed_smoke_cases_match_snapshots() {
+    if std::env::var_os("TOVEN_SMOKE_SKIP_MANAGED").is_some() {
+        return;
+    }
+
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let cases_dir = root.join("smoke/cases");
     let expected_dir = root.join("smoke/expected");
+    let selected_case = std::env::var("TOVEN_SMOKE_CASE").ok();
+    let mut matched_cases = 0;
 
     for case_path in case::managed_case_paths(&cases_dir) {
         let case = SmokeCase::load(&case_path);
@@ -28,6 +35,13 @@ fn managed_smoke_cases_match_snapshots() {
             .file_stem()
             .and_then(|name| name.to_str())
             .expect("case file has a valid stem");
+        if selected_case
+            .as_deref()
+            .is_some_and(|selected| selected != case_name)
+        {
+            continue;
+        }
+        matched_cases += 1;
 
         let fixture = repo_fixture::prepare(root, &case, case_name);
         let mut actual_snapshot = String::new();
@@ -50,7 +64,13 @@ fn managed_smoke_cases_match_snapshots() {
             }
 
             let normalized = snapshot::normalize_output(&output, &fixture.repo);
-            actual_snapshot.push_str(&format!("## {}\n\n{}\n", invocation.label(), normalized));
+            write!(
+                actual_snapshot,
+                "## {}\n\n{}\n",
+                invocation.label(),
+                normalized
+            )
+            .expect("write smoke snapshot string");
         }
 
         let expected_path = expected_dir.join(format!("{case_name}.snap"));
@@ -66,6 +86,13 @@ fn managed_smoke_cases_match_snapshots() {
             actual_snapshot,
             "snapshot mismatch for {}",
             case_path.display()
+        );
+    }
+
+    if let Some(selected_case) = selected_case {
+        assert_eq!(
+            1, matched_cases,
+            "selected smoke case {selected_case} not found"
         );
     }
 }

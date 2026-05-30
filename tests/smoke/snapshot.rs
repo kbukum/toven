@@ -12,8 +12,18 @@ pub fn normalize_output(output: &TovenOutput, repo: &Path) -> String {
 }
 
 fn normalize_stream(stream: &str, repo: &Path) -> String {
-    let normalized = stream
-        .replace(&repo.display().to_string(), "<repo>")
+    let repo_path = repo.display().to_string();
+    let canonical_repo_path = std::fs::canonicalize(repo)
+        .ok()
+        .map(|path| path.display().to_string());
+    let mut normalized = stream.replace(&repo_path, "<repo>");
+    if let Some(canonical_repo_path) = canonical_repo_path
+        && canonical_repo_path != repo_path
+    {
+        normalized = normalized.replace(&canonical_repo_path, "<repo>");
+    }
+
+    let normalized = normalized
         .lines()
         .map(normalize_line)
         .collect::<Vec<_>>()

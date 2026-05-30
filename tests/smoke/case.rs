@@ -37,33 +37,23 @@ pub struct SmokeCase {
     pub invocations: Vec<SmokeInvocation>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum SmokeCommand {
+    #[default]
     Plan,
     Affected,
     Run,
 }
 
-impl Default for SmokeCommand {
-    fn default() -> Self {
-        Self::Plan
-    }
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum SmokeAssertion {
+    #[default]
     Auto,
     CargoWaves,
     AffectedModules,
     None,
-}
-
-impl Default for SmokeAssertion {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -170,8 +160,8 @@ impl SmokeCase {
             .and_then(|invocation| invocation.base.clone())
             .or_else(|| self.base.clone());
         let merge_base = invocation
-            .and_then(|invocation| invocation.merge_base.clone())
-            .or_else(|| self.merge_base.clone());
+            .and_then(|invocation| invocation.merge_base)
+            .or(self.merge_base);
         let task = invocation
             .and_then(|invocation| invocation.task.clone())
             .or_else(|| self.task.clone());

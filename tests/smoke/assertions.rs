@@ -50,7 +50,7 @@ pub fn expected_affected_modules(repo: &Path, invocation: &ResolvedInvocation) -
     let mut affected = BTreeSet::new();
     for package in &packages {
         dependencies.insert(
-            package.name.to_string(),
+            String::from(package.name.as_str()),
             package
                 .dependencies
                 .iter()
@@ -58,7 +58,7 @@ pub fn expected_affected_modules(repo: &Path, invocation: &ResolvedInvocation) -
                     dependency
                         .path
                         .as_ref()
-                        .map(|_| dependency.name.to_string())
+                        .map(|_| String::from(dependency.name.as_str()))
                 })
                 .collect::<BTreeSet<_>>(),
         );
@@ -82,7 +82,7 @@ pub fn expected_affected_modules(repo: &Path, invocation: &ResolvedInvocation) -
         });
 
         if changed {
-            affected.insert(package.name.to_string());
+            affected.insert(String::from(package.name.as_str()));
         }
     }
 

@@ -62,7 +62,7 @@ make smoke-clone URL=https://github.com/kbukum/rskit NAME=rskit
 make smoke-add-submodule URL=https://github.com/example/repo NAME=repo
 make smoke-add-case NAME=repo REPO=smoke/repos/repo ARGS="--all-features"
 make smoke-add-managed-submodule URL=https://github.com/example/repo NAME=repo ARGS="--all-features"
-TOVEN_SMOKE_BLESS=1 make smoke-update NAME=rskit-core
+TOVEN_SMOKE_BLESS=1 make smoke-update NAME=basic-plan
 make smoke-purge NAME=rskit
 ```
 
