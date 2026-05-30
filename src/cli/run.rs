@@ -25,6 +25,7 @@ use crate::{
     },
     exec::{
         PersistentOutput, PersistentOutputStream, PersistentProcess, RunOptions,
+        cancel::{SharedCancellation, spawn_ctrl_c_handler, stop_ctrl_c_handler},
         run_execution_unit, start_persistent_execution_unit_with_output,
     },
     lang::LangRegistry,
@@ -115,11 +116,16 @@ fn run_task_once_with_lifecycle(
         .then(|| TaskCache::new(workspace.root.join(".toven/cache").join(CACHE_DIRECTORY)))
         .transpose()?;
     let decisions = prepare_cache_decisions(&cache_plan, &cache_mode, task_cache.as_ref())?;
+    let cancellation = SharedCancellation::new();
+    let ctrl_c_handler = (persistent_lifecycle == PersistentLifecycle::Block)
+        .then(|| spawn_ctrl_c_handler(cancellation.clone()))
+        .transpose()?;
     let options = RunOptions {
         timeout: matches
             .get_one::<u64>("timeout-seconds")
             .map(|seconds| Duration::from_secs(*seconds)),
-        cancel_on_ctrl_c: true,
+        cancel_on_ctrl_c: ctrl_c_handler.is_none(),
+        cancellation: Some(cancellation),
     };
     let mut reporter = RunReporter::new(output_format, stdout, exec_plan.units.len())?;
     reporter.plan_prepared(&workspace.name, &workspace.root.display().to_string())?;
@@ -146,6 +152,7 @@ fn run_task_once_with_lifecycle(
             Ok(None) => {}
             Err(error) => {
                 let _ = reporter.run_failed(&error);
+                let _ = stop_ctrl_c_handler(ctrl_c_handler);
                 let _ = shutdown_active_processes(persistent_processes);
                 return Err(error);
             }
@@ -164,10 +171,12 @@ fn run_task_once_with_lifecycle(
         };
         if let Err(error) = result {
             let _ = reporter.run_failed(&error);
+            let _ = stop_ctrl_c_handler(ctrl_c_handler);
             let _ = shutdown_active_processes(persistent_processes);
             return Err(error);
         }
     }
+    stop_ctrl_c_handler(ctrl_c_handler)?;
     reporter.run_succeeded()?;
     Ok(Vec::new())
 }
@@ -585,6 +594,7 @@ mod tests {
             &crate::exec::RunOptions {
                 timeout: None,
                 cancel_on_ctrl_c: false,
+                cancellation: None,
             },
             &mut reporter,
             &mut stderr,
@@ -639,6 +649,7 @@ mod tests {
             &crate::exec::RunOptions {
                 timeout: None,
                 cancel_on_ctrl_c: false,
+                cancellation: None,
             },
             &mut reporter,
             &mut stderr,
@@ -676,6 +687,7 @@ mod tests {
             &crate::exec::RunOptions {
                 timeout: None,
                 cancel_on_ctrl_c: false,
+                cancellation: None,
             },
             &mut reporter,
             &mut stderr,

@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use std::time::Duration;
 
 use crate::{
@@ -5,7 +7,7 @@ use crate::{
     exec::RunOptions,
 };
 
-use super::start_persistent_execution_unit;
+use super::lifecycle::start_persistent_execution_unit;
 
 #[test]
 fn output_matcher_marks_persistent_unit_ready() {
@@ -24,6 +26,7 @@ fn output_matcher_marks_persistent_unit_ready() {
         &RunOptions {
             timeout: None,
             cancel_on_ctrl_c: false,
+            cancellation: None,
         },
     )
     .expect("persistent unit becomes ready");
@@ -48,6 +51,7 @@ fn shutdown_accepts_successful_process_that_already_exited() {
         &RunOptions {
             timeout: None,
             cancel_on_ctrl_c: false,
+            cancellation: None,
         },
     )
     .expect("persistent unit becomes ready");
@@ -68,6 +72,7 @@ fn readiness_timeout_fails_persistent_unit() {
         &RunOptions {
             timeout: None,
             cancel_on_ctrl_c: false,
+            cancellation: None,
         },
     );
     let Err(error) = result else {
@@ -90,6 +95,7 @@ fn early_exit_before_readiness_reports_process_status() {
         &RunOptions {
             timeout: None,
             cancel_on_ctrl_c: false,
+            cancellation: None,
         },
     );
     let Err(error) = result else {
@@ -119,6 +125,7 @@ fn empty_persistent_argv_reports_invalid_input() {
         &RunOptions {
             timeout: None,
             cancel_on_ctrl_c: false,
+            cancellation: None,
         },
     );
     let Err(error) = result else {
@@ -141,6 +148,7 @@ fn spawn_failure_reports_persistent_unit() {
         &RunOptions {
             timeout: None,
             cancel_on_ctrl_c: false,
+            cancellation: None,
         },
     );
     let Err(error) = result else {
@@ -164,6 +172,7 @@ fn readiness_command_success_marks_unit_ready() {
         &RunOptions {
             timeout: None,
             cancel_on_ctrl_c: false,
+            cancellation: None,
         },
     )
     .expect("readiness command succeeds");
@@ -183,6 +192,7 @@ fn readiness_command_failure_reports_failure() {
         &RunOptions {
             timeout: None,
             cancel_on_ctrl_c: false,
+            cancellation: None,
         },
     );
     let Err(error) = result else {
@@ -191,6 +201,29 @@ fn readiness_command_failure_reports_failure() {
 
     assert_eq!(error.code, crate::core::ErrorCode::Internal);
     assert!(error.message.contains("readiness command failed"));
+}
+
+#[test]
+fn readiness_command_render_errors_reference_ready_command() {
+    let root = rskit_testutil::test_workspace!("persistent-ready-command-render-error");
+    let mut unit = unit();
+    unit.readiness = PersistentReadiness::Command(vec!["{args}-bad".to_string()]);
+
+    let result = start_persistent_execution_unit(
+        &unit,
+        root.path(),
+        &RunOptions {
+            timeout: None,
+            cancel_on_ctrl_c: false,
+            cancellation: None,
+        },
+    );
+    let Err(error) = result else {
+        panic!("readiness command render should fail");
+    };
+
+    assert_eq!(error.code, crate::core::ErrorCode::InvalidInput);
+    assert!(error.message.contains("ready_command"));
 }
 
 #[test]
@@ -206,6 +239,7 @@ fn readiness_command_uses_readiness_timeout() {
         &RunOptions {
             timeout: None,
             cancel_on_ctrl_c: false,
+            cancellation: None,
         },
     );
 

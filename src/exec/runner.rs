@@ -4,7 +4,7 @@ use std::{ffi::OsString, path::Path, time::Duration};
 
 use crate::{
     core::{AppError, AppResult, ErrorCode, ExecutionUnit},
-    exec::render_execution_unit,
+    exec::{cancel::SharedCancellation, render_execution_unit},
 };
 
 /// Execution options for one unit.
@@ -14,6 +14,8 @@ pub struct RunOptions {
     pub timeout: Option<Duration>,
     /// Cancel the running process when the CLI receives ctrl-c.
     pub cancel_on_ctrl_c: bool,
+    /// Shared cancellation token for externally coordinated shutdown.
+    pub(crate) cancellation: Option<SharedCancellation>,
 }
 
 /// Completed execution output.
@@ -53,18 +55,24 @@ pub fn run_execution_unit(
         .map_err(|error| {
             AppError::new(ErrorCode::Internal, "failed to create process runtime").with_cause(error)
         })?;
-    let cancel = tokio_util::sync::CancellationToken::new();
-    let (result, cancelled) = if options.cancel_on_ctrl_c {
+    let cancel = options.cancellation.as_ref().map_or_else(
+        tokio_util::sync::CancellationToken::new,
+        SharedCancellation::token,
+    );
+    let (result, cancelled) = if options.cancel_on_ctrl_c && options.cancellation.is_none() {
         runtime.block_on(run_with_ctrl_c_cancel(&command, &process_config, cancel))?
     } else {
-        (
-            runtime.block_on(rskit_process::run_with_cancel(
-                &command,
-                &process_config,
-                cancel,
-            ))?,
-            false,
-        )
+        let result = runtime.block_on(rskit_process::run_with_cancel(
+            &command,
+            &process_config,
+            cancel,
+        ))?;
+        let cancelled = result.cancelled
+            || options
+                .cancellation
+                .as_ref()
+                .is_some_and(SharedCancellation::cancelled);
+        (result, cancelled)
     };
     Ok(RunOutput {
         argv,
@@ -113,6 +121,7 @@ mod tests {
             &RunOptions {
                 timeout: None,
                 cancel_on_ctrl_c: false,
+                cancellation: None,
             },
         )
         .expect("execution succeeds");
@@ -132,6 +141,7 @@ mod tests {
             &RunOptions {
                 timeout: None,
                 cancel_on_ctrl_c: false,
+                cancellation: None,
             },
         )
         .expect_err("empty argv is rejected");

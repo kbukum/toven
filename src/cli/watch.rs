@@ -56,8 +56,9 @@ pub(super) fn run_watch(
     write_watch_started(stdout, stderr, output_format, &watched_root)?;
 
     let (event_tx, event_rx) = mpsc::channel();
+    spawn_watch_ctrl_c_listener(event_tx.clone())?;
     let mut watcher = notify::recommended_watcher(move |event| {
-        let _ = event_tx.send(event);
+        let _ = event_tx.send(WatchEvent::File(event));
     })
     .map_err(|error| {
         AppError::new(
@@ -76,7 +77,14 @@ pub(super) fn run_watch(
 
     let mut persistent_processes = run_task_once_for_watch(matches, stdout, stderr, None)?;
     loop {
-        let changed = next_changed_paths(&event_rx, &watched_root, debounce)?;
+        let changed = match next_changed_paths(&event_rx, &watched_root, debounce) {
+            Ok(changed) => changed,
+            Err(error) if error.code == crate::core::ErrorCode::Cancelled => {
+                let _ = shutdown_persistent_processes(persistent_processes);
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
         if changed.is_empty() {
             continue;
         }
@@ -147,7 +155,7 @@ fn shutdown_affected_persistent_processes(
 }
 
 fn next_changed_paths(
-    event_rx: &mpsc::Receiver<notify::Result<notify::Event>>,
+    event_rx: &mpsc::Receiver<WatchEvent>,
     root: &Path,
     debounce: Duration,
 ) -> AppResult<Vec<ChangedPath>> {
@@ -178,10 +186,20 @@ fn next_changed_paths(
 }
 
 fn collect_event_paths(
-    event: notify::Result<notify::Event>,
+    event: WatchEvent,
     root: &Path,
     paths: &mut BTreeSet<PathBuf>,
 ) -> AppResult<()> {
+    let event = match event {
+        WatchEvent::File(event) => event,
+        WatchEvent::CtrlC(result) => {
+            result?;
+            return Err(AppError::new(
+                crate::core::ErrorCode::Cancelled,
+                "watch cancelled by ctrl-c",
+            ));
+        }
+    };
     let event = event.map_err(|error| {
         AppError::new(
             crate::core::ErrorCode::Internal,
@@ -195,6 +213,37 @@ fn collect_event_paths(
             paths.insert(relative);
         }
     }
+    Ok(())
+}
+
+enum WatchEvent {
+    File(notify::Result<notify::Event>),
+    CtrlC(AppResult<()>),
+}
+
+fn spawn_watch_ctrl_c_listener(event_tx: mpsc::Sender<WatchEvent>) -> AppResult<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| {
+            AppError::new(
+                crate::core::ErrorCode::Internal,
+                "failed to create ctrl-c runtime",
+            )
+            .with_cause(error)
+        })?;
+    std::thread::spawn(move || {
+        let result = runtime.block_on(async {
+            tokio::signal::ctrl_c().await.map_err(|error| {
+                AppError::new(
+                    crate::core::ErrorCode::Internal,
+                    "failed to listen for ctrl-c",
+                )
+                .with_cause(error)
+            })
+        });
+        let _ = event_tx.send(WatchEvent::CtrlC(result));
+    });
     Ok(())
 }
 
@@ -300,8 +349,8 @@ mod tests {
     };
 
     use super::{
-        config_changed, is_ignored, next_changed_paths, run_watch, validate_watch_root_unchanged,
-        write_watch_change, write_watch_started,
+        WatchEvent, config_changed, is_ignored, next_changed_paths, run_watch,
+        validate_watch_root_unchanged, write_watch_change, write_watch_started,
     };
 
     #[test]
@@ -369,19 +418,34 @@ mod tests {
     fn next_changed_paths_debounces_and_filters_events() {
         let root = Path::new("/workspace");
         let (tx, rx) = mpsc::channel();
-        tx.send(Ok(
-            notify::Event::new(notify::EventKind::Any).add_path(root.join("src/lib.rs"))
-        ))
-        .expect("send source event");
-        tx.send(Ok(
-            notify::Event::new(notify::EventKind::Any).add_path(root.join("target/debug/app"))
-        ))
-        .expect("send ignored event");
+        tx.send(WatchEvent::File(Ok(notify::Event::new(
+            notify::EventKind::Any,
+        )
+        .add_path(root.join("src/lib.rs")))))
+            .expect("send source event");
+        tx.send(WatchEvent::File(Ok(notify::Event::new(
+            notify::EventKind::Any,
+        )
+        .add_path(root.join("target/debug/app")))))
+            .expect("send ignored event");
 
         let changed =
             next_changed_paths(&rx, root, Duration::from_millis(1)).expect("events are collected");
 
         assert_eq!(changed, [ChangedPath::new("src/lib.rs")]);
+    }
+
+    #[test]
+    fn next_changed_paths_reports_ctrl_c_cancellation() {
+        let root = Path::new("/workspace");
+        let (tx, rx) = mpsc::channel();
+        tx.send(WatchEvent::CtrlC(Ok(())))
+            .expect("send ctrl-c event");
+
+        let error = next_changed_paths(&rx, root, Duration::from_millis(1))
+            .expect_err("ctrl-c should cancel watch");
+
+        assert_eq!(error.code, crate::core::ErrorCode::Cancelled);
     }
 
     #[test]
