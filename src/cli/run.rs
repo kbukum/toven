@@ -55,6 +55,7 @@ pub(super) fn run_task_once(
         stderr,
         module_filter,
         PersistentLifecycle::Block,
+        None,
     )
     .map(|_| ())
 }
@@ -64,6 +65,7 @@ pub(super) fn run_task_once_for_watch(
     stdout: &mut impl Write,
     stderr: &mut impl Write,
     module_filter: Option<&BTreeSet<ModuleId>>,
+    cancellation: SharedCancellation,
 ) -> AppResult<Vec<ActivePersistentProcess>> {
     run_task_once_with_lifecycle(
         matches,
@@ -71,6 +73,7 @@ pub(super) fn run_task_once_for_watch(
         stderr,
         module_filter,
         PersistentLifecycle::KeepAlive,
+        Some(cancellation),
     )
 }
 
@@ -80,6 +83,7 @@ fn run_task_once_with_lifecycle(
     stderr: &mut impl Write,
     module_filter: Option<&BTreeSet<ModuleId>>,
     persistent_lifecycle: PersistentLifecycle,
+    cancellation: Option<SharedCancellation>,
 ) -> AppResult<Vec<ActivePersistentProcess>> {
     let output_format = OutputFormat::parse(
         matches
@@ -116,15 +120,17 @@ fn run_task_once_with_lifecycle(
         .then(|| TaskCache::new(workspace.root.join(".toven/cache").join(CACHE_DIRECTORY)))
         .transpose()?;
     let decisions = prepare_cache_decisions(&cache_plan, &cache_mode, task_cache.as_ref())?;
-    let cancellation = SharedCancellation::new();
-    let ctrl_c_handler = (persistent_lifecycle == PersistentLifecycle::Block)
+    let external_cancellation = cancellation.is_some();
+    let cancellation = cancellation.unwrap_or_else(SharedCancellation::new);
+    let ctrl_c_handler = (persistent_lifecycle == PersistentLifecycle::Block
+        && !external_cancellation)
         .then(|| spawn_ctrl_c_handler(cancellation.clone()))
         .transpose()?;
     let options = RunOptions {
         timeout: matches
             .get_one::<u64>("timeout-seconds")
             .map(|seconds| Duration::from_secs(*seconds)),
-        cancel_on_ctrl_c: ctrl_c_handler.is_none(),
+        cancel_on_ctrl_c: false,
         cancellation: Some(cancellation),
     };
     let mut reporter = RunReporter::new(output_format, stdout, exec_plan.units.len())?;

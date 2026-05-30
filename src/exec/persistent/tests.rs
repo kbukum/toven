@@ -224,6 +224,35 @@ fn readiness_command_render_errors_reference_ready_command() {
 
     assert_eq!(error.code, crate::core::ErrorCode::InvalidInput);
     assert!(error.message.contains("ready_command"));
+    assert!(!error.message.contains(".argv"));
+}
+
+#[test]
+fn empty_readiness_command_reports_ready_command_field() {
+    let root = rskit_testutil::test_workspace!("persistent-empty-ready-command");
+    let mut unit = unit();
+    unit.readiness = PersistentReadiness::Command(Vec::new());
+
+    let result = start_persistent_execution_unit(
+        &unit,
+        root.path(),
+        &RunOptions {
+            timeout: None,
+            cancel_on_ctrl_c: false,
+            cancellation: None,
+        },
+    );
+    let Err(error) = result else {
+        panic!("empty readiness command should fail");
+    };
+
+    assert_eq!(error.code, crate::core::ErrorCode::InvalidInput);
+    assert!(
+        error
+            .message
+            .contains("profiles.dev.tasks.server.ready_command")
+    );
+    assert!(!error.message.contains(".argv"));
 }
 
 #[test]

@@ -23,7 +23,7 @@ pub(super) fn readiness(
                 .map_err(|error| remap_ready_command_error(unit, error))?;
             let command = command_from_argv(&argv, workspace_root).map_err(|()| {
                 AppError::invalid_input(
-                    "readiness.argv",
+                    ready_command_field(unit),
                     format!(
                         "persistent unit '{}' rendered an empty readiness argv",
                         unit.id
@@ -37,15 +37,18 @@ pub(super) fn readiness(
 
 fn remap_ready_command_error(unit: &ExecutionUnit, error: AppError) -> AppError {
     let argv_field = format!("profiles.{}.tasks.{}.argv", unit.profile, unit.task);
-    if !error.message.contains(&argv_field) {
-        return error;
+    let argv_prefix = format!("invalid {argv_field}: ");
+    match error.message.strip_prefix(&argv_prefix) {
+        Some(reason) => {
+            AppError::invalid_input(ready_command_field(unit), reason.to_string()).with_cause(error)
+        }
+        None => error,
     }
-    AppError::invalid_input(
-        format!(
-            "profiles.{}.tasks.{}.ready_command",
-            unit.profile, unit.task
-        ),
-        error.message.clone(),
+}
+
+fn ready_command_field(unit: &ExecutionUnit) -> String {
+    format!(
+        "profiles.{}.tasks.{}.ready_command",
+        unit.profile, unit.task
     )
-    .with_cause(error)
 }
