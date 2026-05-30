@@ -43,7 +43,7 @@ impl OutputFormat {
 pub struct RunReporter<'a, W: Write> {
     format: OutputFormat,
     stdout: &'a mut W,
-    run_id: String,
+    run_id: Option<String>,
     seq: u64,
     stats: RunStats,
 }
@@ -51,7 +51,10 @@ pub struct RunReporter<'a, W: Write> {
 impl<'a, W: Write> RunReporter<'a, W> {
     /// Create a reporter for one run.
     pub fn new(format: OutputFormat, stdout: &'a mut W, planned_units: usize) -> AppResult<Self> {
-        let run_id = run_id()?;
+        let run_id = match format {
+            OutputFormat::Human => None,
+            OutputFormat::Jsonl => Some(run_id()?),
+        };
         Ok(Self {
             format,
             stdout,
@@ -197,11 +200,17 @@ impl<'a, W: Write> RunReporter<'a, W> {
         if self.format != OutputFormat::Jsonl {
             return Ok(());
         }
+        let run_id = self.run_id.as_deref().ok_or_else(|| {
+            AppError::new(
+                crate::core::ErrorCode::Internal,
+                "JSONL reporter was initialized without a run id",
+            )
+        })?;
         self.seq += 1;
         let line = JsonEvent {
             schema_version: SCHEMA_VERSION,
             seq: self.seq,
-            run_id: &self.run_id,
+            run_id,
             event,
             payload,
         };
