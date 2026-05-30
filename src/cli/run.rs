@@ -133,11 +133,6 @@ fn run_task_once_with_lifecycle(
     let has_finite_units = exec_plan.units.iter().any(|unit| !unit.persistent);
     let mut persistent_processes = Vec::new();
     for unit in exec_plan.units {
-        let persistent_modules = unit
-            .modules
-            .iter()
-            .map(|module| module.name.clone())
-            .collect::<BTreeSet<_>>();
         match execute_unit(
             unit,
             &workspace.root,
@@ -147,10 +142,7 @@ fn run_task_once_with_lifecycle(
             &mut reporter,
             stderr,
         ) {
-            Ok(Some(process)) => persistent_processes.push(ActivePersistentProcess {
-                modules: persistent_modules,
-                process,
-            }),
+            Ok(Some(process)) => persistent_processes.push(process),
             Ok(None) => {}
             Err(error) => {
                 let _ = reporter.run_failed(&error);
@@ -260,7 +252,7 @@ fn execute_unit<W, E>(
     options: &RunOptions,
     reporter: &mut RunReporter<'_, W>,
     stderr: &mut E,
-) -> AppResult<Option<PersistentProcess>>
+) -> AppResult<Option<ActivePersistentProcess>>
 where
     W: Write,
     E: Write,
@@ -322,7 +314,14 @@ where
                 output.cancelled,
             ));
         }
-        Some(process)
+        Some(ActivePersistentProcess {
+            modules: executable_unit
+                .modules
+                .iter()
+                .map(|module| module.name.clone())
+                .collect(),
+            process,
+        })
     } else {
         let output = run_execution_unit(&executable_unit, workspace_root, options)?;
         reporter.child_stdout(stderr, &output.result.stdout_bytes)?;
@@ -605,6 +604,62 @@ mod tests {
         let stdout = String::from_utf8(stdout).expect("stdout is utf-8");
         assert!(stdout.contains("cache hit (re-run as part of workspace-once): hit test"));
         assert!(stdout.contains("workspace-once"));
+    }
+
+    #[test]
+    fn persistent_process_tracks_only_started_modules() {
+        let root = rskit_testutil::test_workspace!("run-persistent-started-modules");
+        let mut unit = unit();
+        unit.mode = ExecutionMode::SpawnEach;
+        unit.modules = vec![module("hit", &[]), module("miss", &[])];
+        unit.argv_template = vec!["sleep".to_string(), "2".to_string()];
+        unit.persistent = true;
+        let mut decisions = BTreeMap::new();
+        decisions.insert(
+            (
+                "profile".to_string(),
+                crate::core::ModuleId::new("hit").expect("module id"),
+            ),
+            decision("hit", CacheState::Hit),
+        );
+        decisions.insert(
+            (
+                "profile".to_string(),
+                crate::core::ModuleId::new("miss").expect("module id"),
+            ),
+            decision(
+                "miss",
+                CacheState::Miss {
+                    reason: "no cache record".to_string(),
+                },
+            ),
+        );
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let mut reporter =
+            RunReporter::new(OutputFormat::Human, &mut stdout, 1).expect("reporter initializes");
+
+        let active = execute_unit(
+            unit,
+            root.path(),
+            &decisions,
+            None,
+            &crate::exec::RunOptions {
+                timeout: None,
+                cancel_on_ctrl_c: false,
+            },
+            &mut reporter,
+            &mut stderr,
+        )
+        .expect("persistent unit starts")
+        .expect("persistent process is active");
+
+        let hit = std::iter::once(crate::core::ModuleId::new("hit").expect("module id")).collect();
+        let miss =
+            std::iter::once(crate::core::ModuleId::new("miss").expect("module id")).collect();
+        assert!(!active.is_affected_by(&hit));
+        assert!(active.is_affected_by(&miss));
+        active.shutdown().expect("persistent process shuts down");
     }
 
     fn unit() -> ExecutionUnit {

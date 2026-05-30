@@ -243,13 +243,20 @@ pub struct Plan {
 mod tests {
     use std::str::FromStr;
 
-    use super::ModuleId;
+    use super::{ExecutionMode, ModuleId};
 
     #[test]
     fn module_id_exposes_value() {
         let id = ModuleId::new("core").expect("module id parses");
 
         assert_eq!(id.as_str(), "core");
+    }
+
+    #[test]
+    fn module_id_converts_into_string() {
+        let id = ModuleId::new("core").expect("module id parses");
+
+        assert_eq!(String::from(id), "core");
     }
 
     #[test]
@@ -295,6 +302,13 @@ mod tests {
         let id = ModuleId::from_str("api").expect("module id parses");
 
         assert_eq!(id.to_string(), "api");
+    }
+
+    #[test]
+    fn execution_mode_displays_kebab_case_names() {
+        assert_eq!(ExecutionMode::SpawnEach.to_string(), "spawn-each");
+        assert_eq!(ExecutionMode::BatchReady.to_string(), "batch-ready");
+        assert_eq!(ExecutionMode::WorkspaceOnce.to_string(), "workspace-once");
     }
 
     #[test]

@@ -61,7 +61,7 @@ impl PersistentProcess {
         self.stopped = true;
         stop_ctrl_c_handler(self.ctrl_c_handler.take())?;
         match take_process(&mut self.process)?.shutdown()? {
-            rskit_process::ShutdownOutcome::AlreadyExited(result) => {
+            rskit_process::ShutdownOutcome::AlreadyExited(result) if !result.success() => {
                 Err(persistent_exit_result_error(&self.unit_id, &result))
             }
             _ => Ok(()),
@@ -359,6 +359,30 @@ mod tests {
         .expect("persistent unit becomes ready");
 
         assert!(persistent.output.result.stdout.contains("listening"));
+    }
+
+    #[test]
+    fn shutdown_accepts_successful_process_that_already_exited() {
+        let root = rskit_testutil::test_workspace!("persistent-shutdown-already-exited");
+        let mut unit = unit();
+        unit.argv_template = vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "printf ready".to_string(),
+        ];
+        unit.readiness = PersistentReadiness::OutputContains("ready".to_string());
+
+        let persistent = start_persistent_execution_unit(
+            &unit,
+            root.path(),
+            &RunOptions {
+                timeout: None,
+                cancel_on_ctrl_c: false,
+            },
+        )
+        .expect("persistent unit becomes ready");
+
+        persistent.process.shutdown().expect("shutdown succeeds");
     }
 
     #[test]
