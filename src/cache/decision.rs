@@ -125,12 +125,11 @@ impl TaskCache {
         let Some(value) = self.runtime.block_on(self.store.get(key.as_str()))? else {
             return Ok(None);
         };
-        match serde_json::from_str::<CacheRecord>(&value) {
-            Ok(record) => Ok(Some(record)),
-            Err(_) => {
-                self.runtime.block_on(self.store.delete(key.as_str()))?;
-                Ok(None)
-            }
+        if let Ok(record) = serde_json::from_str::<CacheRecord>(&value) {
+            Ok(Some(record))
+        } else {
+            self.runtime.block_on(self.store.delete(key.as_str()))?;
+            Ok(None)
         }
     }
 
