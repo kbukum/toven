@@ -475,8 +475,8 @@ mod tests {
     }
 
     #[test]
-    fn run_command_can_cache_passthrough_args_when_task_allows_it() {
-        let root = rskit_testutil::test_workspace!("cli-run-cache-passthrough");
+    fn run_command_can_cache_args_when_task_allows_it() {
+        let root = rskit_testutil::test_workspace!("cli-run-cache-args");
         let workspace_path = root.path().join("rust-workspace");
         copy_fixture_tree(&root, "rust-workspace", &workspace_path);
         root.copy_fixture("run-cache/.gitignore", "rust-workspace/.gitignore")
@@ -484,7 +484,7 @@ mod tests {
         let config_path = write_run_config_from_template(
             &root,
             &workspace_path,
-            "run-cache/toven-cache-passthrough.toml.template",
+            "run-cache/toven-cache-args.toml.template",
         );
         init_git_repo(&workspace_path);
 

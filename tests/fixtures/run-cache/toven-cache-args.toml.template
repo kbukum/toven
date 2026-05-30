@@ -9,4 +9,4 @@ module_arg_template = ["{module.name}"]
 resource_group = "cargo:{workspace.root}"
 
 [profiles.rust.tasks]
-smoke = { argv = ["sh", "-c", "printf 'run\n' >> .toven-run-count; printf 'executed\n'", "{args}"], cache_passthrough = true }
+smoke = { argv = ["sh", "-c", "printf 'run\n' >> .toven-run-count; printf 'executed\n'", "{args}"], cache_args = true }

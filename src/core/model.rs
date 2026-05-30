@@ -126,8 +126,8 @@ pub struct Task {
     pub name: String,
     /// Command source.
     pub command: TaskCommand,
-    /// Whether passthrough arguments are allowed to participate in cache keys.
-    pub cache_passthrough: bool,
+    /// Whether passthrough arguments are included in cache keys.
+    pub cache_args: bool,
 }
 
 /// Source of a task command.
@@ -211,8 +211,8 @@ pub struct ExecutionUnit {
     pub module_arg_template: Vec<String>,
     /// Extra user args injected through `{args}`.
     pub passthrough_args: Vec<String>,
-    /// Whether passthrough arguments are allowed to participate in cache keys.
-    pub cache_passthrough: bool,
+    /// Whether passthrough arguments are included in cache keys.
+    pub cache_args: bool,
     /// Preset-scoped input paths that affect every module using this unit.
     pub shared_inputs: Vec<String>,
 }

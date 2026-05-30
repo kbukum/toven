@@ -348,7 +348,7 @@ mod tests {
             ],
             module_arg_template: Vec::new(),
             passthrough_args: Vec::new(),
-            cache_passthrough: false,
+            cache_args: false,
             shared_inputs: Vec::new(),
         };
         let mut decisions = BTreeMap::new();
@@ -406,7 +406,7 @@ mod tests {
             argv_template: Vec::new(),
             module_arg_template: Vec::new(),
             passthrough_args: Vec::new(),
-            cache_passthrough: false,
+            cache_args: false,
             shared_inputs: Vec::new(),
         }
     }

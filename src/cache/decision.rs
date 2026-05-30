@@ -336,7 +336,7 @@ fn lookup_state(
 fn effective_mode(mode: &CacheMode, unit: &ExecutionUnit) -> CacheMode {
     if matches!(mode, CacheMode::ReadWrite | CacheMode::Force)
         && !unit.passthrough_args.is_empty()
-        && !unit.cache_passthrough
+        && !unit.cache_args
     {
         return CacheMode::Disabled {
             reason: "passthrough args disable cache".to_string(),
@@ -664,7 +664,7 @@ mod tests {
 
     #[test]
     fn passthrough_args_disable_cache_without_git_workspace_when_not_allowed() {
-        let root = rskit_testutil::test_workspace!("cache-passthrough-disabled-no-git");
+        let root = rskit_testutil::test_workspace!("cache-args-disabled-no-git");
         let plan = plan(
             root.path().join("not-a-repo"),
             vec!["--release".to_string()],
@@ -689,7 +689,7 @@ mod tests {
         assert_eq!(decision.source_hash, "disabled");
     }
 
-    fn plan(root: PathBuf, passthrough_args: Vec<String>, cache_passthrough: bool) -> Plan {
+    fn plan(root: PathBuf, passthrough_args: Vec<String>, cache_args: bool) -> Plan {
         Plan {
             workspace: Workspace {
                 schema: 1,
@@ -715,7 +715,7 @@ mod tests {
                 argv_template: vec!["echo".to_string(), "ok".to_string()],
                 module_arg_template: Vec::new(),
                 passthrough_args,
-                cache_passthrough,
+                cache_args,
                 shared_inputs: vec!["Cargo.lock".to_string()],
             }],
         }

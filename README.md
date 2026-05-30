@@ -117,11 +117,11 @@ and only local staged, unstaged, and untracked changes are considered.
 
 Passthrough args disable cache by default because arbitrary flags can change
 command semantics. For task definitions where passthrough args are deterministic
-and should be part of the task key, set `cache_passthrough = true`:
+and should be part of the task key, set `cache_args = true`:
 
 ```toml
 [profiles.rust.tasks]
-test = { argv = ["cargo", "test", "{module.args}", "{args}"], cache_passthrough = true }
+test = { argv = ["cargo", "test", "{module.args}", "{args}"], cache_args = true }
 ```
 
 `make release-artifacts` stages the crates.io package and checksum manifest in

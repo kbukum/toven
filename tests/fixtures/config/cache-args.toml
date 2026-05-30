@@ -6,4 +6,4 @@ root = "."
 language = "rust"
 
 [profiles.rust.tasks]
-test = { argv = ["cargo", "test", "{args}"], cache_passthrough = true }
+test = { argv = ["cargo", "test", "{args}"], cache_args = true }

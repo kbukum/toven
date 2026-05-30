@@ -182,7 +182,7 @@ mod tests {
             argv_template,
             module_arg_template: vec!["-p".to_string(), "{module.package}".to_string()],
             passthrough_args: vec!["--release".to_string()],
-            cache_passthrough: false,
+            cache_args: false,
             shared_inputs: Vec::new(),
         }
     }
