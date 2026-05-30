@@ -236,6 +236,7 @@ fn unit(
         argv_template: command.argv_template,
         module_arg_template: profile.module_arg_template.clone(),
         passthrough_args,
+        cache_args: task.cache_args,
         shared_inputs: command.shared_inputs,
     }
 }
@@ -309,6 +310,7 @@ mod tests {
         Task {
             name: "test".to_string(),
             command: TaskCommand::Argv(vec!["cargo".to_string(), "test".to_string()]),
+            cache_args: false,
         }
     }
 

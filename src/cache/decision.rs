@@ -205,13 +205,48 @@ pub fn prepare_cache_decisions(
     if let CacheMode::Disabled { reason } = mode {
         return Ok(disabled_decisions(full_plan, reason));
     }
-    let all_modules = modules_from_plan(full_plan)?;
-    let source_hashes = compute_source_hashes(&full_plan.workspace, &all_modules)?;
     let planned = planned_modules(full_plan);
+    let effective_modes = planned
+        .iter()
+        .map(|(key, planned_module)| (key.clone(), effective_mode(mode, planned_module.unit)))
+        .collect::<BTreeMap<_, _>>();
     let mut cache_keys = BTreeMap::new();
     let mut decisions = BTreeMap::new();
 
+    if effective_modes
+        .values()
+        .all(|mode| matches!(mode, CacheMode::Disabled { .. }))
+    {
+        for (key, planned_module) in &planned {
+            let CacheMode::Disabled { reason } = &effective_modes[key] else {
+                unreachable!("all cache modes are disabled");
+            };
+            decisions.insert(
+                (key.0.clone(), key.1.clone()),
+                disabled_decision(planned_module.unit, planned_module.module, reason),
+            );
+        }
+        return Ok(decisions);
+    }
+
+    let all_modules = modules_from_plan(full_plan)?;
+    let source_hashes = compute_source_hashes(&full_plan.workspace, &all_modules)?;
+
     for key in planned.keys() {
+        let planned_module = planned.get(key).ok_or_else(|| {
+            AppError::invalid_input("modules", format!("module '{}' is not planned", key.1))
+        })?;
+        let effective_mode = effective_modes
+            .get(key)
+            .cloned()
+            .expect("effective mode exists for every planned key");
+        if let CacheMode::Disabled { reason } = &effective_mode {
+            decisions.insert(
+                (key.0.clone(), key.1.clone()),
+                disabled_decision(planned_module.unit, planned_module.module, reason),
+            );
+            continue;
+        }
         let components = compute_components(
             key,
             &planned,
@@ -220,7 +255,7 @@ pub fn prepare_cache_decisions(
             &mut cache_keys,
             &mut BTreeSet::new(),
         )?;
-        let state = lookup_state(mode, task_cache, &components)?;
+        let state = lookup_state(&effective_mode, task_cache, &components)?;
         decisions.insert(
             (key.0.clone(), key.1.clone()),
             CacheDecision {
@@ -246,23 +281,27 @@ fn disabled_decisions(plan: &Plan, reason: &str) -> CacheDecisions {
         for module in &unit.modules {
             decisions.insert(
                 (unit.profile.clone(), module.name.clone()),
-                CacheDecision {
-                    profile: unit.profile.clone(),
-                    module: module.name.clone(),
-                    task: unit.task.clone(),
-                    key: CacheKey::new("disabled"),
-                    source_hash: "disabled".to_string(),
-                    dep_hash: "disabled".to_string(),
-                    task_hash: "disabled".to_string(),
-                    shared_hash: "disabled".to_string(),
-                    state: CacheState::Disabled {
-                        reason: reason.to_string(),
-                    },
-                },
+                disabled_decision(unit, module, reason),
             );
         }
     }
     decisions
+}
+
+fn disabled_decision(unit: &ExecutionUnit, module: &Module, reason: &str) -> CacheDecision {
+    CacheDecision {
+        profile: unit.profile.clone(),
+        module: module.name.clone(),
+        task: unit.task.clone(),
+        key: CacheKey::new("disabled"),
+        source_hash: "disabled".to_string(),
+        dep_hash: "disabled".to_string(),
+        task_hash: "disabled".to_string(),
+        shared_hash: "disabled".to_string(),
+        state: CacheState::Disabled {
+            reason: reason.to_string(),
+        },
+    }
 }
 
 fn lookup_state(
@@ -292,6 +331,18 @@ fn lookup_state(
             }
         }
     }
+}
+
+fn effective_mode(mode: &CacheMode, unit: &ExecutionUnit) -> CacheMode {
+    if matches!(mode, CacheMode::ReadWrite | CacheMode::Force)
+        && !unit.passthrough_args.is_empty()
+        && !unit.cache_args
+    {
+        return CacheMode::Disabled {
+            reason: "passthrough args disable cache".to_string(),
+        };
+    }
+    mode.clone()
 }
 
 fn record_matches(record: &CacheRecord, components: &KeyComponents) -> bool {
@@ -429,7 +480,6 @@ fn task_hash(
             format!("cwd:{}", workspace.root.display()),
             "env:inherit".to_string(),
             format!("toolchain:{}", toolchain_identity(unit, workspace)?),
-            format!("toven:{}", rskit_version::get_short_version()),
             format!("cache-record-schema:{CACHE_RECORD_SCHEMA}"),
             format!("resource-group:{resource_group}"),
             format!("argv:{}", argv.join("\u{1f}")),
@@ -560,7 +610,7 @@ mod tests {
 
     use rskit_cache::CacheStore;
 
-    use super::TaskCache;
+    use super::{CacheState, TaskCache};
     use crate::cache::key::CacheKey;
     use crate::{
         cache::decision::{CacheMode, prepare_cache_decisions},
@@ -590,34 +640,7 @@ mod tests {
     #[test]
     fn disabled_cache_decisions_do_not_require_git_workspace() {
         let root = rskit_testutil::test_workspace!("cache-disabled-no-git");
-        let plan = Plan {
-            workspace: Workspace {
-                schema: 1,
-                name: "fixture".to_string(),
-                root: root.path().join("not-a-repo"),
-                base_ref: None,
-                profiles: Vec::new(),
-            },
-            units: vec![ExecutionUnit {
-                id: "unit".to_string(),
-                profile: "profile".to_string(),
-                task: "test".to_string(),
-                command_origin: CommandOrigin::DirectArgv,
-                mode: ExecutionMode::SpawnEach,
-                resource_group: String::new(),
-                modules: vec![Module {
-                    name: ModuleId::new("module").expect("module id"),
-                    package: None,
-                    root: PathBuf::from("module"),
-                    dependencies: Vec::new(),
-                    source_patterns: Vec::new(),
-                }],
-                argv_template: vec!["echo".to_string(), "ok".to_string()],
-                module_arg_template: Vec::new(),
-                passthrough_args: Vec::new(),
-                shared_inputs: vec!["Cargo.lock".to_string()],
-            }],
-        };
+        let plan = plan(root.path().join("not-a-repo"), Vec::new(), false);
 
         let decisions = prepare_cache_decisions(
             &plan,
@@ -637,5 +660,64 @@ mod tests {
         assert_eq!(decision.source_hash, "disabled");
         assert_eq!(decision.shared_hash, "disabled");
         assert_eq!(decision.task_hash, "disabled");
+    }
+
+    #[test]
+    fn passthrough_args_disable_cache_without_git_workspace_when_not_allowed() {
+        let root = rskit_testutil::test_workspace!("cache-args-disabled-no-git");
+        let plan = plan(
+            root.path().join("not-a-repo"),
+            vec!["--release".to_string()],
+            false,
+        );
+
+        let decisions = prepare_cache_decisions(&plan, &CacheMode::ReadWrite, None)
+            .expect("passthrough-disabled cache decisions do not inspect git");
+
+        let decision = decisions
+            .get(&(
+                "profile".to_string(),
+                ModuleId::new("module").expect("module id"),
+            ))
+            .expect("decision exists");
+        assert_eq!(
+            decision.state,
+            CacheState::Disabled {
+                reason: "passthrough args disable cache".to_string()
+            }
+        );
+        assert_eq!(decision.source_hash, "disabled");
+    }
+
+    fn plan(root: PathBuf, passthrough_args: Vec<String>, cache_args: bool) -> Plan {
+        Plan {
+            workspace: Workspace {
+                schema: 1,
+                name: "fixture".to_string(),
+                root,
+                base_ref: None,
+                profiles: Vec::new(),
+            },
+            units: vec![ExecutionUnit {
+                id: "unit".to_string(),
+                profile: "profile".to_string(),
+                task: "test".to_string(),
+                command_origin: CommandOrigin::DirectArgv,
+                mode: ExecutionMode::SpawnEach,
+                resource_group: String::new(),
+                modules: vec![Module {
+                    name: ModuleId::new("module").expect("module id"),
+                    package: None,
+                    root: PathBuf::from("module"),
+                    dependencies: Vec::new(),
+                    source_patterns: Vec::new(),
+                }],
+                argv_template: vec!["echo".to_string(), "ok".to_string()],
+                module_arg_template: Vec::new(),
+                passthrough_args,
+                cache_args,
+                shared_inputs: vec!["Cargo.lock".to_string()],
+            }],
+        }
     }
 }

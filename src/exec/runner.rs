@@ -152,6 +152,7 @@ mod tests {
             argv_template,
             module_arg_template: Vec::new(),
             passthrough_args: Vec::new(),
+            cache_args: false,
             shared_inputs: Vec::new(),
         }
     }

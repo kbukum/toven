@@ -475,6 +475,58 @@ mod tests {
     }
 
     #[test]
+    fn run_command_can_cache_args_when_task_allows_it() {
+        let root = rskit_testutil::test_workspace!("cli-run-cache-args");
+        let workspace_path = root.path().join("rust-workspace");
+        copy_fixture_tree(&root, "rust-workspace", &workspace_path);
+        root.copy_fixture("run-cache/.gitignore", "rust-workspace/.gitignore")
+            .expect("copy run-cache gitignore fixture");
+        let config_path = write_run_config_from_template(
+            &root,
+            &workspace_path,
+            "run-cache/toven-cache-args.toml.template",
+        );
+        init_git_repo(&workspace_path);
+
+        let first = run_smoke_with_args(&config_path, ["--release"]);
+        assert_eq!(first.0, ExitCode::SUCCESS, "stderr:\n{}", first.2);
+        assert!(first.1.contains("executed"));
+        assert_eq!(run_count(&workspace_path), 2);
+
+        let second = run_smoke_with_args(&config_path, ["--release"]);
+        assert_eq!(second.0, ExitCode::SUCCESS, "stderr:\n{}", second.2);
+        assert!(second.1.contains("cache hit: fixture-core smoke"));
+        assert!(!second.1.contains("executed"));
+        assert_eq!(run_count(&workspace_path), 2);
+
+        let changed_args = run_smoke_with_args(&config_path, ["--debug"]);
+        assert_eq!(
+            changed_args.0,
+            ExitCode::SUCCESS,
+            "stderr:\n{}",
+            changed_args.2
+        );
+        assert!(changed_args.1.contains("executed"));
+        assert!(!changed_args.1.contains("cache hit: fixture-core smoke"));
+        assert_eq!(run_count(&workspace_path), 4);
+
+        let repeated_changed_args = run_smoke_with_args(&config_path, ["--debug"]);
+        assert_eq!(
+            repeated_changed_args.0,
+            ExitCode::SUCCESS,
+            "stderr:\n{}",
+            repeated_changed_args.2
+        );
+        assert!(
+            repeated_changed_args
+                .1
+                .contains("cache hit: fixture-core smoke")
+        );
+        assert!(!repeated_changed_args.1.contains("executed"));
+        assert_eq!(run_count(&workspace_path), 4);
+    }
+
+    #[test]
     fn affected_command_accepts_baseline_options() {
         command()
             .try_get_matches_from([
@@ -567,10 +619,44 @@ mod tests {
         )
     }
 
+    fn run_smoke_with_args<const N: usize>(
+        config_path: &Path,
+        passthrough_args: [&str; N],
+    ) -> (ExitCode, String, String) {
+        let mut args = vec![
+            "toven".to_string(),
+            "smoke".to_string(),
+            "--config".to_string(),
+            config_path.display().to_string(),
+            "--".to_string(),
+        ];
+        args.extend(passthrough_args.into_iter().map(ToString::to_string));
+        run_cli_vec(args)
+    }
+
+    fn run_cli_vec(args: Vec<String>) -> (ExitCode, String, String) {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let code = super::run_with_io(args, &mut stdout, &mut stderr);
+        (
+            code,
+            String::from_utf8(stdout).expect("stdout is utf-8"),
+            String::from_utf8(stderr).expect("stderr is utf-8"),
+        )
+    }
+
     fn write_run_config(root: &rskit_testutil::TestWorkspace, workspace: &Path) -> PathBuf {
+        write_run_config_from_template(root, workspace, "run-cache/toven.toml.template")
+    }
+
+    fn write_run_config_from_template(
+        root: &rskit_testutil::TestWorkspace,
+        workspace: &Path,
+        template_fixture: &str,
+    ) -> PathBuf {
         let config = workspace.join("toven-run.toml");
         let template = root
-            .read_fixture_string("run-cache/toven.toml.template")
+            .read_fixture_string(template_fixture)
             .expect("read run-cache config template fixture");
         fs::write(
             &config,

@@ -122,6 +122,7 @@ mod tests {
                 argv_template: vec!["cargo".to_string(), "test".to_string()],
                 module_arg_template: Vec::new(),
                 passthrough_args: Vec::new(),
+                cache_args: false,
                 shared_inputs: Vec::new(),
             }],
         };
