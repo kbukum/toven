@@ -4,6 +4,7 @@ use std::{
     fs, io,
     io::Write,
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 use clap::ArgMatches;
@@ -16,8 +17,8 @@ use crate::{
 
 pub(super) fn run_cache(matches: &ArgMatches, stdout: &mut impl Write) -> AppResult<()> {
     match matches.subcommand() {
-        Some(("stats", matches)) => run_cache_stats(matches, stdout),
-        Some(("clean", matches)) => run_cache_clean(matches, stdout),
+        Some(("stats" | "info", matches)) => run_cache_stats(matches, stdout),
+        Some(("clean" | "clear", matches)) => run_cache_clean(matches, stdout),
         _ => Err(AppError::invalid_input(
             "cache",
             "cache subcommand is required",
@@ -33,6 +34,23 @@ fn run_cache_stats(matches: &ArgMatches, stdout: &mut impl Write) -> AppResult<(
     writeln!(stdout, "cache_dir: {}", cache_dir.display()).map_err(AppError::internal)?;
     writeln!(stdout, "entries: {}", stats.entries).map_err(AppError::internal)?;
     writeln!(stdout, "bytes: {}", stats.bytes).map_err(AppError::internal)?;
+    writeln!(
+        stdout,
+        "oldest_age_seconds: {}",
+        stats
+            .oldest_age_seconds()
+            .map_or_else(|| "n/a".to_string(), |age| age.to_string())
+    )
+    .map_err(AppError::internal)?;
+    writeln!(
+        stdout,
+        "newest_age_seconds: {}",
+        stats
+            .newest_age_seconds()
+            .map_or_else(|| "n/a".to_string(), |age| age.to_string())
+    )
+    .map_err(AppError::internal)?;
+    writeln!(stdout, "hit_rate: per-run only").map_err(AppError::internal)?;
     Ok(())
 }
 
@@ -120,6 +138,9 @@ fn visit_cache_dir(path: &Path, stats: &mut CacheStats) -> AppResult<()> {
             })?;
             stats.entries += 1;
             stats.bytes += metadata.len();
+            if let Ok(modified) = metadata.modified() {
+                stats.record_modified(modified);
+            }
         }
     }
     Ok(())
@@ -129,4 +150,28 @@ fn visit_cache_dir(path: &Path, stats: &mut CacheStats) -> AppResult<()> {
 struct CacheStats {
     entries: usize,
     bytes: u64,
+    oldest: Option<SystemTime>,
+    newest: Option<SystemTime>,
+}
+
+impl CacheStats {
+    fn record_modified(&mut self, modified: SystemTime) {
+        self.oldest = Some(self.oldest.map_or(modified, |oldest| oldest.min(modified)));
+        self.newest = Some(self.newest.map_or(modified, |newest| newest.max(modified)));
+    }
+
+    fn oldest_age_seconds(&self) -> Option<u64> {
+        self.oldest.and_then(age_seconds)
+    }
+
+    fn newest_age_seconds(&self) -> Option<u64> {
+        self.newest.and_then(age_seconds)
+    }
+}
+
+fn age_seconds(time: SystemTime) -> Option<u64> {
+    SystemTime::now()
+        .duration_since(time)
+        .ok()
+        .map(|age| age.as_secs())
 }

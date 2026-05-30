@@ -25,7 +25,8 @@ pub fn changed_paths(workspace: &Workspace, baseline: &Baseline) -> AppResult<Ve
         )
         .with_cause(error)
     })?;
-    let workspace_prefix = workspace_prefix(rskit_git::Repository::root(&repo), &workspace.root)?;
+    let workspace_prefix =
+        rskit_git::repo_relative_path(rskit_git::Repository::root(&repo), &workspace.root)?;
     let mut paths = BTreeMap::new();
     let diff_base = if baseline.oid.is_empty() {
         baseline.revision.as_str()
@@ -59,41 +60,6 @@ pub fn changed_paths(workspace: &Workspace, baseline: &Baseline) -> AppResult<Ve
     }
 
     Ok(paths.into_values().collect())
-}
-
-fn workspace_prefix(repo_root: &Path, workspace_root: &Path) -> AppResult<PathBuf> {
-    let repo_root = repo_root.canonicalize().map_err(|error| {
-        AppError::invalid_input(
-            "workspace.root",
-            format!("failed to resolve git root '{}'", repo_root.display()),
-        )
-        .with_cause(error)
-    })?;
-    let workspace_root = workspace_root.canonicalize().map_err(|error| {
-        AppError::invalid_input(
-            "workspace.root",
-            format!(
-                "failed to resolve workspace root '{}'",
-                workspace_root.display()
-            ),
-        )
-        .with_cause(error)
-    })?;
-
-    workspace_root
-        .strip_prefix(&repo_root)
-        .map(|path| path.components().collect())
-        .map_err(|error| {
-            AppError::invalid_input(
-                "workspace.root",
-                format!(
-                    "workspace root '{}' is not inside git root '{}'",
-                    workspace_root.display(),
-                    repo_root.display()
-                ),
-            )
-            .with_cause(error)
-        })
 }
 
 fn insert_repo_path(

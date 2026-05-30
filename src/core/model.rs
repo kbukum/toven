@@ -2,7 +2,7 @@
 
 use std::{fmt, path::PathBuf, str::FromStr};
 
-use crate::core::{AppError, AppResult, PresetDefinition};
+use crate::core::{AppError, AppResult, PresetDefinition, validate_identifier};
 
 /// Unique module identifier within a workspace.
 #[derive(
@@ -26,18 +26,7 @@ impl ModuleId {
     /// Parse and validate a module identifier.
     pub fn parse(value: impl Into<String>) -> AppResult<Self> {
         let value = value.into();
-        if value.trim().is_empty() {
-            return Err(AppError::invalid_input(
-                "module.name",
-                "module name cannot be empty",
-            ));
-        }
-        if value != value.trim() {
-            return Err(AppError::invalid_input(
-                "module.name",
-                "module name cannot contain leading or trailing whitespace",
-            ));
-        }
+        validate_identifier("module.name", &value)?;
         Ok(Self(value))
     }
 }
@@ -128,6 +117,24 @@ pub struct Task {
     pub command: TaskCommand,
     /// Whether passthrough arguments are included in cache keys.
     pub cache_args: bool,
+    /// Whether this task starts a long-lived process.
+    pub persistent: bool,
+    /// Readiness condition for persistent tasks.
+    pub readiness: PersistentReadiness,
+    /// Maximum time to wait for persistent readiness.
+    pub readiness_timeout: std::time::Duration,
+}
+
+/// Readiness condition for long-lived task processes.
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub enum PersistentReadiness {
+    /// The task is ready once the subprocess starts.
+    #[default]
+    Started,
+    /// Run a bounded health command after the subprocess starts.
+    Command(Vec<String>),
+    /// Wait until stdout or stderr contains the literal text.
+    OutputContains(String),
 }
 
 /// Source of a task command.
@@ -213,6 +220,12 @@ pub struct ExecutionUnit {
     pub passthrough_args: Vec<String>,
     /// Whether passthrough arguments are included in cache keys.
     pub cache_args: bool,
+    /// Whether this unit starts a long-lived process.
+    pub persistent: bool,
+    /// Readiness condition for persistent units.
+    pub readiness: PersistentReadiness,
+    /// Maximum time to wait for persistent readiness.
+    pub readiness_timeout: std::time::Duration,
     /// Preset-scoped input paths that affect every module using this unit.
     pub shared_inputs: Vec<String>,
 }
@@ -230,7 +243,7 @@ pub struct Plan {
 mod tests {
     use std::str::FromStr;
 
-    use super::ModuleId;
+    use super::{ExecutionMode, ModuleId};
 
     #[test]
     fn module_id_exposes_value() {
@@ -240,17 +253,48 @@ mod tests {
     }
 
     #[test]
+    fn module_id_converts_into_string() {
+        let id = ModuleId::new("core").expect("module id parses");
+
+        assert_eq!(String::from(id), "core");
+    }
+
+    #[test]
     fn module_id_parse_rejects_empty_values() {
         let error = ModuleId::parse(" ").expect_err("empty value should fail");
 
-        assert!(error.message.contains("module name"));
+        assert!(error.message.contains("is required"));
     }
 
     #[test]
     fn module_id_parse_rejects_surrounding_whitespace() {
         let error = ModuleId::parse(" api ").expect_err("surrounding whitespace should fail");
 
-        assert!(error.message.contains("leading or trailing whitespace"));
+        assert!(
+            error
+                .message
+                .contains("cannot contain leading or trailing whitespace")
+        );
+    }
+
+    #[test]
+    fn module_id_parse_rejects_path_unsafe_values() {
+        for value in ["../api", "api/core", "api\\core", "api:core", ".", ".."] {
+            let error = ModuleId::parse(value).expect_err("path-unsafe value should fail");
+
+            assert!(
+                error
+                    .message
+                    .contains("cannot contain path separators or traversal markers")
+            );
+        }
+    }
+
+    #[test]
+    fn module_id_parse_rejects_control_characters() {
+        let error = ModuleId::parse("api\u{202e}core").expect_err("control value should fail");
+
+        assert!(error.message.contains("control characters"));
     }
 
     #[test]
@@ -261,10 +305,17 @@ mod tests {
     }
 
     #[test]
+    fn execution_mode_displays_kebab_case_names() {
+        assert_eq!(ExecutionMode::SpawnEach.to_string(), "spawn-each");
+        assert_eq!(ExecutionMode::BatchReady.to_string(), "batch-ready");
+        assert_eq!(ExecutionMode::WorkspaceOnce.to_string(), "workspace-once");
+    }
+
+    #[test]
     fn module_id_try_from_rejects_empty_values() {
         let error = ModuleId::try_from(String::from(" ")).expect_err("empty value should fail");
 
-        assert!(error.message.contains("module name"));
+        assert!(error.message.contains("is required"));
     }
 
     #[test]
@@ -272,7 +323,11 @@ mod tests {
         let error = ModuleId::try_from(String::from(" api "))
             .expect_err("surrounding whitespace should fail");
 
-        assert!(error.message.contains("leading or trailing whitespace"));
+        assert!(
+            error
+                .message
+                .contains("cannot contain leading or trailing whitespace")
+        );
     }
 
     #[test]
@@ -283,7 +338,7 @@ mod tests {
             serde::de::value::StringDeserializer::<serde::de::value::Error>::new(" ".to_string());
         let error = ModuleId::deserialize(deserializer).expect_err("empty value should fail");
 
-        assert!(error.to_string().contains("module name"));
+        assert!(error.to_string().contains("is required"));
     }
 
     #[test]
@@ -296,6 +351,10 @@ mod tests {
         let error =
             ModuleId::deserialize(deserializer).expect_err("surrounding whitespace should fail");
 
-        assert!(error.to_string().contains("leading or trailing whitespace"));
+        assert!(
+            error
+                .to_string()
+                .contains("cannot contain leading or trailing whitespace")
+        );
     }
 }

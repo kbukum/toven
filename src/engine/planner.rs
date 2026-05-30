@@ -237,6 +237,9 @@ fn unit(
         module_arg_template: profile.module_arg_template.clone(),
         passthrough_args,
         cache_args: task.cache_args,
+        persistent: task.persistent,
+        readiness: task.readiness.clone(),
+        readiness_timeout: task.readiness_timeout,
         shared_inputs: command.shared_inputs,
     }
 }
@@ -292,7 +295,10 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::{
-        core::{ExecutionMode, Module, ModuleId, Profile, Task, TaskCommand, Workspace},
+        core::{
+            ExecutionMode, Module, ModuleId, PersistentReadiness, Profile, Task, TaskCommand,
+            Workspace,
+        },
         engine::planner::plan_profile_task,
     };
 
@@ -311,6 +317,9 @@ mod tests {
             name: "test".to_string(),
             command: TaskCommand::Argv(vec!["cargo".to_string(), "test".to_string()]),
             cache_args: false,
+            persistent: false,
+            readiness: PersistentReadiness::Started,
+            readiness_timeout: std::time::Duration::from_secs(30),
         }
     }
 

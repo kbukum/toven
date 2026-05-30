@@ -4,7 +4,7 @@ use clap::{Arg, ArgAction, Command};
 
 /// Subcommands reserved by the CLI entrypoint.
 pub(super) const RESERVED_SUBCOMMANDS: &[&str] = &[
-    "help", "run", "plan", "affected", "explain", "modules", "graph", "cache",
+    "help", "run", "plan", "affected", "explain", "modules", "list", "ls", "graph", "deps", "cache",
 ];
 
 /// Build the top-level Toven command.
@@ -19,6 +19,7 @@ pub(super) fn command() -> Command {
         .subcommand(affected_command())
         .subcommand(explain_command())
         .subcommand(modules_command())
+        .subcommand(list_command())
         .subcommand(graph_command())
         .subcommand(cache_command())
 }
@@ -59,6 +60,26 @@ fn run_args(command: Command) -> Command {
                 .value_parser(["human", "jsonl"])
                 .help("Output format for run events"),
         )
+        .arg(
+            Arg::new("watch")
+                .long("watch")
+                .action(ArgAction::SetTrue)
+                .help("Watch the workspace and rerun affected modules after file changes"),
+        )
+        .arg(
+            Arg::new("watch-debounce-ms")
+                .long("watch-debounce-ms")
+                .value_name("MILLIS")
+                .default_value("250")
+                .value_parser(clap::value_parser!(u64))
+                .help("Debounce interval for --watch file changes"),
+        )
+        .arg(
+            Arg::new("watch-once")
+                .long("watch-once")
+                .hide(true)
+                .action(ArgAction::SetTrue),
+        )
         .arg(passthrough_args())
 }
 
@@ -92,8 +113,19 @@ fn modules_command() -> Command {
         ))
 }
 
+fn list_command() -> Command {
+    Command::new("list")
+        .about("Alias for modules")
+        .alias("ls")
+        .arg(config_arg())
+        .arg(defaulted_task_arg(
+            "Task name used to select profiles/modules",
+        ))
+}
+
 fn graph_command() -> Command {
     Command::new("graph")
+        .visible_alias("deps")
         .about("Render the discovered module dependency graph")
         .arg(config_arg())
         .arg(defaulted_task_arg(
@@ -120,12 +152,14 @@ fn cache_command() -> Command {
 
 fn cache_stats_command() -> Command {
     Command::new("stats")
+        .visible_alias("info")
         .about("Show local cache size and entry count")
         .arg(config_arg())
 }
 
 fn cache_clean_command() -> Command {
     Command::new("clean")
+        .visible_alias("clear")
         .about("Remove local cache records")
         .arg(config_arg())
 }

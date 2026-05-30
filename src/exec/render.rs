@@ -141,7 +141,7 @@ fn parse_template(field: &str, value: &str) -> AppResult<Template> {
     Template::parse(value).map_err(|error| AppError::invalid_input(field, error.message))
 }
 
-fn argv_field(unit: &ExecutionUnit) -> String {
+pub(in crate::exec) fn argv_field(unit: &ExecutionUnit) -> String {
     format!("profiles.{}.tasks.{}.argv", unit.profile, unit.task)
 }
 
@@ -183,6 +183,9 @@ mod tests {
             module_arg_template: vec!["-p".to_string(), "{module.package}".to_string()],
             passthrough_args: vec!["--release".to_string()],
             cache_args: false,
+            persistent: false,
+            readiness: crate::core::PersistentReadiness::Started,
+            readiness_timeout: std::time::Duration::from_secs(30),
             shared_inputs: Vec::new(),
         }
     }

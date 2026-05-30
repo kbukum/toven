@@ -253,7 +253,7 @@ fn collect_head_entries(
     owners: &PathOwners,
     buckets: &mut HashBuckets,
 ) -> AppResult<()> {
-    let repo_path = join_repo_path(workspace_prefix, relative);
+    let repo_path = join_repo_path(workspace_prefix, relative)?;
     let entries = repo
         .list_entries("HEAD", &path_to_string(&repo_path))
         .map_err(|error| {
@@ -392,7 +392,7 @@ fn hash_index_path(
     workspace_prefix: &Path,
     relative_path: &Path,
 ) -> AppResult<String> {
-    let repo_path = join_repo_path(workspace_prefix, relative_path);
+    let repo_path = join_repo_path(workspace_prefix, relative_path)?;
     let Some(entry) = repo
         .index_entry(&path_to_string(&repo_path))
         .map_err(|error| {
@@ -638,45 +638,13 @@ fn hash_directory_into(
 }
 
 fn workspace_prefix(repo_root: &Path, workspace_root: &Path) -> AppResult<PathBuf> {
-    let repo_root = repo_root.canonicalize().map_err(|error| {
-        AppError::invalid_input(
-            "workspace.root",
-            format!("failed to resolve git root '{}'", repo_root.display()),
-        )
-        .with_cause(error)
-    })?;
-    let workspace_root = workspace_root.canonicalize().map_err(|error| {
-        AppError::invalid_input(
-            "workspace.root",
-            format!(
-                "failed to resolve workspace root '{}'",
-                workspace_root.display()
-            ),
-        )
-        .with_cause(error)
-    })?;
-    workspace_root
-        .strip_prefix(&repo_root)
-        .map(normalize_path)
-        .map_err(|error| {
-            AppError::invalid_input(
-                "workspace.root",
-                format!(
-                    "workspace root '{}' is not inside git root '{}'",
-                    workspace_root.display(),
-                    repo_root.display()
-                ),
-            )
-            .with_cause(error)
-        })
+    rskit_git::repo_relative_path(repo_root, workspace_root).map_err(|error| {
+        AppError::invalid_input("workspace.root", error.message.clone()).with_cause(error)
+    })
 }
 
-fn join_repo_path(workspace_prefix: &Path, relative: &Path) -> PathBuf {
-    if workspace_prefix.as_os_str().is_empty() {
-        relative.to_path_buf()
-    } else {
-        workspace_prefix.join(relative)
-    }
+fn join_repo_path(workspace_prefix: &Path, relative: &Path) -> AppResult<PathBuf> {
+    rskit_git::join_repo_path(workspace_prefix, relative)
 }
 
 fn path_matches_module(path: &Path, module: &ModuleRoot) -> bool {

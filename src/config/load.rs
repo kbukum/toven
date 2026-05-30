@@ -236,6 +236,27 @@ mod tests {
     }
 
     #[test]
+    fn rejects_nonpersistent_ready_timeout() {
+        let root = rskit_testutil::test_workspace!("nonpersistent-ready-timeout");
+        let config_path = root
+            .copy_fixture("config/nonpersistent-ready-timeout.toml", "toven.toml")
+            .expect("copy config fixture");
+
+        let error = load_workspace(&config_path).expect_err("ready timeout requires persistence");
+
+        assert!(
+            error
+                .message
+                .contains("profiles.rust.tasks.test.ready_timeout_seconds")
+        );
+        assert!(
+            error
+                .message
+                .contains("ready_timeout_seconds requires persistent = true")
+        );
+    }
+
+    #[test]
     fn resolves_project_local_presets() {
         let root = rskit_testutil::test_workspace!("preset");
         let config_path = root

@@ -16,9 +16,18 @@ use crate::{
     },
     cli::affected::{modules_from_discovered, resolve_affected_changes, resolve_affected_modules},
     config::load_workspace,
-    core::{AppError, AppResult, ErrorCode, ExecutionMode, ExecutionUnit, Module, ModuleId},
-    engine::{discover_workspace_task_profiles, plan_discovered_task_profiles},
-    exec::{RunOptions, run_execution_unit},
+    core::{
+        AppError, AppResult, ErrorCode, ExecutionMode, ExecutionUnit, Module, ModuleId, Plan,
+        Workspace,
+    },
+    engine::{
+        DiscoveredTaskProfile, discover_workspace_task_profiles, plan_discovered_task_profiles,
+    },
+    exec::{
+        PersistentOutput, PersistentOutputStream, PersistentProcess, RunOptions,
+        SharedCancellation, run_execution_unit, spawn_ctrl_c_handler,
+        start_persistent_execution_unit_with_output, stop_ctrl_c_handler,
+    },
     lang::LangRegistry,
     report::{OutputFormat, RunReporter},
 };
@@ -28,6 +37,54 @@ pub(super) fn run_task(
     stdout: &mut impl Write,
     stderr: &mut impl Write,
 ) -> AppResult<()> {
+    if matches.get_flag("watch") {
+        return crate::cli::watch::run_watch(matches, stdout, stderr);
+    }
+    run_task_once(matches, stdout, stderr, None)
+}
+
+pub(super) fn run_task_once(
+    matches: &ArgMatches,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+    module_filter: Option<&BTreeSet<ModuleId>>,
+) -> AppResult<()> {
+    run_task_once_with_lifecycle(
+        matches,
+        stdout,
+        stderr,
+        module_filter,
+        PersistentLifecycle::Block,
+        None,
+    )
+    .map(|_| ())
+}
+
+pub(super) fn run_task_once_for_watch(
+    matches: &ArgMatches,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+    module_filter: Option<&BTreeSet<ModuleId>>,
+    cancellation: SharedCancellation,
+) -> AppResult<Vec<ActivePersistentProcess>> {
+    run_task_once_with_lifecycle(
+        matches,
+        stdout,
+        stderr,
+        module_filter,
+        PersistentLifecycle::KeepAlive,
+        Some(cancellation),
+    )
+}
+
+fn run_task_once_with_lifecycle(
+    matches: &ArgMatches,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+    module_filter: Option<&BTreeSet<ModuleId>>,
+    persistent_lifecycle: PersistentLifecycle,
+    cancellation: Option<SharedCancellation>,
+) -> AppResult<Vec<ActivePersistentProcess>> {
     let output_format = OutputFormat::parse(
         matches
             .get_one::<String>("output")
@@ -49,30 +106,13 @@ pub(super) fn run_task(
     let workspace = load_workspace(config)?;
     let registry = LangRegistry::default();
     let discovered = discover_workspace_task_profiles(&workspace, task, &registry)?;
-    let full_plan =
-        plan_discovered_task_profiles(workspace.clone(), &discovered, &passthrough_args, None)?;
-    let (exec_plan, cache_plan) = if matches.get_flag("affected") {
-        let changes = resolve_affected_changes(&workspace, matches)?;
-        let modules = modules_from_discovered(&discovered)?;
-        let affected = resolve_affected_modules(changes, &modules)?;
-        let exec_plan = plan_discovered_task_profiles(
-            workspace.clone(),
-            &discovered,
-            &passthrough_args,
-            Some(&affected.closure),
-        )?;
-        let cache_filter = dependency_closure(&modules, &affected.closure)?;
-        let cache_plan = plan_discovered_task_profiles(
-            workspace.clone(),
-            &discovered,
-            &passthrough_args,
-            Some(&cache_filter),
-        )?;
-        (exec_plan, cache_plan)
-    } else {
-        reject_unused_affected_flags(matches)?;
-        (full_plan.clone(), full_plan)
-    };
+    let (exec_plan, cache_plan) = select_plans(
+        matches,
+        &workspace,
+        &discovered,
+        &passthrough_args,
+        module_filter,
+    )?;
 
     let cache_mode = cache_mode(matches);
     let task_cache = cache_mode
@@ -80,20 +120,32 @@ pub(super) fn run_task(
         .then(|| TaskCache::new(workspace.root.join(".toven/cache").join(CACHE_DIRECTORY)))
         .transpose()?;
     let decisions = prepare_cache_decisions(&cache_plan, &cache_mode, task_cache.as_ref())?;
+    let external_cancellation = cancellation.is_some();
+    let cancellation = cancellation.unwrap_or_else(SharedCancellation::new);
+    let ctrl_c_handler = (persistent_lifecycle == PersistentLifecycle::Block
+        && !external_cancellation)
+        .then(|| spawn_ctrl_c_handler(cancellation.clone()))
+        .transpose()?;
     let options = RunOptions {
         timeout: matches
             .get_one::<u64>("timeout-seconds")
             .map(|seconds| Duration::from_secs(*seconds)),
-        cancel_on_ctrl_c: true,
+        cancel_on_ctrl_c: false,
+        cancellation: Some(cancellation),
     };
     let mut reporter = RunReporter::new(output_format, stdout, exec_plan.units.len())?;
     reporter.plan_prepared(&workspace.name, &workspace.root.display().to_string())?;
+    for unit in &exec_plan.units {
+        reporter.plan_unit(unit, &workspace.root)?;
+    }
     for decision in decisions.values() {
         reporter.cache_decision(decision)?;
     }
 
+    let has_finite_units = exec_plan.units.iter().any(|unit| !unit.persistent);
+    let mut persistent_processes = Vec::new();
     for unit in exec_plan.units {
-        if let Err(error) = execute_unit(
+        match execute_unit(
             unit,
             &workspace.root,
             &decisions,
@@ -102,12 +154,109 @@ pub(super) fn run_task(
             &mut reporter,
             stderr,
         ) {
+            Ok(Some(process)) => persistent_processes.push(process),
+            Ok(None) => {}
+            Err(error) => {
+                let _ = reporter.run_failed(&error);
+                let _ = stop_ctrl_c_handler(ctrl_c_handler);
+                let _ = shutdown_active_processes(persistent_processes);
+                return Err(error);
+            }
+        }
+    }
+    if persistent_lifecycle == PersistentLifecycle::KeepAlive {
+        reporter.run_succeeded()?;
+        return Ok(persistent_processes);
+    }
+
+    while let Some(active) = persistent_processes.pop() {
+        let result = if has_finite_units {
+            active.process.shutdown()
+        } else {
+            active.process.wait()
+        };
+        if let Err(error) = result {
             let _ = reporter.run_failed(&error);
+            let _ = stop_ctrl_c_handler(ctrl_c_handler);
+            let _ = shutdown_active_processes(persistent_processes);
             return Err(error);
         }
     }
+    stop_ctrl_c_handler(ctrl_c_handler)?;
     reporter.run_succeeded()?;
-    Ok(())
+    Ok(Vec::new())
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum PersistentLifecycle {
+    Block,
+    KeepAlive,
+}
+
+pub(super) struct ActivePersistentProcess {
+    modules: BTreeSet<ModuleId>,
+    process: PersistentProcess,
+}
+
+impl ActivePersistentProcess {
+    pub(super) fn is_affected_by(&self, modules: &BTreeSet<ModuleId>) -> bool {
+        self.modules.is_empty() || !self.modules.is_disjoint(modules)
+    }
+
+    pub(super) fn shutdown(self) -> AppResult<()> {
+        self.process.shutdown()
+    }
+}
+
+fn select_plans(
+    matches: &ArgMatches,
+    workspace: &Workspace,
+    discovered: &[DiscoveredTaskProfile],
+    passthrough_args: &[String],
+    module_filter: Option<&BTreeSet<ModuleId>>,
+) -> AppResult<(Plan, Plan)> {
+    if let Some(module_filter) = module_filter {
+        let exec_plan = plan_discovered_task_profiles(
+            workspace.clone(),
+            discovered,
+            passthrough_args,
+            Some(module_filter),
+        )?;
+        let modules = modules_from_discovered(discovered)?;
+        let cache_filter = dependency_closure(&modules, module_filter)?;
+        let cache_plan = plan_discovered_task_profiles(
+            workspace.clone(),
+            discovered,
+            passthrough_args,
+            Some(&cache_filter),
+        )?;
+        return Ok((exec_plan, cache_plan));
+    }
+
+    if matches.get_flag("affected") {
+        let changes = resolve_affected_changes(workspace, matches)?;
+        let modules = modules_from_discovered(discovered)?;
+        let affected = resolve_affected_modules(changes, &modules)?;
+        let exec_plan = plan_discovered_task_profiles(
+            workspace.clone(),
+            discovered,
+            passthrough_args,
+            Some(&affected.closure),
+        )?;
+        let cache_filter = dependency_closure(&modules, &affected.closure)?;
+        let cache_plan = plan_discovered_task_profiles(
+            workspace.clone(),
+            discovered,
+            passthrough_args,
+            Some(&cache_filter),
+        )?;
+        return Ok((exec_plan, cache_plan));
+    }
+
+    reject_unused_affected_flags(matches)?;
+    let full_plan =
+        plan_discovered_task_profiles(workspace.clone(), discovered, passthrough_args, None)?;
+    Ok((full_plan.clone(), full_plan))
 }
 
 fn execute_unit<W, E>(
@@ -118,7 +267,7 @@ fn execute_unit<W, E>(
     options: &RunOptions,
     reporter: &mut RunReporter<'_, W>,
     stderr: &mut E,
-) -> AppResult<()>
+) -> AppResult<Option<ActivePersistentProcess>>
 where
     W: Write,
     E: Write,
@@ -137,7 +286,7 @@ where
             reporter.cache_hit(&unit, module, false)?;
         }
         reporter.unit_skipped(&unit)?;
-        return Ok(());
+        return Ok(None);
     }
 
     if unit.mode == ExecutionMode::WorkspaceOnce {
@@ -157,34 +306,84 @@ where
     };
 
     reporter.unit_started(&executable_unit)?;
-    let output = run_execution_unit(&executable_unit, workspace_root, options)?;
-    reporter.child_stdout(stderr, &output.result.stdout_bytes)?;
-    stderr
-        .write_all(&output.result.stderr_bytes)
-        .map_err(AppError::internal)?;
-    if output.result.stdout_truncated {
-        writeln!(stderr, "warning: stdout capture truncated").map_err(AppError::internal)?;
-    }
-    if output.result.stderr_truncated {
-        writeln!(stderr, "warning: stderr capture truncated").map_err(AppError::internal)?;
-    }
-    reporter.unit_finished(&executable_unit, &output.result, output.cancelled)?;
-    if !output.result.success() {
-        return Err(process_error(
+    let mut cache_argv = None;
+    let persistent_process = if executable_unit.persistent {
+        let (output, process) = start_persistent_execution_unit_with_output(
             &executable_unit,
-            &output.result,
-            output.cancelled,
-        ));
-    }
+            workspace_root,
+            options,
+            persistent_output(reporter.format()),
+        )?;
+        reporter.persistent_ready(&executable_unit)?;
+        if output.result.stdout_truncated {
+            writeln!(stderr, "warning: stdout capture truncated").map_err(AppError::internal)?;
+        }
+        if output.result.stderr_truncated {
+            writeln!(stderr, "warning: stderr capture truncated").map_err(AppError::internal)?;
+        }
+        Some(ActivePersistentProcess {
+            modules: executable_unit
+                .modules
+                .iter()
+                .map(|module| module.name.clone())
+                .collect(),
+            process,
+        })
+    } else {
+        let output = run_execution_unit(&executable_unit, workspace_root, options)?;
+        reporter.child_stdout(stderr, &output.result.stdout_bytes)?;
+        stderr
+            .write_all(&output.result.stderr_bytes)
+            .map_err(AppError::internal)?;
+        if output.result.stdout_truncated {
+            writeln!(stderr, "warning: stdout capture truncated").map_err(AppError::internal)?;
+        }
+        if output.result.stderr_truncated {
+            writeln!(stderr, "warning: stderr capture truncated").map_err(AppError::internal)?;
+        }
+        reporter.unit_finished(&executable_unit, &output.result, output.cancelled)?;
+        if !output.result.success() {
+            return Err(process_error(
+                &executable_unit,
+                &output.result,
+                output.cancelled,
+            ));
+        }
+        cache_argv = Some(output.argv);
+        None
+    };
 
-    if let Some(task_cache) = task_cache {
+    if let (Some(task_cache), Some(argv)) = (task_cache, cache_argv.as_ref()) {
         for module in &executable_unit.modules {
             if let Some(decision) = decision_for(decisions, &executable_unit, &module.name) {
-                task_cache.write_success(decision, &output.argv)?;
+                task_cache.write_success(decision, argv)?;
             }
         }
     }
-    Ok(())
+    Ok(persistent_process)
+}
+
+const fn persistent_output(format: OutputFormat) -> PersistentOutput {
+    match format {
+        OutputFormat::Human => PersistentOutput::forward(
+            PersistentOutputStream::Stdout,
+            PersistentOutputStream::Stderr,
+        ),
+        OutputFormat::Jsonl => PersistentOutput::forward(
+            PersistentOutputStream::Stderr,
+            PersistentOutputStream::Stderr,
+        ),
+    }
+}
+
+fn shutdown_active_processes(processes: Vec<ActivePersistentProcess>) -> AppResult<()> {
+    let mut first_error = None;
+    for process in processes {
+        if let Err(error) = process.shutdown() {
+            first_error.get_or_insert(error);
+        }
+    }
+    first_error.map_or_else(|| Ok(()), Err)
 }
 
 fn decision_for<'a>(
@@ -363,6 +562,9 @@ mod tests {
             module_arg_template: Vec::new(),
             passthrough_args: Vec::new(),
             cache_args: false,
+            persistent: false,
+            readiness: crate::core::PersistentReadiness::Started,
+            readiness_timeout: Duration::from_secs(30),
             shared_inputs: Vec::new(),
         };
         let mut decisions = BTreeMap::new();
@@ -398,6 +600,7 @@ mod tests {
             &crate::exec::RunOptions {
                 timeout: None,
                 cancel_on_ctrl_c: false,
+                cancellation: None,
             },
             &mut reporter,
             &mut stderr,
@@ -409,6 +612,105 @@ mod tests {
         let stdout = String::from_utf8(stdout).expect("stdout is utf-8");
         assert!(stdout.contains("cache hit (re-run as part of workspace-once): hit test"));
         assert!(stdout.contains("workspace-once"));
+    }
+
+    #[test]
+    fn persistent_process_tracks_only_started_modules() {
+        let root = rskit_testutil::test_workspace!("run-persistent-started-modules");
+        let mut unit = unit();
+        unit.mode = ExecutionMode::SpawnEach;
+        unit.modules = vec![module("hit", &[]), module("miss", &[])];
+        unit.argv_template = vec!["sleep".to_string(), "2".to_string()];
+        unit.persistent = true;
+        let mut decisions = BTreeMap::new();
+        decisions.insert(
+            (
+                "profile".to_string(),
+                crate::core::ModuleId::new("hit").expect("module id"),
+            ),
+            decision("hit", CacheState::Hit),
+        );
+        decisions.insert(
+            (
+                "profile".to_string(),
+                crate::core::ModuleId::new("miss").expect("module id"),
+            ),
+            decision(
+                "miss",
+                CacheState::Miss {
+                    reason: "no cache record".to_string(),
+                },
+            ),
+        );
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let mut reporter =
+            RunReporter::new(OutputFormat::Human, &mut stdout, 1).expect("reporter initializes");
+
+        let active = execute_unit(
+            unit,
+            root.path(),
+            &decisions,
+            None,
+            &crate::exec::RunOptions {
+                timeout: None,
+                cancel_on_ctrl_c: false,
+                cancellation: None,
+            },
+            &mut reporter,
+            &mut stderr,
+        )
+        .expect("persistent unit starts")
+        .expect("persistent process is active");
+
+        let hit = std::iter::once(crate::core::ModuleId::new("hit").expect("module id")).collect();
+        let miss =
+            std::iter::once(crate::core::ModuleId::new("miss").expect("module id")).collect();
+        assert!(!active.is_affected_by(&hit));
+        assert!(active.is_affected_by(&miss));
+        active.shutdown().expect("persistent process shuts down");
+    }
+
+    #[test]
+    fn persistent_ready_does_not_report_unit_finished() {
+        let root = rskit_testutil::test_workspace!("run-persistent-ready-jsonl");
+        let mut unit = unit();
+        unit.mode = ExecutionMode::WorkspaceOnce;
+        unit.modules = vec![module("miss", &[])];
+        unit.argv_template = vec!["sleep".to_string(), "2".to_string()];
+        unit.persistent = true;
+        let decisions = BTreeMap::new();
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let mut reporter =
+            RunReporter::new(OutputFormat::Jsonl, &mut stdout, 1).expect("reporter initializes");
+
+        let active = execute_unit(
+            unit,
+            root.path(),
+            &decisions,
+            None,
+            &crate::exec::RunOptions {
+                timeout: None,
+                cancel_on_ctrl_c: false,
+                cancellation: None,
+            },
+            &mut reporter,
+            &mut stderr,
+        )
+        .expect("persistent unit starts")
+        .expect("persistent process is active");
+        active.shutdown().expect("persistent process shuts down");
+        drop(reporter);
+
+        let stdout = String::from_utf8(stdout).expect("stdout is utf-8");
+        let events = stdout
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("valid jsonl"))
+            .map(|event| event["event"].as_str().expect("event string").to_string())
+            .collect::<Vec<_>>();
+        assert!(events.iter().any(|event| event == "persistent.ready"));
+        assert!(!events.iter().any(|event| event == "unit.finished"));
     }
 
     fn unit() -> ExecutionUnit {
@@ -424,22 +726,24 @@ mod tests {
             module_arg_template: Vec::new(),
             passthrough_args: Vec::new(),
             cache_args: false,
+            persistent: false,
+            readiness: crate::core::PersistentReadiness::Started,
+            readiness_timeout: Duration::from_secs(30),
             shared_inputs: Vec::new(),
         }
     }
 
     fn result(exit_code: Option<i32>, timed_out: bool) -> rskit_process::ProcessResult {
-        rskit_process::ProcessResult {
+        rskit_process::ProcessResult::completed(
             exit_code,
-            stdout: String::new(),
-            stdout_bytes: Vec::new(),
-            stderr: String::new(),
-            stderr_bytes: Vec::new(),
-            stdout_truncated: false,
-            stderr_truncated: false,
-            duration: Duration::ZERO,
+            Vec::new(),
+            Vec::new(),
+            false,
+            false,
+            Duration::ZERO,
             timed_out,
-        }
+            false,
+        )
     }
 
     fn module(name: &str, dependencies: &[&str]) -> Module {
