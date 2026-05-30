@@ -15,6 +15,9 @@ pub struct TaskConfig {
     pub preset: Option<String>,
     /// Direct argv template.
     pub argv: Option<Vec<String>>,
+    /// Allow passthrough args to participate in cache keys instead of disabling cache.
+    #[serde(default)]
+    pub cache_passthrough: bool,
 }
 
 pub(super) fn normalize_task(
@@ -54,5 +57,9 @@ pub(super) fn normalize_task(
         }
     };
 
-    Ok(Task { name, command })
+    Ok(Task {
+        name,
+        command,
+        cache_passthrough: config.cache_passthrough,
+    })
 }

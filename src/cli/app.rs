@@ -475,6 +475,46 @@ mod tests {
     }
 
     #[test]
+    fn run_command_can_cache_passthrough_args_when_task_allows_it() {
+        let root = rskit_testutil::test_workspace!("cli-run-cache-passthrough");
+        let workspace_path = root.path().join("rust-workspace");
+        copy_fixture_tree(&root, "rust-workspace", &workspace_path);
+        root.copy_fixture("run-cache/.gitignore", "rust-workspace/.gitignore")
+            .expect("copy run-cache gitignore fixture");
+        let config_path = write_run_config_from_template(
+            &root,
+            &workspace_path,
+            "run-cache/toven-cache-passthrough.toml.template",
+        );
+        init_git_repo(&workspace_path);
+
+        let first = run_cli([
+            "toven".to_string(),
+            "smoke".to_string(),
+            "--config".to_string(),
+            config_path.display().to_string(),
+            "--".to_string(),
+            "--release".to_string(),
+        ]);
+        assert_eq!(first.0, ExitCode::SUCCESS, "stderr:\n{}", first.2);
+        assert!(first.1.contains("executed"));
+        assert_eq!(run_count(&workspace_path), 2);
+
+        let second = run_cli([
+            "toven".to_string(),
+            "smoke".to_string(),
+            "--config".to_string(),
+            config_path.display().to_string(),
+            "--".to_string(),
+            "--release".to_string(),
+        ]);
+        assert_eq!(second.0, ExitCode::SUCCESS, "stderr:\n{}", second.2);
+        assert!(second.1.contains("cache hit: fixture-core smoke"));
+        assert!(!second.1.contains("executed"));
+        assert_eq!(run_count(&workspace_path), 2);
+    }
+
+    #[test]
     fn affected_command_accepts_baseline_options() {
         command()
             .try_get_matches_from([
@@ -568,9 +608,17 @@ mod tests {
     }
 
     fn write_run_config(root: &rskit_testutil::TestWorkspace, workspace: &Path) -> PathBuf {
+        write_run_config_from_template(root, workspace, "run-cache/toven.toml.template")
+    }
+
+    fn write_run_config_from_template(
+        root: &rskit_testutil::TestWorkspace,
+        workspace: &Path,
+        template_fixture: &str,
+    ) -> PathBuf {
         let config = workspace.join("toven-run.toml");
         let template = root
-            .read_fixture_string("run-cache/toven.toml.template")
+            .read_fixture_string(template_fixture)
             .expect("read run-cache config template fixture");
         fs::write(
             &config,

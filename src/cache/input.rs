@@ -5,10 +5,11 @@ use std::{
     fs,
     io::Read,
     path::{Path, PathBuf},
-    process::Command,
 };
 
-use rskit_git::{Differ, EntryKind, EntryState, IndexReader, Repository, StatusEntry, TreeReader};
+use rskit_git::{
+    Differ, EntryKind, EntryState, Executor, IndexReader, Repository, StatusEntry, TreeReader,
+};
 
 use crate::core::{AppError, AppResult, ErrorCode, Module, ModuleId, Workspace};
 
@@ -34,7 +35,7 @@ pub fn compute_source_hashes(workspace: &Workspace, modules: &[Module]) -> AppRe
         .with_cause(error)
     })?;
     let workspace_prefix = workspace_prefix(repo.root(), &workspace.root)?;
-    let ignore = IgnoreMatcher::new(&workspace.root, &workspace_prefix)?;
+    let ignore = IgnoreMatcher::new(&repo, &workspace_prefix)?;
     let owners = PathOwners::new(modules);
     let mut buckets = HashBuckets::new(modules);
 
@@ -73,7 +74,7 @@ pub fn compute_shared_inputs_hash(
         .with_cause(error)
     })?;
     let workspace_prefix = workspace_prefix(repo.root(), &workspace.root)?;
-    let ignore = IgnoreMatcher::new(&workspace.root, &workspace_prefix)?;
+    let ignore = IgnoreMatcher::new(&repo, &workspace_prefix)?;
     let mut inputs = shared_inputs
         .iter()
         .map(|input| normalize_path(Path::new(input)))
@@ -201,10 +202,10 @@ struct IgnoreMatcher {
 }
 
 impl IgnoreMatcher {
-    fn new(workspace_root: &Path, workspace_prefix: &Path) -> AppResult<Self> {
+    fn new(repo: &rskit_git::Repo, workspace_prefix: &Path) -> AppResult<Self> {
         let output = git_output_bytes(
-            workspace_root,
-            [
+            repo,
+            &[
                 "status",
                 "--ignored",
                 "--porcelain=v1",
@@ -222,7 +223,7 @@ impl IgnoreMatcher {
                     ErrorCode::Internal,
                     format!(
                         "git listed a non-UTF-8 ignored path in '{}'",
-                        workspace_root.display()
+                        repo.root().display()
                     ),
                 )
                 .with_cause(error)
@@ -475,55 +476,53 @@ fn hash_file(path: &Path) -> AppResult<String> {
 }
 
 fn hash_nested_git_repo(path: &Path) -> AppResult<String> {
-    let head = git_output(path, ["rev-parse", "HEAD"])?;
-    let status = git_output_bytes(path, ["status", "--porcelain=v1", "--untracked-files=all"])?;
-    let diff = git_output_bytes(path, ["diff", "--binary", "HEAD", "--"])?;
+    let repo = rskit_git::open(path).map_err(|error| {
+        AppError::invalid_input(
+            "git",
+            format!("failed to open nested git repository '{}'", path.display()),
+        )
+        .with_cause(error)
+    })?;
+    let head = git_output(&repo, &["rev-parse", "HEAD"])?;
+    let status = git_output_bytes(
+        &repo,
+        &["status", "--porcelain=v1", "--untracked-files=all"],
+    )?;
+    let diff = git_output_bytes(&repo, &["diff", "--binary", "HEAD", "--"])?;
     let mut hasher = blake3::Hasher::new();
     hash_field(&mut hasher, b"nested-git");
     hash_field(&mut hasher, head.as_bytes());
     hash_field(&mut hasher, &status);
     hash_field(&mut hasher, &diff);
-    hash_nested_untracked_files(path, &mut hasher)?;
+    hash_nested_untracked_files(&repo, &mut hasher)?;
     Ok(hasher.finalize().to_hex().to_string())
 }
 
-fn git_output<const N: usize>(path: &Path, args: [&str; N]) -> AppResult<String> {
-    String::from_utf8(git_output_bytes(path, args)?).map_err(|error| {
+fn git_output(repo: &rskit_git::Repo, args: &[&str]) -> AppResult<String> {
+    String::from_utf8(git_output_bytes(repo, args)?).map_err(|error| {
         AppError::new(
             ErrorCode::Internal,
-            format!("git output in '{}' was not UTF-8", path.display()),
+            format!("git output in '{}' was not UTF-8", repo.root().display()),
         )
         .with_cause(error)
     })
 }
 
-fn git_output_bytes<const N: usize>(path: &Path, args: [&str; N]) -> AppResult<Vec<u8>> {
-    let output = Command::new("git")
-        .current_dir(path)
-        .args(args)
-        .output()
-        .map_err(|error| {
-            AppError::new(
-                ErrorCode::Internal,
-                format!("failed to run git in '{}'", path.display()),
-            )
-            .with_cause(error)
-        })?;
-    if !output.status.success() {
-        return Err(AppError::new(
+fn git_output_bytes(repo: &rskit_git::Repo, args: &[&str]) -> AppResult<Vec<u8>> {
+    repo.exec(args).map_err(|error| {
+        AppError::new(
             ErrorCode::Internal,
-            format!(
-                "git failed in '{}' with status {}",
-                path.display(),
-                output.status
-            ),
-        ));
-    }
-    Ok(output.stdout)
+            format!("failed to run git in '{}'", repo.root().display()),
+        )
+        .with_cause(error)
+    })
 }
 
-fn hash_nested_untracked_files(path: &Path, hasher: &mut blake3::Hasher) -> AppResult<()> {
-    let output = git_output_bytes(path, ["ls-files", "--others", "--exclude-standard", "-z"])?;
+fn hash_nested_untracked_files(
+    repo: &rskit_git::Repo,
+    hasher: &mut blake3::Hasher,
+) -> AppResult<()> {
+    let output = git_output_bytes(repo, &["ls-files", "--others", "--exclude-standard", "-z"])?;
     for raw_path in output
         .split(|byte| *byte == 0)
         .filter(|path| !path.is_empty())
@@ -531,7 +530,7 @@ fn hash_nested_untracked_files(path: &Path, hasher: &mut blake3::Hasher) -> AppR
         let relative = std::str::from_utf8(raw_path).map_err(|error| {
             AppError::new(
                 ErrorCode::Internal,
-                format!("git listed a non-UTF-8 path in '{}'", path.display()),
+                format!("git listed a non-UTF-8 path in '{}'", repo.root().display()),
             )
             .with_cause(error)
         })?;
@@ -540,7 +539,7 @@ fn hash_nested_untracked_files(path: &Path, hasher: &mut blake3::Hasher) -> AppR
         hash_field(hasher, relative.as_bytes());
         hash_field(
             hasher,
-            hash_nested_untracked_path(&path.join(relative_path))?.as_bytes(),
+            hash_nested_untracked_path(&repo.root().join(relative_path))?.as_bytes(),
         );
     }
     Ok(())

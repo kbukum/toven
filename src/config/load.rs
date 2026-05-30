@@ -72,10 +72,23 @@ mod tests {
         assert_eq!(workspace.profiles[0].name, "rust");
         assert_eq!(workspace.profiles[0].execution, ExecutionMode::BatchReady);
         assert_eq!(workspace.profiles[0].tasks[0].name, "test");
+        assert!(!workspace.profiles[0].tasks[0].cache_passthrough);
         assert!(matches!(
             workspace.profiles[0].tasks[0].command,
             TaskCommand::Argv(_)
         ));
+    }
+
+    #[test]
+    fn loads_task_cache_passthrough_flag() {
+        let root = rskit_testutil::test_workspace!("cache-passthrough-config");
+        let config_path = root
+            .copy_fixture("config/cache-passthrough.toml", "toven.toml")
+            .expect("copy config fixture");
+
+        let workspace = load_workspace(&config_path).expect("config loads");
+
+        assert!(workspace.profiles[0].tasks[0].cache_passthrough);
     }
 
     #[test]

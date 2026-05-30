@@ -12,9 +12,9 @@ and renders reviewable command batches before execution.
 ## Status
 
 **Pre-alpha.** The current implementation includes strict configuration loading,
-filesystem preset resolution, Rust workspace discovery, dependency-aware batching,
-affected-module planning, and human-readable plan output. Command execution,
-cache-backed skipping, and additional language adapters will be added in
+filesystem preset resolution, Rust workspace discovery, dependency-aware
+batching, affected-module planning, command execution, cache-backed skipping,
+and affected/cache explanation. Additional language adapters will be added in
 follow-up phases.
 
 Toven is not published to crates.io yet. Until the first alpha release, install
@@ -28,8 +28,8 @@ from source after cloning the repository.
   default; shell execution must be opted into intentionally.
 - **Preset catalog** — reusable task definitions are TOML data, not hard-coded
   command branches.
-- **Real repository fixtures** — integration fixtures dogfood Toven against
-  checked-in kit submodules, starting with `rskit`, as language support lands.
+- **Repository-shaped fixtures** — smoke coverage runs against temporary copies
+  of curated repositories, with ad-hoc entrypoints for larger local repos.
 
 ## Local development
 
@@ -42,9 +42,8 @@ cargo run -- --help
 ```
 
 The current scaffold builds as a standalone Rust CLI with configuration,
-preset-loading, Rust discovery, affected detection, and reviewable planning
-foundations. Toven will add execution wiring and cache-backed skipping in
-focused follow-up pull requests.
+preset-loading, Rust discovery, affected detection, reviewable planning,
+execution, and cache-backed skipping foundations.
 
 ## Smoke testing real repositories
 
@@ -66,11 +65,10 @@ TOVEN_SMOKE_BLESS=1 make smoke-update NAME=rskit-core
 make smoke-purge NAME=rskit
 ```
 
-Managed cases should use stable public repositories or pinned submodules. Local
-scratch clones live under ignored `.toven/smoke/repos/`; committed smoke
-repositories belong under `smoke/repos/`. Managed tests run against temporary
-copies and verify both normalized binary output and Cargo workspace dependency
-waves.
+Managed cases run against temporary copies and verify both normalized binary
+output and Cargo workspace dependency waves. Local scratch clones live under
+ignored `.toven/smoke/repos/`; use `make smoke-repo` for larger local real
+repositories. Keep committed fixtures small, deterministic, and purpose-built.
 
 ## Configuration preview
 
@@ -97,17 +95,34 @@ Tasks can also reference preset files. Project presets are resolved before user
 presets from `.toven/lang/<language>/presets/<name>.toml`; user presets use the
 same layout under the current user's home directory.
 
+Run a task directly with `toven <task>`. Successful executions write local cache
+records under `.toven/cache/`, and later runs skip modules whose exact source,
+dependency, task, toolchain, shared-input, and cache-format inputs still match.
+Use `--force` to skip cache reads while writing fresh success records, or
+`--no-cache` to disable reads and writes.
+
 Affected planning narrows a plan to modules changed since a git baseline plus
 their reverse dependents:
 
 ```bash
 cargo run -- plan --affected --base origin/main --merge-base
 cargo run -- affected --base origin/main --merge-base
+cargo run -- test --affected --base origin/main --merge-base
+cargo run -- explain fixture-core test --base origin/main --merge-base
 ```
 
 Set `workspace.base_ref` in `toven.toml` to provide a default baseline. Without
 `--base` or `workspace.base_ref`, affected detection compares `HEAD` to `HEAD`
 and only local staged, unstaged, and untracked changes are considered.
+
+Passthrough args disable cache by default because arbitrary flags can change
+command semantics. For task definitions where passthrough args are deterministic
+and should be part of the task key, set `cache_passthrough = true`:
+
+```toml
+[profiles.rust.tasks]
+test = { argv = ["cargo", "test", "{module.args}", "{args}"], cache_passthrough = true }
+```
 
 `make release-artifacts` stages the crates.io package and checksum manifest in
 `dist/`. CI also generates a CycloneDX SBOM and checks Sigstore tooling without

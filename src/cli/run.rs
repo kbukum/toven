@@ -40,8 +40,6 @@ pub(super) fn run_task(
         .get_many::<String>("args")
         .map(|values| values.cloned().collect::<Vec<_>>())
         .unwrap_or_default();
-    reject_cache_flag_combinations(matches, &passthrough_args)?;
-
     let workspace = load_workspace(config)?;
     let registry = LangRegistry::default();
     let discovered = discover_workspace_task_profiles(&workspace, task, &registry)?;
@@ -70,7 +68,7 @@ pub(super) fn run_task(
         (full_plan.clone(), full_plan)
     };
 
-    let cache_mode = cache_mode(matches, &passthrough_args);
+    let cache_mode = cache_mode(matches);
     let task_cache = cache_mode
         .writes_or_reads()
         .then(|| TaskCache::new(workspace.root.join(".toven/cache").join(CACHE_DIRECTORY)))
@@ -213,19 +211,6 @@ fn process_error(
     )
 }
 
-fn reject_cache_flag_combinations(
-    matches: &ArgMatches,
-    passthrough_args: &[String],
-) -> AppResult<()> {
-    if matches.get_flag("force") && !passthrough_args.is_empty() {
-        return Err(AppError::invalid_input(
-            "force",
-            "--force cannot be used with passthrough args because passthrough args disable cache",
-        ));
-    }
-    Ok(())
-}
-
 fn dependency_closure(
     modules: &[Module],
     roots: &BTreeSet<ModuleId>,
@@ -269,15 +254,10 @@ fn reject_unused_affected_flags(matches: &ArgMatches) -> AppResult<()> {
     Ok(())
 }
 
-fn cache_mode(matches: &ArgMatches, passthrough_args: &[String]) -> CacheMode {
+fn cache_mode(matches: &ArgMatches) -> CacheMode {
     if matches.get_flag("no-cache") {
         return CacheMode::Disabled {
             reason: "--no-cache was supplied".to_string(),
-        };
-    }
-    if !passthrough_args.is_empty() {
-        return CacheMode::Disabled {
-            reason: "passthrough args disable cache".to_string(),
         };
     }
     if matches.get_flag("force") {
@@ -368,6 +348,7 @@ mod tests {
             ],
             module_arg_template: Vec::new(),
             passthrough_args: Vec::new(),
+            cache_passthrough: false,
             shared_inputs: Vec::new(),
         };
         let mut decisions = BTreeMap::new();
@@ -425,6 +406,7 @@ mod tests {
             argv_template: Vec::new(),
             module_arg_template: Vec::new(),
             passthrough_args: Vec::new(),
+            cache_passthrough: false,
             shared_inputs: Vec::new(),
         }
     }

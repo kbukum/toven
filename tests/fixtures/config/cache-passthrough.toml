@@ -1,0 +1,9 @@
+[workspace]
+name = "demo"
+root = "."
+
+[profiles.rust]
+language = "rust"
+
+[profiles.rust.tasks]
+test = { argv = ["cargo", "test", "{args}"], cache_passthrough = true }
