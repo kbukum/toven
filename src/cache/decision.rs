@@ -334,6 +334,11 @@ fn lookup_state(
 }
 
 fn effective_mode(mode: &CacheMode, unit: &ExecutionUnit) -> CacheMode {
+    if unit.persistent {
+        return CacheMode::Disabled {
+            reason: "persistent tasks are never cached".to_string(),
+        };
+    }
     if matches!(mode, CacheMode::ReadWrite | CacheMode::Force)
         && !unit.passthrough_args.is_empty()
         && !unit.cache_args
@@ -689,6 +694,29 @@ mod tests {
         assert_eq!(decision.source_hash, "disabled");
     }
 
+    #[test]
+    fn persistent_units_are_never_cached() {
+        let root = rskit_testutil::test_workspace!("cache-persistent-disabled");
+        let mut plan = plan(root.path().join("not-a-repo"), Vec::new(), false);
+        plan.units[0].persistent = true;
+
+        let decisions = prepare_cache_decisions(&plan, &CacheMode::ReadWrite, None)
+            .expect("persistent cache decisions do not inspect git");
+
+        let decision = decisions
+            .get(&(
+                "profile".to_string(),
+                ModuleId::new("module").expect("module id"),
+            ))
+            .expect("decision exists");
+        assert_eq!(
+            decision.state,
+            CacheState::Disabled {
+                reason: "persistent tasks are never cached".to_string()
+            }
+        );
+    }
+
     fn plan(root: PathBuf, passthrough_args: Vec<String>, cache_args: bool) -> Plan {
         Plan {
             workspace: Workspace {
@@ -716,6 +744,9 @@ mod tests {
                 module_arg_template: Vec::new(),
                 passthrough_args,
                 cache_args,
+                persistent: false,
+                readiness: crate::core::PersistentReadiness::Started,
+                readiness_timeout: std::time::Duration::from_secs(30),
                 shared_inputs: vec!["Cargo.lock".to_string()],
             }],
         }

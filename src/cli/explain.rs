@@ -6,7 +6,10 @@ use clap::ArgMatches;
 
 use crate::{
     cache::decision::{CACHE_DIRECTORY, CacheMode, CacheState, TaskCache, prepare_cache_decisions},
-    cli::affected::{modules_from_discovered, resolve_affected_changes, resolve_affected_modules},
+    cli::affected::{
+        CliAffectedModules, modules_from_discovered, resolve_affected_changes,
+        resolve_affected_modules,
+    },
     config::load_workspace,
     core::{AppError, AppResult, ModuleId},
     engine::{discover_workspace_task_profiles, plan_discovered_task_profiles},
@@ -83,10 +86,7 @@ pub(super) fn run_explain(matches: &ArgMatches, stdout: &mut impl Write) -> AppR
     Ok(())
 }
 
-fn affected_reason(
-    affected: &crate::cli::affected::CliAffectedModules,
-    module: &ModuleId,
-) -> &'static str {
+fn affected_reason(affected: &CliAffectedModules, module: &ModuleId) -> &'static str {
     if affected.closure.is_empty() {
         "no"
     } else if !affected.global_paths.is_empty() {

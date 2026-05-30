@@ -123,6 +123,9 @@ mod tests {
                 module_arg_template: Vec::new(),
                 passthrough_args: Vec::new(),
                 cache_args: false,
+                persistent: false,
+                readiness: crate::core::PersistentReadiness::Started,
+                readiness_timeout: std::time::Duration::from_secs(30),
                 shared_inputs: Vec::new(),
             }],
         };

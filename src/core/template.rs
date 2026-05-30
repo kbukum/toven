@@ -1,8 +1,17 @@
-//! Shared argv/resource template parser.
+//! Toven template placeholders built on rskit-config template primitives.
 
 use std::{fmt, path::Path};
 
 use crate::core::{AppError, AppResult, Module};
+
+const PLACEHOLDERS: &[Placeholder] = &[
+    Placeholder::Args,
+    Placeholder::WorkspaceRoot,
+    Placeholder::ModuleName,
+    Placeholder::ModulePackage,
+    Placeholder::ModulePath,
+    Placeholder::ModuleArgs,
+];
 
 /// A supported placeholder.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -36,6 +45,12 @@ impl Placeholder {
     }
 }
 
+impl rskit_config::TemplatePlaceholder for Placeholder {
+    fn token(self) -> &'static str {
+        self.as_token()
+    }
+}
+
 impl fmt::Display for Placeholder {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.as_token())
@@ -43,61 +58,32 @@ impl fmt::Display for Placeholder {
 }
 
 /// One parsed template part.
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum TemplatePart {
-    /// Literal text.
-    Literal(String),
-    /// Placeholder token.
-    Placeholder(Placeholder),
-}
+pub type TemplatePart = rskit_config::TemplatePart<Placeholder>;
 
 /// Parsed template string.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Template {
-    parts: Vec<TemplatePart>,
+    inner: rskit_config::Template<Placeholder>,
 }
 
 impl Template {
     /// Parse a template string and reject unknown placeholders.
     pub fn parse(value: &str) -> AppResult<Self> {
-        let mut parts = Vec::new();
-        let mut remaining = value;
-
-        while let Some(start) = remaining.find('{') {
-            if start > 0 {
-                push_literal(&mut parts, value, &remaining[..start])?;
-            }
-            let after_open = &remaining[start + 1..];
-            let Some(end) = after_open.find('}') else {
-                return Err(AppError::invalid_input(
-                    "template",
-                    format!("unclosed placeholder in '{value}'"),
-                ));
-            };
-            let token = &after_open[..end];
-            parts.push(TemplatePart::Placeholder(parse_placeholder(token)?));
-            remaining = &after_open[end + 1..];
-        }
-
-        if !remaining.is_empty() {
-            push_literal(&mut parts, value, remaining)?;
-        }
-
-        Ok(Self { parts })
+        Ok(Self {
+            inner: rskit_config::Template::parse(value, PLACEHOLDERS)?,
+        })
     }
 
     /// Return parsed template parts.
     #[must_use]
     pub fn parts(&self) -> &[TemplatePart] {
-        &self.parts
+        self.inner.parts()
     }
 
     /// Return true when the template contains the placeholder.
     #[must_use]
     pub fn contains(&self, placeholder: Placeholder) -> bool {
-        self.parts
-            .iter()
-            .any(|part| matches!(part, TemplatePart::Placeholder(found) if *found == placeholder))
+        self.inner.contains(placeholder)
     }
 
     /// Render placeholders that produce a single scalar value.
@@ -106,28 +92,9 @@ impl Template {
         workspace_root: &Path,
         module: Option<&Module>,
     ) -> AppResult<String> {
-        let mut rendered = String::new();
-        for part in &self.parts {
-            match part {
-                TemplatePart::Literal(value) => rendered.push_str(value),
-                TemplatePart::Placeholder(placeholder) => {
-                    rendered.push_str(&render_placeholder(*placeholder, workspace_root, module)?);
-                }
-            }
-        }
-        Ok(rendered)
+        self.inner
+            .render_with(|placeholder| render_placeholder(placeholder, workspace_root, module))
     }
-}
-
-fn push_literal(parts: &mut Vec<TemplatePart>, source: &str, literal: &str) -> AppResult<()> {
-    if literal.contains('}') {
-        return Err(AppError::invalid_input(
-            "template",
-            format!("unmatched closing placeholder brace in '{source}'"),
-        ));
-    }
-    parts.push(TemplatePart::Literal(literal.to_string()));
-    Ok(())
 }
 
 fn render_placeholder(
@@ -163,25 +130,6 @@ fn missing_module(placeholder: Placeholder) -> AppError {
         "template",
         format!("placeholder '{placeholder}' requires a module"),
     )
-}
-
-fn parse_placeholder(token: &str) -> AppResult<Placeholder> {
-    match token {
-        token if token == Placeholder::Args.as_token() => Ok(Placeholder::Args),
-        token if token == Placeholder::WorkspaceRoot.as_token() => Ok(Placeholder::WorkspaceRoot),
-        token if token == Placeholder::ModuleName.as_token() => Ok(Placeholder::ModuleName),
-        token if token == Placeholder::ModulePackage.as_token() => Ok(Placeholder::ModulePackage),
-        token if token == Placeholder::ModulePath.as_token() => Ok(Placeholder::ModulePath),
-        token if token == Placeholder::ModuleArgs.as_token() => Ok(Placeholder::ModuleArgs),
-        "" => Err(AppError::invalid_input(
-            "template",
-            "placeholder cannot be empty",
-        )),
-        other => Err(AppError::invalid_input(
-            "template",
-            format!("unknown placeholder '{other}'"),
-        )),
-    }
 }
 
 #[cfg(test)]

@@ -1,36 +1,13 @@
 #![allow(clippy::redundant_pub_crate)]
 
-use rskit_validation::Validator;
-
 use super::{AppError, AppResult, Template};
 
 pub(crate) fn validate_name(field: impl AsRef<str>, value: &str) -> AppResult<()> {
-    let field = field.as_ref();
-    Validator::new()
-        .required(field, value)
-        .custom(
-            value == value.trim(),
-            field,
-            "cannot contain leading or trailing whitespace",
-        )
-        .validate()
+    rskit_validation::input::validate_required_trimmed(field.as_ref(), value)
 }
 
 pub(crate) fn validate_identifier(field: impl AsRef<str>, value: &str) -> AppResult<()> {
-    let field = field.as_ref();
-    Validator::new()
-        .required(field, value)
-        .custom(
-            value == value.trim(),
-            field,
-            "cannot contain leading or trailing whitespace",
-        )
-        .custom(
-            !value.contains(['/', '\\', ':']) && value != "." && value != "..",
-            field,
-            "cannot contain path separators or traversal markers",
-        )
-        .validate()
+    rskit_validation::input::validate_path_safe_identifier(field.as_ref(), value)
 }
 
 pub(crate) fn validate_command_template(

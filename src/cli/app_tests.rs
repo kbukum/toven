@@ -140,14 +140,39 @@ fn developer_workflow_subcommands_parse() {
         .try_get_matches_from(["toven", "modules", "--task", "test"])
         .expect("modules invocation parses");
     command()
+        .try_get_matches_from(["toven", "list", "--task", "test"])
+        .expect("list alias invocation parses");
+    command()
+        .try_get_matches_from(["toven", "ls", "--task", "test"])
+        .expect("ls alias invocation parses");
+    command()
         .try_get_matches_from(["toven", "graph", "--format", "dot"])
         .expect("graph invocation parses");
+    command()
+        .try_get_matches_from(["toven", "deps", "--format", "dot"])
+        .expect("deps alias invocation parses");
     command()
         .try_get_matches_from(["toven", "cache", "stats"])
         .expect("cache stats invocation parses");
     command()
+        .try_get_matches_from(["toven", "cache", "info"])
+        .expect("cache info alias invocation parses");
+    command()
         .try_get_matches_from(["toven", "cache", "clean"])
         .expect("cache clean invocation parses");
+    command()
+        .try_get_matches_from(["toven", "cache", "clear"])
+        .expect("cache clear alias invocation parses");
+    command()
+        .try_get_matches_from([
+            "toven",
+            "run",
+            "test",
+            "--watch",
+            "--watch-debounce-ms",
+            "50",
+        ])
+        .expect("watch invocation parses");
 }
 
 #[test]
@@ -276,13 +301,13 @@ fn run_command_jsonl_keeps_stdout_machine_readable() {
 
     assert_eq!(output.0, ExitCode::SUCCESS, "stderr:\n{}", output.2);
     assert!(output.2.contains("executed"));
-    assert!(!output.1.contains("executed"));
     let events = output
         .1
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("valid JSONL"))
         .collect::<Vec<_>>();
     assert!(events.iter().any(|event| event["event"] == "plan.prepared"));
+    assert!(events.iter().any(|event| event["event"] == "plan.unit"));
     assert!(events.iter().any(|event| event["event"] == "unit.started"));
     assert!(events.iter().any(|event| event["event"] == "run.summary"));
 }
@@ -336,6 +361,19 @@ fn cache_stats_and_clean_report_local_cache_directory() {
     ]);
     assert_eq!(stats.0, ExitCode::SUCCESS, "stderr:\n{}", stats.2);
     assert!(stats.1.contains("entries: 1"));
+    assert!(stats.1.contains("oldest_age_seconds:"));
+    assert!(stats.1.contains("newest_age_seconds:"));
+    assert!(stats.1.contains("hit_rate: per-run only"));
+
+    let info = run_cli([
+        "toven".to_string(),
+        "cache".to_string(),
+        "info".to_string(),
+        "--config".to_string(),
+        config_path.display().to_string(),
+    ]);
+    assert_eq!(info.0, ExitCode::SUCCESS, "stderr:\n{}", info.2);
+    assert!(info.1.contains("entries: 1"));
 
     let clean = run_cli([
         "toven".to_string(),

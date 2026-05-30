@@ -11,6 +11,7 @@ use serde::Serialize;
 use crate::{
     cache::decision::{CacheDecision, CacheState},
     core::{AppError, AppResult, ExecutionUnit, Module},
+    exec::{render_execution_unit, render_resource_group},
     report::RunStats,
 };
 
@@ -88,6 +89,32 @@ impl<'a, W: Write> RunReporter<'a, W> {
         )
     }
 
+    /// Emit one planned execution unit with enough detail to reconstruct the plan.
+    pub fn plan_unit(&mut self, unit: &ExecutionUnit, root: &std::path::Path) -> AppResult<()> {
+        if self.format != OutputFormat::Jsonl {
+            return Ok(());
+        }
+        let argv = render_execution_unit(unit, root)?;
+        let resource_group = render_resource_group(unit, root)?;
+        self.event(
+            "plan.unit",
+            PlanUnit {
+                unit_id: &unit.id,
+                profile: &unit.profile,
+                task: &unit.task,
+                mode: unit.mode.to_string(),
+                persistent: unit.persistent,
+                resource_group,
+                argv,
+                modules: unit
+                    .modules
+                    .iter()
+                    .map(|module| module.name.as_str())
+                    .collect(),
+            },
+        )
+    }
+
     /// Emit one cache decision.
     pub fn cache_decision(&mut self, decision: &CacheDecision) -> AppResult<()> {
         match &decision.state {
@@ -144,6 +171,14 @@ impl<'a, W: Write> RunReporter<'a, W> {
             writeln!(self.stdout, "run: {}", unit.id).map_err(AppError::internal)?;
         }
         self.event("unit.started", UnitRef::from(unit))
+    }
+
+    /// Emit persistent process readiness.
+    pub fn persistent_ready(&mut self, unit: &ExecutionUnit) -> AppResult<()> {
+        if self.format == OutputFormat::Human {
+            writeln!(self.stdout, "ready: {}", unit.id).map_err(AppError::internal)?;
+        }
+        self.event("persistent.ready", UnitRef::from(unit))
     }
 
     /// Emit a unit finish.
@@ -240,6 +275,18 @@ struct PlanPrepared<'a> {
     workspace: &'a str,
     root: &'a str,
     units: usize,
+}
+
+#[derive(Serialize)]
+struct PlanUnit<'a> {
+    unit_id: &'a str,
+    profile: &'a str,
+    task: &'a str,
+    mode: String,
+    persistent: bool,
+    resource_group: String,
+    argv: Vec<String>,
+    modules: Vec<&'a str>,
 }
 
 #[derive(Serialize)]

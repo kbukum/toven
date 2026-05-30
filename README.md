@@ -14,8 +14,9 @@ and renders reviewable command batches before execution.
 **Pre-alpha.** The current implementation includes strict configuration loading,
 filesystem preset resolution, Rust workspace discovery, dependency-aware
 batching, affected-module planning, command execution, cache-backed skipping,
-and affected/cache explanation. Additional language adapters will be added in
-follow-up phases.
+affected/cache explanation, watch-mode reruns, persistent task readiness, and
+developer workflow inspection commands. Additional language adapters will be
+added in follow-up phases.
 
 Toven is not published to crates.io yet. Until the first alpha release, install
 from source after cloning the repository.
@@ -105,6 +106,8 @@ Use `--force` to skip cache reads while writing fresh success records, or
 `--no-cache` to disable reads and writes. Use `--output jsonl` to reserve stdout
 for stable newline-delimited run events; subprocess stdout is redirected to
 stderr in JSONL mode so event consumers can parse every stdout line as JSON.
+JSONL includes plan metadata, plan units, cache decisions, unit lifecycle,
+persistent readiness, and final run summaries.
 
 Affected planning narrows a plan to modules changed since a git baseline plus
 their reverse dependents:
@@ -113,6 +116,7 @@ their reverse dependents:
 cargo run -- plan --affected --base origin/main --merge-base
 cargo run -- affected --base origin/main --merge-base
 cargo run -- test --affected --base origin/main --merge-base
+cargo run -- test --watch
 cargo run -- run modules
 cargo run -- explain fixture-core test --base origin/main --merge-base
 cargo run -- modules
@@ -120,6 +124,10 @@ cargo run -- graph --format dot
 cargo run -- cache stats
 cargo run -- cache clean
 ```
+
+Short aliases are available for frequently used inspection commands:
+`toven list` / `toven ls` for modules, `toven deps` for graph,
+`toven cache info` for cache stats, and `toven cache clear` for cache clean.
 
 Set `workspace.base_ref` in `toven.toml` to provide a default baseline. Without
 `--base` or `workspace.base_ref`, affected detection compares `HEAD` to `HEAD`
@@ -133,6 +141,19 @@ and should be part of the task key, set `cache_args = true`:
 [profiles.rust.tasks]
 test = { argv = ["cargo", "test", "{module.args}", "{args}"], cache_args = true }
 ```
+
+Persistent tasks opt out of cache automatically and can declare when they are
+ready. Readiness can be immediate after start, a bounded health command, or a
+literal stdout/stderr matcher:
+
+```toml
+[profiles.rust.tasks]
+dev = { argv = ["cargo", "run", "-p", "server"], persistent = true, ready_output = "listening", ready_timeout_seconds = 30 }
+```
+
+Watch mode uses filesystem events, debounces rapid saves, ignores `.git/`,
+`.toven/`, `target/`, and `node_modules/`, then maps changed paths directly to
+affected modules and reverse dependents before rerunning work.
 
 `make release-artifacts` stages the crates.io package and checksum manifest in
 `dist/`. CI also generates a CycloneDX SBOM and checks Sigstore tooling without

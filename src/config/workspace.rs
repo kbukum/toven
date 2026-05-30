@@ -57,30 +57,11 @@ pub(super) fn build_workspace(workspace: NormalizedWorkspace, profiles: Vec<Prof
 }
 
 fn validate_schema(schema: Option<u16>) -> AppResult<u16> {
-    let schema = schema.unwrap_or(SUPPORTED_SCHEMA);
-    if schema != SUPPORTED_SCHEMA {
-        return Err(AppError::invalid_input(
-            "workspace.schema",
-            format!("unsupported schema {schema}; supported schema is {SUPPORTED_SCHEMA}"),
-        ));
-    }
-    Ok(schema)
+    rskit_config::supported_schema("workspace.schema", schema, SUPPORTED_SCHEMA)
 }
 
 fn normalize_root(config_dir: &Path, root: Option<&Path>) -> AppResult<PathBuf> {
-    let root = root.unwrap_or_else(|| Path::new("."));
-    let root = if root.is_absolute() {
-        root.to_path_buf()
-    } else {
-        config_dir.join(root)
-    };
-    rskit_fs::canonicalize(&root).map_err(|error| {
-        AppError::invalid_input(
-            "workspace.root",
-            format!("failed to resolve workspace root '{}'", root.display()),
-        )
-        .with_cause(error)
-    })
+    rskit_config::canonicalize_root_relative_to("workspace.root", config_dir, root)
 }
 
 fn normalize_name(name: Option<String>, root: &Path) -> AppResult<String> {

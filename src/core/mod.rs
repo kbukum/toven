@@ -11,8 +11,8 @@ mod validation;
 pub use adapter::LangAdapter;
 pub use error::{AppError, AppResult, ErrorCode};
 pub use model::{
-    CommandOrigin, ExecutionMode, ExecutionUnit, Module, ModuleId, NodeState, Plan, Profile, Task,
-    TaskCommand, Workspace,
+    CommandOrigin, ExecutionMode, ExecutionUnit, Module, ModuleId, NodeState, PersistentReadiness,
+    Plan, Profile, Task, TaskCommand, Workspace,
 };
 pub use preset::PresetDefinition;
 pub(crate) use protocol::validate_discovery_request_schema;

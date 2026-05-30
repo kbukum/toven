@@ -10,5 +10,6 @@ mod graph;
 mod modules;
 mod plan;
 mod run;
+mod watch;
 
 pub use app::{command, run};
