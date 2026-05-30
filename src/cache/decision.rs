@@ -110,6 +110,7 @@ impl TaskCache {
     /// Create a task cache rooted under the workspace.
     pub fn new(root: PathBuf) -> AppResult<Self> {
         let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
             .build()
             .map_err(|error| {
                 AppError::new(ErrorCode::Internal, "failed to create cache runtime")
@@ -202,7 +203,7 @@ pub fn prepare_cache_decisions(
     task_cache: Option<&TaskCache>,
 ) -> AppResult<CacheDecisions> {
     if let CacheMode::Disabled { reason } = mode {
-        return disabled_decisions(full_plan, reason);
+        return Ok(disabled_decisions(full_plan, reason));
     }
     let all_modules = modules_from_plan(full_plan)?;
     let source_hashes = compute_source_hashes(&full_plan.workspace, &all_modules)?;
@@ -239,12 +240,10 @@ pub fn prepare_cache_decisions(
     Ok(decisions)
 }
 
-fn disabled_decisions(plan: &Plan, reason: &str) -> AppResult<CacheDecisions> {
+fn disabled_decisions(plan: &Plan, reason: &str) -> CacheDecisions {
     let mut decisions = BTreeMap::new();
     for unit in &plan.units {
         for module in &unit.modules {
-            let shared_hash = compute_shared_inputs_hash(&plan.workspace, &unit.shared_inputs)?;
-            let task_hash = task_hash(unit, module, &plan.workspace, &shared_hash)?;
             decisions.insert(
                 (unit.profile.clone(), module.name.clone()),
                 CacheDecision {
@@ -254,8 +253,8 @@ fn disabled_decisions(plan: &Plan, reason: &str) -> AppResult<CacheDecisions> {
                     key: CacheKey::new("disabled"),
                     source_hash: "disabled".to_string(),
                     dep_hash: "disabled".to_string(),
-                    task_hash: task_hash.clone(),
-                    shared_hash,
+                    task_hash: "disabled".to_string(),
+                    shared_hash: "disabled".to_string(),
                     state: CacheState::Disabled {
                         reason: reason.to_string(),
                     },
@@ -263,7 +262,7 @@ fn disabled_decisions(plan: &Plan, reason: &str) -> AppResult<CacheDecisions> {
             );
         }
     }
-    Ok(decisions)
+    decisions
 }
 
 fn lookup_state(
@@ -557,10 +556,16 @@ fn hash_field(hasher: &mut blake3::Hasher, value: &[u8]) {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use rskit_cache::CacheStore;
 
     use super::TaskCache;
     use crate::cache::key::CacheKey;
+    use crate::{
+        cache::decision::{CacheMode, prepare_cache_decisions},
+        core::{CommandOrigin, ExecutionMode, ExecutionUnit, Module, ModuleId, Plan, Workspace},
+    };
 
     #[test]
     fn corrupt_cache_record_is_deleted_after_read() {
@@ -580,5 +585,57 @@ mod tests {
                 .block_on(cache.store.exists(key.as_str()))
                 .expect("cache existence checks")
         );
+    }
+
+    #[test]
+    fn disabled_cache_decisions_do_not_require_git_workspace() {
+        let root = rskit_testutil::test_workspace!("cache-disabled-no-git");
+        let plan = Plan {
+            workspace: Workspace {
+                schema: 1,
+                name: "fixture".to_string(),
+                root: root.path().join("not-a-repo"),
+                base_ref: None,
+                profiles: Vec::new(),
+            },
+            units: vec![ExecutionUnit {
+                id: "unit".to_string(),
+                profile: "profile".to_string(),
+                task: "test".to_string(),
+                command_origin: CommandOrigin::DirectArgv,
+                mode: ExecutionMode::SpawnEach,
+                resource_group: String::new(),
+                modules: vec![Module {
+                    name: ModuleId::new("module").expect("module id"),
+                    package: None,
+                    root: PathBuf::from("module"),
+                    dependencies: Vec::new(),
+                    source_patterns: Vec::new(),
+                }],
+                argv_template: vec!["echo".to_string(), "ok".to_string()],
+                module_arg_template: Vec::new(),
+                passthrough_args: Vec::new(),
+                shared_inputs: vec!["Cargo.lock".to_string()],
+            }],
+        };
+
+        let decisions = prepare_cache_decisions(
+            &plan,
+            &CacheMode::Disabled {
+                reason: "test disabled".to_string(),
+            },
+            None,
+        )
+        .expect("disabled cache decisions do not inspect git");
+
+        let decision = decisions
+            .get(&(
+                "profile".to_string(),
+                ModuleId::new("module").expect("module id"),
+            ))
+            .expect("decision exists");
+        assert_eq!(decision.source_hash, "disabled");
+        assert_eq!(decision.shared_hash, "disabled");
+        assert_eq!(decision.task_hash, "disabled");
     }
 }

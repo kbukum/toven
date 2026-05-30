@@ -1,6 +1,11 @@
 //! `toven <task>` execution command.
 
-use std::{io::Write, path::PathBuf, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    io::Write,
+    path::PathBuf,
+    time::Duration,
+};
 
 use clap::ArgMatches;
 
@@ -11,7 +16,7 @@ use crate::{
     },
     cli::affected::{modules_from_discovered, resolve_affected_changes, resolve_affected_modules},
     config::load_workspace,
-    core::{AppError, AppResult, ErrorCode, ExecutionMode, ExecutionUnit, ModuleId},
+    core::{AppError, AppResult, ErrorCode, ExecutionMode, ExecutionUnit, Module, ModuleId},
     engine::{discover_workspace_task_profiles, plan_discovered_task_profiles},
     exec::{RunOptions, run_execution_unit},
     lang::LangRegistry,
@@ -42,19 +47,27 @@ pub(super) fn run_task(
     let discovered = discover_workspace_task_profiles(&workspace, task, &registry)?;
     let full_plan =
         plan_discovered_task_profiles(workspace.clone(), &discovered, &passthrough_args, None)?;
-    let exec_plan = if matches.get_flag("affected") {
+    let (exec_plan, cache_plan) = if matches.get_flag("affected") {
         let changes = resolve_affected_changes(&workspace, matches)?;
         let modules = modules_from_discovered(&discovered)?;
         let affected = resolve_affected_modules(changes, &modules)?;
-        plan_discovered_task_profiles(
+        let exec_plan = plan_discovered_task_profiles(
             workspace.clone(),
             &discovered,
             &passthrough_args,
             Some(&affected.closure),
-        )?
+        )?;
+        let cache_filter = dependency_closure(&modules, &affected.closure)?;
+        let cache_plan = plan_discovered_task_profiles(
+            workspace.clone(),
+            &discovered,
+            &passthrough_args,
+            Some(&cache_filter),
+        )?;
+        (exec_plan, cache_plan)
     } else {
         reject_unused_affected_flags(matches)?;
-        full_plan.clone()
+        (full_plan.clone(), full_plan)
     };
 
     let cache_mode = cache_mode(matches, &passthrough_args);
@@ -62,7 +75,7 @@ pub(super) fn run_task(
         .writes_or_reads()
         .then(|| TaskCache::new(workspace.root.join(".toven/cache").join(CACHE_DIRECTORY)))
         .transpose()?;
-    let decisions = prepare_cache_decisions(&full_plan, &cache_mode, task_cache.as_ref())?;
+    let decisions = prepare_cache_decisions(&cache_plan, &cache_mode, task_cache.as_ref())?;
     let options = RunOptions {
         timeout: matches
             .get_one::<u64>("timeout-seconds")
@@ -108,6 +121,19 @@ fn execute_unit(
                 .map_err(AppError::internal)?;
         }
         return Ok(());
+    }
+
+    if unit.mode == ExecutionMode::WorkspaceOnce {
+        for module in &unit.modules {
+            if decision_for(decisions, &unit, &module.name).is_some_and(CacheDecision::is_hit) {
+                writeln!(
+                    stdout,
+                    "cache hit (re-run as part of workspace-once): {} {}",
+                    module.name, unit.task
+                )
+                .map_err(AppError::internal)?;
+            }
+        }
     }
 
     let executable_unit = if unit.mode == ExecutionMode::WorkspaceOnce {
@@ -200,6 +226,33 @@ fn reject_cache_flag_combinations(
     Ok(())
 }
 
+fn dependency_closure(
+    modules: &[Module],
+    roots: &BTreeSet<ModuleId>,
+) -> AppResult<BTreeSet<ModuleId>> {
+    let by_name = modules
+        .iter()
+        .map(|module| (module.name.clone(), module))
+        .collect::<BTreeMap<_, _>>();
+    let mut closure = roots.clone();
+    let mut stack = roots.iter().cloned().collect::<Vec<_>>();
+    while let Some(module_id) = stack.pop() {
+        let Some(module) = by_name.get(&module_id) else {
+            return Err(AppError::invalid_input(
+                "modules",
+                format!("module '{module_id}' is referenced but was not discovered"),
+            ));
+        };
+        for dependency in &module.dependencies {
+            if !closure.insert(dependency.clone()) {
+                continue;
+            }
+            stack.push(dependency.clone());
+        }
+    }
+    Ok(closure)
+}
+
 fn reject_unused_affected_flags(matches: &ArgMatches) -> AppResult<()> {
     if matches.contains_id("base") {
         return Err(AppError::invalid_input(
@@ -247,8 +300,12 @@ impl CacheModeExt for CacheMode {
 mod tests {
     use std::time::Duration;
 
-    use super::process_error;
-    use crate::core::{CommandOrigin, ExecutionMode, ExecutionUnit};
+    use std::collections::BTreeMap;
+
+    use super::{dependency_closure, execute_unit, process_error};
+    use crate::cache::decision::{CacheDecision, CacheState};
+    use crate::cache::key::CacheKey;
+    use crate::core::{CommandOrigin, ExecutionMode, ExecutionUnit, Module};
 
     #[test]
     fn process_error_reports_timeout() {
@@ -272,6 +329,88 @@ mod tests {
 
         assert_eq!(error.code, crate::core::ErrorCode::Internal);
         assert!(error.message.contains("exit code 2"));
+    }
+
+    #[test]
+    fn dependency_closure_includes_transitive_dependencies() {
+        let modules = vec![
+            module("app", &["service"]),
+            module("service", &["core"]),
+            module("core", &[]),
+            module("unrelated", &[]),
+        ];
+        let roots =
+            std::iter::once(crate::core::ModuleId::new("app").expect("module id")).collect();
+
+        let closure = dependency_closure(&modules, &roots).expect("dependency closure computes");
+
+        assert!(closure.contains(&crate::core::ModuleId::new("app").expect("module id")));
+        assert!(closure.contains(&crate::core::ModuleId::new("service").expect("module id")));
+        assert!(closure.contains(&crate::core::ModuleId::new("core").expect("module id")));
+        assert!(!closure.contains(&crate::core::ModuleId::new("unrelated").expect("module id")));
+    }
+
+    #[test]
+    fn workspace_once_reports_hit_modules_that_are_rerun_with_misses() {
+        let root = rskit_testutil::test_workspace!("run-workspace-once-hit-message");
+        let unit = ExecutionUnit {
+            id: "workspace-test".to_string(),
+            profile: "profile".to_string(),
+            task: "test".to_string(),
+            command_origin: CommandOrigin::DirectArgv,
+            mode: ExecutionMode::WorkspaceOnce,
+            resource_group: String::new(),
+            modules: vec![module("hit", &[]), module("miss", &[])],
+            argv_template: vec![
+                "sh".to_string(),
+                "-c".to_string(),
+                "printf workspace-once".to_string(),
+            ],
+            module_arg_template: Vec::new(),
+            passthrough_args: Vec::new(),
+            shared_inputs: Vec::new(),
+        };
+        let mut decisions = BTreeMap::new();
+        decisions.insert(
+            (
+                "profile".to_string(),
+                crate::core::ModuleId::new("hit").expect("module id"),
+            ),
+            decision("hit", CacheState::Hit),
+        );
+        decisions.insert(
+            (
+                "profile".to_string(),
+                crate::core::ModuleId::new("miss").expect("module id"),
+            ),
+            decision(
+                "miss",
+                CacheState::Miss {
+                    reason: "no cache record".to_string(),
+                },
+            ),
+        );
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        execute_unit(
+            unit,
+            root.path(),
+            &decisions,
+            None,
+            &crate::exec::RunOptions {
+                timeout: None,
+                cancel_on_ctrl_c: false,
+            },
+            &mut stdout,
+            &mut stderr,
+        )
+        .expect("workspace-once unit executes");
+
+        assert!(stderr.is_empty());
+        let stdout = String::from_utf8(stdout).expect("stdout is utf-8");
+        assert!(stdout.contains("cache hit (re-run as part of workspace-once): hit test"));
+        assert!(stdout.contains("workspace-once"));
     }
 
     fn unit() -> ExecutionUnit {
@@ -301,6 +440,33 @@ mod tests {
             stderr_truncated: false,
             duration: Duration::ZERO,
             timed_out,
+        }
+    }
+
+    fn module(name: &str, dependencies: &[&str]) -> Module {
+        Module {
+            name: crate::core::ModuleId::new(name).expect("module id"),
+            package: None,
+            root: name.into(),
+            dependencies: dependencies
+                .iter()
+                .map(|dependency| crate::core::ModuleId::new(*dependency).expect("module id"))
+                .collect(),
+            source_patterns: Vec::new(),
+        }
+    }
+
+    fn decision(module: &str, state: CacheState) -> CacheDecision {
+        CacheDecision {
+            profile: "profile".to_string(),
+            module: crate::core::ModuleId::new(module).expect("module id"),
+            task: "test".to_string(),
+            key: CacheKey::new(format!("key-{module}")),
+            source_hash: "source".to_string(),
+            dep_hash: "dep".to_string(),
+            task_hash: "task".to_string(),
+            shared_hash: "shared".to_string(),
+            state,
         }
     }
 }
