@@ -175,6 +175,7 @@ impl<'a, W: Write> RunReporter<'a, W> {
 
     /// Emit persistent process readiness.
     pub fn persistent_ready(&mut self, unit: &ExecutionUnit) -> AppResult<()> {
+        self.stats.subprocesses += 1;
         if self.format == OutputFormat::Human {
             writeln!(self.stdout, "ready: {}", unit.id).map_err(AppError::internal)?;
         }

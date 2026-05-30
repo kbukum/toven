@@ -306,14 +306,6 @@ where
         if output.result.stderr_truncated {
             writeln!(stderr, "warning: stderr capture truncated").map_err(AppError::internal)?;
         }
-        reporter.unit_finished(&executable_unit, &output.result, output.cancelled)?;
-        if !output.result.success() {
-            return Err(process_error(
-                &executable_unit,
-                &output.result,
-                output.cancelled,
-            ));
-        }
         Some(ActivePersistentProcess {
             modules: executable_unit
                 .modules
@@ -660,6 +652,47 @@ mod tests {
         assert!(!active.is_affected_by(&hit));
         assert!(active.is_affected_by(&miss));
         active.shutdown().expect("persistent process shuts down");
+    }
+
+    #[test]
+    fn persistent_ready_does_not_report_unit_finished() {
+        let root = rskit_testutil::test_workspace!("run-persistent-ready-jsonl");
+        let mut unit = unit();
+        unit.mode = ExecutionMode::WorkspaceOnce;
+        unit.modules = vec![module("miss", &[])];
+        unit.argv_template = vec!["sleep".to_string(), "2".to_string()];
+        unit.persistent = true;
+        let decisions = BTreeMap::new();
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let mut reporter =
+            RunReporter::new(OutputFormat::Jsonl, &mut stdout, 1).expect("reporter initializes");
+
+        let active = execute_unit(
+            unit,
+            root.path(),
+            &decisions,
+            None,
+            &crate::exec::RunOptions {
+                timeout: None,
+                cancel_on_ctrl_c: false,
+            },
+            &mut reporter,
+            &mut stderr,
+        )
+        .expect("persistent unit starts")
+        .expect("persistent process is active");
+        active.shutdown().expect("persistent process shuts down");
+        drop(reporter);
+
+        let stdout = String::from_utf8(stdout).expect("stdout is utf-8");
+        let events = stdout
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("valid jsonl"))
+            .map(|event| event["event"].as_str().expect("event string").to_string())
+            .collect::<Vec<_>>();
+        assert!(events.iter().any(|event| event == "persistent.ready"));
+        assert!(!events.iter().any(|event| event == "unit.finished"));
     }
 
     fn unit() -> ExecutionUnit {
