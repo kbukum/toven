@@ -4,7 +4,10 @@ use std::{
     collections::BTreeSet,
     io::Write,
     path::{Component, Path, PathBuf},
-    sync::mpsc,
+    sync::{
+        Arc, Mutex,
+        mpsc::{self, Receiver, SyncSender, TrySendError},
+    },
     time::{Duration, Instant},
 };
 
@@ -28,6 +31,8 @@ use crate::{
     lang::LangRegistry,
     report::OutputFormat,
 };
+
+const WATCH_EVENT_QUEUE_CAPACITY: usize = 1;
 
 pub(super) fn run_watch(
     matches: &ArgMatches,
@@ -58,11 +63,14 @@ pub(super) fn run_watch(
     let watched_root = workspace.root;
     write_watch_started(stdout, stderr, output_format, &watched_root)?;
 
-    let (event_tx, event_rx) = mpsc::channel();
+    let (event_tx, event_rx) = mpsc::sync_channel(WATCH_EVENT_QUEUE_CAPACITY);
+    let pending_events = Arc::new(Mutex::new(PendingWatchEvents::default()));
     let cancellation = SharedCancellation::new();
     let watch_event_tx = event_tx.clone();
+    let watch_pending_events = Arc::clone(&pending_events);
+    let watch_root = watched_root.clone();
     let mut watcher = notify::recommended_watcher(move |event| {
-        let _ = watch_event_tx.send(WatchEvent::File(event));
+        queue_watch_event(&watch_event_tx, &watch_pending_events, &watch_root, event);
     })
     .map_err(|error| {
         AppError::new(
@@ -86,6 +94,7 @@ pub(super) fn run_watch(
         stdout,
         stderr,
         event_rx: &event_rx,
+        pending_events: &pending_events,
         config: &config,
         task,
         watched_root: &watched_root,
@@ -106,7 +115,8 @@ struct WatchLoop<'a, Out, Err> {
     matches: &'a ArgMatches,
     stdout: &'a mut Out,
     stderr: &'a mut Err,
-    event_rx: &'a mpsc::Receiver<WatchEvent>,
+    event_rx: &'a Receiver<WatchEvent>,
+    pending_events: &'a SharedPendingWatchEvents,
     config: &'a Path,
     task: &'a str,
     watched_root: &'a Path,
@@ -145,7 +155,7 @@ where
     Err: Write,
 {
     loop {
-        let changed = next_changed_paths(ctx.event_rx, ctx.watched_root, ctx.debounce)?;
+        let changed = next_changed_paths(ctx.event_rx, ctx.pending_events, ctx.debounce)?;
         if changed.is_empty() {
             continue;
         }
@@ -154,7 +164,7 @@ where
         let discovered =
             discover_workspace_task_profiles(&workspace, ctx.task, &LangRegistry::default())?;
         let modules = modules_from_discovered(&discovered)?;
-        if config_changed(ctx.watched_root, ctx.config, &changed) {
+        if config_changed(ctx.watched_root, ctx.config, &changed)? {
             write_watch_change(ctx.stdout, ctx.stderr, ctx.output_format, &changed, None)?;
             shutdown_persistent_processes(std::mem::take(persistent_processes))?;
             *persistent_processes = run_task_once_for_watch(
@@ -221,8 +231,8 @@ fn shutdown_affected_persistent_processes(
 }
 
 fn next_changed_paths(
-    event_rx: &mpsc::Receiver<WatchEvent>,
-    root: &Path,
+    event_rx: &Receiver<WatchEvent>,
+    pending_events: &SharedPendingWatchEvents,
     debounce: Duration,
 ) -> AppResult<Vec<ChangedPath>> {
     let mut paths = BTreeSet::new();
@@ -232,12 +242,12 @@ fn next_changed_paths(
             format!("watch event channel closed: {error}"),
         )
     })?;
-    collect_event_paths(first, root, &mut paths)?;
+    collect_event_paths(first, pending_events, &mut paths)?;
 
     let deadline = Instant::now() + debounce;
     while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
         match event_rx.recv_timeout(remaining) {
-            Ok(event) => collect_event_paths(event, root, &mut paths)?,
+            Ok(event) => collect_event_paths(event, pending_events, &mut paths)?,
             Err(mpsc::RecvTimeoutError::Timeout) => break,
             Err(error) => {
                 return Err(AppError::new(
@@ -253,41 +263,27 @@ fn next_changed_paths(
 
 fn collect_event_paths(
     event: WatchEvent,
-    root: &Path,
+    pending_events: &SharedPendingWatchEvents,
     paths: &mut BTreeSet<PathBuf>,
 ) -> AppResult<()> {
-    let event = match event {
-        WatchEvent::File(event) => event,
-        WatchEvent::CtrlC => {
-            return Err(AppError::new(
-                crate::core::ErrorCode::Cancelled,
-                "watch cancelled by ctrl-c",
-            ));
-        }
-    };
-    let event = event.map_err(|error| {
-        AppError::new(
-            crate::core::ErrorCode::Internal,
-            format!("failed to read watch event: {error}"),
-        )
-    })?;
-    for path in event.paths {
-        if let Some(relative) = normalize_changed_path(root, &path)
-            && !is_ignored(&relative)
-        {
-            paths.insert(relative);
-        }
+    match event {
+        WatchEvent::Wake => drain_pending_watch_events(pending_events, paths),
+        WatchEvent::Error(message) => Err(AppError::new(crate::core::ErrorCode::Internal, message)),
+        WatchEvent::CtrlC => Err(AppError::new(
+            crate::core::ErrorCode::Cancelled,
+            "watch cancelled by ctrl-c",
+        )),
     }
-    Ok(())
 }
 
 enum WatchEvent {
-    File(notify::Result<notify::Event>),
+    Wake,
     CtrlC,
+    Error(String),
 }
 
 fn spawn_watch_ctrl_c_listener(
-    event_tx: mpsc::Sender<WatchEvent>,
+    event_tx: SyncSender<WatchEvent>,
     cancellation: SharedCancellation,
 ) -> AppResult<CtrlCHandler> {
     spawn_ctrl_c_handler_with_notify(cancellation.clone(), move || {
@@ -295,9 +291,73 @@ fn spawn_watch_ctrl_c_listener(
     })
 }
 
-fn send_watch_ctrl_c(event_tx: &mpsc::Sender<WatchEvent>, cancellation: &SharedCancellation) {
+fn send_watch_ctrl_c(event_tx: &SyncSender<WatchEvent>, cancellation: &SharedCancellation) {
     cancellation.cancel();
     let _ = event_tx.send(WatchEvent::CtrlC);
+}
+
+#[derive(Default)]
+struct PendingWatchEvents {
+    paths: BTreeSet<PathBuf>,
+    error: Option<String>,
+}
+
+type SharedPendingWatchEvents = Arc<Mutex<PendingWatchEvents>>;
+
+fn queue_watch_event(
+    event_tx: &SyncSender<WatchEvent>,
+    pending_events: &SharedPendingWatchEvents,
+    root: &Path,
+    event: notify::Result<notify::Event>,
+) {
+    match pending_events.lock() {
+        Ok(mut pending_events) => {
+            match event {
+                Ok(event) => {
+                    for path in event.paths {
+                        if let Some(relative) = normalize_changed_path(root, &path)
+                            && !is_ignored(&relative)
+                        {
+                            pending_events.paths.insert(relative);
+                        }
+                    }
+                }
+                Err(error) => {
+                    pending_events.error = Some(format!("failed to read watch event: {error}"));
+                }
+            }
+            wake_watch_loop(event_tx);
+        }
+        Err(_) => {
+            let _ = event_tx.try_send(WatchEvent::Error(
+                "watch pending event state is unavailable".to_string(),
+            ));
+        }
+    }
+}
+
+fn wake_watch_loop(event_tx: &SyncSender<WatchEvent>) {
+    match event_tx.try_send(WatchEvent::Wake) {
+        Ok(()) | Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {}
+    }
+}
+
+fn drain_pending_watch_events(
+    pending_events: &SharedPendingWatchEvents,
+    paths: &mut BTreeSet<PathBuf>,
+) -> AppResult<()> {
+    let mut pending_events = pending_events.lock().map_err(|_| {
+        AppError::new(
+            crate::core::ErrorCode::Internal,
+            "watch pending event state is unavailable",
+        )
+    })?;
+    if let Some(error) = pending_events.error.take() {
+        return Err(AppError::new(crate::core::ErrorCode::Internal, error));
+    }
+    paths.append(&mut pending_events.paths);
+    drop(pending_events);
+    Ok(())
 }
 
 fn normalize_changed_path(root: &Path, path: &Path) -> Option<PathBuf> {
@@ -336,8 +396,23 @@ fn is_ignored(path: &Path) -> bool {
     })
 }
 
-fn config_changed(root: &Path, config: &Path, changed: &[ChangedPath]) -> bool {
-    let relative_config = config
+fn config_changed(root: &Path, config: &Path, changed: &[ChangedPath]) -> AppResult<bool> {
+    let current_dir = std::env::current_dir().map_err(AppError::internal)?;
+    Ok(config_changed_from_dir(root, &current_dir, config, changed))
+}
+
+fn config_changed_from_dir(
+    root: &Path,
+    current_dir: &Path,
+    config: &Path,
+    changed: &[ChangedPath],
+) -> bool {
+    let config_path = if config.is_absolute() {
+        config.to_path_buf()
+    } else {
+        current_dir.join(config)
+    };
+    let relative_config = config_path
         .strip_prefix(root)
         .map_or_else(|_| normalize_relative_path(config), normalize_relative_path);
     changed
@@ -409,7 +484,7 @@ mod tests {
         collections::BTreeSet,
         fs,
         path::{Path, PathBuf},
-        sync::mpsc,
+        sync::{Arc, Mutex, mpsc},
         thread,
         time::{Duration, Instant},
     };
@@ -420,8 +495,9 @@ mod tests {
     };
 
     use super::{
-        WatchEvent, config_changed, is_ignored, next_changed_paths, run_watch, send_watch_ctrl_c,
-        validate_watch_root_unchanged, write_watch_change, write_watch_started,
+        PendingWatchEvents, WatchEvent, config_changed_from_dir, is_ignored, next_changed_paths,
+        queue_watch_event, run_watch, send_watch_ctrl_c, validate_watch_root_unchanged,
+        write_watch_change, write_watch_started,
     };
 
     #[test]
@@ -463,22 +539,32 @@ mod tests {
 
     #[test]
     fn config_change_forces_unfiltered_rerun() {
-        assert!(config_changed(
+        assert!(config_changed_from_dir(
+            Path::new("/workspace"),
             Path::new("/workspace"),
             Path::new("/workspace/toven.toml"),
             &[ChangedPath::new("toven.toml")],
         ));
-        assert!(config_changed(
+        assert!(config_changed_from_dir(
+            Path::new("/workspace"),
             Path::new("/workspace"),
             Path::new("./toven.toml"),
             &[ChangedPath::new("toven.toml")],
         ));
-        assert!(config_changed(
+        assert!(config_changed_from_dir(
+            Path::new("/workspace"),
             Path::new("/workspace"),
             Path::new("/workspace/sub/../toven.toml"),
             &[ChangedPath::new("toven.toml")],
         ));
-        assert!(!config_changed(
+        assert!(config_changed_from_dir(
+            Path::new("/workspace"),
+            Path::new("/workspace/sub"),
+            Path::new("../toven.toml"),
+            &[ChangedPath::new("toven.toml")],
+        ));
+        assert!(!config_changed_from_dir(
+            Path::new("/workspace"),
             Path::new("/workspace"),
             Path::new("/workspace/toven.toml"),
             &[ChangedPath::new("api/src/lib.rs")],
@@ -498,31 +584,34 @@ mod tests {
     #[test]
     fn next_changed_paths_debounces_and_filters_events() {
         let root = Path::new("/workspace");
-        let (tx, rx) = mpsc::channel();
-        tx.send(WatchEvent::File(Ok(notify::Event::new(
-            notify::EventKind::Any,
-        )
-        .add_path(root.join("src/lib.rs")))))
-            .expect("send source event");
-        tx.send(WatchEvent::File(Ok(notify::Event::new(
-            notify::EventKind::Any,
-        )
-        .add_path(root.join("target/debug/app")))))
-            .expect("send ignored event");
+        let (tx, rx) = mpsc::sync_channel(1);
+        let pending_events = Arc::new(Mutex::new(PendingWatchEvents::default()));
+        queue_watch_event(
+            &tx,
+            &pending_events,
+            root,
+            Ok(notify::Event::new(notify::EventKind::Any).add_path(root.join("src/lib.rs"))),
+        );
+        queue_watch_event(
+            &tx,
+            &pending_events,
+            root,
+            Ok(notify::Event::new(notify::EventKind::Any).add_path(root.join("target/debug/app"))),
+        );
 
-        let changed =
-            next_changed_paths(&rx, root, Duration::from_millis(1)).expect("events are collected");
+        let changed = next_changed_paths(&rx, &pending_events, Duration::from_millis(1))
+            .expect("events are collected");
 
         assert_eq!(changed, [ChangedPath::new("src/lib.rs")]);
     }
 
     #[test]
     fn next_changed_paths_reports_ctrl_c_cancellation() {
-        let root = Path::new("/workspace");
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = mpsc::sync_channel(1);
+        let pending_events = Arc::new(Mutex::new(PendingWatchEvents::default()));
         tx.send(WatchEvent::CtrlC).expect("send ctrl-c event");
 
-        let error = next_changed_paths(&rx, root, Duration::from_millis(1))
+        let error = next_changed_paths(&rx, &pending_events, Duration::from_millis(1))
             .expect_err("ctrl-c should cancel watch");
 
         assert_eq!(error.code, crate::core::ErrorCode::Cancelled);
@@ -531,7 +620,7 @@ mod tests {
     #[test]
     fn watch_ctrl_c_event_cancels_running_work() {
         let cancellation = SharedCancellation::new();
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = mpsc::sync_channel(1);
 
         send_watch_ctrl_c(&tx, &cancellation);
 
