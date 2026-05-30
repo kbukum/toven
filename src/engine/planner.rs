@@ -236,6 +236,7 @@ fn unit(
         argv_template: command.argv_template,
         module_arg_template: profile.module_arg_template.clone(),
         passthrough_args,
+        shared_inputs: command.shared_inputs,
     }
 }
 
@@ -243,6 +244,7 @@ fn unit(
 struct PlannedCommand {
     argv_template: Vec<String>,
     origin: CommandOrigin,
+    shared_inputs: Vec<String>,
 }
 
 fn task_command(task: &Task) -> AppResult<PlannedCommand> {
@@ -250,6 +252,7 @@ fn task_command(task: &Task) -> AppResult<PlannedCommand> {
         TaskCommand::Argv(argv) => Ok(PlannedCommand {
             argv_template: argv.clone(),
             origin: CommandOrigin::DirectArgv,
+            shared_inputs: Vec::new(),
         }),
         TaskCommand::ResolvedPreset(preset) => Ok(PlannedCommand {
             argv_template: preset.argv.clone(),
@@ -257,6 +260,7 @@ fn task_command(task: &Task) -> AppResult<PlannedCommand> {
                 name: preset.name.clone(),
                 language: preset.language.clone(),
             },
+            shared_inputs: preset.shared_inputs.clone(),
         }),
         TaskCommand::Preset(name) => Err(AppError::invalid_input(
             "task",
