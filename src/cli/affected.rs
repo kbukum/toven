@@ -41,7 +41,7 @@ pub(super) fn run_affected(matches: &ArgMatches, stdout: &mut impl Write) -> App
     writeln!(
         stdout,
         "baseline: {} {}",
-        affected.provider, affected.revision
+        affected.provider, affected.baseline_oid
     )
     .map_err(AppError::internal)?;
     if affected.changed_paths.is_empty() {
@@ -70,7 +70,7 @@ pub(super) fn run_affected(matches: &ArgMatches, stdout: &mut impl Write) -> App
 
 pub(super) struct CliAffectedModules {
     pub(super) provider: String,
-    pub(super) revision: String,
+    pub(super) baseline_oid: String,
     pub(super) changed_paths: Vec<PathBuf>,
     pub(super) direct: std::collections::BTreeSet<ModuleId>,
     pub(super) closure: std::collections::BTreeSet<ModuleId>,
@@ -78,7 +78,7 @@ pub(super) struct CliAffectedModules {
 
 pub(super) struct CliAffectedChanges {
     provider: String,
-    revision: String,
+    baseline_oid: String,
     changed: Vec<ChangedPath>,
 }
 
@@ -94,7 +94,7 @@ pub(super) fn resolve_affected_changes(
 
     Ok(CliAffectedChanges {
         provider: baseline.provider,
-        revision: baseline.oid,
+        baseline_oid: baseline.oid,
         changed,
     })
 }
@@ -107,7 +107,7 @@ pub(super) fn resolve_affected_modules(
 
     Ok(CliAffectedModules {
         provider: changes.provider,
-        revision: changes.revision,
+        baseline_oid: changes.baseline_oid,
         changed_paths: changes.changed.into_iter().map(|path| path.path).collect(),
         direct: affected.direct,
         closure: affected.closure,
