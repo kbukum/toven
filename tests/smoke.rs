@@ -606,6 +606,12 @@ fn assert_affected_modules_match_metadata(
 }
 
 fn expected_affected_modules(repo: &Path, case: &SmokeCase) -> BTreeSet<String> {
+    let response = RustAdapter::new()
+        .discover(&DiscoverRequest {
+            schema_version: DISCOVERY_SCHEMA_VERSION,
+            workspace_root: repo.to_path_buf(),
+        })
+        .expect("discover smoke repo modules");
     let workspace = smoke_workspace(repo, case);
     let baseline = smoke_baseline_provider(case)
         .resolve(&BaselineContext {
@@ -613,12 +619,6 @@ fn expected_affected_modules(repo: &Path, case: &SmokeCase) -> BTreeSet<String> 
         })
         .expect("resolve smoke baseline");
     let changed = changed_paths(&workspace, &baseline).expect("read smoke changed paths");
-    let response = RustAdapter::new()
-        .discover(&DiscoverRequest {
-            schema_version: DISCOVERY_SCHEMA_VERSION,
-            workspace_root: repo.to_path_buf(),
-        })
-        .expect("discover smoke repo modules");
 
     affected_modules(&response.modules, &changed)
         .expect("compute smoke affected modules")
