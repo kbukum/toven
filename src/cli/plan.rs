@@ -5,7 +5,7 @@ use std::{io::Write, path::PathBuf};
 use clap::ArgMatches;
 
 use crate::{
-    cli::affected::{modules_from_discovered, resolve_affected_modules},
+    cli::affected::{modules_from_discovered, resolve_affected_changes, resolve_affected_modules},
     config::load_workspace,
     core::{AppError, AppResult},
     engine::{discover_workspace_task_profiles, plan_discovered_task_profiles, plan_workspace},
@@ -30,10 +30,11 @@ pub(super) fn run_plan(matches: &ArgMatches, stdout: &mut impl Write) -> AppResu
 
     let workspace = load_workspace(config)?;
     let plan = if matches.get_flag("affected") {
+        let changes = resolve_affected_changes(&workspace, matches)?;
         let discovered =
             discover_workspace_task_profiles(&workspace, task, &LangRegistry::default())?;
         let modules = modules_from_discovered(&discovered);
-        let affected = resolve_affected_modules(&workspace, matches, &modules)?;
+        let affected = resolve_affected_modules(changes, &modules)?;
         plan_discovered_task_profiles(
             workspace,
             &discovered,

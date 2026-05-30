@@ -7,7 +7,11 @@ use clap::ArgMatches;
 use crate::{
     config::load_workspace,
     core::{AppError, AppResult, Module, ModuleId, Workspace},
-    engine::{DiscoveredTaskProfile, affected::affected_modules, discover_workspace_task_profiles},
+    engine::{
+        DiscoveredTaskProfile,
+        affected::{ChangedPath, affected_modules},
+        discover_workspace_task_profiles,
+    },
     git::{
         affected::changed_paths,
         baseline::{
@@ -29,9 +33,10 @@ pub(super) fn run_affected(matches: &ArgMatches, stdout: &mut impl Write) -> App
         .expect("clap supplies the affected task default")
         .as_str();
     let workspace = load_workspace(config)?;
+    let changes = resolve_affected_changes(&workspace, matches)?;
     let discovered = discover_workspace_task_profiles(&workspace, task, &LangRegistry::default())?;
     let modules = modules_from_discovered(&discovered);
-    let affected = resolve_affected_modules(&workspace, matches, &modules)?;
+    let affected = resolve_affected_modules(changes, &modules)?;
 
     writeln!(
         stdout,
@@ -71,22 +76,39 @@ pub(super) struct CliAffectedModules {
     pub(super) closure: std::collections::BTreeSet<ModuleId>,
 }
 
-pub(super) fn resolve_affected_modules(
+pub(super) struct CliAffectedChanges {
+    provider: String,
+    revision: String,
+    changed: Vec<ChangedPath>,
+}
+
+pub(super) fn resolve_affected_changes(
     workspace: &Workspace,
     matches: &ArgMatches,
-    modules: &[Module],
-) -> AppResult<CliAffectedModules> {
+) -> AppResult<CliAffectedChanges> {
     let provider = baseline_provider(workspace, matches)?;
     let baseline = provider.resolve(&BaselineContext {
         workspace_root: workspace.root.clone(),
     })?;
     let changed = changed_paths(workspace, &baseline)?;
-    let affected = affected_modules(modules, &changed)?;
 
-    Ok(CliAffectedModules {
+    Ok(CliAffectedChanges {
         provider: baseline.provider,
         revision: baseline.oid,
-        changed_paths: changed.into_iter().map(|path| path.path).collect(),
+        changed,
+    })
+}
+
+pub(super) fn resolve_affected_modules(
+    changes: CliAffectedChanges,
+    modules: &[Module],
+) -> AppResult<CliAffectedModules> {
+    let affected = affected_modules(modules, &changes.changed)?;
+
+    Ok(CliAffectedModules {
+        provider: changes.provider,
+        revision: changes.revision,
+        changed_paths: changes.changed.into_iter().map(|path| path.path).collect(),
         direct: affected.direct,
         closure: affected.closure,
     })
