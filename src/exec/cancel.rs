@@ -1,13 +1,7 @@
 //! Shared cancellation helpers for execution orchestration.
 #![allow(clippy::redundant_pub_crate)]
 
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    thread,
-};
+use std::thread;
 
 use tokio_util::sync::CancellationToken;
 
@@ -16,14 +10,12 @@ use crate::core::{AppError, AppResult, ErrorCode};
 #[derive(Debug, Clone)]
 pub(crate) struct SharedCancellation {
     token: CancellationToken,
-    cancelled: Arc<AtomicBool>,
 }
 
 impl SharedCancellation {
     pub(crate) fn new() -> Self {
         Self {
             token: CancellationToken::new(),
-            cancelled: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -31,12 +23,7 @@ impl SharedCancellation {
         self.token.clone()
     }
 
-    pub(crate) fn cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::SeqCst)
-    }
-
     pub(crate) fn cancel(&self) {
-        self.cancelled.store(true, Ordering::SeqCst);
         self.token.cancel();
     }
 }

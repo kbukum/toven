@@ -69,11 +69,7 @@ pub fn run_execution_unit(
             &process_config,
             cancel,
         ))?;
-        let cancelled = result.cancelled
-            || options
-                .cancellation
-                .as_ref()
-                .is_some_and(SharedCancellation::cancelled);
+        let cancelled = result.cancelled;
         (result, cancelled)
     };
     Ok(RunOutput {

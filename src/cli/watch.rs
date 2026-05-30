@@ -306,9 +306,21 @@ fn normalize_changed_path(root: &Path, path: &Path) -> Option<PathBuf> {
 }
 
 fn normalize_relative_path(path: &Path) -> PathBuf {
-    path.components()
-        .filter(|component| !matches!(component, Component::CurDir))
-        .collect()
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            Component::Normal(_) | Component::RootDir | Component::Prefix(_) => {
+                normalized.push(component.as_os_str());
+            }
+        }
+    }
+    normalized
 }
 
 fn is_ignored(path: &Path) -> bool {
@@ -461,6 +473,11 @@ mod tests {
             Path::new("./toven.toml"),
             &[ChangedPath::new("toven.toml")],
         ));
+        assert!(config_changed(
+            Path::new("/workspace"),
+            Path::new("/workspace/sub/../toven.toml"),
+            &[ChangedPath::new("toven.toml")],
+        ));
         assert!(!config_changed(
             Path::new("/workspace"),
             Path::new("/workspace/toven.toml"),
@@ -518,7 +535,7 @@ mod tests {
 
         send_watch_ctrl_c(&tx, &cancellation);
 
-        assert!(cancellation.cancelled());
+        assert!(cancellation.token().is_cancelled());
         assert!(matches!(
             rx.recv_timeout(Duration::from_secs(1)),
             Ok(WatchEvent::CtrlC)
