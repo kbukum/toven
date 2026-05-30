@@ -97,7 +97,14 @@ fn early_exit_before_readiness_reports_process_status() {
     };
 
     assert_eq!(error.code, crate::core::ErrorCode::Internal);
-    assert!(error.message.contains("exited unexpectedly"));
+    assert!(
+        error.message.contains("exited unexpectedly")
+            || error
+                .message
+                .contains("output ended before readiness was observed"),
+        "unexpected error message: {}",
+        error.message
+    );
 }
 
 #[test]

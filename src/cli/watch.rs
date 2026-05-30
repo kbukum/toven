@@ -52,7 +52,8 @@ pub(super) fn run_watch(
     );
     let watch_once = matches.get_flag("watch-once");
     let workspace = load_workspace(config.clone())?;
-    write_watch_started(stdout, stderr, output_format, &workspace.root)?;
+    let watched_root = workspace.root;
+    write_watch_started(stdout, stderr, output_format, &watched_root)?;
 
     let (event_tx, event_rx) = mpsc::channel();
     let mut watcher = notify::recommended_watcher(move |event| {
@@ -65,25 +66,26 @@ pub(super) fn run_watch(
         )
     })?;
     watcher
-        .watch(&workspace.root, RecursiveMode::Recursive)
+        .watch(&watched_root, RecursiveMode::Recursive)
         .map_err(|error| {
             AppError::new(
                 crate::core::ErrorCode::Internal,
-                format!("failed to watch '{}': {error}", workspace.root.display()),
+                format!("failed to watch '{}': {error}", watched_root.display()),
             )
         })?;
 
     let mut persistent_processes = run_task_once_for_watch(matches, stdout, stderr, None)?;
     loop {
-        let changed = next_changed_paths(&event_rx, &workspace.root, debounce)?;
+        let changed = next_changed_paths(&event_rx, &watched_root, debounce)?;
         if changed.is_empty() {
             continue;
         }
         let workspace = load_workspace(config.clone())?;
+        validate_watch_root_unchanged(&watched_root, &workspace.root)?;
         let discovered =
             discover_workspace_task_profiles(&workspace, task, &LangRegistry::default())?;
         let modules = modules_from_discovered(&discovered)?;
-        if config_changed(&workspace.root, &config, &changed) {
+        if config_changed(&watched_root, &config, &changed) {
             write_watch_change(stdout, stderr, output_format, &changed, None)?;
             shutdown_persistent_processes(std::mem::take(&mut persistent_processes))?;
             persistent_processes = run_task_once_for_watch(matches, stdout, stderr, None)?;
@@ -223,6 +225,20 @@ fn config_changed(root: &Path, config: &Path, changed: &[ChangedPath]) -> bool {
         .any(|path| path.path == relative_config || path.path == Path::new("toven.toml"))
 }
 
+fn validate_watch_root_unchanged(watched_root: &Path, current_root: &Path) -> AppResult<()> {
+    if watched_root == current_root {
+        return Ok(());
+    }
+    Err(AppError::invalid_input(
+        "workspace.root",
+        format!(
+            "workspace root changed from '{}' to '{}' while watch mode is running; restart watch to use the new root",
+            watched_root.display(),
+            current_root.display()
+        ),
+    ))
+}
+
 fn write_watch_started(
     stdout: &mut impl Write,
     stderr: &mut impl Write,
@@ -284,8 +300,8 @@ mod tests {
     };
 
     use super::{
-        config_changed, is_ignored, next_changed_paths, run_watch, write_watch_change,
-        write_watch_started,
+        config_changed, is_ignored, next_changed_paths, run_watch, validate_watch_root_unchanged,
+        write_watch_change, write_watch_started,
     };
 
     #[test]
@@ -337,6 +353,16 @@ mod tests {
             Path::new("/workspace/toven.toml"),
             &[ChangedPath::new("api/src/lib.rs")],
         ));
+    }
+
+    #[test]
+    fn watch_root_change_requires_restart() {
+        let error =
+            validate_watch_root_unchanged(Path::new("/workspace/old"), Path::new("/workspace/new"))
+                .expect_err("root change should fail");
+
+        assert_eq!(error.code, crate::core::ErrorCode::InvalidInput);
+        assert!(error.message.contains("restart watch"));
     }
 
     #[test]
