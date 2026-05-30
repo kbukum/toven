@@ -1,0 +1,33 @@
+workspace: tokio-affected-merge-base
+root: <WORKSPACE_ROOT>
+
+unit: rust/test/w0/batch
+profile: rust task: test mode: batch-ready
+command: direct argv
+resource_group: cargo:<WORKSPACE_ROOT>
+argv: ["cargo", "test", "-p", "examples", "-p", "tests-build", "-p", "tokio-macros", "--all-features"]
+modules: examples, tests-build, tokio-macros
+
+unit: rust/test/w1/batch
+profile: rust task: test mode: batch-ready
+command: direct argv
+resource_group: cargo:<WORKSPACE_ROOT>
+argv: ["cargo", "test", "-p", "tokio", "--all-features"]
+modules: tokio
+dependencies: tokio -> tokio-macros
+
+unit: rust/test/w2/batch
+profile: rust task: test mode: batch-ready
+command: direct argv
+resource_group: cargo:<WORKSPACE_ROOT>
+argv: ["cargo", "test", "-p", "benches", "-p", "stress-test", "-p", "tests-integration", "-p", "tokio-stream", "-p", "tokio-util", "--all-features"]
+modules: benches, stress-test, tests-integration, tokio-stream, tokio-util
+dependencies: benches -> tokio; stress-test -> tokio; tests-integration -> tokio; tokio-stream -> tokio; tokio-util -> tokio
+
+unit: rust/test/w3/batch
+profile: rust task: test mode: batch-ready
+command: direct argv
+resource_group: cargo:<WORKSPACE_ROOT>
+argv: ["cargo", "test", "-p", "tokio-test", "--all-features"]
+modules: tokio-test
+dependencies: tokio-test -> tokio, tokio-stream

@@ -13,6 +13,7 @@ yanked = "deny"
 [licenses]
 allow = [
     "Apache-2.0",
+    "BSD-2-Clause",
     "BSD-3-Clause",
     "MIT",
     "Unicode-3.0",
@@ -25,7 +26,9 @@ wildcards = "deny"
 deny = []
 skip-tree = [
     { crate = "rskit-config", reason = "rskit submodule crate uses path-only internal workspace dependencies", depth = 0 },
+    { crate = "rskit-cache", reason = "rskit submodule crate uses path-only internal workspace dependencies", depth = 0 },
     { crate = "rskit-fs", reason = "rskit submodule crate uses path-only internal workspace dependencies", depth = 0 },
+    { crate = "rskit-git", reason = "rskit submodule crate uses path-only internal workspace dependencies", depth = 0 },
     { crate = "rskit-process", reason = "rskit submodule crate uses path-only internal workspace dependencies", depth = 0 },
     { crate = "rskit-validation", reason = "rskit submodule crate uses path-only internal workspace dependencies", depth = 0 },
 ]

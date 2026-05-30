@@ -16,12 +16,15 @@ pub struct WorkspaceConfig {
     pub name: Option<String>,
     /// Workspace root, relative to the config file unless absolute.
     pub root: Option<PathBuf>,
+    /// Default git baseline reference for affected detection.
+    pub base_ref: Option<String>,
 }
 
 pub(super) struct NormalizedWorkspace {
     pub(super) schema: u16,
     pub(super) name: String,
     pub(super) root: PathBuf,
+    pub(super) base_ref: Option<String>,
 }
 
 pub(super) fn normalize_workspace_config(
@@ -33,7 +36,14 @@ pub(super) fn normalize_workspace_config(
     let root = normalize_root(config_dir, config.root.as_deref())?;
     let name = normalize_name(config.name, &root)?;
 
-    Ok(NormalizedWorkspace { schema, name, root })
+    let base_ref = normalize_base_ref(config.base_ref)?;
+
+    Ok(NormalizedWorkspace {
+        schema,
+        name,
+        root,
+        base_ref,
+    })
 }
 
 pub(super) fn build_workspace(workspace: NormalizedWorkspace, profiles: Vec<Profile>) -> Workspace {
@@ -41,6 +51,7 @@ pub(super) fn build_workspace(workspace: NormalizedWorkspace, profiles: Vec<Prof
         schema: workspace.schema,
         name: workspace.name,
         root: workspace.root,
+        base_ref: workspace.base_ref,
         profiles,
     }
 }
@@ -85,4 +96,25 @@ fn normalize_name(name: Option<String>, root: &Path) -> AppResult<String> {
             .unwrap_or("workspace")
             .to_string()),
     }
+}
+
+fn normalize_base_ref(base_ref: Option<String>) -> AppResult<Option<String>> {
+    base_ref
+        .map(|base_ref| {
+            let trimmed = base_ref.trim();
+            if trimmed.is_empty() {
+                return Err(AppError::invalid_input(
+                    "workspace.base_ref",
+                    "base_ref cannot be empty",
+                ));
+            }
+            if trimmed != base_ref {
+                return Err(AppError::invalid_input(
+                    "workspace.base_ref",
+                    "base_ref cannot contain leading or trailing whitespace",
+                ));
+            }
+            Ok(base_ref)
+        })
+        .transpose()
 }

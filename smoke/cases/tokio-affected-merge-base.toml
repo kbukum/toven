@@ -1,0 +1,16 @@
+repo = "smoke/repos/tokio"
+command = "plan"
+affected = true
+base = "main"
+merge_base = true
+branch = "feature/toven-smoke"
+task = "test"
+args = ["--all-features"]
+expected = "smoke/expected/tokio-affected-merge-base.plan.txt"
+
+[[changes]]
+path = "tokio-macros/src/lib.rs"
+content = """
+
+// toven smoke affected change
+"""

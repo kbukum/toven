@@ -1,16 +1,27 @@
 //! Execution unit planning.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     core::{
         AppError, AppResult, CommandOrigin, DISCOVERY_SCHEMA_VERSION, DiscoverRequest,
-        ExecutionMode, ExecutionUnit, Plan, Profile, Task, TaskCommand, Workspace,
+        ExecutionMode, ExecutionUnit, ModuleId, Plan, Profile, Task, TaskCommand, Workspace,
     },
     engine::scheduler::ready_waves,
     exec::{render_execution_unit, render_resource_group},
     lang::LangRegistry,
 };
+
+/// Modules discovered for one profile/task pair.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct DiscoveredTaskProfile {
+    /// Profile that owns the task.
+    pub profile: Profile,
+    /// Task selected from the profile.
+    pub task: Task,
+    /// Modules discovered for the profile.
+    pub modules: Vec<crate::core::Module>,
+}
 
 /// Build a task plan for every profile that defines `task_name`.
 pub fn plan_workspace(
@@ -19,37 +30,97 @@ pub fn plan_workspace(
     passthrough_args: &[String],
     registry: &LangRegistry,
 ) -> AppResult<Plan> {
-    let mut units = Vec::new();
-    let mut matched = false;
+    plan_workspace_filtered(workspace, task_name, passthrough_args, registry, None)
+}
+
+/// Build a task plan for modules included by `module_filter`.
+pub fn plan_workspace_filtered(
+    workspace: Workspace,
+    task_name: &str,
+    passthrough_args: &[String],
+    registry: &LangRegistry,
+    module_filter: Option<&BTreeSet<ModuleId>>,
+) -> AppResult<Plan> {
+    let discovered = discover_workspace_task_profiles(&workspace, task_name, registry)?;
+    plan_discovered_task_profiles(workspace, &discovered, passthrough_args, module_filter)
+}
+
+/// Discover modules for every profile that defines `task_name`.
+pub fn discover_workspace_task_profiles(
+    workspace: &Workspace,
+    task_name: &str,
+    registry: &LangRegistry,
+) -> AppResult<Vec<DiscoveredTaskProfile>> {
+    let mut discovered = Vec::new();
     let mut discovery_cache = BTreeMap::new();
 
     for profile in &workspace.profiles {
         let Some(task) = profile.tasks.iter().find(|task| task.name == task_name) else {
             continue;
         };
-        matched = true;
-        let modules =
-            discover_profile_modules(&workspace, profile, registry, &mut discovery_cache)?;
+        let modules = discover_profile_modules(workspace, profile, registry, &mut discovery_cache)?;
+        discovered.push(DiscoveredTaskProfile {
+            profile: profile.clone(),
+            task: task.clone(),
+            modules,
+        });
+    }
+
+    if discovered.is_empty() {
+        return Err(AppError::invalid_input(
+            "task",
+            format!(
+                "task '{task_name}' is not defined by any profile; available tasks: {}",
+                available_tasks(workspace)
+            ),
+        ));
+    }
+
+    Ok(discovered)
+}
+
+/// Build a task plan from modules already discovered for the selected task.
+pub fn plan_discovered_task_profiles(
+    workspace: Workspace,
+    discovered: &[DiscoveredTaskProfile],
+    passthrough_args: &[String],
+    module_filter: Option<&BTreeSet<ModuleId>>,
+) -> AppResult<Plan> {
+    let mut units = Vec::new();
+
+    for discovered in discovered {
+        let modules = filter_modules(discovered.modules.clone(), module_filter);
         units.extend(plan_profile_task(
             &workspace,
-            profile,
-            task,
+            &discovered.profile,
+            &discovered.task,
             modules,
             passthrough_args,
         )?);
     }
 
-    if !matched {
-        return Err(AppError::invalid_input(
-            "task",
-            format!(
-                "task '{task_name}' is not defined by any profile; available tasks: {}",
-                available_tasks(&workspace)
-            ),
-        ));
-    }
-
     Ok(Plan { workspace, units })
+}
+
+fn filter_modules(
+    modules: Vec<crate::core::Module>,
+    module_filter: Option<&BTreeSet<ModuleId>>,
+) -> Vec<crate::core::Module> {
+    let Some(module_filter) = module_filter else {
+        return modules;
+    };
+    modules
+        .into_iter()
+        .filter_map(|mut module| {
+            if !module_filter.contains(&module.name) {
+                return None;
+            }
+            module
+                .dependencies
+                .retain(|dependency| module_filter.contains(dependency));
+            Some(module)
+        })
+        .collect()
 }
 
 fn discover_profile_modules(
@@ -88,9 +159,14 @@ fn plan_profile_task(
     modules: Vec<crate::core::Module>,
     passthrough_args: &[String],
 ) -> AppResult<Vec<ExecutionUnit>> {
+    let mut units = Vec::new();
+
+    if modules.is_empty() {
+        return Ok(units);
+    }
+
     let command = task_command(task)?;
     let waves = ready_waves(&modules)?;
-    let mut units = Vec::new();
 
     match profile.execution {
         ExecutionMode::SpawnEach => {
@@ -238,6 +314,7 @@ mod tests {
             schema: 1,
             name: "fixture".to_string(),
             root: PathBuf::from("/workspace"),
+            base_ref: None,
             profiles: Vec::new(),
         };
         let profile = Profile {
@@ -260,5 +337,30 @@ mod tests {
         .expect_err("invalid resource group should fail during planning");
 
         assert!(error.message.contains("resource_group"));
+    }
+
+    #[test]
+    fn does_not_emit_workspace_unit_for_empty_module_set() {
+        let workspace = Workspace {
+            schema: 1,
+            name: "fixture".to_string(),
+            root: PathBuf::from("/workspace"),
+            base_ref: None,
+            profiles: Vec::new(),
+        };
+        let profile = Profile {
+            name: "rust".to_string(),
+            language: "rust".to_string(),
+            discovery_command: None,
+            execution: ExecutionMode::WorkspaceOnce,
+            module_arg_template: Vec::new(),
+            resource_group: "cargo:{workspace.root}".to_string(),
+            tasks: vec![task()],
+        };
+
+        let units = plan_profile_task(&workspace, &profile, &profile.tasks[0], Vec::new(), &[])
+            .expect("empty planning succeeds");
+
+        assert!(units.is_empty());
     }
 }

@@ -105,6 +105,7 @@ mod tests {
                 schema: 1,
                 name: "fixture".to_string(),
                 root: PathBuf::from("/workspace"),
+                base_ref: None,
                 profiles: Vec::new(),
             },
             units: vec![ExecutionUnit {
