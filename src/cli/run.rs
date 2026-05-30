@@ -20,6 +20,7 @@ use crate::{
     engine::{discover_workspace_task_profiles, plan_discovered_task_profiles},
     exec::{RunOptions, run_execution_unit},
     lang::LangRegistry,
+    report::{OutputFormat, RunReporter},
 };
 
 pub(super) fn run_task(
@@ -27,6 +28,11 @@ pub(super) fn run_task(
     stdout: &mut impl Write,
     stderr: &mut impl Write,
 ) -> AppResult<()> {
+    let output_format = OutputFormat::parse(
+        matches
+            .get_one::<String>("output")
+            .expect("clap supplies the run output default"),
+    )?;
     let config = PathBuf::from(
         matches
             .get_one::<String>("config")
@@ -80,30 +86,43 @@ pub(super) fn run_task(
             .map(|seconds| Duration::from_secs(*seconds)),
         cancel_on_ctrl_c: true,
     };
+    let mut reporter = RunReporter::new(output_format, stdout, exec_plan.units.len())?;
+    reporter.plan_prepared(&workspace.name, &workspace.root.display().to_string())?;
+    for decision in decisions.values() {
+        reporter.cache_decision(decision)?;
+    }
 
     for unit in exec_plan.units {
-        execute_unit(
+        if let Err(error) = execute_unit(
             unit,
             &workspace.root,
             &decisions,
             task_cache.as_ref(),
             &options,
-            stdout,
+            &mut reporter,
             stderr,
-        )?;
+        ) {
+            let _ = reporter.run_failed(&error);
+            return Err(error);
+        }
     }
+    reporter.run_succeeded()?;
     Ok(())
 }
 
-fn execute_unit(
+fn execute_unit<W, E>(
     unit: ExecutionUnit,
     workspace_root: &std::path::Path,
     decisions: &CacheDecisions,
     task_cache: Option<&TaskCache>,
     options: &RunOptions,
-    stdout: &mut impl Write,
-    stderr: &mut impl Write,
-) -> AppResult<()> {
+    reporter: &mut RunReporter<'_, W>,
+    stderr: &mut E,
+) -> AppResult<()>
+where
+    W: Write,
+    E: Write,
+{
     let misses = unit
         .modules
         .iter()
@@ -115,21 +134,16 @@ fn execute_unit(
 
     if misses.is_empty() {
         for module in &unit.modules {
-            writeln!(stdout, "cache hit: {} {}", module.name, unit.task)
-                .map_err(AppError::internal)?;
+            reporter.cache_hit(&unit, module, false)?;
         }
+        reporter.unit_skipped(&unit)?;
         return Ok(());
     }
 
     if unit.mode == ExecutionMode::WorkspaceOnce {
         for module in &unit.modules {
             if decision_for(decisions, &unit, &module.name).is_some_and(CacheDecision::is_hit) {
-                writeln!(
-                    stdout,
-                    "cache hit (re-run as part of workspace-once): {} {}",
-                    module.name, unit.task
-                )
-                .map_err(AppError::internal)?;
+                reporter.cache_hit(&unit, module, true)?;
             }
         }
     }
@@ -142,11 +156,9 @@ fn execute_unit(
         filtered
     };
 
-    writeln!(stdout, "run: {}", executable_unit.id).map_err(AppError::internal)?;
+    reporter.unit_started(&executable_unit)?;
     let output = run_execution_unit(&executable_unit, workspace_root, options)?;
-    stdout
-        .write_all(&output.result.stdout_bytes)
-        .map_err(AppError::internal)?;
+    reporter.child_stdout(stderr, &output.result.stdout_bytes)?;
     stderr
         .write_all(&output.result.stderr_bytes)
         .map_err(AppError::internal)?;
@@ -156,6 +168,7 @@ fn execute_unit(
     if output.result.stderr_truncated {
         writeln!(stderr, "warning: stderr capture truncated").map_err(AppError::internal)?;
     }
+    reporter.unit_finished(&executable_unit, &output.result, output.cancelled)?;
     if !output.result.success() {
         return Err(process_error(
             &executable_unit,
@@ -286,6 +299,7 @@ mod tests {
     use crate::cache::decision::{CacheDecision, CacheState};
     use crate::cache::key::CacheKey;
     use crate::core::{CommandOrigin, ExecutionMode, ExecutionUnit, Module};
+    use crate::report::{OutputFormat, RunReporter};
 
     #[test]
     fn process_error_reports_timeout() {
@@ -373,6 +387,8 @@ mod tests {
         );
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
+        let mut reporter =
+            RunReporter::new(OutputFormat::Human, &mut stdout, 1).expect("reporter initializes");
 
         execute_unit(
             unit,
@@ -383,10 +399,11 @@ mod tests {
                 timeout: None,
                 cancel_on_ctrl_c: false,
             },
-            &mut stdout,
+            &mut reporter,
             &mut stderr,
         )
         .expect("workspace-once unit executes");
+        drop(reporter);
 
         assert!(stderr.is_empty());
         let stdout = String::from_utf8(stdout).expect("stdout is utf-8");

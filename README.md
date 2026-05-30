@@ -97,11 +97,14 @@ Tasks can also reference preset files. Project presets are resolved before user
 presets from `.toven/lang/<language>/presets/<name>.toml`; user presets use the
 same layout under the current user's home directory.
 
-Run a task directly with `toven <task>`. Successful executions write local cache
-records under `.toven/cache/`, and later runs skip modules whose exact source,
+Run a task directly with `toven <task>` or `toven run <task>` when the task name
+matches a built-in subcommand. Successful executions write local cache records
+under `.toven/cache/`, and later runs skip modules whose exact source,
 dependency, task, toolchain, shared-input, and cache-format inputs still match.
 Use `--force` to skip cache reads while writing fresh success records, or
-`--no-cache` to disable reads and writes.
+`--no-cache` to disable reads and writes. Use `--output jsonl` to reserve stdout
+for stable newline-delimited run events; subprocess stdout is redirected to
+stderr in JSONL mode so event consumers can parse every stdout line as JSON.
 
 Affected planning narrows a plan to modules changed since a git baseline plus
 their reverse dependents:
@@ -110,7 +113,12 @@ their reverse dependents:
 cargo run -- plan --affected --base origin/main --merge-base
 cargo run -- affected --base origin/main --merge-base
 cargo run -- test --affected --base origin/main --merge-base
+cargo run -- run modules
 cargo run -- explain fixture-core test --base origin/main --merge-base
+cargo run -- modules
+cargo run -- graph --format dot
+cargo run -- cache stats
+cargo run -- cache clean
 ```
 
 Set `workspace.base_ref` in `toven.toml` to provide a default baseline. Without
