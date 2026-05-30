@@ -1,0 +1,4 @@
+fixture = "rust-workspace-basic"
+command = "plan"
+assert = "cargo-waves"
+

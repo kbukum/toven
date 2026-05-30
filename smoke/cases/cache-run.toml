@@ -1,0 +1,25 @@
+fixture = "rust-workspace-cache"
+assert = "none"
+
+[[invocations]]
+label = "first-run"
+command = "run"
+task = "stamp"
+
+[[invocations]]
+label = "cached-run"
+command = "run"
+task = "stamp"
+
+[[invocations]]
+label = "forced-run"
+command = "run"
+task = "stamp"
+force = true
+
+[[invocations]]
+label = "no-cache-run"
+command = "run"
+task = "stamp"
+no_cache = true
+

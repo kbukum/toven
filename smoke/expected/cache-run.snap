@@ -1,0 +1,42 @@
+## first-run
+
+status: 0
+stdout:
+run: rust/stamp/w0/smoke-core
+stamp smoke-core
+run: rust/stamp/w1/smoke-app
+stamp smoke-app
+stderr:
+<empty>
+
+## cached-run
+
+status: 0
+stdout:
+cache hit: smoke-core stamp
+cache hit: smoke-app stamp
+stderr:
+<empty>
+
+## forced-run
+
+status: 0
+stdout:
+run: rust/stamp/w0/smoke-core
+stamp smoke-core
+run: rust/stamp/w1/smoke-app
+stamp smoke-app
+stderr:
+<empty>
+
+## no-cache-run
+
+status: 0
+stdout:
+run: rust/stamp/w0/smoke-core
+stamp smoke-core
+run: rust/stamp/w1/smoke-app
+stamp smoke-app
+stderr:
+<empty>
+

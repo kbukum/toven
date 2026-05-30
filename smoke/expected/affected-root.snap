@@ -1,0 +1,14 @@
+## affected
+
+status: 0
+stdout:
+baseline: <sha>
+changed_paths:
+- Cargo.toml
+modules:
+- smoke-app (global)
+- smoke-core (global)
+- smoke-test-util (global)
+stderr:
+<empty>
+

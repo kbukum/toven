@@ -1,0 +1,9 @@
+## workspace-once
+
+status: 0
+stdout:
+run: workspace/workspace-stamp/workspace
+workspace-once
+stderr:
+<empty>
+

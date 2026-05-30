@@ -1,0 +1,26 @@
+fixture = "rust-workspace-basic"
+command = "affected"
+base = "HEAD"
+assert = "affected-modules"
+
+[[setup]]
+kind = "write"
+path = ".gitignore"
+content = """
+ignored.log
+"""
+
+[[setup]]
+kind = "write"
+path = "ignored.log"
+content = "ignored fixture noise\n"
+
+[[setup]]
+kind = "write"
+path = "scratch.tmp"
+content = "untracked fixture noise\n"
+
+[[changes]]
+path = "crates/core/src/lib.rs"
+content = "pub fn core_value() -> &'static str { \"changed\" }\n"
+

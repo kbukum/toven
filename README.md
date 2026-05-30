@@ -45,12 +45,13 @@ The current scaffold builds as a standalone Rust CLI with configuration,
 preset-loading, Rust discovery, affected detection, reviewable planning,
 execution, and cache-backed skipping foundations.
 
-## Smoke testing real repositories
+## Smoke testing fixtures and real repositories
 
 Toven has two smoke modes:
 
-- Managed smoke tests run the real `toven` binary against committed cases under
-  `smoke/cases/` and compare normalized output with `smoke/expected/`.
+- Managed smoke tests run the real `toven` binary against small synthetic
+  fixture repositories under `smoke/fixtures/` and committed cases under
+  `smoke/cases/`, then compare normalized output with `smoke/expected/`.
 - Ad-hoc smoke runs let contributors test any local or cloned repository without
   committing an expectation file.
 
@@ -65,10 +66,11 @@ TOVEN_SMOKE_BLESS=1 make smoke-update NAME=rskit-core
 make smoke-purge NAME=rskit
 ```
 
-Managed cases run against temporary copies and verify both normalized binary
-output and Cargo workspace dependency waves. Local scratch clones live under
-ignored `.toven/smoke/repos/`; use `make smoke-repo` for larger local real
-repositories. Keep committed fixtures small, deterministic, and purpose-built.
+Managed cases run against temporary fixture copies and verify normalized binary
+output, Cargo workspace dependency waves, affected planning, cache behavior, and
+execution modes. Local scratch clones live under ignored `.toven/smoke/repos/`;
+use `make smoke-repo` for larger local real repositories. Keep committed
+fixtures small, deterministic, and purpose-built.
 
 ## Configuration preview
 

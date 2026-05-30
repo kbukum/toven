@@ -1,0 +1,14 @@
+fixture = "rust-workspace-basic"
+command = "plan"
+assert = "cargo-waves"
+
+[[setup]]
+kind = "write"
+path = "vendor/nested/.git/HEAD"
+content = "ref: refs/heads/main\n"
+
+[[setup]]
+kind = "write"
+path = "vendor/nested/src/lib.rs"
+content = "pub fn vendored() {}\n"
+
