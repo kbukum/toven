@@ -52,7 +52,7 @@ where
             Some(("run", matches)) => exit_from_result(run_task(matches, stdout, stderr), stderr),
             Some(("affected", matches)) => exit_from_result(run_affected(matches, stdout), stderr),
             Some(("explain", matches)) => exit_from_result(run_explain(matches, stdout), stderr),
-            Some(("modules" | "list", matches)) => {
+            Some(("modules" | "list" | "ls", matches)) => {
                 exit_from_result(run_modules(matches, stdout), stderr)
             }
             Some(("graph" | "deps", matches)) => {

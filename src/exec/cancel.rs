@@ -45,6 +45,16 @@ pub(crate) struct CtrlCHandler {
 }
 
 pub(crate) fn spawn_ctrl_c_handler(cancel: SharedCancellation) -> AppResult<CtrlCHandler> {
+    spawn_ctrl_c_handler_with_notify(cancel, || {})
+}
+
+pub(crate) fn spawn_ctrl_c_handler_with_notify<F>(
+    cancel: SharedCancellation,
+    notify: F,
+) -> AppResult<CtrlCHandler>
+where
+    F: FnOnce() + Send + 'static,
+{
     let stop = CancellationToken::new();
     let wait_stop = stop.clone();
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -61,6 +71,7 @@ pub(crate) fn spawn_ctrl_c_handler(cancel: SharedCancellation) -> AppResult<Ctrl
                         AppError::new(ErrorCode::Internal, "failed to listen for ctrl-c").with_cause(error)
                     })?;
                     cancel.cancel();
+                    notify();
                     Ok(())
                 }
                 () = wait_stop.cancelled() => Ok(()),

@@ -329,6 +329,15 @@ fn modules_and_graph_commands_render_discovered_workspace() {
     assert!(modules.1.contains("- fixture-core"));
     assert!(modules.1.contains("dependencies: fixture-core"));
 
+    let list_alias = run_cli([
+        "toven".to_string(),
+        "ls".to_string(),
+        "--config".to_string(),
+        config_path.display().to_string(),
+    ]);
+    assert_eq!(list_alias.0, ExitCode::SUCCESS, "stderr:\n{}", list_alias.2);
+    assert!(list_alias.1.contains("- fixture-core"));
+
     let graph = run_cli([
         "toven".to_string(),
         "graph".to_string(),

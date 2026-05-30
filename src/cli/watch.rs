@@ -22,7 +22,9 @@ use crate::{
         affected::{ChangedPath, affected_modules},
         discover_workspace_task_profiles,
     },
-    exec::cancel::SharedCancellation,
+    exec::cancel::{
+        CtrlCHandler, SharedCancellation, spawn_ctrl_c_handler_with_notify, stop_ctrl_c_handler,
+    },
     lang::LangRegistry,
     report::OutputFormat,
 };
@@ -58,9 +60,9 @@ pub(super) fn run_watch(
 
     let (event_tx, event_rx) = mpsc::channel();
     let cancellation = SharedCancellation::new();
-    spawn_watch_ctrl_c_listener(event_tx.clone(), cancellation.clone())?;
+    let watch_event_tx = event_tx.clone();
     let mut watcher = notify::recommended_watcher(move |event| {
-        let _ = event_tx.send(WatchEvent::File(event));
+        let _ = watch_event_tx.send(WatchEvent::File(event));
     })
     .map_err(|error| {
         AppError::new(
@@ -76,62 +78,117 @@ pub(super) fn run_watch(
                 format!("failed to watch '{}': {error}", watched_root.display()),
             )
         })?;
+    let ctrl_c_handler = spawn_watch_ctrl_c_listener(event_tx, cancellation.clone())?;
 
     // One-shot cancellation is shared with every run; once Ctrl-C trips it, watch exits.
-    let mut persistent_processes =
-        run_task_once_for_watch(matches, stdout, stderr, None, cancellation.clone())?;
-    let loop_result = (|| -> AppResult<()> {
-        loop {
-            let changed = next_changed_paths(&event_rx, &watched_root, debounce)?;
-            if changed.is_empty() {
-                continue;
-            }
-            let workspace = load_workspace(config.clone())?;
-            validate_watch_root_unchanged(&watched_root, &workspace.root)?;
-            let discovered =
-                discover_workspace_task_profiles(&workspace, task, &LangRegistry::default())?;
-            let modules = modules_from_discovered(&discovered)?;
-            if config_changed(&watched_root, &config, &changed) {
-                write_watch_change(stdout, stderr, output_format, &changed, None)?;
-                shutdown_persistent_processes(std::mem::take(&mut persistent_processes))?;
-                persistent_processes =
-                    run_task_once_for_watch(matches, stdout, stderr, None, cancellation.clone())?;
-            } else {
-                let affected = affected_modules(&modules, &changed)?;
-                if affected.closure.is_empty() {
-                    continue;
-                }
-                write_watch_change(
-                    stdout,
-                    stderr,
-                    output_format,
-                    &changed,
-                    Some(&affected.closure),
-                )?;
-                shutdown_affected_persistent_processes(
-                    &mut persistent_processes,
-                    &affected.closure,
-                )?;
-                persistent_processes.extend(run_task_once_for_watch(
-                    matches,
-                    stdout,
-                    stderr,
-                    Some(&affected.closure),
-                    cancellation.clone(),
-                )?);
-            }
-            if watch_once {
-                break;
-            }
-        }
-        Ok(())
-    })();
+    let run_result = run_watch_loop(WatchLoop {
+        matches,
+        stdout,
+        stderr,
+        event_rx: &event_rx,
+        config: &config,
+        task,
+        watched_root: &watched_root,
+        output_format,
+        debounce,
+        watch_once,
+        cancellation,
+    });
+    if let Err(error) = run_result {
+        let _ = stop_ctrl_c_handler(Some(ctrl_c_handler));
+        return Err(error);
+    }
+    stop_ctrl_c_handler(Some(ctrl_c_handler))?;
+    Ok(())
+}
+
+struct WatchLoop<'a, Out, Err> {
+    matches: &'a ArgMatches,
+    stdout: &'a mut Out,
+    stderr: &'a mut Err,
+    event_rx: &'a mpsc::Receiver<WatchEvent>,
+    config: &'a Path,
+    task: &'a str,
+    watched_root: &'a Path,
+    output_format: OutputFormat,
+    debounce: Duration,
+    watch_once: bool,
+    cancellation: SharedCancellation,
+}
+
+fn run_watch_loop<Out, Err>(mut ctx: WatchLoop<'_, Out, Err>) -> AppResult<()>
+where
+    Out: Write,
+    Err: Write,
+{
+    let mut persistent_processes = run_task_once_for_watch(
+        ctx.matches,
+        ctx.stdout,
+        ctx.stderr,
+        None,
+        ctx.cancellation.clone(),
+    )?;
+    let loop_result = run_watch_reruns(&mut persistent_processes, &mut ctx);
     if let Err(error) = loop_result {
         let _ = shutdown_persistent_processes(persistent_processes);
         return Err(error);
     }
-    shutdown_persistent_processes(persistent_processes)?;
-    Ok(())
+    shutdown_persistent_processes(persistent_processes)
+}
+
+fn run_watch_reruns<Out, Err>(
+    persistent_processes: &mut Vec<ActivePersistentProcess>,
+    ctx: &mut WatchLoop<'_, Out, Err>,
+) -> AppResult<()>
+where
+    Out: Write,
+    Err: Write,
+{
+    loop {
+        let changed = next_changed_paths(ctx.event_rx, ctx.watched_root, ctx.debounce)?;
+        if changed.is_empty() {
+            continue;
+        }
+        let workspace = load_workspace(ctx.config)?;
+        validate_watch_root_unchanged(ctx.watched_root, &workspace.root)?;
+        let discovered =
+            discover_workspace_task_profiles(&workspace, ctx.task, &LangRegistry::default())?;
+        let modules = modules_from_discovered(&discovered)?;
+        if config_changed(ctx.watched_root, ctx.config, &changed) {
+            write_watch_change(ctx.stdout, ctx.stderr, ctx.output_format, &changed, None)?;
+            shutdown_persistent_processes(std::mem::take(persistent_processes))?;
+            *persistent_processes = run_task_once_for_watch(
+                ctx.matches,
+                ctx.stdout,
+                ctx.stderr,
+                None,
+                ctx.cancellation.clone(),
+            )?;
+        } else {
+            let affected = affected_modules(&modules, &changed)?;
+            if affected.closure.is_empty() {
+                continue;
+            }
+            write_watch_change(
+                ctx.stdout,
+                ctx.stderr,
+                ctx.output_format,
+                &changed,
+                Some(&affected.closure),
+            )?;
+            shutdown_affected_persistent_processes(persistent_processes, &affected.closure)?;
+            persistent_processes.extend(run_task_once_for_watch(
+                ctx.matches,
+                ctx.stdout,
+                ctx.stderr,
+                Some(&affected.closure),
+                ctx.cancellation.clone(),
+            )?);
+        }
+        if ctx.watch_once {
+            return Ok(());
+        }
+    }
 }
 
 fn shutdown_persistent_processes(processes: Vec<ActivePersistentProcess>) -> AppResult<()> {
@@ -201,10 +258,7 @@ fn collect_event_paths(
 ) -> AppResult<()> {
     let event = match event {
         WatchEvent::File(event) => event,
-        WatchEvent::CtrlC(error) => {
-            if let Some(error) = error {
-                return Err(error);
-            }
+        WatchEvent::CtrlC => {
             return Err(AppError::new(
                 crate::core::ErrorCode::Cancelled,
                 "watch cancelled by ctrl-c",
@@ -229,51 +283,21 @@ fn collect_event_paths(
 
 enum WatchEvent {
     File(notify::Result<notify::Event>),
-    CtrlC(Option<AppError>),
+    CtrlC,
 }
 
 fn spawn_watch_ctrl_c_listener(
     event_tx: mpsc::Sender<WatchEvent>,
     cancellation: SharedCancellation,
-) -> AppResult<()> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| {
-            AppError::new(
-                crate::core::ErrorCode::Internal,
-                "failed to create ctrl-c runtime",
-            )
-            .with_cause(error)
-        })?;
-    std::thread::spawn(move || {
-        let result = runtime.block_on(async {
-            tokio::signal::ctrl_c().await.map_err(|error| {
-                AppError::new(
-                    crate::core::ErrorCode::Internal,
-                    "failed to listen for ctrl-c",
-                )
-                .with_cause(error)
-            })
-        });
-        send_watch_ctrl_c(event_tx, cancellation, result);
-    });
-    Ok(())
+) -> AppResult<CtrlCHandler> {
+    spawn_ctrl_c_handler_with_notify(cancellation.clone(), move || {
+        send_watch_ctrl_c(&event_tx, &cancellation);
+    })
 }
 
-fn send_watch_ctrl_c(
-    event_tx: mpsc::Sender<WatchEvent>,
-    cancellation: SharedCancellation,
-    result: AppResult<()>,
-) {
-    let error = match result {
-        Ok(()) => {
-            cancellation.cancel();
-            None
-        }
-        Err(error) => Some(error),
-    };
-    let _ = event_tx.send(WatchEvent::CtrlC(error));
+fn send_watch_ctrl_c(event_tx: &mpsc::Sender<WatchEvent>, cancellation: &SharedCancellation) {
+    cancellation.cancel();
+    let _ = event_tx.send(WatchEvent::CtrlC);
 }
 
 fn normalize_changed_path(root: &Path, path: &Path) -> Option<PathBuf> {
@@ -468,7 +492,7 @@ mod tests {
     fn next_changed_paths_reports_ctrl_c_cancellation() {
         let root = Path::new("/workspace");
         let (tx, rx) = mpsc::channel();
-        tx.send(WatchEvent::CtrlC(None)).expect("send ctrl-c event");
+        tx.send(WatchEvent::CtrlC).expect("send ctrl-c event");
 
         let error = next_changed_paths(&rx, root, Duration::from_millis(1))
             .expect_err("ctrl-c should cancel watch");
@@ -481,12 +505,12 @@ mod tests {
         let cancellation = SharedCancellation::new();
         let (tx, rx) = mpsc::channel();
 
-        send_watch_ctrl_c(tx, cancellation.clone(), Ok(()));
+        send_watch_ctrl_c(&tx, &cancellation);
 
         assert!(cancellation.cancelled());
         assert!(matches!(
             rx.recv_timeout(Duration::from_secs(1)),
-            Ok(WatchEvent::CtrlC(None))
+            Ok(WatchEvent::CtrlC)
         ));
     }
 
