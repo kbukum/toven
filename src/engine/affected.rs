@@ -81,30 +81,59 @@ pub fn affected_modules(
     })
 }
 
-fn module_roots(modules: &[Module]) -> BTreeMap<ModuleId, PathBuf> {
+struct ModuleRoot {
+    root: PathBuf,
+    source_patterns: Vec<String>,
+}
+
+fn module_roots(modules: &[Module]) -> BTreeMap<ModuleId, ModuleRoot> {
     modules
         .iter()
-        .map(|module| (module.name.clone(), normalize_root(&module.root)))
+        .map(|module| {
+            (
+                module.name.clone(),
+                ModuleRoot {
+                    root: normalize_root(&module.root),
+                    source_patterns: module.source_patterns.clone(),
+                },
+            )
+        })
         .collect()
 }
 
 fn longest_root_match<'a>(
-    roots: &'a BTreeMap<ModuleId, PathBuf>,
+    roots: &'a BTreeMap<ModuleId, ModuleRoot>,
     path: &Path,
 ) -> Option<&'a ModuleId> {
     let path = normalize_root(path);
     roots
         .iter()
-        .filter(|(_, root)| path_matches_root(&path, root))
-        .max_by_key(|(_, root)| root.components().count())
+        .filter(|(_, module)| path_matches_module(&path, module))
+        .max_by_key(|(_, module)| module.root.components().count())
         .map(|(name, _)| name)
 }
 
-fn path_matches_root(path: &Path, root: &Path) -> bool {
+fn path_matches_module(path: &Path, module: &ModuleRoot) -> bool {
+    let root = &module.root;
     if root.as_os_str().is_empty() || root == Path::new(".") {
-        return path == root;
+        return module
+            .source_patterns
+            .iter()
+            .any(|pattern| path_matches_source_pattern(path, pattern));
     }
     path == root || path.starts_with(root)
+}
+
+fn path_matches_source_pattern(path: &Path, pattern: &str) -> bool {
+    let pattern = Path::new(pattern);
+    let Some(prefix) = pattern
+        .to_string_lossy()
+        .strip_suffix("/**")
+        .map(PathBuf::from)
+    else {
+        return path == normalize_root(pattern);
+    };
+    path == prefix || path.starts_with(prefix)
 }
 
 fn is_workspace_root_file(path: &Path) -> bool {
@@ -135,6 +164,21 @@ mod tests {
                 .map(|dependency| ModuleId::new(*dependency).unwrap())
                 .collect(),
             source_patterns: Vec::new(),
+        }
+    }
+
+    fn module_with_sources(
+        name: &str,
+        root: &str,
+        dependencies: &[&str],
+        source_patterns: &[&str],
+    ) -> Module {
+        Module {
+            source_patterns: source_patterns
+                .iter()
+                .map(|pattern| (*pattern).to_string())
+                .collect(),
+            ..module(name, root, dependencies)
         }
     }
 
@@ -200,7 +244,7 @@ mod tests {
     #[test]
     fn nested_unmatched_paths_fail_closed_even_with_root_module() {
         let modules = [
-            module("root", ".", &[]),
+            module_with_sources("root", ".", &[], &["Cargo.toml", "src/**"]),
             module("app", "crates/app", &["root"]),
             module("util", "crates/util", &[]),
         ];
@@ -213,5 +257,27 @@ mod tests {
             affected.global_paths,
             [PathBuf::from(".github/workflows/ci.yml")]
         );
+    }
+
+    #[test]
+    fn root_module_source_paths_affect_root_module_not_everything() {
+        let modules = [
+            module_with_sources("root", ".", &[], &["Cargo.toml", "src/**"]),
+            module("app", "crates/app", &["root"]),
+            module("util", "crates/util", &[]),
+        ];
+
+        let affected = affected_modules(&modules, &[ChangedPath::new("src/lib.rs")]).unwrap();
+
+        assert_eq!(
+            affected.closure,
+            [
+                ModuleId::new("app").unwrap(),
+                ModuleId::new("root").unwrap()
+            ]
+            .into_iter()
+            .collect()
+        );
+        assert!(affected.global_paths.is_empty());
     }
 }
