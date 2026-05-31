@@ -6,8 +6,8 @@ use crate::{
     adapter::rust::generate::RustGenerateContributor,
     core::{AdapterId, AppError, AppResult},
     generate::{
-        GenerateContext, GenerateContributor, GenerateDocument, GenerateRequest, global, render,
-        writer,
+        GenerateContext, GenerateContributor, GenerateDocument, GenerateRequest, GeneratedProfile,
+        global, render, writer,
     },
 };
 
@@ -25,7 +25,7 @@ pub fn generate_config(request: &GenerateRequest) -> AppResult<GenerateOutcome> 
     let mut document = global::base_document(&context)?;
     for contributor in selected {
         if let Some(profile) = contributor.generate(&mut context)? {
-            document.profiles.insert(profile.name.clone(), profile);
+            insert_profile(&mut document, contributor.adapter_id(), profile)?;
         }
     }
     if document.profiles.is_empty() {
@@ -41,6 +41,33 @@ pub fn generate_config(request: &GenerateRequest) -> AppResult<GenerateOutcome> 
     }
 
     Ok(GenerateOutcome { document, rendered })
+}
+
+fn insert_profile(
+    document: &mut GenerateDocument,
+    contributor: &AdapterId,
+    profile: GeneratedProfile,
+) -> AppResult<()> {
+    if document.profiles.contains_key(&profile.name) {
+        return Err(AppError::invalid_input(
+            "generate.profile",
+            format!(
+                "multiple generation contributors produced profile '{}'; pass --adapter to generate one adapter at a time or use a unique --profile",
+                profile.name
+            ),
+        ));
+    }
+    if profile.adapter != *contributor {
+        return Err(AppError::invalid_input(
+            "generate.adapter",
+            format!(
+                "contributor '{contributor}' produced profile '{}' for adapter '{}'",
+                profile.name, profile.adapter
+            ),
+        ));
+    }
+    document.profiles.insert(profile.name.clone(), profile);
+    Ok(())
 }
 
 /// Result of a generation run.
@@ -90,4 +117,52 @@ fn select_contributors<'a>(
         .iter()
         .map(std::convert::AsRef::as_ref)
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::BTreeMap, path::PathBuf};
+
+    use crate::{
+        core::{AdapterId, ExecutionMode},
+        generate::{
+            GenerateDocument, GeneratedProfile,
+            model::{GeneratedProject, TomlValue},
+        },
+    };
+
+    use super::insert_profile;
+
+    #[test]
+    fn rejects_duplicate_generated_profile_names() {
+        let rust = AdapterId::new("rust").expect("rust adapter");
+        let other = AdapterId::new("other").expect("other adapter");
+        let mut document = GenerateDocument {
+            project: GeneratedProject {
+                schema: 1,
+                name: "demo".to_string(),
+                root: PathBuf::from("."),
+                base_ref: None,
+            },
+            profiles: BTreeMap::new(),
+            warnings: Vec::new(),
+        };
+        insert_profile(&mut document, &rust, profile("main", rust.clone())).expect("insert first");
+
+        let error = insert_profile(&mut document, &other, profile("main", other.clone()))
+            .expect_err("duplicate profile should fail");
+
+        assert!(error.message.contains("multiple generation contributors"));
+    }
+
+    fn profile(name: &str, adapter: AdapterId) -> GeneratedProfile {
+        GeneratedProfile {
+            name: name.to_string(),
+            adapter,
+            execution: ExecutionMode::SpawnEach,
+            module_arg_template: vec!["-p".to_string(), "{module.package}".to_string()],
+            resource_group: "cargo:{project.root}".to_string(),
+            discovery: BTreeMap::<String, TomlValue>::new(),
+        }
+    }
 }

@@ -4,7 +4,10 @@ use std::{fmt::Write as _, path::Path};
 
 use crate::{
     core::{AppResult, validate_identifier, validate_template, validate_templates},
-    generate::model::{GenerateDocument, GeneratedProfile, TomlValue},
+    generate::{
+        model::{GenerateDocument, GeneratedProfile, TomlValue},
+        toml_path,
+    },
 };
 
 /// Render generated config to pretty TOML.
@@ -137,20 +140,7 @@ fn string(value: &str) -> String {
 }
 
 fn path(path: &Path) -> String {
-    path_string(path)
-}
-
-fn path_string(path: &Path) -> String {
-    let normalized = path
-        .components()
-        .map(|component| component.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/");
-    if normalized.is_empty() {
-        ".".to_string()
-    } else {
-        normalized
-    }
+    toml_path(path)
 }
 
 #[cfg(test)]
@@ -162,15 +152,7 @@ mod tests {
         generate::model::{GenerateDocument, GeneratedProfile, GeneratedProject, TomlValue},
     };
 
-    use super::{path_string, render_document};
-
-    #[test]
-    fn renders_stable_forward_slash_paths() {
-        assert_eq!(
-            path_string(&PathBuf::from("core").join("Cargo.toml")),
-            "core/Cargo.toml"
-        );
-    }
+    use super::render_document;
 
     #[test]
     fn renders_multiline_manifest_arrays() {

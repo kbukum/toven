@@ -3,6 +3,7 @@
 mod cli;
 mod global;
 mod model;
+mod path;
 mod render;
 mod workflow;
 mod writer;
@@ -12,6 +13,7 @@ pub use model::{
     GenerateContext, GenerateContributor, GenerateDocument, GenerateRequest, GeneratedProfile,
     TomlValue,
 };
+pub use path::toml_path;
 pub use render::render_document;
 pub use workflow::{GenerateOutcome, generate_config, request};
 pub use writer::write_document;

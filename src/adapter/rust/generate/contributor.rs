@@ -1,11 +1,11 @@
 //! Rust config generation contributor.
 
-use std::{collections::BTreeMap, path::Path};
+use std::collections::BTreeMap;
 
 use crate::{
     adapter::rust::generate::cargo,
     core::{AdapterId, AppResult, ExecutionMode},
-    generate::{GenerateContext, GenerateContributor, GeneratedProfile, TomlValue},
+    generate::{GenerateContext, GenerateContributor, GeneratedProfile, TomlValue, toml_path},
 };
 
 /// Generates Rust/Cargo profile fragments.
@@ -39,7 +39,7 @@ impl GenerateContributor for RustGenerateContributor {
                 TomlValue::Array(
                     manifests
                         .iter()
-                        .map(|manifest| TomlValue::String(path_string(manifest)))
+                        .map(|manifest| TomlValue::String(toml_path(manifest)))
                         .collect(),
                 ),
             );
@@ -53,18 +53,5 @@ impl GenerateContributor for RustGenerateContributor {
             resource_group: "cargo:{project.root}".to_string(),
             discovery,
         }))
-    }
-}
-
-fn path_string(path: &Path) -> String {
-    let normalized = path
-        .components()
-        .map(|component| component.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/");
-    if normalized.is_empty() {
-        ".".to_string()
-    } else {
-        normalized
     }
 }

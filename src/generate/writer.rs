@@ -77,7 +77,7 @@ fn replace_config(temp: &Path, path: &Path, overwrite: bool) -> AppResult<()> {
         return Err(error);
     }
 
-    fs::remove_file(&backup).map_err(AppError::internal)?;
+    let _ = fs::remove_file(&backup);
     Ok(())
 }
 
