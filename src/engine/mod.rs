@@ -1,7 +1,7 @@
 //! Planning engine.
 
-pub(crate) mod affected;
-pub(crate) mod graph;
+pub mod affected;
+pub mod graph;
 mod overlays;
 mod planner;
 mod scheduler;

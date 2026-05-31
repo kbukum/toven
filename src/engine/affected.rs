@@ -1,5 +1,4 @@
 //! Pure affected-module mapping.
-#![allow(clippy::redundant_pub_crate)]
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -13,32 +12,32 @@ use crate::{
 
 /// A changed path relative to the workspace root.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct ChangedPath {
+pub struct ChangedPath {
     /// Workspace-relative path.
-    pub(crate) path: PathBuf,
+    pub path: PathBuf,
 }
 
 impl ChangedPath {
     /// Create a changed path.
     #[must_use]
-    pub(crate) fn new(path: impl Into<PathBuf>) -> Self {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
         Self { path: path.into() }
     }
 }
 
 /// Result of affected-module mapping.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct AffectedModules {
+pub struct AffectedModules {
     /// Directly changed modules.
-    pub(crate) direct: BTreeSet<ScopedModuleKey>,
+    pub direct: BTreeSet<ScopedModuleKey>,
     /// Direct modules plus all reverse dependents.
-    pub(crate) closure: BTreeSet<ScopedModuleKey>,
+    pub closure: BTreeSet<ScopedModuleKey>,
     /// Changed paths that did not map to a module and forced all modules affected.
-    pub(crate) global_paths: Vec<PathBuf>,
+    pub global_paths: Vec<PathBuf>,
 }
 
 /// Map changed workspace paths to modules and expand through reverse dependents.
-pub(crate) fn affected_modules(
+pub fn affected_modules(
     modules: &[Module],
     changed_paths: &[ChangedPath],
     overlays: &[DependencyOverlay],

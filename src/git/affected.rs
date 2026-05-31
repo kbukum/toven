@@ -1,5 +1,4 @@
 //! Git changed-path discovery for affected detection.
-#![allow(clippy::redundant_pub_crate)]
 
 use std::{
     collections::BTreeMap,
@@ -15,10 +14,7 @@ use crate::{
 };
 
 /// Compute changed workspace-relative paths from committed diff plus working-tree status.
-pub(crate) fn changed_paths(
-    workspace: &Workspace,
-    baseline: &Baseline,
-) -> AppResult<Vec<ChangedPath>> {
+pub fn changed_paths(workspace: &Workspace, baseline: &Baseline) -> AppResult<Vec<ChangedPath>> {
     let repo = rskit_git::discover(&workspace.root).map_err(|error| {
         AppError::invalid_input(
             "workspace.root",

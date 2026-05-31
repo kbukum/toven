@@ -1,5 +1,4 @@
 //! Git baseline resolution.
-#![allow(clippy::redundant_pub_crate)]
 
 use std::path::PathBuf;
 
@@ -9,24 +8,24 @@ use crate::core::{AppError, AppResult};
 
 /// Resolved git baseline.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct Baseline {
+pub struct Baseline {
     /// Provider name.
-    pub(crate) provider: String,
+    pub provider: String,
     /// Revision expression used for diffing.
-    pub(crate) revision: String,
+    pub revision: String,
     /// Resolved object id.
-    pub(crate) oid: String,
+    pub oid: String,
 }
 
 /// Context available to baseline providers.
 #[derive(Debug, Clone)]
-pub(crate) struct BaselineContext {
+pub struct BaselineContext {
     /// Workspace root used to discover the repository.
-    pub(crate) workspace_root: PathBuf,
+    pub workspace_root: PathBuf,
 }
 
 /// Baseline provider contract.
-pub(crate) trait BaselineProvider: Send + Sync {
+pub trait BaselineProvider: Send + Sync {
     /// Provider name.
     fn name(&self) -> &'static str;
     /// Resolve a baseline.
@@ -35,14 +34,14 @@ pub(crate) trait BaselineProvider: Send + Sync {
 
 /// Baseline provider that uses an explicit ref or SHA directly.
 #[derive(Debug, Clone)]
-pub(crate) struct ExplicitBaselineProvider {
+pub struct ExplicitBaselineProvider {
     revision: String,
 }
 
 impl ExplicitBaselineProvider {
     /// Create an explicit baseline provider.
     #[must_use]
-    pub(crate) fn new(revision: impl Into<String>) -> Self {
+    pub fn new(revision: impl Into<String>) -> Self {
         Self {
             revision: revision.into(),
         }
@@ -82,14 +81,14 @@ impl BaselineProvider for ExplicitBaselineProvider {
 
 /// Baseline provider that resolves a configured git ref.
 #[derive(Debug, Clone)]
-pub(crate) struct GitRefBaselineProvider {
+pub struct GitRefBaselineProvider {
     revision: String,
 }
 
 impl GitRefBaselineProvider {
     /// Create a git-ref baseline provider.
     #[must_use]
-    pub(crate) fn new(revision: impl Into<String>) -> Self {
+    pub fn new(revision: impl Into<String>) -> Self {
         Self {
             revision: revision.into(),
         }
@@ -110,14 +109,14 @@ impl BaselineProvider for GitRefBaselineProvider {
 
 /// Baseline provider that resolves the merge-base between HEAD and a ref.
 #[derive(Debug, Clone)]
-pub(crate) struct MergeBaseBaselineProvider {
+pub struct MergeBaseBaselineProvider {
     reference: String,
 }
 
 impl MergeBaseBaselineProvider {
     /// Create a merge-base provider.
     #[must_use]
-    pub(crate) fn new(reference: impl Into<String>) -> Self {
+    pub fn new(reference: impl Into<String>) -> Self {
         Self {
             reference: reference.into(),
         }

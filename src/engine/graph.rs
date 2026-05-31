@@ -1,5 +1,4 @@
 //! Module dependency graph validation.
-#![allow(clippy::redundant_pub_crate)]
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,7 +12,7 @@ use crate::{
 
 /// Provenance for a resolved dependency edge.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub(crate) enum DependencyOrigin {
+pub enum DependencyOrigin {
     /// Edge reported by adapter discovery.
     Inferred,
     /// Edge configured as a project dependency overlay.
@@ -22,7 +21,7 @@ pub(crate) enum DependencyOrigin {
 
 /// Canonical scope-qualified dependency graph.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct ResolvedDependencyGraph {
+pub struct ResolvedDependencyGraph {
     dependencies: BTreeMap<ScopedModuleKey, BTreeSet<ScopedModuleKey>>,
     dependents: BTreeMap<ScopedModuleKey, Vec<ScopedModuleKey>>,
     origins: BTreeMap<(ScopedModuleKey, ScopedModuleKey), DependencyOrigin>,
@@ -30,21 +29,17 @@ pub(crate) struct ResolvedDependencyGraph {
 
 impl ResolvedDependencyGraph {
     /// Dependencies for `module`.
-    pub(crate) fn dependencies(&self, module: &ScopedModuleKey) -> BTreeSet<ScopedModuleKey> {
+    pub fn dependencies(&self, module: &ScopedModuleKey) -> BTreeSet<ScopedModuleKey> {
         self.dependencies.get(module).cloned().unwrap_or_default()
     }
 
     /// Dependents of `module`.
-    pub(crate) fn dependents(&self, module: &ScopedModuleKey) -> &[ScopedModuleKey] {
+    pub fn dependents(&self, module: &ScopedModuleKey) -> &[ScopedModuleKey] {
         self.dependents.get(module).map_or(&[], Vec::as_slice)
     }
 
     /// Origin of a resolved edge.
-    pub(crate) fn origin(
-        &self,
-        from: &ScopedModuleKey,
-        to: &ScopedModuleKey,
-    ) -> Option<DependencyOrigin> {
+    pub fn origin(&self, from: &ScopedModuleKey, to: &ScopedModuleKey) -> Option<DependencyOrigin> {
         self.origins.get(&(from.clone(), to.clone())).copied()
     }
 }
@@ -98,7 +93,7 @@ pub(super) fn validate_modules(
 }
 
 /// Resolve all adapter-inferred dependencies plus project overlays.
-pub(crate) fn resolve_dependency_graph(
+pub fn resolve_dependency_graph(
     modules: &[Module],
     overlays: &[DependencyOverlay],
 ) -> AppResult<ResolvedDependencyGraph> {
@@ -106,7 +101,7 @@ pub(crate) fn resolve_dependency_graph(
 }
 
 /// Resolve dependencies for a selected subset, ignoring edges outside the subset.
-pub(crate) fn resolve_selected_dependency_graph(
+pub fn resolve_selected_dependency_graph(
     modules: &[Module],
     overlays: &[DependencyOverlay],
 ) -> AppResult<ResolvedDependencyGraph> {
@@ -197,7 +192,8 @@ fn resolve_dependency_graph_with_mode(
     })
 }
 
-pub(crate) fn selected_modules_by_name<'a>(
+/// Groups selected scoped module keys by their unscoped module id.
+pub fn selected_modules_by_name<'a>(
     keys: impl Iterator<Item = &'a ScopedModuleKey>,
 ) -> BTreeMap<ModuleId, Vec<ScopedModuleKey>> {
     let mut selected = BTreeMap::<ModuleId, Vec<ScopedModuleKey>>::new();
@@ -207,7 +203,8 @@ pub(crate) fn selected_modules_by_name<'a>(
     selected
 }
 
-pub(crate) fn dependency_key_for(
+/// Resolves a module dependency to a selected scoped module key.
+pub fn dependency_key_for(
     module: &Module,
     dependency: &ModuleId,
     selected_by_name: &BTreeMap<ModuleId, Vec<ScopedModuleKey>>,
@@ -215,7 +212,8 @@ pub(crate) fn dependency_key_for(
     dependency_key_for_scope(module.scope_id.as_str(), dependency, selected_by_name)
 }
 
-pub(crate) fn dependency_key_for_scope(
+/// Resolves a dependency id from a specific scope to a selected scoped module key.
+pub fn dependency_key_for_scope(
     scope_id: &str,
     dependency: &ModuleId,
     selected_by_name: &BTreeMap<ModuleId, Vec<ScopedModuleKey>>,
