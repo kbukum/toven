@@ -62,6 +62,25 @@ require_array() {
   fi
 }
 
+require_nonnegative_integer() {
+  local name="$1"
+  local value="${!name}"
+  if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+    echo "error: benchmark case variable $name must be a non-negative integer" >&2
+    exit 2
+  fi
+}
+
+require_positive_integer() {
+  local name="$1"
+  require_nonnegative_integer "$name"
+  local value="${!name}"
+  if [[ "$value" -lt 1 ]]; then
+    echo "error: benchmark case variable $name must be at least 1" >&2
+    exit 2
+  fi
+}
+
 call_function_if_exists() {
   local name="$1"
   if declare -F "$name" >/dev/null; then
@@ -232,6 +251,8 @@ main() {
   : "${ITERATIONS:?ITERATIONS is required}"
   require_array APPROACHES
   require_array SCENARIOS
+  require_nonnegative_integer WARMUPS
+  require_positive_integer ITERATIONS
 
   TARGET_REPO="$(cd "$TARGET_REPO" && pwd)"
   if [[ -n "$(git -C "$TARGET_REPO" status --porcelain)" ]]; then
