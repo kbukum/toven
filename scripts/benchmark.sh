@@ -99,26 +99,32 @@ sha256_file() {
   fi
 }
 
+write_metadata_value() {
+  local key="$1"
+  local value="$2"
+  printf '%s=%q\n' "$key" "$value"
+}
+
 write_metadata() {
   local output="$1"
   local toven_bin="$2"
   {
-    printf 'case=%s\n' "$CASE_NAME"
-    printf 'target_repo=%s\n' "$TARGET_REPO"
-    printf 'target_repo_sha=%s\n' "$(git -C "$TARGET_REPO" rev-parse HEAD)"
-    printf 'toven_bin=%s\n' "$toven_bin"
-    printf 'toven_bin_sha256=%s\n' "$(sha256_file "$toven_bin")"
-    printf 'toven_version=%s\n' "$("$toven_bin" --version)"
-    printf 'toven_git_sha=%s\n' "$(git -C "$ROOT" rev-parse HEAD)"
-    printf 'os=%s\n' "$(uname -a)"
+    write_metadata_value case "$CASE_NAME"
+    write_metadata_value target_repo "$TARGET_REPO"
+    write_metadata_value target_repo_sha "$(git -C "$TARGET_REPO" rev-parse HEAD)"
+    write_metadata_value toven_bin "$toven_bin"
+    write_metadata_value toven_bin_sha256 "$(sha256_file "$toven_bin")"
+    write_metadata_value toven_version "$("$toven_bin" --version)"
+    write_metadata_value toven_git_sha "$(git -C "$ROOT" rev-parse HEAD)"
+    write_metadata_value os "$(uname -a)"
     if [[ "$(uname -s)" == "Darwin" ]]; then
-      printf 'cpu=%s\n' "$(sysctl -n machdep.cpu.brand_string 2>/dev/null || true)"
+      write_metadata_value cpu "$(sysctl -n machdep.cpu.brand_string 2>/dev/null || true)"
     elif [[ -r /proc/cpuinfo ]]; then
-      printf 'cpu=%s\n' "$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ //')"
+      write_metadata_value cpu "$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ //')"
     fi
-    printf 'rustc=%s\n' "$(rustc --version 2>/dev/null || printf 'unavailable')"
-    printf 'cargo=%s\n' "$(cargo --version 2>/dev/null || printf 'unavailable')"
-    printf 'nextest=%s\n' "$(cargo nextest --version 2>/dev/null || printf 'unavailable')"
+    write_metadata_value rustc "$(rustc --version 2>/dev/null || printf 'unavailable')"
+    write_metadata_value cargo "$(cargo --version 2>/dev/null || printf 'unavailable')"
+    write_metadata_value nextest "$(cargo nextest --version 2>/dev/null || printf 'unavailable')"
   } >"$output"
 }
 
