@@ -145,17 +145,18 @@ mod tests {
         .expect_err("empty argv is rejected");
 
         assert_eq!(error.code, crate::core::ErrorCode::InvalidInput);
-        assert!(error.message.contains("profiles.profile.tasks.test.argv"));
+        assert!(error.message.contains("scopes.profile.tasks.test.argv"));
         assert!(error.message.contains("empty argv"));
     }
 
     fn unit(argv_template: Vec<String>) -> ExecutionUnit {
         ExecutionUnit {
             id: "unit".to_string(),
-            profile: "profile".to_string(),
-            scope: None,
+            scope_id: crate::core::ScopeId::new("profile").expect("scope id"),
+            adapter_id: crate::core::AdapterId::new("rust").expect("adapter id"),
             task: "test".to_string(),
             command_origin: CommandOrigin::DirectArgv,
+            task_origin: crate::core::TaskOrigin::ProjectDefault,
             mode: ExecutionMode::SpawnEach,
             resource_group: String::new(),
             modules: Vec::new(),

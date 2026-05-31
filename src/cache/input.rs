@@ -13,13 +13,16 @@ use rskit_git::{
 
 use crate::core::{AppError, AppResult, ErrorCode, Module, ModuleId, Workspace};
 
+/// Scope-qualified module key used by cache input hashing.
+pub type ModuleCacheKey = (String, ModuleId);
+
 /// Source hash inputs for all discovered modules.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SourceHashes {
     /// Hash of tracked and dirty files not owned by any module.
     pub global_hash: String,
     /// Per-module source hash with the global hash folded in.
-    pub modules: BTreeMap<ModuleId, String>,
+    pub modules: BTreeMap<ModuleCacheKey, String>,
 }
 
 /// Compute source hashes for every discovered module.
@@ -108,7 +111,7 @@ pub fn compute_shared_inputs_hash(
 
 struct HashBuckets {
     global: blake3::Hasher,
-    modules: BTreeMap<ModuleId, blake3::Hasher>,
+    modules: BTreeMap<ModuleCacheKey, blake3::Hasher>,
 }
 
 impl HashBuckets {
@@ -118,8 +121,9 @@ impl HashBuckets {
             .map(|module| {
                 let mut hasher = blake3::Hasher::new();
                 hash_field(&mut hasher, b"module");
+                hash_field(&mut hasher, module.scope_id.as_str().as_bytes());
                 hash_field(&mut hasher, module.name.as_str().as_bytes());
-                (module.name.clone(), hasher)
+                ((module.scope_id.to_string(), module.name.clone()), hasher)
             })
             .collect();
         let mut global = blake3::Hasher::new();
@@ -127,14 +131,15 @@ impl HashBuckets {
         Self { global, modules }
     }
 
-    fn update(&mut self, owner: Option<&ModuleId>, tag: &str, path: &Path, fields: &[String]) {
-        let hasher = owner
-            .and_then(|owner| self.modules.get_mut(owner))
-            .unwrap_or(&mut self.global);
-        hash_field(hasher, tag.as_bytes());
-        hash_field(hasher, path_to_string(path).as_bytes());
-        for field in fields {
-            hash_field(hasher, field.as_bytes());
+    fn update(&mut self, owners: &[ModuleCacheKey], tag: &str, path: &Path, fields: &[String]) {
+        if owners.is_empty() {
+            hash_input(&mut self.global, tag, path, fields);
+            return;
+        }
+        for owner in owners {
+            if let Some(hasher) = self.modules.get_mut(owner) {
+                hash_input(hasher, tag, path, fields);
+            }
         }
     }
 
@@ -158,8 +163,16 @@ impl HashBuckets {
     }
 }
 
+fn hash_input(hasher: &mut blake3::Hasher, tag: &str, path: &Path, fields: &[String]) {
+    hash_field(hasher, tag.as_bytes());
+    hash_field(hasher, path_to_string(path).as_bytes());
+    for field in fields {
+        hash_field(hasher, field.as_bytes());
+    }
+}
+
 struct PathOwners {
-    roots: BTreeMap<ModuleId, ModuleRoot>,
+    roots: BTreeMap<ModuleCacheKey, ModuleRoot>,
 }
 
 impl PathOwners {
@@ -168,7 +181,7 @@ impl PathOwners {
             .iter()
             .map(|module| {
                 (
-                    module.name.clone(),
+                    (module.scope_id.to_string(), module.name.clone()),
                     ModuleRoot {
                         root: normalize_path(&module.root),
                         source_patterns: module.source_patterns.clone(),
@@ -179,16 +192,28 @@ impl PathOwners {
         Self { roots }
     }
 
-    fn owner(&self, path: &Path) -> Option<&ModuleId> {
+    fn owners(&self, path: &Path) -> Vec<ModuleCacheKey> {
         let path = normalize_path(path);
         if path.components().count() == 1 {
-            return None;
+            return Vec::new();
         }
-        self.roots
+        let matching = self
+            .roots
             .iter()
             .filter(|(_, root)| path_matches_module(&path, root))
-            .max_by_key(|(_, root)| root.root.components().count())
-            .map(|(module, _)| module)
+            .collect::<Vec<_>>();
+        let Some(max_depth) = matching
+            .iter()
+            .map(|(_, root)| root.root.components().count())
+            .max()
+        else {
+            return Vec::new();
+        };
+        matching
+            .into_iter()
+            .filter(|(_, root)| root.root.components().count() == max_depth)
+            .map(|(module, _)| module.clone())
+            .collect()
     }
 }
 
@@ -268,9 +293,9 @@ fn collect_head_entries(
         if entry.kind == EntryKind::Tree {
             collect_head_entries(repo, workspace_prefix, &path, owners, buckets)?;
         } else {
-            let owner = owners.owner(&path);
+            let owners = owners.owners(&path);
             buckets.update(
-                owner,
+                &owners,
                 "head",
                 &path,
                 &[
@@ -305,10 +330,10 @@ fn collect_worktree_status(
         if !seen.insert((path.clone(), entry.state.to_string())) {
             continue;
         }
-        let owner = owners.owner(&path);
+        let owners = owners.owners(&path);
         if entry.state == EntryState::Staged {
             buckets.update(
-                owner,
+                &owners,
                 "index",
                 &path,
                 &[
@@ -319,7 +344,7 @@ fn collect_worktree_status(
         }
         let content_hash = hash_worktree_path(workspace_root, &path, ignore)?;
         buckets.update(
-            owner,
+            &owners,
             "worktree",
             &path,
             &[entry.state.to_string(), content_hash],
@@ -777,6 +802,29 @@ mod tests {
         assert_eq!(before, after);
     }
 
+    #[test]
+    fn source_changes_update_all_scoped_modules_with_same_root() {
+        let root = rskit_testutil::test_workspace!("cache-scoped-same-root");
+        let repo = root.path().join("repo");
+        fs::create_dir_all(repo.join("src")).expect("create repo tree");
+        fs::write(repo.join("src/lib.rs"), "base\n").expect("write source");
+        init_git_repo(&repo);
+        let workspace = workspace(&repo);
+        let modules = [
+            module_in_scope("base", "fixture", "src"),
+            module_in_scope("override", "fixture", "src"),
+        ];
+
+        let before = compute_source_hashes(&workspace, &modules).expect("source hashes compute");
+        fs::write(repo.join("src/lib.rs"), "changed\n").expect("write changed source");
+        let after = compute_source_hashes(&workspace, &modules).expect("source hashes recompute");
+
+        for module in &modules {
+            let key = (module.scope_id.to_string(), module.name.clone());
+            assert_ne!(before.modules.get(&key), after.modules.get(&key));
+        }
+    }
+
     fn module_hash_with_staged_content(
         repo: &Path,
         workspace: &Workspace,
@@ -790,7 +838,7 @@ mod tests {
         compute_source_hashes(workspace, modules)
             .expect("source hashes compute")
             .modules
-            .get(&modules[0].name)
+            .get(&(modules[0].scope_id.to_string(), modules[0].name.clone()))
             .expect("module hash exists")
             .clone()
     }
@@ -819,7 +867,13 @@ mod tests {
     }
 
     fn module(name: &str, root: &str) -> Module {
+        module_in_scope("rust", name, root)
+    }
+
+    fn module_in_scope(scope: &str, name: &str, root: &str) -> Module {
         Module {
+            scope_id: crate::core::ScopeId::new(scope).expect("scope id"),
+            adapter_id: crate::core::AdapterId::new("rust").expect("adapter id"),
             name: ModuleId::new(name).expect("module id"),
             package: None,
             root: PathBuf::from(root),

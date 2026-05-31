@@ -7,7 +7,7 @@ use std::{
 
 use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Node, Package, PackageId};
 
-use crate::core::{AppError, AppResult, Module, ModuleId};
+use crate::core::{AdapterId, AppError, AppResult, Module, ModuleId, ScopeId};
 
 /// Discover Rust modules from Cargo manifests.
 pub(in crate::adapter::rust) fn discover_modules(
@@ -112,6 +112,8 @@ fn modules_from_metadata(
         let root = project_relative_package_root(package, workspace_root, manifest)?;
         modules.push(DiscoveredCargoModule {
             module: Module {
+                scope_id: ScopeId::new("rust").expect("built-in scope id"),
+                adapter_id: AdapterId::new("rust").expect("built-in adapter id"),
                 dependencies: Vec::new(),
                 source_patterns: source_patterns(&root),
                 package: Some(package.name.to_string()),

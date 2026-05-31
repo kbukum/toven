@@ -40,7 +40,8 @@ pub(super) fn run_modules(matches: &ArgMatches, stdout: &mut impl Write) -> AppR
 }
 
 fn render_module(stdout: &mut impl Write, module: &Module) -> AppResult<()> {
-    writeln!(stdout, "- {}", module.name).map_err(AppError::internal)?;
+    writeln!(stdout, "- {}/{}", module.scope_id, module.name).map_err(AppError::internal)?;
+    writeln!(stdout, "  adapter: {}", module.adapter_id).map_err(AppError::internal)?;
     writeln!(stdout, "  root: {}", module.root.display()).map_err(AppError::internal)?;
     if let Some(package) = &module.package {
         writeln!(stdout, "  package: {package}").map_err(AppError::internal)?;

@@ -1,0 +1,6 @@
+[project]
+name = "adapter-defaults"
+root = "."
+
+[profiles.rust]
+adapter = "rust"

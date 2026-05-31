@@ -6,38 +6,38 @@ use std::{
 };
 
 use crate::{
-    core::{AppResult, Module, ModuleId},
+    core::{AppResult, Module, ScopedModuleKey, scoped_module_key},
     engine::graph::dependents_closure,
 };
 
 /// A changed path relative to the workspace root.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ChangedPath {
+pub(crate) struct ChangedPath {
     /// Workspace-relative path.
-    pub path: PathBuf,
+    pub(crate) path: PathBuf,
 }
 
 impl ChangedPath {
     /// Create a changed path.
     #[must_use]
-    pub fn new(path: impl Into<PathBuf>) -> Self {
+    pub(crate) fn new(path: impl Into<PathBuf>) -> Self {
         Self { path: path.into() }
     }
 }
 
 /// Result of affected-module mapping.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct AffectedModules {
+pub(crate) struct AffectedModules {
     /// Directly changed modules.
-    pub direct: BTreeSet<ModuleId>,
+    pub(crate) direct: BTreeSet<ScopedModuleKey>,
     /// Direct modules plus all reverse dependents.
-    pub closure: BTreeSet<ModuleId>,
+    pub(crate) closure: BTreeSet<ScopedModuleKey>,
     /// Changed paths that did not map to a module and forced all modules affected.
-    pub global_paths: Vec<PathBuf>,
+    pub(crate) global_paths: Vec<PathBuf>,
 }
 
 /// Map changed workspace paths to modules and expand through reverse dependents.
-pub fn affected_modules(
+pub(crate) fn affected_modules(
     modules: &[Module],
     changed_paths: &[ChangedPath],
 ) -> AppResult<AffectedModules> {
@@ -70,7 +70,7 @@ pub fn affected_modules(
     }
 
     if !global_paths.is_empty() {
-        direct.extend(modules.iter().map(|module| module.name.clone()));
+        direct.extend(modules.iter().map(scoped_module_key));
     }
 
     let closure = dependents_closure(modules, &direct)?;
@@ -86,12 +86,12 @@ struct ModuleRoot {
     source_patterns: Vec<String>,
 }
 
-fn module_roots(modules: &[Module]) -> BTreeMap<ModuleId, ModuleRoot> {
+fn module_roots(modules: &[Module]) -> BTreeMap<ScopedModuleKey, ModuleRoot> {
     modules
         .iter()
         .map(|module| {
             (
-                module.name.clone(),
+                scoped_module_key(module),
                 ModuleRoot {
                     root: normalize_root(&module.root),
                     source_patterns: module.source_patterns.clone(),
@@ -102,9 +102,9 @@ fn module_roots(modules: &[Module]) -> BTreeMap<ModuleId, ModuleRoot> {
 }
 
 fn longest_root_match<'a>(
-    roots: &'a BTreeMap<ModuleId, ModuleRoot>,
+    roots: &'a BTreeMap<ScopedModuleKey, ModuleRoot>,
     path: &Path,
-) -> Option<&'a ModuleId> {
+) -> Option<&'a ScopedModuleKey> {
     let path = normalize_root(path);
     roots
         .iter()
@@ -152,10 +152,12 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{ChangedPath, affected_modules};
-    use crate::core::{Module, ModuleId};
+    use crate::core::{AdapterId, Module, ModuleId, ScopeId, ScopedModuleKey};
 
     fn module(name: &str, root: &str, dependencies: &[&str]) -> Module {
         Module {
+            scope_id: ScopeId::new("rust").unwrap(),
+            adapter_id: AdapterId::new("rust").unwrap(),
             name: ModuleId::new(name).unwrap(),
             package: Some(name.to_string()),
             root: PathBuf::from(root),
@@ -183,6 +185,10 @@ mod tests {
         }
     }
 
+    fn key(scope: &str, module: &str) -> ScopedModuleKey {
+        (scope.to_string(), ModuleId::new(module).unwrap())
+    }
+
     #[test]
     fn uses_longest_module_root_match() {
         let modules = [
@@ -193,8 +199,8 @@ mod tests {
         let affected =
             affected_modules(&modules, &[ChangedPath::new("crates/child/src/lib.rs")]).unwrap();
 
-        assert!(affected.direct.contains(&ModuleId::new("child").unwrap()));
-        assert!(!affected.direct.contains(&ModuleId::new("parent").unwrap()));
+        assert!(affected.direct.contains(&key("rust", "child")));
+        assert!(!affected.direct.contains(&key("rust", "parent")));
     }
 
     #[test]
@@ -209,12 +215,9 @@ mod tests {
 
         assert_eq!(
             affected.closure,
-            [
-                ModuleId::new("app").unwrap(),
-                ModuleId::new("core").unwrap()
-            ]
-            .into_iter()
-            .collect()
+            [key("rust", "app"), key("rust", "core")]
+                .into_iter()
+                .collect()
         );
     }
 
@@ -272,13 +275,55 @@ mod tests {
 
         assert_eq!(
             affected.closure,
-            [
-                ModuleId::new("app").unwrap(),
-                ModuleId::new("root").unwrap()
-            ]
-            .into_iter()
-            .collect()
+            [key("rust", "app"), key("rust", "root")]
+                .into_iter()
+                .collect()
         );
         assert!(affected.global_paths.is_empty());
+    }
+
+    #[test]
+    fn keeps_duplicate_module_names_separate_by_scope() {
+        let modules = [
+            module("shared", "main/shared", &[]),
+            Module {
+                scope_id: ScopeId::new("contrib").unwrap(),
+                root: PathBuf::from("contrib/shared"),
+                ..module("shared", "main/shared", &[])
+            },
+        ];
+
+        let affected =
+            affected_modules(&modules, &[ChangedPath::new("contrib/shared/src/lib.rs")]).unwrap();
+
+        assert_eq!(
+            affected.direct,
+            [key("contrib", "shared")].into_iter().collect()
+        );
+    }
+
+    #[test]
+    fn expands_unique_cross_scope_dependents() {
+        let modules = [
+            Module {
+                scope_id: ScopeId::new("app").unwrap(),
+                dependencies: vec![ModuleId::new("shared").unwrap()],
+                ..module("api", "app/api", &[])
+            },
+            Module {
+                scope_id: ScopeId::new("lib").unwrap(),
+                ..module("shared", "lib/shared", &[])
+            },
+        ];
+
+        let affected = affected_modules(&modules, &[ChangedPath::new("lib/shared/src/lib.rs")])
+            .expect("cross-scope affected resolves");
+
+        assert_eq!(
+            affected.closure,
+            [key("app", "api"), key("lib", "shared")]
+                .into_iter()
+                .collect()
+        );
     }
 }

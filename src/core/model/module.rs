@@ -2,7 +2,10 @@
 
 use std::{fmt, path::PathBuf, str::FromStr};
 
-use crate::core::{AppError, AppResult, validate_identifier};
+use crate::core::{AdapterId, AppError, AppResult, ScopeId, validate_identifier};
+
+/// Scope-qualified module identifier.
+pub type ScopedModuleKey = (String, ModuleId);
 
 /// Unique module identifier within a workspace.
 #[derive(
@@ -62,6 +65,10 @@ impl FromStr for ModuleId {
 /// A discovered module independent of language-specific manifests.
 #[derive(Debug, Clone, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Module {
+    /// Scope that owns the module.
+    pub scope_id: ScopeId,
+    /// Adapter that discovered the module.
+    pub adapter_id: AdapterId,
     /// Unique module identifier.
     pub name: ModuleId,
     /// Optional package name used by command templates.
@@ -74,6 +81,18 @@ pub struct Module {
     pub dependencies: Vec<ModuleId>,
     /// Glob-like source patterns relative to the workspace root.
     pub source_patterns: Vec<String>,
+}
+
+/// Return a stable scope-qualified key for a module.
+#[must_use]
+pub fn scoped_module_key(module: &Module) -> ScopedModuleKey {
+    (module.scope_id.to_string(), module.name.clone())
+}
+
+/// Render a scope-qualified module key for human-facing output.
+#[must_use]
+pub fn scoped_module_display(key: &ScopedModuleKey) -> String {
+    format!("{}/{}", key.0, key.1)
 }
 
 #[cfg(test)]

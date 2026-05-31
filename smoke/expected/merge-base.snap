@@ -6,7 +6,7 @@ baseline: <sha>
 changed_paths:
 - crates/app/src/lib.rs
 modules:
-- smoke-app (direct)
+- rust/smoke-app (direct)
 stderr:
 <empty>
 

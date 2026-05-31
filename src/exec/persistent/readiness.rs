@@ -46,8 +46,5 @@ fn remap_ready_command_error(unit: &ExecutionUnit, error: AppError) -> AppError 
 }
 
 fn ready_command_field(unit: &ExecutionUnit) -> String {
-    format!(
-        "profiles.{}.tasks.{}.ready_command",
-        unit.profile, unit.task
-    )
+    format!("scopes.{}.tasks.{}.ready_command", unit.scope_id, unit.task)
 }

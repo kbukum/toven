@@ -86,6 +86,8 @@ impl DiscoveredModule {
     #[must_use]
     pub fn into_module(self) -> Module {
         Module {
+            scope_id: self.scope_id,
+            adapter_id: self.adapter_id,
             name: self.name,
             package: self.package,
             root: self.root,

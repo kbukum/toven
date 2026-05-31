@@ -88,11 +88,11 @@ fn render_module_args(
 
 fn render_scalar_template(
     template: &Template,
-    _unit: &ExecutionUnit,
+    unit: &ExecutionUnit,
     workspace_root: &Path,
     module: Option<&Module>,
 ) -> AppResult<String> {
-    template.render_scalar_with_scope(workspace_root, None, module)
+    template.render_scalar_with_scope(workspace_root, None, Some(&unit.scope_id), module)
 }
 
 fn scalar_module<'a>(
@@ -180,26 +180,31 @@ fn parse_template(field: &str, value: &str) -> AppResult<Template> {
 }
 
 pub(in crate::exec) fn argv_field(unit: &ExecutionUnit) -> String {
-    format!("profiles.{}.tasks.{}.argv", unit.profile, unit.task)
+    format!("scopes.{}.tasks.{}.argv", unit.scope_id, unit.task)
 }
 
 fn module_arg_template_field(unit: &ExecutionUnit) -> String {
-    format!("profiles.{}.module_arg_template", unit.profile)
+    format!("scopes.{}.module_arg_template", unit.scope_id)
 }
 
 fn resource_group_field(unit: &ExecutionUnit) -> String {
-    format!("profiles.{}.resource_group", unit.profile)
+    format!("scopes.{}.resource_group", unit.scope_id)
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        core::{CommandOrigin, ExecutionMode, ExecutionUnit, Module, ModuleId},
+        core::{
+            AdapterId, CommandOrigin, ExecutionMode, ExecutionUnit, Module, ModuleId, ScopeId,
+            TaskOrigin,
+        },
         exec::{render_execution_unit, render_resource_group},
     };
 
     fn module(name: &str) -> Module {
         Module {
+            scope_id: ScopeId::new("rust").expect("scope id"),
+            adapter_id: AdapterId::new("rust").expect("adapter id"),
             name: ModuleId::new(name).expect("module id"),
             package: Some(format!("{name}-pkg")),
             root: format!("crates/{name}").into(),
@@ -212,10 +217,11 @@ mod tests {
     fn unit(argv_template: Vec<String>, modules: Vec<Module>) -> ExecutionUnit {
         ExecutionUnit {
             id: "unit".to_string(),
-            profile: "rust".to_string(),
-            scope: None,
+            scope_id: ScopeId::new("rust").expect("scope id"),
+            adapter_id: AdapterId::new("rust").expect("adapter id"),
             task: "test".to_string(),
             command_origin: CommandOrigin::DirectArgv,
+            task_origin: TaskOrigin::ProjectDefault,
             mode: ExecutionMode::BatchReady,
             resource_group: "{project.root}".to_string(),
             modules,
@@ -268,7 +274,7 @@ mod tests {
         )
         .expect_err("embedded args should fail");
 
-        assert!(error.message.contains("profiles.rust.tasks.test.argv"));
+        assert!(error.message.contains("scopes.rust.tasks.test.argv"));
         assert!(error.message.contains("complete argv item"));
     }
 
@@ -280,7 +286,7 @@ mod tests {
         )
         .expect_err("batch scalar module placeholder should fail");
 
-        assert!(error.message.contains("profiles.rust.tasks.test.argv"));
+        assert!(error.message.contains("scopes.rust.tasks.test.argv"));
         assert!(error.message.contains("scalar module"));
     }
 
@@ -295,7 +301,7 @@ mod tests {
         let error = render_execution_unit(&unit, std::path::Path::new("/workspace"))
             .expect_err("module args without template should fail");
 
-        assert!(error.message.contains("profiles.rust.module_arg_template"));
+        assert!(error.message.contains("scopes.rust.module_arg_template"));
     }
 
     #[test]
@@ -310,7 +316,7 @@ mod tests {
         let error = render_resource_group(&unit, std::path::Path::new("/workspace"))
             .expect_err("resource group with many modules should fail");
 
-        assert!(error.message.contains("profiles.rust.resource_group"));
+        assert!(error.message.contains("scopes.rust.resource_group"));
         assert!(!error.message.contains("invalid argv"));
     }
 }
