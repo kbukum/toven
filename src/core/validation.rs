@@ -72,7 +72,7 @@ fn validate_shared_input(field: &str, value: &str) -> AppResult<()> {
             "shared input paths are plain workspace-relative paths and do not support templates",
         ));
     }
-    if value.contains(['*', '?', '[', ']']) {
+    if value.chars().any(|ch| matches!(ch, '*' | '?' | '[' | ']')) {
         return Err(AppError::invalid_input(
             field,
             "shared input paths are plain workspace-relative paths and do not support globs",
