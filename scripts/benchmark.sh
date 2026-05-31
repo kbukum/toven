@@ -42,6 +42,26 @@ require_function() {
   fi
 }
 
+require_array() {
+  local name="$1"
+  local declaration
+  if ! declaration="$(declare -p "$name" 2>/dev/null)"; then
+    echo "error: benchmark case is missing array $name" >&2
+    exit 2
+  fi
+  if [[ "$declaration" != declare\ -a* ]]; then
+    echo "error: benchmark case variable $name must be an indexed array" >&2
+    exit 2
+  fi
+
+  local length
+  eval "length=\${#$name[@]}"
+  if [[ "$length" -eq 0 ]]; then
+    echo "error: benchmark case array $name cannot be empty" >&2
+    exit 2
+  fi
+}
+
 call_function_if_exists() {
   local name="$1"
   if declare -F "$name" >/dev/null; then
@@ -204,6 +224,8 @@ main() {
   : "${OUTPUT_DIR:?OUTPUT_DIR is required}"
   : "${WARMUPS:?WARMUPS is required}"
   : "${ITERATIONS:?ITERATIONS is required}"
+  require_array APPROACHES
+  require_array SCENARIOS
 
   TARGET_REPO="$(cd "$TARGET_REPO" && pwd)"
   if [[ -n "$(git -C "$TARGET_REPO" status --porcelain)" ]]; then

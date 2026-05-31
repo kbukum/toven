@@ -232,4 +232,31 @@ mod tests {
         );
         assert!(error.message.contains("unknown placeholder"));
     }
+
+    #[test]
+    fn rejects_invalid_preset_shared_inputs() {
+        let root = rskit_testutil::test_workspace!("invalid-shared-inputs");
+        root.copy_fixture(
+            "presets/check-invalid-shared-inputs.toml",
+            ".toven/lang/rust/presets/check.toml",
+        )
+        .expect("copy preset fixture");
+
+        let error = PresetResolver::new(root.path().to_path_buf())
+            .without_user_home()
+            .resolve("rust", "check")
+            .expect_err("invalid shared inputs should fail");
+
+        assert!(error.message.contains("preset.shared_inputs"));
+        assert!(
+            error
+                .message
+                .contains(".toven/lang/rust/presets/check.toml")
+        );
+        assert!(
+            error
+                .message
+                .contains("must stay inside the workspace root")
+        );
+    }
 }
