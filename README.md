@@ -16,8 +16,9 @@ filesystem preset resolution, Rust workspace discovery, dependency-aware
 batching, affected-module planning, command execution, cache-backed skipping,
 affected/cache explanation, watch-mode reruns, persistent task readiness,
 developer workflow inspection commands, adapter-owned default tasks, Rust
-multi-manifest discovery, and explicit cross-scope dependency overlays.
-Additional discovery adapters will be added in follow-up phases.
+multi-manifest discovery, explicit cross-scope dependency overlays, and the
+`toven generate` config adoption workflow. Additional discovery adapters will be
+added in follow-up phases.
 
 Toven is not published to crates.io yet. Until the first alpha release, install
 from source after cloning the repository.
@@ -40,13 +41,26 @@ git submodule update --init --recursive
 make check
 make coverage
 make release-artifacts
+cargo install --path . --locked --force
 cargo run -- --help
 cargo run -- generate --stdout
 ```
 
 The current scaffold builds as a standalone Rust CLI with configuration,
 preset-loading, Rust discovery, affected detection, reviewable planning,
-execution, and cache-backed skipping foundations.
+execution, cache-backed skipping, scoped adapter discovery, and `toven generate`
+foundations.
+
+Stable project documentation lives in [`docs/`](docs/). Active plans and
+handoff notes live in [`tmp/`](tmp/).
+
+The rskit benchmark case is an installed-binary rehearsal aid for the release
+readiness track. Run it only after rskit has a generated/reviewed `toven.toml`
+from the installed binary:
+
+```bash
+make benchmark CASE=bench/cases/rskit.sh
+```
 
 ## Smoke testing fixtures and real repositories
 
@@ -176,8 +190,15 @@ and should be part of the task key, set `cache_args = true`:
 
 ```toml
 [profiles.main.tasks]
-test = { argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"], cache_args = true }
+test = { argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"], cache_args = true, shared_inputs = ["Cargo.lock", "rust-toolchain.toml"] }
 ```
+
+`shared_inputs` are plain workspace-relative files or directories that
+invalidate every module using the task. They intentionally do not support
+templates, globs, `.` components, parent paths, or absolute paths; use explicit
+canonical-looking paths such as `Cargo.lock` instead of `./Cargo.lock` for
+workspace manifests, lockfiles, toolchain files, lint config, and CI-relevant
+config.
 
 Persistent tasks opt out of cache automatically and can declare when they are
 ready. Readiness can be immediate after start, a bounded health command, or a

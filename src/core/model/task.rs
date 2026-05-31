@@ -13,6 +13,8 @@ pub struct Task {
     pub origin: TaskOrigin,
     /// Whether passthrough arguments are included in cache keys.
     pub cache_args: bool,
+    /// Workspace-relative paths that affect every module using this task.
+    pub shared_inputs: Vec<String>,
     /// Whether this task starts a long-lived process.
     pub persistent: bool,
     /// Readiness condition for persistent tasks.

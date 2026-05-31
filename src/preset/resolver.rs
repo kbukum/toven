@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::core::{
     AppError, AppResult, PresetDefinition, validate_command_template, validate_identifier,
+    validate_shared_inputs,
 };
 
 /// Filesystem preset resolver.
@@ -132,6 +133,12 @@ fn validate_preset(
             format!("preset file '{}': {}", path.display(), error.message),
         )
     })?;
+    validate_shared_inputs("preset.shared_inputs", &preset.shared_inputs).map_err(|error| {
+        AppError::invalid_input(
+            "preset.shared_inputs",
+            format!("preset file '{}': {}", path.display(), error.message),
+        )
+    })?;
     Ok(())
 }
 
@@ -224,5 +231,32 @@ mod tests {
                 .contains(".toven/lang/rust/presets/check.toml")
         );
         assert!(error.message.contains("unknown placeholder"));
+    }
+
+    #[test]
+    fn rejects_invalid_preset_shared_inputs() {
+        let root = rskit_testutil::test_workspace!("invalid-shared-inputs");
+        root.copy_fixture(
+            "presets/check-invalid-shared-inputs.toml",
+            ".toven/lang/rust/presets/check.toml",
+        )
+        .expect("copy preset fixture");
+
+        let error = PresetResolver::new(root.path().to_path_buf())
+            .without_user_home()
+            .resolve("rust", "check")
+            .expect_err("invalid shared inputs should fail");
+
+        assert!(error.message.contains("preset.shared_inputs"));
+        assert!(
+            error
+                .message
+                .contains(".toven/lang/rust/presets/check.toml")
+        );
+        assert!(
+            error
+                .message
+                .contains("must stay inside the workspace root")
+        );
     }
 }

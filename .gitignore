@@ -1,5 +1,6 @@
 /target
 /dist
+/bench/out
 /.toven/smoke
 /tmp/*
 !/tmp/.keep

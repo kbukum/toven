@@ -10,6 +10,7 @@ pub fn argv_task(adapter_id: AdapterId, name: impl Into<String>, argv: Vec<Strin
         command: TaskCommand::Argv(argv),
         origin: TaskOrigin::AdapterDefault { adapter_id },
         cache_args: false,
+        shared_inputs: Vec::new(),
         persistent: false,
         readiness: PersistentReadiness::Started,
         readiness_timeout: std::time::Duration::from_secs(0),
