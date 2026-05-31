@@ -19,10 +19,10 @@ pub(super) fn apply_dependency_overlays(
             if ignore_missing {
                 continue;
             }
-            let missing = if !known_modules.contains(&overlay.from) {
-                ("from", &overlay.from)
-            } else {
+            let missing = if known_modules.contains(&overlay.from) {
                 ("to", &overlay.to)
+            } else {
+                ("from", &overlay.from)
             };
             return Err(AppError::invalid_input(
                 format!("overlays[{index}].{}", missing.0),

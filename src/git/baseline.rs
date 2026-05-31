@@ -1,4 +1,5 @@
 //! Git baseline resolution.
+#![allow(clippy::redundant_pub_crate)]
 
 use std::path::PathBuf;
 

@@ -1,4 +1,5 @@
 //! Git changed-path discovery for affected detection.
+#![allow(clippy::redundant_pub_crate)]
 
 use std::{
     collections::BTreeMap,

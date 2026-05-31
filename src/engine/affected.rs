@@ -1,4 +1,5 @@
 //! Pure affected-module mapping.
+#![allow(clippy::redundant_pub_crate)]
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -317,7 +318,7 @@ mod tests {
 
         assert_eq!(
             affected.direct,
-            [key("contrib", "shared")].into_iter().collect()
+            std::iter::once(key("contrib", "shared")).collect()
         );
     }
 

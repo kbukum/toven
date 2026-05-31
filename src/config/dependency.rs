@@ -24,15 +24,15 @@ pub struct ModuleRefConfig {
     pub module: String,
 }
 
-pub(crate) fn normalize_dependency_overlays(
+pub(super) fn normalize_dependency_overlays(
     overlays: Vec<DependencyOverlayConfig>,
 ) -> AppResult<Vec<DependencyOverlay>> {
     let mut seen = BTreeSet::new();
     let mut normalized = Vec::with_capacity(overlays.len());
 
     for (index, overlay) in overlays.into_iter().enumerate() {
-        let from = normalize_module_ref(format!("overlays[{index}].from"), overlay.from)?;
-        let to = normalize_module_ref(format!("overlays[{index}].to"), overlay.to)?;
+        let from = normalize_module_ref(&format!("overlays[{index}].from"), overlay.from)?;
+        let to = normalize_module_ref(&format!("overlays[{index}].to"), overlay.to)?;
         if from == to {
             return Err(AppError::invalid_input(
                 format!("overlays[{index}]"),
@@ -61,7 +61,7 @@ pub(crate) fn normalize_dependency_overlays(
     Ok(normalized)
 }
 
-fn normalize_module_ref(field: String, reference: ModuleRefConfig) -> AppResult<ScopedModuleKey> {
+fn normalize_module_ref(field: &str, reference: ModuleRefConfig) -> AppResult<ScopedModuleKey> {
     let scope = ScopeId::new(reference.scope).map_err(|error| {
         AppError::invalid_input(format!("{field}.scope"), error.message.clone()).with_cause(error)
     })?;

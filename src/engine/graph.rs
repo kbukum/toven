@@ -1,4 +1,5 @@
 //! Module dependency graph validation.
+#![allow(clippy::redundant_pub_crate)]
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -35,10 +36,7 @@ impl ResolvedDependencyGraph {
 
     /// Dependents of `module`.
     pub(crate) fn dependents(&self, module: &ScopedModuleKey) -> &[ScopedModuleKey] {
-        self.dependents
-            .get(module)
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
+        self.dependents.get(module).map_or(&[], Vec::as_slice)
     }
 
     /// Origin of a resolved edge.

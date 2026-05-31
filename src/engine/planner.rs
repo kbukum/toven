@@ -10,9 +10,7 @@ use crate::{
         TaskCommand, Workspace, scoped_module_key, validate_discovery_response,
     },
     engine::{
-        graph::{
-            ResolvedDependencyGraph, resolve_dependency_graph, resolve_selected_dependency_graph,
-        },
+        graph::{ResolvedDependencyGraph, resolve_dependency_graph},
         scheduler::split_wave_by_manifest,
     },
     exec::{render_execution_unit, render_resource_group},
@@ -317,6 +315,7 @@ fn module_matches_filter(
     module_filter.contains(&scoped_module_key(module))
 }
 
+#[cfg(test)]
 fn scoped_ready_waves(
     modules: Vec<crate::core::Module>,
     overlays: &[crate::core::DependencyOverlay],
@@ -326,7 +325,7 @@ fn scoped_ready_waves(
         .map(|module| (scoped_module_key(&module), module))
         .collect::<BTreeMap<_, _>>();
     let selected_keys = modules_by_key.keys().cloned().collect::<BTreeSet<_>>();
-    let graph = resolve_selected_dependency_graph(
+    let graph = crate::engine::graph::resolve_selected_dependency_graph(
         &modules_by_key.values().cloned().collect::<Vec<_>>(),
         overlays,
     )?;
