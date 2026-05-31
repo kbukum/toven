@@ -11,3 +11,4 @@ modules:
 - rust/smoke-test-util (global)
 stderr:
 <empty>
+

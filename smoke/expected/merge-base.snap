@@ -9,3 +9,4 @@ modules:
 - rust/smoke-app (direct)
 stderr:
 <empty>
+
