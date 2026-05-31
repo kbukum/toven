@@ -88,7 +88,13 @@ fn validate_shared_input(field: &str, value: &str) -> AppResult<()> {
                     "shared input paths must stay inside the workspace root",
                 ));
             }
-            Component::CurDir | Component::Normal(_) => {}
+            Component::CurDir => {
+                return Err(AppError::invalid_input(
+                    field,
+                    "shared input paths cannot contain '.' components",
+                ));
+            }
+            Component::Normal(_) => {}
         }
     }
     Ok(())

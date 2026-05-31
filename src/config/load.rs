@@ -149,6 +149,23 @@ mod tests {
     }
 
     #[test]
+    fn rejects_current_dir_shared_inputs() {
+        let root = rskit_testutil::test_workspace!("current-dir-shared-input");
+        let config_path = root
+            .copy_fixture("config/current-dir-shared-input.toml", "toven.toml")
+            .expect("copy config fixture");
+
+        let error = load_workspace(&config_path).expect_err("current-dir shared input should fail");
+
+        assert!(
+            error
+                .message
+                .contains("profiles.rust.tasks.test.shared_inputs")
+        );
+        assert!(error.message.contains("cannot contain '.' components"));
+    }
+
+    #[test]
     fn rejects_unknown_top_level_fields() {
         let root = rskit_testutil::test_workspace!("unknown");
         let config_path = root
