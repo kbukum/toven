@@ -42,7 +42,7 @@ pub fn expected_affected_modules(repo: &Path, invocation: &ResolvedInvocation) -
     if global_change {
         return packages
             .into_iter()
-            .map(|package| module_id(&package.name))
+            .map(|package| affected_module_id(&package.name))
             .collect();
     }
 
@@ -103,7 +103,7 @@ pub fn expected_affected_modules(repo: &Path, invocation: &ResolvedInvocation) -
         .into_iter()
         .filter_map(|package| {
             if affected.contains(package.name.as_str()) {
-                Some(module_id(&package.name))
+                Some(affected_module_id(&package.name))
             } else {
                 None
             }
@@ -248,6 +248,10 @@ fn cargo_metadata_waves(repo: &Path) -> Vec<Vec<String>> {
 
 fn module_id(package_name: &str) -> String {
     package_name.to_owned()
+}
+
+fn affected_module_id(package_name: &str) -> String {
+    format!("rust/{package_name}")
 }
 
 fn git_capture(repo: &Path, args: &[&str]) -> String {

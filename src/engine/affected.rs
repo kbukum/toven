@@ -12,32 +12,32 @@ use crate::{
 
 /// A changed path relative to the workspace root.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ChangedPath {
+pub(crate) struct ChangedPath {
     /// Workspace-relative path.
-    pub path: PathBuf,
+    pub(crate) path: PathBuf,
 }
 
 impl ChangedPath {
     /// Create a changed path.
     #[must_use]
-    pub fn new(path: impl Into<PathBuf>) -> Self {
+    pub(crate) fn new(path: impl Into<PathBuf>) -> Self {
         Self { path: path.into() }
     }
 }
 
 /// Result of affected-module mapping.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct AffectedModules {
+pub(crate) struct AffectedModules {
     /// Directly changed modules.
-    pub direct: BTreeSet<ScopedModuleKey>,
+    pub(crate) direct: BTreeSet<ScopedModuleKey>,
     /// Direct modules plus all reverse dependents.
-    pub closure: BTreeSet<ScopedModuleKey>,
+    pub(crate) closure: BTreeSet<ScopedModuleKey>,
     /// Changed paths that did not map to a module and forced all modules affected.
-    pub global_paths: Vec<PathBuf>,
+    pub(crate) global_paths: Vec<PathBuf>,
 }
 
 /// Map changed workspace paths to modules and expand through reverse dependents.
-pub fn affected_modules(
+pub(crate) fn affected_modules(
     modules: &[Module],
     changed_paths: &[ChangedPath],
 ) -> AppResult<AffectedModules> {
