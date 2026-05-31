@@ -24,26 +24,46 @@ done < <(find "$root/src" -name mod.rs -type f | sort)
 
 check_forbidden() {
   local dir="$1"
-  local pattern="$2"
+  local modules="$2"
   local matches
+  local grouped_matches
 
   if [ ! -d "$root/$dir" ]; then
     return
   fi
 
-  matches="$(grep -R --include='*.rs' -nE "$pattern" "$root/$dir" || true)"
+  matches="$(grep -R --include='*.rs' -nE "crate::(${modules})(::|[[:space:]]+as|[[:space:];,{])" "$root/$dir" || true)"
   if [ -n "$matches" ]; then
     printf 'forbidden upward import under %s:\n%s\n' "$dir" "$matches" >&2
     fail=1
   fi
+
+  grouped_matches="$(
+    while IFS= read -r -d '' file; do
+      FORBIDDEN_MODULES="$modules" perl -0ne '
+        BEGIN { $modules = $ENV{"FORBIDDEN_MODULES"}; }
+        while (/crate::\{(.*?)\}/sg) {
+          $body = $1;
+          if ($body =~ /(?:^|[,{]\s*)($modules)(?:::|\s+as\b|[\s,]|$)/m) {
+            print "$ARGV: grouped crate import contains forbidden module $1\n";
+            last;
+          }
+        }
+      ' "$file"
+    done < <(find "$root/$dir" -name '*.rs' -type f -print0)
+  )"
+  if [ -n "$grouped_matches" ]; then
+    printf 'forbidden grouped upward import under %s:\n%s\n' "$dir" "$grouped_matches" >&2
+    fail=1
+  fi
 }
 
-check_forbidden "src/core" 'crate::(config|lang|preset|engine|exec|report|cli)::'
-check_forbidden "src/config" 'crate::(engine|exec|report|cli)::'
-check_forbidden "src/lang" 'crate::(config|engine|exec|report|cli)::'
-check_forbidden "src/preset" 'crate::(engine|exec|report|cli)::'
-check_forbidden "src/engine" 'crate::(report|cli)::'
-check_forbidden "src/exec" 'crate::(report|cli)::'
-check_forbidden "src/report" 'crate::cli::'
+check_forbidden "src/core" 'config|adapter|preset|engine|exec|report|cli'
+check_forbidden "src/config" 'engine|exec|report|cli'
+check_forbidden "src/adapter" 'config|engine|exec|report|cli'
+check_forbidden "src/preset" 'engine|exec|report|cli'
+check_forbidden "src/engine" 'report|cli'
+check_forbidden "src/exec" 'report|cli'
+check_forbidden "src/report" 'cli'
 
 exit "$fail"

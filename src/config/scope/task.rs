@@ -1,0 +1,1 @@
+//! Scope task config boundary.

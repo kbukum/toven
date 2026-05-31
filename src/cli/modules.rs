@@ -5,11 +5,11 @@ use std::{io::Write, path::PathBuf};
 use clap::ArgMatches;
 
 use crate::{
+    adapter::AdapterRegistry,
     cli::affected::modules_from_discovered,
     config::load_workspace,
     core::{AppError, AppResult, Module},
     engine::discover_workspace_task_profiles,
-    lang::LangRegistry,
 };
 
 pub(super) fn run_modules(matches: &ArgMatches, stdout: &mut impl Write) -> AppResult<()> {
@@ -23,7 +23,8 @@ pub(super) fn run_modules(matches: &ArgMatches, stdout: &mut impl Write) -> AppR
         .expect("clap supplies the modules task default")
         .as_str();
     let workspace = load_workspace(config)?;
-    let discovered = discover_workspace_task_profiles(&workspace, task, &LangRegistry::default())?;
+    let discovered =
+        discover_workspace_task_profiles(&workspace, task, &AdapterRegistry::default())?;
     let modules = modules_from_discovered(&discovered)?;
 
     if modules.is_empty() {

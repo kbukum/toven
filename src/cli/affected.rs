@@ -5,6 +5,7 @@ use std::{collections::BTreeMap, io::Write, path::PathBuf};
 use clap::ArgMatches;
 
 use crate::{
+    adapter::AdapterRegistry,
     config::load_workspace,
     core::{AppError, AppResult, Module, ModuleId, Workspace},
     engine::{
@@ -19,7 +20,6 @@ use crate::{
             MergeBaseBaselineProvider,
         },
     },
-    lang::LangRegistry,
 };
 
 pub(super) fn run_affected(matches: &ArgMatches, stdout: &mut impl Write) -> AppResult<()> {
@@ -34,7 +34,8 @@ pub(super) fn run_affected(matches: &ArgMatches, stdout: &mut impl Write) -> App
         .as_str();
     let workspace = load_workspace(config)?;
     let changes = resolve_affected_changes(&workspace, matches)?;
-    let discovered = discover_workspace_task_profiles(&workspace, task, &LangRegistry::default())?;
+    let discovered =
+        discover_workspace_task_profiles(&workspace, task, &AdapterRegistry::default())?;
     let modules = modules_from_discovered(&discovered)?;
     let affected = resolve_affected_modules(changes, &modules)?;
 

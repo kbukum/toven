@@ -15,6 +15,7 @@ use clap::ArgMatches;
 use notify::{RecursiveMode, Watcher};
 
 use crate::{
+    adapter::AdapterRegistry,
     cli::{
         affected::modules_from_discovered,
         run::{ActivePersistentProcess, run_task_once_for_watch},
@@ -28,7 +29,6 @@ use crate::{
     exec::{
         CtrlCHandler, SharedCancellation, spawn_ctrl_c_handler_with_notify, stop_ctrl_c_handler,
     },
-    lang::LangRegistry,
     report::OutputFormat,
 };
 
@@ -162,7 +162,7 @@ where
         let workspace = load_workspace(ctx.config)?;
         validate_watch_root_unchanged(ctx.watched_root, &workspace.root)?;
         let discovered =
-            discover_workspace_task_profiles(&workspace, ctx.task, &LangRegistry::default())?;
+            discover_workspace_task_profiles(&workspace, ctx.task, &AdapterRegistry::default())?;
         let modules = modules_from_discovered(&discovered)?;
         if config_changed(ctx.watched_root, ctx.config, &changed)? {
             write_watch_change(ctx.stdout, ctx.stderr, ctx.output_format, &changed, None)?;

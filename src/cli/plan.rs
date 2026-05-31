@@ -5,11 +5,11 @@ use std::{io::Write, path::PathBuf};
 use clap::ArgMatches;
 
 use crate::{
+    adapter::AdapterRegistry,
     cli::affected::{modules_from_discovered, resolve_affected_changes, resolve_affected_modules},
     config::load_workspace,
     core::{AppError, AppResult},
     engine::{discover_workspace_task_profiles, plan_discovered_task_profiles, plan_workspace},
-    lang::LangRegistry,
     report::render_human_plan,
 };
 
@@ -32,7 +32,7 @@ pub(super) fn run_plan(matches: &ArgMatches, stdout: &mut impl Write) -> AppResu
     let plan = if matches.get_flag("affected") {
         let changes = resolve_affected_changes(&workspace, matches)?;
         let discovered =
-            discover_workspace_task_profiles(&workspace, task, &LangRegistry::default())?;
+            discover_workspace_task_profiles(&workspace, task, &AdapterRegistry::default())?;
         let modules = modules_from_discovered(&discovered)?;
         let affected = resolve_affected_modules(changes, &modules)?;
         plan_discovered_task_profiles(
@@ -43,7 +43,12 @@ pub(super) fn run_plan(matches: &ArgMatches, stdout: &mut impl Write) -> AppResu
         )?
     } else {
         reject_unused_affected_flags(matches)?;
-        plan_workspace(workspace, task, &passthrough_args, &LangRegistry::default())?
+        plan_workspace(
+            workspace,
+            task,
+            &passthrough_args,
+            &AdapterRegistry::default(),
+        )?
     };
     write!(stdout, "{}", render_human_plan(&plan)?).map_err(crate::core::AppError::internal)
 }

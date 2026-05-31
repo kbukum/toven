@@ -1,25 +1,25 @@
-//! Language adapter registry.
+//! Discovery adapter registry.
 
 use std::{collections::BTreeMap, sync::Arc};
 
 use crate::{
-    core::{AppError, AppResult, LangAdapter, Profile},
-    lang::{command::CommandAdapter, rust::RustAdapter},
+    adapter::{command::CommandAdapter, rust::RustAdapter},
+    core::{AdapterId, AppError, AppResult, DiscoveryAdapter, Profile},
 };
 
-/// Adapter lookup by language profile.
-pub struct LangRegistry {
-    builtins: BTreeMap<String, Arc<dyn LangAdapter>>,
+/// Adapter lookup by the current profile-backed scope model.
+pub struct AdapterRegistry {
+    builtins: BTreeMap<AdapterId, Arc<dyn DiscoveryAdapter>>,
 }
 
-impl Default for LangRegistry {
+impl Default for AdapterRegistry {
     fn default() -> Self {
         Self::new().with_builtin(RustAdapter::new())
     }
 }
 
-impl LangRegistry {
-    /// Create an empty language registry.
+impl AdapterRegistry {
+    /// Create an empty adapter registry.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -29,16 +29,16 @@ impl LangRegistry {
 
     /// Register a built-in adapter.
     #[must_use]
-    pub fn with_builtin(mut self, adapter: impl LangAdapter + 'static) -> Self {
+    pub fn with_builtin(mut self, adapter: impl DiscoveryAdapter + 'static) -> Self {
         self.builtins
-            .insert(adapter.language().to_string(), Arc::new(adapter));
+            .insert(adapter.adapter_id().clone(), Arc::new(adapter));
         self
     }
 
     /// Resolve the adapter for a profile.
     ///
     /// A configured command adapter takes precedence over a built-in adapter.
-    pub fn adapter_for_profile(&self, profile: &Profile) -> AppResult<Arc<dyn LangAdapter>> {
+    pub fn adapter_for_profile(&self, profile: &Profile) -> AppResult<Arc<dyn DiscoveryAdapter>> {
         if let Some(command) = &profile.discovery_command {
             return Ok(Arc::new(CommandAdapter::with_field(
                 profile.language.clone(),
@@ -47,15 +47,13 @@ impl LangRegistry {
             )?));
         }
 
-        self.builtins
-            .get(&profile.language)
-            .cloned()
-            .ok_or_else(|| {
-                AppError::invalid_input(
-                    format!("profiles.{}.language", profile.name),
-                    format!("unsupported language '{}'", profile.language),
-                )
-            })
+        let adapter_id = AdapterId::new(profile.language.clone())?;
+        self.builtins.get(&adapter_id).cloned().ok_or_else(|| {
+            AppError::invalid_input(
+                format!("profiles.{}.language", profile.name),
+                format!("unsupported adapter '{}'", profile.language),
+            )
+        })
     }
 }
 
@@ -63,7 +61,7 @@ impl LangRegistry {
 mod tests {
     use crate::core::{ExecutionMode, Profile};
 
-    use super::LangRegistry;
+    use super::AdapterRegistry;
 
     fn profile(language: &str) -> Profile {
         Profile {
@@ -79,21 +77,21 @@ mod tests {
 
     #[test]
     fn resolves_builtin_rust_adapter() {
-        let adapter = LangRegistry::default()
+        let adapter = AdapterRegistry::default()
             .adapter_for_profile(&profile("rust"))
             .expect("rust adapter resolves");
 
-        assert_eq!(adapter.language(), "rust");
+        assert_eq!(adapter.adapter_id().as_str(), "rust");
     }
 
     #[test]
-    fn reports_unsupported_language_with_profile_field() {
-        let result = LangRegistry::default().adapter_for_profile(&profile("python"));
+    fn reports_unsupported_adapter_with_profile_field() {
+        let result = AdapterRegistry::default().adapter_for_profile(&profile("python"));
         let Err(error) = result else {
-            panic!("unsupported language should fail");
+            panic!("unsupported adapter should fail");
         };
 
         assert!(error.message.contains("profiles.python.language"));
-        assert!(error.message.contains("unsupported language"));
+        assert!(error.message.contains("unsupported adapter"));
     }
 }

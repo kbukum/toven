@@ -10,6 +10,7 @@ use std::{
 use clap::ArgMatches;
 
 use crate::{
+    adapter::AdapterRegistry,
     cache::decision::{
         CACHE_DIRECTORY, CacheDecision, CacheDecisions, CacheMode, TaskCache,
         prepare_cache_decisions,
@@ -28,7 +29,6 @@ use crate::{
         SharedCancellation, run_execution_unit, spawn_ctrl_c_handler,
         start_persistent_execution_unit_with_output, stop_ctrl_c_handler,
     },
-    lang::LangRegistry,
     report::{OutputFormat, RunReporter},
 };
 
@@ -104,7 +104,7 @@ fn run_task_once_with_lifecycle(
         .map(|values| values.cloned().collect::<Vec<_>>())
         .unwrap_or_default();
     let workspace = load_workspace(config)?;
-    let registry = LangRegistry::default();
+    let registry = AdapterRegistry::default();
     let discovered = discover_workspace_task_profiles(&workspace, task, &registry)?;
     let (exec_plan, cache_plan) = select_plans(
         matches,

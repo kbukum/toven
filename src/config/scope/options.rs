@@ -1,0 +1,1 @@
+//! Adapter option config boundary.
