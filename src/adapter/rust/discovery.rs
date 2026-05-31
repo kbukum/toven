@@ -1,10 +1,13 @@
 //! Rust workspace discovery adapter.
 
 use crate::{
-    adapter::rust::{RustProfileOptions, cargo::metadata::discover_modules},
+    adapter::{
+        defaults::argv_task,
+        rust::{RustProfileOptions, cargo::metadata::discover_modules},
+    },
     core::{
         AdapterId, AppResult, DISCOVERY_SCHEMA_VERSION, DiscoverRequest, DiscoverResponse,
-        DiscoveryAdapter, validate_discovery_request_schema,
+        DiscoveryAdapter, Task, validate_discovery_request_schema,
     },
 };
 
@@ -57,6 +60,27 @@ impl DiscoveryAdapter for RustAdapter {
                 })
                 .collect(),
         })
+    }
+
+    fn default_tasks(&self) -> Vec<Task> {
+        ["check", "test"]
+            .into_iter()
+            .map(|name| {
+                argv_task(
+                    self.adapter_id.clone(),
+                    name,
+                    vec![
+                        "cargo".to_string(),
+                        name.to_string(),
+                        "--manifest-path".to_string(),
+                        "{module.manifest}".to_string(),
+                        "-p".to_string(),
+                        "{module.package}".to_string(),
+                        "{args}".to_string(),
+                    ],
+                )
+            })
+            .collect()
     }
 }
 

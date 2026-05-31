@@ -3,7 +3,7 @@
 use std::fmt::Write as _;
 
 use crate::{
-    core::{AppResult, CommandOrigin, Module, Plan},
+    core::{AppResult, CommandOrigin, Module, Plan, TaskOrigin},
     exec::{render_execution_unit, render_resource_group},
 };
 
@@ -24,14 +24,20 @@ pub fn render_human_plan(plan: &Plan) -> AppResult<String> {
         writeln!(&mut output, "\nunit: {}", unit.id).expect("write string");
         writeln!(
             &mut output,
-            "profile: {} task: {} mode: {}",
-            unit.profile, unit.task, unit.mode
+            "scope: {} adapter: {} task: {} mode: {}",
+            unit.scope_id, unit.adapter_id, unit.task, unit.mode
         )
         .expect("write string");
         writeln!(
             &mut output,
             "command: {}",
             command_origin(&unit.command_origin)
+        )
+        .expect("write string");
+        writeln!(
+            &mut output,
+            "task_origin: {}",
+            task_origin(&unit.task_origin)
         )
         .expect("write string");
         writeln!(&mut output, "resource_group: {resource_group}").expect("write string");
@@ -58,6 +64,14 @@ fn command_origin(origin: &CommandOrigin) -> String {
     }
 }
 
+fn task_origin(origin: &TaskOrigin) -> String {
+    match origin {
+        TaskOrigin::AdapterDefault { adapter_id } => format!("adapter default {adapter_id}"),
+        TaskOrigin::ProjectDefault => "project default".to_string(),
+        TaskOrigin::ScopeOverride { scope_id } => format!("scope override {scope_id}"),
+    }
+}
+
 fn module_dependencies(modules: &[Module]) -> Option<String> {
     let dependencies = modules
         .iter()
@@ -66,10 +80,10 @@ fn module_dependencies(modules: &[Module]) -> Option<String> {
             let dependencies = module
                 .dependencies
                 .iter()
-                .map(ToString::to_string)
+                .map(|dependency| format!("{}/{}", module.scope_id, dependency))
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("{} -> {dependencies}", module.name)
+            format!("{}/{} -> {dependencies}", module.scope_id, module.name)
         })
         .collect::<Vec<_>>();
 
@@ -81,12 +95,17 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::{
-        core::{CommandOrigin, ExecutionMode, ExecutionUnit, Module, ModuleId, Plan, Workspace},
+        core::{
+            AdapterId, CommandOrigin, ExecutionMode, ExecutionUnit, Module, ModuleId, Plan,
+            ScopeId, TaskOrigin, Workspace,
+        },
         report::render_human_plan,
     };
 
     fn module(name: &str, dependencies: &[&str]) -> Module {
         Module {
+            scope_id: ScopeId::new("rust").expect("scope id"),
+            adapter_id: AdapterId::new("rust").expect("adapter id"),
             name: ModuleId::new(name).expect("module id"),
             package: Some(name.to_string()),
             root: PathBuf::from(name),
@@ -111,13 +130,14 @@ mod tests {
             },
             units: vec![ExecutionUnit {
                 id: "rust/test/w0/batch".to_string(),
-                profile: "rust".to_string(),
-                scope: None,
+                scope_id: ScopeId::new("rust").expect("scope id"),
+                adapter_id: AdapterId::new("rust").expect("adapter id"),
                 task: "test".to_string(),
                 command_origin: CommandOrigin::Preset {
                     name: "cargo-nextest".to_string(),
                     language: "rust".to_string(),
                 },
+                task_origin: TaskOrigin::ProjectDefault,
                 mode: ExecutionMode::BatchReady,
                 resource_group: "cargo:{project.root}".to_string(),
                 modules: vec![module("core", &[]), module("api", &["core"])],
@@ -135,6 +155,7 @@ mod tests {
         let output = render_human_plan(&plan).expect("plan renders");
 
         assert!(output.contains("command: preset rust/cargo-nextest"));
-        assert!(output.contains("dependencies: api -> core"));
+        assert!(output.contains("task_origin: project default"));
+        assert!(output.contains("dependencies: rust/api -> rust/core"));
     }
 }

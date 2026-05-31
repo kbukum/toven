@@ -503,7 +503,7 @@ mod tests {
     #[test]
     fn ignores_generated_and_dependency_directories() {
         assert!(is_ignored(Path::new(".git/index")));
-        assert!(is_ignored(Path::new(".toven/cache/v2/record")));
+        assert!(is_ignored(Path::new(".toven/cache/v3/record")));
         assert!(is_ignored(Path::new("target/debug/app")));
         assert!(is_ignored(Path::new("ui/node_modules/pkg/index.js")));
         assert!(!is_ignored(Path::new("crates/core/src/lib.rs")));

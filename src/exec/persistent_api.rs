@@ -92,10 +92,11 @@ mod tests {
         let root = rskit_testutil::test_workspace!("exec-wrapper-persistent");
         let unit = ExecutionUnit {
             id: "dev/server/workspace".to_string(),
-            profile: "dev".to_string(),
-            scope: None,
+            scope_id: crate::core::ScopeId::new("dev").expect("scope id"),
+            adapter_id: crate::core::AdapterId::new("rust").expect("adapter id"),
             task: "server".to_string(),
             command_origin: CommandOrigin::DirectArgv,
+            task_origin: crate::core::TaskOrigin::ProjectDefault,
             mode: ExecutionMode::WorkspaceOnce,
             resource_group: String::new(),
             modules: Vec::new(),

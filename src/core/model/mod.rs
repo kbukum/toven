@@ -10,4 +10,5 @@ pub use project::{Plan, Profile, ScopeOverride, Workspace};
 pub use scope::{AdapterId, ScopeId};
 pub use task::{
     CommandOrigin, ExecutionMode, ExecutionUnit, NodeState, PersistentReadiness, Task, TaskCommand,
+    TaskOrigin,
 };

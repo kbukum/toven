@@ -326,7 +326,7 @@ fn modules_and_graph_commands_render_discovered_workspace() {
         config_path.display().to_string(),
     ]);
     assert_eq!(modules.0, ExitCode::SUCCESS, "stderr:\n{}", modules.2);
-    assert!(modules.1.contains("- fixture-core"));
+    assert!(modules.1.contains("- rust/fixture-core"));
     assert!(modules.1.contains("dependencies: fixture-core"));
 
     let list_alias = run_cli([
@@ -336,7 +336,7 @@ fn modules_and_graph_commands_render_discovered_workspace() {
         config_path.display().to_string(),
     ]);
     assert_eq!(list_alias.0, ExitCode::SUCCESS, "stderr:\n{}", list_alias.2);
-    assert!(list_alias.1.contains("- fixture-core"));
+    assert!(list_alias.1.contains("- rust/fixture-core"));
 
     let graph = run_cli([
         "toven".to_string(),
@@ -348,7 +348,11 @@ fn modules_and_graph_commands_render_discovered_workspace() {
     ]);
     assert_eq!(graph.0, ExitCode::SUCCESS, "stderr:\n{}", graph.2);
     assert!(graph.1.contains("digraph toven"));
-    assert!(graph.1.contains("\"fixture-app\" -> \"fixture-core\""));
+    assert!(
+        graph
+            .1
+            .contains("\"rust/fixture-app\" -> \"rust/fixture-core\"")
+    );
 }
 
 #[test]
@@ -357,7 +361,7 @@ fn cache_stats_and_clean_report_local_cache_directory() {
     let workspace_path = root.path().join("rust-workspace");
     copy_fixture_tree(&root, "rust-workspace", &workspace_path);
     let config_path = workspace_path.join("toven.toml");
-    let cache_file = workspace_path.join(".toven/cache/v2/aa/record");
+    let cache_file = workspace_path.join(".toven/cache/v3/aa/record");
     fs::create_dir_all(cache_file.parent().expect("cache parent")).expect("create cache dir");
     fs::write(&cache_file, "cache-record").expect("write cache record");
 
@@ -404,7 +408,7 @@ fn cache_stats_does_not_follow_symlinks() {
     let workspace_path = root.path().join("rust-workspace");
     copy_fixture_tree(&root, "rust-workspace", &workspace_path);
     let config_path = workspace_path.join("toven.toml");
-    let cache_dir = workspace_path.join(".toven/cache/v2");
+    let cache_dir = workspace_path.join(".toven/cache/v3");
     fs::create_dir_all(&cache_dir).expect("create cache dir");
     fs::write(cache_dir.join("record"), "cache-record").expect("write cache record");
     fs::write(workspace_path.join("outside-cache"), "external").expect("write external file");

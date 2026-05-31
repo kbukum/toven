@@ -11,21 +11,21 @@ use rskit_cache::CacheStore;
 
 use crate::{
     cache::{
-        input::{compute_shared_inputs_hash, compute_source_hashes},
+        input::{ModuleCacheKey, compute_shared_inputs_hash, compute_source_hashes},
         key::{CacheKey, CacheKeyBuilder},
         store::{FileCache, FileCacheConfig},
     },
     core::{
         AppError, AppResult, CommandOrigin, ErrorCode, ExecutionMode, ExecutionUnit, Module,
-        ModuleId, Plan, Workspace,
+        ModuleId, Plan, TaskOrigin, Workspace,
     },
     exec::{render_execution_unit, render_resource_group},
 };
 
 /// Cache schema version for records and key composition.
-pub const CACHE_RECORD_SCHEMA: u16 = 2;
+pub const CACHE_RECORD_SCHEMA: u16 = 3;
 /// Cache store path segment for the current record/key schema.
-pub const CACHE_DIRECTORY: &str = "v2";
+pub const CACHE_DIRECTORY: &str = "v3";
 
 /// Effective cache mode for a command invocation.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -41,11 +41,13 @@ pub enum CacheMode {
     },
 }
 
-/// Cache decision for one module/task/profile tuple.
+/// Cache decision for one module/task/scope tuple.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct CacheDecision {
-    /// Profile that owns the task.
-    pub profile: String,
+    /// Scope that owns the task.
+    pub scope_id: String,
+    /// Adapter that owns the task.
+    pub adapter_id: String,
     /// Module covered by the decision.
     pub module: ModuleId,
     /// Task name.
@@ -97,7 +99,7 @@ impl CacheDecision {
     }
 }
 
-/// Prepared cache decisions keyed by `(profile, module)`.
+/// Prepared cache decisions keyed by `(scope, module)`.
 pub type CacheDecisions = BTreeMap<(String, ModuleId), CacheDecision>;
 
 /// Filesystem-backed task cache.
@@ -142,7 +144,8 @@ impl TaskCache {
         let record = CacheRecord {
             schema: CACHE_RECORD_SCHEMA,
             key: decision.key.as_str().to_string(),
-            profile: decision.profile.clone(),
+            scope_id: decision.scope_id.clone(),
+            adapter_id: decision.adapter_id.clone(),
             module: decision.module.to_string(),
             task: decision.task.clone(),
             source_hash: decision.source_hash.clone(),
@@ -174,8 +177,10 @@ pub struct CacheRecord {
     pub schema: u16,
     /// Final cache key.
     pub key: String,
-    /// Profile name.
-    pub profile: String,
+    /// Scope id.
+    pub scope_id: String,
+    /// Adapter id.
+    pub adapter_id: String,
     /// Module id.
     pub module: String,
     /// Task name.
@@ -259,7 +264,8 @@ pub fn prepare_cache_decisions(
         decisions.insert(
             (key.0.clone(), key.1.clone()),
             CacheDecision {
-                profile: key.0.clone(),
+                scope_id: key.0.clone(),
+                adapter_id: components.adapter_id.clone(),
                 module: key.1.clone(),
                 task: components.task.clone(),
                 key: components.key,
@@ -280,7 +286,7 @@ fn disabled_decisions(plan: &Plan, reason: &str) -> CacheDecisions {
     for unit in &plan.units {
         for module in &unit.modules {
             decisions.insert(
-                (unit.profile.clone(), module.name.clone()),
+                (unit.scope_id.to_string(), module.name.clone()),
                 disabled_decision(unit, module, reason),
             );
         }
@@ -290,7 +296,8 @@ fn disabled_decisions(plan: &Plan, reason: &str) -> CacheDecisions {
 
 fn disabled_decision(unit: &ExecutionUnit, module: &Module, reason: &str) -> CacheDecision {
     CacheDecision {
-        profile: unit.profile.clone(),
+        scope_id: unit.scope_id.to_string(),
+        adapter_id: unit.adapter_id.to_string(),
         module: module.name.clone(),
         task: unit.task.clone(),
         key: CacheKey::new("disabled"),
@@ -354,7 +361,8 @@ fn record_matches(record: &CacheRecord, components: &KeyComponents) -> bool {
     record.schema == CACHE_RECORD_SCHEMA
         && record.success
         && record.key == components.key.as_str()
-        && record.profile == components.profile
+        && record.scope_id == components.scope_id
+        && record.adapter_id == components.adapter_id
         && record.module == components.module.to_string()
         && record.task == components.task
         && record.source_hash == components.source_hash
@@ -374,7 +382,8 @@ struct PlannedModule<'a> {
 
 #[derive(Debug, Clone)]
 struct KeyComponents {
-    profile: String,
+    scope_id: String,
+    adapter_id: String,
     module: ModuleId,
     task: String,
     key: CacheKey,
@@ -388,7 +397,7 @@ fn compute_components(
     key: &PlannedKey,
     planned: &BTreeMap<PlannedKey, PlannedModule<'_>>,
     workspace: &Workspace,
-    source_hashes: &BTreeMap<ModuleId, String>,
+    source_hashes: &BTreeMap<ModuleCacheKey, String>,
     cache_keys: &mut BTreeMap<PlannedKey, KeyComponents>,
     visiting: &mut BTreeSet<PlannedKey>,
 ) -> AppResult<KeyComponents> {
@@ -422,7 +431,7 @@ fn compute_components(
                 .map(|components| components.key.as_str().to_string())
             } else {
                 Ok(source_hashes
-                    .get(dependency)
+                    .get(&(key.0.clone(), dependency.clone()))
                     .cloned()
                     .unwrap_or_else(|| format!("external:{dependency}")))
             }
@@ -431,9 +440,12 @@ fn compute_components(
 
     visiting.remove(key);
 
-    let source_hash = source_hashes.get(&key.1).cloned().ok_or_else(|| {
-        AppError::invalid_input("modules", format!("module '{}' has no source hash", key.1))
-    })?;
+    let source_hash = source_hashes
+        .get(&(key.0.clone(), key.1.clone()))
+        .cloned()
+        .ok_or_else(|| {
+            AppError::invalid_input("modules", format!("module '{}' has no source hash", key.1))
+        })?;
     let dep_hash = component_hash("deps", dep_keys);
     let shared_hash = compute_shared_inputs_hash(workspace, &planned_module.unit.shared_inputs)?;
     let task_hash = task_hash(
@@ -452,7 +464,8 @@ fn compute_components(
         .field(&shared_hash)
         .build();
     let components = KeyComponents {
-        profile: key.0.clone(),
+        scope_id: key.0.clone(),
+        adapter_id: planned_module.unit.adapter_id.to_string(),
         module: key.1.clone(),
         task: planned_module.unit.task.clone(),
         key: cache_key,
@@ -478,10 +491,12 @@ fn task_hash(
     Ok(component_hash(
         "task",
         [
-            unit.profile.clone(),
+            unit.scope_id.to_string(),
+            unit.adapter_id.to_string(),
             unit.task.clone(),
             execution_mode(unit.mode).to_string(),
             command_origin(&unit.command_origin),
+            task_origin(&unit.task_origin),
             format!("cwd:{}", workspace.root.display()),
             "env:inherit".to_string(),
             format!("toolchain:{}", toolchain_identity(unit, workspace)?),
@@ -491,6 +506,14 @@ fn task_hash(
             format!("shared-inputs:{shared_hash}"),
         ],
     ))
+}
+
+fn task_origin(origin: &TaskOrigin) -> String {
+    match origin {
+        TaskOrigin::AdapterDefault { adapter_id } => format!("adapter-default:{adapter_id}"),
+        TaskOrigin::ProjectDefault => "project-default".to_string(),
+        TaskOrigin::ScopeOverride { scope_id } => format!("scope-override:{scope_id}"),
+    }
 }
 
 fn command_origin(origin: &CommandOrigin) -> String {
@@ -571,10 +594,11 @@ fn component_hash(name: &str, values: impl IntoIterator<Item = String>) -> Strin
 }
 
 fn modules_from_plan(plan: &Plan) -> AppResult<Vec<Module>> {
-    let mut modules = BTreeMap::<ModuleId, Module>::new();
+    let mut modules = BTreeMap::<ModuleCacheKey, Module>::new();
     for unit in &plan.units {
         for module in &unit.modules {
-            if let Some(existing) = modules.get(&module.name)
+            let key = (module.scope_id.to_string(), module.name.clone());
+            if let Some(existing) = modules.get(&key)
                 && existing != module
             {
                 return Err(AppError::invalid_input(
@@ -585,7 +609,7 @@ fn modules_from_plan(plan: &Plan) -> AppResult<Vec<Module>> {
                     ),
                 ));
             }
-            modules.insert(module.name.clone(), module.clone());
+            modules.insert(key, module.clone());
         }
     }
     Ok(modules.into_values().collect())
@@ -596,7 +620,7 @@ fn planned_modules(plan: &Plan) -> BTreeMap<PlannedKey, PlannedModule<'_>> {
     for unit in &plan.units {
         for module in &unit.modules {
             planned.insert(
-                PlannedKey(unit.profile.clone(), module.name.clone()),
+                PlannedKey(unit.scope_id.to_string(), module.name.clone()),
                 PlannedModule { unit, module },
             );
         }
@@ -728,13 +752,16 @@ mod tests {
             },
             units: vec![ExecutionUnit {
                 id: "unit".to_string(),
-                profile: "profile".to_string(),
-                scope: None,
+                scope_id: crate::core::ScopeId::new("profile").expect("scope id"),
+                adapter_id: crate::core::AdapterId::new("rust").expect("adapter id"),
                 task: "test".to_string(),
                 command_origin: CommandOrigin::DirectArgv,
+                task_origin: crate::core::TaskOrigin::ProjectDefault,
                 mode: ExecutionMode::SpawnEach,
                 resource_group: String::new(),
                 modules: vec![Module {
+                    scope_id: crate::core::ScopeId::new("profile").expect("scope id"),
+                    adapter_id: crate::core::AdapterId::new("rust").expect("adapter id"),
                     name: ModuleId::new("module").expect("module id"),
                     package: None,
                     root: PathBuf::from("module"),

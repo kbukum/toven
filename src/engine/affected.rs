@@ -152,10 +152,12 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{ChangedPath, affected_modules};
-    use crate::core::{Module, ModuleId};
+    use crate::core::{AdapterId, Module, ModuleId, ScopeId};
 
     fn module(name: &str, root: &str, dependencies: &[&str]) -> Module {
         Module {
+            scope_id: ScopeId::new("rust").unwrap(),
+            adapter_id: AdapterId::new("rust").unwrap(),
             name: ModuleId::new(name).unwrap(),
             package: Some(name.to_string()),
             root: PathBuf::from(root),

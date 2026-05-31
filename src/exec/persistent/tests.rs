@@ -133,7 +133,7 @@ fn empty_persistent_argv_reports_invalid_input() {
     };
 
     assert_eq!(error.code, crate::core::ErrorCode::InvalidInput);
-    assert!(error.message.contains("profiles.dev.tasks.server.argv"));
+    assert!(error.message.contains("scopes.dev.tasks.server.argv"));
     assert!(error.message.contains("rendered an empty argv"));
 }
 
@@ -251,7 +251,7 @@ fn empty_readiness_command_reports_ready_command_field() {
     assert!(
         error
             .message
-            .contains("profiles.dev.tasks.server.ready_command")
+            .contains("scopes.dev.tasks.server.ready_command")
     );
     assert!(!error.message.contains(".argv"));
 }
@@ -283,10 +283,11 @@ fn readiness_command_uses_readiness_timeout() {
 fn unit() -> ExecutionUnit {
     ExecutionUnit {
         id: "dev/server/workspace".to_string(),
-        profile: "dev".to_string(),
-        scope: None,
+        scope_id: crate::core::ScopeId::new("dev").expect("scope id"),
+        adapter_id: crate::core::AdapterId::new("rust").expect("adapter id"),
         task: "server".to_string(),
         command_origin: CommandOrigin::DirectArgv,
+        task_origin: crate::core::TaskOrigin::ProjectDefault,
         mode: ExecutionMode::WorkspaceOnce,
         resource_group: String::new(),
         modules: Vec::new(),

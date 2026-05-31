@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use crate::{
     core::{
-        AppError, AppResult, PersistentReadiness, Task, TaskCommand, validate_command_template,
-        validate_identifier,
+        AppError, AppResult, PersistentReadiness, ScopeId, Task, TaskCommand, TaskOrigin,
+        validate_command_template, validate_identifier,
     },
     preset::PresetResolver,
 };
@@ -77,9 +77,18 @@ pub(super) fn normalize_task(
         }
     };
 
+    let origin = if owner_table == "scopes" {
+        TaskOrigin::ScopeOverride {
+            scope_id: ScopeId::new(owner_name)?,
+        }
+    } else {
+        TaskOrigin::ProjectDefault
+    };
+
     Ok(Task {
         name,
         command,
+        origin,
         cache_args: config.cache_args,
         persistent: config.persistent,
         readiness,

@@ -2,13 +2,15 @@
 
 use std::{fmt, path::Path};
 
-use crate::core::{AppError, AppResult, Module};
+use crate::core::{AppError, AppResult, Module, ScopeId};
 
 const PLACEHOLDERS: &[Placeholder] = &[
     Placeholder::Args,
     Placeholder::ProjectRoot,
     Placeholder::WorkspaceRoot,
     Placeholder::ScopeRoot,
+    Placeholder::ScopeId,
+    Placeholder::ModuleScope,
     Placeholder::ModuleName,
     Placeholder::ModulePackage,
     Placeholder::ModulePath,
@@ -27,6 +29,10 @@ pub enum Placeholder {
     WorkspaceRoot,
     /// Scope root relative to the project root.
     ScopeRoot,
+    /// Scope identifier.
+    ScopeId,
+    /// Scope identifier that owns the module.
+    ModuleScope,
     /// Module name.
     ModuleName,
     /// Module package name.
@@ -48,6 +54,8 @@ impl Placeholder {
             Self::ProjectRoot => "project.root",
             Self::WorkspaceRoot => "workspace.root",
             Self::ScopeRoot => "scope.root",
+            Self::ScopeId => "scope.id",
+            Self::ModuleScope => "module.scope",
             Self::ModuleName => "module.name",
             Self::ModulePackage => "module.package",
             Self::ModulePath => "module.path",
@@ -104,7 +112,12 @@ impl Template {
         workspace_root: &Path,
         module: Option<&Module>,
     ) -> AppResult<String> {
-        self.render_scalar_with_scope(workspace_root, None, module)
+        self.render_scalar_with_scope(
+            workspace_root,
+            None,
+            module.map(|module| &module.scope_id),
+            module,
+        )
     }
 
     /// Render placeholders that produce a single scalar value with scope context.
@@ -112,10 +125,11 @@ impl Template {
         &self,
         project_root: &Path,
         scope_root: Option<&Path>,
+        scope_id: Option<&ScopeId>,
         module: Option<&Module>,
     ) -> AppResult<String> {
         self.inner.render_with(|placeholder| {
-            render_placeholder(placeholder, project_root, scope_root, module)
+            render_placeholder(placeholder, project_root, scope_root, scope_id, module)
         })
     }
 }
@@ -124,6 +138,7 @@ fn render_placeholder(
     placeholder: Placeholder,
     project_root: &Path,
     scope_root: Option<&Path>,
+    scope_id: Option<&ScopeId>,
     module: Option<&Module>,
 ) -> AppResult<String> {
     match placeholder {
@@ -134,6 +149,13 @@ fn render_placeholder(
             .map_or_else(|| Path::new(".").to_path_buf(), Path::to_path_buf)
             .display()
             .to_string()),
+        Placeholder::ScopeId => scope_id
+            .map(ToString::to_string)
+            .or_else(|| module.map(|module| module.scope_id.to_string()))
+            .ok_or_else(|| missing_scope(placeholder)),
+        Placeholder::ModuleScope => module
+            .map(|module| module.scope_id.to_string())
+            .ok_or_else(|| missing_module(placeholder)),
         Placeholder::ModuleName => module
             .map(|module| module.name.to_string())
             .ok_or_else(|| missing_module(placeholder)),
@@ -161,6 +183,13 @@ fn render_placeholder(
             "selector placeholders cannot be rendered as scalar values",
         )),
     }
+}
+
+fn missing_scope(placeholder: Placeholder) -> AppError {
+    AppError::invalid_input(
+        "template",
+        format!("placeholder '{placeholder}' requires a scope"),
+    )
 }
 
 fn missing_module(placeholder: Placeholder) -> AppError {
@@ -206,6 +235,8 @@ mod tests {
         assert_eq!(Placeholder::ProjectRoot.to_string(), "project.root");
         assert_eq!(Placeholder::WorkspaceRoot.to_string(), "workspace.root");
         assert_eq!(Placeholder::ScopeRoot.to_string(), "scope.root");
+        assert_eq!(Placeholder::ScopeId.to_string(), "scope.id");
+        assert_eq!(Placeholder::ModuleScope.to_string(), "module.scope");
         assert_eq!(Placeholder::ModuleName.to_string(), "module.name");
         assert_eq!(Placeholder::ModulePackage.to_string(), "module.package");
         assert_eq!(Placeholder::ModulePath.to_string(), "module.path");
@@ -245,6 +276,8 @@ mod tests {
     #[test]
     fn renders_workspace_and_module_scalar_placeholders() {
         let module = crate::core::Module {
+            scope_id: crate::core::ScopeId::new("rust").expect("scope id"),
+            adapter_id: crate::core::AdapterId::new("rust").expect("adapter id"),
             name: crate::core::ModuleId::new("api").expect("module id parses"),
             package: Some("api-pkg".to_string()),
             root: "crates/api".into(),
@@ -253,7 +286,7 @@ mod tests {
             source_patterns: Vec::new(),
         };
         let template = Template::parse(
-            "{workspace.root}/{module.path}:{module.name}:{module.package}:{module.manifest}",
+            "{workspace.root}/{module.path}:{module.name}:{module.package}:{module.manifest}:{module.scope}",
         )
         .expect("template parses");
 
@@ -261,24 +294,34 @@ mod tests {
             .render_scalar(Path::new("/workspace"), Some(&module))
             .expect("template renders");
 
-        assert_eq!(rendered, "/workspace/crates/api:api:api-pkg:Cargo.toml");
+        assert_eq!(
+            rendered,
+            "/workspace/crates/api:api:api-pkg:Cargo.toml:rust"
+        );
     }
 
     #[test]
     fn renders_project_and_scope_scalar_placeholders() {
-        let template = Template::parse("{project.root}:{workspace.root}:{scope.root}")
+        let template = Template::parse("{project.root}:{workspace.root}:{scope.root}:{scope.id}")
             .expect("template parses");
 
         let rendered = template
-            .render_scalar_with_scope(Path::new("/workspace"), Some(Path::new("core")), None)
+            .render_scalar_with_scope(
+                Path::new("/workspace"),
+                Some(Path::new("core")),
+                Some(&crate::core::ScopeId::new("rust").expect("scope id")),
+                None,
+            )
             .expect("template renders");
 
-        assert_eq!(rendered, "/workspace:/workspace:core");
+        assert_eq!(rendered, "/workspace:/workspace:core:rust");
     }
 
     #[test]
     fn module_package_falls_back_to_module_name() {
         let module = crate::core::Module {
+            scope_id: crate::core::ScopeId::new("rust").expect("scope id"),
+            adapter_id: crate::core::AdapterId::new("rust").expect("adapter id"),
             name: crate::core::ModuleId::new("api").expect("module id parses"),
             package: None,
             root: "crates/api".into(),

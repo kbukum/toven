@@ -115,12 +115,14 @@ mod tests {
     use std::{collections::BTreeSet, path::PathBuf};
 
     use crate::{
-        core::{Module, ModuleId},
+        core::{AdapterId, Module, ModuleId, ScopeId},
         engine::graph::dependents_closure,
     };
 
     fn module(name: &str, dependencies: &[&str]) -> Module {
         Module {
+            scope_id: ScopeId::new("rust").expect("scope id"),
+            adapter_id: AdapterId::new("rust").expect("adapter id"),
             name: ModuleId::new(name).expect("module id"),
             package: Some(name.to_string()),
             root: PathBuf::from(name),

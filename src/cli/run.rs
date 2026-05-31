@@ -391,7 +391,7 @@ fn decision_for<'a>(
     unit: &ExecutionUnit,
     module: &ModuleId,
 ) -> Option<&'a CacheDecision> {
-    decisions.get(&(unit.profile.clone(), module.clone()))
+    decisions.get(&(unit.scope_id.to_string(), module.clone()))
 }
 
 fn process_error(
@@ -548,10 +548,11 @@ mod tests {
         let root = rskit_testutil::test_workspace!("run-workspace-once-hit-message");
         let unit = ExecutionUnit {
             id: "workspace-test".to_string(),
-            profile: "profile".to_string(),
-            scope: None,
+            scope_id: crate::core::ScopeId::new("profile").expect("scope id"),
+            adapter_id: crate::core::AdapterId::new("rust").expect("adapter id"),
             task: "test".to_string(),
             command_origin: CommandOrigin::DirectArgv,
+            task_origin: crate::core::TaskOrigin::ProjectDefault,
             mode: ExecutionMode::WorkspaceOnce,
             resource_group: String::new(),
             modules: vec![module("hit", &[]), module("miss", &[])],
@@ -717,10 +718,11 @@ mod tests {
     fn unit() -> ExecutionUnit {
         ExecutionUnit {
             id: "unit".to_string(),
-            profile: "profile".to_string(),
-            scope: None,
+            scope_id: crate::core::ScopeId::new("profile").expect("scope id"),
+            adapter_id: crate::core::AdapterId::new("rust").expect("adapter id"),
             task: "test".to_string(),
             command_origin: CommandOrigin::DirectArgv,
+            task_origin: crate::core::TaskOrigin::ProjectDefault,
             mode: ExecutionMode::SpawnEach,
             resource_group: String::new(),
             modules: Vec::new(),
@@ -750,6 +752,8 @@ mod tests {
 
     fn module(name: &str, dependencies: &[&str]) -> Module {
         Module {
+            scope_id: crate::core::ScopeId::new("profile").expect("scope id"),
+            adapter_id: crate::core::AdapterId::new("rust").expect("adapter id"),
             name: crate::core::ModuleId::new(name).expect("module id"),
             package: None,
             root: name.into(),
@@ -764,7 +768,8 @@ mod tests {
 
     fn decision(module: &str, state: CacheState) -> CacheDecision {
         CacheDecision {
-            profile: "profile".to_string(),
+            scope_id: "profile".to_string(),
+            adapter_id: "rust".to_string(),
             module: crate::core::ModuleId::new(module).expect("module id"),
             task: "test".to_string(),
             key: CacheKey::new(format!("key-{module}")),

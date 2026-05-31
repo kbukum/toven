@@ -64,13 +64,6 @@ fn normalize_profile(
     validate_identifier(format!("profiles.{name}.adapter"), &config.adapter)?;
     validate_discover(&name, config.discover.as_deref())?;
 
-    if config.tasks.is_empty() {
-        return Err(AppError::invalid_input(
-            format!("profiles.{name}.tasks"),
-            "at least one task is required",
-        ));
-    }
-
     let module_arg_template = config.module_arg_template.unwrap_or_default();
     validate_templates(
         format!("profiles.{name}.module_arg_template"),

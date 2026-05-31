@@ -10,12 +10,27 @@ use serde::Serialize;
 
 use crate::{
     cache::decision::{CacheDecision, CacheState},
-    core::{AppError, AppResult, ExecutionUnit, Module},
+    core::{AppError, AppResult, CommandOrigin, ExecutionUnit, Module, TaskOrigin},
     exec::{render_execution_unit, render_resource_group},
     report::RunStats,
 };
 
-const SCHEMA_VERSION: u16 = 1;
+const SCHEMA_VERSION: u16 = 2;
+
+fn command_origin(origin: &CommandOrigin) -> String {
+    match origin {
+        CommandOrigin::DirectArgv => "direct-argv".to_string(),
+        CommandOrigin::Preset { name, language } => format!("preset:{language}:{name}"),
+    }
+}
+
+fn task_origin(origin: &TaskOrigin) -> String {
+    match origin {
+        TaskOrigin::AdapterDefault { adapter_id } => format!("adapter-default:{adapter_id}"),
+        TaskOrigin::ProjectDefault => "project-default".to_string(),
+        TaskOrigin::ScopeOverride { scope_id } => format!("scope-override:{scope_id}"),
+    }
+}
 
 /// Output format for task execution.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -100,8 +115,11 @@ impl<'a, W: Write> RunReporter<'a, W> {
             "plan.unit",
             PlanUnit {
                 unit_id: &unit.id,
-                profile: &unit.profile,
+                scope_id: unit.scope_id.as_str(),
+                adapter_id: unit.adapter_id.as_str(),
                 task: &unit.task,
+                command_origin: command_origin(&unit.command_origin),
+                task_origin: task_origin(&unit.task_origin),
                 mode: unit.mode.to_string(),
                 persistent: unit.persistent,
                 resource_group,
@@ -109,7 +127,7 @@ impl<'a, W: Write> RunReporter<'a, W> {
                 modules: unit
                     .modules
                     .iter()
-                    .map(|module| module.name.as_str())
+                    .map(|module| format!("{}/{}", module.scope_id, module.name))
                     .collect(),
             },
         )
@@ -137,7 +155,8 @@ impl<'a, W: Write> RunReporter<'a, W> {
             "cache.hit",
             CacheHit {
                 unit_id: &unit.id,
-                profile: &unit.profile,
+                scope_id: unit.scope_id.as_str(),
+                adapter_id: unit.adapter_id.as_str(),
                 task: &unit.task,
                 module: module.name.as_str(),
                 executed,
@@ -195,7 +214,8 @@ impl<'a, W: Write> RunReporter<'a, W> {
             "unit.finished",
             UnitFinished {
                 unit_id: &unit.id,
-                profile: &unit.profile,
+                scope_id: unit.scope_id.as_str(),
+                adapter_id: unit.adapter_id.as_str(),
                 task: &unit.task,
                 success: result.success(),
                 exit_code: result.exit_code,
@@ -281,18 +301,22 @@ struct PlanPrepared<'a> {
 #[derive(Serialize)]
 struct PlanUnit<'a> {
     unit_id: &'a str,
-    profile: &'a str,
+    scope_id: &'a str,
+    adapter_id: &'a str,
     task: &'a str,
+    command_origin: String,
+    task_origin: String,
     mode: String,
     persistent: bool,
     resource_group: String,
     argv: Vec<String>,
-    modules: Vec<&'a str>,
+    modules: Vec<String>,
 }
 
 #[derive(Serialize)]
 struct CacheDecisionEvent<'a> {
-    profile: &'a str,
+    scope_id: &'a str,
+    adapter_id: &'a str,
     module: &'a str,
     task: &'a str,
     state: &'static str,
@@ -308,7 +332,8 @@ impl<'a> From<&'a CacheDecision> for CacheDecisionEvent<'a> {
             CacheState::Forced => ("forced", None),
         };
         Self {
-            profile: &decision.profile,
+            scope_id: &decision.scope_id,
+            adapter_id: &decision.adapter_id,
             module: decision.module.as_str(),
             task: &decision.task,
             state,
@@ -320,7 +345,8 @@ impl<'a> From<&'a CacheDecision> for CacheDecisionEvent<'a> {
 #[derive(Serialize)]
 struct CacheHit<'a> {
     unit_id: &'a str,
-    profile: &'a str,
+    scope_id: &'a str,
+    adapter_id: &'a str,
     task: &'a str,
     module: &'a str,
     executed: bool,
@@ -329,21 +355,23 @@ struct CacheHit<'a> {
 #[derive(Serialize)]
 struct UnitRef<'a> {
     unit_id: &'a str,
-    profile: &'a str,
+    scope_id: &'a str,
+    adapter_id: &'a str,
     task: &'a str,
-    modules: Vec<&'a str>,
+    modules: Vec<String>,
 }
 
 impl<'a> From<&'a ExecutionUnit> for UnitRef<'a> {
     fn from(unit: &'a ExecutionUnit) -> Self {
         Self {
             unit_id: &unit.id,
-            profile: &unit.profile,
+            scope_id: unit.scope_id.as_str(),
+            adapter_id: unit.adapter_id.as_str(),
             task: &unit.task,
             modules: unit
                 .modules
                 .iter()
-                .map(|module| module.name.as_str())
+                .map(|module| format!("{}/{}", module.scope_id, module.name))
                 .collect(),
         }
     }
@@ -352,7 +380,8 @@ impl<'a> From<&'a ExecutionUnit> for UnitRef<'a> {
 #[derive(Serialize)]
 struct UnitFinished<'a> {
     unit_id: &'a str,
-    profile: &'a str,
+    scope_id: &'a str,
+    adapter_id: &'a str,
     task: &'a str,
     success: bool,
     exit_code: Option<i32>,

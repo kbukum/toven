@@ -49,15 +49,16 @@ fn render_text(stdout: &mut impl Write, modules: &[Module]) -> AppResult<()> {
 
     for module in modules {
         if module.dependencies.is_empty() {
-            writeln!(stdout, "{}: none", module.name).map_err(AppError::internal)?;
+            writeln!(stdout, "{}: none", module_id(module)).map_err(AppError::internal)?;
         } else {
             let dependencies = module
                 .dependencies
                 .iter()
-                .map(ToString::to_string)
+                .map(|dependency| format!("{}/{}", module.scope_id, dependency))
                 .collect::<Vec<_>>()
                 .join(", ");
-            writeln!(stdout, "{}: {dependencies}", module.name).map_err(AppError::internal)?;
+            writeln!(stdout, "{}: {dependencies}", module_id(module))
+                .map_err(AppError::internal)?;
         }
     }
     Ok(())
@@ -66,14 +67,14 @@ fn render_text(stdout: &mut impl Write, modules: &[Module]) -> AppResult<()> {
 fn render_dot(stdout: &mut impl Write, modules: &[Module]) -> AppResult<()> {
     writeln!(stdout, "digraph toven {{").map_err(AppError::internal)?;
     for module in modules {
-        writeln!(stdout, "  \"{}\";", escape_dot(module.name.as_str()))
+        writeln!(stdout, "  \"{}\";", escape_dot(&module_id(module)))
             .map_err(AppError::internal)?;
         for dependency in &module.dependencies {
             writeln!(
                 stdout,
                 "  \"{}\" -> \"{}\";",
-                escape_dot(module.name.as_str()),
-                escape_dot(dependency.as_str())
+                escape_dot(&module_id(module)),
+                escape_dot(&format!("{}/{}", module.scope_id, dependency))
             )
             .map_err(AppError::internal)?;
         }
@@ -83,4 +84,8 @@ fn render_dot(stdout: &mut impl Write, modules: &[Module]) -> AppResult<()> {
 
 fn escape_dot(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn module_id(module: &Module) -> String {
+    format!("{}/{}", module.scope_id, module.name)
 }

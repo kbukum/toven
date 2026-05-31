@@ -145,19 +145,20 @@ pub(super) fn modules_from_discovered(
     let mut modules = BTreeMap::new();
     for profile in discovered {
         for module in &profile.modules {
-            if let Some(existing) = modules.get(&module.name) {
+            let key = (module.scope_id.to_string(), module.name.clone());
+            if let Some(existing) = modules.get(&key) {
                 if existing != module {
                     return Err(AppError::invalid_input(
                         "modules",
                         format!(
-                            "profile '{}' discovered conflicting definition for module '{}'",
-                            profile.profile.name, module.name
+                            "scope '{}' discovered conflicting definition for module '{}'",
+                            profile.scope_id, module.name
                         ),
                     ));
                 }
                 continue;
             }
-            modules.insert(module.name.clone(), module.clone());
+            modules.insert(key, module.clone());
         }
     }
     Ok(modules.into_values().collect())

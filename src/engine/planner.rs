@@ -9,7 +9,7 @@ use crate::{
         ExecutionMode, ExecutionUnit, ModuleId, Plan, Profile, ScopeId, ScopeOverride, Task,
         TaskCommand, Workspace, validate_discovery_response,
     },
-    engine::scheduler::{ready_waves, split_wave_by_manifest},
+    engine::scheduler::split_wave_by_manifest,
     exec::{render_execution_unit, render_resource_group},
 };
 
@@ -19,7 +19,9 @@ pub struct DiscoveredTaskProfile {
     /// Profile that owns the task.
     pub profile: Profile,
     /// Scope override that owns this planned partition.
-    pub scope: Option<String>,
+    pub scope_id: ScopeId,
+    /// Adapter that owns this planned partition.
+    pub adapter_id: AdapterId,
     /// Task selected from the profile.
     pub task: Task,
     /// Modules discovered for the profile.
@@ -58,25 +60,38 @@ pub fn discover_workspace_task_profiles(
     let mut discovery_cache = BTreeMap::new();
 
     for profile in &workspace.profiles {
-        let profile_task = profile.tasks.iter().find(|task| task.name == task_name);
+        let config_profile_task = profile.tasks.iter().any(|task| task.name == task_name);
+        let config_scope_task = profile
+            .scope_overrides
+            .iter()
+            .any(|scope| scope.tasks.iter().any(|task| task.name == task_name));
+        let profile_tasks = if config_profile_task || config_scope_task {
+            let adapter = registry.adapter_for_profile(profile)?;
+            merged_tasks(adapter.default_tasks(), profile.tasks.clone())
+        } else {
+            let Ok(adapter) = registry.adapter_for_profile(profile) else {
+                continue;
+            };
+            merged_tasks(adapter.default_tasks(), profile.tasks.clone())
+        };
+        let profile_task = profile_tasks.iter().find(|task| task.name == task_name);
         let scope_task_exists = profile.scope_overrides.iter().any(|scope| {
-            scope.tasks.iter().any(|task| task.name == task_name) || profile_task.is_some()
+            merged_tasks(profile_tasks.clone(), scope.tasks.clone())
+                .iter()
+                .any(|task| task.name == task_name)
         });
         if profile_task.is_none() && !scope_task_exists {
             continue;
         }
+        let adapter_id = AdapterId::new(profile.language.clone())?;
 
         let profile_modules =
             discover_profile_modules(workspace, profile, registry, &mut discovery_cache)?;
         let mut scoped_modules = BTreeSet::new();
 
         for scope in &profile.scope_overrides {
-            let Some(task) = scope
-                .tasks
-                .iter()
-                .find(|task| task.name == task_name)
-                .or(profile_task)
-            else {
+            let scope_tasks = merged_tasks(profile_tasks.clone(), scope.tasks.clone());
+            let Some(task) = scope_tasks.iter().find(|task| task.name == task_name) else {
                 continue;
             };
             let mut modules =
@@ -89,7 +104,8 @@ pub fn discover_workspace_task_profiles(
             scoped_modules.extend(scope_module_filter.iter().cloned());
             discovered.push(DiscoveredTaskProfile {
                 profile: scoped_profile(profile, scope),
-                scope: Some(scope.name.clone()),
+                scope_id: ScopeId::new(scope.name.clone())?,
+                adapter_id: adapter_id.clone(),
                 task: task.clone(),
                 modules,
             });
@@ -102,7 +118,8 @@ pub fn discover_workspace_task_profiles(
                 .collect::<Vec<_>>();
             discovered.push(DiscoveredTaskProfile {
                 profile: profile.clone(),
-                scope: None,
+                scope_id: ScopeId::new(profile.name.clone())?,
+                adapter_id,
                 task: task.clone(),
                 modules,
             });
@@ -114,12 +131,23 @@ pub fn discover_workspace_task_profiles(
             "task",
             format!(
                 "task '{task_name}' is not defined by any profile; available tasks: {}",
-                available_tasks(workspace)
+                available_tasks(workspace, registry)
             ),
         ));
     }
 
     Ok(discovered)
+}
+
+fn merged_tasks(base: Vec<Task>, overrides: Vec<Task>) -> Vec<Task> {
+    let mut tasks = base
+        .into_iter()
+        .map(|task| (task.name.clone(), task))
+        .collect::<BTreeMap<_, _>>();
+    for task in overrides {
+        tasks.insert(task.name.clone(), task);
+    }
+    tasks.into_values().collect()
 }
 
 fn apply_profile_dependencies(
@@ -173,22 +201,23 @@ fn plan_discovered_profile_group(
     passthrough_args: &[String],
     module_filter: Option<&BTreeSet<ModuleId>>,
 ) -> AppResult<Vec<ExecutionUnit>> {
-    let mut modules_by_name = BTreeMap::new();
+    let mut modules_by_key = BTreeMap::new();
     let mut policy_by_module = BTreeMap::new();
     let mut all_policy_modules = BTreeMap::<usize, Vec<crate::core::Module>>::new();
 
     for (policy_index, policy) in discovered.iter().enumerate() {
         for module in filter_modules(policy.modules.clone(), module_filter) {
-            if modules_by_name
-                .insert(module.name.clone(), module.clone())
+            let module_key = scoped_module_key(&module);
+            if modules_by_key
+                .insert(module_key.clone(), module.clone())
                 .is_some()
             {
                 return Err(AppError::invalid_input(
                     "modules",
-                    format!("duplicate module '{}'", module.name),
+                    format!("duplicate module '{}/{}'", module.scope_id, module.name),
                 ));
             }
-            policy_by_module.insert(module.name.clone(), policy_index);
+            policy_by_module.insert(module_key, policy_index);
             all_policy_modules
                 .entry(policy_index)
                 .or_default()
@@ -196,12 +225,13 @@ fn plan_discovered_profile_group(
         }
     }
 
-    let selected_names = modules_by_name.keys().cloned().collect::<BTreeSet<_>>();
-    let mut all_modules = modules_by_name.into_values().collect::<Vec<_>>();
+    let selected_by_name = selected_modules_by_name(modules_by_key.keys());
+    let mut all_modules = modules_by_key.into_values().collect::<Vec<_>>();
     for module in &mut all_modules {
-        module
-            .dependencies
-            .retain(|dependency| selected_names.contains(dependency));
+        let scope_id = module.scope_id.to_string();
+        module.dependencies.retain(|dependency| {
+            dependency_key_for_scope(&scope_id, dependency, &selected_by_name).is_some()
+        });
     }
 
     let mut units = Vec::new();
@@ -210,11 +240,11 @@ fn plan_discovered_profile_group(
         if policy.profile.execution == ExecutionMode::WorkspaceOnce && !modules.is_empty() {
             units.push(unit(
                 &policy.profile,
-                policy.scope.as_deref(),
+                PlanIdentity::new(&policy.scope_id, &policy.adapter_id),
                 &policy.task,
                 format!(
                     "{}/workspace",
-                    unit_id_prefix(&policy.profile, policy.scope.as_deref(), &policy.task)
+                    unit_id_prefix(&policy.scope_id, &policy.task)
                 ),
                 modules.clone(),
                 task_command(&policy.task)?,
@@ -223,13 +253,17 @@ fn plan_discovered_profile_group(
         }
     }
 
-    for (wave_index, wave) in ready_waves(&all_modules)?.into_iter().enumerate() {
+    for (wave_index, wave) in scoped_ready_waves(all_modules)?.into_iter().enumerate() {
         let mut wave_by_policy = BTreeMap::<usize, Vec<crate::core::Module>>::new();
         for module in wave {
-            let policy_index = policy_by_module.get(&module.name).ok_or_else(|| {
+            let module_key = scoped_module_key(&module);
+            let policy_index = policy_by_module.get(&module_key).ok_or_else(|| {
                 AppError::invalid_input(
                     "modules",
-                    format!("missing planning policy for module '{}'", module.name),
+                    format!(
+                        "missing planning policy for module '{}/{}'",
+                        module.scope_id, module.name
+                    ),
                 )
             })?;
             wave_by_policy
@@ -245,7 +279,7 @@ fn plan_discovered_profile_group(
             }
             units.extend(plan_ready_wave(
                 &policy.profile,
-                policy.scope.as_deref(),
+                PlanIdentity::new(&policy.scope_id, &policy.adapter_id),
                 &policy.task,
                 wave_index,
                 modules,
@@ -281,6 +315,118 @@ fn filter_modules(
             Some(module)
         })
         .collect()
+}
+
+type ScopedModuleKey = (String, ModuleId);
+
+fn scoped_module_key(module: &crate::core::Module) -> ScopedModuleKey {
+    (module.scope_id.to_string(), module.name.clone())
+}
+
+fn selected_modules_by_name<'a>(
+    keys: impl Iterator<Item = &'a ScopedModuleKey>,
+) -> BTreeMap<ModuleId, Vec<ScopedModuleKey>> {
+    let mut selected = BTreeMap::<ModuleId, Vec<ScopedModuleKey>>::new();
+    for key in keys {
+        selected.entry(key.1.clone()).or_default().push(key.clone());
+    }
+    selected
+}
+
+fn dependency_key_for(
+    module: &crate::core::Module,
+    dependency: &ModuleId,
+    selected_by_name: &BTreeMap<ModuleId, Vec<ScopedModuleKey>>,
+) -> Option<ScopedModuleKey> {
+    dependency_key_for_scope(module.scope_id.as_str(), dependency, selected_by_name)
+}
+
+fn dependency_key_for_scope(
+    scope_id: &str,
+    dependency: &ModuleId,
+    selected_by_name: &BTreeMap<ModuleId, Vec<ScopedModuleKey>>,
+) -> Option<ScopedModuleKey> {
+    let candidates = selected_by_name.get(dependency)?;
+    candidates
+        .iter()
+        .find(|(candidate_scope_id, _)| candidate_scope_id == scope_id)
+        .cloned()
+        .or_else(|| (candidates.len() == 1).then(|| candidates[0].clone()))
+}
+
+fn scoped_ready_waves(
+    modules: Vec<crate::core::Module>,
+) -> AppResult<Vec<Vec<crate::core::Module>>> {
+    let modules_by_key = modules
+        .into_iter()
+        .map(|module| (scoped_module_key(&module), module))
+        .collect::<BTreeMap<_, _>>();
+    let selected_by_name = selected_modules_by_name(modules_by_key.keys());
+    let mut remaining = BTreeMap::<ScopedModuleKey, usize>::new();
+    let mut dependents = BTreeMap::<ScopedModuleKey, Vec<ScopedModuleKey>>::new();
+
+    for (key, module) in &modules_by_key {
+        let dependencies = module
+            .dependencies
+            .iter()
+            .filter_map(|dependency| dependency_key_for(module, dependency, &selected_by_name))
+            .collect::<BTreeSet<_>>();
+        remaining.insert(key.clone(), dependencies.len());
+        for dependency in dependencies {
+            dependents.entry(dependency).or_default().push(key.clone());
+        }
+    }
+
+    let mut ready = remaining
+        .iter()
+        .filter_map(|(key, count)| (*count == 0).then_some(key.clone()))
+        .collect::<BTreeSet<_>>();
+    let mut satisfied = BTreeSet::new();
+    let mut waves = Vec::new();
+
+    while !ready.is_empty() {
+        let current = std::mem::take(&mut ready);
+        let mut wave = Vec::with_capacity(current.len());
+        for key in &current {
+            satisfied.insert(key.clone());
+            remaining.remove(key);
+            if let Some(module) = modules_by_key.get(key) {
+                wave.push(module.clone());
+            }
+        }
+        waves.push(wave);
+
+        for key in current {
+            if let Some(next_modules) = dependents.get(&key) {
+                for next in next_modules {
+                    if satisfied.contains(next) {
+                        continue;
+                    }
+                    let Some(count) = remaining.get_mut(next) else {
+                        continue;
+                    };
+                    *count = count.saturating_sub(1);
+                    if *count == 0 {
+                        ready.insert(next.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    if !remaining.is_empty() {
+        let modules = remaining
+            .keys()
+            .map(|(scope_id, module)| format!("{scope_id}/{module}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(AppError::invalid_input(
+            "modules",
+            format!("module dependency cycle detected among: {modules}"),
+        ));
+    }
+
+    Ok(waves)
 }
 
 fn discover_profile_modules(
@@ -387,20 +533,22 @@ fn plan_profile_task(
     passthrough_args: &[String],
 ) -> AppResult<Vec<ExecutionUnit>> {
     let mut units = Vec::new();
+    let scope_id = ScopeId::new(scope.unwrap_or(&profile.name))?;
+    let adapter_id = AdapterId::new(profile.language.clone())?;
 
     if modules.is_empty() {
         return Ok(units);
     }
 
     let command = task_command(task)?;
-    let waves = ready_waves(&modules)?;
+    let waves = scoped_ready_waves(modules.clone())?;
 
     match profile.execution {
         ExecutionMode::SpawnEach | ExecutionMode::BatchReady => {
             for (wave_index, wave) in waves.into_iter().enumerate() {
                 units.extend(plan_ready_wave(
                     profile,
-                    scope,
+                    PlanIdentity::new(&scope_id, &adapter_id),
                     task,
                     wave_index,
                     wave,
@@ -411,9 +559,9 @@ fn plan_profile_task(
         ExecutionMode::WorkspaceOnce => {
             units.push(unit(
                 profile,
-                scope,
+                PlanIdentity::new(&scope_id, &adapter_id),
                 task,
-                format!("{}/workspace", unit_id_prefix(profile, scope, task)),
+                format!("{}/workspace", unit_id_prefix(&scope_id, task)),
                 modules,
                 command,
                 passthrough_args.to_owned(),
@@ -430,7 +578,7 @@ fn plan_profile_task(
 
 fn plan_ready_wave(
     profile: &Profile,
-    scope: Option<&str>,
+    identity: PlanIdentity<'_>,
     task: &Task,
     wave_index: usize,
     modules: Vec<crate::core::Module>,
@@ -444,11 +592,11 @@ fn plan_ready_wave(
             for module in modules {
                 units.push(unit(
                     profile,
-                    scope,
+                    identity,
                     task,
                     format!(
                         "{}/w{wave_index}/{}",
-                        unit_id_prefix(profile, scope, task),
+                        unit_id_prefix(identity.scope_id, task),
                         module.name
                     ),
                     vec![module],
@@ -464,17 +612,17 @@ fn plan_ready_wave(
                 let id = if split {
                     format!(
                         "{}/w{wave_index}/batch/m{group_index}",
-                        unit_id_prefix(profile, scope, task)
+                        unit_id_prefix(identity.scope_id, task)
                     )
                 } else {
                     format!(
                         "{}/w{wave_index}/batch",
-                        unit_id_prefix(profile, scope, task)
+                        unit_id_prefix(identity.scope_id, task)
                     )
                 };
                 units.push(unit(
                     profile,
-                    scope,
+                    identity,
                     task,
                     id,
                     group,
@@ -489,16 +637,28 @@ fn plan_ready_wave(
     Ok(units)
 }
 
-fn unit_id_prefix(profile: &Profile, scope: Option<&str>, task: &Task) -> String {
-    scope.map_or_else(
-        || format!("{}/{}", profile.name, task.name),
-        |scope| format!("{}/{}/{}", profile.name, scope, task.name),
-    )
+#[derive(Clone, Copy)]
+struct PlanIdentity<'a> {
+    scope_id: &'a ScopeId,
+    adapter_id: &'a AdapterId,
+}
+
+impl<'a> PlanIdentity<'a> {
+    const fn new(scope_id: &'a ScopeId, adapter_id: &'a AdapterId) -> Self {
+        Self {
+            scope_id,
+            adapter_id,
+        }
+    }
+}
+
+fn unit_id_prefix(scope_id: &ScopeId, task: &Task) -> String {
+    format!("{scope_id}/{}", task.name)
 }
 
 fn unit(
     profile: &Profile,
-    scope: Option<&str>,
+    identity: PlanIdentity<'_>,
     task: &Task,
     id: String,
     modules: Vec<crate::core::Module>,
@@ -507,10 +667,11 @@ fn unit(
 ) -> ExecutionUnit {
     ExecutionUnit {
         id,
-        profile: profile.name.clone(),
-        scope: scope.map(ToString::to_string),
+        scope_id: identity.scope_id.clone(),
+        adapter_id: identity.adapter_id.clone(),
         task: task.name.clone(),
         command_origin: command.origin,
+        task_origin: task.origin.clone(),
         mode: profile.execution,
         resource_group: profile.resource_group.clone(),
         modules,
@@ -554,15 +715,18 @@ fn task_command(task: &Task) -> AppResult<PlannedCommand> {
     }
 }
 
-fn available_tasks(workspace: &Workspace) -> String {
+fn available_tasks(workspace: &Workspace, registry: &AdapterRegistry) -> String {
     workspace
         .profiles
         .iter()
         .map(|profile| {
-            let tasks = profile
-                .tasks
-                .iter()
-                .map(|task| task.name.as_str())
+            let default_tasks = registry
+                .adapter_for_profile(profile)
+                .map(|adapter| adapter.default_tasks())
+                .unwrap_or_default();
+            let tasks = merged_tasks(default_tasks, profile.tasks.clone())
+                .into_iter()
+                .map(|task| task.name)
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("{} [{}]", profile.name, tasks)
@@ -579,10 +743,10 @@ mod tests {
         adapter::AdapterRegistry,
         config::load_workspace,
         core::{
-            ExecutionMode, Module, ModuleId, PersistentReadiness, Profile, Task, TaskCommand,
-            Workspace,
+            AdapterId, ExecutionMode, Module, ModuleId, PersistentReadiness, Profile, ScopeId,
+            Task, TaskCommand, TaskOrigin, Workspace,
         },
-        engine::planner::{plan_profile_task, plan_workspace},
+        engine::planner::{plan_profile_task, plan_workspace, scoped_ready_waves},
         exec::render_resource_group,
     };
 
@@ -591,7 +755,13 @@ mod tests {
     }
 
     fn module_with_manifest(name: &str, manifest: &str) -> Module {
+        module_in_scope("rust", name, manifest)
+    }
+
+    fn module_in_scope(scope: &str, name: &str, manifest: &str) -> Module {
         Module {
+            scope_id: ScopeId::new(scope).expect("scope id"),
+            adapter_id: AdapterId::new("rust").expect("adapter id"),
             name: ModuleId::new(name).expect("module id"),
             package: Some(format!("{name}-pkg")),
             root: PathBuf::from(name),
@@ -605,6 +775,7 @@ mod tests {
         Task {
             name: "test".to_string(),
             command: TaskCommand::Argv(vec!["cargo".to_string(), "test".to_string()]),
+            origin: TaskOrigin::ProjectDefault,
             cache_args: false,
             persistent: false,
             readiness: PersistentReadiness::Started,
@@ -719,6 +890,53 @@ mod tests {
     }
 
     #[test]
+    fn schedules_duplicate_module_names_across_scopes() {
+        let waves = scoped_ready_waves(vec![
+            module_in_scope("base", "shared", "Cargo.toml"),
+            module_in_scope("override", "shared", "Cargo.toml"),
+        ])
+        .expect("duplicate module names in separate scopes schedule");
+
+        let scheduled = waves
+            .into_iter()
+            .flatten()
+            .map(|module| format!("{}/{}", module.scope_id, module.name))
+            .collect::<Vec<_>>();
+        assert_eq!(scheduled, ["base/shared", "override/shared"]);
+    }
+
+    #[test]
+    fn releases_scope_aware_dependency_waves_in_order() {
+        let mut app = module_in_scope("rust", "app", "Cargo.toml");
+        app.dependencies = vec![ModuleId::new("core").expect("module id")];
+        let waves = scoped_ready_waves(vec![app, module_in_scope("rust", "core", "Cargo.toml")])
+            .expect("waves schedule");
+
+        let names = waves
+            .into_iter()
+            .map(|wave| {
+                wave.into_iter()
+                    .map(|module| format!("{}/{}", module.scope_id, module.name))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(names, [vec!["rust/core"], vec!["rust/app"]]);
+    }
+
+    #[test]
+    fn rejects_scope_aware_cycles() {
+        let mut left = module_in_scope("rust", "left", "Cargo.toml");
+        left.dependencies = vec![ModuleId::new("right").expect("module id")];
+        let mut right = module_in_scope("rust", "right", "Cargo.toml");
+        right.dependencies = vec![ModuleId::new("left").expect("module id")];
+
+        let error = scoped_ready_waves(vec![left, right]).expect_err("cycle should fail");
+
+        assert!(error.message.contains("cycle"));
+        assert!(error.message.contains("rust/left"));
+    }
+
+    #[test]
     fn applies_scope_task_overrides_to_discovered_partition() {
         let root = rskit_testutil::test_workspace!("scope-plan");
         let workspace_path = root.path().join("project");
@@ -738,11 +956,17 @@ mod tests {
         let scoped = plan
             .units
             .iter()
-            .find(|unit| unit.scope.as_deref() == Some("contrib"))
+            .find(|unit| unit.scope_id.as_str() == "contrib")
             .expect("contrib scope unit exists");
-        assert!(scoped.id.starts_with("rust/contrib/test/"));
+        assert!(scoped.id.starts_with("contrib/test/"));
         assert_eq!(scoped.modules[0].name.as_str(), "contrib-app");
         assert_eq!(scoped.argv_template[1], "check");
+        assert_eq!(
+            scoped.task_origin,
+            TaskOrigin::ScopeOverride {
+                scope_id: ScopeId::new("contrib").expect("scope id")
+            }
+        );
         assert_eq!(scoped.mode, ExecutionMode::SpawnEach);
         assert_eq!(
             render_resource_group(scoped, &plan.workspace.root).expect("resource group renders"),
@@ -752,7 +976,7 @@ mod tests {
         let base_modules = plan
             .units
             .iter()
-            .filter(|unit| unit.scope.is_none())
+            .filter(|unit| unit.scope_id.as_str() == "rust")
             .flat_map(|unit| {
                 unit.modules
                     .iter()
@@ -804,5 +1028,49 @@ mod tests {
 
         plan_workspace(workspace, "test", &[], &AdapterRegistry::default())
             .expect("unrelated profile without task is skipped");
+    }
+
+    #[test]
+    fn plans_rust_adapter_default_tasks_without_project_task_config() {
+        let root = rskit_testutil::test_workspace!("rust-adapter-defaults");
+        let workspace_path = root.path().join("project");
+        rskit_fs::sync_io::tree::copy_tree(
+            &root
+                .fixture_path("rust-workspace")
+                .expect("rust fixture path"),
+            &workspace_path,
+            rskit_fs::sync_io::tree::CopyTreeOptions::default(),
+        )
+        .expect("copy rust fixture");
+        std::fs::copy(
+            root.fixture_path("config/rust-adapter-defaults.toml")
+                .expect("default config fixture"),
+            workspace_path.join("toven.toml"),
+        )
+        .expect("copy default config");
+
+        let workspace = load_workspace(workspace_path.join("toven.toml")).expect("config loads");
+        let plan = plan_workspace(workspace, "check", &[], &AdapterRegistry::default())
+            .expect("adapter default task plans");
+
+        assert!(!plan.units.is_empty());
+        assert!(plan.units.iter().all(|unit| {
+            unit.scope_id.as_str() == "rust"
+                && unit.adapter_id.as_str() == "rust"
+                && unit.task_origin
+                    == TaskOrigin::AdapterDefault {
+                        adapter_id: AdapterId::new("rust").expect("adapter id"),
+                    }
+                && unit.argv_template
+                    == [
+                        "cargo",
+                        "check",
+                        "--manifest-path",
+                        "{module.manifest}",
+                        "-p",
+                        "{module.package}",
+                        "{args}",
+                    ]
+        }));
     }
 }

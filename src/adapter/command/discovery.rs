@@ -126,16 +126,20 @@ fn validate_discovery_templates(field: &str, argv: &[String]) -> AppResult<()> {
             if let TemplatePart::Placeholder(placeholder) = part
                 && !matches!(
                     placeholder,
-                    Placeholder::ProjectRoot | Placeholder::WorkspaceRoot | Placeholder::ScopeRoot
+                    Placeholder::ProjectRoot
+                        | Placeholder::WorkspaceRoot
+                        | Placeholder::ScopeRoot
+                        | Placeholder::ScopeId
                 )
             {
                 return Err(AppError::invalid_input(
                     field,
                     format!(
-                        "discovery command only supports '{{{}}}', '{{{}}}', and '{{{}}}' placeholders",
+                        "discovery command only supports '{{{}}}', '{{{}}}', '{{{}}}', and '{{{}}}' placeholders",
                         Placeholder::ProjectRoot.as_token(),
                         Placeholder::WorkspaceRoot.as_token(),
-                        Placeholder::ScopeRoot.as_token()
+                        Placeholder::ScopeRoot.as_token(),
+                        Placeholder::ScopeId.as_token()
                     ),
                 ));
             }
@@ -150,6 +154,7 @@ fn render_argv(argv: &[String], request: &DiscoverRequest) -> AppResult<Vec<Stri
             Template::parse(value)?.render_scalar_with_scope(
                 &request.project_root,
                 Some(&request.scope_root),
+                Some(&request.scope_id),
                 None,
             )
         })

@@ -1,6 +1,6 @@
 //! Task-level model.
 
-use crate::core::{Module, PresetDefinition};
+use crate::core::{AdapterId, Module, PresetDefinition, ScopeId};
 
 /// Configured task.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -9,6 +9,8 @@ pub struct Task {
     pub name: String,
     /// Command source.
     pub command: TaskCommand,
+    /// Task definition source.
+    pub origin: TaskOrigin,
     /// Whether passthrough arguments are included in cache keys.
     pub cache_args: bool,
     /// Whether this task starts a long-lived process.
@@ -17,6 +19,23 @@ pub struct Task {
     pub readiness: PersistentReadiness,
     /// Maximum time to wait for persistent readiness.
     pub readiness_timeout: std::time::Duration,
+}
+
+/// Source of a task definition before command rendering.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum TaskOrigin {
+    /// Task was supplied by an adapter default.
+    AdapterDefault {
+        /// Adapter that supplied the task.
+        adapter_id: AdapterId,
+    },
+    /// Task was defined in a project profile.
+    ProjectDefault,
+    /// Task was defined by a named scope override.
+    ScopeOverride {
+        /// Scope override that supplied the task.
+        scope_id: ScopeId,
+    },
 }
 
 /// Readiness condition for long-lived task processes.
@@ -94,14 +113,16 @@ pub enum NodeState {
 pub struct ExecutionUnit {
     /// Stable unit identifier.
     pub id: String,
-    /// Profile name.
-    pub profile: String,
-    /// Optional scope override name.
-    pub scope: Option<String>,
+    /// Scope that owns the unit.
+    pub scope_id: ScopeId,
+    /// Adapter that owns the unit.
+    pub adapter_id: AdapterId,
     /// Task name.
     pub task: String,
     /// Source metadata for the command.
     pub command_origin: CommandOrigin,
+    /// Source metadata for the task definition.
+    pub task_origin: TaskOrigin,
     /// Execution mode.
     pub mode: ExecutionMode,
     /// Resource group after template rendering.

@@ -48,13 +48,14 @@ pub(super) fn run_explain(matches: &ArgMatches, stdout: &mut impl Write) -> AppR
     let decisions = prepare_cache_decisions(&full_plan, &cache_mode, task_cache.as_ref())?;
 
     let mut found = false;
-    for ((profile, decision_module), decision) in &decisions {
+    for ((scope_id, decision_module), decision) in &decisions {
         if decision_module != &module {
             continue;
         }
         found = true;
         writeln!(stdout, "module: {module}").map_err(AppError::internal)?;
-        writeln!(stdout, "profile: {profile}").map_err(AppError::internal)?;
+        writeln!(stdout, "scope: {scope_id}").map_err(AppError::internal)?;
+        writeln!(stdout, "adapter: {}", decision.adapter_id).map_err(AppError::internal)?;
         writeln!(stdout, "task: {task}").map_err(AppError::internal)?;
         writeln!(stdout, "affected: {}", affected_reason(&affected, &module))
             .map_err(AppError::internal)?;
