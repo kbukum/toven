@@ -59,8 +59,7 @@ fn render_module(
     if dependencies.is_empty() {
         writeln!(stdout, "  dependencies: none").map_err(AppError::internal)?;
     } else {
-        let dependencies = graph
-            .dependencies(&module_key)
+        let dependencies = dependencies
             .iter()
             .map(scoped_module_display)
             .collect::<Vec<_>>()

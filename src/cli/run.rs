@@ -1,11 +1,6 @@
 //! `toven <task>` execution command.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    io::Write,
-    path::PathBuf,
-    time::Duration,
-};
+use std::{collections::BTreeSet, io::Write, path::PathBuf, time::Duration};
 
 use clap::ArgMatches;
 
@@ -431,15 +426,15 @@ fn dependency_closure(
     overlays: &[crate::core::DependencyOverlay],
     roots: &BTreeSet<ScopedModuleKey>,
 ) -> AppResult<BTreeSet<ScopedModuleKey>> {
-    let by_key = modules
+    let module_keys = modules
         .iter()
-        .map(|module| (scoped_module_key(module), module))
-        .collect::<BTreeMap<_, _>>();
+        .map(scoped_module_key)
+        .collect::<BTreeSet<_>>();
     let graph = resolve_selected_dependency_graph(modules, overlays)?;
     let mut closure = roots.clone();
     let mut stack = roots.iter().cloned().collect::<Vec<_>>();
     while let Some(module_key) = stack.pop() {
-        let Some(_module) = by_key.get(&module_key) else {
+        if !module_keys.contains(&module_key) {
             return Err(AppError::invalid_input(
                 "modules",
                 format!(
@@ -447,7 +442,7 @@ fn dependency_closure(
                     module_key.0, module_key.1
                 ),
             ));
-        };
+        }
         for dependency_key in graph.dependencies(&module_key) {
             if !closure.insert(dependency_key.clone()) {
                 continue;
