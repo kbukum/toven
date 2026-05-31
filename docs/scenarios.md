@@ -76,7 +76,9 @@ flowchart LR
 
 Use task-level `shared_inputs` for files and directories that can invalidate all
 modules using the task, such as `Cargo.lock`, `rust-toolchain.toml`, deny/lint
-configuration, and CI configuration.
+configuration, and CI configuration. Write them as plain paths inside the
+workspace, for example `Cargo.lock` instead of `./Cargo.lock`; templates, globs,
+`.` components, parent paths, and absolute paths are rejected.
 
 ## Installed-binary rehearsal
 

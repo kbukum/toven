@@ -151,7 +151,9 @@ flowchart TD
 
 `shared_inputs` are task-owned, workspace-relative paths that participate in the
 shared hash for every module in the task. They are for broad invalidators such
-as lockfiles, toolchain files, lint config, and CI-relevant config.
+as lockfiles, toolchain files, lint config, and CI-relevant config. They must be
+plain paths inside the workspace: no templates, globs, `.` components, parent
+paths, or absolute paths.
 
 ## Extension points
 

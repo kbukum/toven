@@ -195,8 +195,10 @@ test = { argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{modu
 
 `shared_inputs` are plain workspace-relative files or directories that
 invalidate every module using the task. They intentionally do not support
-templates or globs; use explicit paths for workspace manifests, lockfiles,
-toolchain files, lint config, and CI-relevant config.
+templates, globs, `.` components, parent paths, or absolute paths; use explicit
+canonical-looking paths such as `Cargo.lock` instead of `./Cargo.lock` for
+workspace manifests, lockfiles, toolchain files, lint config, and CI-relevant
+config.
 
 Persistent tasks opt out of cache automatically and can declare when they are
 ready. Readiness can be immediate after start, a bounded health command, or a
