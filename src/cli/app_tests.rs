@@ -45,6 +45,102 @@ fn reports_usage_errors() {
 }
 
 #[test]
+fn generate_stdout_renders_root_rust_config() {
+    let root = rskit_testutil::test_workspace!("generate-stdout-root");
+    let workspace = root.path().join("project");
+    copy_fixture_tree(&root, "rust-workspace", &workspace);
+
+    let (code, stdout, stderr) = run_cli_vec(vec![
+        "toven".to_string(),
+        "generate".to_string(),
+        "--root".to_string(),
+        workspace.display().to_string(),
+        "--stdout".to_string(),
+    ]);
+
+    assert_eq!(code, ExitCode::SUCCESS, "stderr:\n{stderr}");
+    assert!(stderr.is_empty());
+    assert_eq!(
+        stdout,
+        root.read_fixture_string("generate/rust-root.toml")
+            .expect("read expected generated config")
+    );
+}
+
+#[test]
+fn generate_stdout_renders_explicit_multi_manifest_config() {
+    let root = rskit_testutil::test_workspace!("generate-stdout-multi");
+    let workspace = root.path().join("project");
+    copy_fixture_tree(&root, "rust-cross-workspaces", &workspace);
+
+    let (code, stdout, stderr) = run_cli_vec(vec![
+        "toven".to_string(),
+        "generate".to_string(),
+        "--root".to_string(),
+        workspace.display().to_string(),
+        "--manifest".to_string(),
+        "contrib/Cargo.toml".to_string(),
+        "--manifest".to_string(),
+        "core/Cargo.toml".to_string(),
+    ]);
+
+    assert_eq!(code, ExitCode::SUCCESS, "stderr:\n{stderr}");
+    assert!(stderr.is_empty());
+    assert_eq!(
+        stdout,
+        root.read_fixture_string("generate/rust-multi-manifest.toml")
+            .expect("read expected generated config")
+    );
+    assert!(!stdout.contains("[[overlays]]"));
+}
+
+#[test]
+fn generate_write_refuses_existing_config_by_default() {
+    let root = rskit_testutil::test_workspace!("generate-write-existing");
+    let workspace = root.path().join("project");
+    copy_fixture_tree(&root, "rust-workspace", &workspace);
+
+    let (code, _stdout, stderr) = run_cli_vec(vec![
+        "toven".to_string(),
+        "generate".to_string(),
+        "--root".to_string(),
+        workspace.display().to_string(),
+        "--write".to_string(),
+    ]);
+
+    assert_eq!(code, ExitCode::FAILURE);
+    assert!(stderr.contains("already exists"));
+}
+
+#[test]
+fn generate_write_creates_loadable_config() {
+    let root = rskit_testutil::test_workspace!("generate-write-loadable");
+    let workspace = root.path().join("project");
+    copy_fixture_tree(&root, "rust-workspace", &workspace);
+    fs::remove_file(workspace.join("toven.toml")).expect("remove existing fixture config");
+
+    let write = run_cli_vec(vec![
+        "toven".to_string(),
+        "generate".to_string(),
+        "--root".to_string(),
+        workspace.display().to_string(),
+        "--write".to_string(),
+    ]);
+    assert_eq!(write.0, ExitCode::SUCCESS, "stderr:\n{}", write.2);
+    assert!(write.1.is_empty());
+
+    let modules = run_cli_vec(vec![
+        "toven".to_string(),
+        "modules".to_string(),
+        "--config".to_string(),
+        workspace.join("toven.toml").display().to_string(),
+    ]);
+    assert_eq!(modules.0, ExitCode::SUCCESS, "stderr:\n{}", modules.2);
+    assert!(modules.1.contains("modules:"));
+    assert!(modules.1.contains("package:"));
+}
+
+#[test]
 fn plan_accepts_hyphen_prefixed_passthrough_args() {
     command()
         .try_get_matches_from([

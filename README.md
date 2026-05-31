@@ -41,6 +41,7 @@ make check
 make coverage
 make release-artifacts
 cargo run -- --help
+cargo run -- generate --stdout
 ```
 
 The current scaffold builds as a standalone Rust CLI with configuration,
@@ -79,6 +80,12 @@ fixtures small, deterministic, and purpose-built.
 Toven loads strict TOML from `toven.toml`. Unknown fields are rejected early,
 project roots are resolved relative to the config file, and command templates are
 validated before planning.
+
+Use `toven generate` to create an initial reviewable config. By default it
+prints TOML to stdout; `--write` creates `root/toven.toml`, and `--overwrite` is
+required before replacing an existing config. Rust generation emits
+profile-level Cargo manifest discovery; pass repeated `--manifest
+path/to/Cargo.toml` values for repositories with multiple independent manifests.
 
 Minimal Rust projects can rely on adapter-provided `check` and `test` tasks:
 

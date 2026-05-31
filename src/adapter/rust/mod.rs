@@ -3,6 +3,7 @@
 pub mod cargo;
 mod config;
 mod discovery;
+pub mod generate;
 
 pub use config::{RustProfileOptions, default_manifest};
 pub use discovery::RustAdapter;

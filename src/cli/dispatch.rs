@@ -16,6 +16,7 @@ use crate::cli::{
     plan::run_plan,
     run::run_task,
 };
+use crate::generate::run_generate;
 
 /// Run the CLI with process stdio.
 pub(super) fn run() -> ExitCode {
@@ -59,6 +60,7 @@ where
                 exit_from_result(run_graph(matches, stdout), stderr)
             }
             Some(("cache", matches)) => exit_from_result(run_cache(matches, stdout), stderr),
+            Some(("generate", matches)) => exit_from_result(run_generate(matches, stdout), stderr),
             _ => ExitCode::SUCCESS,
         },
         Err(error) => write_clap_error(&error, stdout, stderr),

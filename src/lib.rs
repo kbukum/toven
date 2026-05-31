@@ -10,6 +10,7 @@ pub mod config;
 pub mod core;
 pub mod engine;
 pub mod exec;
+pub mod generate;
 pub mod git;
 pub mod preset;
 pub mod report;

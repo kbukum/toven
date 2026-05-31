@@ -4,7 +4,8 @@ use clap::{Arg, ArgAction, Command};
 
 /// Subcommands reserved by the CLI entrypoint.
 pub(super) const RESERVED_SUBCOMMANDS: &[&str] = &[
-    "help", "run", "plan", "affected", "explain", "modules", "list", "ls", "graph", "deps", "cache",
+    "help", "run", "plan", "affected", "explain", "modules", "list", "ls", "graph", "deps",
+    "cache", "generate",
 ];
 
 /// Build the top-level Toven command.
@@ -22,6 +23,7 @@ pub(super) fn command() -> Command {
         .subcommand(list_command())
         .subcommand(graph_command())
         .subcommand(cache_command())
+        .subcommand(generate_command())
 }
 
 /// Build the root task invocation parser.
@@ -162,6 +164,59 @@ fn cache_clean_command() -> Command {
         .visible_alias("clear")
         .about("Remove local cache records")
         .arg(config_arg())
+}
+
+fn generate_command() -> Command {
+    Command::new("generate")
+        .about("Generate an initial Toven config for the selected project")
+        .arg(
+            Arg::new("root")
+                .long("root")
+                .value_name("PATH")
+                .default_value(".")
+                .help("Project root to inspect"),
+        )
+        .arg(
+            Arg::new("profile")
+                .long("profile")
+                .value_name("NAME")
+                .default_value("main")
+                .help("Generated profile name"),
+        )
+        .arg(
+            Arg::new("adapter")
+                .long("adapter")
+                .value_name("ID")
+                .help("Limit generation to one adapter"),
+        )
+        .arg(
+            Arg::new("manifest")
+                .long("manifest")
+                .value_name("PATH")
+                .action(ArgAction::Append)
+                .help("Rust Cargo.toml manifest to include, relative to --root"),
+        )
+        .arg(
+            Arg::new("write")
+                .long("write")
+                .action(ArgAction::SetTrue)
+                .conflicts_with("stdout")
+                .help("Write root/toven.toml instead of printing to stdout"),
+        )
+        .arg(
+            Arg::new("stdout")
+                .long("stdout")
+                .action(ArgAction::SetTrue)
+                .conflicts_with("write")
+                .help("Print generated config to stdout (default)"),
+        )
+        .arg(
+            Arg::new("overwrite")
+                .long("overwrite")
+                .action(ArgAction::SetTrue)
+                .requires("write")
+                .help("Allow --write to replace an existing root/toven.toml"),
+        )
 }
 
 fn explain_command() -> Command {
