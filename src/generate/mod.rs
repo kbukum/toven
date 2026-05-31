@@ -18,12 +18,11 @@ pub use model::{
     GenerateContext, GenerateContributor, GenerateDocument, GenerateRequest, GeneratedProfile,
     TomlValue,
 };
-pub(crate) use render::path_string;
 pub use render::render_document;
 pub use writer::write_document;
 
 /// Generate a Toven config and optionally write it to disk.
-pub fn generate_config(request: GenerateRequest) -> AppResult<GenerateOutcome> {
+pub fn generate_config(request: &GenerateRequest) -> AppResult<GenerateOutcome> {
     let root = global::normalize_root(&request.root)?;
     let mut context = GenerateContext {
         root,
@@ -101,4 +100,8 @@ pub fn request(root: PathBuf) -> GenerateRequest {
         write: false,
         overwrite: false,
     }
+}
+
+pub(crate) fn path_string(path: &std::path::Path) -> String {
+    render::path_string(path)
 }

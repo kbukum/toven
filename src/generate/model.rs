@@ -88,5 +88,5 @@ pub enum TomlValue {
     /// String scalar.
     String(String),
     /// Array value.
-    Array(Vec<TomlValue>),
+    Array(Vec<Self>),
 }

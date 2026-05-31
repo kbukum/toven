@@ -29,14 +29,15 @@ pub struct GenerateCliOptions {
 /// Run `toven generate`.
 pub fn run_generate(matches: &ArgMatches, stdout: &mut impl Write) -> AppResult<()> {
     let options = GenerateCliOptions::from_matches(matches)?;
-    let outcome = generate_config(GenerateRequest {
+    let request = GenerateRequest {
         root: options.root,
         profile_name: options.profile_name,
         adapter: options.adapter,
         manifests: options.manifests,
         write: options.write,
         overwrite: options.overwrite,
-    })?;
+    };
+    let outcome = generate_config(&request)?;
     if !matches.get_flag("write") {
         write!(stdout, "{}", outcome.rendered).map_err(crate::core::AppError::internal)?;
     }
