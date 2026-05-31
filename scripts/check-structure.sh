@@ -42,12 +42,53 @@ check_forbidden() {
     while IFS= read -r -d '' file; do
       FORBIDDEN_MODULES="$modules" perl -0ne '
         BEGIN { $modules = $ENV{"FORBIDDEN_MODULES"}; }
-        while (/crate::\{(.*?)\}/sg) {
-          $body = $1;
-          if ($body =~ /(?:^|[,{]\s*)($modules)(?:::|\s+as\b|[\s,]|$)/m) {
-            print "$ARGV: grouped crate import contains forbidden module $1\n";
+        sub check_group {
+          my ($body) = @_;
+          my $depth = 0;
+          my $entry = "";
+          for my $index (0 .. length($body)) {
+            my $char = $index == length($body) ? "," : substr($body, $index, 1);
+            if ($char eq "{" ) {
+              $depth++;
+            } elsif ($char eq "}") {
+              $depth--;
+            }
+
+            if ($char eq "," && $depth == 0) {
+              $entry =~ s/^\s+|\s+$//g;
+              if ($entry =~ /^($modules)(?:::|\s+as\b|\s*$)/m) {
+                return $1;
+              }
+              $entry = "";
+            } else {
+              $entry .= $char;
+            }
+          }
+          return;
+        }
+
+        my $offset = 0;
+        while ((my $start = index($_, "crate::{", $offset)) >= 0) {
+          my $body_start = $start + length("crate::{");
+          my $depth = 1;
+          my $index = $body_start;
+          for (; $index < length($_); $index++) {
+            my $char = substr($_, $index, 1);
+            if ($char eq "{") {
+              $depth++;
+            } elsif ($char eq "}") {
+              $depth--;
+              last if $depth == 0;
+            }
+          }
+          last if $depth != 0;
+
+          my $body = substr($_, $body_start, $index - $body_start);
+          if (my $module = check_group($body)) {
+            print "$ARGV: grouped crate import contains forbidden module $module\n";
             last;
           }
+          $offset = $index + 1;
         }
       ' "$file"
     done < <(find "$root/$dir" -name '*.rs' -type f -print0)
