@@ -10,7 +10,9 @@ use crate::{
         TaskCommand, Workspace, scoped_module_key, validate_discovery_response,
     },
     engine::{
-        graph::{dependency_key_for, dependency_key_for_scope, selected_modules_by_name},
+        graph::{
+            ResolvedDependencyGraph, resolve_dependency_graph, resolve_selected_dependency_graph,
+        },
         scheduler::split_wave_by_manifest,
     },
     exec::{render_execution_unit, render_resource_group},
@@ -200,13 +202,14 @@ fn plan_discovered_profile_group(
     module_filter: Option<&BTreeSet<ScopedModuleKey>>,
 ) -> AppResult<Vec<ExecutionUnit>> {
     let mut modules_by_key = BTreeMap::new();
+    let mut all_modules_by_key = BTreeMap::new();
     let mut policy_by_module = BTreeMap::new();
     let mut all_policy_modules = BTreeMap::<usize, Vec<crate::core::Module>>::new();
 
     for (policy_index, policy) in discovered.iter().enumerate() {
-        for module in filter_modules(policy.modules.clone(), module_filter) {
+        for module in policy.modules.clone() {
             let module_key = scoped_module_key(&module);
-            if modules_by_key
+            if all_modules_by_key
                 .insert(module_key.clone(), module.clone())
                 .is_some()
             {
@@ -215,6 +218,12 @@ fn plan_discovered_profile_group(
                     format!("duplicate module '{}/{}'", module.scope_id, module.name),
                 ));
             }
+
+            if !module_matches_filter(&module, module_filter) {
+                continue;
+            }
+
+            modules_by_key.insert(module_key.clone(), module.clone());
             policy_by_module.insert(module_key, policy_index);
             all_policy_modules
                 .entry(policy_index)
@@ -223,14 +232,14 @@ fn plan_discovered_profile_group(
         }
     }
 
-    let selected_by_name = selected_modules_by_name(modules_by_key.keys());
-    let mut all_modules = modules_by_key.into_values().collect::<Vec<_>>();
-    for module in &mut all_modules {
-        let scope_id = module.scope_id.to_string();
-        module.dependencies.retain(|dependency| {
-            dependency_key_for_scope(&scope_id, dependency, &selected_by_name).is_some()
-        });
-    }
+    let all_discovered_modules = all_modules_by_key.into_values().collect::<Vec<_>>();
+    let full_graph =
+        resolve_dependency_graph(&all_discovered_modules, &workspace.dependency_overlays)?;
+    let all_modules = modules_by_key.into_values().collect::<Vec<_>>();
+    let selected_keys = all_modules
+        .iter()
+        .map(scoped_module_key)
+        .collect::<BTreeSet<_>>();
 
     let mut units = Vec::new();
     for (policy_index, modules) in &all_policy_modules {
@@ -251,7 +260,11 @@ fn plan_discovered_profile_group(
         }
     }
 
-    for (wave_index, wave) in scoped_ready_waves(all_modules)?.into_iter().enumerate() {
+    for (wave_index, wave) in
+        scoped_ready_waves_with_graph(all_modules, &full_graph, &selected_keys)?
+            .into_iter()
+            .enumerate()
+    {
         let mut wave_by_policy = BTreeMap::<usize, Vec<crate::core::Module>>::new();
         for module in wave {
             let module_key = scoped_module_key(&module);
@@ -294,50 +307,55 @@ fn plan_discovered_profile_group(
     Ok(units)
 }
 
-fn filter_modules(
-    modules: Vec<crate::core::Module>,
+fn module_matches_filter(
+    module: &crate::core::Module,
     module_filter: Option<&BTreeSet<ScopedModuleKey>>,
-) -> Vec<crate::core::Module> {
+) -> bool {
     let Some(module_filter) = module_filter else {
-        return modules;
+        return true;
     };
-    modules
-        .into_iter()
-        .filter_map(|mut module| {
-            if !module_filter.contains(&scoped_module_key(&module)) {
-                return None;
-            }
-            module.dependencies.retain(|dependency| {
-                module_filter
-                    .iter()
-                    .any(|(_, module_id)| module_id == dependency)
-            });
-            Some(module)
-        })
-        .collect()
+    module_filter.contains(&scoped_module_key(module))
 }
 
 fn scoped_ready_waves(
     modules: Vec<crate::core::Module>,
+    overlays: &[crate::core::DependencyOverlay],
 ) -> AppResult<Vec<Vec<crate::core::Module>>> {
     let modules_by_key = modules
         .into_iter()
         .map(|module| (scoped_module_key(&module), module))
         .collect::<BTreeMap<_, _>>();
-    let selected_by_name = selected_modules_by_name(modules_by_key.keys());
-    let mut remaining = BTreeMap::<ScopedModuleKey, usize>::new();
-    let mut dependents = BTreeMap::<ScopedModuleKey, Vec<ScopedModuleKey>>::new();
+    let selected_keys = modules_by_key.keys().cloned().collect::<BTreeSet<_>>();
+    let graph = resolve_selected_dependency_graph(
+        &modules_by_key.values().cloned().collect::<Vec<_>>(),
+        overlays,
+    )?;
 
-    for (key, module) in &modules_by_key {
-        let dependencies = module
-            .dependencies
-            .iter()
-            .filter_map(|dependency| dependency_key_for(module, dependency, &selected_by_name))
-            .collect::<BTreeSet<_>>();
-        remaining.insert(key.clone(), dependencies.len());
-        for dependency in dependencies {
-            dependents.entry(dependency).or_default().push(key.clone());
-        }
+    scoped_ready_waves_with_graph(
+        modules_by_key.into_values().collect(),
+        &graph,
+        &selected_keys,
+    )
+}
+
+fn scoped_ready_waves_with_graph(
+    modules: Vec<crate::core::Module>,
+    graph: &ResolvedDependencyGraph,
+    selected_keys: &BTreeSet<ScopedModuleKey>,
+) -> AppResult<Vec<Vec<crate::core::Module>>> {
+    let modules_by_key = modules
+        .into_iter()
+        .map(|module| (scoped_module_key(&module), module))
+        .collect::<BTreeMap<_, _>>();
+    let mut remaining = BTreeMap::<ScopedModuleKey, usize>::new();
+
+    for key in modules_by_key.keys() {
+        let dependency_count = graph
+            .dependencies(key)
+            .into_iter()
+            .filter(|dependency| selected_keys.contains(dependency))
+            .count();
+        remaining.insert(key.clone(), dependency_count);
     }
 
     let mut ready = remaining
@@ -360,8 +378,8 @@ fn scoped_ready_waves(
         waves.push(wave);
 
         for key in current {
-            if let Some(next_modules) = dependents.get(&key) {
-                for next in next_modules {
+            {
+                for next in graph.dependents(&key) {
                     if satisfied.contains(next) {
                         continue;
                     }
@@ -504,7 +522,7 @@ fn plan_profile_task(
     }
 
     let command = task_command(task)?;
-    let waves = scoped_ready_waves(modules.clone())?;
+    let waves = scoped_ready_waves(modules.clone(), &[])?;
 
     match profile.execution {
         ExecutionMode::SpawnEach | ExecutionMode::BatchReady => {
@@ -700,16 +718,19 @@ fn available_tasks(workspace: &Workspace, registry: &AdapterRegistry) -> String 
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{collections::BTreeSet, path::PathBuf};
 
     use crate::{
         adapter::AdapterRegistry,
         config::load_workspace,
         core::{
-            AdapterId, ExecutionMode, Module, ModuleId, PersistentReadiness, Profile, ScopeId,
-            Task, TaskCommand, TaskOrigin, Workspace,
+            AdapterId, DependencyOverlay, ExecutionMode, Module, ModuleId, PersistentReadiness,
+            Profile, ScopeId, Task, TaskCommand, TaskOrigin, Workspace,
         },
-        engine::planner::{plan_profile_task, plan_workspace, scoped_ready_waves},
+        engine::planner::{
+            DiscoveredTaskProfile, plan_discovered_task_profiles, plan_profile_task,
+            plan_workspace, scoped_ready_waves,
+        },
         exec::render_resource_group,
     };
 
@@ -746,6 +767,20 @@ mod tests {
         }
     }
 
+    fn profile(execution: ExecutionMode) -> Profile {
+        Profile {
+            name: "rust".to_string(),
+            language: "rust".to_string(),
+            adapter_options: std::collections::BTreeMap::default(),
+            discovery_command: None,
+            execution,
+            module_arg_template: Vec::new(),
+            resource_group: "cargo:{project.root}".to_string(),
+            tasks: vec![task()],
+            scope_overrides: Vec::new(),
+        }
+    }
+
     #[test]
     fn validates_resource_group_during_planning() {
         let workspace = Workspace {
@@ -754,6 +789,7 @@ mod tests {
             root: PathBuf::from("/workspace"),
             base_ref: None,
             profiles: Vec::new(),
+            dependency_overlays: Vec::new(),
         };
         let profile = Profile {
             name: "rust".to_string(),
@@ -788,6 +824,7 @@ mod tests {
             root: PathBuf::from("/workspace"),
             base_ref: None,
             profiles: Vec::new(),
+            dependency_overlays: Vec::new(),
         };
         let profile = Profile {
             name: "rust".to_string(),
@@ -822,6 +859,7 @@ mod tests {
             root: PathBuf::from("/workspace"),
             base_ref: None,
             profiles: Vec::new(),
+            dependency_overlays: Vec::new(),
         };
         let profile = Profile {
             name: "rust".to_string(),
@@ -854,10 +892,13 @@ mod tests {
 
     #[test]
     fn schedules_duplicate_module_names_across_scopes() {
-        let waves = scoped_ready_waves(vec![
-            module_in_scope("base", "shared", "Cargo.toml"),
-            module_in_scope("override", "shared", "Cargo.toml"),
-        ])
+        let waves = scoped_ready_waves(
+            vec![
+                module_in_scope("base", "shared", "Cargo.toml"),
+                module_in_scope("override", "shared", "Cargo.toml"),
+            ],
+            &[],
+        )
         .expect("duplicate module names in separate scopes schedule");
 
         let scheduled = waves
@@ -872,8 +913,11 @@ mod tests {
     fn releases_scope_aware_dependency_waves_in_order() {
         let mut app = module_in_scope("rust", "app", "Cargo.toml");
         app.dependencies = vec![ModuleId::new("core").expect("module id")];
-        let waves = scoped_ready_waves(vec![app, module_in_scope("rust", "core", "Cargo.toml")])
-            .expect("waves schedule");
+        let waves = scoped_ready_waves(
+            vec![app, module_in_scope("rust", "core", "Cargo.toml")],
+            &[],
+        )
+        .expect("waves schedule");
 
         let names = waves
             .into_iter()
@@ -887,13 +931,90 @@ mod tests {
     }
 
     #[test]
+    fn releases_overlay_dependency_waves_in_order() {
+        let overlays = [DependencyOverlay {
+            from: ("app".to_string(), ModuleId::new("api").expect("module id")),
+            to: (
+                "lib".to_string(),
+                ModuleId::new("shared").expect("module id"),
+            ),
+        }];
+        let waves = scoped_ready_waves(
+            vec![
+                module_in_scope("app", "api", "app/Cargo.toml"),
+                module_in_scope("lib", "shared", "lib/Cargo.toml"),
+            ],
+            &overlays,
+        )
+        .expect("waves schedule");
+
+        let names = waves
+            .into_iter()
+            .map(|wave| {
+                wave.into_iter()
+                    .map(|module| format!("{}/{}", module.scope_id, module.name))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(names, [vec!["lib/shared"], vec!["app/api"]]);
+    }
+
+    #[test]
+    fn filtered_plan_resolves_dependencies_before_dropping_unselected_modules() {
+        let workspace = Workspace {
+            schema: 1,
+            name: "fixture".to_string(),
+            root: PathBuf::from("/workspace"),
+            base_ref: None,
+            profiles: Vec::new(),
+            dependency_overlays: Vec::new(),
+        };
+        let profile = profile(ExecutionMode::SpawnEach);
+        let mut api = module_in_scope("app", "api", "app/Cargo.toml");
+        api.dependencies = vec![ModuleId::new("shared").expect("module id")];
+        let discovered = [
+            DiscoveredTaskProfile {
+                profile: profile.clone(),
+                scope_id: ScopeId::new("app").expect("scope id"),
+                adapter_id: AdapterId::new("rust").expect("adapter id"),
+                task: profile.tasks[0].clone(),
+                modules: vec![api, module_in_scope("app", "shared", "app/Cargo.toml")],
+            },
+            DiscoveredTaskProfile {
+                profile: profile.clone(),
+                scope_id: ScopeId::new("lib").expect("scope id"),
+                adapter_id: AdapterId::new("rust").expect("adapter id"),
+                task: profile.tasks[0].clone(),
+                modules: vec![module_in_scope("lib", "shared", "lib/Cargo.toml")],
+            },
+        ];
+        let filter = BTreeSet::from([
+            ("app".to_string(), ModuleId::new("api").expect("module id")),
+            (
+                "lib".to_string(),
+                ModuleId::new("shared").expect("module id"),
+            ),
+        ]);
+
+        let plan = plan_discovered_task_profiles(workspace, &discovered, &[], Some(&filter))
+            .expect("filtered plan succeeds");
+        let unit_ids = plan
+            .units
+            .iter()
+            .map(|unit| unit.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(unit_ids, ["app/test/w0/api", "lib/test/w0/shared"]);
+    }
+
+    #[test]
     fn rejects_scope_aware_cycles() {
         let mut left = module_in_scope("rust", "left", "Cargo.toml");
         left.dependencies = vec![ModuleId::new("right").expect("module id")];
         let mut right = module_in_scope("rust", "right", "Cargo.toml");
         right.dependencies = vec![ModuleId::new("left").expect("module id")];
 
-        let error = scoped_ready_waves(vec![left, right]).expect_err("cycle should fail");
+        let error = scoped_ready_waves(vec![left, right], &[]).expect_err("cycle should fail");
 
         assert!(error.message.contains("cycle"));
         assert!(error.message.contains("rust/left"));

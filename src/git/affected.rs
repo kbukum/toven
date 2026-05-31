@@ -121,6 +121,7 @@ mod tests {
             root: root.clone(),
             base_ref: None,
             profiles: Vec::new(),
+            dependency_overlays: Vec::new(),
         };
         let baseline = Baseline {
             provider: "explicit".to_string(),
@@ -170,6 +171,7 @@ mod tests {
             root: root.clone(),
             base_ref: None,
             profiles: Vec::new(),
+            dependency_overlays: Vec::new(),
         };
         let baseline = Baseline {
             provider: "git-ref".to_string(),

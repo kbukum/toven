@@ -23,8 +23,7 @@ use crate::{
     },
     engine::{
         DiscoveredTaskProfile, discover_workspace_task_profiles,
-        graph::{dependency_key_for, selected_modules_by_name},
-        plan_discovered_task_profiles,
+        graph::resolve_selected_dependency_graph, plan_discovered_task_profiles,
     },
     exec::{
         PersistentOutput, PersistentOutputStream, PersistentProcess, RunOptions,
@@ -225,7 +224,8 @@ fn select_plans(
             Some(module_filter),
         )?;
         let modules = modules_from_discovered(discovered)?;
-        let cache_filter = dependency_closure(&modules, module_filter)?;
+        let cache_filter =
+            dependency_closure(&modules, &workspace.dependency_overlays, module_filter)?;
         let cache_plan = plan_discovered_task_profiles(
             workspace.clone(),
             discovered,
@@ -238,14 +238,15 @@ fn select_plans(
     if matches.get_flag("affected") {
         let changes = resolve_affected_changes(workspace, matches)?;
         let modules = modules_from_discovered(discovered)?;
-        let affected = resolve_affected_modules(changes, &modules)?;
+        let affected = resolve_affected_modules(changes, &modules, &workspace.dependency_overlays)?;
         let exec_plan = plan_discovered_task_profiles(
             workspace.clone(),
             discovered,
             passthrough_args,
             Some(&affected.closure),
         )?;
-        let cache_filter = dependency_closure(&modules, &affected.closure)?;
+        let cache_filter =
+            dependency_closure(&modules, &workspace.dependency_overlays, &affected.closure)?;
         let cache_plan = plan_discovered_task_profiles(
             workspace.clone(),
             discovered,
@@ -427,17 +428,18 @@ fn process_error(
 
 fn dependency_closure(
     modules: &[Module],
+    overlays: &[crate::core::DependencyOverlay],
     roots: &BTreeSet<ScopedModuleKey>,
 ) -> AppResult<BTreeSet<ScopedModuleKey>> {
     let by_key = modules
         .iter()
         .map(|module| (scoped_module_key(module), module))
         .collect::<BTreeMap<_, _>>();
-    let selected_by_name = selected_modules_by_name(by_key.keys());
+    let graph = resolve_selected_dependency_graph(modules, overlays)?;
     let mut closure = roots.clone();
     let mut stack = roots.iter().cloned().collect::<Vec<_>>();
     while let Some(module_key) = stack.pop() {
-        let Some(module) = by_key.get(&module_key) else {
+        let Some(_module) = by_key.get(&module_key) else {
             return Err(AppError::invalid_input(
                 "modules",
                 format!(
@@ -446,11 +448,7 @@ fn dependency_closure(
                 ),
             ));
         };
-        for dependency in &module.dependencies {
-            let Some(dependency_key) = dependency_key_for(module, dependency, &selected_by_name)
-            else {
-                continue;
-            };
+        for dependency_key in graph.dependencies(&module_key) {
             if !closure.insert(dependency_key.clone()) {
                 continue;
             }
@@ -548,7 +546,8 @@ mod tests {
         ))
         .collect();
 
-        let closure = dependency_closure(&modules, &roots).expect("dependency closure computes");
+        let closure =
+            dependency_closure(&modules, &[], &roots).expect("dependency closure computes");
 
         assert!(closure.contains(&(
             "profile".to_string(),

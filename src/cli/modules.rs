@@ -8,8 +8,11 @@ use crate::{
     adapter::AdapterRegistry,
     cli::affected::modules_from_discovered,
     config::load_workspace,
-    core::{AppError, AppResult, Module},
-    engine::discover_workspace_task_profiles,
+    core::{AppError, AppResult, Module, scoped_module_display, scoped_module_key},
+    engine::{
+        discover_workspace_task_profiles,
+        graph::{ResolvedDependencyGraph, resolve_dependency_graph},
+    },
 };
 
 pub(super) fn run_modules(matches: &ArgMatches, stdout: &mut impl Write) -> AppResult<()> {
@@ -33,26 +36,33 @@ pub(super) fn run_modules(matches: &ArgMatches, stdout: &mut impl Write) -> AppR
     }
 
     writeln!(stdout, "modules:").map_err(AppError::internal)?;
+    let graph = resolve_dependency_graph(&modules, &workspace.dependency_overlays)?;
     for module in modules {
-        render_module(stdout, &module)?;
+        render_module(stdout, &module, &graph)?;
     }
     Ok(())
 }
 
-fn render_module(stdout: &mut impl Write, module: &Module) -> AppResult<()> {
+fn render_module(
+    stdout: &mut impl Write,
+    module: &Module,
+    graph: &ResolvedDependencyGraph,
+) -> AppResult<()> {
     writeln!(stdout, "- {}/{}", module.scope_id, module.name).map_err(AppError::internal)?;
     writeln!(stdout, "  adapter: {}", module.adapter_id).map_err(AppError::internal)?;
     writeln!(stdout, "  root: {}", module.root.display()).map_err(AppError::internal)?;
     if let Some(package) = &module.package {
         writeln!(stdout, "  package: {package}").map_err(AppError::internal)?;
     }
-    if module.dependencies.is_empty() {
+    let module_key = scoped_module_key(module);
+    let dependencies = graph.dependencies(&module_key);
+    if dependencies.is_empty() {
         writeln!(stdout, "  dependencies: none").map_err(AppError::internal)?;
     } else {
-        let dependencies = module
-            .dependencies
+        let dependencies = graph
+            .dependencies(&module_key)
             .iter()
-            .map(ToString::to_string)
+            .map(scoped_module_display)
             .collect::<Vec<_>>()
             .join(", ");
         writeln!(stdout, "  dependencies: {dependencies}").map_err(AppError::internal)?;

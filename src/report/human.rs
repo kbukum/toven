@@ -3,11 +3,8 @@
 use std::fmt::Write as _;
 
 use crate::{
-    core::{
-        AppResult, CommandOrigin, Module, Plan, TaskOrigin, scoped_module_display,
-        scoped_module_key,
-    },
-    engine::graph::{dependency_key_for, selected_modules_by_name},
+    core::{AppResult, CommandOrigin, Module, Plan, TaskOrigin, scoped_module_display},
+    engine::graph::{DependencyOrigin, resolve_selected_dependency_graph},
     exec::{render_execution_unit, render_resource_group},
 };
 
@@ -53,7 +50,9 @@ pub fn render_human_plan(plan: &Plan) -> AppResult<String> {
             .collect::<Vec<_>>()
             .join(", ");
         writeln!(&mut output, "modules: {modules}").expect("write string");
-        if let Some(dependencies) = module_dependencies(&unit.modules) {
+        if let Some(dependencies) =
+            module_dependencies(&unit.modules, &plan.workspace.dependency_overlays)?
+        {
             writeln!(&mut output, "dependencies: {dependencies}").expect("write string");
         }
     }
@@ -76,20 +75,25 @@ fn task_origin(origin: &TaskOrigin) -> String {
     }
 }
 
-fn module_dependencies(modules: &[Module]) -> Option<String> {
-    let modules_by_key = modules
-        .iter()
-        .map(|module| (scoped_module_key(module), module))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    let selected_by_name = selected_modules_by_name(modules_by_key.keys());
+fn module_dependencies(
+    modules: &[Module],
+    overlays: &[crate::core::DependencyOverlay],
+) -> AppResult<Option<String>> {
+    let graph = resolve_selected_dependency_graph(modules, overlays)?;
     let dependencies = modules
         .iter()
         .filter_map(|module| {
-            let dependencies = module
-                .dependencies
-                .iter()
-                .filter_map(|dependency| dependency_key_for(module, dependency, &selected_by_name))
-                .map(|dependency| scoped_module_display(&dependency))
+            let module_key = crate::core::scoped_module_key(module);
+            let dependencies = graph
+                .dependencies(&module_key)
+                .into_iter()
+                .map(|dependency| {
+                    let origin = match graph.origin(&module_key, &dependency) {
+                        Some(DependencyOrigin::Overlay) => " overlay",
+                        _ => "",
+                    };
+                    format!("{}{}", scoped_module_display(&dependency), origin)
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             (!dependencies.is_empty())
@@ -97,7 +101,7 @@ fn module_dependencies(modules: &[Module]) -> Option<String> {
         })
         .collect::<Vec<_>>();
 
-    (!dependencies.is_empty()).then(|| dependencies.join("; "))
+    Ok((!dependencies.is_empty()).then(|| dependencies.join("; ")))
 }
 
 #[cfg(test)]
@@ -137,6 +141,7 @@ mod tests {
                 root: PathBuf::from("/workspace"),
                 base_ref: None,
                 profiles: Vec::new(),
+                dependency_overlays: Vec::new(),
             },
             units: vec![ExecutionUnit {
                 id: "rust/test/w0/batch".to_string(),

@@ -7,6 +7,15 @@ use crate::core::{AdapterId, AppError, AppResult, ScopeId, validate_identifier};
 /// Scope-qualified module identifier.
 pub type ScopedModuleKey = (String, ModuleId);
 
+/// Explicit project-level dependency edge between scope-qualified modules.
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Hash)]
+pub struct DependencyOverlay {
+    /// Module that depends on `to`.
+    pub from: ScopedModuleKey,
+    /// Module required by `from`.
+    pub to: ScopedModuleKey,
+}
+
 /// Unique module identifier within a workspace.
 #[derive(
     Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Hash, serde::Deserialize, serde::Serialize,

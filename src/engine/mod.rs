@@ -2,6 +2,7 @@
 
 pub(crate) mod affected;
 pub(crate) mod graph;
+mod overlays;
 mod planner;
 mod scheduler;
 

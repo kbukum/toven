@@ -175,7 +175,7 @@ where
                 ctx.cancellation.clone(),
             )?;
         } else {
-            let affected = affected_modules(&modules, &changed)?;
+            let affected = affected_modules(&modules, &changed, &workspace.dependency_overlays)?;
             if affected.closure.is_empty() {
                 continue;
             }

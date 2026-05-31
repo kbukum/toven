@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    core::{AppResult, Module, ScopedModuleKey, scoped_module_key},
+    core::{AppResult, DependencyOverlay, Module, ScopedModuleKey, scoped_module_key},
     engine::graph::dependents_closure,
 };
 
@@ -40,6 +40,7 @@ pub(crate) struct AffectedModules {
 pub(crate) fn affected_modules(
     modules: &[Module],
     changed_paths: &[ChangedPath],
+    overlays: &[DependencyOverlay],
 ) -> AppResult<AffectedModules> {
     if changed_paths.is_empty() {
         return Ok(AffectedModules {
@@ -59,13 +60,11 @@ pub(crate) fn affected_modules(
             continue;
         }
 
-        match longest_root_match(&roots, &changed.path) {
-            Some(module) => {
-                direct.insert(module.clone());
-            }
-            None => {
-                global_paths.push(changed.path.clone());
-            }
+        let matches = deepest_root_matches(&roots, &changed.path);
+        if matches.is_empty() {
+            global_paths.push(changed.path.clone());
+        } else {
+            direct.extend(matches);
         }
     }
 
@@ -73,7 +72,7 @@ pub(crate) fn affected_modules(
         direct.extend(modules.iter().map(scoped_module_key));
     }
 
-    let closure = dependents_closure(modules, &direct)?;
+    let closure = dependents_closure(modules, &direct, overlays)?;
     Ok(AffectedModules {
         direct,
         closure,
@@ -101,16 +100,23 @@ fn module_roots(modules: &[Module]) -> BTreeMap<ScopedModuleKey, ModuleRoot> {
         .collect()
 }
 
-fn longest_root_match<'a>(
-    roots: &'a BTreeMap<ScopedModuleKey, ModuleRoot>,
+fn deepest_root_matches(
+    roots: &BTreeMap<ScopedModuleKey, ModuleRoot>,
     path: &Path,
-) -> Option<&'a ScopedModuleKey> {
+) -> BTreeSet<ScopedModuleKey> {
     let path = normalize_root(path);
-    roots
+    let matches = roots
         .iter()
         .filter(|(_, module)| path_matches_module(&path, module))
-        .max_by_key(|(_, module)| module.root.components().count())
-        .map(|(name, _)| name)
+        .map(|(name, module)| (name, module.root.components().count()))
+        .collect::<Vec<_>>();
+    let Some(depth) = matches.iter().map(|(_, depth)| *depth).max() else {
+        return BTreeSet::new();
+    };
+    matches
+        .into_iter()
+        .filter_map(|(name, candidate_depth)| (candidate_depth == depth).then_some(name.clone()))
+        .collect()
 }
 
 fn path_matches_module(path: &Path, module: &ModuleRoot) -> bool {
@@ -152,7 +158,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{ChangedPath, affected_modules};
-    use crate::core::{AdapterId, Module, ModuleId, ScopeId, ScopedModuleKey};
+    use crate::core::{AdapterId, DependencyOverlay, Module, ModuleId, ScopeId, ScopedModuleKey};
 
     fn module(name: &str, root: &str, dependencies: &[&str]) -> Module {
         Module {
@@ -196,8 +202,12 @@ mod tests {
             module("child", "crates/child", &[]),
         ];
 
-        let affected =
-            affected_modules(&modules, &[ChangedPath::new("crates/child/src/lib.rs")]).unwrap();
+        let affected = affected_modules(
+            &modules,
+            &[ChangedPath::new("crates/child/src/lib.rs")],
+            &[],
+        )
+        .unwrap();
 
         assert!(affected.direct.contains(&key("rust", "child")));
         assert!(!affected.direct.contains(&key("rust", "parent")));
@@ -211,7 +221,8 @@ mod tests {
             module("docs", "docs", &[]),
         ];
 
-        let affected = affected_modules(&modules, &[ChangedPath::new("core/src/lib.rs")]).unwrap();
+        let affected =
+            affected_modules(&modules, &[ChangedPath::new("core/src/lib.rs")], &[]).unwrap();
 
         assert_eq!(
             affected.closure,
@@ -225,7 +236,7 @@ mod tests {
     fn unmatched_paths_fail_closed_to_all_modules() {
         let modules = [module("app", "app", &[]), module("core", "core", &[])];
 
-        let affected = affected_modules(&modules, &[ChangedPath::new("Cargo.lock")]).unwrap();
+        let affected = affected_modules(&modules, &[ChangedPath::new("Cargo.lock")], &[]).unwrap();
 
         assert_eq!(affected.closure.len(), 2);
         assert_eq!(affected.global_paths, [PathBuf::from("Cargo.lock")]);
@@ -239,7 +250,7 @@ mod tests {
             module("util", "crates/util", &[]),
         ];
 
-        let affected = affected_modules(&modules, &[ChangedPath::new("Cargo.lock")]).unwrap();
+        let affected = affected_modules(&modules, &[ChangedPath::new("Cargo.lock")], &[]).unwrap();
 
         assert_eq!(affected.closure.len(), 3);
         assert_eq!(affected.global_paths, [PathBuf::from("Cargo.lock")]);
@@ -253,8 +264,12 @@ mod tests {
             module("util", "crates/util", &[]),
         ];
 
-        let affected =
-            affected_modules(&modules, &[ChangedPath::new(".github/workflows/ci.yml")]).unwrap();
+        let affected = affected_modules(
+            &modules,
+            &[ChangedPath::new(".github/workflows/ci.yml")],
+            &[],
+        )
+        .unwrap();
 
         assert_eq!(affected.closure.len(), 3);
         assert_eq!(
@@ -271,7 +286,7 @@ mod tests {
             module("util", "crates/util", &[]),
         ];
 
-        let affected = affected_modules(&modules, &[ChangedPath::new("src/lib.rs")]).unwrap();
+        let affected = affected_modules(&modules, &[ChangedPath::new("src/lib.rs")], &[]).unwrap();
 
         assert_eq!(
             affected.closure,
@@ -293,12 +308,43 @@ mod tests {
             },
         ];
 
-        let affected =
-            affected_modules(&modules, &[ChangedPath::new("contrib/shared/src/lib.rs")]).unwrap();
+        let affected = affected_modules(
+            &modules,
+            &[ChangedPath::new("contrib/shared/src/lib.rs")],
+            &[],
+        )
+        .unwrap();
 
         assert_eq!(
             affected.direct,
             [key("contrib", "shared")].into_iter().collect()
+        );
+    }
+
+    #[test]
+    fn maps_same_root_to_all_scoped_modules() {
+        let modules = [
+            Module {
+                scope_id: ScopeId::new("base").unwrap(),
+                root: PathBuf::from("shared"),
+                ..module("shared", "shared", &[])
+            },
+            Module {
+                scope_id: ScopeId::new("contrib").unwrap(),
+                root: PathBuf::from("shared"),
+                ..module("shared", "shared", &[])
+            },
+            module("app", "app", &[]),
+        ];
+
+        let affected = affected_modules(&modules, &[ChangedPath::new("shared/src/lib.rs")], &[])
+            .expect("same-root scoped modules resolve");
+
+        assert_eq!(
+            affected.direct,
+            [key("base", "shared"), key("contrib", "shared")]
+                .into_iter()
+                .collect()
         );
     }
 
@@ -316,8 +362,43 @@ mod tests {
             },
         ];
 
-        let affected = affected_modules(&modules, &[ChangedPath::new("lib/shared/src/lib.rs")])
-            .expect("cross-scope affected resolves");
+        let affected =
+            affected_modules(&modules, &[ChangedPath::new("lib/shared/src/lib.rs")], &[])
+                .expect("cross-scope affected resolves");
+
+        assert_eq!(
+            affected.closure,
+            [key("app", "api"), key("lib", "shared")]
+                .into_iter()
+                .collect()
+        );
+    }
+
+    #[test]
+    fn expands_overlay_dependents() {
+        let modules = [
+            Module {
+                scope_id: ScopeId::new("app").unwrap(),
+                root: PathBuf::from("app/api"),
+                ..module("api", "app/api", &[])
+            },
+            Module {
+                scope_id: ScopeId::new("lib").unwrap(),
+                root: PathBuf::from("lib/shared"),
+                ..module("shared", "lib/shared", &[])
+            },
+        ];
+        let overlays = [DependencyOverlay {
+            from: key("app", "api"),
+            to: key("lib", "shared"),
+        }];
+
+        let affected = affected_modules(
+            &modules,
+            &[ChangedPath::new("lib/shared/src/lib.rs")],
+            &overlays,
+        )
+        .unwrap();
 
         assert_eq!(
             affected.closure,

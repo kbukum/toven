@@ -7,7 +7,10 @@ use clap::ArgMatches;
 use crate::{
     adapter::AdapterRegistry,
     config::load_workspace,
-    core::{AppError, AppResult, Module, ScopedModuleKey, Workspace, scoped_module_display},
+    core::{
+        AppError, AppResult, DependencyOverlay, Module, ScopedModuleKey, Workspace,
+        scoped_module_display,
+    },
     engine::{
         DiscoveredTaskProfile,
         affected::{ChangedPath, affected_modules},
@@ -37,7 +40,7 @@ pub(super) fn run_affected(matches: &ArgMatches, stdout: &mut impl Write) -> App
     let discovered =
         discover_workspace_task_profiles(&workspace, task, &AdapterRegistry::default())?;
     let modules = modules_from_discovered(&discovered)?;
-    let affected = resolve_affected_modules(changes, &modules)?;
+    let affected = resolve_affected_modules(changes, &modules, &workspace.dependency_overlays)?;
 
     writeln!(
         stdout,
@@ -107,8 +110,9 @@ pub(super) fn resolve_affected_changes(
 pub(super) fn resolve_affected_modules(
     changes: CliAffectedChanges,
     modules: &[Module],
+    overlays: &[DependencyOverlay],
 ) -> AppResult<CliAffectedModules> {
-    let affected = affected_modules(modules, &changes.changed)?;
+    let affected = affected_modules(modules, &changes.changed, overlays)?;
 
     Ok(CliAffectedModules {
         provider: changes.provider,

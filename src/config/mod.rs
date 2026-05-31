@@ -1,5 +1,6 @@
 //! Project configuration loading and normalization.
 
+mod dependency;
 mod document;
 mod load;
 mod profile;
@@ -7,6 +8,7 @@ mod project;
 pub mod scope;
 mod task;
 
+pub use dependency::DependencyOverlayConfig;
 pub use document::ConfigDocument;
 pub use load::{load_workspace, normalize_config};
 pub use profile::ProfileConfig;

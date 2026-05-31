@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use crate::core::{AdapterOptions, ExecutionMode, ExecutionUnit, Task};
+use crate::core::{AdapterOptions, DependencyOverlay, ExecutionMode, ExecutionUnit, Task};
 
 /// Project workspace to plan.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -17,6 +17,8 @@ pub struct Workspace {
     pub base_ref: Option<String>,
     /// Profiles defined for the workspace.
     pub profiles: Vec<Profile>,
+    /// Explicit project-level dependency overlays.
+    pub dependency_overlays: Vec<DependencyOverlay>,
 }
 
 /// Language profile that owns tasks and discovery settings.
