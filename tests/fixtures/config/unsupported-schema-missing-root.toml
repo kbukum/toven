@@ -1,9 +1,9 @@
-[workspace]
+[project]
 schema = 2
 root = "missing"
 
 [profiles.rust]
-language = "rust"
+adapter = "rust"
 
 [profiles.rust.tasks]
 test = { argv = ["cargo", "test"] }

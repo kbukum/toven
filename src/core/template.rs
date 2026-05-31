@@ -6,10 +6,13 @@ use crate::core::{AppError, AppResult, Module};
 
 const PLACEHOLDERS: &[Placeholder] = &[
     Placeholder::Args,
+    Placeholder::ProjectRoot,
     Placeholder::WorkspaceRoot,
+    Placeholder::ScopeRoot,
     Placeholder::ModuleName,
     Placeholder::ModulePackage,
     Placeholder::ModulePath,
+    Placeholder::ModuleManifest,
     Placeholder::ModuleArgs,
 ];
 
@@ -18,14 +21,20 @@ const PLACEHOLDERS: &[Placeholder] = &[
 pub enum Placeholder {
     /// User passthrough arguments.
     Args,
+    /// Project root.
+    ProjectRoot,
     /// Workspace root.
     WorkspaceRoot,
+    /// Scope root relative to the project root.
+    ScopeRoot,
     /// Module name.
     ModuleName,
     /// Module package name.
     ModulePackage,
     /// Module root path.
     ModulePath,
+    /// Module manifest path.
+    ModuleManifest,
     /// Repeated per-module selector arguments.
     ModuleArgs,
 }
@@ -36,10 +45,13 @@ impl Placeholder {
     pub const fn as_token(self) -> &'static str {
         match self {
             Self::Args => "args",
+            Self::ProjectRoot => "project.root",
             Self::WorkspaceRoot => "workspace.root",
+            Self::ScopeRoot => "scope.root",
             Self::ModuleName => "module.name",
             Self::ModulePackage => "module.package",
             Self::ModulePath => "module.path",
+            Self::ModuleManifest => "module.manifest",
             Self::ModuleArgs => "module.args",
         }
     }
@@ -92,18 +104,36 @@ impl Template {
         workspace_root: &Path,
         module: Option<&Module>,
     ) -> AppResult<String> {
-        self.inner
-            .render_with(|placeholder| render_placeholder(placeholder, workspace_root, module))
+        self.render_scalar_with_scope(workspace_root, None, module)
+    }
+
+    /// Render placeholders that produce a single scalar value with scope context.
+    pub fn render_scalar_with_scope(
+        &self,
+        project_root: &Path,
+        scope_root: Option<&Path>,
+        module: Option<&Module>,
+    ) -> AppResult<String> {
+        self.inner.render_with(|placeholder| {
+            render_placeholder(placeholder, project_root, scope_root, module)
+        })
     }
 }
 
 fn render_placeholder(
     placeholder: Placeholder,
-    workspace_root: &Path,
+    project_root: &Path,
+    scope_root: Option<&Path>,
     module: Option<&Module>,
 ) -> AppResult<String> {
     match placeholder {
-        Placeholder::WorkspaceRoot => Ok(workspace_root.display().to_string()),
+        Placeholder::ProjectRoot | Placeholder::WorkspaceRoot => {
+            Ok(project_root.display().to_string())
+        }
+        Placeholder::ScopeRoot => Ok(scope_root
+            .map_or_else(|| Path::new(".").to_path_buf(), Path::to_path_buf)
+            .display()
+            .to_string()),
         Placeholder::ModuleName => module
             .map(|module| module.name.to_string())
             .ok_or_else(|| missing_module(placeholder)),
@@ -117,6 +147,10 @@ fn render_placeholder(
             .ok_or_else(|| missing_module(placeholder)),
         Placeholder::ModulePath => module
             .map(|module| module.root.display().to_string())
+            .ok_or_else(|| missing_module(placeholder)),
+        Placeholder::ModuleManifest => module
+            .and_then(|module| module.manifest.as_ref())
+            .map(|manifest| manifest.display().to_string())
             .ok_or_else(|| missing_module(placeholder)),
         Placeholder::Args | Placeholder::ModuleArgs => Err(AppError::invalid_input(
             "template",
@@ -158,16 +192,19 @@ mod tests {
     #[test]
     fn exposes_placeholder_tokens() {
         assert_eq!(Placeholder::Args.as_token(), "args");
+        assert_eq!(Placeholder::ProjectRoot.to_string(), "project.root");
         assert_eq!(Placeholder::WorkspaceRoot.to_string(), "workspace.root");
+        assert_eq!(Placeholder::ScopeRoot.to_string(), "scope.root");
         assert_eq!(Placeholder::ModuleName.to_string(), "module.name");
         assert_eq!(Placeholder::ModulePackage.to_string(), "module.package");
         assert_eq!(Placeholder::ModulePath.to_string(), "module.path");
+        assert_eq!(Placeholder::ModuleManifest.to_string(), "module.manifest");
         assert_eq!(Placeholder::ModuleArgs.to_string(), "module.args");
     }
 
     #[test]
     fn rejects_unknown_placeholders() {
-        let error = Template::parse("{project.root}").expect_err("unknown placeholder fails");
+        let error = Template::parse("{project.name}").expect_err("unknown placeholder fails");
 
         assert!(error.message.contains("unknown placeholder"));
     }
@@ -200,18 +237,32 @@ mod tests {
             name: crate::core::ModuleId::new("api").expect("module id parses"),
             package: Some("api-pkg".to_string()),
             root: "crates/api".into(),
+            manifest: Some("Cargo.toml".into()),
             dependencies: Vec::new(),
             source_patterns: Vec::new(),
         };
-        let template =
-            Template::parse("{workspace.root}/{module.path}:{module.name}:{module.package}")
-                .expect("template parses");
+        let template = Template::parse(
+            "{workspace.root}/{module.path}:{module.name}:{module.package}:{module.manifest}",
+        )
+        .expect("template parses");
 
         let rendered = template
             .render_scalar(Path::new("/workspace"), Some(&module))
             .expect("template renders");
 
-        assert_eq!(rendered, "/workspace/crates/api:api:api-pkg");
+        assert_eq!(rendered, "/workspace/crates/api:api:api-pkg:Cargo.toml");
+    }
+
+    #[test]
+    fn renders_project_and_scope_scalar_placeholders() {
+        let template = Template::parse("{project.root}:{workspace.root}:{scope.root}")
+            .expect("template parses");
+
+        let rendered = template
+            .render_scalar_with_scope(Path::new("/workspace"), Some(Path::new("core")), None)
+            .expect("template renders");
+
+        assert_eq!(rendered, "/workspace:/workspace:core");
     }
 
     #[test]
@@ -220,6 +271,7 @@ mod tests {
             name: crate::core::ModuleId::new("api").expect("module id parses"),
             package: None,
             root: "crates/api".into(),
+            manifest: Some("Cargo.toml".into()),
             dependencies: Vec::new(),
             source_patterns: Vec::new(),
         };

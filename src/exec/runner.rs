@@ -153,6 +153,7 @@ mod tests {
         ExecutionUnit {
             id: "unit".to_string(),
             profile: "profile".to_string(),
+            scope: None,
             task: "test".to_string(),
             command_origin: CommandOrigin::DirectArgv,
             mode: ExecutionMode::SpawnEach,

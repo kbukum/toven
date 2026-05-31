@@ -1,6 +1,6 @@
 //! Command-backed discovery adapter.
 
-use std::{path::Path, time::Duration};
+use std::time::Duration;
 
 use rskit_process::{Command, ProcessConfig};
 
@@ -53,7 +53,7 @@ impl CommandAdapter {
     }
 
     fn render_command(&self, request: &DiscoverRequest) -> AppResult<Command> {
-        let rendered = render_argv(&self.argv, &request.project_root)?;
+        let rendered = render_argv(&self.argv, request)?;
         let mut iter = rendered.into_iter();
         let program = iter
             .next()
@@ -124,13 +124,18 @@ fn validate_discovery_templates(field: &str, argv: &[String]) -> AppResult<()> {
         })?;
         for part in template.parts() {
             if let TemplatePart::Placeholder(placeholder) = part
-                && *placeholder != Placeholder::WorkspaceRoot
+                && !matches!(
+                    placeholder,
+                    Placeholder::ProjectRoot | Placeholder::WorkspaceRoot | Placeholder::ScopeRoot
+                )
             {
                 return Err(AppError::invalid_input(
                     field,
                     format!(
-                        "discovery_command only supports '{{{}}}' placeholders",
-                        Placeholder::WorkspaceRoot.as_token()
+                        "discover only supports '{{{}}}', '{{{}}}', and '{{{}}}' placeholders",
+                        Placeholder::ProjectRoot.as_token(),
+                        Placeholder::WorkspaceRoot.as_token(),
+                        Placeholder::ScopeRoot.as_token()
                     ),
                 ));
             }
@@ -139,9 +144,15 @@ fn validate_discovery_templates(field: &str, argv: &[String]) -> AppResult<()> {
     Ok(())
 }
 
-fn render_argv(argv: &[String], workspace_root: &Path) -> AppResult<Vec<String>> {
+fn render_argv(argv: &[String], request: &DiscoverRequest) -> AppResult<Vec<String>> {
     argv.iter()
-        .map(|value| Template::parse(value)?.render_scalar(workspace_root, None))
+        .map(|value| {
+            Template::parse(value)?.render_scalar_with_scope(
+                &request.project_root,
+                Some(&request.scope_root),
+                None,
+            )
+        })
         .collect()
 }
 
@@ -194,7 +205,7 @@ mod tests {
             .expect_err("module placeholder should fail");
 
         assert!(error.message.contains("discovery_command"));
-        assert!(error.message.contains("workspace.root"));
+        assert!(error.message.contains("project.root"));
     }
 
     #[test]
@@ -207,7 +218,7 @@ mod tests {
                 "-c".to_string(),
                 "exit 99".to_string(),
             ],
-            "profiles.custom.discovery_command",
+            "profiles.custom.discover",
         )
         .expect("adapter builds");
 
@@ -218,7 +229,7 @@ mod tests {
             })
             .expect_err("schema mismatch should fail before command execution");
 
-        assert!(error.message.contains("profiles.custom.discovery_command"));
+        assert!(error.message.contains("profiles.custom.discover"));
         assert!(
             error
                 .message
@@ -236,7 +247,7 @@ mod tests {
                 "-c".to_string(),
                 "cat >/dev/null; printf not-json".to_string(),
             ],
-            "profiles.custom.discovery_command",
+            "profiles.custom.discover",
         )
         .expect("adapter builds");
 
@@ -244,7 +255,7 @@ mod tests {
             .discover(&request())
             .expect_err("invalid json should fail");
 
-        assert!(error.message.contains("profiles.custom.discovery_command"));
+        assert!(error.message.contains("profiles.custom.discover"));
         assert!(error.message.contains("JSON"));
     }
 
@@ -258,7 +269,7 @@ mod tests {
                 "-c".to_string(),
                 r#"cat >/dev/null; printf '\173"schema_version":0,"scope_id":"custom","adapter_id":"custom","modules":[]\175'"#.to_string(),
             ],
-            "profiles.custom.discovery_command",
+            "profiles.custom.discover",
         )
         .expect("adapter builds");
 
@@ -266,7 +277,7 @@ mod tests {
             .discover(&request())
             .expect_err("schema mismatch should fail");
 
-        assert!(error.message.contains("profiles.custom.discovery_command"));
+        assert!(error.message.contains("profiles.custom.discover"));
         assert!(
             error
                 .message
@@ -284,7 +295,7 @@ mod tests {
                 "-c".to_string(),
                 r#"cat >/dev/null; printf '\173"schema_version":1,"scope_id":"other","adapter_id":"custom","modules":[]\175'"#.to_string(),
             ],
-            "profiles.custom.discovery_command",
+            "profiles.custom.discover",
         )
         .expect("adapter builds");
 
@@ -305,7 +316,7 @@ mod tests {
                 "-c".to_string(),
                 r#"cat >/dev/null; printf '\173"schema_version":1,"scope_id":"custom","adapter_id":"custom","modules":[\173"scope_id":"other","adapter_id":"custom","name":"api","package":null,"root":".","dependencies":[],"source_patterns":[]\175]\175'"#.to_string(),
             ],
-            "profiles.custom.discovery_command",
+            "profiles.custom.discover",
         )
         .expect("adapter builds");
 
@@ -326,7 +337,7 @@ mod tests {
                 "-c".to_string(),
                 r#"cat >/dev/null; printf '\173"schema_version":1,"scope_id":"custom","adapter_id":"custom","modules":[\173"scope_id":"custom","adapter_id":"other","name":"api","package":null,"root":".","dependencies":[],"source_patterns":[]\175]\175'"#.to_string(),
             ],
-            "profiles.custom.discovery_command",
+            "profiles.custom.discover",
         )
         .expect("adapter builds");
 

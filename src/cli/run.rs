@@ -490,7 +490,7 @@ impl CacheModeExt for CacheMode {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{path::PathBuf, time::Duration};
 
     use std::collections::BTreeMap;
 
@@ -549,6 +549,7 @@ mod tests {
         let unit = ExecutionUnit {
             id: "workspace-test".to_string(),
             profile: "profile".to_string(),
+            scope: None,
             task: "test".to_string(),
             command_origin: CommandOrigin::DirectArgv,
             mode: ExecutionMode::WorkspaceOnce,
@@ -717,6 +718,7 @@ mod tests {
         ExecutionUnit {
             id: "unit".to_string(),
             profile: "profile".to_string(),
+            scope: None,
             task: "test".to_string(),
             command_origin: CommandOrigin::DirectArgv,
             mode: ExecutionMode::SpawnEach,
@@ -751,6 +753,7 @@ mod tests {
             name: crate::core::ModuleId::new(name).expect("module id"),
             package: None,
             root: name.into(),
+            manifest: Some(PathBuf::from("Cargo.toml")),
             dependencies: dependencies
                 .iter()
                 .map(|dependency| crate::core::ModuleId::new(*dependency).expect("module id"))

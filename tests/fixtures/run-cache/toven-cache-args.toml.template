@@ -1,12 +1,12 @@
-[workspace]
+[project]
 name = "run-cache"
 root = "__WORKSPACE_ROOT__"
 
 [profiles.rust]
-language = "rust"
+adapter = "rust"
 execution = "batch-ready"
 module_arg_template = ["{module.name}"]
-resource_group = "cargo:{workspace.root}"
+resource_group = "cargo:{project.root}"
 
 [profiles.rust.tasks]
 smoke = { argv = ["sh", "-c", "printf 'run\n' >> .toven-run-count; printf 'executed\n'", "{args}"], cache_args = true }

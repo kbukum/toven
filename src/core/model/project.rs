@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use crate::core::{ExecutionMode, ExecutionUnit, Task};
+use crate::core::{AdapterOptions, ExecutionMode, ExecutionUnit, Task};
 
 /// Project workspace to plan.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -24,8 +24,10 @@ pub struct Workspace {
 pub struct Profile {
     /// Profile name from the config table.
     pub name: String,
-    /// Language identifier.
+    /// Adapter identifier.
     pub language: String,
+    /// Adapter-specific discovery options.
+    pub adapter_options: AdapterOptions,
     /// Optional command adapter override.
     pub discovery_command: Option<Vec<String>>,
     /// Execution mode for tasks in this profile.
@@ -35,6 +37,25 @@ pub struct Profile {
     /// Resource group template used for scheduling/reporting.
     pub resource_group: String,
     /// Tasks configured for this profile.
+    pub tasks: Vec<Task>,
+    /// Optional scope overrides for subsets of this profile.
+    pub scope_overrides: Vec<ScopeOverride>,
+}
+
+/// Optional named policy override for modules discovered by a profile.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ScopeOverride {
+    /// Scope override name.
+    pub name: String,
+    /// Adapter-specific discovery override/filter options.
+    pub adapter_options: AdapterOptions,
+    /// Execution mode override.
+    pub execution: Option<ExecutionMode>,
+    /// Module argument template override.
+    pub module_arg_template: Option<Vec<String>>,
+    /// Resource group override.
+    pub resource_group: Option<String>,
+    /// Task overrides/replacements.
     pub tasks: Vec<Task>,
 }
 

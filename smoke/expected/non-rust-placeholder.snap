@@ -4,5 +4,5 @@ status: 1
 stdout:
 <empty>
 stderr:
-error: invalid profiles: at least one profile is required
+error: invalid profiles.python.adapter: unsupported adapter 'python'
 

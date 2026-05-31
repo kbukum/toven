@@ -35,39 +35,43 @@ pub struct TaskConfig {
 }
 
 pub(super) fn normalize_task(
-    profile_name: &str,
-    language: &str,
+    owner_name: &str,
+    adapter: &str,
     name: String,
     config: TaskConfig,
     resolver: &PresetResolver,
+    owner_table: &str,
 ) -> AppResult<Task> {
-    validate_identifier(format!("profiles.{profile_name}.tasks.{name}"), &name)?;
-    let readiness = normalize_readiness(profile_name, &name, &config)?;
+    validate_identifier(format!("{owner_table}.{owner_name}.tasks.{name}"), &name)?;
+    let readiness = normalize_readiness(owner_table, owner_name, &name, &config)?;
     let readiness_timeout = readiness_timeout(&config);
 
     let command = match (config.argv, config.preset) {
         (Some(argv), None) => {
-            validate_command_template(format!("profiles.{profile_name}.tasks.{name}.argv"), &argv)?;
+            validate_command_template(
+                format!("{owner_table}.{owner_name}.tasks.{name}.argv"),
+                &argv,
+            )?;
             TaskCommand::Argv(argv)
         }
         (None, Some(preset)) => {
-            let preset_field = format!("profiles.{profile_name}.tasks.{name}.preset");
+            let preset_field = format!("{owner_table}.{owner_name}.tasks.{name}.preset");
             validate_identifier(&preset_field, &preset)?;
             TaskCommand::ResolvedPreset(resolver.resolve_for_field(
                 &preset_field,
-                language,
+                adapter,
                 &preset,
             )?)
         }
         (Some(_), Some(_)) => {
             return Err(AppError::invalid_input(
-                format!("profiles.{profile_name}.tasks.{name}"),
+                format!("{owner_table}.{owner_name}.tasks.{name}"),
                 "task must define either 'argv' or 'preset', not both",
             ));
         }
         (None, None) => {
             return Err(AppError::invalid_input(
-                format!("profiles.{profile_name}.tasks.{name}"),
+                format!("{owner_table}.{owner_name}.tasks.{name}"),
                 "task must define either 'argv' or 'preset'",
             ));
         }
@@ -84,7 +88,8 @@ pub(super) fn normalize_task(
 }
 
 fn normalize_readiness(
-    profile_name: &str,
+    owner_table: &str,
+    owner_name: &str,
     task_name: &str,
     config: &TaskConfig,
 ) -> AppResult<PersistentReadiness> {
@@ -93,19 +98,19 @@ fn normalize_readiness(
         + usize::from(config.ready_output.is_some());
     if configured > 1 {
         return Err(AppError::invalid_input(
-            format!("profiles.{profile_name}.tasks.{task_name}"),
+            format!("{owner_table}.{owner_name}.tasks.{task_name}"),
             "persistent readiness must define only one of ready_on, ready_command, or ready_output",
         ));
     }
     if !config.persistent && configured > 0 {
         return Err(AppError::invalid_input(
-            format!("profiles.{profile_name}.tasks.{task_name}"),
+            format!("{owner_table}.{owner_name}.tasks.{task_name}"),
             "readiness options require persistent = true",
         ));
     }
     if !config.persistent && config.ready_timeout_seconds.is_some() {
         return Err(AppError::invalid_input(
-            format!("profiles.{profile_name}.tasks.{task_name}.ready_timeout_seconds"),
+            format!("{owner_table}.{owner_name}.tasks.{task_name}.ready_timeout_seconds"),
             "ready_timeout_seconds requires persistent = true",
         ));
     }
@@ -116,7 +121,7 @@ fn normalize_readiness(
     if let Some(value) = &config.ready_on {
         if value != "started" {
             return Err(AppError::invalid_input(
-                format!("profiles.{profile_name}.tasks.{task_name}.ready_on"),
+                format!("{owner_table}.{owner_name}.tasks.{task_name}.ready_on"),
                 "ready_on must be 'started'",
             ));
         }
@@ -124,7 +129,7 @@ fn normalize_readiness(
     }
     if let Some(argv) = &config.ready_command {
         validate_command_template(
-            format!("profiles.{profile_name}.tasks.{task_name}.ready_command"),
+            format!("{owner_table}.{owner_name}.tasks.{task_name}.ready_command"),
             argv,
         )?;
         return Ok(PersistentReadiness::Command(argv.clone()));
@@ -132,7 +137,7 @@ fn normalize_readiness(
     if let Some(output) = &config.ready_output {
         if output.is_empty() {
             return Err(AppError::invalid_input(
-                format!("profiles.{profile_name}.tasks.{task_name}.ready_output"),
+                format!("{owner_table}.{owner_name}.tasks.{task_name}.ready_output"),
                 "ready_output cannot be empty",
             ));
         }

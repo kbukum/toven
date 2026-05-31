@@ -9,36 +9,56 @@ use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Node, Package, P
 
 use crate::core::{AppError, AppResult, Module, ModuleId};
 
-/// Discover Rust modules from a Cargo workspace root.
+/// Discover Rust modules from Cargo manifests.
 pub(in crate::adapter::rust) fn discover_modules(
-    workspace_root: impl AsRef<Path>,
+    project_root: impl AsRef<Path>,
+    manifests: &[PathBuf],
 ) -> AppResult<Vec<Module>> {
-    let metadata = load_metadata(workspace_root.as_ref())?;
-    modules_from_metadata(&metadata)
+    let mut modules_by_name = BTreeMap::new();
+    for manifest in manifests {
+        let metadata = load_metadata(project_root.as_ref(), manifest)?;
+        for module in modules_from_metadata(&metadata, manifest)? {
+            if let Some(previous) = modules_by_name.insert(module.name.clone(), module.clone()) {
+                return Err(AppError::invalid_input(
+                    "profiles.<profile>.manifests",
+                    format!(
+                        "duplicate Rust package '{}' discovered from '{}' and '{}'",
+                        module.name,
+                        previous.manifest.as_deref().map_or_else(
+                            || "<unknown>".to_string(),
+                            |path| path.display().to_string()
+                        ),
+                        manifest.display()
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(modules_by_name.into_values().collect())
 }
 
-fn load_metadata(workspace_root: &Path) -> AppResult<Metadata> {
-    let manifest_path = workspace_root.join("Cargo.toml");
+fn load_metadata(project_root: &Path, manifest: &Path) -> AppResult<Metadata> {
+    let manifest_path = project_root.join(manifest);
     if !manifest_path.is_file() {
         return Err(AppError::invalid_input(
-            "workspace.root",
+            "profiles.<profile>.manifests",
             format!("Cargo.toml not found at {}", manifest_path.display()),
         ));
     }
 
     MetadataCommand::new()
         .manifest_path(&manifest_path)
-        .current_dir(workspace_root)
+        .current_dir(project_root)
         .exec()
         .map_err(|error| {
             AppError::invalid_input(
-                "workspace.root",
+                "profiles.<profile>.manifests",
                 format!("failed to read cargo metadata: {error}"),
             )
         })
 }
 
-fn modules_from_metadata(metadata: &Metadata) -> AppResult<Vec<Module>> {
+fn modules_from_metadata(metadata: &Metadata, manifest: &Path) -> AppResult<Vec<Module>> {
     let workspace_root = Path::new(metadata.workspace_root.as_str());
     let workspace_ids: BTreeSet<PackageId> = metadata.workspace_members.iter().cloned().collect();
     let packages_by_id: BTreeMap<PackageId, &Package> = metadata
@@ -61,7 +81,7 @@ fn modules_from_metadata(metadata: &Metadata) -> AppResult<Vec<Module>> {
 
     for package in metadata.workspace_packages() {
         let name = ModuleId::new(package.name.to_string())?;
-        let root = package_root(package, workspace_root)?;
+        let root = project_relative_package_root(package, workspace_root, manifest)?;
         modules.push(Module {
             dependencies: workspace_dependencies(
                 &nodes_by_id,
@@ -73,6 +93,7 @@ fn modules_from_metadata(metadata: &Metadata) -> AppResult<Vec<Module>> {
             package: Some(package.name.to_string()),
             name,
             root,
+            manifest: Some(manifest.to_path_buf()),
         });
     }
 
@@ -80,7 +101,11 @@ fn modules_from_metadata(metadata: &Metadata) -> AppResult<Vec<Module>> {
     Ok(modules)
 }
 
-fn package_root(package: &Package, workspace_root: &Path) -> AppResult<PathBuf> {
+fn project_relative_package_root(
+    package: &Package,
+    workspace_root: &Path,
+    manifest: &Path,
+) -> AppResult<PathBuf> {
     let manifest_path = Path::new(package.manifest_path.as_str());
     let package_root = manifest_path.parent().ok_or_else(|| {
         AppError::invalid_input(
@@ -98,11 +123,8 @@ fn package_root(package: &Package, workspace_root: &Path) -> AppResult<PathBuf> 
             ),
         )
     })?;
-    if relative.as_os_str().is_empty() {
-        Ok(PathBuf::from("."))
-    } else {
-        Ok(relative.to_path_buf())
-    }
+    let manifest_parent = manifest.parent().unwrap_or_else(|| Path::new("."));
+    Ok(normalize_project_path(&manifest_parent.join(relative)))
 }
 
 fn workspace_dependencies(
@@ -149,6 +171,22 @@ fn source_patterns(root: &Path) -> Vec<String> {
         .collect()
 }
 
+fn normalize_project_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::Normal(value) => normalized.push(value),
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    if normalized.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        normalized
+    }
+}
+
 fn normalize_pattern(path: &Path) -> String {
     let value = path.to_string_lossy().replace('\\', "/");
     value
@@ -158,9 +196,9 @@ fn normalize_pattern(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
-    use super::normalize_pattern;
+    use super::{normalize_pattern, normalize_project_path};
 
     #[test]
     fn normalizes_dot_prefixed_patterns() {
@@ -173,6 +211,14 @@ mod tests {
         assert_eq!(
             normalize_pattern(Path::new("crates\\app\\src\\**")),
             "crates/app/src/**"
+        );
+    }
+
+    #[test]
+    fn normalizes_project_paths() {
+        assert_eq!(
+            normalize_project_path(Path::new("./core/./crates/app")),
+            PathBuf::from("core/crates/app")
         );
     }
 }

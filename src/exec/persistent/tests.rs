@@ -284,6 +284,7 @@ fn unit() -> ExecutionUnit {
     ExecutionUnit {
         id: "dev/server/workspace".to_string(),
         profile: "dev".to_string(),
+        scope: None,
         task: "server".to_string(),
         command_origin: CommandOrigin::DirectArgv,
         mode: ExecutionMode::WorkspaceOnce,

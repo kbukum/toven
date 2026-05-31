@@ -90,6 +90,7 @@ mod tests {
             name: ModuleId::new(name).expect("module id"),
             package: Some(name.to_string()),
             root: PathBuf::from(name),
+            manifest: Some(PathBuf::from("Cargo.toml")),
             dependencies: dependencies
                 .iter()
                 .map(|dependency| ModuleId::new(*dependency).expect("module id"))
@@ -111,13 +112,14 @@ mod tests {
             units: vec![ExecutionUnit {
                 id: "rust/test/w0/batch".to_string(),
                 profile: "rust".to_string(),
+                scope: None,
                 task: "test".to_string(),
                 command_origin: CommandOrigin::Preset {
                     name: "cargo-nextest".to_string(),
                     language: "rust".to_string(),
                 },
                 mode: ExecutionMode::BatchReady,
-                resource_group: "cargo:{workspace.root}".to_string(),
+                resource_group: "cargo:{project.root}".to_string(),
                 modules: vec![module("core", &[]), module("api", &["core"])],
                 argv_template: vec!["cargo".to_string(), "test".to_string()],
                 module_arg_template: Vec::new(),

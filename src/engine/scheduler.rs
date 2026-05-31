@@ -80,6 +80,7 @@ mod tests {
             name: ModuleId::new(name).expect("module id"),
             package: Some(name.to_string()),
             root: name.into(),
+            manifest: Some("Cargo.toml".into()),
             dependencies: dependencies
                 .iter()
                 .map(|dependency| ModuleId::new(*dependency).expect("module id"))

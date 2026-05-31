@@ -729,6 +729,7 @@ mod tests {
             units: vec![ExecutionUnit {
                 id: "unit".to_string(),
                 profile: "profile".to_string(),
+                scope: None,
                 task: "test".to_string(),
                 command_origin: CommandOrigin::DirectArgv,
                 mode: ExecutionMode::SpawnEach,
@@ -737,6 +738,7 @@ mod tests {
                     name: ModuleId::new("module").expect("module id"),
                     package: None,
                     root: PathBuf::from("module"),
+                    manifest: Some(PathBuf::from("Cargo.toml")),
                     dependencies: Vec::new(),
                     source_patterns: Vec::new(),
                 }],

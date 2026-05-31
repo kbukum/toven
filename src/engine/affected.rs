@@ -159,6 +159,7 @@ mod tests {
             name: ModuleId::new(name).unwrap(),
             package: Some(name.to_string()),
             root: PathBuf::from(root),
+            manifest: Some(PathBuf::from("Cargo.toml")),
             dependencies: dependencies
                 .iter()
                 .map(|dependency| ModuleId::new(*dependency).unwrap())

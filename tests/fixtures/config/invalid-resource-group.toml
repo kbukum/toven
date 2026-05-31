@@ -1,5 +1,5 @@
 [profiles.rust]
-language = "rust"
+adapter = "rust"
 resource_group = "{unknown}"
 
 [profiles.rust.tasks]

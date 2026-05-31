@@ -124,6 +124,7 @@ mod tests {
             name: ModuleId::new(name).expect("module id"),
             package: Some(name.to_string()),
             root: PathBuf::from(name),
+            manifest: Some(PathBuf::from("Cargo.toml")),
             dependencies: dependencies
                 .iter()
                 .map(|dependency| ModuleId::new(*dependency).expect("module id"))

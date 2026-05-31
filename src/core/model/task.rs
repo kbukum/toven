@@ -96,6 +96,8 @@ pub struct ExecutionUnit {
     pub id: String,
     /// Profile name.
     pub profile: String,
+    /// Optional scope override name.
+    pub scope: Option<String>,
     /// Task name.
     pub task: String,
     /// Source metadata for the command.

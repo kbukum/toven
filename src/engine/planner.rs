@@ -5,9 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     adapter::AdapterRegistry,
     core::{
-        AdapterId, AdapterOptions, AppError, AppResult, CommandOrigin, DISCOVERY_SCHEMA_VERSION,
-        DiscoverRequest, ExecutionMode, ExecutionUnit, ModuleId, Plan, Profile, ScopeId, Task,
-        TaskCommand, Workspace, validate_discovery_response,
+        AdapterId, AppError, AppResult, CommandOrigin, DISCOVERY_SCHEMA_VERSION, DiscoverRequest,
+        ExecutionMode, ExecutionUnit, ModuleId, Plan, Profile, ScopeId, Task, TaskCommand,
+        Workspace, validate_discovery_response,
     },
     engine::scheduler::ready_waves,
     exec::{render_execution_unit, render_resource_group},
@@ -132,7 +132,12 @@ fn discover_profile_modules(
 ) -> AppResult<Vec<crate::core::Module>> {
     let scope_id = ScopeId::new(profile.name.clone())?;
     let adapter_id = AdapterId::new(profile.language.clone())?;
-    let cache_key = format!("{scope_id}:{adapter_id}:{:?}", profile.discovery_command);
+    let adapter_options_key =
+        serde_json::to_string(&profile.adapter_options).map_err(AppError::internal)?;
+    let discovery_command_key =
+        serde_json::to_string(&profile.discovery_command).map_err(AppError::internal)?;
+    let cache_key =
+        format!("{scope_id}:{adapter_id}:{discovery_command_key}:{adapter_options_key}");
     if let Some(modules) = cache.get(&cache_key) {
         return Ok(modules.clone());
     }
@@ -144,11 +149,11 @@ fn discover_profile_modules(
         scope_id,
         adapter_id,
         scope_root: std::path::PathBuf::from("."),
-        adapter_options: AdapterOptions::default(),
+        adapter_options: profile.adapter_options.clone(),
     };
     let response = adapter.discover(&request)?;
     validate_discovery_response(
-        format!("profiles.{}.language", profile.name),
+        format!("profiles.{}.adapter", profile.name),
         &request,
         &response,
     )?;
@@ -237,6 +242,7 @@ fn unit(
     ExecutionUnit {
         id,
         profile: profile.name.clone(),
+        scope: None,
         task: task.name.clone(),
         command_origin: command.origin,
         mode: profile.execution,
@@ -316,6 +322,7 @@ mod tests {
             name: ModuleId::new(name).expect("module id"),
             package: Some(format!("{name}-pkg")),
             root: PathBuf::from(name),
+            manifest: Some(PathBuf::from("Cargo.toml")),
             dependencies: Vec::new(),
             source_patterns: Vec::new(),
         }
@@ -344,11 +351,13 @@ mod tests {
         let profile = Profile {
             name: "rust".to_string(),
             language: "rust".to_string(),
+            adapter_options: std::collections::BTreeMap::default(),
             discovery_command: None,
             execution: ExecutionMode::BatchReady,
             module_arg_template: Vec::new(),
             resource_group: "cargo:{module.package}".to_string(),
             tasks: vec![task()],
+            scope_overrides: Vec::new(),
         };
 
         let error = plan_profile_task(
@@ -375,11 +384,13 @@ mod tests {
         let profile = Profile {
             name: "rust".to_string(),
             language: "rust".to_string(),
+            adapter_options: std::collections::BTreeMap::default(),
             discovery_command: None,
             execution: ExecutionMode::WorkspaceOnce,
             module_arg_template: Vec::new(),
-            resource_group: "cargo:{workspace.root}".to_string(),
+            resource_group: "cargo:{project.root}".to_string(),
             tasks: vec![task()],
+            scope_overrides: Vec::new(),
         };
 
         let units = plan_profile_task(&workspace, &profile, &profile.tasks[0], Vec::new(), &[])

@@ -77,22 +77,22 @@ fixtures small, deterministic, and purpose-built.
 ## Configuration preview
 
 Toven loads strict TOML from `toven.toml`. Unknown fields are rejected early,
-workspace roots are resolved relative to the config file, and command templates
-are validated before planning.
+project roots are resolved relative to the config file, and command templates are
+validated before planning.
 
 ```toml
-[workspace]
+[project]
 name = "demo"
 root = "."
 
-[profiles.rust]
-language = "rust"
+[profiles.main]
+adapter = "rust"
 execution = "batch-ready"
 module_arg_template = ["-p", "{module.package}"]
-resource_group = "cargo:{workspace.root}"
+resource_group = "cargo:{project.root}"
 
-[profiles.rust.tasks]
-test = { argv = ["cargo", "test", "{module.args}", "{args}"] }
+[profiles.main.tasks]
+test = { argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"] }
 ```
 
 Tasks can also reference preset files. Project presets are resolved before user
@@ -130,8 +130,8 @@ Short aliases are available for frequently used inspection commands:
 `toven list` / `toven ls` for modules, `toven deps` for graph,
 `toven cache info` for cache stats, and `toven cache clear` for cache clean.
 
-Set `workspace.base_ref` in `toven.toml` to provide a default baseline. Without
-`--base` or `workspace.base_ref`, affected detection compares `HEAD` to `HEAD`
+Set `project.base_ref` in `toven.toml` to provide a default baseline. Without
+`--base` or `project.base_ref`, affected detection compares `HEAD` to `HEAD`
 and only local staged, unstaged, and untracked changes are considered.
 
 Passthrough args disable cache by default because arbitrary flags can change
@@ -139,7 +139,7 @@ command semantics. For task definitions where passthrough args are deterministic
 and should be part of the task key, set `cache_args = true`:
 
 ```toml
-[profiles.rust.tasks]
+[profiles.main.tasks]
 test = { argv = ["cargo", "test", "{module.args}", "{args}"], cache_args = true }
 ```
 
@@ -148,7 +148,7 @@ ready. Readiness can be immediate after start, a bounded health command, or a
 literal stdout/stderr matcher:
 
 ```toml
-[profiles.rust.tasks]
+[profiles.main.tasks]
 dev = { argv = ["cargo", "run", "-p", "server"], persistent = true, ready_output = "listening", ready_timeout_seconds = 30 }
 ```
 

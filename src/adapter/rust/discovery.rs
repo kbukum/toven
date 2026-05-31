@@ -1,7 +1,7 @@
 //! Rust workspace discovery adapter.
 
 use crate::{
-    adapter::rust::cargo::metadata::discover_modules,
+    adapter::rust::{RustProfileOptions, cargo::metadata::discover_modules},
     core::{
         AdapterId, AppResult, DISCOVERY_SCHEMA_VERSION, DiscoverRequest, DiscoverResponse,
         DiscoveryAdapter, validate_discovery_request_schema,
@@ -40,7 +40,8 @@ impl DiscoveryAdapter for RustAdapter {
     fn discover(&self, request: &DiscoverRequest) -> AppResult<DiscoverResponse> {
         validate_discovery_request_schema("discovery_request.schema_version", request)?;
 
-        let modules = discover_modules(&request.project_root)?;
+        let options = RustProfileOptions::from_adapter_options(&request.adapter_options)?;
+        let modules = discover_modules(&request.project_root, &options.manifests)?;
         Ok(DiscoverResponse {
             schema_version: DISCOVERY_SCHEMA_VERSION,
             scope_id: request.scope_id.clone(),
@@ -68,7 +69,7 @@ mod tests {
         ScopeId,
     };
 
-    use super::RustAdapter;
+    use super::{RustAdapter, RustProfileOptions};
 
     #[test]
     fn discovers_fixture_workspace() {
@@ -90,7 +91,12 @@ mod tests {
                 scope_id: ScopeId::new("rust").expect("scope id"),
                 adapter_id: AdapterId::new("rust").expect("adapter id"),
                 scope_root: PathBuf::from("."),
-                adapter_options: AdapterOptions::default(),
+                adapter_options: RustProfileOptions::from_manifests(vec![PathBuf::from(
+                    "Cargo.toml",
+                )])
+                .expect("rust options")
+                .to_adapter_options()
+                .expect("adapter options"),
             })
             .expect("rust discovery succeeds");
 
@@ -120,6 +126,48 @@ mod tests {
             !app.dependencies
                 .iter()
                 .any(|dependency| { dependency.as_str() == "fixture-test-util" })
+        );
+    }
+
+    #[test]
+    fn prefixes_modules_with_manifest_parent() {
+        let root = rskit_testutil::test_workspace!("rust-profile-discovery");
+        let workspace_path = root.path().join("project");
+        rskit_fs::sync_io::tree::copy_tree(
+            &root
+                .fixture_path("rust-workspace")
+                .expect("rust fixture path"),
+            &workspace_path.join("core"),
+            rskit_fs::sync_io::tree::CopyTreeOptions::default(),
+        )
+        .expect("copy rust fixture");
+
+        let response = RustAdapter::new()
+            .discover(&DiscoverRequest {
+                schema_version: DISCOVERY_SCHEMA_VERSION,
+                project_root: workspace_path,
+                scope_id: ScopeId::new("rust").expect("scope id"),
+                adapter_id: AdapterId::new("rust").expect("adapter id"),
+                scope_root: PathBuf::from("."),
+                adapter_options: RustProfileOptions::from_manifests(vec![PathBuf::from(
+                    "core/Cargo.toml",
+                )])
+                .expect("rust options")
+                .to_adapter_options()
+                .expect("adapter options"),
+            })
+            .expect("rust discovery succeeds");
+
+        let app = response
+            .modules
+            .iter()
+            .find(|module| module.name.as_str() == "fixture-app")
+            .expect("app module exists");
+        assert_eq!(app.root, PathBuf::from("core/crates/app"));
+        assert_eq!(app.manifest, Some(PathBuf::from("core/Cargo.toml")));
+        assert_eq!(
+            app.source_patterns,
+            ["core/crates/app/Cargo.toml", "core/crates/app/src/**"]
         );
     }
 

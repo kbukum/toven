@@ -43,14 +43,14 @@ impl AdapterRegistry {
             return Ok(Arc::new(CommandAdapter::with_field(
                 profile.language.clone(),
                 command.clone(),
-                format!("profiles.{}.discovery_command", profile.name),
+                format!("profiles.{}.discover", profile.name),
             )?));
         }
 
         let adapter_id = AdapterId::new(profile.language.clone())?;
         self.builtins.get(&adapter_id).cloned().ok_or_else(|| {
             AppError::invalid_input(
-                format!("profiles.{}.language", profile.name),
+                format!("profiles.{}.adapter", profile.name),
                 format!("unsupported adapter '{}'", profile.language),
             )
         })
@@ -67,11 +67,13 @@ mod tests {
         Profile {
             name: language.to_string(),
             language: language.to_string(),
+            adapter_options: std::collections::BTreeMap::default(),
             discovery_command: None,
             execution: ExecutionMode::SpawnEach,
             module_arg_template: Vec::new(),
-            resource_group: "{workspace.root}".to_string(),
+            resource_group: "{project.root}".to_string(),
             tasks: Vec::new(),
+            scope_overrides: Vec::new(),
         }
     }
 
@@ -91,7 +93,7 @@ mod tests {
             panic!("unsupported adapter should fail");
         };
 
-        assert!(error.message.contains("profiles.python.language"));
+        assert!(error.message.contains("profiles.python.adapter"));
         assert!(error.message.contains("unsupported adapter"));
     }
 }

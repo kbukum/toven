@@ -37,13 +37,11 @@ pub fn render_execution_unit(
             continue;
         }
         reject_batch_scalar_module_placeholders(&argv_field, unit, value, &template)?;
-        argv.push(template.render_scalar(
+        argv.push(render_scalar_template(
+            &template,
+            unit,
             workspace_root,
-            scalar_module(
-                &argv_field,
-                unit,
-                template_contains_module_scalar(&template),
-            )?,
+            scalar_module(&argv_field, unit, &template)?,
         )?);
     }
     Ok(argv)
@@ -54,9 +52,11 @@ pub fn render_resource_group(unit: &ExecutionUnit, workspace_root: &Path) -> App
     let field = resource_group_field(unit);
     let template = parse_template(&field, &unit.resource_group)?;
     reject_batch_scalar_module_placeholders(&field, unit, &unit.resource_group, &template)?;
-    template.render_scalar(
+    render_scalar_template(
+        &template,
+        unit,
         workspace_root,
-        scalar_module(&field, unit, template_contains_module_scalar(&template))?,
+        scalar_module(&field, unit, &template)?,
     )
 }
 
@@ -75,26 +75,64 @@ fn render_module_args(
                     "module_arg_template cannot contain selector placeholders",
                 ));
             }
-            rendered.push(template.render_scalar(workspace_root, Some(module))?);
+            rendered.push(render_scalar_template(
+                &template,
+                unit,
+                workspace_root,
+                Some(module),
+            )?);
         }
     }
     Ok(rendered)
 }
 
+fn render_scalar_template(
+    template: &Template,
+    _unit: &ExecutionUnit,
+    workspace_root: &Path,
+    module: Option<&Module>,
+) -> AppResult<String> {
+    template.render_scalar_with_scope(workspace_root, None, module)
+}
+
 fn scalar_module<'a>(
     field: &str,
     unit: &'a ExecutionUnit,
-    required: bool,
+    template: &Template,
 ) -> AppResult<Option<&'a Module>> {
-    if !required {
-        return Ok(None);
+    if template_contains_module_identity_scalar(template) {
+        if unit.modules.len() == 1 {
+            return Ok(unit.modules.first());
+        }
+        return Err(AppError::invalid_input(
+            field,
+            "scalar module placeholders require exactly one module",
+        ));
     }
-    if unit.modules.len() == 1 {
-        return Ok(unit.modules.first());
+    if template.contains(Placeholder::ModuleManifest) {
+        return common_manifest_module(field, unit);
+    }
+    Ok(None)
+}
+
+fn common_manifest_module<'a>(
+    field: &str,
+    unit: &'a ExecutionUnit,
+) -> AppResult<Option<&'a Module>> {
+    let Some(first) = unit.modules.first() else {
+        return Ok(None);
+    };
+    let manifest = first.manifest.as_ref();
+    if unit
+        .modules
+        .iter()
+        .all(|module| module.manifest.as_ref() == manifest)
+    {
+        return Ok(Some(first));
     }
     Err(AppError::invalid_input(
         field,
-        "scalar module placeholders require exactly one module",
+        "placeholder '{module.manifest}' requires modules with the same manifest",
     ))
 }
 
@@ -104,7 +142,7 @@ fn reject_batch_scalar_module_placeholders(
     value: &str,
     template: &Template,
 ) -> AppResult<()> {
-    if unit.mode != ExecutionMode::SpawnEach && template_contains_module_scalar(template) {
+    if unit.mode != ExecutionMode::SpawnEach && template_contains_module_identity_scalar(template) {
         return Err(AppError::invalid_input(
             field,
             format!(
@@ -131,7 +169,7 @@ fn ensure_exact_placeholder(
     ))
 }
 
-fn template_contains_module_scalar(template: &Template) -> bool {
+fn template_contains_module_identity_scalar(template: &Template) -> bool {
     template.contains(Placeholder::ModuleName)
         || template.contains(Placeholder::ModulePackage)
         || template.contains(Placeholder::ModulePath)
@@ -165,6 +203,7 @@ mod tests {
             name: ModuleId::new(name).expect("module id"),
             package: Some(format!("{name}-pkg")),
             root: format!("crates/{name}").into(),
+            manifest: Some("Cargo.toml".into()),
             dependencies: Vec::new(),
             source_patterns: Vec::new(),
         }
@@ -174,10 +213,11 @@ mod tests {
         ExecutionUnit {
             id: "unit".to_string(),
             profile: "rust".to_string(),
+            scope: None,
             task: "test".to_string(),
             command_origin: CommandOrigin::DirectArgv,
             mode: ExecutionMode::BatchReady,
-            resource_group: "{workspace.root}".to_string(),
+            resource_group: "{project.root}".to_string(),
             modules,
             argv_template,
             module_arg_template: vec!["-p".to_string(), "{module.package}".to_string()],
