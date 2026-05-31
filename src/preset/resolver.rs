@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::core::{
     AppError, AppResult, PresetDefinition, validate_command_template, validate_identifier,
+    validate_shared_inputs,
 };
 
 /// Filesystem preset resolver.
@@ -129,6 +130,12 @@ fn validate_preset(
     validate_command_template("preset.argv", &preset.argv).map_err(|error| {
         AppError::invalid_input(
             "preset.argv",
+            format!("preset file '{}': {}", path.display(), error.message),
+        )
+    })?;
+    validate_shared_inputs("preset.shared_inputs", &preset.shared_inputs).map_err(|error| {
+        AppError::invalid_input(
+            "preset.shared_inputs",
             format!("preset file '{}': {}", path.display(), error.message),
         )
     })?;

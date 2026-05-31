@@ -3,7 +3,7 @@ REQUIRE_PUBLISHABLE_PACKAGE ?= 0
 HAS_PATH_DEPENDENCIES := $(shell grep -Eq 'path[[:space:]]*=' Cargo.toml && echo 1 || echo 0)
 PACKAGE_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 
-.PHONY: check fmt fmt-check lint test structure smoke smoke-repo smoke-clone smoke-add-submodule smoke-add-case smoke-add-managed-submodule smoke-purge smoke-update doc deny dist-plan coverage release-dry-run release-artifacts act-ci act-supply-chain act-release-readiness
+.PHONY: check fmt fmt-check lint test structure smoke smoke-repo smoke-clone smoke-add-submodule smoke-add-case smoke-add-managed-submodule smoke-purge smoke-update benchmark doc deny dist-plan coverage release-dry-run release-artifacts act-ci act-supply-chain act-release-readiness
 
 check: fmt-check lint test structure doc deny dist-plan release-dry-run
 
@@ -45,6 +45,9 @@ smoke-purge:
 
 smoke-update:
 	./scripts/smoke.sh update "$(NAME)"
+
+benchmark:
+	./scripts/benchmark.sh "$(CASE)"
 
 doc:
 	RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features

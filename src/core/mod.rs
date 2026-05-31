@@ -22,6 +22,6 @@ pub use protocol::{
 pub(crate) use protocol::{validate_discovery_request_schema, validate_discovery_response};
 pub use template::{Placeholder, Template, TemplatePart};
 pub(crate) use validation::{
-    validate_command_template, validate_identifier, validate_name, validate_template,
-    validate_templates,
+    validate_command_template, validate_identifier, validate_name, validate_shared_inputs,
+    validate_template, validate_templates,
 };

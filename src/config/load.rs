@@ -117,6 +117,38 @@ mod tests {
     }
 
     #[test]
+    fn loads_task_shared_inputs() {
+        let root = rskit_testutil::test_workspace!("shared-inputs-config");
+        let config_path = root
+            .copy_fixture("config/shared-inputs.toml", "toven.toml")
+            .expect("copy config fixture");
+
+        let workspace = load_workspace(&config_path).expect("config loads");
+
+        assert_eq!(
+            workspace.profiles[0].tasks[0].shared_inputs,
+            ["Cargo.lock", "rust-toolchain.toml"]
+        );
+    }
+
+    #[test]
+    fn rejects_template_shared_inputs() {
+        let root = rskit_testutil::test_workspace!("template-shared-input");
+        let config_path = root
+            .copy_fixture("config/template-shared-input.toml", "toven.toml")
+            .expect("copy config fixture");
+
+        let error = load_workspace(&config_path).expect_err("template shared input should fail");
+
+        assert!(
+            error
+                .message
+                .contains("profiles.rust.tasks.test.shared_inputs")
+        );
+        assert!(error.message.contains("do not support templates"));
+    }
+
+    #[test]
     fn rejects_unknown_top_level_fields() {
         let root = rskit_testutil::test_workspace!("unknown");
         let config_path = root

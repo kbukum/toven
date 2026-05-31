@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::{
     core::{
         AppError, AppResult, PersistentReadiness, ScopeId, Task, TaskCommand, TaskOrigin,
-        validate_command_template, validate_identifier,
+        validate_command_template, validate_identifier, validate_shared_inputs,
     },
     preset::PresetResolver,
 };
@@ -21,6 +21,11 @@ pub struct TaskConfig {
     /// Include passthrough args in cache keys instead of disabling cache.
     #[serde(default)]
     pub cache_args: bool,
+    /// Plain workspace-relative paths that affect every module using this task.
+    ///
+    /// These extend preset `shared_inputs` when the task uses a preset.
+    #[serde(default)]
+    pub shared_inputs: Vec<String>,
     /// Keep the task process alive and wait for readiness.
     #[serde(default)]
     pub persistent: bool,
@@ -43,6 +48,10 @@ pub(super) fn normalize_task(
     owner_table: &str,
 ) -> AppResult<Task> {
     validate_identifier(format!("{owner_table}.{owner_name}.tasks.{name}"), &name)?;
+    validate_shared_inputs(
+        format!("{owner_table}.{owner_name}.tasks.{name}.shared_inputs"),
+        &config.shared_inputs,
+    )?;
     let readiness = normalize_readiness(owner_table, owner_name, &name, &config)?;
     let readiness_timeout = readiness_timeout(&config);
 
@@ -90,6 +99,7 @@ pub(super) fn normalize_task(
         command,
         origin,
         cache_args: config.cache_args,
+        shared_inputs: config.shared_inputs,
         persistent: config.persistent,
         readiness,
         readiness_timeout,

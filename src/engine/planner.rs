@@ -678,16 +678,20 @@ fn task_command(task: &Task) -> AppResult<PlannedCommand> {
         TaskCommand::Argv(argv) => Ok(PlannedCommand {
             argv_template: argv.clone(),
             origin: CommandOrigin::DirectArgv,
-            shared_inputs: Vec::new(),
+            shared_inputs: task.shared_inputs.clone(),
         }),
-        TaskCommand::ResolvedPreset(preset) => Ok(PlannedCommand {
-            argv_template: preset.argv.clone(),
-            origin: CommandOrigin::Preset {
-                name: preset.name.clone(),
-                language: preset.language.clone(),
-            },
-            shared_inputs: preset.shared_inputs.clone(),
-        }),
+        TaskCommand::ResolvedPreset(preset) => {
+            let mut shared_inputs = preset.shared_inputs.clone();
+            shared_inputs.extend(task.shared_inputs.clone());
+            Ok(PlannedCommand {
+                argv_template: preset.argv.clone(),
+                origin: CommandOrigin::Preset {
+                    name: preset.name.clone(),
+                    language: preset.language.clone(),
+                },
+                shared_inputs,
+            })
+        }
         TaskCommand::Preset(name) => Err(AppError::invalid_input(
             "task",
             format!("task preset '{name}' was not resolved"),
@@ -724,7 +728,7 @@ mod tests {
         config::load_workspace,
         core::{
             AdapterId, DependencyOverlay, ExecutionMode, Module, ModuleId, PersistentReadiness,
-            Profile, ScopeId, Task, TaskCommand, TaskOrigin, Workspace,
+            PresetDefinition, Profile, ScopeId, Task, TaskCommand, TaskOrigin, Workspace,
         },
         engine::planner::{
             DiscoveredTaskProfile, plan_discovered_task_profiles, plan_profile_task,
@@ -760,6 +764,7 @@ mod tests {
             command: TaskCommand::Argv(vec!["cargo".to_string(), "test".to_string()]),
             origin: TaskOrigin::ProjectDefault,
             cache_args: false,
+            shared_inputs: Vec::new(),
             persistent: false,
             readiness: PersistentReadiness::Started,
             readiness_timeout: std::time::Duration::from_secs(30),
@@ -887,6 +892,59 @@ mod tests {
 
         assert_eq!(units.len(), 2);
         assert!(units.iter().all(|unit| unit.modules.len() == 1));
+    }
+
+    #[test]
+    fn task_shared_inputs_extend_preset_shared_inputs() {
+        let workspace = Workspace {
+            schema: 1,
+            name: "fixture".to_string(),
+            root: PathBuf::from("/workspace"),
+            base_ref: None,
+            profiles: Vec::new(),
+            dependency_overlays: Vec::new(),
+        };
+        let task = Task {
+            name: "test".to_string(),
+            command: TaskCommand::ResolvedPreset(PresetDefinition {
+                name: "nextest".to_string(),
+                language: "rust".to_string(),
+                argv: vec!["cargo".to_string(), "nextest".to_string()],
+                shared_inputs: vec!["Cargo.lock".to_string()],
+            }),
+            origin: TaskOrigin::ProjectDefault,
+            cache_args: false,
+            shared_inputs: vec!["rust-toolchain.toml".to_string()],
+            persistent: false,
+            readiness: PersistentReadiness::Started,
+            readiness_timeout: std::time::Duration::from_secs(30),
+        };
+        let profile = Profile {
+            name: "rust".to_string(),
+            language: "rust".to_string(),
+            adapter_options: std::collections::BTreeMap::default(),
+            discovery_command: None,
+            execution: ExecutionMode::BatchReady,
+            module_arg_template: Vec::new(),
+            resource_group: "cargo:{project.root}".to_string(),
+            tasks: vec![task],
+            scope_overrides: Vec::new(),
+        };
+
+        let units = plan_profile_task(
+            &workspace,
+            &profile,
+            None,
+            &profile.tasks[0],
+            vec![module("core")],
+            &[],
+        )
+        .expect("planning succeeds");
+
+        assert_eq!(
+            units[0].shared_inputs,
+            ["Cargo.lock", "rust-toolchain.toml"]
+        );
     }
 
     #[test]
