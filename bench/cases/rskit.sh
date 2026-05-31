@@ -77,7 +77,7 @@ clean_toven_cache() {
   (
     cd "$TARGET_REPO"
     if [[ -f "$RSKIT_TOVEN_CONFIG" ]]; then
-      toven cache clean >/dev/null
+      "$TOVEN_BIN" cache clean >/dev/null
     else
       rm -rf .toven/cache
     fi
@@ -216,7 +216,7 @@ run_toven_test() {
   (
     cd "$TARGET_REPO"
     CARGO_TARGET_DIR="$BENCH_RUN_DIR/cargo-target/$BENCH_SCENARIO/$BENCH_APPROACH" \
-      toven test
+      "$TOVEN_BIN" test
   )
 }
 
@@ -224,7 +224,7 @@ run_toven_test_affected() {
   (
     cd "$TARGET_REPO"
     CARGO_TARGET_DIR="$BENCH_RUN_DIR/cargo-target/$BENCH_SCENARIO/$BENCH_APPROACH" \
-      toven test --affected --base "$BASE_REF" --output jsonl
+      "$TOVEN_BIN" test --affected --base "$BASE_REF" --output jsonl
   )
 }
 
@@ -232,6 +232,6 @@ run_toven_nextest_affected() {
   (
     cd "$TARGET_REPO"
     CARGO_TARGET_DIR="$BENCH_RUN_DIR/cargo-target/$BENCH_SCENARIO/$BENCH_APPROACH" \
-      toven nextest --affected --base "$BASE_REF" --output jsonl
+      "$TOVEN_BIN" nextest --affected --base "$BASE_REF" --output jsonl
   )
 }

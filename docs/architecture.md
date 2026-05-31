@@ -51,15 +51,37 @@ Key import boundaries:
 ## Config and discovery flow
 
 ```mermaid
-flowchart TD
-    Config[toven.toml] --> Normalize[Strict config normalization]
-    Normalize --> Presets[Resolve presets and task defaults]
-    Presets --> Discover[Adapter discovery]
-    Discover --> Graph[Validate module graph]
-    Graph --> Schedule[Build readiness waves]
-    Schedule --> Units[Plan execution units]
-    Units --> Render[Render argv and resource groups]
-    Render --> Execute[Execute or report]
+flowchart LR
+    subgraph Input
+        Config["toven.toml"]
+        Cli["CLI flags"]
+    end
+
+    subgraph Normalize["Normalize project intent"]
+        Strict["Strict TOML validation"]
+        Presets["Resolve presets and task defaults"]
+    end
+
+    subgraph Discover["Discover work"]
+        Adapter["Adapter discovery"]
+        Graph["Module dependency graph"]
+    end
+
+    subgraph Plan["Plan execution"]
+        Waves["Readiness waves"]
+        Units["Execution units"]
+        Render["Rendered argv"]
+    end
+
+    Config --> Strict
+    Cli --> Strict
+    Strict --> Presets
+    Presets --> Adapter
+    Adapter --> Graph
+    Graph --> Waves
+    Waves --> Units
+    Units --> Render
+    Render --> Output["Run or report"]
 ```
 
 Rust discovery is Cargo-metadata backed. Profile-level `discovery.manifests`
@@ -88,35 +110,42 @@ creation and an explicit overwrite path.
 
 ```mermaid
 flowchart TD
-    Modules[Discovered modules] --> Dependencies[Dependency edges]
-    Dependencies --> Waves[Topological readiness waves]
-    Waves --> Mode{Execution mode}
-    Mode -->|batch-ready| ManifestGroups[Split each wave by manifest]
-    Mode -->|per-module| SingleModule[One module per execution unit]
-    ManifestGroups --> Units[Execution units]
-    SingleModule --> Units
-    Units --> Rendered[Rendered argv + resource group]
+    Graph["Module graph"] --> W1["Wave 1: roots with no pending deps"]
+    W1 --> W2["Wave 2: modules unblocked by Wave 1"]
+    W2 --> W3["Wave 3: downstream modules"]
+
+    W2 --> Mode{"execution mode"}
+    Mode -->|"per-module"| PerModule["one execution unit per module"]
+    Mode -->|"batch-ready"| Batch["bundle ready modules"]
+    Batch --> Manifest{"same Cargo manifest?"}
+    Manifest -->|"yes"| OneUnit["one batched unit"]
+    Manifest -->|"no"| Split["split by manifest root"]
+    PerModule --> Rendered["render argv + resource group"]
+    OneUnit --> Rendered
+    Split --> Rendered
 ```
 
-Readiness waves preserve dependency order: a module can run only after its
-dependencies have completed or been skipped as valid cache hits. `batch-ready`
-keeps every ready module in the same wave together when that is safe, then
-splits by Cargo manifest so workspace manifests do not receive selectors from a
-different manifest root.
+Think of a wave as “everything that is safe to start now.” A module joins a
+later wave when one of its dependencies must finish first. `batch-ready` keeps
+ready modules together when the command can handle them together, but it still
+splits by Cargo manifest so selectors are never sent to the wrong workspace.
 
 ## Affected and cache decision flow
 
 ```mermaid
 flowchart TD
-    Changed[Changed files from baseline] --> Owners[Owning modules]
-    Owners --> Dependents[Reverse dependency closure]
-    Dependents --> Filter[Filtered plan]
-    Filter --> Inputs[Hash module, deps, task, shared inputs]
-    Inputs --> Args{Passthrough args?}
-    Args -->|yes and cache_args=false| Disabled[Cache disabled]
-    Args -->|no or cache_args=true| Lookup[Lookup cache record]
-    Lookup -->|match| Hit[Skip as cache hit]
-    Lookup -->|missing/mismatch| Miss[Run unit]
+    Base["base ref"] --> Diff["changed files"]
+    Worktree["HEAD / worktree"] --> Diff
+    Diff --> Owners["modules that own changed files"]
+    Owners --> Closure["dependent modules"]
+    Closure --> Plan["affected execution plan"]
+
+    Plan --> Inputs["module + dependency + task + shared inputs"]
+    Inputs --> Args{"passthrough args?"}
+    Args -->|"yes, cache_args=false"| Disabled["cache disabled"]
+    Args -->|"no, or cache_args=true"| Lookup["cache lookup"]
+    Lookup -->|"record matches"| Hit["skip"]
+    Lookup -->|"missing or changed"| Miss["run"]
     Disabled --> Miss
 ```
 

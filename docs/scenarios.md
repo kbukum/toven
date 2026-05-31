@@ -6,36 +6,31 @@ inspect with `plan`, `affected`, `explain`, JSON, and JSONL output.
 ## Full task run
 
 ```mermaid
-sequenceDiagram
-    participant Dev as Developer
-    participant CLI as toven CLI
-    participant Engine as Planner
-    participant Exec as Executor
-    participant Cache as Cache store
-
-    Dev->>CLI: toven test
-    CLI->>Engine: load config, discover modules, plan task
-    Engine->>Cache: ask for per-module decisions
-    Cache-->>Engine: hit / miss / disabled
-    Engine->>Exec: execution units in dependency waves
-    Exec-->>CLI: run events and exit status
-    CLI-->>Dev: human, JSON, or JSONL report
+flowchart LR
+    Dev["developer"] --> Cmd["toven test"]
+    Cmd --> Load["load config"]
+    Load --> Discover["discover modules"]
+    Discover --> Plan["build waves"]
+    Plan --> Cache["cache decisions"]
+    Cache --> Run["run misses"]
+    Cache --> Skip["skip hits"]
+    Run --> Report["human / JSON / JSONL"]
+    Skip --> Report
 ```
 
-Full runs discover every configured module for the selected task. Cache hits can
-skip individual modules, but dependency order still shapes the execution waves.
+A full run still uses the module graph. Toven may skip modules that are valid
+cache hits, but it keeps dependency order for everything that must run.
 
 ## Affected run
 
 ```mermaid
 flowchart TD
-    Base[Base ref] --> Diff[Changed files]
-    Head[Working tree / head] --> Diff
-    Diff --> Direct[Directly changed modules]
-    Direct --> Closure[Dependents that must be rechecked]
-    Closure --> Plan[Plan only affected modules]
-    Plan --> Cache[Apply cache decisions]
-    Cache --> Output[Explain why each module ran or skipped]
+    Change["file changed in crate-a"] --> Direct["crate-a is directly affected"]
+    Direct --> Downstream["crate-b depends on crate-a"]
+    Downstream --> AlsoRun["crate-b is affected too"]
+    Direct --> Plan["plan affected modules only"]
+    AlsoRun --> Plan
+    Plan --> Explain["explain baseline, files, edges, cache inputs"]
 ```
 
 Affected mode starts with changed files, maps them to owning modules, and adds
@@ -46,40 +41,37 @@ module decision.
 ## Wave bundling
 
 ```mermaid
-flowchart LR
-    A[crate-a] --> B[crate-b]
-    A --> C[crate-c]
-    B --> D[crate-d]
-    C --> D
+flowchart TD
+    subgraph Graph["dependency graph"]
+      A["crate-a"] --> B["crate-b"]
+      A --> C["crate-c"]
+      B --> D["crate-d"]
+      C --> D
+    end
 
-    subgraph Wave 1
-      A
-    end
-    subgraph Wave 2
-      B
-      C
-    end
-    subgraph Wave 3
-      D
+    subgraph Waves["ready waves"]
+      W1["wave 1: crate-a"] --> W2["wave 2: crate-b + crate-c"]
+      W2 --> W3["wave 3: crate-d"]
     end
 ```
 
-Modules in the same wave are ready at the same time. For `batch-ready`, Toven
-bundles ready modules into execution units, then splits by manifest when a wave
-contains modules discovered from different manifests.
+Modules in the same wave have no pending dependency between them. In
+`batch-ready`, Toven tries to run a wave as one command, then splits only when a
+manifest boundary makes one command unsafe.
 
 ## Shared-input invalidation
 
 ```mermaid
-flowchart TD
-    Task[Task definition] --> Shared[shared_inputs]
-    Shared --> Hash[Shared input hash]
-    Module[Module source hash] --> Key[Cache key components]
-    Deps[Dependency hashes] --> Key
-    Hash --> Key
-    Key --> Decision{Cache record matches?}
-    Decision -->|yes| Skip[Skip module]
-    Decision -->|no| Run[Run module]
+flowchart LR
+    Shared["Cargo.lock / toolchain / lint config"] --> SharedHash["shared hash"]
+    Module["module files"] --> ModuleHash["module hash"]
+    Deps["dependency results"] --> DepHash["dependency hash"]
+    SharedHash --> Key["cache key"]
+    ModuleHash --> Key
+    DepHash --> Key
+    Key --> Decision{"same as last success?"}
+    Decision -->|"yes"| Skip["skip"]
+    Decision -->|"no"| Run["run"]
 ```
 
 Use task-level `shared_inputs` for files and directories that can invalidate all

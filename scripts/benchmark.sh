@@ -8,11 +8,26 @@ usage() {
 Usage:
   scripts/benchmark.sh <case-file>
 
-Case files are shell fragments that declare CASE_NAME, TARGET_REPO, APPROACHES,
-SCENARIOS, WARMUPS, ITERATIONS, and run_<approach>/prepare_<scenario> functions.
-They may also declare before_iteration_<scenario>/after_iteration_<scenario>
-hooks for scenarios that need per-iteration reset or mutation.
+Case files are shell fragments that declare CASE_NAME, TARGET_REPO, OUTPUT_DIR,
+APPROACHES, SCENARIOS, WARMUPS, and ITERATIONS.
+
+For every approach in APPROACHES, define:
+  run_<approach>
+
+For every scenario in SCENARIOS, define:
+  prepare_<scenario>
+  restore_<scenario>
+
+Case files may also define before_iteration_<scenario> and
+after_iteration_<scenario> hooks for per-iteration reset or mutation.
 USAGE
+}
+
+require_perl() {
+  if ! command -v perl >/dev/null; then
+    echo "error: benchmark harness requires perl for timing and summary generation" >&2
+    exit 2
+  fi
 }
 
 timestamp_ms() {
@@ -36,10 +51,14 @@ call_function_if_exists() {
 
 resolve_installed_toven() {
   local bin
-  bin="$(command -v toven || true)"
+  bin="$(type -P toven || true)"
   if [[ -z "$bin" ]]; then
     echo "error: installed 'toven' binary was not found on PATH" >&2
     echo "hint: run 'cargo install --path . --locked --force' before benchmarking" >&2
+    exit 2
+  fi
+  if [[ ! -x "$bin" || ! -f "$bin" ]]; then
+    echo "error: resolved toven path is not an executable file: $bin" >&2
     exit 2
   fi
   if [[ -n "${TOVEN_EXPECTED_BIN_PREFIX:-}" && "$bin" != "$TOVEN_EXPECTED_BIN_PREFIX"* ]]; then
@@ -165,6 +184,8 @@ record_iteration() {
 }
 
 main() {
+  require_perl
+
   local case_file="${1:-}"
   if [[ -z "$case_file" ]]; then
     usage >&2
@@ -195,6 +216,7 @@ main() {
 
   local toven_bin
   toven_bin="$(resolve_installed_toven)"
+  export TOVEN_BIN="$toven_bin"
   call_function_if_exists preflight_case
 
   local run_dir="$OUTPUT_DIR/$(date +%Y%m%d-%H%M%S)"
