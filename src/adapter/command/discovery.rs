@@ -132,7 +132,7 @@ fn validate_discovery_templates(field: &str, argv: &[String]) -> AppResult<()> {
                 return Err(AppError::invalid_input(
                     field,
                     format!(
-                        "discover only supports '{{{}}}', '{{{}}}', and '{{{}}}' placeholders",
+                        "discovery command only supports '{{{}}}', '{{{}}}', and '{{{}}}' placeholders",
                         Placeholder::ProjectRoot.as_token(),
                         Placeholder::WorkspaceRoot.as_token(),
                         Placeholder::ScopeRoot.as_token()
