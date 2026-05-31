@@ -66,6 +66,8 @@ pub fn discover_workspace_task_profiles(
             continue;
         }
 
+        let profile_modules =
+            discover_profile_modules(workspace, profile, registry, &mut discovery_cache)?;
         let mut scoped_modules = BTreeSet::new();
 
         for scope in &profile.scope_overrides {
@@ -77,8 +79,9 @@ pub fn discover_workspace_task_profiles(
             else {
                 continue;
             };
-            let modules =
+            let mut modules =
                 discover_scope_modules(workspace, profile, scope, registry, &mut discovery_cache)?;
+            apply_profile_dependencies(&mut modules, &profile_modules);
             let scope_module_filter = modules
                 .iter()
                 .map(|module| module.name.clone())
@@ -93,8 +96,6 @@ pub fn discover_workspace_task_profiles(
         }
 
         if let Some(task) = profile_task {
-            let profile_modules =
-                discover_profile_modules(workspace, profile, registry, &mut discovery_cache)?;
             let modules = profile_modules
                 .into_iter()
                 .filter(|module| !scoped_modules.contains(&module.name))
@@ -119,6 +120,22 @@ pub fn discover_workspace_task_profiles(
     }
 
     Ok(discovered)
+}
+
+fn apply_profile_dependencies(
+    modules: &mut [crate::core::Module],
+    profile_modules: &[crate::core::Module],
+) {
+    let dependencies_by_module = profile_modules
+        .iter()
+        .map(|module| (module.name.clone(), module.dependencies.clone()))
+        .collect::<BTreeMap<_, _>>();
+
+    for module in modules {
+        if let Some(dependencies) = dependencies_by_module.get(&module.name) {
+            module.dependencies.clone_from(dependencies);
+        }
+    }
 }
 
 /// Build a task plan from modules already discovered for the selected task.

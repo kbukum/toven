@@ -37,10 +37,15 @@ pub(in crate::adapter::rust) fn discover_modules(
         }
     }
 
+    let discovered_names = modules_by_name
+        .keys()
+        .map(ToString::to_string)
+        .collect::<BTreeSet<_>>();
     for discovered in modules_by_name.values_mut() {
         discovered.module.dependencies = discovered
             .local_dependencies
             .iter()
+            .filter(|dependency| discovered_names.contains(dependency.as_str()))
             .map(|dependency| ModuleId::new(dependency.as_str()))
             .collect::<AppResult<Vec<_>>>()?;
     }
