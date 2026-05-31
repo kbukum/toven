@@ -217,6 +217,43 @@ mod tests {
     }
 
     #[test]
+    fn filters_path_dependencies_outside_configured_manifests() {
+        let root = rskit_testutil::test_workspace!("rust-filter-external-path-deps");
+        let workspace_path = root.path().join("project");
+        rskit_fs::sync_io::tree::copy_tree(
+            &root
+                .fixture_path("rust-cross-workspaces")
+                .expect("rust fixture path"),
+            &workspace_path,
+            rskit_fs::sync_io::tree::CopyTreeOptions::default(),
+        )
+        .expect("copy rust fixture");
+
+        let response = RustAdapter::new()
+            .discover(&DiscoverRequest {
+                schema_version: DISCOVERY_SCHEMA_VERSION,
+                project_root: workspace_path,
+                scope_id: ScopeId::new("contrib").expect("scope id"),
+                adapter_id: AdapterId::new("rust").expect("adapter id"),
+                scope_root: PathBuf::from("."),
+                adapter_options: RustProfileOptions::from_manifests(vec![PathBuf::from(
+                    "contrib/Cargo.toml",
+                )])
+                .expect("rust options")
+                .to_adapter_options()
+                .expect("adapter options"),
+            })
+            .expect("rust discovery succeeds");
+
+        let contrib = response
+            .modules
+            .iter()
+            .find(|module| module.name.as_str() == "contrib-app")
+            .expect("contrib module exists");
+        assert!(contrib.dependencies.is_empty());
+    }
+
+    #[test]
     fn rejects_request_schema_mismatch_before_metadata_discovery() {
         let error = RustAdapter::new()
             .discover(&DiscoverRequest {
