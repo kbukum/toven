@@ -3,7 +3,7 @@
 use std::{fmt::Write as _, path::Path};
 
 use crate::{
-    core::{AppResult, validate_template, validate_templates},
+    core::{AppResult, validate_identifier, validate_template, validate_templates},
     generate::model::{GenerateDocument, GeneratedProfile, TomlValue},
 };
 
@@ -28,6 +28,7 @@ pub fn render_document(document: &GenerateDocument) -> AppResult<String> {
 }
 
 fn render_profile(output: &mut String, profile: &GeneratedProfile) -> AppResult<()> {
+    validate_identifier(format!("profiles.{}", profile.name), &profile.name)?;
     validate_templates(
         format!("profiles.{}.module_arg_template", profile.name),
         &profile.module_arg_template,
@@ -208,5 +209,35 @@ mod tests {
         .expect("render succeeds");
 
         assert!(rendered.contains("manifests = [\n  \"core/Cargo.toml\",\n"));
+    }
+
+    #[test]
+    fn rejects_invalid_profile_names() {
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
+            "bad/name".to_string(),
+            GeneratedProfile {
+                name: "bad/name".to_string(),
+                adapter: AdapterId::new("rust").expect("adapter id"),
+                execution: ExecutionMode::SpawnEach,
+                module_arg_template: vec!["-p".to_string(), "{module.package}".to_string()],
+                resource_group: "cargo:{project.root}".to_string(),
+                discovery: BTreeMap::new(),
+            },
+        );
+
+        let error = render_document(&GenerateDocument {
+            project: GeneratedProject {
+                schema: 1,
+                name: "demo".to_string(),
+                root: PathBuf::from("."),
+                base_ref: None,
+            },
+            profiles,
+            warnings: Vec::new(),
+        })
+        .expect_err("invalid profile name fails");
+
+        assert!(error.message.contains("profiles.bad/name"));
     }
 }

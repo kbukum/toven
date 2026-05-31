@@ -1,7 +1,8 @@
 //! Safe generated-config writes.
 
 use std::{
-    fs,
+    fs::{self, OpenOptions},
+    io::{self, Write as _},
     path::{Path, PathBuf},
 };
 
@@ -26,10 +27,27 @@ pub fn write_document(root: &Path, rendered: &str, overwrite: bool) -> AppResult
         ));
     }
 
-    let temp = root.join(format!(".toven.toml.tmp-{}", std::process::id()));
-    fs::write(&temp, rendered).map_err(AppError::internal)?;
+    let temp = write_temp_file(root, rendered)?;
     replace_config(&temp, &path, overwrite)?;
     Ok(())
+}
+
+fn write_temp_file(root: &Path, rendered: &str) -> AppResult<PathBuf> {
+    for attempt in 0.. {
+        let temp = root.join(format!(".toven.toml.tmp-{}-{attempt}", std::process::id()));
+        match OpenOptions::new().write(true).create_new(true).open(&temp) {
+            Ok(mut file) => {
+                if let Err(error) = file.write_all(rendered.as_bytes()) {
+                    let _ = fs::remove_file(&temp);
+                    return Err(AppError::internal(error));
+                }
+                return Ok(temp);
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(AppError::internal(error)),
+        }
+    }
+    unreachable!("unbounded temp path search should always find a free path")
 }
 
 fn replace_config(temp: &Path, path: &Path, overwrite: bool) -> AppResult<()> {
@@ -111,6 +129,26 @@ mod tests {
 
         write_document(root.path(), "new", true).expect("overwrite succeeds");
 
+        assert_eq!(
+            fs::read_to_string(root.path().join("toven.toml")).expect("read config"),
+            "new"
+        );
+    }
+
+    #[test]
+    fn does_not_clobber_existing_temp_file() {
+        let root = rskit_testutil::test_workspace!("generate-writer-temp");
+        let existing_temp = root
+            .path()
+            .join(format!(".toven.toml.tmp-{}-0", std::process::id()));
+        fs::write(&existing_temp, "keep").expect("write existing temp");
+
+        write_document(root.path(), "new", false).expect("write succeeds");
+
+        assert_eq!(
+            fs::read_to_string(existing_temp).expect("read existing temp"),
+            "keep"
+        );
         assert_eq!(
             fs::read_to_string(root.path().join("toven.toml")).expect("read config"),
             "new"

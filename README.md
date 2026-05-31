@@ -84,8 +84,8 @@ validated before planning.
 Use `toven generate` to create an initial reviewable config. By default it
 prints TOML to stdout; `--write` creates `root/toven.toml`, and `--overwrite` is
 required before replacing an existing config. Rust generation emits
-profile-level Cargo manifest discovery; pass repeated `--manifest
-path/to/Cargo.toml` values for repositories with multiple independent manifests.
+profile-level Cargo manifest discovery; pass repeated
+`--manifest path/to/Cargo.toml` values for repositories with multiple independent manifests.
 
 Minimal Rust projects can rely on adapter-provided `check` and `test` tasks:
 
