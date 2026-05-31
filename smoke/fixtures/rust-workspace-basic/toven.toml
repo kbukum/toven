@@ -1,12 +1,12 @@
-[workspace]
+[project]
 name = "smoke-basic"
 root = "."
 
 [profiles.rust]
-language = "rust"
+adapter = "rust"
 execution = "batch-ready"
 module_arg_template = ["-p", "{module.package}"]
-resource_group = "cargo:{workspace.root}"
+resource_group = "cargo:{project.root}"
 
 [profiles.rust.tasks]
-test = { argv = ["cargo", "check", "-q", "{module.args}"] }
+test = { argv = ["cargo", "check", "-q", "--manifest-path", "{module.manifest}", "{module.args}"] }

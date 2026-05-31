@@ -17,11 +17,11 @@ pub struct DiscoverRequest {
     pub schema_version: u16,
     /// Project root for git, cache, watch, and reporting.
     pub project_root: PathBuf,
-    /// Scope being discovered.
+    /// Profile/discovery unit being discovered.
     pub scope_id: ScopeId,
-    /// Adapter assigned to the scope.
+    /// Adapter assigned to the profile/discovery unit.
     pub adapter_id: AdapterId,
-    /// Scope root relative to the project root.
+    /// Legacy discovery root relative to the project root.
     pub scope_root: PathBuf,
     /// Adapter-specific options.
     #[serde(default)]
@@ -54,6 +54,8 @@ pub struct DiscoveredModule {
     pub package: Option<String>,
     /// Module root relative to the project root.
     pub root: PathBuf,
+    /// Manifest/discovery-unit path relative to the project root.
+    pub manifest: Option<PathBuf>,
     /// Module dependencies within the current scope.
     pub dependencies: Vec<ModuleId>,
     /// Glob-like source patterns relative to the project root.
@@ -73,6 +75,7 @@ impl DiscoveredModule {
             name: module.name,
             package: module.package,
             root: module.root,
+            manifest: module.manifest,
             dependencies: module.dependencies,
             source_patterns: module.source_patterns,
             metadata: BTreeMap::new(),
@@ -86,6 +89,7 @@ impl DiscoveredModule {
             name: self.name,
             package: self.package,
             root: self.root,
+            manifest: self.manifest,
             dependencies: self.dependencies,
             source_patterns: self.source_patterns,
         }

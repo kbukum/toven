@@ -5,8 +5,9 @@ use std::path::Path;
 use crate::{
     config::{
         ConfigDocument,
-        profile::normalize_profiles,
-        workspace::{build_workspace, normalize_workspace_config},
+        profile::{attach_scope_overrides, normalize_profiles},
+        project::{build_workspace, normalize_project_config},
+        scope::model::normalize_scope_overrides,
     },
     core::{AppResult, Workspace},
     preset::PresetResolver,
@@ -25,9 +26,9 @@ pub fn normalize_config(
     config_path: impl AsRef<Path>,
 ) -> AppResult<Workspace> {
     let config_path = config_path.as_ref();
-    let workspace = normalize_workspace_config(document.workspace, config_path)?;
-    let resolver = PresetResolver::new(workspace.root.clone());
-    normalize_resolved_config(document.profiles, workspace, &resolver)
+    let project = normalize_project_config(document.project, config_path)?;
+    let resolver = PresetResolver::new(project.root.clone());
+    normalize_resolved_config(document.profiles, document.scopes, project, &resolver)
 }
 
 #[cfg(test)]
@@ -36,17 +37,24 @@ fn normalize_config_with_resolver(
     config_path: &Path,
     resolver: &PresetResolver,
 ) -> AppResult<Workspace> {
-    let workspace = normalize_workspace_config(document.workspace, config_path)?;
-    normalize_resolved_config(document.profiles, workspace, resolver)
+    let project = normalize_project_config(document.project, config_path)?;
+    normalize_resolved_config(document.profiles, document.scopes, project, resolver)
 }
 
 fn normalize_resolved_config(
-    profiles: std::collections::BTreeMap<String, crate::config::ProfileConfig>,
-    workspace: crate::config::workspace::NormalizedWorkspace,
+    profile_configs: std::collections::BTreeMap<String, crate::config::ProfileConfig>,
+    scope_configs: std::collections::BTreeMap<String, crate::config::ScopeConfig>,
+    project: crate::config::project::NormalizedProject,
     resolver: &PresetResolver,
 ) -> AppResult<Workspace> {
-    let profiles = normalize_profiles(profiles, resolver)?;
-    Ok(build_workspace(workspace, profiles))
+    let mut profiles = normalize_profiles(profile_configs, &project.root, resolver)?;
+    let profile_adapters = profiles
+        .iter()
+        .map(|profile| (profile.name.clone(), profile.language.clone()))
+        .collect();
+    let scope_overrides = normalize_scope_overrides(scope_configs, &profile_adapters, resolver)?;
+    attach_scope_overrides(&mut profiles, scope_overrides)?;
+    Ok(build_workspace(project, profiles))
 }
 
 #[cfg(test)]
@@ -151,7 +159,7 @@ mod tests {
 
         let error = load_workspace(&config_path).expect_err("invalid profile language should fail");
 
-        assert!(error.message.contains("profiles.rust.language"));
+        assert!(error.message.contains("profiles.rust.adapter"));
     }
 
     #[test]

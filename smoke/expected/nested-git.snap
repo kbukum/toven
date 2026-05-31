@@ -9,14 +9,14 @@ unit: rust/test/w0/batch
 profile: rust task: test mode: batch-ready
 command: direct argv
 resource_group: cargo:<repo>
-argv: ["cargo", "check", "-q", "-p", "smoke-core"]
+argv: ["cargo", "check", "-q", "--manifest-path", "Cargo.toml", "-p", "smoke-core"]
 modules: smoke-core
 
 unit: rust/test/w1/batch
 profile: rust task: test mode: batch-ready
 command: direct argv
 resource_group: cargo:<repo>
-argv: ["cargo", "check", "-q", "-p", "smoke-test-util"]
+argv: ["cargo", "check", "-q", "--manifest-path", "Cargo.toml", "-p", "smoke-test-util"]
 modules: smoke-test-util
 dependencies: smoke-test-util -> smoke-core
 
@@ -24,7 +24,7 @@ unit: rust/test/w2/batch
 profile: rust task: test mode: batch-ready
 command: direct argv
 resource_group: cargo:<repo>
-argv: ["cargo", "check", "-q", "-p", "smoke-app"]
+argv: ["cargo", "check", "-q", "--manifest-path", "Cargo.toml", "-p", "smoke-app"]
 modules: smoke-app
 dependencies: smoke-app -> smoke-core, smoke-test-util
 stderr:

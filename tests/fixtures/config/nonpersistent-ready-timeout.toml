@@ -1,12 +1,12 @@
-[workspace]
+[project]
 name = "demo"
 root = "."
 
 [profiles.rust]
-language = "rust"
+adapter = "rust"
 execution = "batch-ready"
 module_arg_template = ["-p", "{module.package}"]
-resource_group = "cargo:{workspace.root}"
+resource_group = "cargo:{project.root}"
 
 [profiles.rust.tasks]
 test = { argv = ["cargo", "test"], ready_timeout_seconds = 1 }

@@ -1,6 +1,9 @@
 //! Readiness scheduling.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+};
 
 use crate::{
     core::{AppError, AppResult, Module, ModuleId},
@@ -68,6 +71,18 @@ pub(super) fn ready_waves(modules: &[Module]) -> AppResult<Vec<Vec<Module>>> {
     Ok(waves)
 }
 
+pub(super) fn split_wave_by_manifest(wave: Vec<Module>) -> Vec<Vec<Module>> {
+    let mut groups = BTreeMap::<Option<PathBuf>, Vec<Module>>::new();
+    for module in wave {
+        groups
+            .entry(module.manifest.clone())
+            .or_default()
+            .push(module);
+    }
+
+    groups.into_values().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -80,6 +95,7 @@ mod tests {
             name: ModuleId::new(name).expect("module id"),
             package: Some(name.to_string()),
             root: name.into(),
+            manifest: Some("Cargo.toml".into()),
             dependencies: dependencies
                 .iter()
                 .map(|dependency| ModuleId::new(*dependency).expect("module id"))

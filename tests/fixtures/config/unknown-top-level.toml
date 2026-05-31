@@ -1,7 +1,7 @@
 unknown = true
 
 [profiles.rust]
-language = "rust"
+adapter = "rust"
 
 [profiles.rust.tasks]
 test = { argv = ["cargo", "test"] }

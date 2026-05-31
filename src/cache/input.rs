@@ -823,6 +823,7 @@ mod tests {
             name: ModuleId::new(name).expect("module id"),
             package: None,
             root: PathBuf::from(root),
+            manifest: Some(PathBuf::from("Cargo.toml")),
             dependencies: Vec::new(),
             source_patterns: Vec::new(),
         }

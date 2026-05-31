@@ -12,7 +12,7 @@ pub use adapter::DiscoveryAdapter;
 pub use error::{AppError, AppResult, ErrorCode};
 pub use model::{
     AdapterId, CommandOrigin, ExecutionMode, ExecutionUnit, Module, ModuleId, NodeState,
-    PersistentReadiness, Plan, Profile, ScopeId, Task, TaskCommand, Workspace,
+    PersistentReadiness, Plan, Profile, ScopeId, ScopeOverride, Task, TaskCommand, Workspace,
 };
 pub use preset::PresetDefinition;
 pub use protocol::{

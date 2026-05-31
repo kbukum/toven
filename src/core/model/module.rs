@@ -68,6 +68,8 @@ pub struct Module {
     pub package: Option<String>,
     /// Module root relative to the workspace root.
     pub root: PathBuf,
+    /// Manifest/discovery-unit path relative to the workspace root.
+    pub manifest: Option<PathBuf>,
     /// Module identifiers this module depends on.
     pub dependencies: Vec<ModuleId>,
     /// Glob-like source patterns relative to the workspace root.

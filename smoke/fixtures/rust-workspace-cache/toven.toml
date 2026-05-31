@@ -1,17 +1,17 @@
-[workspace]
+[project]
 name = "smoke-cache"
 root = "."
 
 [profiles.rust]
-language = "rust"
+adapter = "rust"
 execution = "spawn-each"
 module_arg_template = ["-p", "{module.package}"]
-resource_group = "cargo:{workspace.root}"
+resource_group = "cargo:{project.root}"
 
 [profiles.workspace]
-language = "rust"
+adapter = "rust"
 execution = "workspace-once"
-resource_group = "cargo:{workspace.root}"
+resource_group = "cargo:{project.root}"
 
 [profiles.rust.tasks]
 stamp = { argv = ["sh", "-c", "echo stamp {module.package}"] }

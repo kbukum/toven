@@ -1,5 +1,5 @@
 [profiles.rust]
-language = "rust"
+adapter = "rust"
 package_manager = "cargo"
 
 [profiles.rust.tasks]

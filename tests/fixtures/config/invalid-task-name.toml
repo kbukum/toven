@@ -1,9 +1,9 @@
-[workspace]
+[project]
 name = "demo"
 root = "."
 
 [profiles.rust]
-language = "rust"
+adapter = "rust"
 
 [profiles.rust.tasks]
 "bad/task" = { argv = ["cargo", "test"] }

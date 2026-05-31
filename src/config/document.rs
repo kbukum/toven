@@ -2,18 +2,21 @@
 
 use std::collections::BTreeMap;
 
-use crate::config::{ProfileConfig, WorkspaceConfig};
+use crate::config::{ProfileConfig, ProjectConfig, ScopeConfig};
 
 /// Top-level `toven.toml` document.
 #[derive(Debug, Clone, Eq, PartialEq, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigDocument {
-    /// Workspace metadata.
+    /// Project metadata.
     #[serde(default)]
-    pub workspace: WorkspaceConfig,
-    /// Named language profiles.
+    pub project: ProjectConfig,
+    /// Named adapter profiles.
     #[serde(default)]
     pub profiles: BTreeMap<String, ProfileConfig>,
+    /// Optional named scope overrides.
+    #[serde(default)]
+    pub scopes: BTreeMap<String, ScopeConfig>,
 }
 
 impl rskit_validation::Validate for ConfigDocument {

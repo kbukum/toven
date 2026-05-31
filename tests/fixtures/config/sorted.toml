@@ -1,12 +1,12 @@
 [profiles.zed]
-language = "rust"
+adapter = "rust"
 
 [profiles.zed.tasks]
 z-last = { argv = ["cargo", "test"] }
 a-first = { argv = ["cargo", "fmt"] }
 
 [profiles.alpha]
-language = "python"
+adapter = "python"
 
 [profiles.alpha.tasks]
 test = { argv = ["python", "-m", "pytest"] }

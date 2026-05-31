@@ -1,26 +1,29 @@
 //! Profile-level config normalization.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::Path};
 
 use crate::{
     config::{TaskConfig, task::normalize_task},
     core::{
-        AppError, AppResult, ExecutionMode, Profile, validate_command_template,
-        validate_identifier, validate_template, validate_templates,
+        AdapterOptions, AppError, AppResult, ExecutionMode, Profile, ScopeOverride,
+        validate_command_template, validate_identifier, validate_template, validate_templates,
     },
     preset::PresetResolver,
 };
 
-const DEFAULT_RESOURCE_GROUP: &str = "{workspace.root}";
+const DEFAULT_RESOURCE_GROUP: &str = "{project.root}";
 
 /// `[profiles.<name>]` table from `toven.toml`.
 #[derive(Debug, Clone, Eq, PartialEq, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileConfig {
-    /// Language identifier.
-    pub language: String,
-    /// Optional command adapter override.
-    pub discovery_command: Option<Vec<String>>,
+    /// Adapter identifier.
+    pub adapter: String,
+    /// Adapter-owned discovery options.
+    #[serde(default)]
+    pub discovery: AdapterOptions,
+    /// Optional command discovery override.
+    pub discover: Option<Vec<String>>,
     /// Execution mode for tasks in this profile.
     pub execution: Option<ExecutionMode>,
     /// Template for rendering one module selector.
@@ -34,6 +37,7 @@ pub struct ProfileConfig {
 
 pub(super) fn normalize_profiles(
     profiles: BTreeMap<String, ProfileConfig>,
+    project_root: &Path,
     resolver: &PresetResolver,
 ) -> AppResult<Vec<Profile>> {
     if profiles.is_empty() {
@@ -45,7 +49,7 @@ pub(super) fn normalize_profiles(
 
     let mut normalized = Vec::with_capacity(profiles.len());
     for (name, profile) in profiles {
-        normalized.push(normalize_profile(name, profile, resolver)?);
+        normalized.push(normalize_profile(name, profile, project_root, resolver)?);
     }
     Ok(normalized)
 }
@@ -53,11 +57,12 @@ pub(super) fn normalize_profiles(
 fn normalize_profile(
     name: String,
     config: ProfileConfig,
+    _project_root: &Path,
     resolver: &PresetResolver,
 ) -> AppResult<Profile> {
     validate_identifier(format!("profiles.{name}"), &name)?;
-    validate_identifier(format!("profiles.{name}.language"), &config.language)?;
-    validate_discovery_command(&name, config.discovery_command.as_deref())?;
+    validate_identifier(format!("profiles.{name}.adapter"), &config.adapter)?;
+    validate_discover(&name, config.discover.as_deref())?;
 
     if config.tasks.is_empty() {
         return Err(AppError::invalid_input(
@@ -81,30 +86,49 @@ fn normalize_profile(
     for (task_name, task) in config.tasks {
         tasks.push(normalize_task(
             &name,
-            &config.language,
+            &config.adapter,
             task_name,
             task,
             resolver,
+            "profiles",
         )?);
     }
 
     Ok(Profile {
         name,
-        language: config.language,
-        discovery_command: config.discovery_command,
+        language: config.adapter,
+        adapter_options: config.discovery,
+        discovery_command: config.discover,
         execution: config.execution.unwrap_or(ExecutionMode::SpawnEach),
         module_arg_template,
         resource_group,
         tasks,
+        scope_overrides: Vec::new(),
     })
 }
 
-fn validate_discovery_command(profile_name: &str, command: Option<&[String]>) -> AppResult<()> {
+fn validate_discover(profile_name: &str, command: Option<&[String]>) -> AppResult<()> {
     if let Some(command) = command {
-        validate_command_template(
-            format!("profiles.{profile_name}.discovery_command"),
-            command,
-        )?;
+        validate_command_template(format!("profiles.{profile_name}.discover"), command)?;
+    }
+    Ok(())
+}
+
+pub(super) fn attach_scope_overrides(
+    profiles: &mut [Profile],
+    overrides: Vec<(String, ScopeOverride, String)>,
+) -> AppResult<()> {
+    for (scope_name, override_config, profile_name) in overrides {
+        let profile = profiles
+            .iter_mut()
+            .find(|profile| profile.name == profile_name)
+            .ok_or_else(|| {
+                AppError::invalid_input(
+                    format!("scopes.{scope_name}.profile"),
+                    format!("unknown profile '{profile_name}'"),
+                )
+            })?;
+        profile.scope_overrides.push(override_config);
     }
     Ok(())
 }
