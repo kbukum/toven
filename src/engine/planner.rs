@@ -195,7 +195,10 @@ fn plan_discovered_profile_group(
                 &policy.profile,
                 policy.scope.as_deref(),
                 &policy.task,
-                format!("{}/{}/workspace", policy.profile.name, policy.task.name),
+                format!(
+                    "{}/workspace",
+                    unit_id_prefix(&policy.profile, policy.scope.as_deref(), &policy.task)
+                ),
                 modules.clone(),
                 task_command(&policy.task)?,
                 passthrough_args.to_owned(),
@@ -348,10 +351,10 @@ fn scoped_profile(profile: &Profile, scope: &ScopeOverride) -> Profile {
     let mut scoped = profile.clone();
     scoped.execution = scope.execution.unwrap_or(profile.execution);
     if let Some(module_arg_template) = &scope.module_arg_template {
-        scoped.module_arg_template = module_arg_template.clone();
+        scoped.module_arg_template.clone_from(module_arg_template);
     }
     if let Some(resource_group) = &scope.resource_group {
-        scoped.resource_group = resource_group.clone();
+        scoped.resource_group.clone_from(resource_group);
     }
     scoped.scope_overrides = Vec::new();
     scoped
@@ -376,19 +379,7 @@ fn plan_profile_task(
     let waves = ready_waves(&modules)?;
 
     match profile.execution {
-        ExecutionMode::SpawnEach => {
-            for (wave_index, wave) in waves.into_iter().enumerate() {
-                units.extend(plan_ready_wave(
-                    profile,
-                    scope,
-                    task,
-                    wave_index,
-                    wave,
-                    passthrough_args,
-                )?);
-            }
-        }
-        ExecutionMode::BatchReady => {
+        ExecutionMode::SpawnEach | ExecutionMode::BatchReady => {
             for (wave_index, wave) in waves.into_iter().enumerate() {
                 units.extend(plan_ready_wave(
                     profile,
@@ -405,7 +396,7 @@ fn plan_profile_task(
                 profile,
                 scope,
                 task,
-                format!("{}/{}/workspace", profile.name, task.name),
+                format!("{}/workspace", unit_id_prefix(profile, scope, task)),
                 modules,
                 command,
                 passthrough_args.to_owned(),
@@ -439,8 +430,9 @@ fn plan_ready_wave(
                     scope,
                     task,
                     format!(
-                        "{}/{}/w{wave_index}/{}",
-                        profile.name, task.name, module.name
+                        "{}/w{wave_index}/{}",
+                        unit_id_prefix(profile, scope, task),
+                        module.name
                     ),
                     vec![module],
                     command.clone(),
@@ -454,11 +446,14 @@ fn plan_ready_wave(
             for (group_index, group) in groups.into_iter().enumerate() {
                 let id = if split {
                     format!(
-                        "{}/{}/w{wave_index}/batch/m{group_index}",
-                        profile.name, task.name
+                        "{}/w{wave_index}/batch/m{group_index}",
+                        unit_id_prefix(profile, scope, task)
                     )
                 } else {
-                    format!("{}/{}/w{wave_index}/batch", profile.name, task.name)
+                    format!(
+                        "{}/w{wave_index}/batch",
+                        unit_id_prefix(profile, scope, task)
+                    )
                 };
                 units.push(unit(
                     profile,
@@ -475,6 +470,13 @@ fn plan_ready_wave(
     }
 
     Ok(units)
+}
+
+fn unit_id_prefix(profile: &Profile, scope: Option<&str>, task: &Task) -> String {
+    scope.map_or_else(
+        || format!("{}/{}", profile.name, task.name),
+        |scope| format!("{}/{}/{}", profile.name, scope, task.name),
+    )
 }
 
 fn unit(
@@ -721,6 +723,7 @@ mod tests {
             .iter()
             .find(|unit| unit.scope.as_deref() == Some("contrib"))
             .expect("contrib scope unit exists");
+        assert!(scoped.id.starts_with("rust/contrib/test/"));
         assert_eq!(scoped.modules[0].name.as_str(), "contrib-app");
         assert_eq!(scoped.argv_template[1], "check");
         assert_eq!(scoped.mode, ExecutionMode::SpawnEach);
@@ -732,15 +735,13 @@ mod tests {
         let base_modules = plan
             .units
             .iter()
+            .filter(|unit| unit.scope.is_none())
             .flat_map(|unit| {
-                (unit.scope.is_none()).then(|| {
-                    unit.modules
-                        .iter()
-                        .map(|module| module.name.as_str())
-                        .collect::<Vec<_>>()
-                })
+                unit.modules
+                    .iter()
+                    .map(|module| module.name.as_str())
+                    .collect::<Vec<_>>()
             })
-            .flatten()
             .collect::<Vec<_>>();
         assert_eq!(base_modules, ["core-local"]);
 

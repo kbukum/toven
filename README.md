@@ -140,7 +140,7 @@ and should be part of the task key, set `cache_args = true`:
 
 ```toml
 [profiles.main.tasks]
-test = { argv = ["cargo", "test", "{module.args}", "{args}"], cache_args = true }
+test = { argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"], cache_args = true }
 ```
 
 Persistent tasks opt out of cache automatically and can declare when they are
