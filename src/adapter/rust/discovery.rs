@@ -254,6 +254,14 @@ mod tests {
     }
 
     #[test]
+    fn rejects_empty_manifest_paths() {
+        let error = RustProfileOptions::from_manifests(vec![PathBuf::new()])
+            .expect_err("empty manifest path should fail");
+
+        assert!(error.message.contains("path cannot be empty"));
+    }
+
+    #[test]
     fn rejects_request_schema_mismatch_before_metadata_discovery() {
         let error = RustAdapter::new()
             .discover(&DiscoverRequest {

@@ -100,6 +100,9 @@ fn validate_manifests(field: &str, manifests: &[PathBuf]) -> AppResult<()> {
 }
 
 fn validate_relative_path(field: &str, path: &Path) -> AppResult<()> {
+    if path.as_os_str().is_empty() {
+        return Err(AppError::invalid_input(field, "path cannot be empty"));
+    }
     if path.is_absolute() {
         return Err(AppError::invalid_input(field, "path must be relative"));
     }
