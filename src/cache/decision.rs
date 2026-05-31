@@ -19,6 +19,7 @@ use crate::{
         AppError, AppResult, CommandOrigin, ErrorCode, ExecutionMode, ExecutionUnit, Module,
         ModuleId, Plan, TaskOrigin, Workspace,
     },
+    engine::graph::{dependency_key_for, selected_modules_by_name},
     exec::{render_execution_unit, render_resource_group},
 };
 
@@ -413,12 +414,18 @@ fn compute_components(
     let planned_module = planned.get(key).ok_or_else(|| {
         AppError::invalid_input("modules", format!("module '{}' is not planned", key.1))
     })?;
+    let selected_by_name = selected_modules_by_name(source_hashes.keys());
     let dep_keys = planned_module
         .module
         .dependencies
         .iter()
         .map(|dependency| {
-            let dep_key = PlannedKey(key.0.clone(), dependency.clone());
+            let Some((dependency_scope, dependency_name)) =
+                dependency_key_for(planned_module.module, dependency, &selected_by_name)
+            else {
+                return Ok(format!("external:{dependency}"));
+            };
+            let dep_key = PlannedKey(dependency_scope.clone(), dependency_name.clone());
             if planned.contains_key(&dep_key) {
                 compute_components(
                     &dep_key,
@@ -431,7 +438,7 @@ fn compute_components(
                 .map(|components| components.key.as_str().to_string())
             } else {
                 Ok(source_hashes
-                    .get(&(key.0.clone(), dependency.clone()))
+                    .get(&(dependency_scope, dependency_name))
                     .cloned()
                     .unwrap_or_else(|| format!("external:{dependency}")))
             }

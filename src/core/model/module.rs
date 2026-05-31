@@ -4,6 +4,9 @@ use std::{fmt, path::PathBuf, str::FromStr};
 
 use crate::core::{AdapterId, AppError, AppResult, ScopeId, validate_identifier};
 
+/// Scope-qualified module identifier.
+pub type ScopedModuleKey = (String, ModuleId);
+
 /// Unique module identifier within a workspace.
 #[derive(
     Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Hash, serde::Deserialize, serde::Serialize,
@@ -78,6 +81,18 @@ pub struct Module {
     pub dependencies: Vec<ModuleId>,
     /// Glob-like source patterns relative to the workspace root.
     pub source_patterns: Vec<String>,
+}
+
+/// Return a stable scope-qualified key for a module.
+#[must_use]
+pub fn scoped_module_key(module: &Module) -> ScopedModuleKey {
+    (module.scope_id.to_string(), module.name.clone())
+}
+
+/// Render a scope-qualified module key for human-facing output.
+#[must_use]
+pub fn scoped_module_display(key: &ScopedModuleKey) -> String {
+    format!("{}/{}", key.0, key.1)
 }
 
 #[cfg(test)]

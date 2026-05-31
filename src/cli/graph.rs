@@ -8,8 +8,11 @@ use crate::{
     adapter::AdapterRegistry,
     cli::affected::modules_from_discovered,
     config::load_workspace,
-    core::{AppError, AppResult, Module},
-    engine::discover_workspace_task_profiles,
+    core::{AppError, AppResult, Module, scoped_module_display, scoped_module_key},
+    engine::{
+        discover_workspace_task_profiles,
+        graph::{dependency_key_for, selected_modules_by_name},
+    },
 };
 
 pub(super) fn run_graph(matches: &ArgMatches, stdout: &mut impl Write) -> AppResult<()> {
@@ -47,16 +50,22 @@ fn render_text(stdout: &mut impl Write, modules: &[Module]) -> AppResult<()> {
         return Ok(());
     }
 
+    let modules_by_key = modules
+        .iter()
+        .map(|module| (scoped_module_key(module), module))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let selected_by_name = selected_modules_by_name(modules_by_key.keys());
     for module in modules {
-        if module.dependencies.is_empty() {
+        let dependencies = module
+            .dependencies
+            .iter()
+            .filter_map(|dependency| dependency_key_for(module, dependency, &selected_by_name))
+            .map(|dependency| scoped_module_display(&dependency))
+            .collect::<Vec<_>>()
+            .join(", ");
+        if dependencies.is_empty() {
             writeln!(stdout, "{}: none", module_id(module)).map_err(AppError::internal)?;
         } else {
-            let dependencies = module
-                .dependencies
-                .iter()
-                .map(|dependency| format!("{}/{}", module.scope_id, dependency))
-                .collect::<Vec<_>>()
-                .join(", ");
             writeln!(stdout, "{}: {dependencies}", module_id(module))
                 .map_err(AppError::internal)?;
         }
@@ -66,15 +75,23 @@ fn render_text(stdout: &mut impl Write, modules: &[Module]) -> AppResult<()> {
 
 fn render_dot(stdout: &mut impl Write, modules: &[Module]) -> AppResult<()> {
     writeln!(stdout, "digraph toven {{").map_err(AppError::internal)?;
+    let modules_by_key = modules
+        .iter()
+        .map(|module| (scoped_module_key(module), module))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let selected_by_name = selected_modules_by_name(modules_by_key.keys());
     for module in modules {
         writeln!(stdout, "  \"{}\";", escape_dot(&module_id(module)))
             .map_err(AppError::internal)?;
         for dependency in &module.dependencies {
+            let Some(dependency) = dependency_key_for(module, dependency, &selected_by_name) else {
+                continue;
+            };
             writeln!(
                 stdout,
                 "  \"{}\" -> \"{}\";",
                 escape_dot(&module_id(module)),
-                escape_dot(&format!("{}/{}", module.scope_id, dependency))
+                escape_dot(&scoped_module_display(&dependency))
             )
             .map_err(AppError::internal)?;
         }

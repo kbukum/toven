@@ -21,7 +21,7 @@ use crate::{
         run::{ActivePersistentProcess, run_task_once_for_watch},
     },
     config::load_workspace,
-    core::{AppError, AppResult, ModuleId},
+    core::{AppError, AppResult, ScopedModuleKey, scoped_module_display},
     engine::{
         affected::{ChangedPath, affected_modules},
         discover_workspace_task_profiles,
@@ -213,7 +213,7 @@ fn shutdown_persistent_processes(processes: Vec<ActivePersistentProcess>) -> App
 
 fn shutdown_affected_persistent_processes(
     processes: &mut Vec<ActivePersistentProcess>,
-    affected: &BTreeSet<ModuleId>,
+    affected: &BTreeSet<ScopedModuleKey>,
 ) -> AppResult<()> {
     let mut kept = Vec::new();
     let mut first_error = None;
@@ -452,7 +452,7 @@ fn write_watch_change(
     stderr: &mut impl Write,
     output_format: OutputFormat,
     changed: &[ChangedPath],
-    modules: Option<&BTreeSet<ModuleId>>,
+    modules: Option<&BTreeSet<ScopedModuleKey>>,
 ) -> AppResult<()> {
     let writer: &mut dyn Write = match output_format {
         OutputFormat::Human => stdout,
@@ -468,7 +468,7 @@ fn write_watch_change(
             "watch: rerun {}",
             modules
                 .iter()
-                .map(ModuleId::as_str)
+                .map(scoped_module_display)
                 .collect::<Vec<_>>()
                 .join(", ")
         )
@@ -521,7 +521,8 @@ mod tests {
             Path::new("/workspace"),
         )
         .expect("watch start writes");
-        let modules = BTreeSet::from([ModuleId::new("api").expect("module id")]);
+        let modules =
+            BTreeSet::from([("rust".to_string(), ModuleId::new("api").expect("module id"))]);
         write_watch_change(
             &mut stdout,
             &mut stderr,
@@ -534,7 +535,7 @@ mod tests {
         assert!(stdout.is_empty());
         let stderr = String::from_utf8(stderr).expect("stderr is utf-8");
         assert!(stderr.contains("watch: /workspace"));
-        assert!(stderr.contains("watch: rerun api"));
+        assert!(stderr.contains("watch: rerun rust/api"));
     }
 
     #[test]

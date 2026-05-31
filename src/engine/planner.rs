@@ -6,10 +6,13 @@ use crate::{
     adapter::AdapterRegistry,
     core::{
         AdapterId, AppError, AppResult, CommandOrigin, DISCOVERY_SCHEMA_VERSION, DiscoverRequest,
-        ExecutionMode, ExecutionUnit, ModuleId, Plan, Profile, ScopeId, ScopeOverride, Task,
-        TaskCommand, Workspace, validate_discovery_response,
+        ExecutionMode, ExecutionUnit, Plan, Profile, ScopeId, ScopeOverride, ScopedModuleKey, Task,
+        TaskCommand, Workspace, scoped_module_key, validate_discovery_response,
     },
-    engine::scheduler::split_wave_by_manifest,
+    engine::{
+        graph::{dependency_key_for, dependency_key_for_scope, selected_modules_by_name},
+        scheduler::split_wave_by_manifest,
+    },
     exec::{render_execution_unit, render_resource_group},
 };
 
@@ -44,7 +47,7 @@ pub fn plan_workspace_filtered(
     task_name: &str,
     passthrough_args: &[String],
     registry: &AdapterRegistry,
-    module_filter: Option<&BTreeSet<ModuleId>>,
+    module_filter: Option<&BTreeSet<ScopedModuleKey>>,
 ) -> AppResult<Plan> {
     let discovered = discover_workspace_task_profiles(&workspace, task_name, registry)?;
     plan_discovered_task_profiles(workspace, &discovered, passthrough_args, module_filter)
@@ -65,20 +68,15 @@ pub fn discover_workspace_task_profiles(
             .scope_overrides
             .iter()
             .any(|scope| scope.tasks.iter().any(|task| task.name == task_name));
-        let profile_tasks = if config_profile_task || config_scope_task {
-            let adapter = registry.adapter_for_profile(profile)?;
-            merged_tasks(adapter.default_tasks(), profile.tasks.clone())
-        } else {
-            let Ok(adapter) = registry.adapter_for_profile(profile) else {
-                continue;
-            };
-            merged_tasks(adapter.default_tasks(), profile.tasks.clone())
+        let adapter = match registry.adapter_for_profile(profile) {
+            Ok(adapter) => adapter,
+            Err(error) if config_profile_task || config_scope_task => return Err(error),
+            Err(_) => continue,
         };
+        let profile_tasks = merged_tasks(adapter.default_tasks(), profile.tasks.clone());
         let profile_task = profile_tasks.iter().find(|task| task.name == task_name);
         let scope_task_exists = profile.scope_overrides.iter().any(|scope| {
-            merged_tasks(profile_tasks.clone(), scope.tasks.clone())
-                .iter()
-                .any(|task| task.name == task_name)
+            scope.tasks.iter().any(|task| task.name == task_name) || profile_task.is_some()
         });
         if profile_task.is_none() && !scope_task_exists {
             continue;
@@ -171,7 +169,7 @@ pub fn plan_discovered_task_profiles(
     workspace: Workspace,
     discovered: &[DiscoveredTaskProfile],
     passthrough_args: &[String],
-    module_filter: Option<&BTreeSet<ModuleId>>,
+    module_filter: Option<&BTreeSet<ScopedModuleKey>>,
 ) -> AppResult<Plan> {
     let mut units = Vec::new();
     let mut grouped = BTreeMap::<String, Vec<&DiscoveredTaskProfile>>::new();
@@ -199,7 +197,7 @@ fn plan_discovered_profile_group(
     workspace: &Workspace,
     discovered: &[&DiscoveredTaskProfile],
     passthrough_args: &[String],
-    module_filter: Option<&BTreeSet<ModuleId>>,
+    module_filter: Option<&BTreeSet<ScopedModuleKey>>,
 ) -> AppResult<Vec<ExecutionUnit>> {
     let mut modules_by_key = BTreeMap::new();
     let mut policy_by_module = BTreeMap::new();
@@ -298,7 +296,7 @@ fn plan_discovered_profile_group(
 
 fn filter_modules(
     modules: Vec<crate::core::Module>,
-    module_filter: Option<&BTreeSet<ModuleId>>,
+    module_filter: Option<&BTreeSet<ScopedModuleKey>>,
 ) -> Vec<crate::core::Module> {
     let Some(module_filter) = module_filter else {
         return modules;
@@ -306,52 +304,17 @@ fn filter_modules(
     modules
         .into_iter()
         .filter_map(|mut module| {
-            if !module_filter.contains(&module.name) {
+            if !module_filter.contains(&scoped_module_key(&module)) {
                 return None;
             }
-            module
-                .dependencies
-                .retain(|dependency| module_filter.contains(dependency));
+            module.dependencies.retain(|dependency| {
+                module_filter
+                    .iter()
+                    .any(|(_, module_id)| module_id == dependency)
+            });
             Some(module)
         })
         .collect()
-}
-
-type ScopedModuleKey = (String, ModuleId);
-
-fn scoped_module_key(module: &crate::core::Module) -> ScopedModuleKey {
-    (module.scope_id.to_string(), module.name.clone())
-}
-
-fn selected_modules_by_name<'a>(
-    keys: impl Iterator<Item = &'a ScopedModuleKey>,
-) -> BTreeMap<ModuleId, Vec<ScopedModuleKey>> {
-    let mut selected = BTreeMap::<ModuleId, Vec<ScopedModuleKey>>::new();
-    for key in keys {
-        selected.entry(key.1.clone()).or_default().push(key.clone());
-    }
-    selected
-}
-
-fn dependency_key_for(
-    module: &crate::core::Module,
-    dependency: &ModuleId,
-    selected_by_name: &BTreeMap<ModuleId, Vec<ScopedModuleKey>>,
-) -> Option<ScopedModuleKey> {
-    dependency_key_for_scope(module.scope_id.as_str(), dependency, selected_by_name)
-}
-
-fn dependency_key_for_scope(
-    scope_id: &str,
-    dependency: &ModuleId,
-    selected_by_name: &BTreeMap<ModuleId, Vec<ScopedModuleKey>>,
-) -> Option<ScopedModuleKey> {
-    let candidates = selected_by_name.get(dependency)?;
-    candidates
-        .iter()
-        .find(|(candidate_scope_id, _)| candidate_scope_id == scope_id)
-        .cloned()
-        .or_else(|| (candidates.len() == 1).then(|| candidates[0].clone()))
 }
 
 fn scoped_ready_waves(

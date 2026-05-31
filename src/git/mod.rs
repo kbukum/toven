@@ -1,4 +1,4 @@
 //! Git-backed baseline and changed-path discovery.
 
-pub mod affected;
-pub mod baseline;
+pub(crate) mod affected;
+pub(crate) mod baseline;

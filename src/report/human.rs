@@ -3,7 +3,11 @@
 use std::fmt::Write as _;
 
 use crate::{
-    core::{AppResult, CommandOrigin, Module, Plan, TaskOrigin},
+    core::{
+        AppResult, CommandOrigin, Module, Plan, TaskOrigin, scoped_module_display,
+        scoped_module_key,
+    },
+    engine::graph::{dependency_key_for, selected_modules_by_name},
     exec::{render_execution_unit, render_resource_group},
 };
 
@@ -73,17 +77,23 @@ fn task_origin(origin: &TaskOrigin) -> String {
 }
 
 fn module_dependencies(modules: &[Module]) -> Option<String> {
+    let modules_by_key = modules
+        .iter()
+        .map(|module| (scoped_module_key(module), module))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let selected_by_name = selected_modules_by_name(modules_by_key.keys());
     let dependencies = modules
         .iter()
-        .filter(|module| !module.dependencies.is_empty())
-        .map(|module| {
+        .filter_map(|module| {
             let dependencies = module
                 .dependencies
                 .iter()
-                .map(|dependency| format!("{}/{}", module.scope_id, dependency))
+                .filter_map(|dependency| dependency_key_for(module, dependency, &selected_by_name))
+                .map(|dependency| scoped_module_display(&dependency))
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("{}/{} -> {dependencies}", module.scope_id, module.name)
+            (!dependencies.is_empty())
+                .then(|| format!("{}/{} -> {dependencies}", module.scope_id, module.name))
         })
         .collect::<Vec<_>>();
 

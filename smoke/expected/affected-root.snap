@@ -6,9 +6,8 @@ baseline: <sha>
 changed_paths:
 - Cargo.toml
 modules:
-- smoke-app (global)
-- smoke-core (global)
-- smoke-test-util (global)
+- rust/smoke-app (global)
+- rust/smoke-core (global)
+- rust/smoke-test-util (global)
 stderr:
 <empty>
-

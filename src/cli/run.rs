@@ -19,10 +19,12 @@ use crate::{
     config::load_workspace,
     core::{
         AppError, AppResult, ErrorCode, ExecutionMode, ExecutionUnit, Module, ModuleId, Plan,
-        Workspace,
+        ScopedModuleKey, Workspace, scoped_module_key,
     },
     engine::{
-        DiscoveredTaskProfile, discover_workspace_task_profiles, plan_discovered_task_profiles,
+        DiscoveredTaskProfile, discover_workspace_task_profiles,
+        graph::{dependency_key_for, selected_modules_by_name},
+        plan_discovered_task_profiles,
     },
     exec::{
         PersistentOutput, PersistentOutputStream, PersistentProcess, RunOptions,
@@ -47,7 +49,7 @@ pub(super) fn run_task_once(
     matches: &ArgMatches,
     stdout: &mut impl Write,
     stderr: &mut impl Write,
-    module_filter: Option<&BTreeSet<ModuleId>>,
+    module_filter: Option<&BTreeSet<ScopedModuleKey>>,
 ) -> AppResult<()> {
     run_task_once_with_lifecycle(
         matches,
@@ -64,7 +66,7 @@ pub(super) fn run_task_once_for_watch(
     matches: &ArgMatches,
     stdout: &mut impl Write,
     stderr: &mut impl Write,
-    module_filter: Option<&BTreeSet<ModuleId>>,
+    module_filter: Option<&BTreeSet<ScopedModuleKey>>,
     cancellation: SharedCancellation,
 ) -> AppResult<Vec<ActivePersistentProcess>> {
     run_task_once_with_lifecycle(
@@ -81,7 +83,7 @@ fn run_task_once_with_lifecycle(
     matches: &ArgMatches,
     stdout: &mut impl Write,
     stderr: &mut impl Write,
-    module_filter: Option<&BTreeSet<ModuleId>>,
+    module_filter: Option<&BTreeSet<ScopedModuleKey>>,
     persistent_lifecycle: PersistentLifecycle,
     cancellation: Option<SharedCancellation>,
 ) -> AppResult<Vec<ActivePersistentProcess>> {
@@ -194,12 +196,12 @@ enum PersistentLifecycle {
 }
 
 pub(super) struct ActivePersistentProcess {
-    modules: BTreeSet<ModuleId>,
+    modules: BTreeSet<ScopedModuleKey>,
     process: PersistentProcess,
 }
 
 impl ActivePersistentProcess {
-    pub(super) fn is_affected_by(&self, modules: &BTreeSet<ModuleId>) -> bool {
+    pub(super) fn is_affected_by(&self, modules: &BTreeSet<ScopedModuleKey>) -> bool {
         self.modules.is_empty() || !self.modules.is_disjoint(modules)
     }
 
@@ -213,7 +215,7 @@ fn select_plans(
     workspace: &Workspace,
     discovered: &[DiscoveredTaskProfile],
     passthrough_args: &[String],
-    module_filter: Option<&BTreeSet<ModuleId>>,
+    module_filter: Option<&BTreeSet<ScopedModuleKey>>,
 ) -> AppResult<(Plan, Plan)> {
     if let Some(module_filter) = module_filter {
         let exec_plan = plan_discovered_task_profiles(
@@ -325,7 +327,7 @@ where
             modules: executable_unit
                 .modules
                 .iter()
-                .map(|module| module.name.clone())
+                .map(scoped_module_key)
                 .collect(),
             process,
         })
@@ -425,26 +427,34 @@ fn process_error(
 
 fn dependency_closure(
     modules: &[Module],
-    roots: &BTreeSet<ModuleId>,
-) -> AppResult<BTreeSet<ModuleId>> {
-    let by_name = modules
+    roots: &BTreeSet<ScopedModuleKey>,
+) -> AppResult<BTreeSet<ScopedModuleKey>> {
+    let by_key = modules
         .iter()
-        .map(|module| (module.name.clone(), module))
+        .map(|module| (scoped_module_key(module), module))
         .collect::<BTreeMap<_, _>>();
+    let selected_by_name = selected_modules_by_name(by_key.keys());
     let mut closure = roots.clone();
     let mut stack = roots.iter().cloned().collect::<Vec<_>>();
-    while let Some(module_id) = stack.pop() {
-        let Some(module) = by_name.get(&module_id) else {
+    while let Some(module_key) = stack.pop() {
+        let Some(module) = by_key.get(&module_key) else {
             return Err(AppError::invalid_input(
                 "modules",
-                format!("module '{module_id}' is referenced but was not discovered"),
+                format!(
+                    "module '{}/{}' is referenced but was not discovered",
+                    module_key.0, module_key.1
+                ),
             ));
         };
         for dependency in &module.dependencies {
-            if !closure.insert(dependency.clone()) {
+            let Some(dependency_key) = dependency_key_for(module, dependency, &selected_by_name)
+            else {
+                continue;
+            };
+            if !closure.insert(dependency_key.clone()) {
                 continue;
             }
-            stack.push(dependency.clone());
+            stack.push(dependency_key);
         }
     }
     Ok(closure)
@@ -532,15 +542,30 @@ mod tests {
             module("core", &[]),
             module("unrelated", &[]),
         ];
-        let roots =
-            std::iter::once(crate::core::ModuleId::new("app").expect("module id")).collect();
+        let roots = std::iter::once((
+            "profile".to_string(),
+            crate::core::ModuleId::new("app").expect("module id"),
+        ))
+        .collect();
 
         let closure = dependency_closure(&modules, &roots).expect("dependency closure computes");
 
-        assert!(closure.contains(&crate::core::ModuleId::new("app").expect("module id")));
-        assert!(closure.contains(&crate::core::ModuleId::new("service").expect("module id")));
-        assert!(closure.contains(&crate::core::ModuleId::new("core").expect("module id")));
-        assert!(!closure.contains(&crate::core::ModuleId::new("unrelated").expect("module id")));
+        assert!(closure.contains(&(
+            "profile".to_string(),
+            crate::core::ModuleId::new("app").expect("module id")
+        )));
+        assert!(closure.contains(&(
+            "profile".to_string(),
+            crate::core::ModuleId::new("service").expect("module id")
+        )));
+        assert!(closure.contains(&(
+            "profile".to_string(),
+            crate::core::ModuleId::new("core").expect("module id")
+        )));
+        assert!(!closure.contains(&(
+            "profile".to_string(),
+            crate::core::ModuleId::new("unrelated").expect("module id")
+        )));
     }
 
     #[test]
@@ -665,9 +690,16 @@ mod tests {
         .expect("persistent unit starts")
         .expect("persistent process is active");
 
-        let hit = std::iter::once(crate::core::ModuleId::new("hit").expect("module id")).collect();
-        let miss =
-            std::iter::once(crate::core::ModuleId::new("miss").expect("module id")).collect();
+        let hit = std::iter::once((
+            "profile".to_string(),
+            crate::core::ModuleId::new("hit").expect("module id"),
+        ))
+        .collect();
+        let miss = std::iter::once((
+            "profile".to_string(),
+            crate::core::ModuleId::new("miss").expect("module id"),
+        ))
+        .collect();
         assert!(!active.is_affected_by(&hit));
         assert!(active.is_affected_by(&miss));
         active.shutdown().expect("persistent process shuts down");

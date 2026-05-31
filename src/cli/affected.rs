@@ -7,7 +7,7 @@ use clap::ArgMatches;
 use crate::{
     adapter::AdapterRegistry,
     config::load_workspace,
-    core::{AppError, AppResult, Module, ModuleId, Workspace},
+    core::{AppError, AppResult, Module, ScopedModuleKey, Workspace, scoped_module_display},
     engine::{
         DiscoveredTaskProfile,
         affected::{ChangedPath, affected_modules},
@@ -65,7 +65,8 @@ pub(super) fn run_affected(matches: &ArgMatches, stdout: &mut impl Write) -> App
             } else {
                 "dependent"
             };
-            writeln!(stdout, "- {module} ({reason})").map_err(AppError::internal)?;
+            writeln!(stdout, "- {} ({reason})", scoped_module_display(module))
+                .map_err(AppError::internal)?;
         }
     }
     Ok(())
@@ -76,8 +77,8 @@ pub(super) struct CliAffectedModules {
     pub(super) baseline_oid: String,
     pub(super) changed_paths: Vec<PathBuf>,
     pub(super) global_paths: Vec<PathBuf>,
-    pub(super) direct: std::collections::BTreeSet<ModuleId>,
-    pub(super) closure: std::collections::BTreeSet<ModuleId>,
+    pub(super) direct: std::collections::BTreeSet<ScopedModuleKey>,
+    pub(super) closure: std::collections::BTreeSet<ScopedModuleKey>,
 }
 
 pub(super) struct CliAffectedChanges {
