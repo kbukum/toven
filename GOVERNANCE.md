@@ -5,7 +5,7 @@ This document describes how decisions are made in the Toven project.
 ## Project Status
 
 Toven is **pre-alpha**. Backward compatibility is not guaranteed while the core
-planner, execution model, cache semantics, and language adapter interfaces are
+planner, execution model, cache semantics, and discovery adapter interfaces are
 being finalized. Breaking changes are acceptable when they produce a cleaner
 long-term design.
 
@@ -35,7 +35,7 @@ request. Significant architectural changes should start as an issue or
 discussion before implementation.
 
 Changes that affect the execution model, cache behavior, security posture,
-release process, or language adapter protocol require maintainer consensus.
+release process, or discovery adapter protocol require maintainer consensus.
 
 ## Release Process
 

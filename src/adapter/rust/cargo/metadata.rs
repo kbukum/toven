@@ -10,7 +10,9 @@ use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Node, Package, P
 use crate::core::{AppError, AppResult, Module, ModuleId};
 
 /// Discover Rust modules from a Cargo workspace root.
-pub(super) fn discover_modules(workspace_root: impl AsRef<Path>) -> AppResult<Vec<Module>> {
+pub(in crate::adapter::rust) fn discover_modules(
+    workspace_root: impl AsRef<Path>,
+) -> AppResult<Vec<Module>> {
     let metadata = load_metadata(workspace_root.as_ref())?;
     modules_from_metadata(&metadata)
 }

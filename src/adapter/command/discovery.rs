@@ -1,22 +1,23 @@
-//! Command-backed language adapter.
+//! Command-backed discovery adapter.
 
 use std::{path::Path, time::Duration};
 
 use rskit_process::{Command, ProcessConfig};
 
 use crate::core::{
-    AppError, AppResult, DISCOVERY_SCHEMA_VERSION, DiscoverRequest, DiscoverResponse, LangAdapter,
+    AdapterId, AppError, AppResult, DiscoverRequest, DiscoverResponse, DiscoveryAdapter,
     Placeholder, Template, TemplatePart, validate_discovery_request_schema,
+    validate_discovery_response,
 };
 
 const DISCOVERY_COMMAND_TIMEOUT_SECS: u64 = 120;
 const DISCOVERY_COMMAND_TIMEOUT: Duration = Duration::from_secs(DISCOVERY_COMMAND_TIMEOUT_SECS);
 const DISCOVERY_COMMAND_MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 
-/// Language adapter that delegates discovery to a user-provided command.
+/// Adapter that delegates discovery to a user-provided process.
 #[derive(Debug, Clone)]
 pub struct CommandAdapter {
-    language: String,
+    adapter_id: AdapterId,
     argv: Vec<String>,
     field: String,
     config: ProcessConfig,
@@ -24,13 +25,13 @@ pub struct CommandAdapter {
 
 impl CommandAdapter {
     /// Create a command adapter.
-    pub fn new(language: impl Into<String>, argv: Vec<String>) -> AppResult<Self> {
-        Self::with_field(language, argv, "discovery_command")
+    pub fn new(adapter_id: impl Into<String>, argv: Vec<String>) -> AppResult<Self> {
+        Self::with_field(adapter_id, argv, "discovery_command")
     }
 
     /// Create a command adapter and preserve the config field path in errors.
     pub fn with_field(
-        language: impl Into<String>,
+        adapter_id: impl Into<String>,
         argv: Vec<String>,
         field: impl AsRef<str>,
     ) -> AppResult<Self> {
@@ -44,7 +45,7 @@ impl CommandAdapter {
         validate_discovery_templates(field, &argv)?;
 
         Ok(Self {
-            language: language.into(),
+            adapter_id: AdapterId::new(adapter_id.into())?,
             argv,
             field: field.to_string(),
             config: discovery_process_config(),
@@ -52,7 +53,7 @@ impl CommandAdapter {
     }
 
     fn render_command(&self, request: &DiscoverRequest) -> AppResult<Command> {
-        let rendered = render_argv(&self.argv, &request.workspace_root)?;
+        let rendered = render_argv(&self.argv, &request.project_root)?;
         let mut iter = rendered.into_iter();
         let program = iter
             .next()
@@ -61,14 +62,14 @@ impl CommandAdapter {
         let stdin = serde_json::to_vec(request).map_err(AppError::internal)?;
         Ok(Command::new(program)
             .args(iter)
-            .dir(request.workspace_root.clone())
+            .dir(request.project_root.clone())
             .stdin(stdin))
     }
 }
 
-impl LangAdapter for CommandAdapter {
-    fn language(&self) -> &str {
-        &self.language
+impl DiscoveryAdapter for CommandAdapter {
+    fn adapter_id(&self) -> &AdapterId {
+        &self.adapter_id
     }
 
     fn discover(&self, request: &DiscoverRequest) -> AppResult<DiscoverResponse> {
@@ -98,15 +99,7 @@ impl LangAdapter for CommandAdapter {
                     format!("failed to parse discovery response JSON: {error}"),
                 )
             })?;
-        if response.schema_version != DISCOVERY_SCHEMA_VERSION {
-            return Err(AppError::invalid_input(
-                &self.field,
-                format!(
-                    "unsupported discovery response schema {}",
-                    response.schema_version
-                ),
-            ));
-        }
+        validate_discovery_response(&self.field, request, &response)?;
         Ok(response)
     }
 }
@@ -154,9 +147,25 @@ fn render_argv(argv: &[String], workspace_root: &Path) -> AppResult<Vec<String>>
 
 #[cfg(test)]
 mod tests {
-    use crate::core::{DISCOVERY_SCHEMA_VERSION, DiscoverRequest, LangAdapter};
+    use std::path::PathBuf;
+
+    use crate::core::{
+        AdapterId, AdapterOptions, DISCOVERY_SCHEMA_VERSION, DiscoverRequest, DiscoveryAdapter,
+        ScopeId,
+    };
 
     use super::CommandAdapter;
+
+    fn request() -> DiscoverRequest {
+        DiscoverRequest {
+            schema_version: DISCOVERY_SCHEMA_VERSION,
+            project_root: std::env::current_dir().expect("current dir"),
+            scope_id: ScopeId::new("custom").expect("scope id"),
+            adapter_id: AdapterId::new("custom").expect("adapter id"),
+            scope_root: PathBuf::from("."),
+            adapter_options: AdapterOptions::default(),
+        }
+    }
 
     #[test]
     #[cfg(unix)]
@@ -167,18 +176,13 @@ mod tests {
                 "/bin/sh".to_string(),
                 "-c".to_string(),
                 format!(
-                    r#"cat >/dev/null; printf '\173"schema_version":{DISCOVERY_SCHEMA_VERSION},"modules":[]\175'"#
+                    r#"cat >/dev/null; printf '\173"schema_version":{DISCOVERY_SCHEMA_VERSION},"scope_id":"custom","adapter_id":"custom","modules":[]\175'"#
                 ),
             ],
         )
         .expect("adapter builds");
 
-        let response = adapter
-            .discover(&DiscoverRequest {
-                schema_version: DISCOVERY_SCHEMA_VERSION,
-                workspace_root: std::env::current_dir().expect("current dir"),
-            })
-            .expect("command discovers");
+        let response = adapter.discover(&request()).expect("command discovers");
 
         assert_eq!(response.schema_version, DISCOVERY_SCHEMA_VERSION);
         assert!(response.modules.is_empty());
@@ -210,7 +214,7 @@ mod tests {
         let error = adapter
             .discover(&DiscoverRequest {
                 schema_version: 0,
-                workspace_root: std::env::current_dir().expect("current dir"),
+                ..request()
             })
             .expect_err("schema mismatch should fail before command execution");
 
@@ -237,10 +241,7 @@ mod tests {
         .expect("adapter builds");
 
         let error = adapter
-            .discover(&DiscoverRequest {
-                schema_version: DISCOVERY_SCHEMA_VERSION,
-                workspace_root: std::env::current_dir().expect("current dir"),
-            })
+            .discover(&request())
             .expect_err("invalid json should fail");
 
         assert!(error.message.contains("profiles.custom.discovery_command"));
@@ -255,17 +256,14 @@ mod tests {
             vec![
                 "/bin/sh".to_string(),
                 "-c".to_string(),
-                r#"cat >/dev/null; printf '\173"schema_version":0,"modules":[]\175'"#.to_string(),
+                r#"cat >/dev/null; printf '\173"schema_version":0,"scope_id":"custom","adapter_id":"custom","modules":[]\175'"#.to_string(),
             ],
             "profiles.custom.discovery_command",
         )
         .expect("adapter builds");
 
         let error = adapter
-            .discover(&DiscoverRequest {
-                schema_version: DISCOVERY_SCHEMA_VERSION,
-                workspace_root: std::env::current_dir().expect("current dir"),
-            })
+            .discover(&request())
             .expect_err("schema mismatch should fail");
 
         assert!(error.message.contains("profiles.custom.discovery_command"));
@@ -274,5 +272,68 @@ mod tests {
                 .message
                 .contains("unsupported discovery response schema")
         );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn rejects_scope_mismatch() {
+        let adapter = CommandAdapter::with_field(
+            "custom",
+            vec![
+                "/bin/sh".to_string(),
+                "-c".to_string(),
+                r#"cat >/dev/null; printf '\173"schema_version":1,"scope_id":"other","adapter_id":"custom","modules":[]\175'"#.to_string(),
+            ],
+            "profiles.custom.discovery_command",
+        )
+        .expect("adapter builds");
+
+        let error = adapter
+            .discover(&request())
+            .expect_err("scope mismatch should fail");
+
+        assert!(error.message.contains("response scope"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn rejects_module_scope_mismatch() {
+        let adapter = CommandAdapter::with_field(
+            "custom",
+            vec![
+                "/bin/sh".to_string(),
+                "-c".to_string(),
+                r#"cat >/dev/null; printf '\173"schema_version":1,"scope_id":"custom","adapter_id":"custom","modules":[\173"scope_id":"other","adapter_id":"custom","name":"api","package":null,"root":".","dependencies":[],"source_patterns":[]\175]\175'"#.to_string(),
+            ],
+            "profiles.custom.discovery_command",
+        )
+        .expect("adapter builds");
+
+        let error = adapter
+            .discover(&request())
+            .expect_err("module scope mismatch should fail");
+
+        assert!(error.message.contains("module 0 scope"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn rejects_module_adapter_mismatch() {
+        let adapter = CommandAdapter::with_field(
+            "custom",
+            vec![
+                "/bin/sh".to_string(),
+                "-c".to_string(),
+                r#"cat >/dev/null; printf '\173"schema_version":1,"scope_id":"custom","adapter_id":"custom","modules":[\173"scope_id":"custom","adapter_id":"other","name":"api","package":null,"root":".","dependencies":[],"source_patterns":[]\175]\175'"#.to_string(),
+            ],
+            "profiles.custom.discovery_command",
+        )
+        .expect("adapter builds");
+
+        let error = adapter
+            .discover(&request())
+            .expect_err("module adapter mismatch should fail");
+
+        assert!(error.message.contains("module 0 adapter"));
     }
 }

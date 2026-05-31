@@ -1,6 +1,6 @@
-//! Rust language adapter.
+//! Rust discovery adapter.
 
+pub mod cargo;
 mod discovery;
-mod metadata;
 
 pub use discovery::RustAdapter;

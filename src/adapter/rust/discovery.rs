@@ -1,46 +1,72 @@
 //! Rust workspace discovery adapter.
 
 use crate::{
+    adapter::rust::cargo::metadata::discover_modules,
     core::{
-        AppResult, DISCOVERY_SCHEMA_VERSION, DiscoverRequest, DiscoverResponse, LangAdapter,
-        validate_discovery_request_schema,
+        AdapterId, AppResult, DISCOVERY_SCHEMA_VERSION, DiscoverRequest, DiscoverResponse,
+        DiscoveryAdapter, validate_discovery_request_schema,
     },
-    lang::rust::metadata::discover_modules,
 };
 
-const RUST_LANGUAGE: &str = "rust";
+const RUST_ADAPTER: &str = "rust";
 
 /// Rust adapter backed by `cargo metadata`.
-#[derive(Debug, Default, Clone)]
-pub struct RustAdapter;
+#[derive(Debug, Clone)]
+pub struct RustAdapter {
+    adapter_id: AdapterId,
+}
 
 impl RustAdapter {
     /// Create a Rust adapter.
     #[must_use]
-    pub const fn new() -> Self {
-        Self
+    pub fn new() -> Self {
+        Self {
+            adapter_id: AdapterId::new(RUST_ADAPTER).expect("built-in adapter id is valid"),
+        }
     }
 }
 
-impl LangAdapter for RustAdapter {
-    fn language(&self) -> &str {
-        RUST_LANGUAGE
+impl Default for RustAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DiscoveryAdapter for RustAdapter {
+    fn adapter_id(&self) -> &AdapterId {
+        &self.adapter_id
     }
 
     fn discover(&self, request: &DiscoverRequest) -> AppResult<DiscoverResponse> {
         validate_discovery_request_schema("discovery_request.schema_version", request)?;
 
-        let modules = discover_modules(&request.workspace_root)?;
+        let modules = discover_modules(&request.project_root)?;
         Ok(DiscoverResponse {
             schema_version: DISCOVERY_SCHEMA_VERSION,
-            modules,
+            scope_id: request.scope_id.clone(),
+            adapter_id: request.adapter_id.clone(),
+            modules: modules
+                .into_iter()
+                .map(|module| {
+                    crate::core::DiscoveredModule::from_module(
+                        module,
+                        request.scope_id.clone(),
+                        request.adapter_id.clone(),
+                    )
+                })
+                .collect(),
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::core::{DISCOVERY_SCHEMA_VERSION, DiscoverRequest, LangAdapter};
+    use std::path::PathBuf;
+
+    use crate::core::{
+        AdapterId, AdapterOptions, DISCOVERY_SCHEMA_VERSION, DiscoverRequest, DiscoveryAdapter,
+        ScopeId,
+    };
 
     use super::RustAdapter;
 
@@ -60,7 +86,11 @@ mod tests {
         let response = RustAdapter::new()
             .discover(&DiscoverRequest {
                 schema_version: DISCOVERY_SCHEMA_VERSION,
-                workspace_root: workspace_path,
+                project_root: workspace_path,
+                scope_id: ScopeId::new("rust").expect("scope id"),
+                adapter_id: AdapterId::new("rust").expect("adapter id"),
+                scope_root: PathBuf::from("."),
+                adapter_options: AdapterOptions::default(),
             })
             .expect("rust discovery succeeds");
 
@@ -70,6 +100,8 @@ mod tests {
             .map(|module| module.name.as_str())
             .collect();
         assert_eq!(names, ["fixture-app", "fixture-core", "fixture-test-util"]);
+        assert_eq!(response.scope_id.as_str(), "rust");
+        assert_eq!(response.adapter_id.as_str(), "rust");
 
         let app = response
             .modules
@@ -96,7 +128,11 @@ mod tests {
         let error = RustAdapter::new()
             .discover(&DiscoverRequest {
                 schema_version: 0,
-                workspace_root: std::path::PathBuf::from("/path/that/should/not/be/read"),
+                project_root: std::path::PathBuf::from("/path/that/should/not/be/read"),
+                scope_id: ScopeId::new("rust").expect("scope id"),
+                adapter_id: AdapterId::new("rust").expect("adapter id"),
+                scope_root: PathBuf::from("."),
+                adapter_options: AdapterOptions::default(),
             })
             .expect_err("schema mismatch should fail before metadata discovery");
 

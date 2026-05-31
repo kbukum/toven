@@ -15,8 +15,9 @@ and renders reviewable command batches before execution.
 filesystem preset resolution, Rust workspace discovery, dependency-aware
 batching, affected-module planning, command execution, cache-backed skipping,
 affected/cache explanation, watch-mode reruns, persistent task readiness, and
-developer workflow inspection commands. Additional language adapters will be
-added in follow-up phases.
+developer workflow inspection commands. Additional discovery adapters will be
+added in follow-up phases. Phase 3.5 is a breaking pre-alpha refactor from
+workspace/profile terminology toward a project/scope adapter model.
 
 Toven is not published to crates.io yet. Until the first alpha release, install
 from source after cloning the repository.

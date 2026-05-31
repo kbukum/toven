@@ -3,13 +3,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
+    adapter::AdapterRegistry,
     core::{
-        AppError, AppResult, CommandOrigin, DISCOVERY_SCHEMA_VERSION, DiscoverRequest,
-        ExecutionMode, ExecutionUnit, ModuleId, Plan, Profile, Task, TaskCommand, Workspace,
+        AdapterId, AdapterOptions, AppError, AppResult, CommandOrigin, DISCOVERY_SCHEMA_VERSION,
+        DiscoverRequest, ExecutionMode, ExecutionUnit, ModuleId, Plan, Profile, ScopeId, Task,
+        TaskCommand, Workspace, validate_discovery_response,
     },
     engine::scheduler::ready_waves,
     exec::{render_execution_unit, render_resource_group},
-    lang::LangRegistry,
 };
 
 /// Modules discovered for one profile/task pair.
@@ -28,7 +29,7 @@ pub fn plan_workspace(
     workspace: Workspace,
     task_name: &str,
     passthrough_args: &[String],
-    registry: &LangRegistry,
+    registry: &AdapterRegistry,
 ) -> AppResult<Plan> {
     plan_workspace_filtered(workspace, task_name, passthrough_args, registry, None)
 }
@@ -38,7 +39,7 @@ pub fn plan_workspace_filtered(
     workspace: Workspace,
     task_name: &str,
     passthrough_args: &[String],
-    registry: &LangRegistry,
+    registry: &AdapterRegistry,
     module_filter: Option<&BTreeSet<ModuleId>>,
 ) -> AppResult<Plan> {
     let discovered = discover_workspace_task_profiles(&workspace, task_name, registry)?;
@@ -49,7 +50,7 @@ pub fn plan_workspace_filtered(
 pub fn discover_workspace_task_profiles(
     workspace: &Workspace,
     task_name: &str,
-    registry: &LangRegistry,
+    registry: &AdapterRegistry,
 ) -> AppResult<Vec<DiscoveredTaskProfile>> {
     let mut discovered = Vec::new();
     let mut discovery_cache = BTreeMap::new();
@@ -126,30 +127,38 @@ fn filter_modules(
 fn discover_profile_modules(
     workspace: &Workspace,
     profile: &Profile,
-    registry: &LangRegistry,
+    registry: &AdapterRegistry,
     cache: &mut BTreeMap<String, Vec<crate::core::Module>>,
 ) -> AppResult<Vec<crate::core::Module>> {
-    let cache_key = format!("{}:{:?}", profile.language, profile.discovery_command);
+    let scope_id = ScopeId::new(profile.name.clone())?;
+    let adapter_id = AdapterId::new(profile.language.clone())?;
+    let cache_key = format!("{scope_id}:{adapter_id}:{:?}", profile.discovery_command);
     if let Some(modules) = cache.get(&cache_key) {
         return Ok(modules.clone());
     }
 
     let adapter = registry.adapter_for_profile(profile)?;
-    let response = adapter.discover(&DiscoverRequest {
+    let request = DiscoverRequest {
         schema_version: DISCOVERY_SCHEMA_VERSION,
-        workspace_root: workspace.root.clone(),
-    })?;
-    if response.schema_version != DISCOVERY_SCHEMA_VERSION {
-        return Err(AppError::invalid_input(
-            format!("profiles.{}.language", profile.name),
-            format!(
-                "unsupported discovery response schema {}",
-                response.schema_version
-            ),
-        ));
-    }
-    cache.insert(cache_key, response.modules.clone());
-    Ok(response.modules)
+        project_root: workspace.root.clone(),
+        scope_id,
+        adapter_id,
+        scope_root: std::path::PathBuf::from("."),
+        adapter_options: AdapterOptions::default(),
+    };
+    let response = adapter.discover(&request)?;
+    validate_discovery_response(
+        format!("profiles.{}.language", profile.name),
+        &request,
+        &response,
+    )?;
+    let modules = response
+        .modules
+        .into_iter()
+        .map(crate::core::DiscoveredModule::into_module)
+        .collect::<Vec<_>>();
+    cache.insert(cache_key, modules.clone());
+    Ok(modules)
 }
 
 fn plan_profile_task(

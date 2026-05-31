@@ -5,6 +5,7 @@ use std::{io::Write, path::PathBuf};
 use clap::ArgMatches;
 
 use crate::{
+    adapter::AdapterRegistry,
     cache::decision::{CACHE_DIRECTORY, CacheMode, CacheState, TaskCache, prepare_cache_decisions},
     cli::affected::{
         CliAffectedModules, modules_from_discovered, resolve_affected_changes,
@@ -13,7 +14,6 @@ use crate::{
     config::load_workspace,
     core::{AppError, AppResult, ModuleId},
     engine::{discover_workspace_task_profiles, plan_discovered_task_profiles},
-    lang::LangRegistry,
 };
 
 pub(super) fn run_explain(matches: &ArgMatches, stdout: &mut impl Write) -> AppResult<()> {
@@ -34,7 +34,7 @@ pub(super) fn run_explain(matches: &ArgMatches, stdout: &mut impl Write) -> AppR
         .as_str();
 
     let workspace = load_workspace(config)?;
-    let registry = LangRegistry::default();
+    let registry = AdapterRegistry::default();
     let discovered = discover_workspace_task_profiles(&workspace, task, &registry)?;
     let modules = modules_from_discovered(&discovered)?;
     let affected =
