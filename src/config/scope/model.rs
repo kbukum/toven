@@ -33,11 +33,17 @@ pub struct ScopeConfig {
 
 pub(crate) fn normalize_scope_overrides(
     scopes: BTreeMap<String, ScopeConfig>,
+    profile_adapters: &BTreeMap<String, String>,
     resolver: &PresetResolver,
 ) -> AppResult<Vec<(String, ScopeOverride, String)>> {
     let mut normalized = Vec::with_capacity(scopes.len());
     for (name, scope) in scopes {
-        normalized.push(normalize_scope_override(name, scope, resolver)?);
+        normalized.push(normalize_scope_override(
+            name,
+            scope,
+            profile_adapters,
+            resolver,
+        )?);
     }
     Ok(normalized)
 }
@@ -45,10 +51,17 @@ pub(crate) fn normalize_scope_overrides(
 fn normalize_scope_override(
     name: String,
     config: ScopeConfig,
+    profile_adapters: &BTreeMap<String, String>,
     resolver: &PresetResolver,
 ) -> AppResult<(String, ScopeOverride, String)> {
     validate_identifier(format!("scopes.{name}"), &name)?;
     validate_identifier(format!("scopes.{name}.profile"), &config.profile)?;
+    let adapter = profile_adapters.get(&config.profile).ok_or_else(|| {
+        crate::core::AppError::invalid_input(
+            format!("scopes.{name}.profile"),
+            format!("unknown profile '{}'", config.profile),
+        )
+    })?;
 
     if let Some(module_arg_template) = &config.module_arg_template {
         validate_templates(
@@ -63,12 +76,7 @@ fn normalize_scope_override(
     let mut tasks = Vec::with_capacity(config.tasks.len());
     for (task_name, task) in config.tasks {
         tasks.push(normalize_task(
-            &name,
-            &config.profile,
-            task_name,
-            task,
-            resolver,
-            "scopes",
+            &name, adapter, task_name, task, resolver, "scopes",
         )?);
     }
 

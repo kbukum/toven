@@ -7,12 +7,21 @@ use crate::core::{AdapterOptions, AppError, AppResult};
 const DEFAULT_MANIFEST: &str = "Cargo.toml";
 
 /// Rust adapter options for one profile.
-#[derive(Debug, Clone, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize)]
 pub struct RustProfileOptions {
     /// Cargo manifest paths relative to the project root.
-    #[serde(default = "default_manifests")]
     pub manifests: Vec<PathBuf>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RustProfileOptionsConfig {
+    /// Cargo manifest paths relative to the project root.
+    #[serde(default)]
+    manifests: Option<Vec<PathBuf>>,
+    /// Single Cargo manifest path relative to the project root.
+    #[serde(default)]
+    manifest: Option<PathBuf>,
 }
 
 impl RustProfileOptions {
@@ -32,12 +41,24 @@ impl RustProfileOptions {
     /// Decode Rust options carried by the discovery protocol.
     pub fn from_adapter_options(options: &AdapterOptions) -> AppResult<Self> {
         let value = serde_json::Value::Object(options.clone().into_iter().collect());
-        let options: Self = serde_json::from_value(value).map_err(|error| {
+        let options: RustProfileOptionsConfig = serde_json::from_value(value).map_err(|error| {
             AppError::invalid_input(
                 "profiles.<profile>.manifests",
                 format!("invalid rust options: {error}"),
             )
         })?;
+        if options.manifest.is_some() && options.manifests.is_some() {
+            return Err(AppError::invalid_input(
+                "profiles.<profile>.manifest",
+                "use either 'manifest' or 'manifests', not both",
+            ));
+        }
+        let options = Self {
+            manifests: options
+                .manifests
+                .or_else(|| options.manifest.map(|manifest| vec![manifest]))
+                .unwrap_or_else(default_manifests),
+        };
         validate_manifests("profiles.<profile>.manifests", &options.manifests)?;
         Ok(options)
     }

@@ -48,7 +48,11 @@ fn normalize_resolved_config(
     resolver: &PresetResolver,
 ) -> AppResult<Workspace> {
     let mut profiles = normalize_profiles(profile_configs, &project.root, resolver)?;
-    let scope_overrides = normalize_scope_overrides(scope_configs, resolver)?;
+    let profile_adapters = profiles
+        .iter()
+        .map(|profile| (profile.name.clone(), profile.language.clone()))
+        .collect();
+    let scope_overrides = normalize_scope_overrides(scope_configs, &profile_adapters, resolver)?;
     attach_scope_overrides(&mut profiles, scope_overrides)?;
     Ok(build_workspace(project, profiles))
 }

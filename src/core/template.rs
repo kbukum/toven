@@ -23,7 +23,7 @@ pub enum Placeholder {
     Args,
     /// Project root.
     ProjectRoot,
-    /// Workspace root.
+    /// Alias for project root kept for existing template vocabulary.
     WorkspaceRoot,
     /// Scope root relative to the project root.
     ScopeRoot,
@@ -148,10 +148,14 @@ fn render_placeholder(
         Placeholder::ModulePath => module
             .map(|module| module.root.display().to_string())
             .ok_or_else(|| missing_module(placeholder)),
-        Placeholder::ModuleManifest => module
-            .and_then(|module| module.manifest.as_ref())
-            .map(|manifest| manifest.display().to_string())
-            .ok_or_else(|| missing_module(placeholder)),
+        Placeholder::ModuleManifest => {
+            let module = module.ok_or_else(|| missing_module(placeholder))?;
+            module
+                .manifest
+                .as_ref()
+                .map(|manifest| manifest.display().to_string())
+                .ok_or_else(|| missing_manifest(placeholder, &module.name))
+        }
         Placeholder::Args | Placeholder::ModuleArgs => Err(AppError::invalid_input(
             "template",
             "selector placeholders cannot be rendered as scalar values",
@@ -163,6 +167,13 @@ fn missing_module(placeholder: Placeholder) -> AppError {
     AppError::invalid_input(
         "template",
         format!("placeholder '{placeholder}' requires a module"),
+    )
+}
+
+fn missing_manifest(placeholder: Placeholder, module: &crate::core::ModuleId) -> AppError {
+    AppError::invalid_input(
+        "template",
+        format!("placeholder '{placeholder}' requires module '{module}' to have a manifest"),
     )
 }
 

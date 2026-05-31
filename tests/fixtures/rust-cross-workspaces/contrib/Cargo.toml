@@ -1,0 +1,10 @@
+[package]
+name = "contrib-app"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+core-local = { path = "../core" }
+
+[lib]
+path = "src/lib.rs"

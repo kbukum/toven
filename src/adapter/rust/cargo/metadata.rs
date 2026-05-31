@@ -17,14 +17,16 @@ pub(in crate::adapter::rust) fn discover_modules(
     let mut modules_by_name = BTreeMap::new();
     for manifest in manifests {
         let metadata = load_metadata(project_root.as_ref(), manifest)?;
-        for module in modules_from_metadata(&metadata, manifest)? {
-            if let Some(previous) = modules_by_name.insert(module.name.clone(), module.clone()) {
+        for discovered in modules_from_metadata(&metadata, manifest)? {
+            if let Some(previous) =
+                modules_by_name.insert(discovered.module.name.clone(), discovered.clone())
+            {
                 return Err(AppError::invalid_input(
                     "profiles.<profile>.manifests",
                     format!(
                         "duplicate Rust package '{}' discovered from '{}' and '{}'",
-                        module.name,
-                        previous.manifest.as_deref().map_or_else(
+                        discovered.module.name,
+                        previous.module.manifest.as_deref().map_or_else(
                             || "<unknown>".to_string(),
                             |path| path.display().to_string()
                         ),
@@ -34,7 +36,19 @@ pub(in crate::adapter::rust) fn discover_modules(
             }
         }
     }
-    Ok(modules_by_name.into_values().collect())
+
+    for discovered in modules_by_name.values_mut() {
+        discovered.module.dependencies = discovered
+            .local_dependencies
+            .iter()
+            .map(|dependency| ModuleId::new(dependency.as_str()))
+            .collect::<AppResult<Vec<_>>>()?;
+    }
+
+    Ok(modules_by_name
+        .into_values()
+        .map(|discovered| discovered.module)
+        .collect())
 }
 
 fn load_metadata(project_root: &Path, manifest: &Path) -> AppResult<Metadata> {
@@ -42,7 +56,7 @@ fn load_metadata(project_root: &Path, manifest: &Path) -> AppResult<Metadata> {
     if !manifest_path.is_file() {
         return Err(AppError::invalid_input(
             "profiles.<profile>.manifests",
-            format!("Cargo.toml not found at {}", manifest_path.display()),
+            format!("manifest not found at {}", manifest_path.display()),
         ));
     }
 
@@ -58,7 +72,16 @@ fn load_metadata(project_root: &Path, manifest: &Path) -> AppResult<Metadata> {
         })
 }
 
-fn modules_from_metadata(metadata: &Metadata, manifest: &Path) -> AppResult<Vec<Module>> {
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct DiscoveredCargoModule {
+    module: Module,
+    local_dependencies: Vec<String>,
+}
+
+fn modules_from_metadata(
+    metadata: &Metadata,
+    manifest: &Path,
+) -> AppResult<Vec<DiscoveredCargoModule>> {
     let workspace_root = Path::new(metadata.workspace_root.as_str());
     let workspace_ids: BTreeSet<PackageId> = metadata.workspace_members.iter().cloned().collect();
     let packages_by_id: BTreeMap<PackageId, &Package> = metadata
@@ -82,22 +105,20 @@ fn modules_from_metadata(metadata: &Metadata, manifest: &Path) -> AppResult<Vec<
     for package in metadata.workspace_packages() {
         let name = ModuleId::new(package.name.to_string())?;
         let root = project_relative_package_root(package, workspace_root, manifest)?;
-        modules.push(Module {
-            dependencies: workspace_dependencies(
-                &nodes_by_id,
-                &packages_by_id,
-                &workspace_ids,
-                package,
-            )?,
-            source_patterns: source_patterns(&root),
-            package: Some(package.name.to_string()),
-            name,
-            root,
-            manifest: Some(manifest.to_path_buf()),
+        modules.push(DiscoveredCargoModule {
+            module: Module {
+                dependencies: Vec::new(),
+                source_patterns: source_patterns(&root),
+                package: Some(package.name.to_string()),
+                name,
+                root,
+                manifest: Some(manifest.to_path_buf()),
+            },
+            local_dependencies: local_dependencies(&nodes_by_id, &packages_by_id, package)?,
         });
     }
 
-    modules.sort_by(|left, right| left.name.cmp(&right.name));
+    modules.sort_by(|left, right| left.module.name.cmp(&right.module.name));
     Ok(modules)
 }
 
@@ -127,19 +148,18 @@ fn project_relative_package_root(
     Ok(normalize_project_path(&manifest_parent.join(relative)))
 }
 
-fn workspace_dependencies(
+fn local_dependencies(
     nodes_by_id: &BTreeMap<PackageId, &Node>,
     packages_by_id: &BTreeMap<PackageId, &Package>,
-    workspace_ids: &BTreeSet<PackageId>,
     package: &Package,
-) -> AppResult<Vec<ModuleId>> {
+) -> AppResult<Vec<String>> {
     let Some(node) = nodes_by_id.get(&package.id) else {
         return Ok(Vec::new());
     };
 
     let mut dependencies = BTreeSet::new();
     for dependency in &node.deps {
-        if !workspace_ids.contains(&dependency.pkg) || is_dev_only_dependency(dependency) {
+        if is_dev_only_dependency(dependency) {
             continue;
         }
         let dependency_package = packages_by_id.get(&dependency.pkg).ok_or_else(|| {
@@ -151,7 +171,9 @@ fn workspace_dependencies(
                 ),
             )
         })?;
-        dependencies.insert(ModuleId::new(dependency_package.name.to_string())?);
+        if dependency_package.source.is_none() {
+            dependencies.insert(dependency_package.name.to_string());
+        }
     }
     Ok(dependencies.into_iter().collect())
 }
