@@ -14,10 +14,7 @@ use crate::{
 };
 
 /// Compute changed workspace-relative paths from committed diff plus working-tree status.
-pub(crate) fn changed_paths(
-    workspace: &Workspace,
-    baseline: &Baseline,
-) -> AppResult<Vec<ChangedPath>> {
+pub fn changed_paths(workspace: &Workspace, baseline: &Baseline) -> AppResult<Vec<ChangedPath>> {
     let repo = rskit_git::discover(&workspace.root).map_err(|error| {
         AppError::invalid_input(
             "workspace.root",
@@ -121,6 +118,7 @@ mod tests {
             root: root.clone(),
             base_ref: None,
             profiles: Vec::new(),
+            dependency_overlays: Vec::new(),
         };
         let baseline = Baseline {
             provider: "explicit".to_string(),
@@ -170,6 +168,7 @@ mod tests {
             root: root.clone(),
             base_ref: None,
             profiles: Vec::new(),
+            dependency_overlays: Vec::new(),
         };
         let baseline = Baseline {
             provider: "git-ref".to_string(),

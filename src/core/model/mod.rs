@@ -5,7 +5,9 @@ pub mod project;
 pub mod scope;
 pub mod task;
 
-pub use module::{Module, ModuleId, ScopedModuleKey, scoped_module_display, scoped_module_key};
+pub use module::{
+    DependencyOverlay, Module, ModuleId, ScopedModuleKey, scoped_module_display, scoped_module_key,
+};
 pub use project::{Plan, Profile, ScopeOverride, Workspace};
 pub use scope::{AdapterId, ScopeId};
 pub use task::{

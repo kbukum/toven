@@ -8,10 +8,10 @@ use crate::{
     adapter::AdapterRegistry,
     cli::affected::modules_from_discovered,
     config::load_workspace,
-    core::{AppError, AppResult, Module, scoped_module_display, scoped_module_key},
+    core::{AppError, AppResult, DependencyOverlay, Module, scoped_module_display},
     engine::{
         discover_workspace_task_profiles,
-        graph::{dependency_key_for, selected_modules_by_name},
+        graph::{DependencyOrigin, resolve_dependency_graph},
     },
 };
 
@@ -35,8 +35,8 @@ pub(super) fn run_graph(matches: &ArgMatches, stdout: &mut impl Write) -> AppRes
     let modules = modules_from_discovered(&discovered)?;
 
     match format {
-        "text" => render_text(stdout, &modules),
-        "dot" => render_dot(stdout, &modules),
+        "text" => render_text(stdout, &modules, &workspace.dependency_overlays),
+        "dot" => render_dot(stdout, &modules, &workspace.dependency_overlays),
         _ => Err(AppError::invalid_input(
             "format",
             format!("unsupported graph format '{format}'"),
@@ -44,23 +44,29 @@ pub(super) fn run_graph(matches: &ArgMatches, stdout: &mut impl Write) -> AppRes
     }
 }
 
-fn render_text(stdout: &mut impl Write, modules: &[Module]) -> AppResult<()> {
+fn render_text(
+    stdout: &mut impl Write,
+    modules: &[Module],
+    overlays: &[DependencyOverlay],
+) -> AppResult<()> {
     if modules.is_empty() {
         writeln!(stdout, "graph: empty").map_err(AppError::internal)?;
         return Ok(());
     }
 
-    let modules_by_key = modules
-        .iter()
-        .map(|module| (scoped_module_key(module), module))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    let selected_by_name = selected_modules_by_name(modules_by_key.keys());
+    let graph = resolve_dependency_graph(modules, overlays)?;
     for module in modules {
-        let dependencies = module
-            .dependencies
-            .iter()
-            .filter_map(|dependency| dependency_key_for(module, dependency, &selected_by_name))
-            .map(|dependency| scoped_module_display(&dependency))
+        let module_key = crate::core::scoped_module_key(module);
+        let dependencies = graph
+            .dependencies(&module_key)
+            .into_iter()
+            .map(|dependency| {
+                let origin = match graph.origin(&module_key, &dependency) {
+                    Some(DependencyOrigin::Overlay) => " overlay",
+                    _ => "",
+                };
+                format!("{}{}", scoped_module_display(&dependency), origin)
+            })
             .collect::<Vec<_>>()
             .join(", ");
         if dependencies.is_empty() {
@@ -73,20 +79,18 @@ fn render_text(stdout: &mut impl Write, modules: &[Module]) -> AppResult<()> {
     Ok(())
 }
 
-fn render_dot(stdout: &mut impl Write, modules: &[Module]) -> AppResult<()> {
+fn render_dot(
+    stdout: &mut impl Write,
+    modules: &[Module],
+    overlays: &[DependencyOverlay],
+) -> AppResult<()> {
     writeln!(stdout, "digraph toven {{").map_err(AppError::internal)?;
-    let modules_by_key = modules
-        .iter()
-        .map(|module| (scoped_module_key(module), module))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    let selected_by_name = selected_modules_by_name(modules_by_key.keys());
+    let graph = resolve_dependency_graph(modules, overlays)?;
     for module in modules {
         writeln!(stdout, "  \"{}\";", escape_dot(&module_id(module)))
             .map_err(AppError::internal)?;
-        for dependency in &module.dependencies {
-            let Some(dependency) = dependency_key_for(module, dependency, &selected_by_name) else {
-                continue;
-            };
+        let module_key = crate::core::scoped_module_key(module);
+        for dependency in graph.dependencies(&module_key) {
             writeln!(
                 stdout,
                 "  \"{}\" -> \"{}\";",

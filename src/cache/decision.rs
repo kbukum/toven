@@ -19,7 +19,7 @@ use crate::{
         AppError, AppResult, CommandOrigin, ErrorCode, ExecutionMode, ExecutionUnit, Module,
         ModuleId, Plan, TaskOrigin, Workspace,
     },
-    engine::graph::{dependency_key_for, selected_modules_by_name},
+    engine::graph::{ResolvedDependencyGraph, resolve_selected_dependency_graph},
     exec::{render_execution_unit, render_resource_group},
 };
 
@@ -236,6 +236,8 @@ pub fn prepare_cache_decisions(
     }
 
     let all_modules = modules_from_plan(full_plan)?;
+    let dependency_graph =
+        resolve_selected_dependency_graph(&all_modules, &full_plan.workspace.dependency_overlays)?;
     let source_hashes = compute_source_hashes(&full_plan.workspace, &all_modules)?;
 
     for key in planned.keys() {
@@ -258,6 +260,7 @@ pub fn prepare_cache_decisions(
             &planned,
             &full_plan.workspace,
             &source_hashes.modules,
+            &dependency_graph,
             &mut cache_keys,
             &mut BTreeSet::new(),
         )?;
@@ -399,6 +402,7 @@ fn compute_components(
     planned: &BTreeMap<PlannedKey, PlannedModule<'_>>,
     workspace: &Workspace,
     source_hashes: &BTreeMap<ModuleCacheKey, String>,
+    dependency_graph: &ResolvedDependencyGraph,
     cache_keys: &mut BTreeMap<PlannedKey, KeyComponents>,
     visiting: &mut BTreeSet<PlannedKey>,
 ) -> AppResult<KeyComponents> {
@@ -414,17 +418,11 @@ fn compute_components(
     let planned_module = planned.get(key).ok_or_else(|| {
         AppError::invalid_input("modules", format!("module '{}' is not planned", key.1))
     })?;
-    let selected_by_name = selected_modules_by_name(source_hashes.keys());
-    let dep_keys = planned_module
-        .module
-        .dependencies
-        .iter()
-        .map(|dependency| {
-            let Some((dependency_scope, dependency_name)) =
-                dependency_key_for(planned_module.module, dependency, &selected_by_name)
-            else {
-                return Ok(format!("external:{dependency}"));
-            };
+    let module_key = (key.0.clone(), key.1.clone());
+    let dep_keys = dependency_graph
+        .dependencies(&module_key)
+        .into_iter()
+        .map(|(dependency_scope, dependency_name)| {
             let dep_key = PlannedKey(dependency_scope.clone(), dependency_name.clone());
             if planned.contains_key(&dep_key) {
                 compute_components(
@@ -432,15 +430,16 @@ fn compute_components(
                     planned,
                     workspace,
                     source_hashes,
+                    dependency_graph,
                     cache_keys,
                     visiting,
                 )
                 .map(|components| components.key.as_str().to_string())
             } else {
                 Ok(source_hashes
-                    .get(&(dependency_scope, dependency_name))
+                    .get(&(dependency_scope.clone(), dependency_name.clone()))
                     .cloned()
-                    .unwrap_or_else(|| format!("external:{dependency}")))
+                    .unwrap_or_else(|| format!("external:{dependency_scope}/{dependency_name}")))
             }
         })
         .collect::<AppResult<Vec<_>>>()?;
@@ -756,6 +755,7 @@ mod tests {
                 root,
                 base_ref: None,
                 profiles: Vec::new(),
+                dependency_overlays: Vec::new(),
             },
             units: vec![ExecutionUnit {
                 id: "unit".to_string(),

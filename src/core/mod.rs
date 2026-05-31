@@ -11,9 +11,9 @@ mod validation;
 pub use adapter::DiscoveryAdapter;
 pub use error::{AppError, AppResult, ErrorCode};
 pub use model::{
-    AdapterId, CommandOrigin, ExecutionMode, ExecutionUnit, Module, ModuleId, NodeState,
-    PersistentReadiness, Plan, Profile, ScopeId, ScopeOverride, ScopedModuleKey, Task, TaskCommand,
-    TaskOrigin, Workspace, scoped_module_display, scoped_module_key,
+    AdapterId, CommandOrigin, DependencyOverlay, ExecutionMode, ExecutionUnit, Module, ModuleId,
+    NodeState, PersistentReadiness, Plan, Profile, ScopeId, ScopeOverride, ScopedModuleKey, Task,
+    TaskCommand, TaskOrigin, Workspace, scoped_module_display, scoped_module_key,
 };
 pub use preset::PresetDefinition;
 pub use protocol::{

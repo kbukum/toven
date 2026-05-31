@@ -327,7 +327,7 @@ fn modules_and_graph_commands_render_discovered_workspace() {
     ]);
     assert_eq!(modules.0, ExitCode::SUCCESS, "stderr:\n{}", modules.2);
     assert!(modules.1.contains("- rust/fixture-core"));
-    assert!(modules.1.contains("dependencies: fixture-core"));
+    assert!(modules.1.contains("dependencies: rust/fixture-core"));
 
     let list_alias = run_cli([
         "toven".to_string(),

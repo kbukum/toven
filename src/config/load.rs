@@ -5,6 +5,7 @@ use std::path::Path;
 use crate::{
     config::{
         ConfigDocument,
+        dependency::normalize_dependency_overlays,
         profile::{attach_scope_overrides, normalize_profiles},
         project::{build_workspace, normalize_project_config},
         scope::model::normalize_scope_overrides,
@@ -28,7 +29,13 @@ pub fn normalize_config(
     let config_path = config_path.as_ref();
     let project = normalize_project_config(document.project, config_path)?;
     let resolver = PresetResolver::new(project.root.clone());
-    normalize_resolved_config(document.profiles, document.scopes, project, &resolver)
+    normalize_resolved_config(
+        document.profiles,
+        document.scopes,
+        document.overlays,
+        project,
+        &resolver,
+    )
 }
 
 #[cfg(test)]
@@ -38,12 +45,19 @@ fn normalize_config_with_resolver(
     resolver: &PresetResolver,
 ) -> AppResult<Workspace> {
     let project = normalize_project_config(document.project, config_path)?;
-    normalize_resolved_config(document.profiles, document.scopes, project, resolver)
+    normalize_resolved_config(
+        document.profiles,
+        document.scopes,
+        document.overlays,
+        project,
+        resolver,
+    )
 }
 
 fn normalize_resolved_config(
     profile_configs: std::collections::BTreeMap<String, crate::config::ProfileConfig>,
     scope_configs: std::collections::BTreeMap<String, crate::config::ScopeConfig>,
+    overlay_configs: Vec<crate::config::DependencyOverlayConfig>,
     project: crate::config::project::NormalizedProject,
     resolver: &PresetResolver,
 ) -> AppResult<Workspace> {
@@ -53,8 +67,11 @@ fn normalize_resolved_config(
         .map(|profile| (profile.name.clone(), profile.language.clone()))
         .collect();
     let scope_overrides = normalize_scope_overrides(scope_configs, &profile_adapters, resolver)?;
+    let dependency_overlays = normalize_dependency_overlays(overlay_configs)?;
     attach_scope_overrides(&mut profiles, scope_overrides)?;
-    Ok(build_workspace(project, profiles))
+    let mut workspace = build_workspace(project, profiles);
+    workspace.dependency_overlays = dependency_overlays;
+    Ok(workspace)
 }
 
 #[cfg(test)]
@@ -348,5 +365,22 @@ mod tests {
 
         assert!(error.message.contains("searched:"));
         assert!(!error.message.contains(", "));
+    }
+
+    #[test]
+    fn loads_dependency_overlays() {
+        let root = rskit_testutil::test_workspace!("dependency-overlays");
+        let config_path = root
+            .copy_fixture("config/dependency-overlays.toml", "toven.toml")
+            .expect("copy config fixture");
+
+        let workspace = load_workspace(&config_path).expect("config loads");
+
+        assert_eq!(workspace.dependency_overlays.len(), 1);
+        let overlay = &workspace.dependency_overlays[0];
+        assert_eq!(overlay.from.0, "app");
+        assert_eq!(overlay.from.1.as_str(), "api");
+        assert_eq!(overlay.to.0, "lib");
+        assert_eq!(overlay.to.1.as_str(), "shared");
     }
 }

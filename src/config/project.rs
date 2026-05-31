@@ -53,6 +53,7 @@ pub(super) fn build_workspace(project: NormalizedProject, profiles: Vec<Profile>
         root: project.root,
         base_ref: project.base_ref,
         profiles,
+        dependency_overlays: Vec::new(),
     }
 }
 

@@ -863,6 +863,7 @@ mod tests {
             root: root.to_path_buf(),
             base_ref: None,
             profiles: Vec::new(),
+            dependency_overlays: Vec::new(),
         }
     }
 

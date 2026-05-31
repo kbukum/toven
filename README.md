@@ -14,10 +14,10 @@ and renders reviewable command batches before execution.
 **Pre-alpha.** The current implementation includes strict configuration loading,
 filesystem preset resolution, Rust workspace discovery, dependency-aware
 batching, affected-module planning, command execution, cache-backed skipping,
-affected/cache explanation, watch-mode reruns, persistent task readiness, and
-developer workflow inspection commands. Additional discovery adapters will be
-added in follow-up phases. Phase 3.5 is a breaking pre-alpha refactor from
-workspace/profile terminology toward a project/scope adapter model.
+affected/cache explanation, watch-mode reruns, persistent task readiness,
+developer workflow inspection commands, adapter-owned default tasks, Rust
+multi-manifest discovery, and explicit cross-scope dependency overlays.
+Additional discovery adapters will be added in follow-up phases.
 
 Toven is not published to crates.io yet. Until the first alpha release, install
 from source after cloning the repository.
@@ -80,6 +80,8 @@ Toven loads strict TOML from `toven.toml`. Unknown fields are rejected early,
 project roots are resolved relative to the config file, and command templates are
 validated before planning.
 
+Minimal Rust projects can rely on adapter-provided `check` and `test` tasks:
+
 ```toml
 [project]
 name = "demo"
@@ -90,10 +92,37 @@ adapter = "rust"
 execution = "batch-ready"
 module_arg_template = ["-p", "{module.package}"]
 resource_group = "cargo:{project.root}"
+```
+
+Repositories with multiple Cargo manifests configure those as Rust adapter
+discovery options. Scopes are optional named overrides when a subset needs
+different discovery, execution, or task behavior.
+
+```toml
+[project]
+name = "rskit"
+root = "."
+base_ref = "origin/main"
+
+[profiles.main]
+adapter = "rust"
+execution = "batch-ready"
+module_arg_template = ["-p", "{module.package}"]
+resource_group = "cargo:{project.root}"
+
+[profiles.main.discovery]
+manifests = ["core/Cargo.toml", "contrib/Cargo.toml"]
 
 [profiles.main.tasks]
-test = { argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"] }
+nextest = { argv = ["cargo", "nextest", "run", "--manifest-path", "{module.manifest}", "-p", "{module.package}", "{args}"], cache_args = true }
+
+[[overlays]]
+from = { scope = "app", module = "api" }
+to = { scope = "lib", module = "shared" }
 ```
+
+Overlays are only for relationships an adapter cannot infer safely. Native Rust
+discovery infers local Cargo path dependencies across configured manifests.
 
 Tasks can also reference preset files. Project presets are resolved before user
 presets from `.toven/lang/<language>/presets/<name>.toml`; user presets use the

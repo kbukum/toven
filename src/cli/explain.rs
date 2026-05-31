@@ -13,7 +13,11 @@ use crate::{
     },
     config::load_workspace,
     core::{AppError, AppResult, ModuleId, ScopedModuleKey},
-    engine::{discover_workspace_task_profiles, plan_discovered_task_profiles},
+    engine::{
+        discover_workspace_task_profiles,
+        graph::{DependencyOrigin, resolve_dependency_graph},
+        plan_discovered_task_profiles,
+    },
 };
 
 pub(super) fn run_explain(matches: &ArgMatches, stdout: &mut impl Write) -> AppResult<()> {
@@ -37,9 +41,13 @@ pub(super) fn run_explain(matches: &ArgMatches, stdout: &mut impl Write) -> AppR
     let registry = AdapterRegistry::default();
     let discovered = discover_workspace_task_profiles(&workspace, task, &registry)?;
     let modules = modules_from_discovered(&discovered)?;
-    let affected =
-        resolve_affected_modules(resolve_affected_changes(&workspace, matches)?, &modules)?;
+    let affected = resolve_affected_modules(
+        resolve_affected_changes(&workspace, matches)?,
+        &modules,
+        &workspace.dependency_overlays,
+    )?;
     let full_plan = plan_discovered_task_profiles(workspace.clone(), &discovered, &[], None)?;
+    let dependency_graph = resolve_dependency_graph(&modules, &workspace.dependency_overlays)?;
     let cache_mode = cache_mode(matches);
     let task_cache = cache_mode
         .writes_or_reads()
@@ -58,6 +66,27 @@ pub(super) fn run_explain(matches: &ArgMatches, stdout: &mut impl Write) -> AppR
         writeln!(stdout, "adapter: {}", decision.adapter_id).map_err(AppError::internal)?;
         writeln!(stdout, "task: {task}").map_err(AppError::internal)?;
         let module_key = (scope_id.clone(), module.clone());
+        let dependencies = dependency_graph
+            .dependencies(&module_key)
+            .into_iter()
+            .map(|dependency| {
+                let origin = match dependency_graph.origin(&module_key, &dependency) {
+                    Some(DependencyOrigin::Overlay) => " overlay",
+                    _ => "",
+                };
+                format!(
+                    "{}{}",
+                    crate::core::scoped_module_display(&dependency),
+                    origin
+                )
+            })
+            .collect::<Vec<_>>();
+        if dependencies.is_empty() {
+            writeln!(stdout, "dependencies: none").map_err(AppError::internal)?;
+        } else {
+            writeln!(stdout, "dependencies: {}", dependencies.join(", "))
+                .map_err(AppError::internal)?;
+        }
         writeln!(
             stdout,
             "affected: {}",

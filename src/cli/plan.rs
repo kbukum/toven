@@ -34,7 +34,7 @@ pub(super) fn run_plan(matches: &ArgMatches, stdout: &mut impl Write) -> AppResu
         let discovered =
             discover_workspace_task_profiles(&workspace, task, &AdapterRegistry::default())?;
         let modules = modules_from_discovered(&discovered)?;
-        let affected = resolve_affected_modules(changes, &modules)?;
+        let affected = resolve_affected_modules(changes, &modules, &workspace.dependency_overlays)?;
         plan_discovered_task_profiles(
             workspace,
             &discovered,

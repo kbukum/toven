@@ -64,7 +64,7 @@ fn run_args(command: Command) -> Command {
             Arg::new("watch")
                 .long("watch")
                 .action(ArgAction::SetTrue)
-                .help("Watch the workspace and rerun affected modules after file changes"),
+                .help("Watch the project and rerun affected modules after file changes"),
         )
         .arg(
             Arg::new("watch-debounce-ms")
@@ -99,7 +99,7 @@ fn affected_command() -> Command {
         .about("Show modules affected by a git baseline")
         .arg(config_arg())
         .arg(defaulted_task_arg(
-            "Task name used to select profiles/modules",
+            "Task name used to select scopes/modules",
         ))
         .args(baseline_args())
 }
@@ -109,7 +109,7 @@ fn modules_command() -> Command {
         .about("List discovered modules")
         .arg(config_arg())
         .arg(defaulted_task_arg(
-            "Task name used to select profiles/modules",
+            "Task name used to select scopes/modules",
         ))
 }
 
@@ -119,7 +119,7 @@ fn list_command() -> Command {
         .alias("ls")
         .arg(config_arg())
         .arg(defaulted_task_arg(
-            "Task name used to select profiles/modules",
+            "Task name used to select scopes/modules",
         ))
 }
 
@@ -129,7 +129,7 @@ fn graph_command() -> Command {
         .about("Render the discovered module dependency graph")
         .arg(config_arg())
         .arg(defaulted_task_arg(
-            "Task name used to select profiles/modules",
+            "Task name used to select scopes/modules",
         ))
         .arg(
             Arg::new("format")

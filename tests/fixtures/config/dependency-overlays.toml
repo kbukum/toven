@@ -1,0 +1,13 @@
+[project]
+name = "overlay-demo"
+root = "."
+
+[profiles.app]
+adapter = "rust"
+
+[profiles.lib]
+adapter = "rust"
+
+[[overlays]]
+from = { scope = "app", module = "api" }
+to = { scope = "lib", module = "shared" }
