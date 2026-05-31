@@ -136,13 +136,10 @@ fn string(value: &str) -> String {
 }
 
 fn path(path: &Path) -> String {
-    path.components()
-        .map(|component| component.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/")
+    path_string(path)
 }
 
-pub(super) fn path_string(path: &Path) -> String {
+fn path_string(path: &Path) -> String {
     let normalized = path
         .components()
         .map(|component| component.as_os_str().to_string_lossy())
