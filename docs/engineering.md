@@ -23,7 +23,7 @@
 | `make test` | Cargo tests with managed smoke skipped. |
 | `make smoke` | Managed binary smoke cases. |
 | `make smoke-repo REPO=<path> ARGS='...'` | Ad-hoc real-repository planning/smoke check. |
-| `cargo install --path . --locked --force && make benchmark CASE=bench/cases/rskit.sh` | Installed-binary benchmark harness for real-repository comparisons. |
+| `cargo install --path . --locked --force && make benchmark CASE=bench/cases/rskit.sh` | Installed-binary benchmark harness after rskit has a generated/reviewed `toven.toml`. |
 | `make structure` | Module layering and `mod.rs` guard. |
 
 Prefer validating changed modules/areas unless a broader gate is clearly

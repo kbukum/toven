@@ -42,7 +42,6 @@ make check
 make coverage
 make release-artifacts
 cargo install --path . --locked --force
-make benchmark CASE=bench/cases/rskit.sh
 cargo run -- --help
 cargo run -- generate --stdout
 ```
@@ -54,6 +53,14 @@ foundations.
 
 Stable project documentation lives in [`docs/`](docs/). Active plans and
 handoff notes live in [`tmp/`](tmp/).
+
+The rskit benchmark case is an installed-binary rehearsal aid for the release
+readiness track. Run it only after rskit has a generated/reviewed `toven.toml`
+from the installed binary:
+
+```bash
+make benchmark CASE=bench/cases/rskit.sh
+```
 
 ## Smoke testing fixtures and real repositories
 

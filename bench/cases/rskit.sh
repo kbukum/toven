@@ -45,6 +45,21 @@ require_target_file() {
   fi
 }
 
+preflight_case() {
+  require_target_file "$RSKIT_LEAF_SOURCE"
+  require_target_file "$RSKIT_SHARED_SOURCE"
+  require_target_file "$RSKIT_SHARED_INPUT"
+  if [[ ! -f "$TARGET_REPO/$RSKIT_TOVEN_CONFIG" ]]; then
+    echo "error: rskit benchmark requires '$TARGET_REPO/$RSKIT_TOVEN_CONFIG'" >&2
+    echo "hint: complete rskit adoption with installed 'toven generate' before running this benchmark case" >&2
+    exit 2
+  fi
+  if ! cargo nextest --version >/dev/null 2>&1; then
+    echo "error: rskit benchmark requires cargo-nextest for nextest comparisons" >&2
+    exit 2
+  fi
+}
+
 append_mutation() {
   local path="$1"
   local comment="#"

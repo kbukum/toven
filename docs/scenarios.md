@@ -100,4 +100,5 @@ flowchart TD
 
 The rskit adoption path should use the installed binary and generated
 instructions. Repository-specific config should come from `toven generate` first
-and only add hand-written policy where the real workflow needs it.
+and only add hand-written policy where the real workflow needs it. The rskit
+benchmark case intentionally requires that adopted `toven.toml` before it runs.

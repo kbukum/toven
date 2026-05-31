@@ -195,6 +195,7 @@ main() {
 
   local toven_bin
   toven_bin="$(resolve_installed_toven)"
+  call_function_if_exists preflight_case
 
   local run_dir="$OUTPUT_DIR/$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$run_dir/logs"
