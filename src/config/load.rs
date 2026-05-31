@@ -149,6 +149,23 @@ mod tests {
     }
 
     #[test]
+    fn rejects_glob_shared_inputs() {
+        let root = rskit_testutil::test_workspace!("glob-shared-input");
+        let config_path = root
+            .copy_fixture("config/glob-shared-input.toml", "toven.toml")
+            .expect("copy config fixture");
+
+        let error = load_workspace(&config_path).expect_err("glob shared input should fail");
+
+        assert!(
+            error
+                .message
+                .contains("profiles.rust.tasks.test.shared_inputs")
+        );
+        assert!(error.message.contains("do not support globs"));
+    }
+
+    #[test]
     fn rejects_current_dir_shared_inputs() {
         let root = rskit_testutil::test_workspace!("current-dir-shared-input");
         let config_path = root
