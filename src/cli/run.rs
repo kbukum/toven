@@ -379,7 +379,7 @@ where
         let mut results = BTreeMap::new();
         let mut next_order = 0usize;
         for _ in 0..expected_results {
-            let result = rx.recv().map_err(AppError::internal)?;
+            let result = recv_wave_result(&rx, options.cancellation.as_ref())?;
             results.insert(result.order, result);
             while let Some(result) = results.remove(&next_order) {
                 if let Err(error) = finalize_execution_result(
@@ -395,6 +395,21 @@ where
     })?;
 
     Ok(())
+}
+
+fn recv_wave_result(
+    rx: &mpsc::Receiver<PreparedExecutionResult>,
+    cancellation: Option<&SharedCancellation>,
+) -> AppResult<PreparedExecutionResult> {
+    match rx.recv() {
+        Ok(result) => Ok(result),
+        Err(error) if is_run_cancelled(cancellation) => Err(AppError::new(
+            ErrorCode::Cancelled,
+            "wave execution cancelled before all units reported",
+        )
+        .with_cause(error)),
+        Err(error) => Err(AppError::internal(error)),
+    }
 }
 
 fn cancel_run(cancellation: Option<&SharedCancellation>) {
@@ -841,7 +856,7 @@ impl CacheModeExt for CacheMode {
 
 #[cfg(test)]
 mod tests {
-    use std::{path::PathBuf, process::Stdio, time::Duration};
+    use std::{path::PathBuf, process::Stdio, sync::mpsc, time::Duration};
 
     use std::collections::BTreeMap;
 
@@ -1183,6 +1198,20 @@ mod tests {
         assert_eq!(super::wave_index_from_unit_id("rust/test/workspace"), None);
         assert_eq!(super::wave_index_from_unit_id("rust/test/w/api"), None);
         assert_eq!(super::wave_index_from_unit_id("rust/test/w12"), None);
+    }
+
+    #[test]
+    fn closed_wave_result_channel_reports_cancellation_when_run_is_cancelled() {
+        let (tx, rx) = mpsc::channel();
+        drop(tx);
+        let cancellation = SharedCancellation::new();
+        cancellation.cancel();
+
+        let Err(error) = super::recv_wave_result(&rx, Some(&cancellation)) else {
+            panic!("closed channel after cancellation reports cancellation");
+        };
+
+        assert_eq!(error.code, ErrorCode::Cancelled);
     }
 
     #[test]
