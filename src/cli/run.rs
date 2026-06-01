@@ -350,12 +350,17 @@ where
             let workspace_root = workspace_root.clone();
             let options = options.clone();
             scope.spawn(move || {
-                for prepared in prepared_units {
+                let mut prepared_units = prepared_units.into_iter();
+                while let Some(prepared) = prepared_units.next() {
                     if is_run_cancelled(options.cancellation.as_ref()) {
+                        if tx.send(cancelled_prepared_execution(prepared)).is_err() {
+                            break;
+                        }
+                        send_cancelled_prepared_executions(prepared_units, &tx);
                         break;
                     }
                     let result = run_execution_unit(&prepared.unit, &workspace_root, &options);
-                    let should_stop = result.is_err();
+                    let should_stop = execution_result_should_stop_group(&result);
                     if tx
                         .send(PreparedExecutionResult {
                             order: prepared.order,
@@ -368,6 +373,7 @@ where
                     }
                     if should_stop {
                         cancel_run(options.cancellation.as_ref());
+                        send_cancelled_prepared_executions(prepared_units, &tx);
                         break;
                     }
                 }
@@ -377,6 +383,7 @@ where
 
         let mut results = BTreeMap::new();
         let mut next_order = 0usize;
+        let mut first_error = None;
         let mut first_cancelled_error = None;
 
         // Drain the channel until all workers have exited. Workers break early on
@@ -392,7 +399,7 @@ where
                     if error.code == ErrorCode::Cancelled {
                         first_cancelled_error.get_or_insert(error);
                     } else {
-                        return Err(error);
+                        first_error.get_or_insert(error);
                     }
                 }
                 next_order += 1;
@@ -410,15 +417,56 @@ where
                 if error.code == ErrorCode::Cancelled {
                     first_cancelled_error.get_or_insert(error);
                 } else {
-                    return Err(error);
+                    first_error.get_or_insert(error);
                 }
             }
         }
 
+        if let Some(error) = first_error {
+            return Err(error);
+        }
         first_cancelled_error.map_or(Ok(()), Err)
     })?;
 
     Ok(())
+}
+
+fn send_cancelled_prepared_executions(
+    prepared_units: impl IntoIterator<Item = PreparedExecution>,
+    tx: &mpsc::Sender<PreparedExecutionResult>,
+) {
+    for prepared in prepared_units {
+        if tx.send(cancelled_prepared_execution(prepared)).is_err() {
+            break;
+        }
+    }
+}
+
+fn execution_result_should_stop_group(result: &AppResult<crate::exec::RunOutput>) -> bool {
+    result
+        .as_ref()
+        .map_or(true, |output| output.cancelled || !output.result.success())
+}
+
+fn cancelled_prepared_execution(prepared: PreparedExecution) -> PreparedExecutionResult {
+    PreparedExecutionResult {
+        order: prepared.order,
+        unit: prepared.unit,
+        result: Ok(crate::exec::RunOutput {
+            argv: Vec::new(),
+            result: rskit_process::ProcessResult::completed(
+                None,
+                Vec::new(),
+                Vec::new(),
+                false,
+                false,
+                Duration::ZERO,
+                false,
+                true,
+            ),
+            cancelled: true,
+        }),
+    }
 }
 
 fn cancel_run(cancellation: Option<&SharedCancellation>) {
@@ -1327,6 +1375,85 @@ mod tests {
             "original unit failure must not be masked by a Cancelled error from the closed channel"
         );
         assert_eq!(error.code, ErrorCode::Internal);
+    }
+
+    #[test]
+    fn wave_parallel_stops_resource_group_after_process_failure() {
+        let root = rskit_testutil::test_workspace!("run-wave-parallel-group-failure");
+        let marker = root.path().join("marker");
+
+        let mut failing = unit();
+        failing.id = "unit/w0/failing".to_string();
+        failing.resource_group = "shared".to_string();
+        failing.modules = vec![module("failing", &[])];
+        failing.argv_template = vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "printf first >> \"$1\"; exit 7".to_string(),
+            "failing".to_string(),
+            marker.display().to_string(),
+        ];
+
+        let mut skipped = unit();
+        skipped.id = "unit/w0/skipped".to_string();
+        skipped.resource_group = "shared".to_string();
+        skipped.modules = vec![module("skipped", &[])];
+        skipped.argv_template = vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "printf second >> \"$1\"".to_string(),
+            "skipped".to_string(),
+            marker.display().to_string(),
+        ];
+
+        let mut decisions = BTreeMap::new();
+        for name in ["failing", "skipped"] {
+            decisions.insert(
+                (
+                    "profile".to_string(),
+                    crate::core::ModuleId::new(name).expect("module id"),
+                ),
+                decision(
+                    name,
+                    CacheState::Miss {
+                        reason: "no cache record".to_string(),
+                    },
+                ),
+            );
+        }
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let mut reporter =
+            RunReporter::new(OutputFormat::Human, &mut stdout, 2).expect("reporter initializes");
+
+        let result = super::execute_wave_parallel(
+            vec![failing, skipped],
+            root.path(),
+            &decisions,
+            None,
+            &crate::exec::RunOptions {
+                timeout: None,
+                cancellation: None,
+                stream_output: false,
+            },
+            &mut reporter,
+            &mut stderr,
+        );
+
+        let Err(error) = result else {
+            panic!("wave with failing unit must return an error");
+        };
+        drop(reporter);
+
+        assert_eq!(error.code, ErrorCode::Internal);
+        assert_eq!(
+            std::fs::read_to_string(marker).expect("first unit wrote marker"),
+            "first"
+        );
+        let stdout = String::from_utf8(stdout).expect("stdout is utf-8");
+        assert!(stdout.contains("done: unit/w0/failing [failed]"));
+        assert!(stdout.contains("done: unit/w0/skipped [cancelled]"));
     }
 
     fn unit() -> ExecutionUnit {
