@@ -25,6 +25,7 @@ fn normalize_stream(stream: &str, repo: &Path) -> String {
 
     let normalized = normalized
         .lines()
+        .filter(|line| !line.starts_with("done: "))
         .map(normalize_line)
         .collect::<Vec<_>>()
         .join("\n");

@@ -251,7 +251,12 @@ where
         ) {
             Ok(Some(process)) => persistent_processes.push(process),
             Ok(None) => {}
-            Err(error) => return Err(error),
+            Err(error) => {
+                return match shutdown_active_processes(persistent_processes) {
+                    Ok(()) => Err(error),
+                    Err(shutdown_error) => Err(error.with_cause(shutdown_error)),
+                };
+            }
         }
     }
     Ok(persistent_processes)
@@ -808,11 +813,11 @@ impl CacheModeExt for CacheMode {
 
 #[cfg(test)]
 mod tests {
-    use std::{path::PathBuf, time::Duration};
+    use std::{path::PathBuf, process::Stdio, time::Duration};
 
     use std::collections::BTreeMap;
 
-    use super::{dependency_closure, execute_unit, process_error};
+    use super::{dependency_closure, execute_plan_units_sequential, execute_unit, process_error};
     use crate::cache::decision::{CacheDecision, CacheState};
     use crate::cache::key::CacheKey;
     use crate::core::{CommandOrigin, ErrorCode, ExecutionMode, ExecutionUnit, Module};
@@ -1063,6 +1068,77 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(events.iter().any(|event| event == "persistent.ready"));
         assert!(!events.iter().any(|event| event == "unit.finished"));
+    }
+
+    #[test]
+    fn sequential_error_shuts_down_started_persistent_processes() {
+        let root = rskit_testutil::test_workspace!("run-persistent-error-cleanup");
+        let pid_file = root.path().join("persistent.pid");
+
+        let mut persistent = unit();
+        persistent.id = "persistent".to_string();
+        persistent.mode = ExecutionMode::WorkspaceOnce;
+        persistent.modules = vec![module("service", &[])];
+        persistent.argv_template = vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "printf %s $$ > \"$1\"; while :; do sleep 1; done".to_string(),
+            "persistent".to_string(),
+            pid_file.display().to_string(),
+        ];
+        persistent.persistent = true;
+        persistent.readiness = crate::core::PersistentReadiness::Command(vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "for _ in 1 2 3 4 5 6 7 8 9 10; do test -s \"$1\" && exit 0; sleep 0.01; done; exit 1"
+                .to_string(),
+            "ready".to_string(),
+            pid_file.display().to_string(),
+        ]);
+
+        let mut failing = unit();
+        failing.id = "failing".to_string();
+        failing.mode = ExecutionMode::WorkspaceOnce;
+        failing.modules = vec![module("failing", &[])];
+        failing.argv_template = vec!["sh".to_string(), "-c".to_string(), "exit 7".to_string()];
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let mut reporter =
+            RunReporter::new(OutputFormat::Human, &mut stdout, 2).expect("reporter initializes");
+
+        let result = execute_plan_units_sequential(
+            vec![persistent, failing],
+            root.path(),
+            &BTreeMap::new(),
+            None,
+            &crate::exec::RunOptions {
+                timeout: None,
+                cancellation: None,
+                stream_output: false,
+            },
+            &mut reporter,
+            &mut stderr,
+        );
+
+        let Err(error) = result else {
+            panic!("failing unit should fail sequential execution");
+        };
+        assert_eq!(error.code, ErrorCode::Internal);
+        let pid = std::fs::read_to_string(pid_file).expect("persistent process wrote pid");
+        let still_alive = std::process::Command::new("kill")
+            .arg("-0")
+            .arg(pid.trim())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        if still_alive {
+            let _ = std::process::Command::new("kill")
+                .arg("-KILL")
+                .arg(pid.trim())
+                .status();
+        }
+        assert!(!still_alive, "persistent process should be shut down");
     }
 
     #[test]
