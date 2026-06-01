@@ -342,12 +342,11 @@ where
 
     let workspace_root = workspace_root.to_path_buf();
     let options = options.clone();
+    let expected_results = groups.values().map(Vec::len).sum::<usize>();
     let (tx, rx) = mpsc::channel();
-    let mut expected_results = 0usize;
 
-    std::thread::scope(|scope| {
+    std::thread::scope(|scope| -> AppResult<()> {
         for prepared_units in groups.into_values() {
-            expected_results += prepared_units.len();
             let tx = tx.clone();
             let workspace_root = workspace_root.clone();
             let options = options.clone();
@@ -367,20 +366,33 @@ where
                 }
             });
         }
-    });
-    drop(tx);
+        drop(tx);
 
-    let mut results = BTreeMap::new();
-    for _ in 0..expected_results {
-        let result = rx.recv().map_err(AppError::internal)?;
-        results.insert(result.order, result);
-    }
-
-    for result in results.into_values() {
-        finalize_execution_result(result, decisions, task_cache, &options, reporter, stderr)?;
-    }
+        let mut results = BTreeMap::new();
+        let mut next_order = 0usize;
+        for _ in 0..expected_results {
+            let result = rx.recv().map_err(AppError::internal)?;
+            results.insert(result.order, result);
+            while let Some(result) = results.remove(&next_order) {
+                if let Err(error) = finalize_execution_result(
+                    result, decisions, task_cache, &options, reporter, stderr,
+                ) {
+                    cancel_run(options.cancellation.as_ref());
+                    return Err(error);
+                }
+                next_order += 1;
+            }
+        }
+        Ok(())
+    })?;
 
     Ok(())
+}
+
+fn cancel_run(cancellation: Option<&SharedCancellation>) {
+    if let Some(cancellation) = cancellation {
+        cancellation.cancel();
+    }
 }
 
 #[derive(Debug, Clone)]
