@@ -5,6 +5,7 @@ use std::path::Path;
 use crate::{
     config::{
         ConfigDocument,
+        cache::normalize_cache_config,
         dependency::normalize_dependency_overlays,
         profile::{attach_scope_overrides, normalize_profiles},
         project::{build_workspace, normalize_project_config},
@@ -32,6 +33,7 @@ pub fn normalize_config(
     normalize_resolved_config(
         document.profiles,
         document.scopes,
+        document.cache,
         document.overlays,
         project,
         &resolver,
@@ -48,6 +50,7 @@ fn normalize_config_with_resolver(
     normalize_resolved_config(
         document.profiles,
         document.scopes,
+        document.cache,
         document.overlays,
         project,
         resolver,
@@ -57,6 +60,7 @@ fn normalize_config_with_resolver(
 fn normalize_resolved_config(
     profile_configs: std::collections::BTreeMap<String, crate::config::ProfileConfig>,
     scope_configs: std::collections::BTreeMap<String, crate::config::ScopeConfig>,
+    cache_config: crate::config::CacheConfig,
     overlay_configs: Vec<crate::config::DependencyOverlayConfig>,
     project: crate::config::project::NormalizedProject,
     resolver: &PresetResolver,
@@ -68,8 +72,10 @@ fn normalize_resolved_config(
         .collect();
     let scope_overrides = normalize_scope_overrides(scope_configs, &profile_adapters, resolver)?;
     let dependency_overlays = normalize_dependency_overlays(overlay_configs)?;
+    let cache = normalize_cache_config(cache_config);
     attach_scope_overrides(&mut profiles, scope_overrides)?;
     let mut workspace = build_workspace(project, profiles);
+    workspace.cache = cache;
     workspace.dependency_overlays = dependency_overlays;
     Ok(workspace)
 }
@@ -78,7 +84,7 @@ fn normalize_resolved_config(
 mod tests {
     use crate::{
         config::load_workspace,
-        core::{ExecutionMode, TaskCommand},
+        core::{CacheLocation, ExecutionMode, TaskCommand},
         preset::PresetResolver,
     };
 
@@ -114,6 +120,18 @@ mod tests {
         let workspace = load_workspace(&config_path).expect("config loads");
 
         assert!(workspace.profiles[0].tasks[0].cache_args);
+    }
+
+    #[test]
+    fn loads_cache_location() {
+        let root = rskit_testutil::test_workspace!("cache-location-config");
+        let config_path = root
+            .copy_fixture("config/cache-workspace.toml", "toven.toml")
+            .expect("copy config fixture");
+
+        let workspace = load_workspace(&config_path).expect("config loads");
+
+        assert_eq!(workspace.cache.location, CacheLocation::Workspace);
     }
 
     #[test]

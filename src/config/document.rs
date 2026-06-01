@@ -2,7 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use crate::config::{DependencyOverlayConfig, ProfileConfig, ProjectConfig, ScopeConfig};
+use crate::config::{
+    CacheConfig, DependencyOverlayConfig, ProfileConfig, ProjectConfig, ScopeConfig,
+};
 
 /// Top-level `toven.toml` document.
 #[derive(Debug, Clone, Eq, PartialEq, serde::Deserialize)]
@@ -17,6 +19,9 @@ pub struct ConfigDocument {
     /// Optional named scope overrides.
     #[serde(default)]
     pub scopes: BTreeMap<String, ScopeConfig>,
+    /// Cache policy.
+    #[serde(default)]
+    pub cache: CacheConfig,
     /// Explicit cross-scope dependency overlays.
     #[serde(default)]
     pub overlays: Vec<DependencyOverlayConfig>,

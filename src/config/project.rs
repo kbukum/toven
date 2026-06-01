@@ -52,6 +52,7 @@ pub(super) fn build_workspace(project: NormalizedProject, profiles: Vec<Profile>
         name: project.name,
         root: project.root,
         base_ref: project.base_ref,
+        cache: crate::core::CacheSettings::default(),
         profiles,
         dependency_overlays: Vec::new(),
     }

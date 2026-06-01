@@ -10,7 +10,7 @@ use std::{
 use clap::ArgMatches;
 
 use crate::{
-    cache::decision::CACHE_DIRECTORY,
+    cache::path::resolve_task_cache_root,
     config::load_workspace,
     core::{AppError, AppResult},
 };
@@ -19,6 +19,7 @@ pub(super) fn run_cache(matches: &ArgMatches, stdout: &mut impl Write) -> AppRes
     match matches.subcommand() {
         Some(("stats" | "info", matches)) => run_cache_stats(matches, stdout),
         Some(("clean" | "clear", matches)) => run_cache_clean(matches, stdout),
+        Some(("path", matches)) => run_cache_path(matches, stdout),
         _ => Err(AppError::invalid_input(
             "cache",
             "cache subcommand is required",
@@ -27,8 +28,7 @@ pub(super) fn run_cache(matches: &ArgMatches, stdout: &mut impl Write) -> AppRes
 }
 
 fn run_cache_stats(matches: &ArgMatches, stdout: &mut impl Write) -> AppResult<()> {
-    let root = workspace_root(matches)?;
-    let cache_dir = cache_dir(&root);
+    let cache_dir = cache_dir(matches)?;
     let stats = collect_cache_stats(&cache_dir)?;
 
     writeln!(stdout, "cache_dir: {}", cache_dir.display()).map_err(AppError::internal)?;
@@ -55,8 +55,7 @@ fn run_cache_stats(matches: &ArgMatches, stdout: &mut impl Write) -> AppResult<(
 }
 
 fn run_cache_clean(matches: &ArgMatches, stdout: &mut impl Write) -> AppResult<()> {
-    let root = workspace_root(matches)?;
-    let cache_dir = cache_dir(&root);
+    let cache_dir = cache_dir(matches)?;
     let stats = collect_cache_stats(&cache_dir)?;
 
     match fs::remove_dir_all(&cache_dir) {
@@ -79,17 +78,18 @@ fn run_cache_clean(matches: &ArgMatches, stdout: &mut impl Write) -> AppResult<(
     .map_err(AppError::internal)
 }
 
-fn workspace_root(matches: &ArgMatches) -> AppResult<PathBuf> {
+fn run_cache_path(matches: &ArgMatches, stdout: &mut impl Write) -> AppResult<()> {
+    let cache_dir = cache_dir(matches)?;
+    writeln!(stdout, "cache_dir: {}", cache_dir.display()).map_err(AppError::internal)
+}
+
+fn cache_dir(matches: &ArgMatches) -> AppResult<PathBuf> {
     let config = PathBuf::from(
         matches
             .get_one::<String>("config")
             .expect("clap supplies the cache config default"),
     );
-    load_workspace(config).map(|workspace| workspace.root)
-}
-
-fn cache_dir(root: &Path) -> PathBuf {
-    root.join(".toven/cache").join(CACHE_DIRECTORY)
+    load_workspace(config).and_then(|workspace| resolve_task_cache_root(&workspace))
 }
 
 fn collect_cache_stats(path: &Path) -> AppResult<CacheStats> {

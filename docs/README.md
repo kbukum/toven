@@ -7,6 +7,10 @@ Stable project documentation lives here. Temporary planning notes live under
 
 | File | Purpose |
 |------|---------|
+| [installation.md](installation.md) | Install Toven from source while the project is pre-alpha. |
+| [getting-started.md](getting-started.md) | Generate config, inspect work, run tasks, and understand first cache decisions. |
+| [commands/](commands/README.md) | Command reference split by workflow: generate, run, inspect, and cache, including cache location policy. |
+| [benchmarking.md](benchmarking.md) | Benchmark rules and the rskit comparison matrix. |
 | [product.md](product.md) | Product promise, user workflows, current command surface, and release scope. |
 | [architecture.md](architecture.md) | Current module layout, layering rules, config/discovery/planning flow, and extension points. |
 | [engineering.md](engineering.md) | Development standards, validation commands, CI gates, testing, release, and docs policy. |

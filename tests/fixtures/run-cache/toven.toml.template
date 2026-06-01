@@ -2,6 +2,9 @@
 name = "run-cache"
 root = "__WORKSPACE_ROOT__"
 
+[cache]
+location = "workspace"
+
 [profiles.rust]
 adapter = "rust"
 execution = "batch-ready"

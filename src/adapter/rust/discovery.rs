@@ -72,6 +72,8 @@ impl DiscoveryAdapter for RustAdapter {
                     vec![
                         "cargo".to_string(),
                         name.to_string(),
+                        "--color".to_string(),
+                        "always".to_string(),
                         "--manifest-path".to_string(),
                         "{module.manifest}".to_string(),
                         "-p".to_string(),

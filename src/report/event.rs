@@ -210,6 +210,24 @@ impl<'a, W: Write> RunReporter<'a, W> {
     ) -> AppResult<()> {
         self.stats.subprocesses += 1;
         self.stats.subprocess_wall += result.duration;
+        if self.format == OutputFormat::Human {
+            let status = if cancelled {
+                "cancelled"
+            } else if result.timed_out {
+                "timed-out"
+            } else if result.success() {
+                "ok"
+            } else {
+                "failed"
+            };
+            writeln!(
+                self.stdout,
+                "done: {} [{status}] ({:.2}s)",
+                unit.id,
+                result.duration.as_secs_f64()
+            )
+            .map_err(AppError::internal)?;
+        }
         self.event(
             "unit.finished",
             UnitFinished {

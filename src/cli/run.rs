@@ -1,15 +1,21 @@
 //! `toven <task>` execution command.
 
-use std::{collections::BTreeSet, io::Write, path::PathBuf, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    io::Write,
+    path::{Path, PathBuf},
+    sync::mpsc,
+    time::Duration,
+};
 
 use clap::ArgMatches;
 
 use crate::{
     adapter::AdapterRegistry,
     cache::decision::{
-        CACHE_DIRECTORY, CacheDecision, CacheDecisions, CacheMode, TaskCache,
-        prepare_cache_decisions,
+        CacheDecision, CacheDecisions, CacheMode, TaskCache, prepare_cache_decisions,
     },
+    cache::path::resolve_task_cache_root,
     cli::affected::{modules_from_discovered, resolve_affected_changes, resolve_affected_modules},
     config::load_workspace,
     core::{
@@ -113,7 +119,7 @@ fn run_task_once_with_lifecycle(
     let cache_mode = cache_mode(matches);
     let task_cache = cache_mode
         .writes_or_reads()
-        .then(|| TaskCache::new(workspace.root.join(".toven/cache").join(CACHE_DIRECTORY)))
+        .then(|| resolve_task_cache_root(&workspace).and_then(TaskCache::new))
         .transpose()?;
     let decisions = prepare_cache_decisions(&cache_plan, &cache_mode, task_cache.as_ref())?;
     let external_cancellation = cancellation.is_some();
@@ -126,8 +132,8 @@ fn run_task_once_with_lifecycle(
         timeout: matches
             .get_one::<u64>("timeout-seconds")
             .map(|seconds| Duration::from_secs(*seconds)),
-        cancel_on_ctrl_c: false,
         cancellation: Some(cancellation),
+        stream_output: output_format == OutputFormat::Human,
     };
     let mut reporter = RunReporter::new(output_format, stdout, exec_plan.units.len())?;
     reporter.plan_prepared(&workspace.name, &workspace.root.display().to_string())?;
@@ -140,24 +146,24 @@ fn run_task_once_with_lifecycle(
 
     let has_finite_units = exec_plan.units.iter().any(|unit| !unit.persistent);
     let mut persistent_processes = Vec::new();
-    for unit in exec_plan.units {
-        match execute_unit(
-            unit,
-            &workspace.root,
-            &decisions,
-            task_cache.as_ref(),
-            &options,
-            &mut reporter,
-            stderr,
-        ) {
-            Ok(Some(process)) => persistent_processes.push(process),
-            Ok(None) => {}
-            Err(error) => {
-                let _ = reporter.run_failed(&error);
-                let _ = stop_ctrl_c_handler(ctrl_c_handler);
-                let _ = shutdown_active_processes(persistent_processes);
-                return Err(error);
-            }
+    let execution = execute_plan_units(
+        exec_plan.units,
+        &workspace.root,
+        &decisions,
+        task_cache.as_ref(),
+        &options,
+        &mut reporter,
+        stderr,
+    );
+    match execution {
+        Ok(processes) => {
+            persistent_processes = processes;
+        }
+        Err(error) => {
+            let _ = reporter.run_failed(&error);
+            let _ = stop_ctrl_c_handler(ctrl_c_handler);
+            let _ = shutdown_active_processes(persistent_processes);
+            return Err(error);
         }
     }
     if persistent_lifecycle == PersistentLifecycle::KeepAlive {
@@ -181,6 +187,313 @@ fn run_task_once_with_lifecycle(
     stop_ctrl_c_handler(ctrl_c_handler)?;
     reporter.run_succeeded()?;
     Ok(Vec::new())
+}
+
+fn execute_plan_units<W, E>(
+    units: Vec<ExecutionUnit>,
+    workspace_root: &Path,
+    decisions: &CacheDecisions,
+    task_cache: Option<&TaskCache>,
+    options: &RunOptions,
+    reporter: &mut RunReporter<'_, W>,
+    stderr: &mut E,
+) -> AppResult<Vec<ActivePersistentProcess>>
+where
+    W: Write,
+    E: Write,
+{
+    if units.iter().any(|unit| unit.persistent) {
+        return execute_plan_units_sequential(
+            units,
+            workspace_root,
+            decisions,
+            task_cache,
+            options,
+            reporter,
+            stderr,
+        );
+    }
+
+    execute_plan_units_wave_parallel(
+        units,
+        workspace_root,
+        decisions,
+        task_cache,
+        options,
+        reporter,
+        stderr,
+    )
+}
+
+fn execute_plan_units_sequential<W, E>(
+    units: Vec<ExecutionUnit>,
+    workspace_root: &Path,
+    decisions: &CacheDecisions,
+    task_cache: Option<&TaskCache>,
+    options: &RunOptions,
+    reporter: &mut RunReporter<'_, W>,
+    stderr: &mut E,
+) -> AppResult<Vec<ActivePersistentProcess>>
+where
+    W: Write,
+    E: Write,
+{
+    let mut persistent_processes = Vec::new();
+    for unit in units {
+        match execute_unit(
+            unit,
+            workspace_root,
+            decisions,
+            task_cache,
+            options,
+            reporter,
+            stderr,
+        ) {
+            Ok(Some(process)) => persistent_processes.push(process),
+            Ok(None) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(persistent_processes)
+}
+
+fn execute_plan_units_wave_parallel<W, E>(
+    units: Vec<ExecutionUnit>,
+    workspace_root: &Path,
+    decisions: &CacheDecisions,
+    task_cache: Option<&TaskCache>,
+    options: &RunOptions,
+    reporter: &mut RunReporter<'_, W>,
+    stderr: &mut E,
+) -> AppResult<Vec<ActivePersistentProcess>>
+where
+    W: Write,
+    E: Write,
+{
+    let mut pending = units.into_iter().peekable();
+    while let Some(unit) = pending.next() {
+        let Some(wave_index) = wave_index_from_unit_id(&unit.id) else {
+            execute_unit(
+                unit,
+                workspace_root,
+                decisions,
+                task_cache,
+                options,
+                reporter,
+                stderr,
+            )?;
+            continue;
+        };
+
+        let mut wave_units = vec![unit];
+        while let Some(next) = pending.peek() {
+            if wave_index_from_unit_id(&next.id) == Some(wave_index) {
+                let next = pending.next().expect("peeked unit exists");
+                wave_units.push(next);
+            } else {
+                break;
+            }
+        }
+
+        execute_wave_parallel(
+            wave_units,
+            workspace_root,
+            decisions,
+            task_cache,
+            options,
+            reporter,
+            stderr,
+        )?;
+    }
+
+    Ok(Vec::new())
+}
+
+fn execute_wave_parallel<W, E>(
+    wave_units: Vec<ExecutionUnit>,
+    workspace_root: &Path,
+    decisions: &CacheDecisions,
+    task_cache: Option<&TaskCache>,
+    options: &RunOptions,
+    reporter: &mut RunReporter<'_, W>,
+    stderr: &mut E,
+) -> AppResult<()>
+where
+    W: Write,
+    E: Write,
+{
+    let mut groups = BTreeMap::<String, Vec<PreparedExecution>>::new();
+    for (order, unit) in wave_units.into_iter().enumerate() {
+        let Some(prepared) = prepare_execution(order, unit, decisions, reporter)? else {
+            continue;
+        };
+        let resource_group = crate::exec::render_resource_group(&prepared.unit, workspace_root)?;
+        groups.entry(resource_group).or_default().push(prepared);
+    }
+
+    if groups.is_empty() {
+        return Ok(());
+    }
+
+    let workspace_root = workspace_root.to_path_buf();
+    let options = options.clone();
+    let (tx, rx) = mpsc::channel();
+    let mut expected_results = 0usize;
+
+    std::thread::scope(|scope| {
+        for prepared_units in groups.into_values() {
+            expected_results += prepared_units.len();
+            let tx = tx.clone();
+            let workspace_root = workspace_root.clone();
+            let options = options.clone();
+            scope.spawn(move || {
+                for prepared in prepared_units {
+                    let result = run_execution_unit(&prepared.unit, &workspace_root, &options);
+                    if tx
+                        .send(PreparedExecutionResult {
+                            order: prepared.order,
+                            unit: prepared.unit,
+                            result,
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    drop(tx);
+
+    let mut results = BTreeMap::new();
+    for _ in 0..expected_results {
+        let result = rx.recv().map_err(AppError::internal)?;
+        results.insert(result.order, result);
+    }
+
+    for result in results.into_values() {
+        finalize_execution_result(result, decisions, task_cache, &options, reporter, stderr)?;
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct PreparedExecution {
+    order: usize,
+    unit: ExecutionUnit,
+}
+
+struct PreparedExecutionResult {
+    order: usize,
+    unit: ExecutionUnit,
+    result: AppResult<crate::exec::RunOutput>,
+}
+
+fn prepare_execution<W>(
+    order: usize,
+    unit: ExecutionUnit,
+    decisions: &CacheDecisions,
+    reporter: &mut RunReporter<'_, W>,
+) -> AppResult<Option<PreparedExecution>>
+where
+    W: Write,
+{
+    let misses = unit
+        .modules
+        .iter()
+        .filter(|module| {
+            !decision_for(decisions, &unit, &module.name).is_some_and(CacheDecision::is_hit)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if misses.is_empty() {
+        for module in &unit.modules {
+            reporter.cache_hit(&unit, module, false)?;
+        }
+        reporter.unit_skipped(&unit)?;
+        return Ok(None);
+    }
+
+    if unit.mode == ExecutionMode::WorkspaceOnce {
+        for module in &unit.modules {
+            if decision_for(decisions, &unit, &module.name).is_some_and(CacheDecision::is_hit) {
+                reporter.cache_hit(&unit, module, true)?;
+            }
+        }
+    }
+
+    let executable_unit = if unit.mode == ExecutionMode::WorkspaceOnce {
+        unit
+    } else {
+        let mut filtered = unit;
+        filtered.modules = misses;
+        filtered
+    };
+
+    reporter.unit_started(&executable_unit)?;
+
+    Ok(Some(PreparedExecution {
+        order,
+        unit: executable_unit,
+    }))
+}
+
+fn finalize_execution_result<W, E>(
+    result: PreparedExecutionResult,
+    decisions: &CacheDecisions,
+    task_cache: Option<&TaskCache>,
+    options: &RunOptions,
+    reporter: &mut RunReporter<'_, W>,
+    stderr: &mut E,
+) -> AppResult<()>
+where
+    W: Write,
+    E: Write,
+{
+    let output = result.result?;
+
+    if !options.stream_output {
+        reporter.child_stdout(stderr, &output.result.stdout_bytes)?;
+        stderr
+            .write_all(&output.result.stderr_bytes)
+            .map_err(AppError::internal)?;
+    }
+    if output.result.stdout_truncated {
+        writeln!(stderr, "warning: stdout capture truncated").map_err(AppError::internal)?;
+    }
+    if output.result.stderr_truncated {
+        writeln!(stderr, "warning: stderr capture truncated").map_err(AppError::internal)?;
+    }
+
+    reporter.unit_finished(&result.unit, &output.result, output.cancelled)?;
+    if output.cancelled || !output.result.success() {
+        return Err(process_error(
+            &result.unit,
+            &output.result,
+            output.cancelled,
+        ));
+    }
+
+    if let (Some(task_cache), true) = (task_cache, !result.unit.persistent) {
+        for module in &result.unit.modules {
+            if let Some(decision) = decision_for(decisions, &result.unit, &module.name) {
+                task_cache.write_success(decision, &output.argv)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn wave_index_from_unit_id(id: &str) -> Option<usize> {
+    let suffix = id.split("/w").nth(1)?;
+    let digits = suffix
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    (!digits.is_empty()).then(|| digits.parse().ok()).flatten()
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -329,10 +642,12 @@ where
         })
     } else {
         let output = run_execution_unit(&executable_unit, workspace_root, options)?;
-        reporter.child_stdout(stderr, &output.result.stdout_bytes)?;
-        stderr
-            .write_all(&output.result.stderr_bytes)
-            .map_err(AppError::internal)?;
+        if !options.stream_output {
+            reporter.child_stdout(stderr, &output.result.stdout_bytes)?;
+            stderr
+                .write_all(&output.result.stderr_bytes)
+                .map_err(AppError::internal)?;
+        }
         if output.result.stdout_truncated {
             writeln!(stderr, "warning: stdout capture truncated").map_err(AppError::internal)?;
         }
@@ -340,7 +655,7 @@ where
             writeln!(stderr, "warning: stderr capture truncated").map_err(AppError::internal)?;
         }
         reporter.unit_finished(&executable_unit, &output.result, output.cancelled)?;
-        if !output.result.success() {
+        if output.cancelled || !output.result.success() {
             return Err(process_error(
                 &executable_unit,
                 &output.result,
@@ -397,16 +712,16 @@ fn process_error(
     result: &rskit_process::ProcessResult,
     cancelled: bool,
 ) -> AppError {
+    if cancelled || result.cancelled {
+        return AppError::new(
+            ErrorCode::Cancelled,
+            format!("execution unit '{}' was cancelled", unit.id),
+        );
+    }
     if result.timed_out {
         return AppError::new(
             ErrorCode::Timeout,
             format!("execution unit '{}' timed out", unit.id),
-        );
-    }
-    if cancelled {
-        return AppError::new(
-            ErrorCode::Cancelled,
-            format!("execution unit '{}' was cancelled", unit.id),
         );
     }
     AppError::new(
@@ -500,7 +815,8 @@ mod tests {
     use super::{dependency_closure, execute_unit, process_error};
     use crate::cache::decision::{CacheDecision, CacheState};
     use crate::cache::key::CacheKey;
-    use crate::core::{CommandOrigin, ExecutionMode, ExecutionUnit, Module};
+    use crate::core::{CommandOrigin, ErrorCode, ExecutionMode, ExecutionUnit, Module};
+    use crate::exec::SharedCancellation;
     use crate::report::{OutputFormat, RunReporter};
 
     #[test]
@@ -515,7 +831,15 @@ mod tests {
     fn process_error_reports_cancellation() {
         let error = process_error(&unit(), &result(None, false), true);
 
-        assert_eq!(error.code, crate::core::ErrorCode::Cancelled);
+        assert_eq!(error.code, ErrorCode::Cancelled);
+        assert!(error.message.contains("cancelled"));
+    }
+
+    #[test]
+    fn process_error_reports_result_cancellation_even_with_success_exit() {
+        let error = process_error(&unit(), &cancelled_result(Some(0)), false);
+
+        assert_eq!(error.code, ErrorCode::Cancelled);
         assert!(error.message.contains("cancelled"));
     }
 
@@ -620,8 +944,8 @@ mod tests {
             None,
             &crate::exec::RunOptions {
                 timeout: None,
-                cancel_on_ctrl_c: false,
                 cancellation: None,
+                stream_output: false,
             },
             &mut reporter,
             &mut stderr,
@@ -675,8 +999,8 @@ mod tests {
             None,
             &crate::exec::RunOptions {
                 timeout: None,
-                cancel_on_ctrl_c: false,
                 cancellation: None,
+                stream_output: false,
             },
             &mut reporter,
             &mut stderr,
@@ -720,8 +1044,8 @@ mod tests {
             None,
             &crate::exec::RunOptions {
                 timeout: None,
-                cancel_on_ctrl_c: false,
                 cancellation: None,
+                stream_output: false,
             },
             &mut reporter,
             &mut stderr,
@@ -739,6 +1063,43 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(events.iter().any(|event| event == "persistent.ready"));
         assert!(!events.iter().any(|event| event == "unit.finished"));
+    }
+
+    #[test]
+    fn cancelled_execution_fails_even_if_process_returns_result() {
+        let root = rskit_testutil::test_workspace!("run-cancelled-result");
+        let mut unit = unit();
+        unit.modules = vec![module("miss", &[])];
+        unit.argv_template = vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "trap 'exit 0' TERM; while true; do sleep 1; done".to_string(),
+        ];
+        let cancellation = SharedCancellation::new();
+        cancellation.cancel();
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let mut reporter =
+            RunReporter::new(OutputFormat::Human, &mut stdout, 1).expect("reporter initializes");
+
+        let result = execute_unit(
+            unit,
+            root.path(),
+            &BTreeMap::new(),
+            None,
+            &crate::exec::RunOptions {
+                timeout: None,
+                cancellation: Some(cancellation),
+                stream_output: false,
+            },
+            &mut reporter,
+            &mut stderr,
+        );
+        let Err(error) = result else {
+            panic!("cancelled process should fail execution");
+        };
+
+        assert_eq!(error.code, ErrorCode::Cancelled);
     }
 
     fn unit() -> ExecutionUnit {
@@ -764,6 +1125,18 @@ mod tests {
     }
 
     fn result(exit_code: Option<i32>, timed_out: bool) -> rskit_process::ProcessResult {
+        process_result(exit_code, timed_out, false)
+    }
+
+    fn cancelled_result(exit_code: Option<i32>) -> rskit_process::ProcessResult {
+        process_result(exit_code, false, true)
+    }
+
+    fn process_result(
+        exit_code: Option<i32>,
+        timed_out: bool,
+        cancelled: bool,
+    ) -> rskit_process::ProcessResult {
         rskit_process::ProcessResult::completed(
             exit_code,
             Vec::new(),
@@ -772,7 +1145,7 @@ mod tests {
             false,
             Duration::ZERO,
             timed_out,
-            false,
+            cancelled,
         )
     }
 

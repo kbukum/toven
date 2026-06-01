@@ -792,6 +792,7 @@ mod tests {
             name: "fixture".to_string(),
             root: PathBuf::from("/workspace"),
             base_ref: None,
+            cache: crate::core::CacheSettings::default(),
             profiles: Vec::new(),
             dependency_overlays: Vec::new(),
         };
@@ -827,6 +828,7 @@ mod tests {
             name: "fixture".to_string(),
             root: PathBuf::from("/workspace"),
             base_ref: None,
+            cache: crate::core::CacheSettings::default(),
             profiles: Vec::new(),
             dependency_overlays: Vec::new(),
         };
@@ -862,6 +864,7 @@ mod tests {
             name: "fixture".to_string(),
             root: PathBuf::from("/workspace"),
             base_ref: None,
+            cache: crate::core::CacheSettings::default(),
             profiles: Vec::new(),
             dependency_overlays: Vec::new(),
         };
@@ -901,6 +904,7 @@ mod tests {
             name: "fixture".to_string(),
             root: PathBuf::from("/workspace"),
             base_ref: None,
+            cache: crate::core::CacheSettings::default(),
             profiles: Vec::new(),
             dependency_overlays: Vec::new(),
         };
@@ -1023,6 +1027,7 @@ mod tests {
             name: "fixture".to_string(),
             root: PathBuf::from("/workspace"),
             base_ref: None,
+            cache: crate::core::CacheSettings::default(),
             profiles: Vec::new(),
             dependency_overlays: Vec::new(),
         };

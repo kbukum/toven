@@ -2,7 +2,9 @@
 
 use std::path::PathBuf;
 
-use crate::core::{AdapterOptions, DependencyOverlay, ExecutionMode, ExecutionUnit, Task};
+use crate::core::{
+    AdapterOptions, CacheSettings, DependencyOverlay, ExecutionMode, ExecutionUnit, Task,
+};
 
 /// Project workspace to plan.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -15,6 +17,8 @@ pub struct Workspace {
     pub root: PathBuf,
     /// Default git baseline reference for affected detection.
     pub base_ref: Option<String>,
+    /// Cache policy.
+    pub cache: CacheSettings,
     /// Profiles defined for the workspace.
     pub profiles: Vec<Profile>,
     /// Explicit project-level dependency overlays.

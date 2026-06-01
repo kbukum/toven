@@ -13,4 +13,4 @@ module_arg_template = ["-p", "{module.package}"]
 resource_group = "cargo:{module.manifest}"
 
 [profiles.main.discovery]
-manifests = ["contrib/Cargo.toml", "core/Cargo.toml"]
+manifests = ["contrib/Cargo.toml"]

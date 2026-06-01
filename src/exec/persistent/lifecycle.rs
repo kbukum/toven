@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::{
     core::{AppError, AppResult, ErrorCode, ExecutionUnit},
-    exec::{PersistentOutput, RunOptions, RunOutput, render_execution_unit},
+    exec::{PersistentOutput, RunOptions, RunOutput, process_config, render_execution_unit},
 };
 
 use crate::exec::render::argv_field;
@@ -35,13 +35,13 @@ impl PersistentProcess {
         }
         self.stopped = true;
         let result = take_process(&mut self.process)?.wait()?;
-        if result.success() {
-            Ok(())
-        } else if result.cancelled {
+        if result.cancelled {
             Err(AppError::new(
                 ErrorCode::Cancelled,
                 format!("persistent unit '{}' cancelled", self.unit_id),
             ))
+        } else if result.success() {
+            Ok(())
         } else {
             Err(persistent_exit_result_error(&self.unit_id, &result))
         }
@@ -53,6 +53,15 @@ impl PersistentProcess {
         }
         self.stopped = true;
         match take_process(&mut self.process)?.shutdown()? {
+            rskit_process::ShutdownOutcome::AlreadyExited(result)
+            | rskit_process::ShutdownOutcome::Stopped(result)
+                if result.cancelled =>
+            {
+                Err(AppError::new(
+                    ErrorCode::Cancelled,
+                    format!("persistent unit '{}' cancelled", self.unit_id),
+                ))
+            }
             rskit_process::ShutdownOutcome::AlreadyExited(result) if !result.success() => {
                 Err(persistent_exit_result_error(&self.unit_id, &result))
             }
@@ -106,10 +115,11 @@ pub(in crate::exec) fn start_persistent_execution_unit_with_output(
         .map_or_else(tokio_util::sync::CancellationToken::new, |cancellation| {
             cancellation.token()
         });
-    let process_config = rskit_process::ProcessConfig {
-        timeout: options.timeout,
-        ..rskit_process::ProcessConfig::default()
-    };
+    let process_config = process_config::captured_config(
+        options.timeout,
+        rskit_process::InputPolicy::Closed,
+        rskit_process::OutputPolicy::captured(),
+    );
     let persistent_config = rskit_process::PersistentConfig::default()
         .with_readiness(readiness)
         .with_readiness_timeout(unit.readiness_timeout)
