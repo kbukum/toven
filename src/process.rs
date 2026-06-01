@@ -1,4 +1,4 @@
-//! Explicit process I/O configuration helpers.
+//! Shared process I/O configuration helpers.
 
 use std::time::Duration;
 

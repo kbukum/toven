@@ -2,7 +2,8 @@ use std::path::Path;
 
 use crate::{
     core::{AppError, AppResult, ErrorCode, ExecutionUnit},
-    exec::{PersistentOutput, RunOptions, RunOutput, process_config, render_execution_unit},
+    exec::{PersistentOutput, RunOptions, RunOutput, render_execution_unit},
+    process,
 };
 
 use crate::exec::render::argv_field;
@@ -115,7 +116,7 @@ pub(in crate::exec) fn start_persistent_execution_unit_with_output(
         .map_or_else(tokio_util::sync::CancellationToken::new, |cancellation| {
             cancellation.token()
         });
-    let process_config = process_config::captured_config(
+    let process_config = process::captured_config(
         options.timeout,
         rskit_process::InputPolicy::Closed,
         rskit_process::OutputPolicy::captured(),

@@ -19,7 +19,8 @@ use crate::{
         ModuleId, Plan, TaskOrigin, Workspace,
     },
     engine::graph::{ResolvedDependencyGraph, resolve_selected_dependency_graph},
-    exec::{process_config, render_execution_unit, render_resource_group},
+    exec::{render_execution_unit, render_resource_group},
+    process,
 };
 
 /// Cache schema version for records and key composition.
@@ -555,7 +556,7 @@ fn command_version(workspace: &Workspace, program: &str, args: &[&str]) -> AppRe
     let spec = rskit_process::ProcessSpec::new(program)
         .args(args.iter().copied())
         .dir(workspace.root.clone());
-    let config = process_config::captured_config(
+    let config = process::captured_config(
         Some(TOOLCHAIN_VERSION_TIMEOUT),
         rskit_process::InputPolicy::Closed,
         rskit_process::OutputPolicy::captured()

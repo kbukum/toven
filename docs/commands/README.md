@@ -7,7 +7,7 @@ Toven commands are grouped by workflow rather than listed as one flat page.
 | [Generating config](generate.md) | `toven generate` |
 | [Running tasks](run.md) | `toven <task>`, `toven run <task>`, `--watch` |
 | [Inspecting work](inspect.md) | `plan`, `affected`, `explain`, `modules`, `list`, `ls`, `graph`, `deps` |
-| [Managing cache](cache.md) | `cache stats`, `cache info`, `cache clean`, `cache clear` |
+| [Managing cache](cache.md) | `cache path`, `cache stats`, `cache info`, `cache clean`, `cache clear` |
 
 ## Shared behavior
 

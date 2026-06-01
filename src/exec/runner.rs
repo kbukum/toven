@@ -4,7 +4,8 @@ use std::{ffi::OsString, io::Write as _, path::Path, time::Duration};
 
 use crate::{
     core::{AppError, AppResult, ErrorCode, ExecutionUnit},
-    exec::{SharedCancellation, process_config},
+    exec::SharedCancellation,
+    process,
 };
 
 use super::render::{argv_field, render_execution_unit};
@@ -47,7 +48,7 @@ pub fn run_execution_unit(
     let command = rskit_process::ProcessSpec::new(program)
         .args(arguments.iter().map(OsString::from))
         .dir(workspace_root.to_path_buf());
-    let process_config = process_config::captured_config(
+    let process_config = process::captured_config(
         options.timeout,
         rskit_process::InputPolicy::Closed,
         rskit_process::OutputPolicy::captured(),
@@ -86,18 +87,30 @@ async fn run_with_optional_streaming(
         return rskit_process::run_with_cancel(command, process_config, cancel).await;
     }
 
+    let stdout_cancel = cancel.clone();
+    let stderr_cancel = cancel.clone();
     let observer = rskit_process::OutputObserver::new()
-        .with_stdout_bytes(|bytes| {
+        .with_stdout_bytes(move |bytes| {
             let mut stdout = std::io::stdout().lock();
-            let _ = stdout.write_all(bytes);
-            let _ = stdout.flush();
+            if stdout
+                .write_all(bytes)
+                .and_then(|()| stdout.flush())
+                .is_err()
+            {
+                stdout_cancel.cancel();
+            }
         })
-        .with_stderr_bytes(|bytes| {
+        .with_stderr_bytes(move |bytes| {
             let mut stderr = std::io::stderr().lock();
-            let _ = stderr.write_all(bytes);
-            let _ = stderr.flush();
+            if stderr
+                .write_all(bytes)
+                .and_then(|()| stderr.flush())
+                .is_err()
+            {
+                stderr_cancel.cancel();
+            }
         });
-    let config = process_config::observed_config(
+    let config = process::observed_config(
         process_config.timeout,
         rskit_process::InputPolicy::Closed,
         rskit_process::OutputPolicy::captured(),

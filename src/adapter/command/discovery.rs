@@ -4,14 +4,12 @@ use std::time::Duration;
 
 use rskit_process::{InputPolicy, OutputPolicy, ProcessConfig, ProcessSpec};
 
-use crate::{
-    core::{
-        AdapterId, AppError, AppResult, DiscoverRequest, DiscoverResponse, DiscoveryAdapter,
-        Placeholder, Template, TemplatePart, validate_discovery_request_schema,
-        validate_discovery_response,
-    },
-    exec::process_config,
+use crate::core::{
+    AdapterId, AppError, AppResult, DiscoverRequest, DiscoverResponse, DiscoveryAdapter,
+    Placeholder, Template, TemplatePart, validate_discovery_request_schema,
+    validate_discovery_response,
 };
+use crate::process;
 
 const DISCOVERY_COMMAND_TIMEOUT_SECS: u64 = 120;
 const DISCOVERY_COMMAND_TIMEOUT: Duration = Duration::from_secs(DISCOVERY_COMMAND_TIMEOUT_SECS);
@@ -111,7 +109,7 @@ impl DiscoveryAdapter for CommandAdapter {
 }
 
 fn discovery_process_config() -> ProcessConfig {
-    process_config::captured_config(
+    process::captured_config(
         Some(DISCOVERY_COMMAND_TIMEOUT),
         InputPolicy::Closed,
         OutputPolicy::captured().with_max_output_bytes(DISCOVERY_COMMAND_MAX_OUTPUT_BYTES),

@@ -12,8 +12,9 @@ From the repository you want Toven to manage:
 toven generate --stdout
 ```
 
-For repositories with multiple independent Cargo manifests, pass each manifest
-explicitly:
+When a repository has no root `Cargo.toml`, Toven also discovers top-level
+nested Cargo manifests automatically. Pass `--manifest` when you want to pin
+the generated config to specific manifests:
 
 ```bash
 toven generate \

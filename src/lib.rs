@@ -13,6 +13,7 @@ pub mod exec;
 pub mod generate;
 pub mod git;
 pub mod preset;
+pub mod process;
 pub mod report;
 
 /// Current package version.

@@ -1211,6 +1211,8 @@ mod tests {
                     == [
                         "cargo",
                         "check",
+                        "--color",
+                        "always",
                         "--manifest-path",
                         "{module.manifest}",
                         "-p",
