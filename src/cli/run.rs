@@ -1253,7 +1253,7 @@ mod tests {
     // never sent.  The channel closes with fewer results than units.
     //
     // Old behaviour: coordinator hit a closed channel, saw is_run_cancelled=true, and
-    // returned Cancelled — masking the original Internal error.
+    // returned Cancelled, masking the original Internal error.
     // New behaviour: coordinator drains the channel then finalises any buffered results,
     // surfacing the original error.
     #[test]
@@ -1261,8 +1261,9 @@ mod tests {
         let root = rskit_testutil::test_workspace!("run-wave-parallel-buffered-error");
         let cancellation = SharedCancellation::new();
 
-        // Group "a" (BTreeMap order: first): spawn a nonexistent program → run_execution_unit
-        // returns Err → worker sends the Err result, calls cancel_run, and breaks.
+        // Group "a" (BTreeMap order: first): spawn a nonexistent program, so
+        // run_execution_unit returns Err and the worker sends the Err result,
+        // calls cancel_run, and breaks.
         // This unit gets order=1 because it is passed second in the wave vector.
         let mut erroring = unit();
         erroring.id = "unit/w0/erroring".to_string();
@@ -1272,7 +1273,7 @@ mod tests {
 
         // Group "b" (BTreeMap order: second): slow unit with order=0.  After group "a"
         // calls cancel_run, this worker sees is_run_cancelled=true at the top of its loop
-        // and breaks without sending — leaving erroring(order=1) buffered in the coordinator
+        // and breaks without sending, leaving erroring(order=1) buffered in the coordinator
         // with no order=0 result ever arriving.
         let mut skippable = unit();
         skippable.id = "unit/w0/skippable".to_string();
