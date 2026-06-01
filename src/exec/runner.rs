@@ -12,6 +12,7 @@ use std::{
 };
 
 use crate::{
+    core::process_config::{captured_config, observed_config},
     core::{AppError, AppResult, ErrorCode, ExecutionUnit},
     exec::SharedCancellation,
 };
@@ -135,40 +136,11 @@ async fn run_with_optional_streaming(
     let config = observed_config(
         process_config.timeout,
         rskit_process::InputPolicy::Closed,
-        rskit_process::OutputPolicy::captured(),
+        rskit_process::OutputPolicy::observe_only(),
         observer,
     );
 
     rskit_process::run_with_cancel(command, &config, cancel).await
-}
-
-fn captured_config(
-    timeout: Option<Duration>,
-    input: rskit_process::InputPolicy,
-    output: rskit_process::OutputPolicy,
-) -> rskit_process::ProcessConfig {
-    rskit_process::ProcessConfig::default()
-        .with_timeout(timeout)
-        .with_io(rskit_process::ProcessIo::captured(
-            rskit_process::CapturedIo::new()
-                .with_input(input)
-                .with_output(output),
-        ))
-}
-
-fn observed_config(
-    timeout: Option<Duration>,
-    input: rskit_process::InputPolicy,
-    output: rskit_process::OutputPolicy,
-    observer: rskit_process::OutputObserver,
-) -> rskit_process::ProcessConfig {
-    rskit_process::ProcessConfig::default()
-        .with_timeout(timeout)
-        .with_io(rskit_process::ProcessIo::observed(
-            rskit_process::ObservedIo::new(observer)
-                .with_input(input)
-                .with_output(output),
-        ))
 }
 
 #[cfg(test)]

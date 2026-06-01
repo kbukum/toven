@@ -235,7 +235,7 @@ impl<'a, W: Write> RunReporter<'a, W> {
                 scope_id: unit.scope_id.as_str(),
                 adapter_id: unit.adapter_id.as_str(),
                 task: &unit.task,
-                success: result.success(),
+                success: !cancelled && result.success(),
                 exit_code: result.exit_code,
                 duration_ms: duration_ms(result.duration),
                 timed_out: result.timed_out,
@@ -461,4 +461,66 @@ fn run_id() -> AppResult<String> {
 
 const fn duration_ms(duration: Duration) -> u128 {
     duration.as_millis()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use serde_json::Value;
+
+    use super::RunReporter;
+    use crate::{
+        core::{CommandOrigin, ExecutionMode, ExecutionUnit, PersistentReadiness, TaskOrigin},
+        report::OutputFormat,
+    };
+
+    #[test]
+    fn cancelled_unit_finished_event_is_not_successful() {
+        let unit = unit();
+        let result = rskit_process::ProcessResult::completed(
+            Some(0),
+            Vec::new(),
+            Vec::new(),
+            false,
+            false,
+            Duration::ZERO,
+            false,
+            true,
+        );
+        let mut output = Vec::new();
+        let mut reporter =
+            RunReporter::new(OutputFormat::Jsonl, &mut output, 1).expect("reporter initializes");
+
+        reporter
+            .unit_finished(&unit, &result, true)
+            .expect("event writes");
+        drop(reporter);
+
+        let event: Value = serde_json::from_slice(&output).expect("json event");
+        assert_eq!(event["success"], false);
+        assert_eq!(event["cancelled"], true);
+    }
+
+    fn unit() -> ExecutionUnit {
+        ExecutionUnit {
+            id: "unit".to_string(),
+            scope_id: crate::core::ScopeId::new("profile").expect("scope id"),
+            adapter_id: crate::core::AdapterId::new("rust").expect("adapter id"),
+            task: "test".to_string(),
+            command_origin: CommandOrigin::DirectArgv,
+            task_origin: TaskOrigin::ProjectDefault,
+            mode: ExecutionMode::SpawnEach,
+            resource_group: String::new(),
+            modules: Vec::new(),
+            argv_template: Vec::new(),
+            module_arg_template: Vec::new(),
+            passthrough_args: Vec::new(),
+            cache_args: false,
+            persistent: false,
+            readiness: PersistentReadiness::Started,
+            readiness_timeout: Duration::from_secs(30),
+            shared_inputs: Vec::new(),
+        }
+    }
 }

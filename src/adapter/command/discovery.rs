@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use rskit_process::{InputPolicy, OutputPolicy, ProcessConfig, ProcessSpec};
 
+use crate::core::process_config::captured_config;
 use crate::core::{
     AdapterId, AppError, AppResult, DiscoverRequest, DiscoverResponse, DiscoveryAdapter,
     Placeholder, Template, TemplatePart, validate_discovery_request_schema,
@@ -113,20 +114,6 @@ fn discovery_process_config() -> ProcessConfig {
         InputPolicy::Closed,
         OutputPolicy::captured().with_max_output_bytes(DISCOVERY_COMMAND_MAX_OUTPUT_BYTES),
     )
-}
-
-fn captured_config(
-    timeout: Option<Duration>,
-    input: InputPolicy,
-    output: OutputPolicy,
-) -> ProcessConfig {
-    ProcessConfig::default()
-        .with_timeout(timeout)
-        .with_io(rskit_process::ProcessIo::captured(
-            rskit_process::CapturedIo::new()
-                .with_input(input)
-                .with_output(output),
-        ))
 }
 
 fn validate_discovery_templates(field: &str, argv: &[String]) -> AppResult<()> {

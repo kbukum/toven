@@ -4,6 +4,7 @@ mod adapter;
 mod error;
 pub mod model;
 mod preset;
+pub(crate) mod process_config;
 pub mod protocol;
 mod template;
 mod validation;

@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::{
-    core::{AppError, AppResult, ErrorCode, ExecutionUnit},
+    core::{AppError, AppResult, ErrorCode, ExecutionUnit, process_config::captured_config},
     exec::{PersistentOutput, RunOptions, RunOutput, render_execution_unit},
 };
 
@@ -162,18 +162,4 @@ fn take_process(
     process
         .take()
         .ok_or_else(|| AppError::new(ErrorCode::Conflict, "persistent process already consumed"))
-}
-
-fn captured_config(
-    timeout: Option<std::time::Duration>,
-    input: rskit_process::InputPolicy,
-    output: rskit_process::OutputPolicy,
-) -> rskit_process::ProcessConfig {
-    rskit_process::ProcessConfig::default()
-        .with_timeout(timeout)
-        .with_io(rskit_process::ProcessIo::captured(
-            rskit_process::CapturedIo::new()
-                .with_input(input)
-                .with_output(output),
-        ))
 }
