@@ -493,12 +493,16 @@ where
 }
 
 fn wave_index_from_unit_id(id: &str) -> Option<usize> {
-    let suffix = id.split("/w").nth(1)?;
-    let digits = suffix
+    let (_, suffix) = id.rsplit_once("/w")?;
+    let digit_len = suffix
         .chars()
         .take_while(char::is_ascii_digit)
-        .collect::<String>();
-    (!digits.is_empty()).then(|| digits.parse().ok()).flatten()
+        .map(char::len_utf8)
+        .sum::<usize>();
+    if digit_len == 0 || suffix.as_bytes().get(digit_len) != Some(&b'/') {
+        return None;
+    }
+    suffix[..digit_len].parse().ok()
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -1139,6 +1143,22 @@ mod tests {
                 .status();
         }
         assert!(!still_alive, "persistent process should be shut down");
+    }
+
+    #[test]
+    fn wave_index_parser_uses_final_wave_segment() {
+        assert_eq!(super::wave_index_from_unit_id("rust/test/w0/api"), Some(0));
+        assert_eq!(
+            super::wave_index_from_unit_id("rust/watch/w12/api"),
+            Some(12)
+        );
+        assert_eq!(
+            super::wave_index_from_unit_id("rust/foo/warm/w3/batch/m0"),
+            Some(3)
+        );
+        assert_eq!(super::wave_index_from_unit_id("rust/test/workspace"), None);
+        assert_eq!(super::wave_index_from_unit_id("rust/test/w/api"), None);
+        assert_eq!(super::wave_index_from_unit_id("rust/test/w12"), None);
     }
 
     #[test]
