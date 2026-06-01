@@ -5,7 +5,6 @@ use std::{ffi::OsString, io::Write as _, path::Path, time::Duration};
 use crate::{
     core::{AppError, AppResult, ErrorCode, ExecutionUnit},
     exec::SharedCancellation,
-    process,
 };
 
 use super::render::{argv_field, render_execution_unit};
@@ -48,7 +47,7 @@ pub fn run_execution_unit(
     let command = rskit_process::ProcessSpec::new(program)
         .args(arguments.iter().map(OsString::from))
         .dir(workspace_root.to_path_buf());
-    let process_config = process::captured_config(
+    let process_config = captured_config(
         options.timeout,
         rskit_process::InputPolicy::Closed,
         rskit_process::OutputPolicy::captured(),
@@ -110,7 +109,7 @@ async fn run_with_optional_streaming(
                 stderr_cancel.cancel();
             }
         });
-    let config = process::observed_config(
+    let config = observed_config(
         process_config.timeout,
         rskit_process::InputPolicy::Closed,
         rskit_process::OutputPolicy::captured(),
@@ -118,6 +117,35 @@ async fn run_with_optional_streaming(
     );
 
     rskit_process::run_with_cancel(command, &config, cancel).await
+}
+
+fn captured_config(
+    timeout: Option<Duration>,
+    input: rskit_process::InputPolicy,
+    output: rskit_process::OutputPolicy,
+) -> rskit_process::ProcessConfig {
+    rskit_process::ProcessConfig::default()
+        .with_timeout(timeout)
+        .with_io(rskit_process::ProcessIo::captured(
+            rskit_process::CapturedIo::new()
+                .with_input(input)
+                .with_output(output),
+        ))
+}
+
+fn observed_config(
+    timeout: Option<Duration>,
+    input: rskit_process::InputPolicy,
+    output: rskit_process::OutputPolicy,
+    observer: rskit_process::OutputObserver,
+) -> rskit_process::ProcessConfig {
+    rskit_process::ProcessConfig::default()
+        .with_timeout(timeout)
+        .with_io(rskit_process::ProcessIo::observed(
+            rskit_process::ObservedIo::new(observer)
+                .with_input(input)
+                .with_output(output),
+        ))
 }
 
 #[cfg(test)]

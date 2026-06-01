@@ -20,7 +20,6 @@ use crate::{
     },
     engine::graph::{ResolvedDependencyGraph, resolve_selected_dependency_graph},
     exec::{render_execution_unit, render_resource_group},
-    process,
 };
 
 /// Cache schema version for records and key composition.
@@ -556,7 +555,7 @@ fn command_version(workspace: &Workspace, program: &str, args: &[&str]) -> AppRe
     let spec = rskit_process::ProcessSpec::new(program)
         .args(args.iter().copied())
         .dir(workspace.root.clone());
-    let config = process::captured_config(
+    let config = captured_config(
         Some(TOOLCHAIN_VERSION_TIMEOUT),
         rskit_process::InputPolicy::Closed,
         rskit_process::OutputPolicy::captured()
@@ -600,6 +599,20 @@ fn command_version(workspace: &Workspace, program: &str, args: &[&str]) -> AppRe
         .with_cause(error)
     })?;
     Ok(format!("{program}:{}", stdout.trim()))
+}
+
+fn captured_config(
+    timeout: Option<Duration>,
+    input: rskit_process::InputPolicy,
+    output: rskit_process::OutputPolicy,
+) -> rskit_process::ProcessConfig {
+    rskit_process::ProcessConfig::default()
+        .with_timeout(timeout)
+        .with_io(rskit_process::ProcessIo::captured(
+            rskit_process::CapturedIo::new()
+                .with_input(input)
+                .with_output(output),
+        ))
 }
 
 const fn execution_mode(mode: ExecutionMode) -> &'static str {

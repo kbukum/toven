@@ -3,7 +3,6 @@ use std::path::Path;
 use crate::{
     core::{AppError, AppResult, ErrorCode, ExecutionUnit},
     exec::{PersistentOutput, RunOptions, RunOutput, render_execution_unit},
-    process,
 };
 
 use crate::exec::render::argv_field;
@@ -116,7 +115,7 @@ pub(in crate::exec) fn start_persistent_execution_unit_with_output(
         .map_or_else(tokio_util::sync::CancellationToken::new, |cancellation| {
             cancellation.token()
         });
-    let process_config = process::captured_config(
+    let process_config = captured_config(
         options.timeout,
         rskit_process::InputPolicy::Closed,
         rskit_process::OutputPolicy::captured(),
@@ -163,4 +162,18 @@ fn take_process(
     process
         .take()
         .ok_or_else(|| AppError::new(ErrorCode::Conflict, "persistent process already consumed"))
+}
+
+fn captured_config(
+    timeout: Option<std::time::Duration>,
+    input: rskit_process::InputPolicy,
+    output: rskit_process::OutputPolicy,
+) -> rskit_process::ProcessConfig {
+    rskit_process::ProcessConfig::default()
+        .with_timeout(timeout)
+        .with_io(rskit_process::ProcessIo::captured(
+            rskit_process::CapturedIo::new()
+                .with_input(input)
+                .with_output(output),
+        ))
 }

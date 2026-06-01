@@ -9,7 +9,6 @@ use crate::core::{
     Placeholder, Template, TemplatePart, validate_discovery_request_schema,
     validate_discovery_response,
 };
-use crate::process;
 
 const DISCOVERY_COMMAND_TIMEOUT_SECS: u64 = 120;
 const DISCOVERY_COMMAND_TIMEOUT: Duration = Duration::from_secs(DISCOVERY_COMMAND_TIMEOUT_SECS);
@@ -109,11 +108,25 @@ impl DiscoveryAdapter for CommandAdapter {
 }
 
 fn discovery_process_config() -> ProcessConfig {
-    process::captured_config(
+    captured_config(
         Some(DISCOVERY_COMMAND_TIMEOUT),
         InputPolicy::Closed,
         OutputPolicy::captured().with_max_output_bytes(DISCOVERY_COMMAND_MAX_OUTPUT_BYTES),
     )
+}
+
+fn captured_config(
+    timeout: Option<Duration>,
+    input: InputPolicy,
+    output: OutputPolicy,
+) -> ProcessConfig {
+    ProcessConfig::default()
+        .with_timeout(timeout)
+        .with_io(rskit_process::ProcessIo::captured(
+            rskit_process::CapturedIo::new()
+                .with_input(input)
+                .with_output(output),
+        ))
 }
 
 fn validate_discovery_templates(field: &str, argv: &[String]) -> AppResult<()> {
