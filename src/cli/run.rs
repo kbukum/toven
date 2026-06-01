@@ -34,22 +34,24 @@ use crate::{
     report::{OutputFormat, RunReporter},
 };
 
-pub(super) fn run_task(
+pub(super) fn run_task_with_streaming(
     matches: &ArgMatches,
     stdout: &mut impl Write,
     stderr: &mut impl Write,
+    stream_output: bool,
 ) -> AppResult<()> {
     if matches.get_flag("watch") {
         return crate::cli::watch::run_watch(matches, stdout, stderr);
     }
-    run_task_once(matches, stdout, stderr, None)
+    run_task_once_with_streaming(matches, stdout, stderr, None, stream_output)
 }
 
-pub(super) fn run_task_once(
+fn run_task_once_with_streaming(
     matches: &ArgMatches,
     stdout: &mut impl Write,
     stderr: &mut impl Write,
     module_filter: Option<&BTreeSet<ScopedModuleKey>>,
+    stream_output: bool,
 ) -> AppResult<()> {
     run_task_once_with_lifecycle(
         matches,
@@ -58,6 +60,7 @@ pub(super) fn run_task_once(
         module_filter,
         PersistentLifecycle::Block,
         None,
+        stream_output,
     )
     .map(|_| ())
 }
@@ -76,6 +79,7 @@ pub(super) fn run_task_once_for_watch(
         module_filter,
         PersistentLifecycle::KeepAlive,
         Some(cancellation),
+        false,
     )
 }
 
@@ -86,6 +90,7 @@ fn run_task_once_with_lifecycle(
     module_filter: Option<&BTreeSet<ScopedModuleKey>>,
     persistent_lifecycle: PersistentLifecycle,
     cancellation: Option<SharedCancellation>,
+    stream_output: bool,
 ) -> AppResult<Vec<ActivePersistentProcess>> {
     let output_format = OutputFormat::parse(
         matches
@@ -133,7 +138,7 @@ fn run_task_once_with_lifecycle(
             .get_one::<u64>("timeout-seconds")
             .map(|seconds| Duration::from_secs(*seconds)),
         cancellation: Some(cancellation),
-        stream_output: output_format == OutputFormat::Human,
+        stream_output: stream_output && output_format == OutputFormat::Human,
     };
     let mut reporter = RunReporter::new(output_format, stdout, exec_plan.units.len())?;
     reporter.plan_prepared(&workspace.name, &workspace.root.display().to_string())?;

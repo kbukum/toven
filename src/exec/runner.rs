@@ -1,6 +1,15 @@
 //! Subprocess execution for rendered units.
 
-use std::{ffi::OsString, io::Write as _, path::Path, time::Duration};
+use std::{
+    ffi::OsString,
+    io::{ErrorKind, Write as _},
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use crate::{
     core::{AppError, AppResult, ErrorCode, ExecutionUnit},
@@ -88,25 +97,39 @@ async fn run_with_optional_streaming(
 
     let stdout_cancel = cancel.clone();
     let stderr_cancel = cancel.clone();
+    let stdout_open = Arc::new(AtomicBool::new(true));
+    let stderr_open = Arc::new(AtomicBool::new(true));
     let observer = rskit_process::OutputObserver::new()
-        .with_stdout_bytes(move |bytes| {
-            let mut stdout = std::io::stdout().lock();
-            if stdout
-                .write_all(bytes)
-                .and_then(|()| stdout.flush())
-                .is_err()
-            {
-                stdout_cancel.cancel();
+        .with_stdout_bytes({
+            let stdout_open = Arc::clone(&stdout_open);
+            move |bytes| {
+                if !stdout_open.load(Ordering::Relaxed) {
+                    return;
+                }
+                let mut stdout = std::io::stdout().lock();
+                if let Err(error) = stdout.write_all(bytes).and_then(|()| stdout.flush()) {
+                    if error.kind() == ErrorKind::BrokenPipe {
+                        stdout_open.store(false, Ordering::Relaxed);
+                    } else {
+                        stdout_cancel.cancel();
+                    }
+                }
             }
         })
-        .with_stderr_bytes(move |bytes| {
-            let mut stderr = std::io::stderr().lock();
-            if stderr
-                .write_all(bytes)
-                .and_then(|()| stderr.flush())
-                .is_err()
-            {
-                stderr_cancel.cancel();
+        .with_stderr_bytes({
+            let stderr_open = Arc::clone(&stderr_open);
+            move |bytes| {
+                if !stderr_open.load(Ordering::Relaxed) {
+                    return;
+                }
+                let mut stderr = std::io::stderr().lock();
+                if let Err(error) = stderr.write_all(bytes).and_then(|()| stderr.flush()) {
+                    if error.kind() == ErrorKind::BrokenPipe {
+                        stderr_open.store(false, Ordering::Relaxed);
+                    } else {
+                        stderr_cancel.cancel();
+                    }
+                }
             }
         });
     let config = observed_config(
