@@ -4,8 +4,10 @@ status: 0
 stdout:
 run: rust/shared-stamp/w0/smoke-core
 shared smoke-core
+done: rust/shared-stamp/w0/smoke-core [ok] (<duration>s)
 run: rust/shared-stamp/w1/smoke-app
 shared smoke-app
+done: rust/shared-stamp/w1/smoke-app [ok] (<duration>s)
 stderr:
 <empty>
 
