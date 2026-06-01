@@ -352,7 +352,11 @@ where
             let options = options.clone();
             scope.spawn(move || {
                 for prepared in prepared_units {
+                    if is_run_cancelled(options.cancellation.as_ref()) {
+                        break;
+                    }
                     let result = run_execution_unit(&prepared.unit, &workspace_root, &options);
+                    let should_stop = result.is_err();
                     if tx
                         .send(PreparedExecutionResult {
                             order: prepared.order,
@@ -361,6 +365,10 @@ where
                         })
                         .is_err()
                     {
+                        break;
+                    }
+                    if should_stop {
+                        cancel_run(options.cancellation.as_ref());
                         break;
                     }
                 }
@@ -393,6 +401,10 @@ fn cancel_run(cancellation: Option<&SharedCancellation>) {
     if let Some(cancellation) = cancellation {
         cancellation.cancel();
     }
+}
+
+fn is_run_cancelled(cancellation: Option<&SharedCancellation>) -> bool {
+    cancellation.is_some_and(SharedCancellation::is_cancelled)
 }
 
 #[derive(Debug, Clone)]
