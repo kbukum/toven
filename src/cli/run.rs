@@ -342,7 +342,6 @@ where
 
     let workspace_root = workspace_root.to_path_buf();
     let options = options.clone();
-    let expected_results = groups.values().map(Vec::len).sum::<usize>();
     let (tx, rx) = mpsc::channel();
 
     std::thread::scope(|scope| -> AppResult<()> {
@@ -378,38 +377,48 @@ where
 
         let mut results = BTreeMap::new();
         let mut next_order = 0usize;
-        for _ in 0..expected_results {
-            let result = recv_wave_result(&rx, options.cancellation.as_ref())?;
+        let mut first_cancelled_error = None;
+
+        // Drain the channel until all workers have exited. Workers break early on
+        // cancellation without sending results for skipped units, so we cannot rely
+        // on a fixed expected count; the channel simply closes when all workers exit.
+        while let Ok(result) = rx.recv() {
             results.insert(result.order, result);
             while let Some(result) = results.remove(&next_order) {
                 if let Err(error) = finalize_execution_result(
                     result, decisions, task_cache, &options, reporter, stderr,
                 ) {
                     cancel_run(options.cancellation.as_ref());
-                    return Err(error);
+                    if error.code == ErrorCode::Cancelled {
+                        first_cancelled_error.get_or_insert(error);
+                    } else {
+                        return Err(error);
+                    }
                 }
                 next_order += 1;
             }
         }
-        Ok(())
+
+        // After the channel closes, finalize any buffered out-of-order results whose
+        // lower-order predecessors were skipped due to cancellation. These are iterated
+        // in ascending order (BTreeMap) so the first failure is reported.
+        for (_, result) in results {
+            if let Err(error) =
+                finalize_execution_result(result, decisions, task_cache, &options, reporter, stderr)
+            {
+                cancel_run(options.cancellation.as_ref());
+                if error.code == ErrorCode::Cancelled {
+                    first_cancelled_error.get_or_insert(error);
+                } else {
+                    return Err(error);
+                }
+            }
+        }
+
+        first_cancelled_error.map_or(Ok(()), Err)
     })?;
 
     Ok(())
-}
-
-fn recv_wave_result(
-    rx: &mpsc::Receiver<PreparedExecutionResult>,
-    cancellation: Option<&SharedCancellation>,
-) -> AppResult<PreparedExecutionResult> {
-    match rx.recv() {
-        Ok(result) => Ok(result),
-        Err(error) if is_run_cancelled(cancellation) => Err(AppError::new(
-            ErrorCode::Cancelled,
-            "wave execution cancelled before all units reported",
-        )
-        .with_cause(error)),
-        Err(error) => Err(AppError::internal(error)),
-    }
 }
 
 fn cancel_run(cancellation: Option<&SharedCancellation>) {
@@ -856,7 +865,7 @@ impl CacheModeExt for CacheMode {
 
 #[cfg(test)]
 mod tests {
-    use std::{path::PathBuf, process::Stdio, sync::mpsc, time::Duration};
+    use std::{path::PathBuf, process::Stdio, time::Duration};
 
     use std::collections::BTreeMap;
 
@@ -1201,20 +1210,6 @@ mod tests {
     }
 
     #[test]
-    fn closed_wave_result_channel_reports_cancellation_when_run_is_cancelled() {
-        let (tx, rx) = mpsc::channel();
-        drop(tx);
-        let cancellation = SharedCancellation::new();
-        cancellation.cancel();
-
-        let Err(error) = super::recv_wave_result(&rx, Some(&cancellation)) else {
-            panic!("closed channel after cancellation reports cancellation");
-        };
-
-        assert_eq!(error.code, ErrorCode::Cancelled);
-    }
-
-    #[test]
     fn cancelled_execution_fails_even_if_process_returns_result() {
         let root = rskit_testutil::test_workspace!("run-cancelled-result");
         let mut unit = unit();
@@ -1249,6 +1244,88 @@ mod tests {
         };
 
         assert_eq!(error.code, ErrorCode::Cancelled);
+    }
+
+    // Regression: when a unit fails with an internal error (run_execution_unit returns Err)
+    // the worker calls cancel_run and breaks.  Other workers observe cancellation and break
+    // without sending their remaining units.  The coordinator's reorder buffer may hold the
+    // error result at a higher order while lower-order results from cancelled groups are
+    // never sent.  The channel closes with fewer results than units.
+    //
+    // Old behaviour: coordinator hit a closed channel, saw is_run_cancelled=true, and
+    // returned Cancelled — masking the original Internal error.
+    // New behaviour: coordinator drains the channel then finalises any buffered results,
+    // surfacing the original error.
+    #[test]
+    fn wave_parallel_surfaces_original_error_when_unit_is_skipped_by_cancellation() {
+        let root = rskit_testutil::test_workspace!("run-wave-parallel-buffered-error");
+        let cancellation = SharedCancellation::new();
+
+        // Group "a" (BTreeMap order: first): spawn a nonexistent program → run_execution_unit
+        // returns Err → worker sends the Err result, calls cancel_run, and breaks.
+        // This unit gets order=1 because it is passed second in the wave vector.
+        let mut erroring = unit();
+        erroring.id = "unit/w0/erroring".to_string();
+        erroring.resource_group = "a".to_string();
+        erroring.modules = vec![module("err-module", &[])];
+        erroring.argv_template = vec!["toven-nonexistent-program-xyz-12345".to_string()];
+
+        // Group "b" (BTreeMap order: second): slow unit with order=0.  After group "a"
+        // calls cancel_run, this worker sees is_run_cancelled=true at the top of its loop
+        // and breaks without sending — leaving erroring(order=1) buffered in the coordinator
+        // with no order=0 result ever arriving.
+        let mut skippable = unit();
+        skippable.id = "unit/w0/skippable".to_string();
+        skippable.resource_group = "b".to_string();
+        skippable.modules = vec![module("skip-module", &[])];
+        skippable.argv_template = vec!["sh".to_string(), "-c".to_string(), "sleep 60".to_string()];
+
+        // Pass skippable first so it gets order=0 and erroring gets order=1.
+        let mut decisions = BTreeMap::new();
+        for name in ["err-module", "skip-module"] {
+            decisions.insert(
+                (
+                    "profile".to_string(),
+                    crate::core::ModuleId::new(name).expect("module id"),
+                ),
+                decision(
+                    name,
+                    CacheState::Miss {
+                        reason: "no cache record".to_string(),
+                    },
+                ),
+            );
+        }
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let mut reporter =
+            RunReporter::new(OutputFormat::Human, &mut stdout, 2).expect("reporter initializes");
+
+        let result = super::execute_wave_parallel(
+            vec![skippable, erroring],
+            root.path(),
+            &decisions,
+            None,
+            &crate::exec::RunOptions {
+                timeout: None,
+                cancellation: Some(cancellation),
+                stream_output: false,
+            },
+            &mut reporter,
+            &mut stderr,
+        );
+
+        let Err(error) = result else {
+            panic!("wave with erroring unit must return an error");
+        };
+
+        assert_ne!(
+            error.code,
+            ErrorCode::Cancelled,
+            "original unit failure must not be masked by a Cancelled error from the closed channel"
+        );
+        assert_eq!(error.code, ErrorCode::Internal);
     }
 
     fn unit() -> ExecutionUnit {
