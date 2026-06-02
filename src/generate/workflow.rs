@@ -151,7 +151,7 @@ mod tests {
         core::{AdapterId, AppResult, ExecutionMode},
         generate::{
             GenerateContext, GenerateContributor, GenerateDocument, GeneratedProfile,
-            model::{GeneratedProject, TomlValue},
+            model::{GeneratedCache, GeneratedCacheLocation, GeneratedProject, TomlValue},
         },
     };
 
@@ -167,6 +167,9 @@ mod tests {
                 name: "demo".to_string(),
                 root: PathBuf::from("."),
                 base_ref: None,
+            },
+            cache: GeneratedCache {
+                location: GeneratedCacheLocation::User,
             },
             profiles: BTreeMap::new(),
             warnings: Vec::new(),

@@ -43,7 +43,8 @@ toven check --output human
 ```
 
 Human mode streams child process bytes for terminal use and reports Toven
-lifecycle lines such as `run:`, `done:`, `ready:`, cache hits, and final timing.
+lifecycle lines such as `run:`, `done:`, `ready:`, cache hit, miss, forced,
+disabled states, and final timing.
 
 JSONL output is intended for tools:
 
@@ -53,6 +54,7 @@ toven check --output jsonl
 
 JSONL mode reserves stdout for newline-delimited Toven events. Child stdout is
 forwarded to stderr so consumers can parse every stdout line as JSON.
+Cache decision events expose the same structured cache states and reasons.
 
 ## Watch mode
 

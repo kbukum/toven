@@ -4,7 +4,7 @@ use crate::{
     adapter::rust::{RustProfileOptions, cargo::metadata::discover_modules, tasks},
     core::{
         AdapterId, AppResult, DISCOVERY_SCHEMA_VERSION, DiscoverRequest, DiscoverResponse,
-        DiscoveryAdapter, Task, validate_discovery_request_schema,
+        DiscoveryAdapter, Task, ToolchainProbe, validate_discovery_request_schema,
     },
 };
 
@@ -61,6 +61,21 @@ impl DiscoveryAdapter for RustAdapter {
 
     fn default_tasks(&self) -> Vec<Task> {
         tasks::default_tasks(&self.adapter_id)
+    }
+
+    fn toolchain_probes(&self) -> Vec<ToolchainProbe> {
+        vec![
+            ToolchainProbe {
+                label: "cargo".to_string(),
+                program: "cargo".to_string(),
+                args: vec!["--version".to_string()],
+            },
+            ToolchainProbe {
+                label: "rustc".to_string(),
+                program: "rustc".to_string(),
+                args: vec!["--version".to_string()],
+            },
+        ]
     }
 }
 

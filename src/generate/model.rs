@@ -78,10 +78,28 @@ pub trait GenerateContributor {
 pub struct GenerateDocument {
     /// Project table.
     pub project: GeneratedProject,
+    /// Cache table.
+    pub cache: GeneratedCache,
     /// Profile tables keyed by profile name.
     pub profiles: BTreeMap<String, GeneratedProfile>,
     /// Warnings/suggestions that should be shown to the user.
     pub warnings: Vec<String>,
+}
+
+/// Generated `[cache]` table.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct GeneratedCache {
+    /// Cache storage location.
+    pub location: GeneratedCacheLocation,
+}
+
+/// Generated cache storage location.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum GeneratedCacheLocation {
+    /// Platform user cache directory.
+    User,
+    /// Workspace-local `.toven/cache` directory.
+    Workspace,
 }
 
 /// Generated `[project]` table.

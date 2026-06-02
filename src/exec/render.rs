@@ -228,6 +228,7 @@ mod tests {
             argv_template,
             module_arg_template: vec!["-p".to_string(), "{module.package}".to_string()],
             passthrough_args: vec!["--release".to_string()],
+            toolchain_probes: Vec::new(),
             cache_args: false,
             persistent: false,
             readiness: crate::core::PersistentReadiness::Started,

@@ -8,7 +8,9 @@ use std::{
 
 use crate::{
     core::{AppError, AppResult, validate_identifier, validate_name},
-    generate::model::{GenerateContext, GenerateDocument, GeneratedProject},
+    generate::model::{
+        GenerateContext, GenerateDocument, GeneratedCache, GeneratedCacheLocation, GeneratedProject,
+    },
 };
 
 const CONFIG_SCHEMA: u16 = 1;
@@ -39,6 +41,9 @@ pub(super) fn base_document(context: &GenerateContext) -> AppResult<GenerateDocu
             name,
             root: PathBuf::from("."),
             base_ref: None,
+        },
+        cache: GeneratedCache {
+            location: GeneratedCacheLocation::User,
         },
         profiles: BTreeMap::new(),
         warnings: Vec::new(),

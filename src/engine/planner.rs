@@ -7,7 +7,7 @@ use crate::{
     core::{
         AdapterId, AppError, AppResult, CommandOrigin, DISCOVERY_SCHEMA_VERSION, DiscoverRequest,
         ExecutionMode, ExecutionUnit, Plan, Profile, ScopeId, ScopeOverride, ScopedModuleKey, Task,
-        TaskCommand, Workspace, scoped_module_key, validate_discovery_response,
+        TaskCommand, ToolchainProbe, Workspace, scoped_module_key, validate_discovery_response,
     },
     engine::{
         graph::{ResolvedDependencyGraph, resolve_dependency_graph},
@@ -27,6 +27,8 @@ pub struct DiscoveredTaskProfile {
     pub adapter_id: AdapterId,
     /// Task selected from the profile.
     pub task: Task,
+    /// Adapter-provided toolchain probes included in cache identity.
+    pub toolchain_probes: Vec<ToolchainProbe>,
     /// Modules discovered for the profile.
     pub modules: Vec<crate::core::Module>,
 }
@@ -105,6 +107,7 @@ pub fn discover_workspace_task_profiles(
                 scope_id: ScopeId::new(scope.name.clone())?,
                 adapter_id: adapter_id.clone(),
                 task: task.clone(),
+                toolchain_probes: adapter.toolchain_probes(),
                 modules,
             });
         }
@@ -119,6 +122,7 @@ pub fn discover_workspace_task_profiles(
                 scope_id: ScopeId::new(profile.name.clone())?,
                 adapter_id,
                 task: task.clone(),
+                toolchain_probes: adapter.toolchain_probes(),
                 modules,
             });
         }
@@ -247,6 +251,7 @@ fn plan_discovered_profile_group(
                 &policy.profile,
                 PlanIdentity::new(&policy.scope_id, &policy.adapter_id),
                 &policy.task,
+                &policy.toolchain_probes,
                 format!(
                     "{}/workspace",
                     unit_id_prefix(&policy.scope_id, &policy.task)
@@ -290,6 +295,7 @@ fn plan_discovered_profile_group(
                 &policy.profile,
                 PlanIdentity::new(&policy.scope_id, &policy.adapter_id),
                 &policy.task,
+                &policy.toolchain_probes,
                 wave_index,
                 modules,
                 passthrough_args,
@@ -509,6 +515,7 @@ fn plan_profile_task(
     profile: &Profile,
     scope: Option<&str>,
     task: &Task,
+    toolchain_probes: &[ToolchainProbe],
     modules: Vec<crate::core::Module>,
     passthrough_args: &[String],
 ) -> AppResult<Vec<ExecutionUnit>> {
@@ -530,6 +537,7 @@ fn plan_profile_task(
                     profile,
                     PlanIdentity::new(&scope_id, &adapter_id),
                     task,
+                    toolchain_probes,
                     wave_index,
                     wave,
                     passthrough_args,
@@ -541,6 +549,7 @@ fn plan_profile_task(
                 profile,
                 PlanIdentity::new(&scope_id, &adapter_id),
                 task,
+                toolchain_probes,
                 format!("{}/workspace", unit_id_prefix(&scope_id, task)),
                 modules,
                 command,
@@ -560,6 +569,7 @@ fn plan_ready_wave(
     profile: &Profile,
     identity: PlanIdentity<'_>,
     task: &Task,
+    toolchain_probes: &[ToolchainProbe],
     wave_index: usize,
     modules: Vec<crate::core::Module>,
     passthrough_args: &[String],
@@ -574,6 +584,7 @@ fn plan_ready_wave(
                     profile,
                     identity,
                     task,
+                    toolchain_probes,
                     format!(
                         "{}/w{wave_index}/{}",
                         unit_id_prefix(identity.scope_id, task),
@@ -604,6 +615,7 @@ fn plan_ready_wave(
                     profile,
                     identity,
                     task,
+                    toolchain_probes,
                     id,
                     group,
                     command.clone(),
@@ -640,6 +652,7 @@ fn unit(
     profile: &Profile,
     identity: PlanIdentity<'_>,
     task: &Task,
+    toolchain_probes: &[ToolchainProbe],
     id: String,
     modules: Vec<crate::core::Module>,
     command: PlannedCommand,
@@ -658,6 +671,7 @@ fn unit(
         argv_template: command.argv_template,
         module_arg_template: profile.module_arg_template.clone(),
         passthrough_args,
+        toolchain_probes: toolchain_probes.to_vec(),
         cache_args: task.cache_args,
         persistent: task.persistent,
         readiness: task.readiness.clone(),
@@ -813,6 +827,7 @@ mod tests {
             &profile,
             None,
             &profile.tasks[0],
+            &[],
             vec![module("core"), module("app")],
             &[],
         )
@@ -849,6 +864,7 @@ mod tests {
             &profile,
             None,
             &profile.tasks[0],
+            &[],
             Vec::new(),
             &[],
         )
@@ -885,6 +901,7 @@ mod tests {
             &profile,
             None,
             &profile.tasks[0],
+            &[],
             vec![
                 module_with_manifest("core", "core/Cargo.toml"),
                 module_with_manifest("contrib", "contrib/Cargo.toml"),
@@ -940,6 +957,7 @@ mod tests {
             &profile,
             None,
             &profile.tasks[0],
+            &[],
             vec![module("core")],
             &[],
         )
@@ -1040,6 +1058,7 @@ mod tests {
                 scope_id: ScopeId::new("app").expect("scope id"),
                 adapter_id: AdapterId::new("rust").expect("adapter id"),
                 task: profile.tasks[0].clone(),
+                toolchain_probes: Vec::new(),
                 modules: vec![api, module_in_scope("app", "shared", "app/Cargo.toml")],
             },
             DiscoveredTaskProfile {
@@ -1047,6 +1066,7 @@ mod tests {
                 scope_id: ScopeId::new("lib").expect("scope id"),
                 adapter_id: AdapterId::new("rust").expect("adapter id"),
                 task: profile.tasks[0].clone(),
+                toolchain_probes: Vec::new(),
                 modules: vec![module_in_scope("lib", "shared", "lib/Cargo.toml")],
             },
         ];
@@ -1203,6 +1223,12 @@ mod tests {
         assert!(plan.units.iter().all(|unit| {
             unit.scope_id.as_str() == "rust"
                 && unit.adapter_id.as_str() == "rust"
+                && unit
+                    .toolchain_probes
+                    .iter()
+                    .map(|probe| probe.label.as_str())
+                    .collect::<Vec<_>>()
+                    == ["cargo", "rustc"]
                 && unit.task_origin
                     == TaskOrigin::AdapterDefault {
                         adapter_id: AdapterId::new("rust").expect("adapter id"),

@@ -2,6 +2,17 @@
 
 use crate::core::{AdapterId, Module, PresetDefinition, ScopeId};
 
+/// Adapter-provided command used to contribute toolchain version identity to cache keys.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ToolchainProbe {
+    /// Stable label for the probe.
+    pub label: String,
+    /// Program to execute.
+    pub program: String,
+    /// Arguments passed to the program.
+    pub args: Vec<String>,
+}
+
 /// Configured task.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Task {
@@ -137,6 +148,8 @@ pub struct ExecutionUnit {
     pub module_arg_template: Vec<String>,
     /// Extra user args injected through `{args}`.
     pub passthrough_args: Vec<String>,
+    /// Adapter-provided toolchain probes included in cache keys.
+    pub toolchain_probes: Vec<ToolchainProbe>,
     /// Whether passthrough arguments are included in cache keys.
     pub cache_args: bool,
     /// Whether this unit starts a long-lived process.
