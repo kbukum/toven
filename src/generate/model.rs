@@ -39,6 +39,11 @@ pub trait GenerateContributor {
 
     /// Generate a profile fragment, or `None` when this adapter does not match the project.
     fn generate(&self, context: &mut GenerateContext) -> AppResult<Option<GeneratedProfile>>;
+
+    /// Adapter-specific guidance to append when generation finds no matching manifests.
+    fn no_match_guidance(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Generated `toven.toml` document.

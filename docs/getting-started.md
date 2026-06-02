@@ -12,9 +12,10 @@ From the repository you want Toven to manage:
 toven generate --stdout
 ```
 
-When a repository has no root `Cargo.toml`, Toven also discovers top-level
-nested Cargo manifests automatically. Pass `--manifest` when you want to pin
-the generated config to specific manifests:
+When a repository has no root `Cargo.toml`, Toven also discovers first-level
+nested Cargo manifests automatically, excluding support directories such as
+`.git`, `.toven`, `target`, `node_modules`, `examples`, and `fuzz`. Pass
+`--manifest` when you want to pin the generated config to specific manifests:
 
 ```bash
 toven generate \

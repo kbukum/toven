@@ -55,4 +55,11 @@ impl GenerateContributor for RustGenerateContributor {
             discovery,
         }))
     }
+
+    fn no_match_guidance(&self) -> Option<String> {
+        Some(format!(
+            "Rust generation searches for a root Cargo.toml or first-level Cargo.toml files outside ignored directories ({}). Pass --manifest path/to/Cargo.toml to provide Cargo workspace manifests explicitly.",
+            cargo::SKIPPED_NESTED_MANIFEST_DIRS.join(", ")
+        ))
+    }
 }

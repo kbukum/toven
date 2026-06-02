@@ -202,6 +202,9 @@ fn generate_no_match_error_is_actionable() {
     assert!(stdout.is_empty());
     assert!(stderr.contains(workspace.to_string_lossy().as_ref()));
     assert!(stderr.contains("root Cargo.toml"));
+    assert!(stderr.contains("ignored directories"));
+    assert!(stderr.contains("examples"));
+    assert!(stderr.contains("fuzz"));
     assert!(stderr.contains("--manifest path/to/Cargo.toml"));
 }
 

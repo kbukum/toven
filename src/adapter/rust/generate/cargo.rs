@@ -8,6 +8,15 @@ use std::{
 
 use crate::core::{AppError, AppResult};
 
+pub(super) const SKIPPED_NESTED_MANIFEST_DIRS: &[&str] = &[
+    ".git",
+    ".toven",
+    "target",
+    "node_modules",
+    "examples",
+    "fuzz",
+];
+
 pub(super) fn resolve_manifests(
     root: &Path,
     explicit: &[PathBuf],
@@ -99,10 +108,8 @@ fn discover_nested_workspace_manifests(root: &Path) -> AppResult<Vec<PathBuf>> {
 }
 
 fn should_skip_nested_manifest_dir(name: &std::ffi::OsStr) -> bool {
-    matches!(
-        name.to_str(),
-        Some(".git" | ".toven" | "target" | "node_modules" | "examples" | "fuzz")
-    )
+    name.to_str()
+        .is_some_and(|name| SKIPPED_NESTED_MANIFEST_DIRS.contains(&name))
 }
 
 fn normalize_manifest(root: &Path, manifest: &Path) -> AppResult<PathBuf> {
