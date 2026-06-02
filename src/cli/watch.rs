@@ -636,7 +636,7 @@ mod tests {
     fn watch_once_reruns_after_change() {
         let root = rskit_testutil::test_workspace!("watch-once-rerun");
         let workspace_path = root.path().join("rust-workspace");
-        copy_fixture_tree(&root, "rust-workspace", &workspace_path);
+        copy_fixture_tree(&root, "rust/workspace", &workspace_path);
         let config_path = write_run_config(&root, &workspace_path);
         init_git_repo(&workspace_path);
         let matches = run_command()

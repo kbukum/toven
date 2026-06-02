@@ -14,16 +14,16 @@ use crate::{
 /// Generate a Toven config and optionally write it to disk.
 pub fn generate_config(request: &GenerateRequest) -> AppResult<GenerateOutcome> {
     let root = global::normalize_root(&request.root)?;
-    let mut context = GenerateContext {
+    let mut context = GenerateContext::new(
         root,
-        profile_name: request.profile_name.clone(),
-        manifests: request.manifests.clone(),
-    };
+        request.profile_name.clone(),
+        request.manifests.clone(),
+    )?;
 
     let contributors = default_contributors()?;
     let selected = select_contributors(&contributors, request.adapter.as_ref())?;
     let mut document = global::base_document(&context)?;
-    for contributor in selected {
+    for contributor in &selected {
         if let Some(profile) = contributor.generate(&mut context)? {
             insert_profile(&mut document, contributor.adapter_id(), profile)?;
         }
@@ -31,7 +31,7 @@ pub fn generate_config(request: &GenerateRequest) -> AppResult<GenerateOutcome> 
     if document.profiles.is_empty() {
         return Err(AppError::invalid_input(
             "generate",
-            "no supported project manifests found; pass --manifest to provide Rust Cargo workspace manifests explicitly",
+            no_match_message(&context, &selected),
         ));
     }
 
@@ -41,6 +41,30 @@ pub fn generate_config(request: &GenerateRequest) -> AppResult<GenerateOutcome> 
     }
 
     Ok(GenerateOutcome { document, rendered })
+}
+
+fn no_match_message(
+    context: &GenerateContext,
+    contributors: &[&dyn GenerateContributor],
+) -> String {
+    let target = match contributors {
+        [contributor] => format!("adapter '{}'", contributor.adapter_id()),
+        _ => "any supported adapter".to_string(),
+    };
+    let guidance = contributors
+        .iter()
+        .filter_map(|contributor| contributor.no_match_guidance())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let guidance = if guidance.is_empty() {
+        String::new()
+    } else {
+        format!(" {guidance}")
+    };
+    format!(
+        "no supported project manifests found under '{}' for {target}.{guidance}",
+        context.root.display()
+    )
 }
 
 fn insert_profile(
@@ -124,14 +148,14 @@ mod tests {
     use std::{collections::BTreeMap, path::PathBuf};
 
     use crate::{
-        core::{AdapterId, ExecutionMode},
+        core::{AdapterId, AppResult, ExecutionMode},
         generate::{
-            GenerateDocument, GeneratedProfile,
+            GenerateContext, GenerateContributor, GenerateDocument, GeneratedProfile,
             model::{GeneratedProject, TomlValue},
         },
     };
 
-    use super::insert_profile;
+    use super::{insert_profile, no_match_message};
 
     #[test]
     fn rejects_duplicate_generated_profile_names() {
@@ -162,7 +186,63 @@ mod tests {
             execution: ExecutionMode::SpawnEach,
             module_arg_template: vec!["-p".to_string(), "{module.package}".to_string()],
             resource_group: "cargo:{project.root}".to_string(),
+            tasks: BTreeMap::new(),
             discovery: BTreeMap::<String, TomlValue>::new(),
+        }
+    }
+
+    #[test]
+    fn no_match_message_uses_adapter_guidance() {
+        let adapter = AdapterId::new("rust").expect("adapter id");
+        let contributor = TestContributor {
+            adapter,
+            guidance: Some("Rust-specific guidance.".to_string()),
+        };
+        let contributors: [&dyn GenerateContributor; 1] = [&contributor];
+        let context = context();
+
+        let message = no_match_message(&context, &contributors);
+
+        assert!(message.contains("for adapter 'rust'"));
+        assert!(message.contains("Rust-specific guidance."));
+    }
+
+    #[test]
+    fn no_match_message_stays_generic_without_adapter_guidance() {
+        let contributor = TestContributor {
+            adapter: AdapterId::new("custom").expect("adapter id"),
+            guidance: None,
+        };
+        let contributors: [&dyn GenerateContributor; 1] = [&contributor];
+        let context = context();
+
+        let message = no_match_message(&context, &contributors);
+
+        assert!(message.contains("for adapter 'custom'"));
+        assert!(!message.contains("Rust generation"));
+    }
+
+    fn context() -> GenerateContext {
+        GenerateContext::new(PathBuf::from("/repo"), "main".to_string(), Vec::new())
+            .expect("test context")
+    }
+
+    struct TestContributor {
+        adapter: AdapterId,
+        guidance: Option<String>,
+    }
+
+    impl GenerateContributor for TestContributor {
+        fn adapter_id(&self) -> &AdapterId {
+            &self.adapter
+        }
+
+        fn generate(&self, _context: &mut GenerateContext) -> AppResult<Option<GeneratedProfile>> {
+            Ok(None)
+        }
+
+        fn no_match_guidance(&self) -> Option<String> {
+            self.guidance.clone()
         }
     }
 }

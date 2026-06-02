@@ -3,9 +3,12 @@
 use std::{fmt::Write as _, path::Path};
 
 use crate::{
-    core::{AppResult, validate_identifier, validate_template, validate_templates},
+    core::{
+        AppError, AppResult, validate_command_template, validate_identifier,
+        validate_shared_inputs, validate_template, validate_templates,
+    },
     generate::{
-        model::{GenerateDocument, GeneratedProfile, TomlValue},
+        model::{GenerateDocument, GeneratedProfile, GeneratedTask, TomlValue},
         toml_path,
     },
 };
@@ -77,6 +80,112 @@ fn render_profile(output: &mut String, profile: &GeneratedProfile) -> AppResult<
         }
     }
 
+    if !profile.tasks.is_empty() {
+        output.push('\n');
+        writeln!(output, "[profiles.{}.tasks]", profile.name).expect("write to string");
+        for (name, task) in &profile.tasks {
+            render_task(output, &profile.name, name, task)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn render_task(
+    output: &mut String,
+    profile_name: &str,
+    task_name: &str,
+    task: &GeneratedTask,
+) -> AppResult<()> {
+    let task_field = format!("profiles.{profile_name}.tasks.{task_name}");
+    validate_identifier(&task_field, task_name)?;
+    validate_command_template(format!("{task_field}.argv"), &task.argv)?;
+    validate_shared_inputs(format!("{task_field}.shared_inputs"), &task.shared_inputs)?;
+    validate_readiness(&task_field, task)?;
+
+    write!(
+        output,
+        "{} = {{ argv = {}",
+        task_name,
+        single_line_array(&task.argv)
+    )
+    .expect("write to string");
+    if task.cache_args {
+        output.push_str(", cache_args = true");
+    }
+    if !task.shared_inputs.is_empty() {
+        write!(
+            output,
+            ", shared_inputs = {}",
+            single_line_array(&task.shared_inputs)
+        )
+        .expect("write to string");
+    }
+    if task.persistent {
+        output.push_str(", persistent = true");
+    }
+    if let Some(ready_on) = &task.ready_on {
+        write!(output, ", ready_on = {}", string(ready_on)).expect("write to string");
+    }
+    if let Some(ready_command) = &task.ready_command {
+        write!(
+            output,
+            ", ready_command = {}",
+            single_line_array(ready_command)
+        )
+        .expect("write to string");
+    }
+    if let Some(ready_output) = &task.ready_output {
+        write!(output, ", ready_output = {}", string(ready_output)).expect("write to string");
+    }
+    if let Some(timeout) = task.ready_timeout_seconds {
+        write!(output, ", ready_timeout_seconds = {timeout}").expect("write to string");
+    }
+    output.push_str(" }\n");
+    Ok(())
+}
+
+fn validate_readiness(task_field: &str, task: &GeneratedTask) -> AppResult<()> {
+    let configured = usize::from(task.ready_on.is_some())
+        + usize::from(task.ready_command.is_some())
+        + usize::from(task.ready_output.is_some());
+    if configured > 1 {
+        return Err(AppError::invalid_input(
+            task_field,
+            "persistent readiness must define only one of ready_on, ready_command, or ready_output",
+        ));
+    }
+    if !task.persistent && configured > 0 {
+        return Err(AppError::invalid_input(
+            task_field,
+            "readiness options require persistent = true",
+        ));
+    }
+    if !task.persistent && task.ready_timeout_seconds.is_some() {
+        return Err(AppError::invalid_input(
+            format!("{task_field}.ready_timeout_seconds"),
+            "ready_timeout_seconds requires persistent = true",
+        ));
+    }
+    if let Some(ready_on) = &task.ready_on
+        && ready_on != "started"
+    {
+        return Err(AppError::invalid_input(
+            format!("{task_field}.ready_on"),
+            "ready_on must be 'started'",
+        ));
+    }
+    if let Some(ready_command) = &task.ready_command {
+        validate_command_template(format!("{task_field}.ready_command"), ready_command)?;
+    }
+    if let Some(ready_output) = &task.ready_output
+        && ready_output.is_empty()
+    {
+        return Err(AppError::invalid_input(
+            format!("{task_field}.ready_output"),
+            "ready_output cannot be empty",
+        ));
+    }
     Ok(())
 }
 
@@ -114,6 +223,15 @@ fn inline_array(values: &[TomlValue]) -> AppResult<String> {
     Ok(output)
 }
 
+fn single_line_array(values: &[String]) -> String {
+    let values = values
+        .iter()
+        .map(|value| string(value))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("[{values}]")
+}
+
 fn string(value: &str) -> String {
     let mut escaped = String::new();
     for character in value.chars() {
@@ -149,7 +267,9 @@ mod tests {
 
     use crate::{
         core::{AdapterId, ExecutionMode},
-        generate::model::{GenerateDocument, GeneratedProfile, GeneratedProject, TomlValue},
+        generate::model::{
+            GenerateDocument, GeneratedProfile, GeneratedProject, GeneratedTask, TomlValue,
+        },
     };
 
     use super::render_document;
@@ -174,6 +294,7 @@ mod tests {
                 execution: ExecutionMode::SpawnEach,
                 module_arg_template: vec!["-p".to_string(), "{module.package}".to_string()],
                 resource_group: "cargo:{project.root}".to_string(),
+                tasks: BTreeMap::new(),
                 discovery,
             },
         );
@@ -204,6 +325,7 @@ mod tests {
                 execution: ExecutionMode::SpawnEach,
                 module_arg_template: vec!["-p".to_string(), "{module.package}".to_string()],
                 resource_group: "cargo:{project.root}".to_string(),
+                tasks: BTreeMap::new(),
                 discovery: BTreeMap::new(),
             },
         );
@@ -221,5 +343,61 @@ mod tests {
         .expect_err("invalid profile name fails");
 
         assert!(error.message.contains("profiles.bad/name"));
+    }
+
+    #[test]
+    fn renders_generated_tasks_as_inline_tables() {
+        let mut tasks = BTreeMap::new();
+        tasks.insert(
+            "check".to_string(),
+            GeneratedTask {
+                argv: vec![
+                    "cargo".to_string(),
+                    "check".to_string(),
+                    "--manifest-path".to_string(),
+                    "{module.manifest}".to_string(),
+                    "{module.args}".to_string(),
+                    "{args}".to_string(),
+                ],
+                cache_args: false,
+                shared_inputs: vec!["Cargo.lock".to_string()],
+                persistent: false,
+                ready_on: None,
+                ready_command: None,
+                ready_output: None,
+                ready_timeout_seconds: None,
+            },
+        );
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
+            "main".to_string(),
+            GeneratedProfile {
+                name: "main".to_string(),
+                adapter: AdapterId::new("rust").expect("adapter id"),
+                execution: ExecutionMode::SpawnEach,
+                module_arg_template: vec!["-p".to_string(), "{module.package}".to_string()],
+                resource_group: "cargo:{project.root}".to_string(),
+                tasks,
+                discovery: BTreeMap::new(),
+            },
+        );
+
+        let document = GenerateDocument {
+            project: GeneratedProject {
+                schema: 1,
+                name: "demo".to_string(),
+                root: PathBuf::from("."),
+                base_ref: None,
+            },
+            profiles,
+            warnings: Vec::new(),
+        };
+        let first = render_document(&document).expect("render succeeds");
+        let second = render_document(&document).expect("render is stable");
+
+        assert_eq!(first, second);
+        assert!(first.contains(
+            "check = { argv = [\"cargo\", \"check\", \"--manifest-path\", \"{module.manifest}\", \"{module.args}\", \"{args}\"], shared_inputs = [\"Cargo.lock\"] }"
+        ));
     }
 }

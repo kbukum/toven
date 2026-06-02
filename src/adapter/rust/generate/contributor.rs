@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    adapter::rust::generate::cargo,
+    adapter::rust::{generate::cargo, tasks},
     core::{AdapterId, AppResult, ExecutionMode},
     generate::{GenerateContext, GenerateContributor, GeneratedProfile, TomlValue, toml_path},
 };
@@ -28,7 +28,7 @@ impl GenerateContributor for RustGenerateContributor {
     }
 
     fn generate(&self, context: &mut GenerateContext) -> AppResult<Option<GeneratedProfile>> {
-        let Some(manifests) = cargo::resolve_manifests(&context.root, &context.manifests)? else {
+        let Some(manifests) = cargo::resolve_manifests(context)? else {
             return Ok(None);
         };
 
@@ -51,7 +51,15 @@ impl GenerateContributor for RustGenerateContributor {
             execution: ExecutionMode::SpawnEach,
             module_arg_template: vec!["-p".to_string(), "{module.package}".to_string()],
             resource_group: "cargo:{module.manifest}".to_string(),
+            tasks: tasks::generated_tasks(&context.root)?,
             discovery,
         }))
+    }
+
+    fn no_match_guidance(&self) -> Option<String> {
+        Some(
+            "Rust generation searches for a root Cargo.toml or first-level Cargo.toml files that are not ignored by Git. Pass --manifest path/to/Cargo.toml to provide Cargo workspace manifests explicitly."
+                .to_string(),
+        )
     }
 }

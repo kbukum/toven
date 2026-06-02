@@ -1,8 +1,14 @@
 //! Typed fragments used by config generation.
 
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
-use crate::core::{AdapterId, AppResult, ExecutionMode};
+use crate::{
+    core::{AdapterId, AppResult, ExecutionMode},
+    git::ignore::GitIgnore,
+};
 
 /// Input for one generation run.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -22,7 +28,7 @@ pub struct GenerateRequest {
 }
 
 /// Shared context passed to generation contributors.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct GenerateContext {
     /// Canonical project root.
     pub root: PathBuf,
@@ -30,6 +36,27 @@ pub struct GenerateContext {
     pub profile_name: String,
     /// Explicit manifest hints.
     pub manifests: Vec<PathBuf>,
+    ignore: Option<GitIgnore>,
+}
+
+impl GenerateContext {
+    /// Build generation context for a normalized root.
+    pub fn new(root: PathBuf, profile_name: String, manifests: Vec<PathBuf>) -> AppResult<Self> {
+        let ignore = GitIgnore::discover(&root)?;
+        Ok(Self {
+            root,
+            profile_name,
+            manifests,
+            ignore,
+        })
+    }
+
+    /// Reports whether a root-relative path is ignored by shared discovery filters.
+    pub fn is_ignored(&self, root_relative_path: &Path) -> AppResult<bool> {
+        self.ignore
+            .as_ref()
+            .map_or(Ok(false), |ignore| ignore.is_ignored(root_relative_path))
+    }
 }
 
 /// Adapter-owned generation contribution.
@@ -39,6 +66,11 @@ pub trait GenerateContributor {
 
     /// Generate a profile fragment, or `None` when this adapter does not match the project.
     fn generate(&self, context: &mut GenerateContext) -> AppResult<Option<GeneratedProfile>>;
+
+    /// Adapter-specific guidance to append when generation finds no matching manifests.
+    fn no_match_guidance(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Generated `toven.toml` document.
@@ -78,8 +110,31 @@ pub struct GeneratedProfile {
     pub module_arg_template: Vec<String>,
     /// Resource group template.
     pub resource_group: String,
+    /// Generated task definitions keyed by task name.
+    pub tasks: BTreeMap<String, GeneratedTask>,
     /// Adapter discovery options.
     pub discovery: BTreeMap<String, TomlValue>,
+}
+
+/// Generated task definition.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct GeneratedTask {
+    /// Direct argv template.
+    pub argv: Vec<String>,
+    /// Include passthrough args in cache keys instead of disabling cache.
+    pub cache_args: bool,
+    /// Plain workspace-relative paths that affect every module using this task.
+    pub shared_inputs: Vec<String>,
+    /// Whether this task starts a long-lived process.
+    pub persistent: bool,
+    /// Persistent task readiness shortcut.
+    pub ready_on: Option<String>,
+    /// Persistent task health command.
+    pub ready_command: Option<Vec<String>>,
+    /// Literal stdout/stderr text that marks a persistent task ready.
+    pub ready_output: Option<String>,
+    /// Persistent readiness timeout in seconds.
+    pub ready_timeout_seconds: Option<u64>,
 }
 
 /// Minimal TOML value tree needed by generated fragments.

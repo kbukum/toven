@@ -6,26 +6,26 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use crate::core::{AppError, AppResult};
+use crate::{
+    core::{AppError, AppResult},
+    generate::GenerateContext,
+};
 
-pub(super) fn resolve_manifests(
-    root: &Path,
-    explicit: &[PathBuf],
-) -> AppResult<Option<Vec<PathBuf>>> {
-    if explicit.is_empty() {
+pub(super) fn resolve_manifests(context: &GenerateContext) -> AppResult<Option<Vec<PathBuf>>> {
+    if context.manifests.is_empty() {
         let manifest = PathBuf::from("Cargo.toml");
-        if root.join(&manifest).is_file() {
+        if context.root.join(&manifest).is_file() && !context.is_ignored(&manifest)? {
             return Ok(Some(vec![manifest]));
         }
 
-        let manifests = discover_nested_workspace_manifests(root)?;
+        let manifests = discover_nested_workspace_manifests(context)?;
         return Ok((!manifests.is_empty()).then_some(manifests));
     }
 
     let mut manifests = BTreeSet::new();
-    for manifest in explicit {
-        let manifest = normalize_manifest(root, manifest)?;
-        let manifest_path = root.join(&manifest);
+    for manifest in &context.manifests {
+        let manifest = normalize_manifest(&context.root, manifest)?;
+        let manifest_path = context.root.join(&manifest);
         if !manifest_path.is_file() {
             return Err(AppError::invalid_input(
                 "generate.manifest",
@@ -38,8 +38,9 @@ pub(super) fn resolve_manifests(
     Ok(Some(manifests.into_iter().collect()))
 }
 
-fn discover_nested_workspace_manifests(root: &Path) -> AppResult<Vec<PathBuf>> {
+fn discover_nested_workspace_manifests(context: &GenerateContext) -> AppResult<Vec<PathBuf>> {
     let mut manifests = BTreeSet::new();
+    let root = &context.root;
     let entries = fs::read_dir(root).map_err(|error| {
         AppError::invalid_input(
             "generate.root",
@@ -73,10 +74,6 @@ fn discover_nested_workspace_manifests(root: &Path) -> AppResult<Vec<PathBuf>> {
         if !entry_type.is_dir() {
             continue;
         }
-        if should_skip_nested_manifest_dir(&entry.file_name()) {
-            continue;
-        }
-
         let manifest = entry.path().join("Cargo.toml");
         if !manifest.is_file() {
             continue;
@@ -92,17 +89,14 @@ fn discover_nested_workspace_manifests(root: &Path) -> AppResult<Vec<PathBuf>> {
                 ),
             )
         })?;
-        manifests.insert(normalize_relative_path(relative));
+        let relative = normalize_relative_path(relative);
+        if context.is_ignored(&relative)? {
+            continue;
+        }
+        manifests.insert(relative);
     }
 
     Ok(manifests.into_iter().collect())
-}
-
-fn should_skip_nested_manifest_dir(name: &std::ffi::OsStr) -> bool {
-    matches!(
-        name.to_str(),
-        Some(".git" | ".toven" | "target" | "node_modules" | "examples" | "fuzz")
-    )
 }
 
 fn normalize_manifest(root: &Path, manifest: &Path) -> AppResult<PathBuf> {
@@ -167,14 +161,34 @@ fn normalize_relative_path(path: &Path) -> PathBuf {
 mod tests {
     use std::{fs, path::PathBuf};
 
+    use crate::generate::GenerateContext;
+
     use super::resolve_manifests;
+
+    fn context(root: PathBuf, manifests: Vec<PathBuf>) -> GenerateContext {
+        GenerateContext::new(root, "main".to_string(), manifests).expect("generate context")
+    }
+
+    fn copy_fixture_repo(
+        root: &rskit_testutil::TestWorkspace,
+        fixture: &str,
+        destination: &std::path::Path,
+    ) {
+        rskit_fs::sync_io::tree::copy_tree(
+            &root.fixture_path(fixture).expect("fixture path"),
+            destination,
+            rskit_fs::sync_io::tree::CopyTreeOptions::default(),
+        )
+        .expect("copy fixture tree");
+        rskit_git::init(destination).expect("init git repo");
+    }
 
     #[test]
     fn detects_root_cargo_manifest() {
         let root = rskit_testutil::test_workspace!("generate-rust-detect");
         fs::write(root.path().join("Cargo.toml"), "[workspace]\n").expect("write manifest");
 
-        let manifests = resolve_manifests(root.path(), &[])
+        let manifests = resolve_manifests(&context(root.path().to_path_buf(), Vec::new()))
             .expect("resolve succeeds")
             .expect("manifest found");
 
@@ -185,8 +199,11 @@ mod tests {
     fn rejects_parent_manifest_paths() {
         let root = rskit_testutil::test_workspace!("generate-rust-parent");
 
-        let error = resolve_manifests(root.path(), &[PathBuf::from("../Cargo.toml")])
-            .expect_err("parent path fails");
+        let error = resolve_manifests(&context(
+            root.path().to_path_buf(),
+            vec![PathBuf::from("../Cargo.toml")],
+        ))
+        .expect_err("parent path fails");
 
         assert!(error.message.contains("inside the selected root"));
     }
@@ -208,7 +225,7 @@ mod tests {
         )
         .expect("write package manifest");
 
-        let manifests = resolve_manifests(root.path(), &[])
+        let manifests = resolve_manifests(&context(root.path().to_path_buf(), Vec::new()))
             .expect("resolve succeeds")
             .expect("nested manifests found");
 
@@ -231,30 +248,36 @@ mod tests {
         fs::write(root.path().join("contrib/Cargo.toml"), "[workspace]\n")
             .expect("write contrib manifest");
 
-        let manifests = resolve_manifests(root.path(), &[PathBuf::from("core/Cargo.toml")])
-            .expect("resolve succeeds")
-            .expect("explicit manifest found");
+        let manifests = resolve_manifests(&context(
+            root.path().to_path_buf(),
+            vec![PathBuf::from("core/Cargo.toml")],
+        ))
+        .expect("resolve succeeds")
+        .expect("explicit manifest found");
 
         assert_eq!(manifests, [PathBuf::from("core/Cargo.toml")]);
     }
 
     #[test]
-    fn ignores_non_production_top_level_manifest_dirs() {
-        let root = rskit_testutil::test_workspace!("generate-rust-skip-non-production");
-        fs::create_dir_all(root.path().join("core")).expect("create core workspace");
-        fs::create_dir_all(root.path().join("examples")).expect("create examples workspace");
-        fs::create_dir_all(root.path().join("fuzz")).expect("create fuzz workspace");
-        fs::write(root.path().join("core/Cargo.toml"), "[workspace]\n")
-            .expect("write core manifest");
-        fs::write(root.path().join("examples/Cargo.toml"), "[workspace]\n")
-            .expect("write examples manifest");
-        fs::write(
-            root.path().join("fuzz/Cargo.toml"),
-            "[package]\nname = \"fuzz\"\nversion = \"0.0.0\"\n",
-        )
-        .expect("write fuzz manifest");
+    fn automatic_manifest_discovery_skips_gitignored_manifests() {
+        let root = rskit_testutil::test_workspace!("generate-rust-skip-gitignored");
+        copy_fixture_repo(&root, "rust/generate/gitignored-manifests", root.path());
 
-        let manifests = resolve_manifests(root.path(), &[])
+        let manifests = resolve_manifests(&context(root.path().to_path_buf(), Vec::new()))
+            .expect("resolve succeeds")
+            .expect("nested manifests found");
+
+        assert_eq!(manifests, [PathBuf::from("core/Cargo.toml")]);
+    }
+
+    #[test]
+    fn automatic_manifest_discovery_uses_gitignore_from_repository_root() {
+        let root = rskit_testutil::test_workspace!("generate-rust-subdir-gitignore");
+        let repo = root.path().join("repo");
+        let workspace = repo.join("tools");
+        copy_fixture_repo(&root, "rust/generate/subdir-gitignored-manifests", &repo);
+
+        let manifests = resolve_manifests(&context(workspace, Vec::new()))
             .expect("resolve succeeds")
             .expect("nested manifests found");
 
