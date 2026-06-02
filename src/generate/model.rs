@@ -1,8 +1,14 @@
 //! Typed fragments used by config generation.
 
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
-use crate::core::{AdapterId, AppResult, ExecutionMode};
+use crate::{
+    core::{AdapterId, AppResult, ExecutionMode},
+    git::ignore::GitIgnore,
+};
 
 /// Input for one generation run.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -22,7 +28,7 @@ pub struct GenerateRequest {
 }
 
 /// Shared context passed to generation contributors.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct GenerateContext {
     /// Canonical project root.
     pub root: PathBuf,
@@ -30,6 +36,27 @@ pub struct GenerateContext {
     pub profile_name: String,
     /// Explicit manifest hints.
     pub manifests: Vec<PathBuf>,
+    ignore: Option<GitIgnore>,
+}
+
+impl GenerateContext {
+    /// Build generation context for a normalized root.
+    pub fn new(root: PathBuf, profile_name: String, manifests: Vec<PathBuf>) -> AppResult<Self> {
+        let ignore = GitIgnore::discover(&root)?;
+        Ok(Self {
+            root,
+            profile_name,
+            manifests,
+            ignore,
+        })
+    }
+
+    /// Reports whether a root-relative path is ignored by shared discovery filters.
+    pub fn is_ignored(&self, root_relative_path: &Path) -> AppResult<bool> {
+        self.ignore
+            .as_ref()
+            .map_or(Ok(false), |ignore| ignore.is_ignored(root_relative_path))
+    }
 }
 
 /// Adapter-owned generation contribution.

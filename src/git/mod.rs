@@ -2,3 +2,4 @@
 
 pub mod affected;
 pub mod baseline;
+pub mod ignore;

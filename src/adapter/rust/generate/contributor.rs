@@ -28,7 +28,7 @@ impl GenerateContributor for RustGenerateContributor {
     }
 
     fn generate(&self, context: &mut GenerateContext) -> AppResult<Option<GeneratedProfile>> {
-        let Some(manifests) = cargo::resolve_manifests(&context.root, &context.manifests)? else {
+        let Some(manifests) = cargo::resolve_manifests(context)? else {
             return Ok(None);
         };
 
@@ -57,9 +57,9 @@ impl GenerateContributor for RustGenerateContributor {
     }
 
     fn no_match_guidance(&self) -> Option<String> {
-        Some(format!(
-            "Rust generation searches for a root Cargo.toml or first-level Cargo.toml files outside ignored directories ({}). Pass --manifest path/to/Cargo.toml to provide Cargo workspace manifests explicitly.",
-            cargo::SKIPPED_NESTED_MANIFEST_DIRS.join(", ")
-        ))
+        Some(
+            "Rust generation searches for a root Cargo.toml or first-level Cargo.toml files that are not ignored by Git. Pass --manifest path/to/Cargo.toml to provide Cargo workspace manifests explicitly."
+                .to_string(),
+        )
     }
 }

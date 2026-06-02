@@ -14,11 +14,11 @@ use crate::{
 /// Generate a Toven config and optionally write it to disk.
 pub fn generate_config(request: &GenerateRequest) -> AppResult<GenerateOutcome> {
     let root = global::normalize_root(&request.root)?;
-    let mut context = GenerateContext {
+    let mut context = GenerateContext::new(
         root,
-        profile_name: request.profile_name.clone(),
-        manifests: request.manifests.clone(),
-    };
+        request.profile_name.clone(),
+        request.manifests.clone(),
+    )?;
 
     let contributors = default_contributors()?;
     let selected = select_contributors(&contributors, request.adapter.as_ref())?;
@@ -223,11 +223,8 @@ mod tests {
     }
 
     fn context() -> GenerateContext {
-        GenerateContext {
-            root: PathBuf::from("/repo"),
-            profile_name: "main".to_string(),
-            manifests: Vec::new(),
-        }
+        GenerateContext::new(PathBuf::from("/repo"), "main".to_string(), Vec::new())
+            .expect("test context")
     }
 
     struct TestContributor {

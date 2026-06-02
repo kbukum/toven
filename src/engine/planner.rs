@@ -1088,7 +1088,7 @@ mod tests {
         let workspace_path = root.path().join("project");
         rskit_fs::sync_io::tree::copy_tree(
             &root
-                .fixture_path("rust-cross-workspaces")
+                .fixture_path("rust/cross-workspaces")
                 .expect("rust fixture path"),
             &workspace_path,
             rskit_fs::sync_io::tree::CopyTreeOptions::default(),
@@ -1151,7 +1151,7 @@ mod tests {
         let workspace_path = root.path().join("project");
         rskit_fs::sync_io::tree::copy_tree(
             &root
-                .fixture_path("rust-cross-workspaces")
+                .fixture_path("rust/cross-workspaces")
                 .expect("rust fixture path"),
             &workspace_path,
             rskit_fs::sync_io::tree::CopyTreeOptions::default(),
@@ -1182,7 +1182,7 @@ mod tests {
         let workspace_path = root.path().join("project");
         rskit_fs::sync_io::tree::copy_tree(
             &root
-                .fixture_path("rust-workspace")
+                .fixture_path("rust/workspace")
                 .expect("rust fixture path"),
             &workspace_path,
             rskit_fs::sync_io::tree::CopyTreeOptions::default(),

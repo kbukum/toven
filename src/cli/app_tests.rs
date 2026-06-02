@@ -48,7 +48,7 @@ fn reports_usage_errors() {
 fn generate_stdout_renders_root_rust_config() {
     let root = rskit_testutil::test_workspace!("generate-stdout-root");
     let workspace = root.path().join("project");
-    copy_fixture_tree(&root, "rust-workspace", &workspace);
+    copy_fixture_tree(&root, "rust/workspace", &workspace);
 
     let (code, stdout, stderr) = run_cli_vec(vec![
         "toven".to_string(),
@@ -62,7 +62,7 @@ fn generate_stdout_renders_root_rust_config() {
     assert!(stderr.is_empty());
     assert_eq!(
         stdout,
-        root.read_fixture_string("generate/rust-root.toml")
+        root.read_fixture_string("rust/generate/expected/root.toml")
             .expect("read expected generated config")
     );
     assert!(stdout.contains("\"{module.args}\""));
@@ -82,7 +82,7 @@ fn generate_stdout_renders_root_rust_config() {
 fn generate_stdout_discovers_nested_workspace_manifests_by_default() {
     let root = rskit_testutil::test_workspace!("generate-stdout-multi");
     let workspace = root.path().join("project");
-    copy_fixture_tree(&root, "rust-cross-workspaces", &workspace);
+    copy_fixture_tree(&root, "rust/cross-workspaces", &workspace);
 
     let (code, stdout, stderr) = run_cli_vec(vec![
         "toven".to_string(),
@@ -95,7 +95,7 @@ fn generate_stdout_discovers_nested_workspace_manifests_by_default() {
     assert!(stderr.is_empty());
     assert_eq!(
         stdout,
-        root.read_fixture_string("generate/rust-multi-manifest.toml")
+        root.read_fixture_string("rust/generate/expected/multi-manifest.toml")
             .expect("read expected generated config")
     );
     assert!(!stdout.contains("[[overlays]]"));
@@ -105,7 +105,7 @@ fn generate_stdout_discovers_nested_workspace_manifests_by_default() {
 fn generate_stdout_explicit_manifest_narrows_discovery() {
     let root = rskit_testutil::test_workspace!("generate-stdout-explicit-narrow");
     let workspace = root.path().join("project");
-    copy_fixture_tree(&root, "rust-cross-workspaces", &workspace);
+    copy_fixture_tree(&root, "rust/cross-workspaces", &workspace);
 
     let (code, stdout, stderr) = run_cli_vec(vec![
         "toven".to_string(),
@@ -120,7 +120,7 @@ fn generate_stdout_explicit_manifest_narrows_discovery() {
     assert!(stderr.is_empty());
     assert_eq!(
         stdout,
-        root.read_fixture_string("generate/rust-single-manifest.toml")
+        root.read_fixture_string("rust/generate/expected/single-manifest.toml")
             .expect("read expected generated config")
     );
     assert!(!stdout.contains("core/Cargo.toml"));
@@ -130,7 +130,7 @@ fn generate_stdout_explicit_manifest_narrows_discovery() {
 fn generate_write_refuses_existing_config_by_default() {
     let root = rskit_testutil::test_workspace!("generate-write-existing");
     let workspace = root.path().join("project");
-    copy_fixture_tree(&root, "rust-workspace", &workspace);
+    copy_fixture_tree(&root, "rust/workspace", &workspace);
 
     let (code, _stdout, stderr) = run_cli_vec(vec![
         "toven".to_string(),
@@ -148,7 +148,7 @@ fn generate_write_refuses_existing_config_by_default() {
 fn generate_write_creates_loadable_config() {
     let root = rskit_testutil::test_workspace!("generate-write-loadable");
     let workspace = root.path().join("project");
-    copy_fixture_tree(&root, "rust-workspace", &workspace);
+    copy_fixture_tree(&root, "rust/workspace", &workspace);
     fs::remove_file(workspace.join("toven.toml")).expect("remove existing fixture config");
 
     let write = run_cli_vec(vec![
@@ -202,9 +202,7 @@ fn generate_no_match_error_is_actionable() {
     assert!(stdout.is_empty());
     assert!(stderr.contains(workspace.to_string_lossy().as_ref()));
     assert!(stderr.contains("root Cargo.toml"));
-    assert!(stderr.contains("ignored directories"));
-    assert!(stderr.contains("examples"));
-    assert!(stderr.contains("fuzz"));
+    assert!(stderr.contains("not ignored by Git"));
     assert!(stderr.contains("--manifest path/to/Cargo.toml"));
 }
 
@@ -346,7 +344,7 @@ fn developer_workflow_subcommands_parse() {
 fn run_command_uses_cache_and_reruns_changed_affected_modules() {
     let root = rskit_testutil::test_workspace!("cli-run-cache");
     let workspace_path = root.path().join("rust-workspace");
-    copy_fixture_tree(&root, "rust-workspace", &workspace_path);
+    copy_fixture_tree(&root, "rust/workspace", &workspace_path);
     root.copy_fixture("run-cache/.gitignore", "rust-workspace/.gitignore")
         .expect("copy run-cache gitignore fixture");
     let config_path = write_run_config(&root, &workspace_path);
@@ -397,7 +395,7 @@ fn run_command_uses_cache_and_reruns_changed_affected_modules() {
 fn run_command_can_cache_args_when_task_allows_it() {
     let root = rskit_testutil::test_workspace!("cli-run-cache-args");
     let workspace_path = root.path().join("rust-workspace");
-    copy_fixture_tree(&root, "rust-workspace", &workspace_path);
+    copy_fixture_tree(&root, "rust/workspace", &workspace_path);
     root.copy_fixture("run-cache/.gitignore", "rust-workspace/.gitignore")
         .expect("copy run-cache gitignore fixture");
     let config_path = write_run_config_from_template(
@@ -447,7 +445,7 @@ fn run_command_can_cache_args_when_task_allows_it() {
 fn run_command_jsonl_keeps_stdout_machine_readable() {
     let root = rskit_testutil::test_workspace!("cli-run-jsonl");
     let workspace_path = root.path().join("rust-workspace");
-    copy_fixture_tree(&root, "rust-workspace", &workspace_path);
+    copy_fixture_tree(&root, "rust/workspace", &workspace_path);
     root.copy_fixture("run-cache/.gitignore", "rust-workspace/.gitignore")
         .expect("copy run-cache gitignore fixture");
     let config_path = write_run_config(&root, &workspace_path);
@@ -479,7 +477,7 @@ fn run_command_jsonl_keeps_stdout_machine_readable() {
 fn modules_and_graph_commands_render_discovered_workspace() {
     let root = rskit_testutil::test_workspace!("cli-modules-graph");
     let workspace_path = root.path().join("rust-workspace");
-    copy_fixture_tree(&root, "rust-workspace", &workspace_path);
+    copy_fixture_tree(&root, "rust/workspace", &workspace_path);
     let config_path = workspace_path.join("toven.toml");
 
     let modules = run_cli([
@@ -522,7 +520,7 @@ fn modules_and_graph_commands_render_discovered_workspace() {
 fn cache_stats_and_clean_report_local_cache_directory() {
     let root = rskit_testutil::test_workspace!("cli-cache-commands");
     let workspace_path = root.path().join("rust-workspace");
-    copy_fixture_tree(&root, "rust-workspace", &workspace_path);
+    copy_fixture_tree(&root, "rust/workspace", &workspace_path);
     let config_path = workspace_path.join("toven.toml");
     append_workspace_cache_config(&config_path);
     let cache_file = workspace_path.join(".toven/cache/v3/aa/record");
@@ -580,7 +578,7 @@ fn cache_stats_does_not_follow_symlinks() {
 
     let root = rskit_testutil::test_workspace!("cli-cache-symlink");
     let workspace_path = root.path().join("rust-workspace");
-    copy_fixture_tree(&root, "rust-workspace", &workspace_path);
+    copy_fixture_tree(&root, "rust/workspace", &workspace_path);
     let config_path = workspace_path.join("toven.toml");
     append_workspace_cache_config(&config_path);
     let cache_dir = workspace_path.join(".toven/cache/v3");
@@ -609,7 +607,7 @@ fn cache_stats_does_not_follow_symlinks() {
 fn explain_command_reports_affected_and_cache_reasoning() {
     let root = rskit_testutil::test_workspace!("cli-explain");
     let workspace_path = root.path().join("rust-workspace");
-    copy_fixture_tree(&root, "rust-workspace", &workspace_path);
+    copy_fixture_tree(&root, "rust/workspace", &workspace_path);
     init_git_repo(&workspace_path);
     let config_path = workspace_path.join("toven.toml");
     append_workspace_cache_config(&config_path);
@@ -643,7 +641,7 @@ fn explain_command_reports_affected_and_cache_reasoning() {
 fn plan_rejects_baseline_flags_without_affected() {
     let root = rskit_testutil::test_workspace!("cli-plan-base-without-affected");
     let workspace_path = root.path().join("rust-workspace");
-    copy_fixture_tree(&root, "rust-workspace", &workspace_path);
+    copy_fixture_tree(&root, "rust/workspace", &workspace_path);
     let config_path = workspace_path.join("toven.toml");
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();

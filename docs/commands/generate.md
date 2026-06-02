@@ -39,8 +39,7 @@ toven generate \
 ```
 
 Without explicit manifests, Rust generation searches for a root `Cargo.toml` or
-first-level Cargo manifests outside ignored support directories such as
-`.git`, `.toven`, `target`, `node_modules`, `examples`, and `fuzz`.
+first-level Cargo manifests that are not ignored by Git.
 
 Rust generation records manifest discovery in the profile. Cargo metadata stays
 the source of truth for local path dependencies, so generated overlays are
