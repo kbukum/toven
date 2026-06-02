@@ -117,6 +117,7 @@ mod tests {
             name: "fixture".to_string(),
             root: root.clone(),
             base_ref: None,
+            cache: crate::core::CacheSettings::default(),
             profiles: Vec::new(),
             dependency_overlays: Vec::new(),
         };
@@ -167,6 +168,7 @@ mod tests {
             name: "fixture".to_string(),
             root: root.clone(),
             base_ref: None,
+            cache: crate::core::CacheSettings::default(),
             profiles: Vec::new(),
             dependency_overlays: Vec::new(),
         };

@@ -26,6 +26,10 @@ impl SharedCancellation {
     pub(crate) fn cancel(&self) {
         self.token.cancel();
     }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.token.is_cancelled()
+    }
 }
 
 pub(crate) struct CtrlCHandler {

@@ -115,8 +115,8 @@ mod tests {
             root.path(),
             &RunOptions {
                 timeout: None,
-                cancel_on_ctrl_c: false,
                 cancellation: None,
+                stream_output: false,
             },
             PersistentOutput::forward(
                 PersistentOutputStream::Stderr,

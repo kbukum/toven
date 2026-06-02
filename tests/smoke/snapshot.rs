@@ -40,5 +40,26 @@ fn normalize_line(line: &str) -> String {
     if line.starts_with("baseline: ") {
         return "baseline: <sha>".to_owned();
     }
+    if line.starts_with("done: ")
+        && line.ends_with("s)")
+        && let Some(duration_start) = line.rfind("] (")
+    {
+        return format!("{}] (<duration>s)", &line[..duration_start]);
+    }
     line.to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn normalizes_only_toven_done_line_duration() {
+        assert_eq!(
+            super::normalize_line("done: rust/test/w0/api [ok] (1.23s)"),
+            "done: rust/test/w0/api [ok] (<duration>s)"
+        );
+        assert_eq!(
+            super::normalize_line("done: child output"),
+            "done: child output"
+        );
+    }
 }

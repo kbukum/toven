@@ -10,4 +10,4 @@ root = "."
 adapter = "rust"
 execution = "spawn-each"
 module_arg_template = ["-p", "{module.package}"]
-resource_group = "cargo:{project.root}"
+resource_group = "cargo:{module.manifest}"

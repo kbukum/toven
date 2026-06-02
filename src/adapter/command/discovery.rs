@@ -2,8 +2,9 @@
 
 use std::time::Duration;
 
-use rskit_process::{Command, ProcessConfig};
+use rskit_process::{InputPolicy, OutputPolicy, ProcessConfig, ProcessSpec};
 
+use crate::core::process_config::captured_config;
 use crate::core::{
     AdapterId, AppError, AppResult, DiscoverRequest, DiscoverResponse, DiscoveryAdapter,
     Placeholder, Template, TemplatePart, validate_discovery_request_schema,
@@ -52,7 +53,7 @@ impl CommandAdapter {
         })
     }
 
-    fn render_command(&self, request: &DiscoverRequest) -> AppResult<Command> {
+    fn render_command(&self, request: &DiscoverRequest) -> AppResult<(ProcessSpec, Vec<u8>)> {
         let rendered = render_argv(&self.argv, request)?;
         let mut iter = rendered.into_iter();
         let program = iter
@@ -60,10 +61,12 @@ impl CommandAdapter {
             .ok_or_else(|| AppError::invalid_input(&self.field, "missing program"))?;
 
         let stdin = serde_json::to_vec(request).map_err(AppError::internal)?;
-        Ok(Command::new(program)
-            .args(iter)
-            .dir(request.project_root.clone())
-            .stdin(stdin))
+        Ok((
+            ProcessSpec::new(program)
+                .args(iter)
+                .dir(request.project_root.clone()),
+            stdin,
+        ))
     }
 }
 
@@ -75,8 +78,9 @@ impl DiscoveryAdapter for CommandAdapter {
     fn discover(&self, request: &DiscoverRequest) -> AppResult<DiscoverResponse> {
         validate_discovery_request_schema(&self.field, request)?;
 
-        let command = self.render_command(request)?;
-        let result = rskit_process::run(&command, &self.config)?;
+        let (command, stdin) = self.render_command(request)?;
+        let config = self.config.clone().with_input(InputPolicy::Bytes(stdin));
+        let result = rskit_process::run(&command, &config)?;
         result.check()?;
 
         if result.stdout_truncated {
@@ -104,14 +108,12 @@ impl DiscoveryAdapter for CommandAdapter {
     }
 }
 
-const fn discovery_process_config() -> ProcessConfig {
-    ProcessConfig {
-        timeout: Some(DISCOVERY_COMMAND_TIMEOUT),
-        grace_period: Duration::from_secs(5),
-        capture_output: true,
-        inherit_env: true,
-        max_output_bytes: Some(DISCOVERY_COMMAND_MAX_OUTPUT_BYTES),
-    }
+fn discovery_process_config() -> ProcessConfig {
+    captured_config(
+        Some(DISCOVERY_COMMAND_TIMEOUT),
+        InputPolicy::Closed,
+        OutputPolicy::captured().with_max_output_bytes(DISCOVERY_COMMAND_MAX_OUTPUT_BYTES),
+    )
 }
 
 fn validate_discovery_templates(field: &str, argv: &[String]) -> AppResult<()> {

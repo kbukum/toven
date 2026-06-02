@@ -150,6 +150,7 @@ fn cache_command() -> Command {
         .arg_required_else_help(true)
         .subcommand(cache_stats_command())
         .subcommand(cache_clean_command())
+        .subcommand(cache_path_command())
 }
 
 fn cache_stats_command() -> Command {
@@ -163,6 +164,12 @@ fn cache_clean_command() -> Command {
     Command::new("clean")
         .visible_alias("clear")
         .about("Remove local cache records")
+        .arg(config_arg())
+}
+
+fn cache_path_command() -> Command {
+    Command::new("path")
+        .about("Show the resolved local cache directory")
         .arg(config_arg())
 }
 

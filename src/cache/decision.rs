@@ -3,8 +3,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
-    process::Command,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use rskit_cache::CacheStore;
@@ -17,7 +16,7 @@ use crate::{
     },
     core::{
         AppError, AppResult, CommandOrigin, ErrorCode, ExecutionMode, ExecutionUnit, Module,
-        ModuleId, Plan, TaskOrigin, Workspace,
+        ModuleId, Plan, TaskOrigin, Workspace, process_config::captured_config,
     },
     engine::graph::{ResolvedDependencyGraph, resolve_selected_dependency_graph},
     exec::{render_execution_unit, render_resource_group},
@@ -27,6 +26,9 @@ use crate::{
 pub const CACHE_RECORD_SCHEMA: u16 = 3;
 /// Cache store path segment for the current record/key schema.
 pub const CACHE_DIRECTORY: &str = "v3";
+
+const TOOLCHAIN_VERSION_TIMEOUT: Duration = Duration::from_secs(10);
+const TOOLCHAIN_VERSION_MAX_OUTPUT_BYTES: usize = 64 * 1024;
 
 /// Effective cache mode for a command invocation.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -550,27 +552,46 @@ fn toolchain_identity(unit: &ExecutionUnit, workspace: &Workspace) -> AppResult<
 }
 
 fn command_version(workspace: &Workspace, program: &str, args: &[&str]) -> AppResult<String> {
-    let output = Command::new(program)
-        .current_dir(&workspace.root)
-        .args(args)
-        .output()
-        .map_err(|error| {
-            AppError::new(
-                ErrorCode::Internal,
-                format!("failed to resolve {program} toolchain version"),
-            )
-            .with_cause(error)
-        })?;
-    if !output.status.success() {
+    let spec = rskit_process::ProcessSpec::new(program)
+        .args(args.iter().copied())
+        .dir(workspace.root.clone());
+    let config = captured_config(
+        Some(TOOLCHAIN_VERSION_TIMEOUT),
+        rskit_process::InputPolicy::Closed,
+        rskit_process::OutputPolicy::captured()
+            .with_max_output_bytes(TOOLCHAIN_VERSION_MAX_OUTPUT_BYTES),
+    );
+    let output = rskit_process::run(&spec, &config).map_err(|error| {
+        AppError::new(
+            ErrorCode::Internal,
+            format!("failed to resolve {program} toolchain version"),
+        )
+        .with_cause(error)
+    })?;
+    if output.timed_out {
+        return Err(AppError::new(
+            ErrorCode::Timeout,
+            format!("timed out resolving {program} toolchain version"),
+        ));
+    }
+    if output.stdout_truncated || output.stderr_truncated {
+        return Err(AppError::new(
+            ErrorCode::Internal,
+            format!("{program} toolchain version output exceeded capture limit"),
+        ));
+    }
+    if !output.success() {
         return Err(AppError::new(
             ErrorCode::Internal,
             format!(
                 "failed to resolve {program} toolchain version with status {}",
-                output.status
+                output
+                    .exit_code
+                    .map_or_else(|| "signal".to_string(), |code| code.to_string())
             ),
         ));
     }
-    let stdout = String::from_utf8(output.stdout).map_err(|error| {
+    let stdout = String::from_utf8(output.stdout_bytes).map_err(|error| {
         AppError::new(
             ErrorCode::Internal,
             format!("{program} toolchain version was not UTF-8"),
@@ -645,7 +666,7 @@ mod tests {
 
     use rskit_cache::CacheStore;
 
-    use super::{CacheState, TaskCache};
+    use super::{CacheState, TaskCache, command_version};
     use crate::cache::key::CacheKey;
     use crate::{
         cache::decision::{CacheMode, prepare_cache_decisions},
@@ -747,16 +768,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn command_version_rejects_truncated_stderr() {
+        let root = rskit_testutil::test_workspace!("cache-command-version-stderr-truncated");
+        let script = root.path().join("version-tool");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\nprintf version-ok\npython3 - <<'PY' >&2\nprint('x' * (70 * 1024))\nPY\n",
+        )
+        .expect("write version tool");
+        make_executable(&script);
+        let workspace = workspace(root.path().to_path_buf());
+
+        let error = command_version(
+            &workspace,
+            script.to_str().expect("script path is utf-8"),
+            &[],
+        )
+        .expect_err("truncated stderr is rejected");
+
+        assert_eq!(error.code, crate::core::ErrorCode::Internal);
+        assert!(error.message.contains("exceeded capture limit"));
+    }
+
     fn plan(root: PathBuf, passthrough_args: Vec<String>, cache_args: bool) -> Plan {
         Plan {
-            workspace: Workspace {
-                schema: 1,
-                name: "fixture".to_string(),
-                root,
-                base_ref: None,
-                profiles: Vec::new(),
-                dependency_overlays: Vec::new(),
-            },
+            workspace: workspace(root),
             units: vec![ExecutionUnit {
                 id: "unit".to_string(),
                 scope_id: crate::core::ScopeId::new("profile").expect("scope id"),
@@ -787,4 +824,30 @@ mod tests {
             }],
         }
     }
+
+    fn workspace(root: PathBuf) -> Workspace {
+        Workspace {
+            schema: 1,
+            name: "fixture".to_string(),
+            root,
+            base_ref: None,
+            cache: crate::core::CacheSettings::default(),
+            profiles: Vec::new(),
+            dependency_overlays: Vec::new(),
+        }
+    }
+
+    #[cfg(unix)]
+    fn make_executable(path: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = std::fs::metadata(path)
+            .expect("read script metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).expect("set script executable");
+    }
+
+    #[cfg(not(unix))]
+    fn make_executable(_path: &std::path::Path) {}
 }

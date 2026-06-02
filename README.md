@@ -51,7 +51,9 @@ preset-loading, Rust discovery, affected detection, reviewable planning,
 execution, cache-backed skipping, scoped adapter discovery, and `toven generate`
 foundations.
 
-Stable project documentation lives in [`docs/`](docs/). Active plans and
+Stable project documentation lives in [`docs/`](docs/). Start with
+[`Installation`](docs/installation.md), [`Getting started`](docs/getting-started.md),
+and the split [`Command reference`](docs/commands/README.md). Active plans and
 handoff notes live in [`tmp/`](tmp/).
 
 The rskit benchmark case is an installed-binary rehearsal aid for the release

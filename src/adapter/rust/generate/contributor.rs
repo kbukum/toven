@@ -50,7 +50,7 @@ impl GenerateContributor for RustGenerateContributor {
             adapter: self.adapter_id.clone(),
             execution: ExecutionMode::SpawnEach,
             module_arg_template: vec!["-p".to_string(), "{module.package}".to_string()],
-            resource_group: "cargo:{project.root}".to_string(),
+            resource_group: "cargo:{module.manifest}".to_string(),
             discovery,
         }))
     }

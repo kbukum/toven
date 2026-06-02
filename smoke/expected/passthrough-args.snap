@@ -4,8 +4,10 @@ status: 0
 stdout:
 run: rust/arg-stamp/w0/smoke-core
 arg-stamp smoke-core alpha
+done: rust/arg-stamp/w0/smoke-core [ok] (<duration>s)
 run: rust/arg-stamp/w1/smoke-app
 arg-stamp smoke-app alpha
+done: rust/arg-stamp/w1/smoke-app [ok] (<duration>s)
 stderr:
 <empty>
 
@@ -15,8 +17,10 @@ status: 0
 stdout:
 run: rust/arg-stamp/w0/smoke-core
 arg-stamp smoke-core beta
+done: rust/arg-stamp/w0/smoke-core [ok] (<duration>s)
 run: rust/arg-stamp/w1/smoke-app
 arg-stamp smoke-app beta
+done: rust/arg-stamp/w1/smoke-app [ok] (<duration>s)
 stderr:
 <empty>
 

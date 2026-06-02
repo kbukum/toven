@@ -31,7 +31,7 @@ pub fn generate_config(request: &GenerateRequest) -> AppResult<GenerateOutcome> 
     if document.profiles.is_empty() {
         return Err(AppError::invalid_input(
             "generate",
-            "no supported project manifests found; pass --manifest for Rust projects without a root Cargo.toml",
+            "no supported project manifests found; pass --manifest to provide Rust Cargo workspace manifests explicitly",
         ));
     }
 

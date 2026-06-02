@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::{
     core::{CommandOrigin, ExecutionMode, ExecutionUnit, PersistentReadiness},
-    exec::RunOptions,
+    exec::{RunOptions, SharedCancellation},
 };
 
 use super::lifecycle::start_persistent_execution_unit;
@@ -25,8 +25,8 @@ fn output_matcher_marks_persistent_unit_ready() {
         root.path(),
         &RunOptions {
             timeout: None,
-            cancel_on_ctrl_c: false,
             cancellation: None,
+            stream_output: false,
         },
     )
     .expect("persistent unit becomes ready");
@@ -50,8 +50,8 @@ fn shutdown_accepts_successful_process_that_already_exited() {
         root.path(),
         &RunOptions {
             timeout: None,
-            cancel_on_ctrl_c: false,
             cancellation: None,
+            stream_output: false,
         },
     )
     .expect("persistent unit becomes ready");
@@ -71,8 +71,8 @@ fn readiness_timeout_fails_persistent_unit() {
         root.path(),
         &RunOptions {
             timeout: None,
-            cancel_on_ctrl_c: false,
             cancellation: None,
+            stream_output: false,
         },
     );
     let Err(error) = result else {
@@ -94,8 +94,8 @@ fn early_exit_before_readiness_reports_process_status() {
         root.path(),
         &RunOptions {
             timeout: None,
-            cancel_on_ctrl_c: false,
             cancellation: None,
+            stream_output: false,
         },
     );
     let Err(error) = result else {
@@ -124,8 +124,8 @@ fn empty_persistent_argv_reports_invalid_input() {
         root.path(),
         &RunOptions {
             timeout: None,
-            cancel_on_ctrl_c: false,
             cancellation: None,
+            stream_output: false,
         },
     );
     let Err(error) = result else {
@@ -148,8 +148,8 @@ fn spawn_failure_reports_persistent_unit() {
         root.path(),
         &RunOptions {
             timeout: None,
-            cancel_on_ctrl_c: false,
             cancellation: None,
+            stream_output: false,
         },
     );
     let Err(error) = result else {
@@ -172,8 +172,8 @@ fn readiness_command_success_marks_unit_ready() {
         root.path(),
         &RunOptions {
             timeout: None,
-            cancel_on_ctrl_c: false,
             cancellation: None,
+            stream_output: false,
         },
     )
     .expect("readiness command succeeds");
@@ -192,8 +192,8 @@ fn readiness_command_failure_reports_failure() {
         root.path(),
         &RunOptions {
             timeout: None,
-            cancel_on_ctrl_c: false,
             cancellation: None,
+            stream_output: false,
         },
     );
     let Err(error) = result else {
@@ -215,8 +215,8 @@ fn readiness_command_render_errors_reference_ready_command() {
         root.path(),
         &RunOptions {
             timeout: None,
-            cancel_on_ctrl_c: false,
             cancellation: None,
+            stream_output: false,
         },
     );
     let Err(error) = result else {
@@ -239,8 +239,8 @@ fn empty_readiness_command_reports_ready_command_field() {
         root.path(),
         &RunOptions {
             timeout: None,
-            cancel_on_ctrl_c: false,
             cancellation: None,
+            stream_output: false,
         },
     );
     let Err(error) = result else {
@@ -268,8 +268,8 @@ fn readiness_command_uses_readiness_timeout() {
         root.path(),
         &RunOptions {
             timeout: None,
-            cancel_on_ctrl_c: false,
             cancellation: None,
+            stream_output: false,
         },
     );
 
@@ -278,6 +278,32 @@ fn readiness_command_uses_readiness_timeout() {
     };
     assert_eq!(error.code, crate::core::ErrorCode::Timeout);
     assert!(error.message.contains("readiness command timed out"));
+}
+
+#[test]
+fn wait_reports_cancellation_from_process_result() {
+    let root = rskit_testutil::test_workspace!("persistent-wait-cancelled");
+    let mut unit = unit();
+    unit.argv_template = vec!["sleep".to_string(), "2".to_string()];
+    let cancellation = SharedCancellation::new();
+    let persistent = start_persistent_execution_unit(
+        &unit,
+        root.path(),
+        &RunOptions {
+            timeout: None,
+            cancellation: Some(cancellation.clone()),
+            stream_output: false,
+        },
+    )
+    .expect("persistent unit starts");
+
+    cancellation.cancel();
+    let error = persistent
+        .process
+        .wait()
+        .expect_err("cancelled persistent process should fail");
+
+    assert_eq!(error.code, crate::core::ErrorCode::Cancelled);
 }
 
 fn unit() -> ExecutionUnit {

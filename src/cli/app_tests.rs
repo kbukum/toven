@@ -68,7 +68,7 @@ fn generate_stdout_renders_root_rust_config() {
 }
 
 #[test]
-fn generate_stdout_renders_explicit_multi_manifest_config() {
+fn generate_stdout_discovers_nested_workspace_manifests_by_default() {
     let root = rskit_testutil::test_workspace!("generate-stdout-multi");
     let workspace = root.path().join("project");
     copy_fixture_tree(&root, "rust-cross-workspaces", &workspace);
@@ -78,10 +78,6 @@ fn generate_stdout_renders_explicit_multi_manifest_config() {
         "generate".to_string(),
         "--root".to_string(),
         workspace.display().to_string(),
-        "--manifest".to_string(),
-        "contrib/Cargo.toml".to_string(),
-        "--manifest".to_string(),
-        "core/Cargo.toml".to_string(),
     ]);
 
     assert_eq!(code, ExitCode::SUCCESS, "stderr:\n{stderr}");
@@ -92,6 +88,31 @@ fn generate_stdout_renders_explicit_multi_manifest_config() {
             .expect("read expected generated config")
     );
     assert!(!stdout.contains("[[overlays]]"));
+}
+
+#[test]
+fn generate_stdout_explicit_manifest_narrows_discovery() {
+    let root = rskit_testutil::test_workspace!("generate-stdout-explicit-narrow");
+    let workspace = root.path().join("project");
+    copy_fixture_tree(&root, "rust-cross-workspaces", &workspace);
+
+    let (code, stdout, stderr) = run_cli_vec(vec![
+        "toven".to_string(),
+        "generate".to_string(),
+        "--root".to_string(),
+        workspace.display().to_string(),
+        "--manifest".to_string(),
+        "contrib/Cargo.toml".to_string(),
+    ]);
+
+    assert_eq!(code, ExitCode::SUCCESS, "stderr:\n{stderr}");
+    assert!(stderr.is_empty());
+    assert_eq!(
+        stdout,
+        root.read_fixture_string("generate/rust-single-manifest.toml")
+            .expect("read expected generated config")
+    );
+    assert!(!stdout.contains("core/Cargo.toml"));
 }
 
 #[test]
@@ -260,6 +281,9 @@ fn developer_workflow_subcommands_parse() {
         .try_get_matches_from(["toven", "cache", "clear"])
         .expect("cache clear alias invocation parses");
     command()
+        .try_get_matches_from(["toven", "cache", "path"])
+        .expect("cache path invocation parses");
+    command()
         .try_get_matches_from([
             "toven",
             "run",
@@ -289,7 +313,6 @@ fn run_command_uses_cache_and_reruns_changed_affected_modules() {
     ]);
     assert_eq!(first.0, ExitCode::SUCCESS, "stderr:\n{}", first.2);
     assert!(first.2.is_empty());
-    assert!(first.1.contains("executed"));
     assert_eq!(run_count(&workspace_path), 2);
 
     let second = run_cli([
@@ -320,7 +343,6 @@ fn run_command_uses_cache_and_reruns_changed_affected_modules() {
     ]);
     assert_eq!(affected.0, ExitCode::SUCCESS, "stderr:\n{}", affected.2);
     assert!(affected.2.is_empty());
-    assert!(affected.1.contains("executed"));
     assert_eq!(run_count(&workspace_path), 4);
 }
 
@@ -340,7 +362,6 @@ fn run_command_can_cache_args_when_task_allows_it() {
 
     let first = run_smoke_with_args(&config_path, ["--release"]);
     assert_eq!(first.0, ExitCode::SUCCESS, "stderr:\n{}", first.2);
-    assert!(first.1.contains("executed"));
     assert_eq!(run_count(&workspace_path), 2);
 
     let second = run_smoke_with_args(&config_path, ["--release"]);
@@ -356,7 +377,6 @@ fn run_command_can_cache_args_when_task_allows_it() {
         "stderr:\n{}",
         changed_args.2
     );
-    assert!(changed_args.1.contains("executed"));
     assert!(!changed_args.1.contains("cache hit: fixture-core smoke"));
     assert_eq!(run_count(&workspace_path), 4);
 
@@ -457,6 +477,7 @@ fn cache_stats_and_clean_report_local_cache_directory() {
     let workspace_path = root.path().join("rust-workspace");
     copy_fixture_tree(&root, "rust-workspace", &workspace_path);
     let config_path = workspace_path.join("toven.toml");
+    append_workspace_cache_config(&config_path);
     let cache_file = workspace_path.join(".toven/cache/v3/aa/record");
     fs::create_dir_all(cache_file.parent().expect("cache parent")).expect("create cache dir");
     fs::write(&cache_file, "cache-record").expect("write cache record");
@@ -484,6 +505,16 @@ fn cache_stats_and_clean_report_local_cache_directory() {
     assert_eq!(info.0, ExitCode::SUCCESS, "stderr:\n{}", info.2);
     assert!(info.1.contains("entries: 1"));
 
+    let path = run_cli([
+        "toven".to_string(),
+        "cache".to_string(),
+        "path".to_string(),
+        "--config".to_string(),
+        config_path.display().to_string(),
+    ]);
+    assert_eq!(path.0, ExitCode::SUCCESS, "stderr:\n{}", path.2);
+    assert!(path.1.contains(".toven/cache/v3"));
+
     let clean = run_cli([
         "toven".to_string(),
         "cache".to_string(),
@@ -504,6 +535,7 @@ fn cache_stats_does_not_follow_symlinks() {
     let workspace_path = root.path().join("rust-workspace");
     copy_fixture_tree(&root, "rust-workspace", &workspace_path);
     let config_path = workspace_path.join("toven.toml");
+    append_workspace_cache_config(&config_path);
     let cache_dir = workspace_path.join(".toven/cache/v3");
     fs::create_dir_all(&cache_dir).expect("create cache dir");
     fs::write(cache_dir.join("record"), "cache-record").expect("write cache record");
@@ -533,6 +565,7 @@ fn explain_command_reports_affected_and_cache_reasoning() {
     copy_fixture_tree(&root, "rust-workspace", &workspace_path);
     init_git_repo(&workspace_path);
     let config_path = workspace_path.join("toven.toml");
+    append_workspace_cache_config(&config_path);
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
 
@@ -615,6 +648,16 @@ fn run_cli_vec(args: Vec<String>) -> (ExitCode, String, String) {
         String::from_utf8(stdout).expect("stdout is utf-8"),
         String::from_utf8(stderr).expect("stderr is utf-8"),
     )
+}
+
+fn append_workspace_cache_config(config_path: &Path) {
+    use std::io::Write as _;
+
+    let mut file = fs::OpenOptions::new()
+        .append(true)
+        .open(config_path)
+        .expect("open config for cache override");
+    writeln!(file, "\n[cache]\nlocation = \"workspace\"").expect("append cache override");
 }
 
 fn write_run_config(root: &rskit_testutil::TestWorkspace, workspace: &Path) -> PathBuf {

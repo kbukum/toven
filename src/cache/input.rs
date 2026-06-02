@@ -232,7 +232,7 @@ impl IgnoreMatcher {
             repo,
             &[
                 "status",
-                "--ignored",
+                "--ignored=matching",
                 "--porcelain=v1",
                 "-z",
                 "--untracked-files=all",
@@ -862,6 +862,7 @@ mod tests {
             name: "fixture".to_string(),
             root: root.to_path_buf(),
             base_ref: None,
+            cache: crate::core::CacheSettings::default(),
             profiles: Vec::new(),
             dependency_overlays: Vec::new(),
         }

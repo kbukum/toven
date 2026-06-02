@@ -5,11 +5,10 @@ stdout:
 baseline: <sha>
 changed_paths:
 - crates/core/src/lib.rs
-- ignored.log
 modules:
-- rust/smoke-app (global)
-- rust/smoke-core (global)
-- rust/smoke-test-util (global)
+- rust/smoke-app (dependent)
+- rust/smoke-core (direct)
+- rust/smoke-test-util (dependent)
 stderr:
 <empty>
 
