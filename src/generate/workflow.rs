@@ -44,9 +44,10 @@ pub fn generate_config(request: &GenerateRequest) -> AppResult<GenerateOutcome> 
 }
 
 fn no_match_message(context: &GenerateContext, adapter: Option<&AdapterId>) -> String {
-    let adapter = adapter
-        .map(|adapter| format!(" adapter '{adapter}'"))
-        .unwrap_or_else(|| " any supported adapter".to_string());
+    let adapter = adapter.map_or_else(
+        || " any supported adapter".to_string(),
+        |adapter| format!(" adapter '{adapter}'"),
+    );
     format!(
         "no supported project manifests found under '{}' for{adapter}; Rust generation searches for a root Cargo.toml or top-level nested Cargo.toml files. Pass --manifest path/to/Cargo.toml to provide Cargo workspace manifests explicitly.",
         context.root.display()
