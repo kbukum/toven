@@ -14,7 +14,7 @@ pub use error::{AppError, AppResult, ErrorCode};
 pub use model::{
     AdapterId, CacheLocation, CacheSettings, CommandOrigin, DependencyOverlay, ExecutionMode,
     ExecutionUnit, Module, ModuleId, NodeState, PersistentReadiness, Plan, Profile, ScopeId,
-    ScopeOverride, ScopedModuleKey, Task, TaskCommand, TaskOrigin, Workspace,
+    ScopeOverride, ScopedModuleKey, Task, TaskCommand, TaskOrigin, ToolchainProbe, Workspace,
     scoped_module_display, scoped_module_key,
 };
 pub use preset::PresetDefinition;

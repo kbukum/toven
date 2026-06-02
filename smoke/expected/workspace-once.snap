@@ -2,6 +2,8 @@
 
 status: 0
 stdout:
+cache miss: smoke-app workspace-stamp (no cache record)
+cache miss: smoke-core workspace-stamp (no cache record)
 run: workspace/workspace-stamp/workspace
 workspace-once
 done: workspace/workspace-stamp/workspace [ok] (<duration>s)

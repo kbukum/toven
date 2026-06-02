@@ -45,6 +45,13 @@ Rust generation records manifest discovery in the profile. Cargo metadata stays
 the source of truth for local path dependencies, so generated overlays are
 reserved for relationships native metadata cannot prove.
 
+Generated configs make the default user-cache policy explicit:
+
+```toml
+[cache]
+location = "user"
+```
+
 Generated Rust configs materialize standard Rust application task definitions
 from the Rust adapter defaults, so committed command policy stays reviewable:
 
@@ -63,6 +70,10 @@ test = { argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{modu
 The generated profile also includes `module_arg_template`, which is expanded by
 `{module.args}` for each planned module.
 
+Rust cache identity is still owned by the Rust adapter even though the generated
+tasks use visible direct argv. Planned Rust units include Cargo and rustc version
+probes in their cache keys without adding per-task toolchain settings.
+
 ## Options
 
 | Option | Purpose |
@@ -79,6 +90,7 @@ The generated profile also includes `module_arg_template`, which is expanded by
 
 - Generated tasks are understandable and minimal.
 - Repository-specific workflow policy remains visible in task argv.
+- Cache location policy is explicit at the top level.
 - Multiple Cargo manifests are represented in discovery settings.
 - Dependency overlays are used only for relationships the adapter cannot infer.
 

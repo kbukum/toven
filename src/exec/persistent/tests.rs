@@ -320,6 +320,7 @@ fn unit() -> ExecutionUnit {
         argv_template: vec!["sh".to_string(), "-c".to_string(), "sleep 2".to_string()],
         module_arg_template: Vec::new(),
         passthrough_args: Vec::new(),
+        toolchain_probes: Vec::new(),
         cache_args: false,
         persistent: true,
         readiness: PersistentReadiness::Started,

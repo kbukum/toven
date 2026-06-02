@@ -536,11 +536,18 @@ fn toolchain_identity(unit: &ExecutionUnit, workspace: &Workspace) -> AppResult<
         "toven-rustc:{}",
         rskit_version::get_version_info().rust_version
     )];
-    match &unit.command_origin {
-        CommandOrigin::Preset { language, .. } if language == "rust" => {
-            identity.push(command_version(workspace, "cargo", &["--version"])?);
-            identity.push(command_version(workspace, "rustc", &["--version"])?);
+    if !unit.toolchain_probes.is_empty() {
+        for probe in &unit.toolchain_probes {
+            identity.push(command_version(
+                workspace,
+                &probe.label,
+                &probe.program,
+                &probe.args,
+            )?);
         }
+        return Ok(identity.join("\u{1f}"));
+    }
+    match &unit.command_origin {
         CommandOrigin::Preset { language, .. } => {
             identity.push(format!("preset-language:{language}"));
         }
@@ -551,9 +558,14 @@ fn toolchain_identity(unit: &ExecutionUnit, workspace: &Workspace) -> AppResult<
     Ok(identity.join("\u{1f}"))
 }
 
-fn command_version(workspace: &Workspace, program: &str, args: &[&str]) -> AppResult<String> {
+fn command_version(
+    workspace: &Workspace,
+    label: &str,
+    program: &str,
+    args: &[String],
+) -> AppResult<String> {
     let spec = rskit_process::ProcessSpec::new(program)
-        .args(args.iter().copied())
+        .args(args.iter().map(String::as_str))
         .dir(workspace.root.clone());
     let config = captured_config(
         Some(TOOLCHAIN_VERSION_TIMEOUT),
@@ -564,27 +576,27 @@ fn command_version(workspace: &Workspace, program: &str, args: &[&str]) -> AppRe
     let output = rskit_process::run(&spec, &config).map_err(|error| {
         AppError::new(
             ErrorCode::Internal,
-            format!("failed to resolve {program} toolchain version"),
+            format!("failed to resolve {label} toolchain version"),
         )
         .with_cause(error)
     })?;
     if output.timed_out {
         return Err(AppError::new(
             ErrorCode::Timeout,
-            format!("timed out resolving {program} toolchain version"),
+            format!("timed out resolving {label} toolchain version"),
         ));
     }
     if output.stdout_truncated || output.stderr_truncated {
         return Err(AppError::new(
             ErrorCode::Internal,
-            format!("{program} toolchain version output exceeded capture limit"),
+            format!("{label} toolchain version output exceeded capture limit"),
         ));
     }
     if !output.success() {
         return Err(AppError::new(
             ErrorCode::Internal,
             format!(
-                "failed to resolve {program} toolchain version with status {}",
+                "failed to resolve {label} toolchain version with status {}",
                 output
                     .exit_code
                     .map_or_else(|| "signal".to_string(), |code| code.to_string())
@@ -594,11 +606,11 @@ fn command_version(workspace: &Workspace, program: &str, args: &[&str]) -> AppRe
     let stdout = String::from_utf8(output.stdout_bytes).map_err(|error| {
         AppError::new(
             ErrorCode::Internal,
-            format!("{program} toolchain version was not UTF-8"),
+            format!("{label} toolchain version was not UTF-8"),
         )
         .with_cause(error)
     })?;
-    Ok(format!("{program}:{}", stdout.trim()))
+    Ok(format!("{label}:{}", stdout.trim()))
 }
 
 const fn execution_mode(mode: ExecutionMode) -> &'static str {
@@ -666,11 +678,14 @@ mod tests {
 
     use rskit_cache::CacheStore;
 
-    use super::{CacheState, TaskCache, command_version};
+    use super::{CacheState, TaskCache, command_version, toolchain_identity};
     use crate::cache::key::CacheKey;
     use crate::{
         cache::decision::{CacheMode, prepare_cache_decisions},
-        core::{CommandOrigin, ExecutionMode, ExecutionUnit, Module, ModuleId, Plan, Workspace},
+        core::{
+            CommandOrigin, ExecutionMode, ExecutionUnit, Module, ModuleId, Plan, ToolchainProbe,
+            Workspace,
+        },
     };
 
     #[test]
@@ -782,6 +797,7 @@ mod tests {
 
         let error = command_version(
             &workspace,
+            "version-tool",
             script.to_str().expect("script path is utf-8"),
             &[],
         )
@@ -789,6 +805,36 @@ mod tests {
 
         assert_eq!(error.code, crate::core::ErrorCode::Internal);
         assert!(error.message.contains("exceeded capture limit"));
+    }
+
+    #[test]
+    fn direct_argv_rust_adapter_toolchain_identity_tracks_cargo_and_rustc() {
+        let root = rskit_testutil::test_workspace!("cache-direct-rust-toolchain");
+        let plan = plan(root.path().to_path_buf(), Vec::new(), false);
+
+        let identity =
+            toolchain_identity(&plan.units[0], &plan.workspace).expect("toolchain resolves");
+
+        assert!(identity.contains("cargo:"));
+        assert!(identity.contains("rustc:"));
+        assert!(!identity.contains("direct-argv"));
+    }
+
+    #[test]
+    fn preset_rust_toolchain_identity_still_tracks_cargo_and_rustc() {
+        let root = rskit_testutil::test_workspace!("cache-preset-rust-toolchain");
+        let mut plan = plan(root.path().to_path_buf(), Vec::new(), false);
+        plan.units[0].command_origin = CommandOrigin::Preset {
+            name: "check".to_string(),
+            language: "rust".to_string(),
+        };
+
+        let identity =
+            toolchain_identity(&plan.units[0], &plan.workspace).expect("toolchain resolves");
+
+        assert!(identity.contains("cargo:"));
+        assert!(identity.contains("rustc:"));
+        assert!(!identity.contains("direct-argv"));
     }
 
     fn plan(root: PathBuf, passthrough_args: Vec<String>, cache_args: bool) -> Plan {
@@ -816,6 +862,7 @@ mod tests {
                 argv_template: vec!["echo".to_string(), "ok".to_string()],
                 module_arg_template: Vec::new(),
                 passthrough_args,
+                toolchain_probes: rust_toolchain_probes(),
                 cache_args,
                 persistent: false,
                 readiness: crate::core::PersistentReadiness::Started,
@@ -835,6 +882,21 @@ mod tests {
             profiles: Vec::new(),
             dependency_overlays: Vec::new(),
         }
+    }
+
+    fn rust_toolchain_probes() -> Vec<ToolchainProbe> {
+        vec![
+            ToolchainProbe {
+                label: "cargo".to_string(),
+                program: "cargo".to_string(),
+                args: vec!["--version".to_string()],
+            },
+            ToolchainProbe {
+                label: "rustc".to_string(),
+                program: "rustc".to_string(),
+                args: vec!["--version".to_string()],
+            },
+        ]
     }
 
     #[cfg(unix)]

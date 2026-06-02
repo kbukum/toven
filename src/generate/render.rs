@@ -26,6 +26,17 @@ pub fn render_document(document: &GenerateDocument) -> AppResult<String> {
         writeln!(output, "base_ref = {}", string(base_ref)).expect("write to string");
     }
 
+    output.push_str("\n[cache]\n");
+    writeln!(
+        output,
+        "location = {}",
+        string(match document.cache.location {
+            crate::generate::model::GeneratedCacheLocation::User => "user",
+            crate::generate::model::GeneratedCacheLocation::Workspace => "workspace",
+        })
+    )
+    .expect("write to string");
+
     for profile in document.profiles.values() {
         render_profile(&mut output, profile)?;
     }
@@ -268,7 +279,8 @@ mod tests {
     use crate::{
         core::{AdapterId, ExecutionMode},
         generate::model::{
-            GenerateDocument, GeneratedProfile, GeneratedProject, GeneratedTask, TomlValue,
+            GenerateDocument, GeneratedCache, GeneratedCacheLocation, GeneratedProfile,
+            GeneratedProject, GeneratedTask, TomlValue,
         },
     };
 
@@ -306,6 +318,9 @@ mod tests {
                 root: PathBuf::from("."),
                 base_ref: None,
             },
+            cache: GeneratedCache {
+                location: GeneratedCacheLocation::User,
+            },
             profiles,
             warnings: Vec::new(),
         })
@@ -336,6 +351,9 @@ mod tests {
                 name: "demo".to_string(),
                 root: PathBuf::from("."),
                 base_ref: None,
+            },
+            cache: GeneratedCache {
+                location: GeneratedCacheLocation::User,
             },
             profiles,
             warnings: Vec::new(),
@@ -389,6 +407,9 @@ mod tests {
                 root: PathBuf::from("."),
                 base_ref: None,
             },
+            cache: GeneratedCache {
+                location: GeneratedCacheLocation::User,
+            },
             profiles,
             warnings: Vec::new(),
         };
@@ -399,5 +420,6 @@ mod tests {
         assert!(first.contains(
             "check = { argv = [\"cargo\", \"check\", \"--manifest-path\", \"{module.manifest}\", \"{module.args}\", \"{args}\"], shared_inputs = [\"Cargo.lock\"] }"
         ));
+        assert!(first.contains("[cache]\nlocation = \"user\""));
     }
 }

@@ -160,6 +160,7 @@ mod tests {
                 argv_template: vec!["cargo".to_string(), "test".to_string()],
                 module_arg_template: Vec::new(),
                 passthrough_args: Vec::new(),
+                toolchain_probes: Vec::new(),
                 cache_args: false,
                 persistent: false,
                 readiness: crate::core::PersistentReadiness::Started,

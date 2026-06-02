@@ -6,6 +6,9 @@ schema = 1
 name = "project"
 root = "."
 
+[cache]
+location = "user"
+
 [profiles.main]
 adapter = "rust"
 execution = "spawn-each"

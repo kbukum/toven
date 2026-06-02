@@ -89,14 +89,18 @@ Cache decisions include task inputs such as:
 - dependency results
 - task argv and task configuration
 - shared inputs declared by the task
-- relevant toolchain/config files when configured as shared inputs
+- adapter-provided toolchain version probes, such as Cargo and rustc for Rust
+  profiles
+- relevant toolchain/config files when configured as shared inputs, such as
+  `rust-toolchain.toml`
 - passthrough args when `cache_args = true`
 
 Persistent tasks are never cached because readiness and process lifetime are
 runtime behavior, not reusable success records.
 
-Use [inspection commands](inspect.md) to explain why a module hit or missed the
-cache.
+Run output and JSONL cache events distinguish `hit`, `miss`, `forced`, and
+`disabled` states. Use [inspection commands](inspect.md) for detailed hit,
+miss, forced, or disabled reasoning for one module/task pair.
 
 ## Review checklist
 
