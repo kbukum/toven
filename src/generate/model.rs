@@ -78,8 +78,31 @@ pub struct GeneratedProfile {
     pub module_arg_template: Vec<String>,
     /// Resource group template.
     pub resource_group: String,
+    /// Generated task definitions keyed by task name.
+    pub tasks: BTreeMap<String, GeneratedTask>,
     /// Adapter discovery options.
     pub discovery: BTreeMap<String, TomlValue>,
+}
+
+/// Generated task definition.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct GeneratedTask {
+    /// Direct argv template.
+    pub argv: Vec<String>,
+    /// Include passthrough args in cache keys instead of disabling cache.
+    pub cache_args: bool,
+    /// Plain workspace-relative paths that affect every module using this task.
+    pub shared_inputs: Vec<String>,
+    /// Whether this task starts a long-lived process.
+    pub persistent: bool,
+    /// Persistent task readiness shortcut.
+    pub ready_on: Option<String>,
+    /// Persistent task health command.
+    pub ready_command: Option<Vec<String>>,
+    /// Literal stdout/stderr text that marks a persistent task ready.
+    pub ready_output: Option<String>,
+    /// Persistent readiness timeout in seconds.
+    pub ready_timeout_seconds: Option<u64>,
 }
 
 /// Minimal TOML value tree needed by generated fragments.

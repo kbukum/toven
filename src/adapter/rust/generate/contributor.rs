@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    adapter::rust::generate::cargo,
+    adapter::rust::{generate::cargo, tasks},
     core::{AdapterId, AppResult, ExecutionMode},
     generate::{GenerateContext, GenerateContributor, GeneratedProfile, TomlValue, toml_path},
 };
@@ -51,6 +51,7 @@ impl GenerateContributor for RustGenerateContributor {
             execution: ExecutionMode::SpawnEach,
             module_arg_template: vec!["-p".to_string(), "{module.package}".to_string()],
             resource_group: "cargo:{module.manifest}".to_string(),
+            tasks: tasks::generated_tasks(&context.root)?,
             discovery,
         }))
     }

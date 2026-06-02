@@ -65,6 +65,17 @@ fn generate_stdout_renders_root_rust_config() {
         root.read_fixture_string("generate/rust-root.toml")
             .expect("read expected generated config")
     );
+    assert!(stdout.contains("\"{module.args}\""));
+
+    let second = run_cli_vec(vec![
+        "toven".to_string(),
+        "generate".to_string(),
+        "--root".to_string(),
+        workspace.display().to_string(),
+        "--stdout".to_string(),
+    ]);
+    assert_eq!(second.0, ExitCode::SUCCESS, "stderr:\n{}", second.2);
+    assert_eq!(stdout, second.1);
 }
 
 #[test]
@@ -159,6 +170,39 @@ fn generate_write_creates_loadable_config() {
     assert_eq!(modules.0, ExitCode::SUCCESS, "stderr:\n{}", modules.2);
     assert!(modules.1.contains("modules:"));
     assert!(modules.1.contains("package:"));
+
+    let plan = run_cli_vec(vec![
+        "toven".to_string(),
+        "plan".to_string(),
+        "--config".to_string(),
+        workspace.join("toven.toml").display().to_string(),
+        "--task".to_string(),
+        "check".to_string(),
+    ]);
+    assert_eq!(plan.0, ExitCode::SUCCESS, "stderr:\n{}", plan.2);
+    assert!(plan.1.contains("command: direct argv"));
+    assert!(plan.1.contains("task_origin: project default"));
+    assert!(plan.1.contains("argv: [\"cargo\", \"check\""));
+}
+
+#[test]
+fn generate_no_match_error_is_actionable() {
+    let root = rskit_testutil::test_workspace!("generate-no-match");
+    let workspace = root.path().join("project");
+    fs::create_dir_all(&workspace).expect("create empty workspace");
+
+    let (code, stdout, stderr) = run_cli_vec(vec![
+        "toven".to_string(),
+        "generate".to_string(),
+        "--root".to_string(),
+        workspace.display().to_string(),
+    ]);
+
+    assert_eq!(code, ExitCode::FAILURE);
+    assert!(stdout.is_empty());
+    assert!(stderr.contains(workspace.to_string_lossy().as_ref()));
+    assert!(stderr.contains("root Cargo.toml"));
+    assert!(stderr.contains("--manifest path/to/Cargo.toml"));
 }
 
 #[test]

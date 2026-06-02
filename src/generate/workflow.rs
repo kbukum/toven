@@ -31,7 +31,7 @@ pub fn generate_config(request: &GenerateRequest) -> AppResult<GenerateOutcome> 
     if document.profiles.is_empty() {
         return Err(AppError::invalid_input(
             "generate",
-            "no supported project manifests found; pass --manifest to provide Rust Cargo workspace manifests explicitly",
+            no_match_message(&context, request.adapter.as_ref()),
         ));
     }
 
@@ -41,6 +41,16 @@ pub fn generate_config(request: &GenerateRequest) -> AppResult<GenerateOutcome> 
     }
 
     Ok(GenerateOutcome { document, rendered })
+}
+
+fn no_match_message(context: &GenerateContext, adapter: Option<&AdapterId>) -> String {
+    let adapter = adapter
+        .map(|adapter| format!(" adapter '{adapter}'"))
+        .unwrap_or_else(|| " any supported adapter".to_string());
+    format!(
+        "no supported project manifests found under '{}' for{adapter}; Rust generation searches for a root Cargo.toml or top-level nested Cargo.toml files. Pass --manifest path/to/Cargo.toml to provide Cargo workspace manifests explicitly.",
+        context.root.display()
+    )
 }
 
 fn insert_profile(
@@ -162,6 +172,7 @@ mod tests {
             execution: ExecutionMode::SpawnEach,
             module_arg_template: vec!["-p".to_string(), "{module.package}".to_string()],
             resource_group: "cargo:{project.root}".to_string(),
+            tasks: BTreeMap::new(),
             discovery: BTreeMap::<String, TomlValue>::new(),
         }
     }

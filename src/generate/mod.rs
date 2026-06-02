@@ -11,7 +11,7 @@ mod writer;
 pub use cli::{GenerateCliOptions, run_generate};
 pub use model::{
     GenerateContext, GenerateContributor, GenerateDocument, GenerateRequest, GeneratedProfile,
-    TomlValue,
+    GeneratedTask, TomlValue,
 };
 pub use path::toml_path;
 pub use render::render_document;
