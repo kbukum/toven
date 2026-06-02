@@ -2,6 +2,8 @@
 
 status: 0
 stdout:
+cache miss: smoke-app stamp (no cache record)
+cache miss: smoke-core stamp (no cache record)
 run: rust/stamp/w0/smoke-core
 stamp smoke-core
 done: rust/stamp/w0/smoke-core [ok] (<duration>s)
@@ -24,6 +26,8 @@ stderr:
 
 status: 0
 stdout:
+cache forced: smoke-app stamp
+cache forced: smoke-core stamp
 run: rust/stamp/w0/smoke-core
 stamp smoke-core
 done: rust/stamp/w0/smoke-core [ok] (<duration>s)
@@ -37,6 +41,8 @@ stderr:
 
 status: 0
 stdout:
+cache disabled: smoke-app stamp (--no-cache was supplied)
+cache disabled: smoke-core stamp (--no-cache was supplied)
 run: rust/stamp/w0/smoke-core
 stamp smoke-core
 done: rust/stamp/w0/smoke-core [ok] (<duration>s)

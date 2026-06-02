@@ -2,6 +2,8 @@
 
 status: 0
 stdout:
+cache miss: smoke-app arg-stamp (no cache record)
+cache miss: smoke-core arg-stamp (no cache record)
 run: rust/arg-stamp/w0/smoke-core
 arg-stamp smoke-core alpha
 done: rust/arg-stamp/w0/smoke-core [ok] (<duration>s)
@@ -15,6 +17,8 @@ stderr:
 
 status: 0
 stdout:
+cache miss: smoke-app arg-stamp (no cache record)
+cache miss: smoke-core arg-stamp (no cache record)
 run: rust/arg-stamp/w0/smoke-core
 arg-stamp smoke-core beta
 done: rust/arg-stamp/w0/smoke-core [ok] (<duration>s)

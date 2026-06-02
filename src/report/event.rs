@@ -141,6 +141,29 @@ impl<'a, W: Write> RunReporter<'a, W> {
             CacheState::Disabled { .. } => self.stats.cache_disabled += 1,
             CacheState::Forced => self.stats.cache_forced += 1,
         }
+        if self.format == OutputFormat::Human {
+            match &decision.state {
+                CacheState::Hit => {}
+                CacheState::Miss { reason } => writeln!(
+                    self.stdout,
+                    "cache miss: {} {} ({reason})",
+                    decision.module, decision.task
+                )
+                .map_err(AppError::internal)?,
+                CacheState::Disabled { reason } => writeln!(
+                    self.stdout,
+                    "cache disabled: {} {} ({reason})",
+                    decision.module, decision.task
+                )
+                .map_err(AppError::internal)?,
+                CacheState::Forced => writeln!(
+                    self.stdout,
+                    "cache forced: {} {}",
+                    decision.module, decision.task
+                )
+                .map_err(AppError::internal)?,
+            }
+        }
         self.event("cache.decision", CacheDecisionEvent::from(decision))
     }
 
@@ -471,6 +494,10 @@ mod tests {
 
     use super::RunReporter;
     use crate::{
+        cache::{
+            decision::{CacheDecision, CacheState},
+            key::CacheKey,
+        },
         core::{CommandOrigin, ExecutionMode, ExecutionUnit, PersistentReadiness, TaskOrigin},
         report::OutputFormat,
     };
@@ -500,6 +527,58 @@ mod tests {
         let event: Value = serde_json::from_slice(&output).expect("json event");
         assert_eq!(event["success"], false);
         assert_eq!(event["cancelled"], true);
+    }
+
+    #[test]
+    fn human_cache_decisions_report_non_hit_states() {
+        let mut output = Vec::new();
+        let mut reporter =
+            RunReporter::new(OutputFormat::Human, &mut output, 4).expect("reporter initializes");
+
+        reporter
+            .cache_decision(&decision("hit", CacheState::Hit))
+            .expect("hit decision records");
+        reporter
+            .cache_decision(&decision(
+                "miss",
+                CacheState::Miss {
+                    reason: "no cache record".to_string(),
+                },
+            ))
+            .expect("miss decision writes");
+        reporter
+            .cache_decision(&decision("forced", CacheState::Forced))
+            .expect("forced decision writes");
+        reporter
+            .cache_decision(&decision(
+                "disabled",
+                CacheState::Disabled {
+                    reason: "passthrough args disable cache".to_string(),
+                },
+            ))
+            .expect("disabled decision writes");
+        drop(reporter);
+
+        let output = String::from_utf8(output).expect("human output is utf-8");
+        assert!(!output.contains("cache hit:"));
+        assert!(output.contains("cache miss: miss test (no cache record)"));
+        assert!(output.contains("cache forced: forced test"));
+        assert!(output.contains("cache disabled: disabled test (passthrough args disable cache)"));
+    }
+
+    fn decision(module: &str, state: CacheState) -> CacheDecision {
+        CacheDecision {
+            scope_id: "profile".to_string(),
+            adapter_id: "rust".to_string(),
+            module: crate::core::ModuleId::new(module).expect("module id"),
+            task: "test".to_string(),
+            key: CacheKey::new(module),
+            source_hash: String::new(),
+            dep_hash: String::new(),
+            task_hash: String::new(),
+            shared_hash: String::new(),
+            state,
+        }
     }
 
     fn unit() -> ExecutionUnit {

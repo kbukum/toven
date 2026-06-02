@@ -251,14 +251,16 @@ fn plan_discovered_profile_group(
                 &policy.profile,
                 PlanIdentity::new(&policy.scope_id, &policy.adapter_id),
                 &policy.task,
-                &policy.toolchain_probes,
-                format!(
-                    "{}/workspace",
-                    unit_id_prefix(&policy.scope_id, &policy.task)
-                ),
-                modules.clone(),
-                task_command(&policy.task)?,
-                passthrough_args.to_owned(),
+                UnitSpec {
+                    toolchain_probes: &policy.toolchain_probes,
+                    id: format!(
+                        "{}/workspace",
+                        unit_id_prefix(&policy.scope_id, &policy.task)
+                    ),
+                    modules: modules.clone(),
+                    command: task_command(&policy.task)?,
+                    passthrough_args: passthrough_args.to_owned(),
+                },
             ));
         }
     }
@@ -549,11 +551,13 @@ fn plan_profile_task(
                 profile,
                 PlanIdentity::new(&scope_id, &adapter_id),
                 task,
-                toolchain_probes,
-                format!("{}/workspace", unit_id_prefix(&scope_id, task)),
-                modules,
-                command,
-                passthrough_args.to_owned(),
+                UnitSpec {
+                    toolchain_probes,
+                    id: format!("{}/workspace", unit_id_prefix(&scope_id, task)),
+                    modules,
+                    command,
+                    passthrough_args: passthrough_args.to_owned(),
+                },
             ));
         }
     }
@@ -584,15 +588,17 @@ fn plan_ready_wave(
                     profile,
                     identity,
                     task,
-                    toolchain_probes,
-                    format!(
-                        "{}/w{wave_index}/{}",
-                        unit_id_prefix(identity.scope_id, task),
-                        module.name
-                    ),
-                    vec![module],
-                    command.clone(),
-                    passthrough_args.to_owned(),
+                    UnitSpec {
+                        toolchain_probes,
+                        id: format!(
+                            "{}/w{wave_index}/{}",
+                            unit_id_prefix(identity.scope_id, task),
+                            module.name
+                        ),
+                        modules: vec![module],
+                        command: command.clone(),
+                        passthrough_args: passthrough_args.to_owned(),
+                    },
                 ));
             }
         }
@@ -615,11 +621,13 @@ fn plan_ready_wave(
                     profile,
                     identity,
                     task,
-                    toolchain_probes,
-                    id,
-                    group,
-                    command.clone(),
-                    passthrough_args.to_owned(),
+                    UnitSpec {
+                        toolchain_probes,
+                        id,
+                        modules: group,
+                        command: command.clone(),
+                        passthrough_args: passthrough_args.to_owned(),
+                    },
                 ));
             }
         }
@@ -648,35 +656,39 @@ fn unit_id_prefix(scope_id: &ScopeId, task: &Task) -> String {
     format!("{scope_id}/{}", task.name)
 }
 
-fn unit(
-    profile: &Profile,
-    identity: PlanIdentity<'_>,
-    task: &Task,
-    toolchain_probes: &[ToolchainProbe],
+struct UnitSpec<'a> {
+    toolchain_probes: &'a [ToolchainProbe],
     id: String,
     modules: Vec<crate::core::Module>,
     command: PlannedCommand,
     passthrough_args: Vec<String>,
+}
+
+fn unit(
+    profile: &Profile,
+    identity: PlanIdentity<'_>,
+    task: &Task,
+    spec: UnitSpec<'_>,
 ) -> ExecutionUnit {
     ExecutionUnit {
-        id,
+        id: spec.id,
         scope_id: identity.scope_id.clone(),
         adapter_id: identity.adapter_id.clone(),
         task: task.name.clone(),
-        command_origin: command.origin,
+        command_origin: spec.command.origin,
         task_origin: task.origin.clone(),
         mode: profile.execution,
         resource_group: profile.resource_group.clone(),
-        modules,
-        argv_template: command.argv_template,
+        modules: spec.modules,
+        argv_template: spec.command.argv_template,
         module_arg_template: profile.module_arg_template.clone(),
-        passthrough_args,
-        toolchain_probes: toolchain_probes.to_vec(),
+        passthrough_args: spec.passthrough_args,
+        toolchain_probes: spec.toolchain_probes.to_vec(),
         cache_args: task.cache_args,
         persistent: task.persistent,
         readiness: task.readiness.clone(),
         readiness_timeout: task.readiness_timeout,
-        shared_inputs: command.shared_inputs,
+        shared_inputs: spec.command.shared_inputs,
     }
 }
 

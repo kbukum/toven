@@ -2,6 +2,8 @@
 
 status: 0
 stdout:
+cache miss: smoke-app shared-stamp (no cache record)
+cache miss: smoke-core shared-stamp (no cache record)
 run: rust/shared-stamp/w0/smoke-core
 shared smoke-core
 done: rust/shared-stamp/w0/smoke-core [ok] (<duration>s)
