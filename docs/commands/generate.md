@@ -1,7 +1,8 @@
 # Generating config
 
-`toven generate` creates an initial reviewable `toven.toml` with visible task
-argv.
+`toven generate` creates an initial reviewable `toven.toml` with visible task argv.
+
+> Target behavior; returns as the redesign steps land (the CLI is being rebuilt on the `crates/*` + `apps/*` stack).
 
 ```bash
 toven generate [--root PATH] [--profile NAME] [--adapter ID] \
@@ -28,8 +29,7 @@ Toven refuses to replace an existing config unless overwrite is explicit:
 toven generate --write --overwrite
 ```
 
-For Rust repositories, `--manifest` can be repeated when the repository has
-multiple independent Cargo manifests:
+For Rust repositories, `--manifest` can be repeated when the repository has multiple independent Cargo manifests:
 
 ```bash
 toven generate \
@@ -38,12 +38,9 @@ toven generate \
   --stdout
 ```
 
-Without explicit manifests, Rust generation searches for a root `Cargo.toml` or
-first-level Cargo manifests that are not ignored by Git.
+Without explicit manifests, Rust generation searches for a root `Cargo.toml` or first-level Cargo manifests that are not ignored by Git.
 
-Rust generation records manifest discovery in the profile. Cargo metadata stays
-the source of truth for local path dependencies, so generated overlays are
-reserved for relationships native metadata cannot prove.
+Rust generation records manifest discovery in the profile. Cargo metadata stays the source of truth for local path dependencies, so generated overlays are reserved for relationships native metadata cannot prove.
 
 Generated configs make the default user-cache policy explicit:
 
@@ -52,8 +49,7 @@ Generated configs make the default user-cache policy explicit:
 location = "user"
 ```
 
-Generated Rust configs materialize standard Rust application task definitions
-from the Rust adapter defaults, so committed command policy stays reviewable:
+Generated Rust configs materialize standard Rust application task definitions from the Rust adapter defaults, so committed command policy stays reviewable:
 
 ```toml
 [profiles.main.tasks]
@@ -67,12 +63,9 @@ fmt-check = { argv = ["cargo", "fmt", "--manifest-path", "{module.manifest}", "{
 test = { argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"] }
 ```
 
-The generated profile also includes `module_arg_template`, which is expanded by
-`{module.args}` for each planned module.
+The generated profile also includes `module_arg_template`, which is expanded by `{module.args}` for each planned module.
 
-Rust cache identity is still owned by the Rust adapter even though the generated
-tasks use visible direct argv. Planned Rust units include Cargo and rustc version
-probes in their cache keys without adding per-task toolchain settings.
+Rust cache identity is still owned by the Rust adapter even though the generated tasks use visible direct argv. Planned Rust units include Cargo and rustc version probes in their cache keys without adding per-task toolchain settings.
 
 ## Options
 
@@ -102,5 +95,4 @@ toven graph --task check
 toven plan --task check
 ```
 
-The Rust adapter still provides fallback defaults for very small hand-written
-configs, but generated configs prefer explicit task argv.
+The Rust adapter still provides fallback defaults for very small hand-written configs, but generated configs prefer explicit task argv.

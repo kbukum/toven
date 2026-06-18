@@ -2,6 +2,8 @@
 
 Toven commands are grouped by workflow rather than listed as one flat page.
 
+> The Toven CLI is being rebuilt on the hexagonal `crates/*` + `apps/*` stack. The commands below describe the **target** behavior returning as the later redesign steps land; only the `toven-model` vocabulary crate is in the workspace today.
+
 | Topic | Commands |
 |-------|----------|
 | [Generating config](generate.md) | `toven generate` |
@@ -11,22 +13,16 @@ Toven commands are grouped by workflow rather than listed as one flat page.
 
 ## Shared behavior
 
-Most commands load `toven.toml` from the current directory. Use
-`--config <PATH>` to point at another config file.
+Most commands load `toven.toml` from the current directory. Use `--config <PATH>` to point at another config file.
 
-Task-oriented commands discover only the profiles and scopes that define or
-inherit the selected task. Commands that accept `--task <NAME>` default to
-`test`.
+Task-oriented commands discover only the profiles and scopes that define or inherit the selected task. Commands that accept `--task <NAME>` default to `test`.
 
 Affected commands use git changes between a baseline and the working tree:
 
 - `--base <REF>` selects a baseline ref or SHA.
-- `--merge-base` compares from the merge-base of `HEAD` and the selected
-  baseline.
-- `project.base_ref` in `toven.toml` supplies the default baseline when no
-  `--base` is provided.
-- Without `--base` or `project.base_ref`, affected detection compares against
-  `HEAD`, so only staged, unstaged, and untracked local changes are considered.
+- `--merge-base` compares from the merge-base of `HEAD` and the selected baseline.
+- `project.base_ref` in `toven.toml` supplies the default baseline when no `--base` is provided.
+- Without `--base` or `project.base_ref`, affected detection compares against `HEAD`, so only staged, unstaged, and untracked local changes are considered.
 
 Execution and explanation commands share cache mode flags:
 
@@ -36,10 +32,6 @@ Execution and explanation commands share cache mode flags:
 | `--force` | Skip cache reads, run work, and write fresh success records. |
 | `--no-cache` | Disable cache reads and writes for that invocation. |
 
-Passthrough args after `--` are expanded into `{args}` in configured task argv.
-They disable cache by default unless the task sets `cache_args = true`.
+Passthrough args after `--` are expanded into `{args}` in configured task argv. They disable cache by default unless the task sets `cache_args = true`.
 
-Toven stores task cache records in the platform user cache directory by default,
-under a workspace-specific hash and cache-format version. Set `TOVEN_CACHE_DIR`
-to an absolute path for CI or benchmark isolation, or configure
-`[cache] location = "workspace"` to opt into `.toven/cache`.
+Toven stores task cache records in the platform user cache directory by default, under a workspace-specific hash and cache-format version. Set `TOVEN_CACHE_DIR` to an absolute path for CI or benchmark isolation, or configure `[cache] location = "workspace"` to opt into `.toven/cache`.

@@ -1,7 +1,8 @@
 # Toven scenarios
 
-This document describes the core runtime scenarios the CLI should make easy to
-inspect with `plan`, `affected`, `explain`, JSON, and JSONL output.
+This document describes the core runtime scenarios the CLI should make easy to inspect with `plan`, `affected`, `explain`, JSON, and JSONL output.
+
+> These are **target** scenarios for the CLI being rebuilt on the `crates/*` + `apps/*` stack; they return as the later redesign steps land.
 
 ## Full task run
 
@@ -18,8 +19,7 @@ flowchart LR
     Skip --> Report
 ```
 
-A full run still uses the module graph. Toven may skip modules that are valid
-cache hits, but it keeps dependency order for everything that must run.
+A full run still uses the module graph. Toven may skip modules that are valid cache hits, but it keeps dependency order for everything that must run.
 
 ## Affected run
 
@@ -33,10 +33,7 @@ flowchart TD
     Plan --> Explain["explain baseline, files, edges, cache inputs"]
 ```
 
-Affected mode starts with changed files, maps them to owning modules, and adds
-dependent modules so downstream breakage is not missed. `toven explain` should
-show which baseline, files, dependency edges, and cache inputs contributed to a
-module decision.
+Affected mode starts with changed files, maps them to owning modules, and adds dependent modules so downstream breakage is not missed. `toven explain` should show which baseline, files, dependency edges, and cache inputs contributed to a module decision.
 
 ## Wave bundling
 
@@ -55,9 +52,7 @@ flowchart TD
     end
 ```
 
-Modules in the same wave have no pending dependency between them. In
-`batch-ready`, Toven tries to run a wave as one command, then splits only when a
-manifest boundary makes one command unsafe.
+Modules in the same wave have no pending dependency between them. In `batch-ready`, Toven tries to run a wave as one command, then splits only when a manifest boundary makes one command unsafe.
 
 ## Shared-input invalidation
 
@@ -74,11 +69,7 @@ flowchart LR
     Decision -->|"no"| Run["run"]
 ```
 
-Use task-level `shared_inputs` for files and directories that can invalidate all
-modules using the task, such as `Cargo.lock`, `rust-toolchain.toml`, deny/lint
-configuration, and CI configuration. Write them as plain paths inside the
-workspace, for example `Cargo.lock` instead of `./Cargo.lock`; templates, globs,
-`.` components, parent paths, and absolute paths are rejected.
+Use task-level `shared_inputs` for files and directories that can invalidate all modules using the task, such as `Cargo.lock`, `rust-toolchain.toml`, deny/lint configuration, and CI configuration. Write them as plain paths inside the workspace, for example `Cargo.lock` instead of `./Cargo.lock`; templates, globs, `.` components, parent paths, and absolute paths are rejected.
 
 ## Installed-binary rehearsal
 
@@ -92,7 +83,4 @@ flowchart TD
     Bench --> Fix[Record Toven or generic rskit gaps]
 ```
 
-The rskit adoption path should use the installed binary and generated
-instructions. Repository-specific config should come from `toven generate` first
-and only add hand-written policy where the real workflow needs it. The rskit
-benchmark case intentionally requires that adopted `toven.toml` before it runs.
+The rskit adoption path should use the installed binary and generated instructions. Repository-specific config should come from `toven generate` first and only add hand-written policy where the real workflow needs it. The rskit benchmark case intentionally requires that adopted `toven.toml` before it runs.

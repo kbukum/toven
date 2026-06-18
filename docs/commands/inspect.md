@@ -1,7 +1,8 @@
 # Inspecting work
 
-Inspection commands are read-only and should be the first step when adopting
-Toven in a repository.
+Inspection commands are read-only and should be the first step when adopting Toven in a repository.
+
+> Target behavior; returns as the redesign steps land (the CLI is being rebuilt on the `crates/*` + `apps/*` stack).
 
 ## `toven plan`
 
@@ -14,10 +15,7 @@ toven plan --task check --affected --base origin/main --merge-base
 toven plan --task test -- --no-capture
 ```
 
-The plan includes selected modules, dependency order, execution units, and
-rendered argv. With `--affected`, Toven resolves changed files first and plans
-only directly affected modules plus dependents. `--base` and `--merge-base` are
-valid only with `--affected`.
+The plan includes selected modules, dependency order, execution units, and rendered argv. With `--affected`, Toven resolves changed files first and plans only directly affected modules plus dependents. `--base` and `--merge-base` are valid only with `--affected`.
 
 ## `toven affected`
 
@@ -48,13 +46,9 @@ toven explain rskit-config check --force
 toven explain rskit-config check --no-cache
 ```
 
-The command prints module scope, adapter, task, dependencies, affected reason,
-changed/global paths when present, cache state, and cache hashes. Cache state can
-be hit, forced, disabled, or miss with a reason. If the same module name exists
-in multiple scopes, explanation is printed for each matching scope.
+The command prints module scope, adapter, task, dependencies, affected reason, changed/global paths when present, cache state, and cache hashes. Cache state can be hit, forced, disabled, or miss with a reason. If the same module name exists in multiple scopes, explanation is printed for each matching scope.
 
-Persistent tasks report cache as disabled because they are never persisted as
-cache hits.
+Persistent tasks report cache as disabled because they are never persisted as cache hits.
 
 ## `toven modules`, `toven list`, `toven ls`
 
@@ -67,9 +61,7 @@ toven list --task test
 toven ls --task test
 ```
 
-Each module is printed as `scope/module`, with adapter, root, optional package
-name, and dependencies. The command is task-aware because scopes and profiles
-may expose different modules or task availability.
+Each module is printed as `scope/module`, with adapter, root, optional package name, and dependencies. The command is task-aware because scopes and profiles may expose different modules or task availability.
 
 ## `toven graph`, `toven deps`
 
@@ -82,8 +74,7 @@ toven graph --format dot
 toven deps --task test
 ```
 
-Text format prints each module and its dependencies. Overlay-derived edges are
-marked with `overlay`. DOT format emits a Graphviz `digraph` for visualization.
+Text format prints each module and its dependencies. Overlay-derived edges are marked with `overlay`. DOT format emits a Graphviz `digraph` for visualization.
 
 ## Review checklist
 

@@ -1,52 +1,51 @@
 # Toven architecture
 
-Toven is one Rust product crate with internal modules. Domain types stay in
-`core`; higher layers consume normalized data instead of parsing config or
-reaching upward into CLI code.
+Toven is being rebuilt as a **hexagonal, multi-crate workspace**. The domain vocabulary sits at the center, ports define the contracts adapters and the engine speak, and the apps are thin wiring shells. This document describes the **target topology** the redesign is converging on; only the `toven-model` vocabulary crate is in the workspace today, with the remaining crates and apps landing as the later redesign steps complete.
 
-## Module layout
+> The previous single-crate `src/` tree was removed when the repository converted to this workspace. Its behavior is being re-homed into the crates below.
+
+## Workspace layout
 
 ```text
-src/
-  core/        # identifiers, models, protocols, errors, templates
-  config/      # strict TOML loading and normalization
-  adapter/     # language/package discovery implementations
-    rust/
-      cargo/   # Cargo metadata loading and normalization
-      generate/# Rust config generation contributor
-  preset/      # preset resolution
-  git/         # baseline and changed-file detection
-  cache/       # successful-run cache storage and decisions
-  engine/      # graph validation, scheduling, planning
-  exec/        # command rendering and process execution
-  generate/    # user-facing config generation workflow
-  report/      # human/JSON/JSONL reporting
-  cli/         # clap parsing and process IO
+crates/
+  toven-model/     # identity, dependency graph, plan + event vocabulary; pure graph/topo/wave algos
+  toven-ports/     # Provider/ConfiguredAdapter, ReleaseTarget, Reporter, Vcs traits + field-merge + Template helpers
+  toven-engine/    # PLAN spine (load·configure·discover·graph·affected·toolchain·schedule) + APPLY exec/waves + release
+  toven-rust/      # Rust adapter over the ports (cargo_metadata discovery, default tasks, toolchain probe)
+  toven-go/        # Go adapter over the ports
+  toven-command/   # generic command-driver adapter (out-of-proc RemoteAdapter envelope)
+  toven-cli/       # CLI taxonomy, argv-first dispatch, PLAN-cut introspection projections
+  toven/           # library facade that composes model + ports + engine + adapters
+apps/
+  toven/           # umbrella binary (multi-ecosystem dispatch)
+  toven-rs/        # Rust-focused binary
+  toven-go/        # Go-focused binary
 ```
+
+`mod.rs` files are declaration/re-export roots only — no logic or private items. CI enforces this with `make structure` across every `crates/*/src` tree.
 
 ## Layering rules
 
-```text
-L0  core/
-L1  config/, adapter/, preset/, git/, cache/
-L2  engine/, exec/, generate/
-L3  report/
-L4  cli/
-```
+Dependencies flow **model → ports → adapters/engine → apps**, and never upward:
 
-`mod.rs` files are declaration/re-export roots only. CI enforces this with
-`make structure`.
+```text
+L0  toven-model                      # foundational vocabulary + pure algorithms
+L1  toven-ports                      # trait contracts over the model
+L2  toven-rust, toven-go, toven-command, toven-engine   # adapters + orchestration over ports
+L3  toven-cli, toven                 # CLI taxonomy + library facade
+L4  apps/{toven, toven-rs, toven-go} # thin wiring binaries
+```
 
 Key import boundaries:
 
-- `core/` has no upward imports.
-- `config/`, `adapter/`, and `preset/` do not import `engine/`, `exec/`,
-  `report/`, or `cli/`.
-- `engine/` receives normalized workspace/modules/tasks as data.
-- `exec/` renders and runs planned execution units; it does not parse config.
-- `generate/` orchestrates config generation and calls adapter-owned generation
-  contributors.
-- `cli/` is the only layer that handles process stdio and human command parsing.
+- `toven-model` has no upward imports; it depends only on `rskit-errors`.
+- Adapters (`toven-rust`, `toven-go`, `toven-command`) depend on `toven-ports` and `toven-model`, never on the engine, CLI, or apps.
+- `toven-engine` receives normalized workspace/modules/tasks as data through the ports; it does not parse config or own process stdio.
+- `toven-cli` is the only layer that handles human command parsing and stdio projections; `apps/*` only wire dependencies together.
+
+## rskit reuse
+
+Toven builds on the checked-in [`rskit`](../rskit) submodule rather than bespoke primitives: process/worker/resilience for execution, git/fs for I/O, cache for memoized results, cli/util/version/component/validation for plumbing, and errors for typed failures. New foundational gaps are fixed generically in rskit, not worked around locally.
 
 ## Config and discovery flow
 
@@ -58,8 +57,8 @@ flowchart LR
     end
 
     subgraph Normalize["Normalize project intent"]
-        Strict["Strict TOML validation"]
-        Presets["Resolve presets and task defaults"]
+        Strict["Strict TOML validation (deny_unknown_fields)"]
+        Defaults["Adapter default tasks"]
     end
 
     subgraph Discover["Discover work"]
@@ -75,8 +74,8 @@ flowchart LR
 
     Config --> Strict
     Cli --> Strict
-    Strict --> Presets
-    Presets --> Adapter
+    Strict --> Defaults
+    Defaults --> Adapter
     Adapter --> Graph
     Graph --> Waves
     Waves --> Units
@@ -84,27 +83,23 @@ flowchart LR
     Render --> Output["Run or report"]
 ```
 
-Rust discovery is Cargo-metadata backed. Profile-level `discovery.manifests`
-allows multi-manifest repositories, and Cargo path dependencies are inferred
-across configured manifests.
+Rust discovery is Cargo-metadata backed. Profile-level `discovery.manifests` allows multi-manifest repositories, and Cargo path dependencies are inferred across configured manifests. Adapters contribute their default task set, so a hand-written config can stay minimal.
 
-Explicit `[[overlays]]` are top-level dependency edges for relationships that
-adapter metadata cannot prove.
+Explicit `[[overlays]]` are top-level dependency edges for relationships that adapter metadata cannot prove.
 
 ## Config generation flow
 
 ```mermaid
 flowchart TD
     Generate[toven generate] --> Workflow[Generic generate workflow]
-    Workflow --> Contributors[Adapter contributors]
+    Workflow --> Contributors[Provider::scaffold contributors]
     Contributors --> Fragments[Structured config fragments]
     Fragments --> RenderToml[Deterministic TOML renderer]
     RenderToml --> Preview[stdout preview]
     RenderToml --> Write[Safe root/toven.toml write]
 ```
 
-Existing configs are never replaced by default. Writes use safe temporary-file
-creation and an explicit overwrite path.
+Existing configs are never replaced by default. Writes use safe temporary-file creation and an explicit overwrite path. Adapters contribute language/package specific fragments behind the generic `toven generate` workflow.
 
 ## Planning, waves, and bundling
 
@@ -125,10 +120,7 @@ flowchart TD
     Split --> Rendered
 ```
 
-Think of a wave as “everything that is safe to start now.” A module joins a
-later wave when one of its dependencies must finish first. `batch-ready` keeps
-ready modules together when the command can handle them together, but it still
-splits by Cargo manifest so selectors are never sent to the wrong workspace.
+Think of a wave as “everything that is safe to start now.” A module joins a later wave when one of its dependencies must finish first. `batch-ready` keeps ready modules together when the command can handle them together, but it still splits by Cargo manifest so selectors are never sent to the wrong workspace.
 
 ## Affected and cache decision flow
 
@@ -140,7 +132,7 @@ flowchart TD
     Owners --> Closure["dependent modules"]
     Closure --> Plan["affected execution plan"]
 
-    Plan --> Inputs["module + dependency + task + shared inputs"]
+    Plan --> Inputs["module + dependency + task + shared inputs + toolchain"]
     Inputs --> Args{"passthrough args?"}
     Args -->|"yes, cache_args=false"| Disabled["cache disabled"]
     Args -->|"no, or cache_args=true"| Lookup["cache lookup"]
@@ -149,17 +141,11 @@ flowchart TD
     Disabled --> Miss
 ```
 
-`shared_inputs` are task-owned, workspace-relative paths that participate in the
-shared hash for every module in the task. They are for broad invalidators such
-as lockfiles, toolchain files, lint config, and CI-relevant config. They must be
-plain paths inside the workspace: no templates, globs, `.` components, parent
-paths, or absolute paths.
+`shared_inputs` are task-owned, workspace-relative paths that participate in the shared hash for every module in the task. They are for broad invalidators such as lockfiles, toolchain files, lint config, and CI-relevant config. They must be plain paths inside the workspace: no templates, globs, `.` components, parent paths, or absolute paths.
 
 ## Extension points
 
-- New language/package-manager adapters should live under `src/adapter/<name>/`.
-- Adapter-specific config generation should live under
-  `src/adapter/<name>/generate/`.
-- Generic generation orchestration belongs under `src/generate/`.
-- Shared foundational capabilities should be improved in rskit generically when
-  Toven exposes a reusable framework gap.
+- New language/package-manager adapters are new `crates/toven-<name>` crates that implement the `toven-ports` traits — they never reach into the engine, CLI, or apps.
+- Adapter-specific config generation is contributed through `Provider::scaffold` behind the generic `toven generate` workflow.
+- Multi-ecosystem dispatch is mediated by `toven-command` (in-proc and out-of-proc `RemoteAdapter` over a stdio `toven-model` envelope).
+- Shared foundational capabilities are improved in rskit generically when Toven exposes a reusable framework gap, rather than being reimplemented locally.

@@ -2,6 +2,8 @@
 
 Run a configured or adapter-provided task directly:
 
+> Target behavior; returns as the redesign steps land (the CLI is being rebuilt on the `crates/*` + `apps/*` stack).
+
 ```bash
 toven check
 toven test
@@ -15,13 +17,9 @@ toven run check
 
 ## Behavior
 
-Task execution loads config, discovers modules for the task, builds dependency
-waves, prepares cache decisions, and executes cache misses. Cache hits are
-skipped unless the planned unit is workspace-once and must run as part of a
-coalesced command.
+Task execution loads config, discovers modules for the task, builds dependency waves, prepares cache decisions, and executes cache misses. Cache hits are skipped unless the planned unit is workspace-once and must run as part of a coalesced command.
 
-Modules in the same ready wave can execute in parallel when the plan and
-resource grouping allow it. Dependency order is still preserved across waves.
+Modules in the same ready wave can execute in parallel when the plan and resource grouping allow it. Dependency order is still preserved across waves.
 
 ## Common examples
 
@@ -42,9 +40,7 @@ Human output is the default:
 toven check --output human
 ```
 
-Human mode streams child process bytes for terminal use and reports Toven
-lifecycle lines such as `run:`, `done:`, `ready:`, cache hit, miss, forced,
-disabled states, and final timing.
+Human mode streams child process bytes for terminal use and reports Toven lifecycle lines such as `run:`, `done:`, `ready:`, cache hit, miss, forced, disabled states, and final timing.
 
 JSONL output is intended for tools:
 
@@ -52,35 +48,24 @@ JSONL output is intended for tools:
 toven check --output jsonl
 ```
 
-JSONL mode reserves stdout for newline-delimited Toven events. Child stdout is
-forwarded to stderr so consumers can parse every stdout line as JSON.
-Cache decision events expose the same structured cache states and reasons.
+JSONL mode reserves stdout for newline-delimited Toven events. Child stdout is forwarded to stderr so consumers can parse every stdout line as JSON. Cache decision events expose the same structured cache states and reasons.
 
 ## Watch mode
 
-Watch mode runs the task once, watches the project root, then reruns affected
-modules and reverse dependents after file changes:
+Watch mode runs the task once, watches the project root, then reruns affected modules and reverse dependents after file changes:
 
 ```bash
 toven test --watch
 toven check --watch --watch-debounce-ms 500
 ```
 
-Watch mode ignores generated/noisy paths such as `.git/`, `.toven/`, `target/`,
-and `node_modules/`. If the Toven config changes, watch mode reloads the
-workspace and performs a broader rerun because discovery or task policy may have
-changed.
+Watch mode ignores generated/noisy paths such as `.git/`, `.toven/`, `target/`, and `node_modules/`. If the Toven config changes, watch mode reloads the workspace and performs a broader rerun because discovery or task policy may have changed.
 
-Persistent tasks opt out of cache, can wait for readiness, and are restarted
-when watch invalidation requires a new affected set.
+Persistent tasks opt out of cache, can wait for readiness, and are restarted when watch invalidation requires a new affected set.
 
 ## Cache location
 
-Task cache records use the platform user cache directory by default so normal
-runs do not create repository file changes. Use `toven cache path` to inspect
-the resolved directory. Set `TOVEN_CACHE_DIR` to an absolute path for isolated
-CI/benchmark runs, or configure `[cache] location = "workspace"` to store under
-`.toven/cache`.
+Task cache records use the platform user cache directory by default so normal runs do not create repository file changes. Use `toven cache path` to inspect the resolved directory. Set `TOVEN_CACHE_DIR` to an absolute path for isolated CI/benchmark runs, or configure `[cache] location = "workspace"` to store under `.toven/cache`.
 
 ## Options
 
