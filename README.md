@@ -29,7 +29,7 @@ make coverage
 
 The workspace is mid-redesign into a hexagonal `crates/*` stack. The dependency root, [`toven-model`](crates/toven-model), provides the shared vocabulary (identity, dependency graph, plan, and event types) plus the pure graph algorithms the engine and ports build on. The CLI apps, binary smoke harness, and benchmark rehearsals return as the later redesign steps land.
 
-Stable project documentation lives in [`docs/`](docs/). Start with [`Installation`](docs/installation.md), [`Getting started`](docs/getting-started.md), and the split [`Command reference`](docs/commands/README.md). Active plans and handoff notes live in [`tmp/`](tmp/).
+Stable project documentation lives in [`docs/`](docs/). Start with [`Installation`](docs/installation.md), [`Getting started`](docs/getting-started.md), and the split [`Command reference`](docs/commands/README.md).
 
 ## Configuration preview
 
