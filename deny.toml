@@ -27,11 +27,6 @@ multiple-versions = "warn"
 wildcards = "deny"
 deny = []
 skip-tree = [
-    { crate = "rskit-config", reason = "rskit submodule crate uses path-only internal workspace dependencies", depth = 0 },
-    { crate = "rskit-cache", reason = "rskit submodule crate uses path-only internal workspace dependencies", depth = 0 },
-    { crate = "rskit-fs", reason = "rskit submodule crate uses path-only internal workspace dependencies", depth = 0 },
-    { crate = "rskit-git", reason = "rskit submodule crate uses path-only internal workspace dependencies", depth = 0 },
-    { crate = "rskit-process", reason = "rskit submodule crate uses path-only internal workspace dependencies", depth = 0 },
     { crate = "rskit-validation", reason = "rskit submodule crate uses path-only internal workspace dependencies", depth = 0 },
 ]
 

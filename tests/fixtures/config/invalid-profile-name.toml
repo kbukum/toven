@@ -1,9 +1,0 @@
-[project]
-name = "demo"
-root = "."
-
-[profiles."bad/name"]
-adapter = "rust"
-
-[profiles."bad/name".tasks]
-test = { argv = ["cargo", "test"] }

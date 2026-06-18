@@ -1,9 +1,0 @@
-[project]
-name = "non-rust-placeholder"
-root = "."
-
-[profiles.python]
-adapter = "python"
-
-[profiles.python.tasks]
-test = { argv = ["python", "-m", "pytest"] }

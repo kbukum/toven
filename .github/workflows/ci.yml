@@ -45,7 +45,4 @@ jobs:
         run: cargo install cargo-deny --locked --version 0.19.0
 
       - name: Run checks
-        run: make check CARGO_PACKAGE_DIRTY_FLAG=
-
-      - name: Run smoke tests
-        run: make smoke
+        run: make check

@@ -1,9 +1,0 @@
-[project]
-name = "demo"
-root = "."
-
-[profiles.rust]
-adapter = "bad/language"
-
-[profiles.rust.tasks]
-test = { argv = ["cargo", "test"] }

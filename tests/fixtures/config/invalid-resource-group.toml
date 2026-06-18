@@ -1,6 +1,0 @@
-[profiles.rust]
-adapter = "rust"
-resource_group = "{unknown}"
-
-[profiles.rust.tasks]
-test = { argv = ["cargo", "test"] }

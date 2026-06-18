@@ -1,9 +1,0 @@
-[project]
-schema = 2
-root = "missing"
-
-[profiles.rust]
-adapter = "rust"
-
-[profiles.rust.tasks]
-test = { argv = ["cargo", "test"] }

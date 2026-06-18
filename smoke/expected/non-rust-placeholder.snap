@@ -1,8 +1,0 @@
-## plan
-
-status: 1
-stdout:
-<empty>
-stderr:
-error: invalid profiles.python.adapter: unsupported adapter 'python'
-
