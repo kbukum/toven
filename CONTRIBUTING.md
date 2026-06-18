@@ -20,17 +20,15 @@ cargo install cargo-llvm-cov --locked --version 0.8.5
 ```bash
 make check
 make coverage
-make smoke
-make dist-plan
-make release-artifacts
 ```
 
-`make check` runs formatting, clippy, regular tests, docs,
-dependency/license audit, metadata validation, release packaging dry-run, and a
-release build. `make smoke` is the focused binary-level fixture-backed smoke
-gate. `make coverage` enforces the current coverage threshold.
-`make release-artifacts` stages the crate archive and checksum manifest without
-publishing.
+`make check` runs formatting, clippy, workspace tests, docs,
+dependency/license audit, the `mod.rs`/structure guard, and a release build.
+`make coverage` enforces the current coverage threshold. `make release-artifacts`
+stages a source archive and checksum manifest without publishing.
+
+The binary-level smoke and benchmark harnesses return alongside the CLI apps
+later in the workspace redesign.
 
 Run the checks that match the files you changed before opening a pull request.
 Broader gates run in CI as implementation branches add the corresponding

@@ -1,6 +1,0 @@
-[profiles.rust]
-adapter = "rust"
-module_arg_template = ["{unknown}"]
-
-[profiles.rust.tasks]
-test = { argv = ["cargo", "test"] }

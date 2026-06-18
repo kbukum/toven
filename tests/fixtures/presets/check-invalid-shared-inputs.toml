@@ -1,5 +1,0 @@
-[preset]
-name = "check"
-language = "rust"
-argv = ["cargo", "check"]
-shared_inputs = ["../escape"]

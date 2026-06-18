@@ -1,5 +1,0 @@
-[preset]
-name = "check"
-language = "go"
-argv = ["go", "test", "./..."]
-shared_inputs = []

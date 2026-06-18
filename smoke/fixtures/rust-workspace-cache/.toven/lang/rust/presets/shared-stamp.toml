@@ -1,5 +1,0 @@
-[preset]
-name = "shared-stamp"
-language = "rust"
-argv = ["sh", "-c", "echo shared {module.package}"]
-shared_inputs = ["shared.txt"]

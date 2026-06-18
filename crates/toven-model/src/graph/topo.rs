@@ -73,7 +73,7 @@ impl Graph {
         let mut kept_dependents: BTreeMap<ModuleRef, Vec<ModuleRef>> = BTreeMap::new();
         let mut seen_pairs: BTreeSet<(ModuleRef, ModuleRef)> = BTreeSet::new();
 
-        for edge in &self.edges {
+        for edge in self.edges() {
             if !keep(edge) {
                 continue;
             }

@@ -1,6 +1,0 @@
-[profiles.rust]
-adapter = "rust"
-package_manager = "cargo"
-
-[profiles.rust.tasks]
-test = { argv = ["cargo", "test"] }

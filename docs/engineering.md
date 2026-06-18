@@ -20,21 +20,20 @@
 | `make check` | Canonical full gate: fmt, clippy, tests, docs, deny, structure, release build. |
 | `make fmt` | Format code. |
 | `make lint` | Clippy with denied warnings. |
-| `make test` | Cargo tests with managed smoke skipped. |
-| `make smoke` | Managed binary smoke cases. |
-| `make smoke-repo REPO=<path> ARGS='...'` | Ad-hoc real-repository planning/smoke check. |
-| `cargo install --path . --locked --force && make benchmark CASE=bench/cases/rskit.sh` | Installed-binary benchmark harness after rskit has a generated/reviewed `toven.toml`. |
-| `make structure` | Module layering and `mod.rs` guard. |
+| `make test` | Workspace cargo tests. |
+| `make coverage` | Workspace coverage gate. |
+| `make structure` | `mod.rs` declare-only guard across `crates/*`. |
+
+The binary smoke and benchmark harnesses return alongside the CLI apps later in
+the workspace redesign.
 
 Prefer validating changed modules/areas unless a broader gate is clearly
 necessary.
 
 ## Testing standards
 
-- Use reusable fixtures under `tests/fixtures/`, `smoke/fixtures/`, and
-  declarative case files instead of embedding large config strings in tests.
-- Managed smoke cases should run the real binary against copied fixture
-  repositories and compare normalized snapshots.
+- Use reusable fixtures and declarative case files instead of embedding large
+  config strings in tests.
 - Tests should be deterministic and avoid real network access.
 - Runtime paths should surface typed errors instead of panics.
 

@@ -1,8 +1,0 @@
-fixture = "rust-workspace-cache"
-assert = "none"
-
-[[invocations]]
-label = "workspace-once"
-command = "run"
-task = "workspace-stamp"
-

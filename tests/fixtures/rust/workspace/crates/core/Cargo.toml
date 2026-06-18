@@ -1,4 +1,0 @@
-[package]
-name = "fixture-core"
-version.workspace = true
-edition.workspace = true

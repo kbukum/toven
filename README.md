@@ -40,56 +40,18 @@ from source after cloning the repository.
 git submodule update --init --recursive
 make check
 make coverage
-make release-artifacts
-cargo install --path . --locked --force
-cargo run -- --help
-cargo run -- generate --stdout
 ```
 
-The current scaffold builds as a standalone Rust CLI with configuration,
-preset-loading, Rust discovery, affected detection, reviewable planning,
-execution, cache-backed skipping, scoped adapter discovery, and `toven generate`
-foundations.
+The workspace is mid-redesign into a hexagonal `crates/*` stack. The dependency
+root, [`toven-model`](crates/toven-model), provides the shared vocabulary
+(identity, dependency graph, plan, and event types) plus the pure graph
+algorithms the engine and ports build on. The CLI apps, binary smoke harness, and
+benchmark rehearsals return as the later redesign steps land.
 
 Stable project documentation lives in [`docs/`](docs/). Start with
 [`Installation`](docs/installation.md), [`Getting started`](docs/getting-started.md),
 and the split [`Command reference`](docs/commands/README.md). Active plans and
 handoff notes live in [`tmp/`](tmp/).
-
-The rskit benchmark case is an installed-binary rehearsal aid for the release
-readiness track. Run it only after rskit has a generated/reviewed `toven.toml`
-from the installed binary:
-
-```bash
-make benchmark CASE=bench/cases/rskit.sh
-```
-
-## Smoke testing fixtures and real repositories
-
-Toven has two smoke modes:
-
-- Managed smoke tests run the real `toven` binary against small synthetic
-  fixture repositories under `smoke/fixtures/` and committed cases under
-  `smoke/cases/`, then compare normalized output with `smoke/expected/`.
-- Ad-hoc smoke runs let contributors test any local or cloned repository without
-  committing an expectation file.
-
-```bash
-make smoke
-make smoke-repo REPO=/path/to/repo ARGS="--release"
-make smoke-clone URL=https://github.com/kbukum/rskit NAME=rskit
-make smoke-add-submodule URL=https://github.com/example/repo NAME=repo
-make smoke-add-case NAME=repo REPO=smoke/repos/repo ARGS="--all-features"
-make smoke-add-managed-submodule URL=https://github.com/example/repo NAME=repo ARGS="--all-features"
-TOVEN_SMOKE_BLESS=1 make smoke-update NAME=basic-plan
-make smoke-purge NAME=rskit
-```
-
-Managed cases run against temporary fixture copies and verify normalized binary
-output, Cargo workspace dependency waves, affected planning, cache behavior, and
-execution modes. Local scratch clones live under ignored `.toven/smoke/repos/`;
-use `make smoke-repo` for larger local real repositories. Keep committed
-fixtures small, deterministic, and purpose-built.
 
 ## Configuration preview
 

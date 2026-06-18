@@ -1,7 +1,0 @@
-[package]
-name = "fixture-test-util"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-fixture-core.workspace = true

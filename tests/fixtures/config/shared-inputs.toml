@@ -1,9 +1,0 @@
-[project]
-name = "demo"
-root = "."
-
-[profiles.rust]
-adapter = "rust"
-
-[profiles.rust.tasks]
-test = { argv = ["cargo", "test", "{args}"], shared_inputs = ["Cargo.lock", "rust-toolchain.toml"] }
