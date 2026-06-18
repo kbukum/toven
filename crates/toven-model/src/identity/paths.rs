@@ -21,6 +21,10 @@ pub struct RepoPath(PathBuf);
 impl RepoPath {
     /// Validate and construct a repo-relative path.
     ///
+    /// `.` (`CurDir`) components are normalized away so semantically equal paths
+    /// (`core/errors` and `core/./errors`) share one canonical identity; a path
+    /// consisting only of `.` canonicalizes to the repo root (`.`).
+    ///
     /// Errors if the path is absolute, empty, or contains a `..` / root / prefix
     /// component.
     pub fn new(path: impl Into<PathBuf>) -> AppResult<Self> {
@@ -28,9 +32,11 @@ impl RepoPath {
         if path.as_os_str().is_empty() {
             return Err(AppError::invalid_input("path", "repo path cannot be empty"));
         }
+        let mut normalized = PathBuf::new();
         for component in path.components() {
             match component {
-                Component::Normal(_) | Component::CurDir => {}
+                Component::Normal(part) => normalized.push(part),
+                Component::CurDir => {}
                 Component::ParentDir => {
                     return Err(AppError::invalid_input(
                         "path",
@@ -45,7 +51,11 @@ impl RepoPath {
                 }
             }
         }
-        Ok(Self(path))
+        // A path made up solely of `.` components denotes the repo root.
+        if normalized.as_os_str().is_empty() {
+            normalized.push(".");
+        }
+        Ok(Self(normalized))
     }
 
     /// Borrow the underlying path.
@@ -132,6 +142,16 @@ mod tests {
         assert!(RepoPath::new("").is_err());
         #[cfg(unix)]
         assert!(RepoPath::new("/abs").is_err());
+    }
+
+    #[test]
+    fn repo_path_normalizes_curdir() {
+        assert_eq!(
+            RepoPath::new("core/./errors").unwrap(),
+            RepoPath::new("core/errors").unwrap(),
+        );
+        let root = RepoPath::new(".").unwrap();
+        assert_eq!(root.as_path(), std::path::Path::new("."));
     }
 
     #[test]
