@@ -1,8 +1,8 @@
 # Benchmarking
 
-Benchmarking is release-readiness evidence. Use it to compare Toven orchestration
-against the native commands it runs, and to identify any remaining output
-fidelity gaps.
+Benchmarking is release-readiness evidence. Use it to compare Toven orchestration against the native commands it runs, and to identify any remaining output fidelity gaps.
+
+> The benchmark harness and CLI binary return alongside the `apps/*` shells as the later redesign steps land; the rules below describe how benchmarking works once the installed `toven` binary is available again.
 
 ## Rules
 
@@ -11,8 +11,7 @@ fidelity gaps.
 3. Run each case repeatedly under the same shell and repository state.
 4. Capture raw stdout/stderr and exit status for every run.
 5. Separate timing, cache behavior, and output-fidelity observations.
-6. Set `TOVEN_CACHE_DIR` to an absolute run-specific directory when isolating
-   Toven cache state.
+6. Set `TOVEN_CACHE_DIR` to an absolute run-specific directory when isolating Toven cache state.
 
 ## rskit comparison matrix
 
@@ -25,10 +24,7 @@ cargo check --manifest-path core/Cargo.toml --workspace
 cargo check --manifest-path contrib/Cargo.toml --workspace
 ```
 
-`toven check --no-cache` measures Toven orchestration plus native command
-execution without Toven cache reads or writes. Warm `toven check` measures cache
-decisions and skipped work. Native Cargo checks provide the baseline for raw
-Cargo timing, output shape, color behavior, and stream behavior.
+`toven check --no-cache` measures Toven orchestration plus native command execution without Toven cache reads or writes. Warm `toven check` measures cache decisions and skipped work. Native Cargo checks provide the baseline for raw Cargo timing, output shape, color behavior, and stream behavior.
 
 ## What to record
 
@@ -42,8 +38,7 @@ Cargo timing, output shape, color behavior, and stream behavior.
 
 ## Output fidelity review
 
-Before adding any PTY execution path, confirm whether the current raw-byte
-streaming behavior still has a user-visible gap. Review:
+Before adding any PTY execution path, confirm whether the current raw-byte streaming behavior still has a user-visible gap. Review:
 
 - color behavior
 - stdout/stderr ordering
@@ -51,5 +46,4 @@ streaming behavior still has a user-visible gap. Review:
 - interactive expectations
 - JSONL stdout cleanliness
 
-PTY support should remain opt-in unless native command fidelity cannot be
-preserved well enough through normal streaming.
+PTY support should remain opt-in unless native command fidelity cannot be preserved well enough through normal streaming.
