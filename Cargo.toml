@@ -1,3 +1,23 @@
+[workspace]
+members = ["crates/toven-model"]
+exclude = ["rskit"]
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+unused_imports = "warn"
+unused_variables = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+
 [package]
 name = "toven"
 version = "0.1.0-alpha.1"
@@ -18,14 +38,14 @@ include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
 blake3 = "1"
 cargo_metadata = "0.23.1"
 clap = "4.5.50"
-rskit-cache = { version = "0.1.0", path = "rskit/core/rskit-cache", features = ["fs"] }
-rskit-config = { version = "0.1.0", path = "rskit/core/rskit-config" }
-rskit-errors = { version = "0.1.0", path = "rskit/core/rskit-errors" }
-rskit-fs = { version = "0.1.0", path = "rskit/core/rskit-fs", default-features = false }
-rskit-git = { version = "0.1.0", path = "rskit/core/rskit-git" }
-rskit-process = { version = "0.1.0", path = "rskit/core/rskit-process" }
-rskit-validation = { version = "0.1.0", path = "rskit/core/rskit-validation" }
-rskit-version = { version = "0.1.0", path = "rskit/core/rskit-version" }
+rskit-cache = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-cache", features = ["fs"] }
+rskit-config = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-config" }
+rskit-errors = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-errors" }
+rskit-fs = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-fs", default-features = false }
+rskit-git = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-git" }
+rskit-process = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-process" }
+rskit-validation = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-validation" }
+rskit-version = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-version" }
 notify = "8.2.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -33,24 +53,11 @@ tokio = { version = "1", features = ["rt", "signal"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 
 [dev-dependencies]
-rskit-testutil = { version = "0.1.0", path = "rskit/core/rskit-testutil" }
+rskit-testutil = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-testutil" }
 toml = "1.1"
 
-[lints.rust]
-unsafe_code = "forbid"
-missing_docs = "warn"
-unused_imports = "warn"
-unused_variables = "warn"
-unreachable_pub = "warn"
-
-[lints.clippy]
-all = { level = "warn", priority = -1 }
-pedantic = { level = "warn", priority = -1 }
-nursery = { level = "warn", priority = -1 }
-module_name_repetitions = "allow"
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
-must_use_candidate = "allow"
+[lints]
+workspace = true
 
 [profile.release]
 lto = true
