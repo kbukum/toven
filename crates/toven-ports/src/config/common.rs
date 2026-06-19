@@ -54,19 +54,7 @@ mod tests {
 
     #[test]
     fn flatten_round_trips_through_toml() {
-        let source = r#"
-manifests = ["Cargo.toml", "contrib/Cargo.toml"]
-run_strategy = "leaf-to-top"
-
-[release]
-strategy = "semver-cascade"
-registry = "crates-io"
-
-[tasks.test]
-argv = ["cargo", "nextest", "run", "{module.selector}", "{args}"]
-cache_args = true
-shared_inputs = ["rust-toolchain.toml"]
-"#;
+        let source = include_str!("../../tests/fixtures/config/ecosystems/rust/adapter.toml");
 
         let parsed: FakeAdapterConfig = toml::from_str(source).expect("parses");
         assert_eq!(parsed.manifests, ["Cargo.toml", "contrib/Cargo.toml"]);
@@ -89,7 +77,8 @@ shared_inputs = ["rust-toolchain.toml"]
     #[test]
     fn task_override_section_rejects_unknown_field() {
         // A leaf (non-flattened) section enforces its own strictness.
-        let error = toml::from_str::<CommonEcosystemConfig>("[tasks.test]\nbogus = 1\n")
+        let source = include_str!("../../tests/fixtures/config/invalid/unknown-task-field.toml");
+        let error = toml::from_str::<CommonEcosystemConfig>(source)
             .expect_err("unknown TaskOverride field must be rejected");
         assert!(error.to_string().contains("bogus"), "{error}");
     }
