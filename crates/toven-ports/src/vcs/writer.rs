@@ -13,9 +13,9 @@ pub trait VcsWriter {
     /// Create the single release commit; returns its object id.
     fn commit(&self, message: &str) -> AppResult<Oid>;
 
-    /// Create a tag at `target`. An empty `message` makes a lightweight tag;
-    /// otherwise an annotated tag.
-    fn create_tag(&self, name: &str, target: &str, message: &str) -> AppResult<()>;
+    /// Create a tag at `target`. `Some(message)` makes an annotated tag; `None`
+    /// makes a lightweight tag.
+    fn create_tag(&self, name: &str, target: &str, message: Option<&str>) -> AppResult<()>;
 
     /// Push the given refspecs (commit + tags); gated by `--no-push` upstream.
     fn push(&self, refspecs: &[String]) -> AppResult<()>;

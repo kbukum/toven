@@ -1,5 +1,6 @@
 //! Field-merge: resolve an adapter default [`Task`] against a user [`TaskOverride`].
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use crate::{
@@ -51,9 +52,16 @@ pub fn merge_task(default: &Task, over: &TaskOverride) -> Task {
 }
 
 /// Append every entry of `extra` not already present, preserving order.
+///
+/// Membership is tracked in a `HashSet` so the union stays linear in the total
+/// number of inputs rather than quadratic as `shared_inputs` grows.
 fn union_in_place(base: &mut Vec<String>, extra: &[String]) {
+    if extra.is_empty() {
+        return;
+    }
+    let mut seen: HashSet<String> = base.iter().cloned().collect();
     for input in extra {
-        if !base.contains(input) {
+        if seen.insert(input.clone()) {
             base.push(input.clone());
         }
     }

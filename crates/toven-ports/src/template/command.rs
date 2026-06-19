@@ -58,11 +58,18 @@ impl CommandTemplate {
     where
         F: FnMut(TaskVar) -> AppResult<String>,
     {
-        let selector = self
-            .selector
+        let needs_selector = self
+            .base
             .iter()
-            .map(|fragment| render_template(fragment, &mut resolve))
-            .collect::<AppResult<Vec<_>>>()?;
+            .any(|element| is_splice(element, TaskVar::ModuleSelector));
+        let selector = if needs_selector {
+            self.selector
+                .iter()
+                .map(|fragment| render_template(fragment, &mut resolve))
+                .collect::<AppResult<Vec<_>>>()?
+        } else {
+            Vec::new()
+        };
 
         let mut argv = Vec::with_capacity(self.base.len() + selector.len() + passthrough.len());
         for element in &self.base {
@@ -133,6 +140,28 @@ mod tests {
             TaskVar::ModuleManifest => "core/Cargo.toml".to_string(),
             other => other.token().to_string(),
         }
+    }
+
+    #[test]
+    fn selector_is_not_rendered_when_base_omits_the_splice() {
+        // A WholeWorkspace task never splices `{module.selector}`; rendering must
+        // skip the selector fragment entirely, so a selector placeholder that would
+        // fail to resolve does not abort the render.
+        let base = ["cargo".to_string(), "build".to_string()];
+        let selector = ["{module.package}".to_string()];
+
+        let command = CommandTemplate::parse(&base, &selector).expect("templates parse");
+        let argv = command
+            .render(&[], |var| match var {
+                TaskVar::ModulePackage => Err(rskit_errors::AppError::invalid_input(
+                    "module.package",
+                    "must not be resolved",
+                )),
+                other => Ok(resolve(other)),
+            })
+            .expect("renders without touching the selector");
+
+        assert_eq!(argv, vec!["cargo", "build"]);
     }
 
     #[test]

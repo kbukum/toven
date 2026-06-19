@@ -156,7 +156,7 @@ mod object_safety {
         fn commit(&self, _message: &str) -> AppResult<Oid> {
             Ok(Oid::new("deadbeef"))
         }
-        fn create_tag(&self, _name: &str, _target: &str, _message: &str) -> AppResult<()> {
+        fn create_tag(&self, _name: &str, _target: &str, _message: Option<&str>) -> AppResult<()> {
             Ok(())
         }
         fn push(&self, _refspecs: &[String]) -> AppResult<()> {
@@ -238,7 +238,7 @@ mod object_safety {
 
         // Exercise every VcsWriter method.
         assert_eq!(writer.commit("msg").expect("ok").as_str(), "deadbeef");
-        writer.create_tag("v1", "HEAD", "msg").expect("tags");
+        writer.create_tag("v1", "HEAD", Some("msg")).expect("tags");
         writer.push(&["refs/heads/main".into()]).expect("pushes");
         writer.restore_worktree().expect("restores");
     }
