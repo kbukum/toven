@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// The engine executes this in `workspace.root` (with a timeout + captured,
 /// capped output) and folds the trimmed stdout into
-/// [`ToolchainTag::version`](toven_model::ToolchainTag). The adapter owns what
+/// [`ToolchainTag::version`](toven_model::ToolchainTag::version). The adapter owns what
 /// counts as cache-significant; this type only carries the probe spec.
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub struct ToolchainProbe {
