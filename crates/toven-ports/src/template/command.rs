@@ -26,6 +26,12 @@ pub struct CommandTemplate {
 /// base argv element, never inside a literal or the selector fragment.
 const SPLICE_VARS: [TaskVar; 2] = [TaskVar::ModuleSelector, TaskVar::Args];
 
+/// Config field paths used as diagnostic context in parse/render errors, kept as
+/// named constants so the field a user must fix stays consistent across messages.
+const FIELD_ARGV: &str = "task.argv";
+const FIELD_SELECTOR: &str = "task.selector";
+const FIELD_TEMPLATE: &str = "task.template";
+
 impl CommandTemplate {
     /// Parse a base argv and selector fragment into typed templates.
     ///
@@ -86,11 +92,12 @@ impl CommandTemplate {
 }
 
 fn parse_base_element(element: &str) -> AppResult<Template<TaskVar>> {
-    let template = Template::parse(element, TaskVar::ALL).map_err(|error| to_app_error(&error))?;
+    let template =
+        Template::parse(element, TaskVar::ALL).map_err(|error| to_app_error(FIELD_ARGV, &error))?;
     for var in SPLICE_VARS {
         if template.contains(var) && !is_splice(&template, var) {
             return Err(AppError::invalid_input(
-                "task.argv",
+                FIELD_ARGV,
                 format!("'{{{var}}}' must be a standalone argv element, got '{element}'"),
             ));
         }
@@ -99,11 +106,12 @@ fn parse_base_element(element: &str) -> AppResult<Template<TaskVar>> {
 }
 
 fn parse_selector_element(element: &str) -> AppResult<Template<TaskVar>> {
-    let template = Template::parse(element, TaskVar::ALL).map_err(|error| to_app_error(&error))?;
+    let template = Template::parse(element, TaskVar::ALL)
+        .map_err(|error| to_app_error(FIELD_SELECTOR, &error))?;
     for var in SPLICE_VARS {
         if template.contains(var) {
             return Err(AppError::invalid_input(
-                "task.selector",
+                FIELD_SELECTOR,
                 format!("'{{{var}}}' cannot appear inside the selector fragment"),
             ));
         }
@@ -122,16 +130,16 @@ where
 {
     template
         .render_with(&mut *resolve)
-        .map_err(|error| to_app_error(&error))
+        .map_err(|error| to_app_error(FIELD_TEMPLATE, &error))
 }
 
-fn to_app_error(error: &rskit_util::template::TemplateError) -> AppError {
-    AppError::invalid_input("task.template", error.to_string())
+fn to_app_error(field: &'static str, error: &rskit_util::template::TemplateError) -> AppError {
+    AppError::invalid_input(field, error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{CommandTemplate, TaskVar};
+    use super::{CommandTemplate, FIELD_ARGV, FIELD_SELECTOR, TaskVar};
     use rskit_util::Placeholder;
 
     fn resolve(value: TaskVar) -> String {
@@ -154,7 +162,7 @@ mod tests {
         let argv = command
             .render(&[], |var| match var {
                 TaskVar::ModulePackage => Err(rskit_errors::AppError::invalid_input(
-                    "module.package",
+                    TaskVar::ModulePackage.token(),
                     "must not be resolved",
                 )),
                 other => Ok(resolve(other)),
@@ -168,7 +176,19 @@ mod tests {
     fn rejects_unknown_placeholder() {
         let error = CommandTemplate::parse(&["{module.bogus}".to_string()], &[])
             .expect_err("unknown placeholder must be rejected");
-        assert!(error.to_string().contains("module.bogus"), "{error}");
+        let message = error.to_string();
+        assert!(message.contains("module.bogus"), "{error}");
+        // Parse failures point at the actual config field, not a generic template error.
+        assert!(message.contains(FIELD_ARGV), "{error}");
+    }
+
+    #[test]
+    fn selector_parse_error_points_at_selector_field() {
+        let error = CommandTemplate::parse(&[], &["{module.bogus}".to_string()])
+            .expect_err("unknown placeholder in selector must be rejected");
+        let message = error.to_string();
+        assert!(message.contains("module.bogus"), "{error}");
+        assert!(message.contains(FIELD_SELECTOR), "{error}");
     }
 
     #[test]

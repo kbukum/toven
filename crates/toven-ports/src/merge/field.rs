@@ -54,19 +54,21 @@ pub fn merge_task(default: &Task, over: &TaskOverride) -> Task {
 /// Append every entry of `extra` not already present, preserving order.
 ///
 /// Membership is tracked in a `HashSet` of borrowed `&str` so the union stays
-/// linear in the total number of inputs and each new entry is cloned exactly
-/// once — only when it is actually appended to `base`.
+/// linear in the total number of inputs. Each new entry is cloned exactly once,
+/// only when it is appended to `base`; the borrow checker forbids pushing into
+/// `base` while `seen` still references its contents, so the new slices are
+/// gathered first and cloned in a single `extend`.
 fn union_in_place(base: &mut Vec<String>, extra: &[String]) {
     if extra.is_empty() {
         return;
     }
     let mut seen: HashSet<&str> = base.iter().map(String::as_str).collect();
-    let additions: Vec<String> = extra
+    let additions: Vec<&str> = extra
         .iter()
-        .filter(|input| seen.insert(input.as_str()))
-        .cloned()
+        .map(String::as_str)
+        .filter(|input| seen.insert(input))
         .collect();
-    base.extend(additions);
+    base.extend(additions.into_iter().map(str::to_owned));
 }
 
 #[cfg(test)]
