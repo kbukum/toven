@@ -11,10 +11,7 @@ Toven is pre-alpha and not yet published to crates.io. Security fixes target the
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in Toven, please report it **privately** using one of the following channels:
-
-1. **Preferred:** [GitHub Security Advisories](https://github.com/kbukum/toven/security/advisories/new) — opens a private disclosure thread visible only to maintainers.
-2. **Alternative:** email the maintainers (see [MAINTAINERS.md](MAINTAINERS.md)) with the subject prefix `[SECURITY]`.
+If you discover a security vulnerability in Toven, please report it **privately** through [GitHub Security Advisories](https://github.com/kbukum/toven/security/advisories/new), which opens a private disclosure thread visible only to maintainers.
 
 Do **not** open a public GitHub issue for security reports.
 
