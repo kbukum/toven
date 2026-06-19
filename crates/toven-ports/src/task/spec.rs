@@ -74,3 +74,40 @@ impl Task {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{DEFAULT_READINESS_TIMEOUT, FanOut, Readiness, Task, TaskKind, TaskOrigin};
+
+    #[test]
+    fn new_applies_sensible_defaults() {
+        let task = Task::new(
+            TaskKind::Build,
+            vec!["cargo".into(), "build".into()],
+            FanOut::WholeWorkspace,
+        );
+        assert_eq!(task.kind, TaskKind::Build);
+        assert_eq!(task.argv, vec!["cargo".to_string(), "build".to_string()]);
+        assert_eq!(task.fan_out, FanOut::WholeWorkspace);
+        assert_eq!(task.origin, TaskOrigin::AdapterDefault);
+        assert_eq!(task.readiness, Readiness::Started);
+        assert_eq!(task.readiness_timeout, DEFAULT_READINESS_TIMEOUT);
+        assert!(task.name.is_none());
+        assert!(task.selector.is_empty());
+        assert!(!task.cache_args);
+        assert!(task.shared_inputs.is_empty());
+        assert!(!task.persistent);
+    }
+
+    #[test]
+    fn round_trips_through_toml() {
+        let task = Task::new(
+            TaskKind::Test,
+            vec!["cargo".into(), "test".into()],
+            FanOut::PerModule,
+        );
+        let json = toml::to_string(&task).expect("serialize");
+        let back: Task = toml::from_str(&json).expect("deserialize");
+        assert_eq!(task, back);
+    }
+}

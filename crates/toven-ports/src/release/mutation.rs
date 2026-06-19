@@ -30,3 +30,17 @@ impl ReleaseMutation {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use rskit_version::semver::Version;
+
+    use super::ReleaseMutation;
+
+    #[test]
+    fn version_sets_new_version_and_no_dep_floors() {
+        let mutation = ReleaseMutation::version(Version::new(1, 2, 3));
+        assert_eq!(mutation.new_version, Some(Version::new(1, 2, 3)));
+        assert!(mutation.dep_floor_updates.is_empty());
+    }
+}

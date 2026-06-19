@@ -28,3 +28,17 @@ impl Artifact {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::Artifact;
+
+    #[test]
+    fn new_sets_path_and_empty_metadata() {
+        let artifact = Artifact::new("dist/pkg.crate");
+        assert_eq!(artifact.path, PathBuf::from("dist/pkg.crate"));
+        assert!(artifact.metadata.is_empty());
+    }
+}

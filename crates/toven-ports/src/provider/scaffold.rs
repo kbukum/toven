@@ -26,3 +26,19 @@ impl EcosystemFragment {
         Self { ecosystem, table }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use toml::Table;
+    use toven_model::EcosystemId;
+
+    use super::EcosystemFragment;
+
+    #[test]
+    fn new_carries_ecosystem_and_table() {
+        let ecosystem = EcosystemId::new("rust").expect("valid id");
+        let fragment = EcosystemFragment::new(ecosystem.clone(), Table::new());
+        assert_eq!(fragment.ecosystem, ecosystem);
+        assert!(fragment.table.is_empty());
+    }
+}

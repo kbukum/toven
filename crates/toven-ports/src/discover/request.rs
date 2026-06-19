@@ -45,3 +45,26 @@ pub struct DiscoverContext {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub module_filter: Vec<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use toven_model::AbsPath;
+
+    use super::{DISCOVERY_SCHEMA_VERSION, DiscoverContext, DiscoverRequest};
+
+    #[test]
+    fn new_stamps_current_schema_and_empty_context() {
+        let request = DiscoverRequest::new(AbsPath::new("/repo").expect("absolute"));
+        assert_eq!(request.schema_version, DISCOVERY_SCHEMA_VERSION);
+        assert_eq!(request.context, DiscoverContext::default());
+        assert!(request.context.module_filter.is_empty());
+    }
+
+    #[test]
+    fn round_trips_through_toml() {
+        let request = DiscoverRequest::new(AbsPath::new("/repo").expect("absolute"));
+        let json = toml::to_string(&request).expect("serialize");
+        let back: DiscoverRequest = toml::from_str(&json).expect("deserialize");
+        assert_eq!(request, back);
+    }
+}

@@ -42,3 +42,29 @@ impl TagRef {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Oid, TagRef};
+
+    #[test]
+    fn oid_borrows_inner_string() {
+        let oid = Oid::new("deadbeef");
+        assert_eq!(oid.as_str(), "deadbeef");
+    }
+
+    #[test]
+    fn tag_ref_carries_name_and_target() {
+        let tag = TagRef::new("rust:errors@1.2.0", Oid::new("cafe"));
+        assert_eq!(tag.name, "rust:errors@1.2.0");
+        assert_eq!(tag.target.as_str(), "cafe");
+    }
+
+    #[test]
+    fn round_trips_through_toml() {
+        let tag = TagRef::new("rust:errors@1.2.0", Oid::new("cafe"));
+        let json = toml::to_string(&tag).expect("serialize");
+        let back: TagRef = toml::from_str(&json).expect("deserialize");
+        assert_eq!(tag, back);
+    }
+}

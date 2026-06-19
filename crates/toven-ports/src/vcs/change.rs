@@ -53,3 +53,32 @@ impl ChangeRecord {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::{ChangeRecord, ChangeStatus};
+
+    #[test]
+    fn new_has_no_old_path() {
+        let record = ChangeRecord::new("src/lib.rs", ChangeStatus::Modified);
+        assert_eq!(record.path, PathBuf::from("src/lib.rs"));
+        assert_eq!(record.status, ChangeStatus::Modified);
+        assert!(record.old_path.is_none());
+    }
+
+    #[test]
+    fn with_old_path_attaches_previous_path() {
+        let record = ChangeRecord::new("new.rs", ChangeStatus::Renamed).with_old_path("old.rs");
+        assert_eq!(record.old_path, Some(PathBuf::from("old.rs")));
+    }
+
+    #[test]
+    fn round_trips_through_toml() {
+        let record = ChangeRecord::new("new.rs", ChangeStatus::Renamed).with_old_path("old.rs");
+        let json = toml::to_string(&record).expect("serialize");
+        let back: ChangeRecord = toml::from_str(&json).expect("deserialize");
+        assert_eq!(record, back);
+    }
+}

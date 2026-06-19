@@ -31,3 +31,24 @@ impl ToolchainProbe {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ToolchainProbe;
+
+    #[test]
+    fn new_captures_label_program_and_args() {
+        let probe = ToolchainProbe::new("cargo", "cargo", vec!["--version".into()]);
+        assert_eq!(probe.label, "cargo");
+        assert_eq!(probe.program, "cargo");
+        assert_eq!(probe.args, vec!["--version".to_string()]);
+    }
+
+    #[test]
+    fn round_trips_through_toml() {
+        let probe = ToolchainProbe::new("cargo", "cargo", vec!["--version".into()]);
+        let json = toml::to_string(&probe).expect("serialize");
+        let back: ToolchainProbe = toml::from_str(&json).expect("deserialize");
+        assert_eq!(probe, back);
+    }
+}

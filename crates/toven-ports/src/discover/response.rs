@@ -45,3 +45,28 @@ impl DiscoverResponse {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use toven_model::EcosystemId;
+
+    use super::{DISCOVERY_SCHEMA_VERSION, DiscoverResponse};
+
+    #[test]
+    fn new_is_empty_and_schema_stamped() {
+        let response = DiscoverResponse::new(EcosystemId::new("rust").expect("valid id"));
+        assert_eq!(response.schema_version, DISCOVERY_SCHEMA_VERSION);
+        assert!(response.workspaces.is_empty());
+        assert!(response.modules.is_empty());
+        assert!(response.edges.is_empty());
+        assert!(response.warnings.is_empty());
+    }
+
+    #[test]
+    fn round_trips_through_toml() {
+        let response = DiscoverResponse::new(EcosystemId::new("rust").expect("valid id"));
+        let json = toml::to_string(&response).expect("serialize");
+        let back: DiscoverResponse = toml::from_str(&json).expect("deserialize");
+        assert_eq!(response, back);
+    }
+}

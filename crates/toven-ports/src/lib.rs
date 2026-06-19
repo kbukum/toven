@@ -60,7 +60,7 @@ mod object_safety {
     use rskit_errors::AppResult;
     use rskit_version::semver::Version;
     use toml::Table;
-    use toven_model::{EcosystemId, Event, Module};
+    use toven_model::{AbsPath, EcosystemId, Event, Module, ModuleRef, RepoPath};
 
     use super::*;
 
@@ -169,20 +169,77 @@ mod object_safety {
 
     #[test]
     fn port_traits_are_object_safe() {
-        let _reporter: Box<dyn Reporter> = Box::new(FakeReporter);
-        let _release: Box<dyn ReleaseTarget> = Box::new(FakeReleaseTarget);
+        let mut reporter: Box<dyn Reporter> = Box::new(FakeReporter);
+        let release: Box<dyn ReleaseTarget> = Box::new(FakeReleaseTarget);
         let reader: Box<dyn VcsReader> = Box::new(FakeVcs);
-        let _writer: Box<dyn VcsWriter> = Box::new(FakeVcs);
+        let writer: Box<dyn VcsWriter> = Box::new(FakeVcs);
         let provider: Box<dyn Provider> =
             Box::new(FakeProvider(EcosystemId::new("rust").expect("valid id")));
 
+        // Exercise every Provider method.
+        assert_eq!(provider.ecosystem_id().as_str(), "rust");
+        assert!(
+            provider
+                .scaffold(Path::new("."))
+                .expect("scaffolds")
+                .is_some()
+        );
         let configured = provider
             .configure(toml::Value::Table(Table::new()))
             .expect("configures");
+
+        // Exercise every ConfiguredAdapter method.
+        let module = Module::new(
+            ModuleRef::new(EcosystemId::new("rust").expect("valid id"), "fake").expect("valid ref"),
+            RepoPath::new("crates/fake").expect("valid path"),
+        );
+        let request = DiscoverRequest::new(AbsPath::new("/repo").expect("valid path"));
+        let response = configured.discover(&request).expect("discovers");
+        assert_eq!(response.schema_version, request.schema_version);
+        assert!(configured.default_tasks().is_empty());
+        assert_eq!(configured.toolchain_probe().label, "cargo");
         assert_eq!(
             configured.run_strategy_default(&TaskKind::Build),
             RunStrategy::LeafToTop
         );
+        assert_eq!(configured.common(), &CommonEcosystemConfig::default());
+
+        // Exercise every ReleaseTarget method (directly and via the adapter seam).
+        let target = configured.release_target().expect("ok").expect("present");
+        assert_eq!(target.declared_version(&module).expect("ok").minor, 1);
+        assert!(target.published_versions(&module).expect("ok").is_empty());
+        let artifact = target.package(&module).expect("packages");
+        target
+            .apply_release(&module, &ReleaseMutation::version(Version::new(1, 0, 0)))
+            .expect("applies");
+        assert_eq!(
+            target.publish(&module, &artifact).expect("publishes"),
+            PublishOutcome::Published
+        );
+        let direct_artifact = release.package(&module).expect("packages");
+        assert_eq!(direct_artifact.path, artifact.path);
+
+        // Exercise the Reporter port.
+        reporter
+            .emit(&Event::PlanPrepared { waves: 0, units: 0 })
+            .expect("emits without error");
+
+        // Exercise every VcsReader method.
+        assert_eq!(reader.rev_parse("HEAD").expect("ok").as_str(), "deadbeef");
+        assert_eq!(
+            reader.merge_base("a", "b").expect("ok").as_str(),
+            "deadbeef"
+        );
+        assert!(reader.list_tags(None).expect("ok").is_empty());
+        let spec = BaselineSpec::explicit("main");
+        assert!(reader.changed_since(&spec).expect("ok").is_empty());
+        assert!(reader.worktree_status().expect("ok").is_empty());
         assert!(!reader.is_ignored(Path::new("target")).expect("ignored"));
+
+        // Exercise every VcsWriter method.
+        assert_eq!(writer.commit("msg").expect("ok").as_str(), "deadbeef");
+        writer.create_tag("v1", "HEAD", "msg").expect("tags");
+        writer.push(&["refs/heads/main".into()]).expect("pushes");
+        writer.restore_worktree().expect("restores");
     }
 }

@@ -45,3 +45,30 @@ impl BaselineSpec {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{BaselineMode, BaselineSpec};
+
+    #[test]
+    fn explicit_uses_explicit_mode() {
+        let spec = BaselineSpec::explicit("main");
+        assert_eq!(spec.reference, "main");
+        assert_eq!(spec.mode, BaselineMode::Explicit);
+    }
+
+    #[test]
+    fn merge_base_uses_merge_base_mode() {
+        let spec = BaselineSpec::merge_base("origin/main");
+        assert_eq!(spec.reference, "origin/main");
+        assert_eq!(spec.mode, BaselineMode::MergeBase);
+    }
+
+    #[test]
+    fn round_trips_through_toml() {
+        let spec = BaselineSpec::merge_base("origin/main");
+        let json = toml::to_string(&spec).expect("serialize");
+        let back: BaselineSpec = toml::from_str(&json).expect("deserialize");
+        assert_eq!(spec, back);
+    }
+}
