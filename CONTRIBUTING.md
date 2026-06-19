@@ -1,14 +1,22 @@
 # Contributing to Toven
 
-Toven follows Conventional Commits, small reviewable pull requests, and quality
-gates that stay close to the implementation phase being changed.
+Thanks for your interest in Toven. Toven follows Conventional Commits, small reviewable pull requests, and quality gates that stay close to the implementation area being changed.
 
-By participating, you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+By participating, you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md). Security issues follow [SECURITY.md](SECURITY.md), not public issues.
+
+## Project status
+
+Toven is **pre-alpha** and mid-redesign into a hexagonal `crates/*` (+ future `apps/*`) stack on top of the [rskit](https://github.com/kbukum/rskit) foundation framework. Toven and rskit are both pre-stable: backward compatibility is not a goal yet, so prefer clean redesigns over compatibility shims. See [GOVERNANCE.md](GOVERNANCE.md) for how decisions are made.
 
 ## Local setup
 
-Install the Rust toolchain from `rust-toolchain.toml`, then install the local
-tools used by the supply-chain and coverage gates:
+Toven vendors rskit as a git submodule, so initialize submodules before building:
+
+```bash
+git submodule update --init --recursive
+```
+
+Install the toolchain pinned in `rust-toolchain.toml`, then the local tools used by the supply-chain and coverage gates:
 
 ```bash
 cargo install cargo-deny --locked --version 0.19.0
@@ -22,22 +30,13 @@ make check
 make coverage
 ```
 
-`make check` runs formatting, clippy, workspace tests, docs,
-dependency/license audit, the `mod.rs`/structure guard, and a release build.
-`make coverage` enforces the current coverage threshold. `make release-artifacts`
-stages a source archive and checksum manifest without publishing.
+`make check` runs formatting, clippy, workspace tests, docs, the dependency/license audit, the `mod.rs`/structure guard, and a release build. `make coverage` enforces the current coverage threshold. `make release-artifacts` stages a source archive and checksum manifest without publishing.
 
-The binary-level smoke and benchmark harnesses return alongside the CLI apps
-later in the workspace redesign.
+Run the checks that match the files you changed before opening a pull request; prefer targeted checks for the changed crate. Broader gates run in CI.
 
-Run the checks that match the files you changed before opening a pull request.
-Broader gates run in CI as implementation branches add the corresponding
-workflow coverage.
+### Local CI parity
 
-## Local CI parity
-
-Use `nektos/act` for pull request workflow parity where GitHub-hosted services
-are not required:
+Use [`nektos/act`](https://github.com/nektos/act) for pull request workflow parity where GitHub-hosted services are not required:
 
 ```bash
 make act-ci
@@ -45,20 +44,39 @@ make act-supply-chain
 make act-release-readiness
 ```
 
-CodeQL, artifact signing, and provenance attestations remain GitHub-hosted
-validation paths; the local substitutes are `make check`, `make coverage`, and
-`make release-artifacts`.
+CodeQL, artifact signing, and provenance attestations remain GitHub-hosted validation paths; the local substitutes are `make check`, `make coverage`, and `make release-artifacts`.
+
+## Workspace layout
+
+One Cargo workspace (`members = ["crates/*"]`, `exclude = ["rskit"]`), with layers depending downward only:
+
+- `crates/toven-model` — pure vocabulary (identity, dependency graph, plan, event types) plus graph algorithms; the dependency root.
+- `crates/toven-ports` — hexagonal port traits and helpers (template, merge, config).
+- `crates/toven-testkit` — dev-only (`publish = false`) shared test surface: fixtures API, port doubles, sample-repo/git scenario helpers.
+
+The vendored `rskit/` submodule is a separate workspace consumed via path deps.
+
+## Code conventions
+
+- `cargo fmt` (edition 2024, `max_width = 100`) and `cargo clippy` (`all`/`pedantic`/`nursery` warn) must be clean.
+- `unsafe_code = "forbid"` and `missing_docs = "warn"` apply workspace-wide; document public items with `///`.
+- `#[must_use]` on `with_*` builder methods; `#[non_exhaustive]` on public enums that may grow.
+- No `unwrap()` / `expect()` in library code (tests are fine); surface typed `AppError` / `AppResult` and preserve the cause.
+- Libraries never print — only the CLI/reporting layer produces user-facing output.
+- Reuse or enhance the canonical rskit owner for shared concerns (errors, config, validation, filesystem, git) instead of forking a Toven-specific copy. If rskit is missing something, improve it generically.
+
+## Testing
+
+- Tests are behavioral and deterministic, with no real network access.
+- Use `toven-testkit` fixtures and declarative case files instead of embedding large config/TOML strings in tests.
+- Cover failure paths and add a regression test for every fix.
 
 ## Commit style
 
-Use Conventional Commits such as `feat: add scheduler model`,
-`fix: reject invalid selector macros`, and `docs: explain cache keys`.
+Use Conventional Commits, such as `feat: add scheduler model`, `fix: reject invalid selector macros`, and `docs: explain cache keys`.
 
 ## Pull requests
 
-Keep pull requests focused on one reviewable step. Describe the user-visible or
-architectural change at a high level, and list validation evidence rather than
-restating every changed file.
+Keep pull requests focused on one reviewable step. Use the [pull request template](.github/PULL_REQUEST_TEMPLATE.md): describe the user-visible or architectural change with a high-level, itemized summary, and list the validation evidence rather than restating every changed file (GitHub already shows that in the Files changed tab).
 
-For significant design changes, open a discussion or issue before implementation
-so maintainers can align on the direction early.
+For significant design changes, open a discussion or issue before implementation so maintainers can align on direction early.

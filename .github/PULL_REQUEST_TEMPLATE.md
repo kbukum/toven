@@ -8,16 +8,24 @@ that in the Files changed tab.
 
 ## Summary
 
-<!-- What does this PR change, and why is it the right next step? -->
+<!--
+A few high-level bullet points: what this PR changes and why it is the right
+next step. Keep it itemized and easy to scan; do not restate the file list.
+-->
+
+-
+-
 
 ## Review context
 
 <!--
-Help reviewers and automated review tools understand the shape of the change:
-the problem being solved, important design choices, and anything intentionally
-left for a follow-up PR.
+A short itemized list to help reviewers and automated review tools understand
+the shape of the change: the problem being solved, important design choices, and
+anything intentionally left for a follow-up PR.
 -->
 
+-
+-
 ## Type of change
 
 <!-- Mark every relevant option with an "x". -->

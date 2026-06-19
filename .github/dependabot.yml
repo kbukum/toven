@@ -1,0 +1,59 @@
+version: 2
+updates:
+  # ── GitHub Actions ──────────────────────────────────────────────────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "09:00"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "ci"
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # ── Cargo (single workspace at the repo root) ───────────────────────────────
+  # Toven is one Cargo workspace (members = ["crates/*"]) with a committed
+  # Cargo.lock. The vendored rskit submodule is excluded from the workspace and
+  # carries its own lockfile/Dependabot config, so it is intentionally not
+  # updated from here.
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "09:00"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "rust"
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 3
+      semver-major-days: 14
+      semver-minor-days: 7
+    groups:
+      serde:
+        patterns:
+          - "serde"
+          - "serde_*"
+      tooling:
+        patterns:
+          - "clippy"
+          - "rustfmt"
+          - "cargo-deny"
+          - "cargo-llvm-cov"
+      # Security updates always ship in their own PR (fast lane).
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
