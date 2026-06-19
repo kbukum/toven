@@ -30,7 +30,6 @@ const SPLICE_VARS: [TaskVar; 2] = [TaskVar::ModuleSelector, TaskVar::Args];
 /// named constants so the field a user must fix stays consistent across messages.
 const FIELD_ARGV: &str = "task.argv";
 const FIELD_SELECTOR: &str = "task.selector";
-const FIELD_TEMPLATE: &str = "task.template";
 
 impl CommandTemplate {
     /// Parse a base argv and selector fragment into typed templates.
@@ -71,7 +70,7 @@ impl CommandTemplate {
         let selector = if needs_selector {
             self.selector
                 .iter()
-                .map(|fragment| render_template(fragment, &mut resolve))
+                .map(|fragment| render_template(FIELD_SELECTOR, fragment, &mut resolve))
                 .collect::<AppResult<Vec<_>>>()?
         } else {
             Vec::new()
@@ -84,7 +83,7 @@ impl CommandTemplate {
             } else if is_splice(element, TaskVar::Args) {
                 argv.extend(passthrough.iter().cloned());
             } else {
-                argv.push(render_template(element, &mut resolve)?);
+                argv.push(render_template(FIELD_ARGV, element, &mut resolve)?);
             }
         }
         Ok(argv)
@@ -124,13 +123,17 @@ fn is_splice(template: &Template<TaskVar>, var: TaskVar) -> bool {
     matches!(template.parts(), [TemplatePart::Placeholder(p)] if *p == var)
 }
 
-fn render_template<F>(template: &Template<TaskVar>, resolve: &mut F) -> AppResult<String>
+fn render_template<F>(
+    field: &'static str,
+    template: &Template<TaskVar>,
+    resolve: &mut F,
+) -> AppResult<String>
 where
     F: FnMut(TaskVar) -> AppResult<String>,
 {
     template
         .render_with(&mut *resolve)
-        .map_err(|error| to_app_error(FIELD_TEMPLATE, &error))
+        .map_err(|error| to_app_error(field, &error))
 }
 
 fn to_app_error(field: &'static str, error: &rskit_util::template::TemplateError) -> AppError {
@@ -170,6 +173,42 @@ mod tests {
             .expect("renders without touching the selector");
 
         assert_eq!(argv, vec!["cargo", "build"]);
+    }
+
+    #[test]
+    fn render_error_in_base_points_at_argv_field() {
+        // `{module.package}` resolves with an error while rendering the base argv.
+        let base = ["cargo".to_string(), "{module.package}".to_string()];
+        let command = CommandTemplate::parse(&base, &[]).expect("templates parse");
+        let error = command
+            .render(&[], |var| match var {
+                TaskVar::ModulePackage => Err(rskit_errors::AppError::invalid_input(
+                    TaskVar::ModulePackage.token(),
+                    "boom",
+                )),
+                other => Ok(resolve(other)),
+            })
+            .expect_err("render failure must propagate");
+        assert!(error.to_string().contains(FIELD_ARGV), "{error}");
+    }
+
+    #[test]
+    fn render_error_in_selector_points_at_selector_field() {
+        // The base splices the selector, so a selector render failure must surface
+        // as a `task.selector` error, not the base argv field.
+        let base = ["cargo".to_string(), "{module.selector}".to_string()];
+        let selector = ["{module.package}".to_string()];
+        let command = CommandTemplate::parse(&base, &selector).expect("templates parse");
+        let error = command
+            .render(&[], |var| match var {
+                TaskVar::ModulePackage => Err(rskit_errors::AppError::invalid_input(
+                    TaskVar::ModulePackage.token(),
+                    "boom",
+                )),
+                other => Ok(resolve(other)),
+            })
+            .expect_err("render failure must propagate");
+        assert!(error.to_string().contains(FIELD_SELECTOR), "{error}");
     }
 
     #[test]
