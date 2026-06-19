@@ -6,6 +6,7 @@ Toven is pre-alpha and not yet published to crates.io. Security fixes target the
 
 | Version | Supported |
 |---------|-----------|
+| `main` (development branch) | :white_check_mark: |
 | `0.1.x-alpha` (latest prerelease) | :white_check_mark: |
 | Older prereleases | :x: |
 
