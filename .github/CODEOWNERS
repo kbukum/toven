@@ -1,0 +1,36 @@
+# CODEOWNERS
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Each line is a file pattern followed by one or more owners (GitHub usernames or
+# team names). Owners are automatically requested for review when a pull request
+# modifies files matching the pattern. Later matches take precedence.
+
+# Global owner (applies to everything unless overridden)
+*                       @kbukum
+
+# Workspace crates (hexagonal stack)
+/crates/                @kbukum
+
+# Vendored rskit submodule (upstream-owned; changes land in kbukum/rskit)
+/rskit/                 @kbukum
+
+# Build, tooling, CI, and release infrastructure
+/.github/               @kbukum
+/Makefile               @kbukum
+/Cargo.toml             @kbukum
+/Cargo.lock             @kbukum
+/deny.toml              @kbukum
+/clippy.toml            @kbukum
+/rustfmt.toml           @kbukum
+/rust-toolchain.toml    @kbukum
+/scripts/               @kbukum
+
+# Documentation and community files
+/docs/                  @kbukum
+/README.md              @kbukum
+/CONTRIBUTING.md        @kbukum
+/CHANGELOG.md           @kbukum
+/SECURITY.md            @kbukum
+/GOVERNANCE.md          @kbukum
+/MAINTAINERS.md         @kbukum
+/CODE_OF_CONDUCT.md     @kbukum

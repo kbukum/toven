@@ -1,0 +1,9 @@
+# https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository
+blank_issues_enabled: false
+contact_links:
+  - name: Question or discussion
+    url: https://github.com/kbukum/toven/discussions
+    about: Ask a question, propose a design, or share usage patterns.
+  - name: Security vulnerability
+    url: https://github.com/kbukum/toven/security/advisories/new
+    about: Report security issues privately via GitHub Security Advisories. Do NOT open a public issue.
