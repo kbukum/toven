@@ -156,7 +156,12 @@ mod object_safety {
         fn commit(&self, _message: &str) -> AppResult<Oid> {
             Ok(Oid::new("deadbeef"))
         }
-        fn create_tag(&self, _name: &str, _target: &str, _message: Option<&str>) -> AppResult<()> {
+        fn create_tag(
+            &self,
+            _name: &str,
+            _target_rev: &str,
+            _message: Option<&str>,
+        ) -> AppResult<()> {
             Ok(())
         }
         fn push(&self, _refspecs: &[String]) -> AppResult<()> {

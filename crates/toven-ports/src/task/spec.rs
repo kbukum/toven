@@ -106,8 +106,8 @@ mod tests {
             vec!["cargo".into(), "test".into()],
             FanOut::PerModule,
         );
-        let json = toml::to_string(&task).expect("serialize");
-        let back: Task = toml::from_str(&json).expect("deserialize");
+        let serialized = toml::to_string(&task).expect("serialize");
+        let back: Task = toml::from_str(&serialized).expect("deserialize");
         assert_eq!(task, back);
     }
 }

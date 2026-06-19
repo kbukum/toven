@@ -77,8 +77,8 @@ mod tests {
     #[test]
     fn round_trips_through_toml() {
         let record = ChangeRecord::new("new.rs", ChangeStatus::Renamed).with_old_path("old.rs");
-        let json = toml::to_string(&record).expect("serialize");
-        let back: ChangeRecord = toml::from_str(&json).expect("deserialize");
+        let serialized = toml::to_string(&record).expect("serialize");
+        let back: ChangeRecord = toml::from_str(&serialized).expect("deserialize");
         assert_eq!(record, back);
     }
 }

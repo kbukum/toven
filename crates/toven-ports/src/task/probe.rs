@@ -47,8 +47,8 @@ mod tests {
     #[test]
     fn round_trips_through_toml() {
         let probe = ToolchainProbe::new("cargo", "cargo", vec!["--version".into()]);
-        let json = toml::to_string(&probe).expect("serialize");
-        let back: ToolchainProbe = toml::from_str(&json).expect("deserialize");
+        let serialized = toml::to_string(&probe).expect("serialize");
+        let back: ToolchainProbe = toml::from_str(&serialized).expect("deserialize");
         assert_eq!(probe, back);
     }
 }

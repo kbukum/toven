@@ -63,8 +63,8 @@ mod tests {
     #[test]
     fn round_trips_through_toml() {
         let tag = TagRef::new("rust-errors@1.2.0", Oid::new("cafe"));
-        let json = toml::to_string(&tag).expect("serialize");
-        let back: TagRef = toml::from_str(&json).expect("deserialize");
+        let serialized = toml::to_string(&tag).expect("serialize");
+        let back: TagRef = toml::from_str(&serialized).expect("deserialize");
         assert_eq!(tag, back);
     }
 }

@@ -63,8 +63,8 @@ mod tests {
     #[test]
     fn round_trips_through_toml() {
         let request = DiscoverRequest::new(AbsPath::new("/repo").expect("absolute"));
-        let json = toml::to_string(&request).expect("serialize");
-        let back: DiscoverRequest = toml::from_str(&json).expect("deserialize");
+        let serialized = toml::to_string(&request).expect("serialize");
+        let back: DiscoverRequest = toml::from_str(&serialized).expect("deserialize");
         assert_eq!(request, back);
     }
 }

@@ -65,8 +65,8 @@ mod tests {
     #[test]
     fn round_trips_through_toml() {
         let response = DiscoverResponse::new(EcosystemId::new("rust").expect("valid id"));
-        let json = toml::to_string(&response).expect("serialize");
-        let back: DiscoverResponse = toml::from_str(&json).expect("deserialize");
+        let serialized = toml::to_string(&response).expect("serialize");
+        let back: DiscoverResponse = toml::from_str(&serialized).expect("deserialize");
         assert_eq!(response, back);
     }
 }

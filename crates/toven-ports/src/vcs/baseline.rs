@@ -67,8 +67,8 @@ mod tests {
     #[test]
     fn round_trips_through_toml() {
         let spec = BaselineSpec::merge_base("origin/main");
-        let json = toml::to_string(&spec).expect("serialize");
-        let back: BaselineSpec = toml::from_str(&json).expect("deserialize");
+        let serialized = toml::to_string(&spec).expect("serialize");
+        let back: BaselineSpec = toml::from_str(&serialized).expect("deserialize");
         assert_eq!(spec, back);
     }
 }
