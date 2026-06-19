@@ -51,24 +51,23 @@ pub fn merge_task(default: &Task, over: &TaskOverride) -> Task {
     merged
 }
 
-/// Append every entry of `extra` not already present, preserving order.
+/// Replace `base` with the de-duplicated union of `base` then `extra`,
+/// preserving first-occurrence order across both.
 ///
 /// Membership is tracked in a `HashSet` of borrowed `&str` so the union stays
-/// linear in the total number of inputs. Each new entry is cloned exactly once,
-/// only when it is appended to `base`; the borrow checker forbids pushing into
-/// `base` while `seen` still references its contents, so the new slices are
-/// gathered first and cloned in a single `extend`.
+/// linear in the total number of inputs. The result drops duplicates already
+/// present within `base` as well as any `extra` entry that repeats one, so the
+/// merged `shared_inputs` truly has no duplicates regardless of source. Each
+/// kept entry is cloned exactly once into the rebuilt vector.
 fn union_in_place(base: &mut Vec<String>, extra: &[String]) {
-    if extra.is_empty() {
-        return;
+    let mut seen: HashSet<&str> = HashSet::with_capacity(base.len() + extra.len());
+    let mut union: Vec<String> = Vec::with_capacity(base.len() + extra.len());
+    for input in base.iter().chain(extra) {
+        if seen.insert(input.as_str()) {
+            union.push(input.clone());
+        }
     }
-    let mut seen: HashSet<&str> = base.iter().map(String::as_str).collect();
-    let additions: Vec<&str> = extra
-        .iter()
-        .map(String::as_str)
-        .filter(|input| seen.insert(input))
-        .collect();
-    base.extend(additions.into_iter().map(str::to_owned));
+    *base = union;
 }
 
 #[cfg(test)]
@@ -117,6 +116,20 @@ mod tests {
         };
 
         let merged = merge_task(&default_test_task(), &over);
+
+        assert_eq!(merged.shared_inputs, ["Cargo.lock", "build.rs"]);
+    }
+
+    #[test]
+    fn shared_inputs_union_drops_duplicates_already_in_the_default() {
+        let mut default = default_test_task();
+        default.shared_inputs = vec!["Cargo.lock".into(), "Cargo.lock".into()];
+        let over = TaskOverride {
+            shared_inputs: vec!["Cargo.lock".into(), "build.rs".into()],
+            ..TaskOverride::default()
+        };
+
+        let merged = merge_task(&default, &over);
 
         assert_eq!(merged.shared_inputs, ["Cargo.lock", "build.rs"]);
     }
