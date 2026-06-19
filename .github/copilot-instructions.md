@@ -41,7 +41,7 @@ Prefer validating only the changed modules/crates unless a broader gate is clear
 
 One Cargo workspace (`members = ["crates/*"]`, `exclude = ["rskit"]`). Layers depend downward only:
 
-- `crates/toven-model` — pure vocabulary: identity, dependency graph, plan, and event types plus graph algorithms. The dependency root; depends only on rskit.
+- `crates/toven-model` — pure vocabulary: identity, dependency graph, plan, and event types plus graph algorithms. The dependency root; it depends on no other Toven crate (only rskit and third-party crates such as `serde`).
 - `crates/toven-ports` — hexagonal port traits (Provider/ConfiguredAdapter, ReleaseTarget, Reporter, VcsReader/VcsWriter) and helpers (template, merge, config). Depends on `toven-model` + rskit.
 - `crates/toven-testkit` — dev-only (`publish = false`) shared test surface: fixtures API, port doubles, sample-repo/git scenario helpers. Tests use it instead of inline TOML.
 
