@@ -1,16 +1,13 @@
 <!--
 Thank you for contributing to Toven.
 
-Keep the description reviewer-focused: explain the intent, behavior, and review
-focus at a high level. Do not restate the full file list; GitHub already shows
-that in the Files changed tab.
+Keep the description reviewer-focused: explain the intent, behavior, and review focus at a high level. Do not restate the full file list; GitHub already shows that in the Files changed tab.
 -->
 
 ## Summary
 
 <!--
-A few high-level bullet points: what this PR changes and why it is the right
-next step. Keep it itemized and easy to scan; do not restate the file list.
+A few high-level bullet points: what this PR changes and why it is the right next step. Keep it itemized and easy to scan; do not restate the file list.
 -->
 
 -
@@ -19,13 +16,12 @@ next step. Keep it itemized and easy to scan; do not restate the file list.
 ## Review context
 
 <!--
-A short itemized list to help reviewers and automated review tools understand
-the shape of the change: the problem being solved, important design choices, and
-anything intentionally left for a follow-up PR.
+A short itemized list to help reviewers and automated review tools understand the shape of the change: the problem being solved, important design choices, and anything intentionally left for a follow-up PR.
 -->
 
 -
 -
+
 ## Type of change
 
 <!-- Mark every relevant option with an "x". -->
@@ -47,8 +43,7 @@ anything intentionally left for a follow-up PR.
 ## Risk and rollout
 
 <!--
-Call out compatibility impact, migration notes, operational risk, or why there
-is no user-visible risk.
+Call out compatibility impact, migration notes, operational risk, or why there is no user-visible risk.
 -->
 
 ## Checklist

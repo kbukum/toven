@@ -12,7 +12,7 @@
 /crates/                @kbukum
 
 # Vendored rskit submodule (upstream-owned; changes land in kbukum/rskit)
-/rskit                  @kbukum
+/rskit/                 @kbukum
 
 # Build, tooling, CI, and release infrastructure
 /.github/               @kbukum
