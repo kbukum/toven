@@ -1,0 +1,7 @@
+# Rejected: `bogus` is not a legal top-level key
+# ([project] · [toven] · [ecosystems.*] · [groups.*] · [[overlays]]).
+[project]
+name = "broken"
+
+[bogus]
+oops = true

@@ -1,0 +1,23 @@
+[package]
+name = "toven-testkit"
+description = "Toven shared test support: fixtures, port doubles, sample-repo harness (dev-only, never shipped)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+toven-model.workspace = true
+toven-ports.workspace = true
+rskit-errors.workspace = true
+rskit-fs.workspace = true
+rskit-git.workspace = true
+rskit-testutil.workspace = true
+rskit-version.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true

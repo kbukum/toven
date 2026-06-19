@@ -1,0 +1,4 @@
+# Standalone cargo workspace fixture (self-contained: own [workspace] root).
+[workspace]
+resolver = "2"
+members = ["core/errors"]
