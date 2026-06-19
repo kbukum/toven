@@ -227,7 +227,10 @@ mod tests {
     #[test]
     fn reader_returns_scripted_changes() {
         let reader = FakeVcsReader::new()
-            .with_changed_since(vec![ChangeRecord::new("src/lib.rs", ChangeStatus::Modified)])
+            .with_changed_since(vec![ChangeRecord::new(
+                "src/lib.rs",
+                ChangeStatus::Modified,
+            )])
             .with_ignored(vec![PathBuf::from("target")]);
 
         let changed = reader

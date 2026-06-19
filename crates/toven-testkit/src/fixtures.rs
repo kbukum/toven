@@ -11,13 +11,14 @@ use std::path::{Path, PathBuf};
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::{safe_join, sync_io::dir, sync_io::file};
 
-/// The shared fixture root, captured at this crate's compile time.
-pub const FIXTURES_ROOT: &str = env!("CARGO_MANIFEST_DIR");
+/// Absolute path to this crate's shared `fixtures/` directory, captured at
+/// compile time.
+pub const FIXTURES_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures");
 
 /// Absolute path to the shared `fixtures/` directory.
 #[must_use]
 pub fn root() -> PathBuf {
-    Path::new(FIXTURES_ROOT).join("fixtures")
+    PathBuf::from(FIXTURES_ROOT)
 }
 
 /// Resolve a safe path under the shared fixtures root.

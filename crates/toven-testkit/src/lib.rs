@@ -42,7 +42,9 @@ pub use doubles::{
     FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, FakeVcsWriter,
     RecordingReporter,
 };
-pub use fixtures::{FIXTURES_ROOT, document, document_string, ecosystem, ecosystem_string, repo_path};
+pub use fixtures::{
+    FIXTURES_ROOT, document, document_string, ecosystem, ecosystem_string, repo_path,
+};
 pub use repo::SampleRepo;
 pub use rskit_testutil::TestWorkspace;
 pub use workspace::fixtures_root;

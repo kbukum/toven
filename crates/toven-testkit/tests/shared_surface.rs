@@ -4,12 +4,12 @@
 use std::path::PathBuf;
 
 use rskit_errors::ErrorCode;
+use toven_model::AbsPath;
 use toven_model::{EcosystemId, Event, UnitStatus};
 use toven_ports::{
     BaselineSpec, ChangeRecord, ChangeStatus, DiscoverRequest, Provider, Reporter, VcsReader,
     VcsWriter,
 };
-use toven_model::AbsPath;
 
 use toven_testkit::doubles::VcsWrite;
 use toven_testkit::{
@@ -54,14 +54,24 @@ fn sample_repo_materializes_and_git_inits() {
 #[test]
 fn fake_vcs_reader_returns_scripted_changes() {
     let reader = FakeVcsReader::new()
-        .with_changed_since(vec![ChangeRecord::new("src/lib.rs", ChangeStatus::Modified)])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )])
         .with_ignored(vec![PathBuf::from("target")]);
 
     let changed = reader
         .changed_since(&BaselineSpec::merge_base("origin/main"))
         .expect("changed");
-    assert_eq!(changed, vec![ChangeRecord::new("src/lib.rs", ChangeStatus::Modified)]);
-    assert!(reader.is_ignored(std::path::Path::new("target")).expect("ignored"));
+    assert_eq!(
+        changed,
+        vec![ChangeRecord::new("src/lib.rs", ChangeStatus::Modified)]
+    );
+    assert!(
+        reader
+            .is_ignored(std::path::Path::new("target"))
+            .expect("ignored")
+    );
 }
 
 #[test]

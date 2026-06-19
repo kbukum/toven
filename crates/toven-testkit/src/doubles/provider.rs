@@ -269,8 +269,8 @@ mod tests {
 
     #[test]
     fn provider_configures_clone_of_template_adapter() {
-        let adapter = FakeConfiguredAdapter::new(rust())
-            .with_release_target(FakeReleaseTarget::new());
+        let adapter =
+            FakeConfiguredAdapter::new(rust()).with_release_target(FakeReleaseTarget::new());
         let provider = FakeProvider::new(rust()).with_adapter(adapter);
 
         assert_eq!(provider.ecosystem_id().as_str(), "rust");

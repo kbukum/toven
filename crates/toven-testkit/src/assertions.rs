@@ -10,10 +10,7 @@ use toven_model::Event;
 pub use rskit_testutil::{assert_err_code, assert_ok};
 
 /// Find the first emitted event matching `predicate`, if any.
-pub fn find_event(
-    events: &[Event],
-    predicate: impl Fn(&Event) -> bool,
-) -> Option<&Event> {
+pub fn find_event(events: &[Event], predicate: impl Fn(&Event) -> bool) -> Option<&Event> {
     events.iter().find(|event| predicate(event))
 }
 
