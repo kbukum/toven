@@ -1,0 +1,15 @@
+# A minimal, well-formed single-ecosystem Document.
+[project]
+name = "single-rust"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"
+
+[ecosystems.rust.release]
+strategy = "semver-cascade"
+registry = "crates-io"
+
+[ecosystems.rust.tasks.test]
+argv = ["cargo", "nextest", "run", "{module.selector}", "{args}"]
+cache_args = true

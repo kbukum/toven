@@ -1,0 +1,3 @@
+# Rejected: `bogus` is not a known task-override field.
+[ecosystems.rust.tasks.test]
+bogus = 1

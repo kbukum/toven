@@ -1,0 +1,7 @@
+# Sample single-ecosystem Toven app repo (plan/apply happy path).
+[project]
+name = "single-rust"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"

@@ -1,0 +1,13 @@
+# A flattened Rust adapter config: engine-common knobs + adapter-specific
+# `manifests`, parsed under the adapter's own deny_unknown_fields.
+manifests = ["Cargo.toml", "contrib/Cargo.toml"]
+run_strategy = "leaf-to-top"
+
+[release]
+strategy = "semver-cascade"
+registry = "crates-io"
+
+[tasks.test]
+argv = ["cargo", "nextest", "run", "{module.selector}", "{args}"]
+cache_args = true
+shared_inputs = ["rust-toolchain.toml"]
