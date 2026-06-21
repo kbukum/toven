@@ -1,0 +1,7 @@
+# Rejected: `rsut` is a typo, not a known ecosystem, and no adapter is loaded for
+# it — so it cannot be told apart from a mistake. Hard error.
+[project]
+name = "typo-ecosystem"
+
+[ecosystems.rsut]
+manifests = ["Cargo.toml"]

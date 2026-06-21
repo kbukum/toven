@@ -1,0 +1,12 @@
+# A canonical document that contributes one overlay edge and pulls a second,
+# distinct edge from an include. Distinct overlay identities concatenate across
+# files (they are not replaced), so the merged document holds both edges.
+[project]
+name = "overlay-concat"
+
+[toven]
+include = ["include/overlays.toml"]
+
+[[overlays]]
+from = { ecosystem = "go", module = "api" }
+to = { ecosystem = "rust", module = "shared-types" }

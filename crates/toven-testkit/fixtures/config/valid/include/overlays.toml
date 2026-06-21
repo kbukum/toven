@@ -1,0 +1,5 @@
+# Included beneath `overlay-concat-include.toml`: contributes a distinct overlay
+# edge (`go:worker -> rust:shared-types`) that concatenates with the canonical edge.
+[[overlays]]
+from = { ecosystem = "go", module = "worker" }
+to = { ecosystem = "rust", module = "shared-types" }

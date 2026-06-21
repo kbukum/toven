@@ -1,0 +1,11 @@
+# A canonical-but-unloaded ecosystem: `[ecosystems.go]` is a known ecosystem, so a
+# Rust-only binary warns and ignores it rather than erroring. `[ecosystems.rust]`
+# is configured normally.
+[project]
+name = "rust-with-unloaded-go"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+
+[ecosystems.go]
+modules = ["api"]

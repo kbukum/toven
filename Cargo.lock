@@ -783,6 +783,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
+name = "rskit-codec"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "rskit-errors",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "rskit-component"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -797,16 +807,20 @@ dependencies = [
 
 [[package]]
 name = "rskit-config"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.3"
 dependencies = [
  "config",
  "dotenvy",
+ "parking_lot",
+ "rskit-codec",
  "rskit-errors",
  "rskit-fs",
+ "rskit-logging",
  "rskit-util",
  "rskit-validation",
  "rskit-version",
  "serde",
+ "serde_json",
  "tracing",
  "validator",
 ]
@@ -822,7 +836,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-fs"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "libc",
  "rskit-errors",
@@ -843,24 +857,30 @@ dependencies = [
 
 [[package]]
 name = "rskit-hook"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "parking_lot",
  "rskit-errors",
  "tokio",
  "tokio-util",
- "tracing",
+]
+
+[[package]]
+name = "rskit-logging"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "rskit-errors",
+ "serde",
 ]
 
 [[package]]
 name = "rskit-process"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "libc",
  "parking_lot",
  "rskit-errors",
  "rskit-util",
- "thiserror",
  "tokio",
  "tokio-util",
  "tracing",
@@ -868,20 +888,14 @@ dependencies = [
 
 [[package]]
 name = "rskit-provider"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "async-trait",
- "bytes",
  "futures",
- "futures-util",
  "parking_lot",
- "pin-project-lite",
  "rskit-errors",
  "tokio",
  "tower",
- "tower-layer",
- "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -905,7 +919,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-util"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "serde",
  "subtle",
@@ -927,8 +941,9 @@ dependencies = [
 
 [[package]]
 name = "rskit-version"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
+ "rskit-errors",
  "rskit-util",
  "semver",
  "serde",
@@ -1218,6 +1233,21 @@ name = "toml_writer"
 version = "1.1.1+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
+
+[[package]]
+name = "toven-engine"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "rskit-config",
+ "rskit-errors",
+ "rskit-fs",
+ "rskit-validation",
+ "serde",
+ "serde_json",
+ "toven-model",
+ "toven-ports",
+ "toven-testkit",
+]
 
 [[package]]
 name = "toven-model"

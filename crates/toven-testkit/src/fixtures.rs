@@ -46,6 +46,15 @@ fn existing(rel: impl AsRef<Path>) -> AppResult<PathBuf> {
     }
 }
 
+/// Resolve the absolute path to a config fixture under `fixtures/config/<rel>`.
+///
+/// `rel` is relative to the `config/` subtree, e.g. `"valid/single-rust.toml"`.
+/// Use this when a consumer needs the on-disk path (e.g. a loader that reads the
+/// file itself) rather than the parsed contents.
+pub fn document_path(rel: impl AsRef<Path>) -> AppResult<PathBuf> {
+    existing(Path::new("config").join(rel.as_ref()))
+}
+
 /// Read a UTF-8 config fixture under `fixtures/config/<rel>`.
 ///
 /// `rel` is relative to the `config/` subtree, e.g. `"valid/single-rust.toml"`.

@@ -1,0 +1,28 @@
+[package]
+name = "toven-engine"
+description = "Toven engine orchestration — strict config Document + loader (PLAN/APPLY spine lands in later steps)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+toven-model.workspace = true
+toven-ports.workspace = true
+rskit-errors.workspace = true
+rskit-fs.workspace = true
+rskit-validation.workspace = true
+rskit-config.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+toven-testkit.workspace = true
+toven-model.workspace = true
+rskit-errors.workspace = true
+
+[lints]
+workspace = true

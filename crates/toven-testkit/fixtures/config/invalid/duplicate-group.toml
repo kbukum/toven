@@ -1,0 +1,10 @@
+# Rejected: `[groups.core]` is declared twice — a duplicate group identity, which
+# TOML itself surfaces as a redefinition error during decode.
+[project]
+name = "dup-group"
+
+[groups.core]
+modules = ["rust:a"]
+
+[groups.core]
+modules = ["rust:b"]

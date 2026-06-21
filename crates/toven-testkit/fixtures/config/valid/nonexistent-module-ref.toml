@@ -1,0 +1,12 @@
+# Structurally valid: a group references a module that may not exist yet. Whether
+# the ref resolves to a real module is SEMANTIC and deferred to the Graph phase, so
+# this document loads successfully.
+[project]
+name = "dangling-ref"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+
+[groups.core]
+ecosystem = "rust"
+modules = ["rust:does-not-exist"]
