@@ -60,9 +60,9 @@ fn validate_member(member: &MemberConfig) -> AppResult<()> {
 }
 
 fn validate_group(name: &str, group: &GroupConfig, canonical: &CanonicalRegistry) -> AppResult<()> {
-    validate_path_safe_identifier("groups.name", name)?;
+    validate_path_safe_identifier(&format!("groups.{name}"), name)?;
     if let Some(ecosystem) = &group.ecosystem {
-        require_canonical("groups.ecosystem", ecosystem, canonical)?;
+        require_canonical(&format!("groups.{name}.ecosystem"), ecosystem, canonical)?;
     }
     let modules_field = format!("groups.{name}.modules");
     for module in &group.modules {
