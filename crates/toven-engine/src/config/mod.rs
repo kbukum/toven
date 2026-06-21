@@ -28,7 +28,7 @@ mod validate;
 pub use dispatch::{Dispatch, dispatch};
 pub use document::Document;
 pub use group::{GroupConfig, Guardrails};
-pub use load::load;
+pub use load::{Loaded, load};
 pub use member::MemberConfig;
 pub use overlay::{OverlayConfig, OverlayRef};
 pub use project::ProjectConfig;

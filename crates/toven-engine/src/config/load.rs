@@ -15,25 +15,37 @@ use rskit_fs::safe_join;
 use rskit_validation::input::validate_safe_path;
 use toven_model::EcosystemId;
 
-use super::{CanonicalRegistry, Document, dispatch, validate};
+use super::{CanonicalRegistry, Dispatch, Document, dispatch, validate};
 
-/// Load, validate, and dispatch-check the `toven.toml` at `path`.
+/// A successfully loaded `toven.toml`: the strict [`Document`] paired with the
+/// ecosystem-id [`Dispatch`] classification computed during the same load.
+#[derive(Debug, Clone)]
+pub struct Loaded {
+    /// The strict, structurally-validated document.
+    pub document: Document,
+    /// The three-way ecosystem-id dispatch outcome (loaded / canonical-unloaded).
+    pub dispatch: Dispatch,
+}
+
+/// Load, validate, and dispatch the `toven.toml` at `path`.
 ///
-/// Returns the strict [`Document`] once it parses, passes structural validation,
-/// and every `[ecosystems.<id>]` section dispatches cleanly (an unknown ecosystem
-/// id is a hard error; a canonical-but-unloaded one is accepted and surfaced by a
-/// later [`dispatch`] call). `loaded` is the set of ecosystem ids with an adapter
-/// compiled into this binary; `canonical` is the known-ecosystem registry.
+/// Returns the strict [`Document`] and its [`Dispatch`] once the file parses,
+/// passes structural validation, and every `[ecosystems.<id>]` section dispatches
+/// cleanly (an unknown ecosystem id is a hard error; a canonical-but-unloaded one
+/// is accepted and surfaced in [`Dispatch::ignored`]). The dispatch is computed
+/// once here so callers reuse it rather than re-classifying. `loaded` is the set
+/// of ecosystem ids with an adapter compiled into this binary; `canonical` is the
+/// known-ecosystem registry.
 pub fn load(
     path: impl AsRef<Path>,
     loaded: &BTreeSet<EcosystemId>,
     canonical: &CanonicalRegistry,
-) -> AppResult<Document> {
+) -> AppResult<Loaded> {
     let path = path.as_ref();
     let document = read_document(path)?;
     validate::structural(&document, canonical)?;
-    dispatch::dispatch(&document, loaded, canonical)?;
-    Ok(document)
+    let dispatch = dispatch::dispatch(&document, loaded, canonical)?;
+    Ok(Loaded { document, dispatch })
 }
 
 /// Parse the document, merging any `[toven].include` files beneath it.
