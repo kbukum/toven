@@ -89,12 +89,21 @@ fn validate_overlay(
     overlay: &OverlayConfig,
     canonical: &CanonicalRegistry,
 ) -> AppResult<()> {
-    let from_field = format!("overlays[{index}].from");
-    require_canonical(&from_field, &overlay.from.ecosystem, canonical)?;
-    validate_path_safe_identifier(&from_field, &overlay.from.module)?;
-    let to_field = format!("overlays[{index}].to");
-    require_canonical(&to_field, &overlay.to.ecosystem, canonical)?;
-    validate_path_safe_identifier(&to_field, &overlay.to.module)?;
+    require_canonical(
+        &format!("overlays[{index}].from.ecosystem"),
+        &overlay.from.ecosystem,
+        canonical,
+    )?;
+    validate_path_safe_identifier(
+        &format!("overlays[{index}].from.module"),
+        &overlay.from.module,
+    )?;
+    require_canonical(
+        &format!("overlays[{index}].to.ecosystem"),
+        &overlay.to.ecosystem,
+        canonical,
+    )?;
+    validate_path_safe_identifier(&format!("overlays[{index}].to.module"), &overlay.to.module)?;
     Ok(())
 }
 
