@@ -18,7 +18,11 @@
 //! - [`vcs`] — the single git seam's implementation side: the rskit-git-backed
 //!   [`vcs::RskitGitVcs`] adapter, the engine-owned [`vcs::BaselineStrategy`], and
 //!   the per-repo [`vcs::VcsReaderSet`] dedup + fan-out.
+//! - [`plan`] — the pure PLAN spine: the seven phases (Load → Configure →
+//!   Discover → Graph → Affected → Toolchain → Schedule+Cache) that culminate in
+//!   one immutable [`toven_model::Plan`].
 #![warn(missing_docs)]
 
 pub mod config;
+pub mod plan;
 pub mod vcs;
