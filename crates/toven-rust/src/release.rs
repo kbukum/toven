@@ -124,7 +124,14 @@ fn read_declared_version(text: &str, path: &Path) -> AppResult<Version> {
             if is_workspace_inherited(item) {
                 resolve_inherited_version(&doc, path)
             } else {
-                Err(missing())
+                Err(AppError::new(
+                    ErrorCode::InvalidFormat,
+                    format!(
+                        "manifest '{}' has a [package].version that is neither a string nor \
+                         `version.workspace = true`",
+                        path.display()
+                    ),
+                ))
             }
         },
         |raw| parse_version(raw, path),
@@ -319,6 +326,22 @@ plain = \"0.4.0\"
     #[test]
     fn missing_version_is_rejected() {
         assert!(read_declared_version("[package]\nname = \"x\"\n", Path::new("C")).is_err());
+    }
+
+    #[test]
+    fn invalid_version_type_is_distinguished_from_missing() {
+        // `version` is present but neither a string nor `version.workspace = true`.
+        let manifest = "[package]\nname = \"x\"\nversion = 1\n";
+        let error = read_declared_version(manifest, Path::new("C")).unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("neither a string nor"),
+            "expected an invalid-type message, got: {message}"
+        );
+        assert!(
+            !message.contains("has no [package].version"),
+            "invalid type must not report a missing version: {message}"
+        );
     }
 
     #[test]
