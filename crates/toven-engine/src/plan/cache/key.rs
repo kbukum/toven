@@ -204,7 +204,13 @@ mod tests {
             cache_args: false,
             passthrough: &[],
         };
-        unit_key(&inputs, &forward_adjacency(&graph()), &sources, &NoFileDigest).unwrap()
+        unit_key(
+            &inputs,
+            &forward_adjacency(&graph()),
+            &sources,
+            &NoFileDigest,
+        )
+        .unwrap()
     }
 
     #[test]

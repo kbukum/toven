@@ -73,7 +73,10 @@ fn ensure_unique_workspaces(workspaces: &[Workspace]) -> AppResult<()> {
         if !seen.insert(&workspace.id) {
             return Err(AppError::invalid_input(
                 "workspace.id",
-                format!("duplicate workspace id '{}' across the federation", workspace.id),
+                format!(
+                    "duplicate workspace id '{}' across the federation",
+                    workspace.id
+                ),
             ));
         }
     }

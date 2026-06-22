@@ -413,7 +413,13 @@ mod tests {
         let active = vec![mref("rust", "app")];
         // Empty toolchain map: the workspace-owning module has no resolved
         // identity, which must fail closed rather than key against an empty one.
-        let result = schedule(&request(), &federation, &active, &adapters, &BTreeMap::new());
+        let result = schedule(
+            &request(),
+            &federation,
+            &active,
+            &adapters,
+            &BTreeMap::new(),
+        );
         assert!(result.is_err());
     }
 
