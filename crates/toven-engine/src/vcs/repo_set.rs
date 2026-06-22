@@ -138,10 +138,14 @@ fn group_by_root(
 /// workspace-relative records for those that intersect the workspace.
 ///
 /// A record whose new path is under `prefix` is rebased (and its `old_path` too,
-/// when also under `prefix`). A record whose *old* path alone is under `prefix`
-/// is a rename/delete out of the workspace, surfaced as a [`Deleted`] at the old
-/// path. An empty `prefix` denotes the repo root and rebases nothing.
+/// when also under `prefix`). A rename *into* the workspace from an outside
+/// source has no in-workspace `old_path`, so it is surfaced as an [`Added`] at
+/// the new path rather than a `Renamed` record missing its origin. A record
+/// whose *old* path alone is under `prefix` is a rename/delete out of the
+/// workspace, surfaced as a [`Deleted`] at the old path. An empty `prefix`
+/// denotes the repo root and rebases nothing.
 ///
+/// [`Added`]: toven_ports::ChangeStatus::Added
 /// [`Deleted`]: toven_ports::ChangeStatus::Deleted
 #[must_use]
 pub fn rebase_records(records: &[ChangeRecord], prefix: &Path) -> Vec<ChangeRecord> {
@@ -159,6 +163,12 @@ fn rebase_one(record: &ChangeRecord, prefix: &Path) -> Option<ChangeRecord> {
         .and_then(|old| strip(old, prefix));
 
     if let Some(path) = new_in {
+        // A rename whose source lies outside the workspace has no in-workspace
+        // origin: from this workspace's view the file simply appeared. Surface
+        // it as `Added` so we never emit a `Renamed` record without `old_path`.
+        if record.status == ChangeStatus::Renamed && old_in.is_none() {
+            return Some(ChangeRecord::new(path, ChangeStatus::Added));
+        }
         let mut rebased = ChangeRecord::new(path, record.status);
         if let Some(old) = old_in {
             rebased = rebased.with_old_path(old);
@@ -270,6 +280,21 @@ mod tests {
         assert_eq!(rebased.len(), 1);
         assert_eq!(rebased[0].path, PathBuf::from("moved.rs"));
         assert_eq!(rebased[0].status, ChangeStatus::Deleted);
+        assert!(rebased[0].old_path.is_none());
+    }
+
+    #[test]
+    fn rebase_surfaces_rename_in_as_addition() {
+        let records = vec![
+            ChangeRecord::new("apps/web/moved.rs", ChangeStatus::Renamed)
+                .with_old_path("apps/api/moved.rs"),
+        ];
+
+        let rebased = rebase_records(&records, Path::new("apps/web"));
+
+        assert_eq!(rebased.len(), 1);
+        assert_eq!(rebased[0].path, PathBuf::from("moved.rs"));
+        assert_eq!(rebased[0].status, ChangeStatus::Added);
         assert!(rebased[0].old_path.is_none());
     }
 }
