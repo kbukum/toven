@@ -1,0 +1,6 @@
+# Cross-workspace fixture: the path-dependency target, a separate workspace root.
+[package]
+name = "cross-core"
+version = "0.1.0"
+edition = "2021"
+publish = false

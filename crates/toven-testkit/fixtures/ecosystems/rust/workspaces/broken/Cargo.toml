@@ -1,0 +1,4 @@
+# Intentionally malformed Cargo manifest: `cargo metadata` fails, so discovery
+# must surface a typed error rather than a partial/empty result.
+[package
+name = "broken"

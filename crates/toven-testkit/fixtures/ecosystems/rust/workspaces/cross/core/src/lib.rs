@@ -1,0 +1,1 @@
+//! cross-core fixture crate.

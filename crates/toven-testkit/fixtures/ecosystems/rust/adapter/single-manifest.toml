@@ -1,0 +1,2 @@
+# Minimal Rust adapter config: discover the single root Cargo.toml only.
+manifests = ["Cargo.toml"]

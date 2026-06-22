@@ -1,0 +1,6 @@
+# A member crate that inherits its version from `[workspace.package]`.
+[package]
+name = "app"
+version.workspace = true
+edition.workspace = true
+publish = false

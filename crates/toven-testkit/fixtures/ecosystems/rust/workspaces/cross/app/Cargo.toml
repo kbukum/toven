@@ -1,0 +1,10 @@
+# Cross-workspace fixture: a standalone workspace that path-depends on ../core,
+# which is itself a separate standalone workspace. Exercises cross-manifest edges.
+[package]
+name = "cross-app"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+cross-core = { path = "../core" }

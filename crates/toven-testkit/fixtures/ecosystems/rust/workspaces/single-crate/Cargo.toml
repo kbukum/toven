@@ -1,0 +1,6 @@
+# Standalone single-crate fixture: the package is its own workspace root.
+[package]
+name = "solo"
+version = "0.3.0"
+edition = "2021"
+publish = false
