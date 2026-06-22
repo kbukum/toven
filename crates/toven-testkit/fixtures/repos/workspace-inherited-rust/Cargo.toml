@@ -1,0 +1,9 @@
+# A virtual workspace root that publishes a shared version via
+# `[workspace.package]`; members inherit it with `version.workspace = true`.
+[workspace]
+resolver = "2"
+members = ["crates/app"]
+
+[workspace.package]
+version = "0.3.0"
+edition = "2021"

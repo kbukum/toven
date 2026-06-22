@@ -43,6 +43,15 @@ fn duplicate_overlay_identity_across_includes_is_rejected() {
 }
 
 #[test]
+fn duplicate_member_identity_across_includes_is_rejected() {
+    // Cross-file duplicate member: the canonical file and an include both declare
+    // a `[[members]]` entry named `core`. The include-merge policy registers
+    // `members` with a `name` identity, so the collision is a hard error instead
+    // of a silently concatenated entry.
+    assert_rejected("invalid/duplicate-member-include.toml", &["rust"]);
+}
+
+#[test]
 fn unsafe_cache_dir_is_rejected() {
     // `[toven.cache].dir` is a workspace-relative path used later for filesystem
     // writes, so a traversal escape must fail at the trust boundary.

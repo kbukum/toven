@@ -1,0 +1,3 @@
+# A Rust adapter config whose manifest path escapes the project root. Discovery
+# must reject it at the `safe_join` trust boundary before invoking cargo.
+manifests = ["../escape/Cargo.toml"]

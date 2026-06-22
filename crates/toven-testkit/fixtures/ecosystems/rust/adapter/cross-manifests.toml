@@ -1,0 +1,3 @@
+# Rust adapter config spanning two standalone Cargo workspaces, exercising
+# cross-manifest path-dependency edges.
+manifests = ["app/Cargo.toml", "core/Cargo.toml"]

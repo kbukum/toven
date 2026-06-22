@@ -78,22 +78,27 @@ fn validate_group(name: &str, group: &GroupConfig, canonical: &CanonicalRegistry
     if let Some(ecosystem) = &group.ecosystem {
         require_canonical(&format!("groups.{name}.ecosystem"), ecosystem, canonical)?;
     }
-    let modules_field = format!("groups.{name}.modules");
-    for module in &group.modules {
+    for (index, module) in group.modules.iter().enumerate() {
         ModuleRefSyntax::validate_membership(
-            &modules_field,
+            &format!("groups.{name}.modules[{index}]"),
             module,
             group.ecosystem.as_ref(),
             canonical,
         )?;
     }
-    let forbid_field = format!("groups.{name}.guardrails.forbid");
-    for edge in &group.guardrails.forbid {
-        ModuleRefSyntax::validate_qualified(&forbid_field, edge, canonical)?;
+    for (index, edge) in group.guardrails.forbid.iter().enumerate() {
+        ModuleRefSyntax::validate_qualified(
+            &format!("groups.{name}.guardrails.forbid[{index}]"),
+            edge,
+            canonical,
+        )?;
     }
-    let allow_field = format!("groups.{name}.guardrails.allow");
-    for edge in &group.guardrails.allow {
-        ModuleRefSyntax::validate_qualified(&allow_field, edge, canonical)?;
+    for (index, edge) in group.guardrails.allow.iter().enumerate() {
+        ModuleRefSyntax::validate_qualified(
+            &format!("groups.{name}.guardrails.allow[{index}]"),
+            edge,
+            canonical,
+        )?;
     }
     Ok(())
 }

@@ -1,0 +1,3 @@
+# Rust adapter config that opts the ecosystem out of publishing.
+manifests = ["Cargo.toml"]
+publish = false

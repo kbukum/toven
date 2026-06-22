@@ -1,0 +1,13 @@
+# Rejected: the canonical file and the included file declare a member with the
+# same `name` (`core`), a duplicate member identity. Members are registered with
+# an identity over `name`, so the duplicate is a hard error rather than a
+# silently concatenated entry.
+[project]
+name = "dup-member-include"
+
+[toven]
+include = ["dup-member-extra.toml"]
+
+[[members]]
+name = "core"
+root = "repos/core"
