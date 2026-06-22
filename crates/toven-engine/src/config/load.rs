@@ -86,14 +86,15 @@ fn resolve_includes(path: &Path, raw: &RawValue) -> AppResult<Vec<PathBuf>> {
     })?;
     let base = path.parent().unwrap_or_else(|| Path::new("."));
     let mut resolved = Vec::with_capacity(entries.len());
-    for entry in entries {
-        let relative = entry.as_str().ok_or_else(|| {
-            AppError::invalid_input("toven.include", "include entries must be strings")
-        })?;
+    for (index, entry) in entries.iter().enumerate() {
+        let field = format!("toven.include[{index}]");
+        let relative = entry
+            .as_str()
+            .ok_or_else(|| AppError::invalid_input(&field, "include entries must be strings"))?;
         validate_safe_path(relative)
-            .map_err(|error| AppError::invalid_input("toven.include", error.to_string()))?;
+            .map_err(|error| AppError::invalid_input(&field, error.to_string()))?;
         let joined = safe_join(base, relative)
-            .map_err(|error| AppError::invalid_input("toven.include", error.to_string()))?;
+            .map_err(|error| AppError::invalid_input(&field, error.to_string()))?;
         resolved.push(joined);
     }
     Ok(resolved)

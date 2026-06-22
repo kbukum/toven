@@ -24,11 +24,11 @@ pub(super) fn structural(document: &Document, canonical: &CanonicalRegistry) -> 
     validate_project(&document.project)?;
     validate_settings(&document.toven)?;
     let mut seen_members = BTreeSet::new();
-    for member in &document.members {
-        validate_member(member)?;
+    for (index, member) in document.members.iter().enumerate() {
+        validate_member(index, member)?;
         if !seen_members.insert(member.name.as_str()) {
             return Err(AppError::invalid_input(
-                "members.name",
+                format!("members[{index}].name"),
                 format!("duplicate member name '{}'", member.name),
             ));
         }
@@ -64,11 +64,11 @@ fn validate_settings(settings: &TovenConfig) -> AppResult<()> {
     Ok(())
 }
 
-fn validate_member(member: &MemberConfig) -> AppResult<()> {
-    validate_path_safe_identifier("members.name", &member.name)?;
-    validate_relative_root("members.root", &member.root)?;
+fn validate_member(index: usize, member: &MemberConfig) -> AppResult<()> {
+    validate_path_safe_identifier(&format!("members[{index}].name"), &member.name)?;
+    validate_relative_root(&format!("members[{index}].root"), &member.root)?;
     if let Some(base_ref) = &member.base_ref {
-        reject_unicode_controls("members.base_ref", base_ref)?;
+        reject_unicode_controls(&format!("members[{index}].base_ref"), base_ref)?;
     }
     Ok(())
 }
