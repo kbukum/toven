@@ -46,5 +46,5 @@ pub use fixtures::{
     FIXTURES_ROOT, document, document_path, document_string, ecosystem, ecosystem_string, repo_path,
 };
 pub use repo::SampleRepo;
-pub use rskit_testutil::TestWorkspace;
+pub use rskit_testutil::{CurrentDirGuard, TestWorkspace};
 pub use workspace::fixtures_root;

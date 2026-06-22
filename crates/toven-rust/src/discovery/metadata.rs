@@ -28,7 +28,7 @@ use crate::discovery::blast;
 const MAX_METADATA_BYTES: usize = 16 * 1024 * 1024;
 
 /// Wall-clock bound on a single `cargo metadata` invocation.
-const METADATA_TIMEOUT: Duration = Duration::from_secs(120);
+const METADATA_TIMEOUT: Duration = Duration::from_mins(2);
 
 /// The cargo driver name stamped on every discovered [`Workspace`].
 const CARGO_TOOL: &str = "cargo";

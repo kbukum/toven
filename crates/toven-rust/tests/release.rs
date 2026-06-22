@@ -1,19 +1,14 @@
 //! Behavioral tests for the crates.io release target's version I/O and manifest
 //! mutation. The target resolves a module's repo-relative manifest against the
-//! process working directory, so these tests serialize a `set_current_dir` into
-//! a materialized sample repo.
-
-use std::sync::Mutex;
+//! process working directory, so these tests pin the working directory to a
+//! materialized sample repo via a `CurrentDirGuard` — which serializes the
+//! process-wide change and restores the previous directory on drop.
 
 use rskit_version::semver::Version;
 use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
 use toven_ports::{ReleaseMutation, ReleaseTarget};
 use toven_rust::CratesIoTarget;
-use toven_testkit::SampleRepo;
-
-/// Serializes the process-wide working-directory mutation across tests in this
-/// binary.
-static CWD_LOCK: Mutex<()> = Mutex::new(());
+use toven_testkit::{CurrentDirGuard, SampleRepo};
 
 fn app_module() -> Module {
     let id = ModuleRef::new(EcosystemId::new("rust").unwrap(), "app").unwrap();
@@ -25,9 +20,8 @@ fn app_module() -> Module {
 
 #[test]
 fn reads_the_declared_version_from_the_manifest() {
-    let _guard = CWD_LOCK.lock().unwrap();
     let repo = SampleRepo::materialize("single-rust").expect("materialize");
-    std::env::set_current_dir(repo.root()).expect("chdir");
+    let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
 
     let version = CratesIoTarget::new()
         .declared_version(&app_module())
@@ -37,9 +31,8 @@ fn reads_the_declared_version_from_the_manifest() {
 
 #[test]
 fn apply_release_rewrites_the_declared_version() {
-    let _guard = CWD_LOCK.lock().unwrap();
     let repo = SampleRepo::materialize("single-rust").expect("materialize");
-    std::env::set_current_dir(repo.root()).expect("chdir");
+    let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
 
     let target = CratesIoTarget::new();
     let module = app_module();
@@ -53,9 +46,8 @@ fn apply_release_rewrites_the_declared_version() {
 
 #[test]
 fn reads_a_version_inherited_from_the_workspace_root() {
-    let _guard = CWD_LOCK.lock().unwrap();
     let repo = SampleRepo::materialize("workspace-inherited-rust").expect("materialize");
-    std::env::set_current_dir(repo.root()).expect("chdir");
+    let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
 
     let version = CratesIoTarget::new()
         .declared_version(&app_module())
@@ -65,9 +57,8 @@ fn reads_a_version_inherited_from_the_workspace_root() {
 
 #[test]
 fn registry_facing_methods_are_deferred_not_faked() {
-    let _guard = CWD_LOCK.lock().unwrap();
     let repo = SampleRepo::materialize("single-rust").expect("materialize");
-    std::env::set_current_dir(repo.root()).expect("chdir");
+    let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
 
     let target = CratesIoTarget::new();
     let module = app_module();
