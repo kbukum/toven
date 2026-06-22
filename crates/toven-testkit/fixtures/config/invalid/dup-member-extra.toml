@@ -1,0 +1,5 @@
+# Included by `duplicate-member-include.toml`; repeats a member with the same
+# `name` (`core`) to force a cross-file duplicate member identity.
+[[members]]
+name = "core"
+root = "repos/core-mirror"
