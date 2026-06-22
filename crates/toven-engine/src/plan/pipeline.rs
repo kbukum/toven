@@ -114,6 +114,7 @@ fn decide_cache(
     reporter: &mut dyn Reporter,
 ) -> AppResult<Vec<ExecutionUnit>> {
     let hashes = cache::source_hashes(&federation.modules, host.digest)?;
+    let adjacency = cache::forward_adjacency(graph);
     let passthrough_present = !request.passthrough.is_empty();
 
     let mut units = Vec::with_capacity(scheduled.units.len());
@@ -126,7 +127,7 @@ fn decide_cache(
             cache_args: planned.cache_args,
             passthrough: &request.passthrough,
         };
-        let key = cache::unit_key(&inputs, graph, &hashes, host.digest)?;
+        let key = cache::unit_key(&inputs, &adjacency, &hashes, host.digest)?;
         let verdict = cache::verdict(
             request.cache_mode,
             planned.cache_args,

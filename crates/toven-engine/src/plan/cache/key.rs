@@ -52,13 +52,30 @@ pub(in crate::plan) struct KeyInputs<'a> {
     pub(in crate::plan) passthrough: &'a [String],
 }
 
+/// A forward adjacency map (`from` → its direct dependency `to`s), built once and
+/// reused across every unit's closure to avoid rescanning all edges per node.
+pub(in crate::plan) type Adjacency = BTreeMap<ModuleRef, Vec<ModuleRef>>;
+
+/// Build the forward adjacency map of the graph in one pass.
+pub(in crate::plan) fn forward_adjacency(graph: &Graph) -> Adjacency {
+    let mut adjacency: Adjacency = BTreeMap::new();
+    for edge in graph.edges() {
+        adjacency
+            .entry(edge.from.clone())
+            .or_default()
+            .push(edge.to.clone());
+    }
+    adjacency
+}
+
 /// Derive the blake3 content key for one unit.
 ///
 /// # Errors
-/// Propagates a [`SourceDigest`] read failure while hashing shared inputs.
+/// A missing module/dependency source hash (internal inconsistency) or a
+/// [`SourceDigest`] read failure while hashing shared inputs.
 pub(in crate::plan) fn unit_key(
     inputs: &KeyInputs,
-    graph: &Graph,
+    adjacency: &Adjacency,
     sources: &SourceHashes,
     digest: &dyn SourceDigest,
 ) -> AppResult<String> {
@@ -67,7 +84,7 @@ pub(in crate::plan) fn unit_key(
     let module_hash = source_hash(sources, inputs.module)?;
     fold(&mut hasher, b"module", module_hash.as_bytes());
 
-    for dependency in transitive_dependencies(inputs.module, graph) {
+    for dependency in transitive_dependencies(inputs.module, adjacency) {
         let dep_hash = source_hash(sources, &dependency)?;
         fold(&mut hasher, b"dep", dependency.to_string().as_bytes());
         fold(&mut hasher, b"dep-hash", dep_hash.as_bytes());
@@ -121,14 +138,17 @@ fn source_hash<'a>(sources: &'a SourceHashes, module: &ModuleRef) -> AppResult<&
     })
 }
 
-/// The transitive set of modules `module` depends on (forward edges), sorted.
-fn transitive_dependencies(module: &ModuleRef, graph: &Graph) -> BTreeSet<ModuleRef> {
+/// The transitive set of modules `module` depends on, via the forward adjacency.
+fn transitive_dependencies(module: &ModuleRef, adjacency: &Adjacency) -> BTreeSet<ModuleRef> {
     let mut dependencies = BTreeSet::new();
     let mut pending = vec![module.clone()];
     while let Some(current) = pending.pop() {
-        for edge in graph.edges() {
-            if edge.from == current && dependencies.insert(edge.to.clone()) {
-                pending.push(edge.to.clone());
+        let Some(neighbors) = adjacency.get(&current) else {
+            continue;
+        };
+        for next in neighbors {
+            if dependencies.insert(next.clone()) {
+                pending.push(next.clone());
             }
         }
     }
@@ -143,7 +163,7 @@ mod tests {
     use toven_model::{DepKind, EcosystemId, Edge, Graph, Module, ModuleRef, RepoPath};
 
     use super::super::super::source::SourceDigest;
-    use super::{KeyInputs, SourceHashes, unit_key};
+    use super::{KeyInputs, SourceHashes, forward_adjacency, unit_key};
 
     struct NoFileDigest;
     impl SourceDigest for NoFileDigest {
@@ -184,7 +204,7 @@ mod tests {
             cache_args: false,
             passthrough: &[],
         };
-        unit_key(&inputs, &graph(), &sources, &NoFileDigest).unwrap()
+        unit_key(&inputs, &forward_adjacency(&graph()), &sources, &NoFileDigest).unwrap()
     }
 
     #[test]

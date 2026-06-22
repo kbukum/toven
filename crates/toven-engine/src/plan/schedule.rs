@@ -203,12 +203,21 @@ fn plan_unit(
         resolve(var, module, workspace, &request.project_root)
     })?;
 
-    let toolchain_identity = module
-        .workspace
-        .as_ref()
-        .and_then(|id| toolchain.get(id))
-        .map(toolchain_identity)
-        .unwrap_or_default();
+    let toolchain_identity = match &module.workspace {
+        Some(id) => {
+            let tag = toolchain.get(id).ok_or_else(|| {
+                AppError::new(
+                    rskit_errors::ErrorCode::Internal,
+                    format!(
+                        "module '{}' workspace '{id}' has no resolved toolchain identity",
+                        module.id
+                    ),
+                )
+            })?;
+            toolchain_identity(tag)
+        }
+        None => String::new(),
+    };
 
     Ok(PlannedUnit {
         id: format!("{}#{}", module.id, task.kind.name()),
@@ -364,11 +373,48 @@ mod tests {
         PlanRequest::new("r", "t", TaskKind::Test, AbsPath::new("/repo").unwrap())
     }
 
+    fn toolchains(federation: &Federation) -> BTreeMap<WorkspaceId, ToolchainTag> {
+        federation
+            .workspaces
+            .iter()
+            .map(|workspace| {
+                (
+                    workspace.id.clone(),
+                    workspace.toolchain.clone().with_version("v1"),
+                )
+            })
+            .collect()
+    }
+
     fn waves_for(federation: &Federation, adapters: &ConfiguredSet) -> Vec<Vec<String>> {
         let active: Vec<ModuleRef> = federation.modules.iter().map(|m| m.id.clone()).collect();
-        schedule(&request(), federation, &active, adapters, &BTreeMap::new())
-            .unwrap()
-            .waves
+        schedule(
+            &request(),
+            federation,
+            &active,
+            adapters,
+            &toolchains(federation),
+        )
+        .unwrap()
+        .waves
+    }
+
+    #[test]
+    fn workspace_module_without_resolved_toolchain_is_rejected() {
+        let federation = Federation {
+            workspaces: vec![workspace("rust")],
+            modules: vec![module("rust", "app", "rust")],
+            edges: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let mut adapters = ConfiguredSet::new();
+        adapters.insert(eid("rust"), adapter("rust", RunStrategy::Unordered));
+
+        let active = vec![mref("rust", "app")];
+        // Empty toolchain map: the workspace-owning module has no resolved
+        // identity, which must fail closed rather than key against an empty one.
+        let result = schedule(&request(), &federation, &active, &adapters, &BTreeMap::new());
+        assert!(result.is_err());
     }
 
     #[test]
