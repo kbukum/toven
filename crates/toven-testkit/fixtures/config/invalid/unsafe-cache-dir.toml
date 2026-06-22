@@ -1,0 +1,10 @@
+# Rejected: `[toven.cache].dir` is a workspace-relative override consumed for
+# filesystem paths, so a traversal escape must fail structural validation.
+[project]
+name = "broken"
+
+[toven.cache]
+dir = "../../etc/toven-cache"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]

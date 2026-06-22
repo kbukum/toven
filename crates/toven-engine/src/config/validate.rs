@@ -16,12 +16,13 @@ use toven_model::EcosystemId;
 
 use super::{
     CanonicalRegistry, Document, GroupConfig, MemberConfig, ModuleRefSyntax, OverlayConfig,
-    ProjectConfig,
+    ProjectConfig, TovenConfig,
 };
 
 /// Run the full structural-validation pass over `document`.
 pub(super) fn structural(document: &Document, canonical: &CanonicalRegistry) -> AppResult<()> {
     validate_project(&document.project)?;
+    validate_settings(&document.toven)?;
     let mut seen_members = BTreeSet::new();
     for member in &document.members {
         validate_member(member)?;
@@ -46,6 +47,19 @@ fn validate_project(project: &ProjectConfig) -> AppResult<()> {
     validate_relative_root("project.root", &project.root)?;
     if let Some(base_ref) = &project.base_ref {
         reject_unicode_controls("project.base_ref", base_ref)?;
+    }
+    Ok(())
+}
+
+/// Validate the reserved `[toven]` settings.
+///
+/// `[toven.cache].dir` is a workspace-relative cache-root override consumed later
+/// by the engine cache layer for filesystem paths, so it must be a safe relative
+/// path (no traversal/absolute escape) — validated here at the trust boundary.
+fn validate_settings(settings: &TovenConfig) -> AppResult<()> {
+    if let Some(dir) = &settings.cache.dir {
+        validate_safe_path(dir)
+            .map_err(|error| AppError::invalid_input("toven.cache.dir", error.to_string()))?;
     }
     Ok(())
 }

@@ -43,6 +43,13 @@ fn duplicate_overlay_identity_across_includes_is_rejected() {
 }
 
 #[test]
+fn unsafe_cache_dir_is_rejected() {
+    // `[toven.cache].dir` is a workspace-relative path used later for filesystem
+    // writes, so a traversal escape must fail at the trust boundary.
+    assert_rejected("invalid/unsafe-cache-dir.toml", &["rust"]);
+}
+
+#[test]
 fn malformed_overlay_ref_is_rejected() {
     assert_rejected("invalid/malformed-overlay.toml", &["rust", "go"]);
 }

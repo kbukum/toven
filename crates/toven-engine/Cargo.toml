@@ -21,8 +21,6 @@ serde_json.workspace = true
 
 [dev-dependencies]
 toven-testkit.workspace = true
-toven-model.workspace = true
-rskit-errors.workspace = true
 
 [lints]
 workspace = true

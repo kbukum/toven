@@ -33,8 +33,7 @@ impl ModuleRefSyntax {
             return Err(AppError::invalid_input(
                 field,
                 format!(
-                    "bare module '{entry}' needs a group 'ecosystem' default or an \
-                     'ecosystem:module' qualifier"
+                    "bare module '{entry}' needs a group 'ecosystem' default or an 'ecosystem:module' qualifier"
                 ),
             ));
         }
