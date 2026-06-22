@@ -8,7 +8,7 @@ use rskit_version::semver::Version;
 use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
 use toven_ports::{ReleaseMutation, ReleaseTarget};
 use toven_rust::CratesIoTarget;
-use toven_testkit::{CurrentDirGuard, SampleRepo, TestWorkspace};
+use toven_testkit::{CurrentDirGuard, SampleRepo};
 
 fn app_module() -> Module {
     let id = ModuleRef::new(EcosystemId::new("rust").unwrap(), "app").unwrap();
@@ -53,6 +53,37 @@ fn reads_a_version_inherited_from_the_workspace_root() {
         .declared_version(&app_module())
         .expect("inherited version resolves from [workspace.package]");
     assert_eq!(version, Version::new(0, 3, 0));
+}
+
+#[test]
+fn does_not_inherit_a_workspace_version_from_above_the_working_root() {
+    // The member inherits `version.workspace = true`, but the only
+    // `[workspace.package].version` lives in a `Cargo.toml` ABOVE the repo root
+    // (the working-directory trust boundary). Resolution must not climb past the
+    // root, so the inherited version is unreachable and the read errors out —
+    // rather than silently consulting a manifest outside the repository.
+    let repo = SampleRepo::materialize("workspace-inherited-rust").expect("materialize");
+
+    // Relocate the workspace-root manifest one level above the repo root so the
+    // bounded ancestor walk can never reach it.
+    let above_root = repo
+        .root()
+        .parent()
+        .expect("repo root has a parent temp dir")
+        .join("Cargo.toml");
+    std::fs::rename(repo.child("Cargo.toml"), &above_root).expect("relocate workspace root");
+
+    let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
+
+    let error = CratesIoTarget::new()
+        .declared_version(&app_module())
+        .expect_err("inherited version above the working root must not resolve");
+    assert!(
+        error
+            .to_string()
+            .contains("no ancestor workspace root with [workspace.package].version was found"),
+        "expected a bounded-resolution error, got: {error}"
+    );
 }
 
 #[test]
