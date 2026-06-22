@@ -74,7 +74,7 @@ impl ToolchainProber for ProcessToolchainProber {
         let result = run(&spec, &config)?;
         if result.timed_out {
             return Err(AppError::new(
-                rskit_errors::ErrorCode::Internal,
+                rskit_errors::ErrorCode::Timeout,
                 format!(
                     "toolchain probe '{}' timed out after {:?} in '{}'",
                     probe.label,
@@ -83,18 +83,41 @@ impl ToolchainProber for ProcessToolchainProber {
                 ),
             ));
         }
+        if result.stdout_truncated {
+            return Err(AppError::new(
+                rskit_errors::ErrorCode::Internal,
+                format!(
+                    "toolchain probe '{}' output in '{}' exceeded {} bytes",
+                    probe.label,
+                    workspace_root.display(),
+                    self.max_output_bytes
+                ),
+            ));
+        }
         if !result.success() {
             return Err(AppError::new(
                 rskit_errors::ErrorCode::Internal,
                 format!(
-                    "toolchain probe '{}' failed in '{}' (exit {:?})",
+                    "toolchain probe '{}' failed in '{}' (exit {:?}): {}",
                     probe.label,
                     workspace_root.display(),
-                    result.exit_code
+                    result.exit_code,
+                    result.stderr.trim()
                 ),
             ));
         }
-        Ok(result.stdout.trim().to_string())
+        let version = result.stdout.trim();
+        if version.is_empty() {
+            return Err(AppError::new(
+                rskit_errors::ErrorCode::Internal,
+                format!(
+                    "toolchain probe '{}' in '{}' returned an empty version",
+                    probe.label,
+                    workspace_root.display()
+                ),
+            ));
+        }
+        Ok(version.to_string())
     }
 }
 

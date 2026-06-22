@@ -113,15 +113,26 @@ fn empty_digest() -> String {
 
 /// Recursively collect files under `dir`, keyed by their path relative to `base`.
 fn collect_files(base: &Path, dir: &Path, files: &mut BTreeMap<PathBuf, PathBuf>) -> AppResult<()> {
-    let entries = std::fs::read_dir(dir)
-        .map_err(|error| AppError::new(rskit_errors::ErrorCode::Internal, error.to_string()))?;
+    let entries = std::fs::read_dir(dir).map_err(|error| {
+        AppError::new(
+            rskit_errors::ErrorCode::Internal,
+            format!("failed to read directory '{}': {error}", dir.display()),
+        )
+    })?;
     for entry in entries {
-        let entry = entry
-            .map_err(|error| AppError::new(rskit_errors::ErrorCode::Internal, error.to_string()))?;
+        let entry = entry.map_err(|error| {
+            AppError::new(
+                rskit_errors::ErrorCode::Internal,
+                format!("failed to read an entry under '{}': {error}", dir.display()),
+            )
+        })?;
         let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .map_err(|error| AppError::new(rskit_errors::ErrorCode::Internal, error.to_string()))?;
+        let file_type = entry.file_type().map_err(|error| {
+            AppError::new(
+                rskit_errors::ErrorCode::Internal,
+                format!("failed to stat '{}': {error}", path.display()),
+            )
+        })?;
         if file_type.is_symlink() {
             continue;
         }
