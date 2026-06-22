@@ -48,9 +48,7 @@ impl CratesIoTarget {
                 format!("module '{}' has no manifest to release", module.id),
             )
         })?;
-        let cwd = std::env::current_dir().map_err(|error| {
-            AppError::new(ErrorCode::Internal, "failed to read current directory").with_cause(error)
-        })?;
+        let cwd = Self::working_root()?;
         safe_join(&cwd, manifest.as_path()).map_err(|error| {
             AppError::invalid_input(
                 "module.manifest",
@@ -61,13 +59,22 @@ impl CratesIoTarget {
             )
         })
     }
+
+    /// The trust boundary for manifest resolution: the process working directory
+    /// (the engine runs from the repository root).
+    fn working_root() -> AppResult<PathBuf> {
+        std::env::current_dir().map_err(|error| {
+            AppError::new(ErrorCode::Internal, "failed to read current directory").with_cause(error)
+        })
+    }
 }
 
 impl ReleaseTarget for CratesIoTarget {
     fn declared_version(&self, module: &Module) -> AppResult<Version> {
+        let root = Self::working_root()?;
         let path = Self::manifest_path(module)?;
         let text = read_string_bounded(&path, MAX_MANIFEST_BYTES)?;
-        read_declared_version(&text, &path)
+        read_declared_version(&text, &path, &root)
     }
 
     fn published_versions(&self, _module: &Module) -> AppResult<Vec<Version>> {
@@ -103,8 +110,9 @@ fn deferred(method: &str) -> AppError {
 /// A string `version` is returned directly. A workspace-inherited version
 /// (`version.workspace = true`) is resolved from the nearest `[workspace.package]
 /// version` — first in the same manifest (root package), then by walking ancestor
-/// directories from `path` for the workspace-root `Cargo.toml`.
-fn read_declared_version(text: &str, path: &Path) -> AppResult<Version> {
+/// directories from `path` for the workspace-root `Cargo.toml`. The ancestor walk
+/// never crosses above `root` (the working/repository-root trust boundary).
+fn read_declared_version(text: &str, path: &Path, root: &Path) -> AppResult<Version> {
     let doc = parse_manifest(text, path)?;
     let version_item = doc
         .get("package")
@@ -122,7 +130,7 @@ fn read_declared_version(text: &str, path: &Path) -> AppResult<Version> {
     item.as_str().map_or_else(
         || {
             if is_workspace_inherited(item) {
-                resolve_inherited_version(&doc, path)
+                resolve_inherited_version(&doc, path, root)
             } else {
                 Err(AppError::new(
                     ErrorCode::InvalidFormat,
@@ -148,13 +156,20 @@ fn is_workspace_inherited(item: &Item) -> bool {
 
 /// Resolve a `version.workspace = true` package version from the owning
 /// workspace's `[workspace.package].version`.
-fn resolve_inherited_version(doc: &DocumentMut, path: &Path) -> AppResult<Version> {
+///
+/// The ancestor search is bounded to `root` (the working/repository-root trust
+/// boundary): a `Cargo.toml` above `root` is never consulted, so resolution
+/// cannot reach outside the repository and stays deterministic.
+fn resolve_inherited_version(doc: &DocumentMut, path: &Path, root: &Path) -> AppResult<Version> {
     if let Some(raw) = workspace_package_version(doc) {
         return parse_version(raw, path);
     }
 
     let mut ancestor = path.parent().and_then(Path::parent);
     while let Some(dir) = ancestor {
+        if !dir.starts_with(root) {
+            break;
+        }
         let candidate = dir.join("Cargo.toml");
         if candidate != path && exists(&candidate)? {
             let text = read_string_bounded(&candidate, MAX_MANIFEST_BYTES)?;
@@ -319,20 +334,24 @@ plain = \"0.4.0\"
 
     #[test]
     fn reads_declared_version() {
-        let version = read_declared_version(MANIFEST, Path::new("Cargo.toml")).unwrap();
+        let version =
+            read_declared_version(MANIFEST, Path::new("Cargo.toml"), Path::new("")).unwrap();
         assert_eq!(version, Version::new(1, 2, 3));
     }
 
     #[test]
     fn missing_version_is_rejected() {
-        assert!(read_declared_version("[package]\nname = \"x\"\n", Path::new("C")).is_err());
+        assert!(
+            read_declared_version("[package]\nname = \"x\"\n", Path::new("C"), Path::new(""))
+                .is_err()
+        );
     }
 
     #[test]
     fn invalid_version_type_is_distinguished_from_missing() {
         // `version` is present but neither a string nor `version.workspace = true`.
         let manifest = "[package]\nname = \"x\"\nversion = 1\n";
-        let error = read_declared_version(manifest, Path::new("C")).unwrap_err();
+        let error = read_declared_version(manifest, Path::new("C"), Path::new("")).unwrap_err();
         let message = error.to_string();
         assert!(
             message.contains("neither a string nor"),
@@ -347,7 +366,8 @@ plain = \"0.4.0\"
     #[test]
     fn resolves_version_inherited_from_workspace_in_same_manifest() {
         let version =
-            read_declared_version(ROOT_INHERITED_MANIFEST, Path::new("Cargo.toml")).unwrap();
+            read_declared_version(ROOT_INHERITED_MANIFEST, Path::new("Cargo.toml"), Path::new(""))
+                .unwrap();
         assert_eq!(version, Version::new(3, 4, 5));
     }
 
@@ -356,7 +376,7 @@ plain = \"0.4.0\"
         // `version.workspace = true` but no `[workspace.package].version` reachable
         // (the manifest has no inline workspace table and the path has no ancestors).
         let manifest = "[package]\nname = \"x\"\nversion.workspace = true\n";
-        assert!(read_declared_version(manifest, Path::new("Cargo.toml")).is_err());
+        assert!(read_declared_version(manifest, Path::new("Cargo.toml"), Path::new("")).is_err());
     }
 
     #[test]

@@ -157,6 +157,21 @@ fn fold_metadata(
         let root = manifest_parent(&manifest)?;
         let id = ModuleRef::new(ecosystem.clone(), &name)?;
 
+        if let Some(existing) = modules.get(&id) {
+            return Err(AppError::new(
+                ErrorCode::Conflict,
+                format!(
+                    "duplicate module '{id}': package '{name}' is declared by both manifest \
+                     '{}' and '{}'; package names must be unique across the project",
+                    existing
+                        .manifest
+                        .as_ref()
+                        .map_or_else(|| existing.root.to_string(), ToString::to_string),
+                    manifest
+                ),
+            ));
+        }
+
         let mut module = Module::new(id.clone(), root.clone());
         module.package = Some(name.clone());
         module.manifest = Some(manifest);

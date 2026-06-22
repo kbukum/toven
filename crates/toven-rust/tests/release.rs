@@ -8,7 +8,7 @@ use rskit_version::semver::Version;
 use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
 use toven_ports::{ReleaseMutation, ReleaseTarget};
 use toven_rust::CratesIoTarget;
-use toven_testkit::{CurrentDirGuard, SampleRepo};
+use toven_testkit::{CurrentDirGuard, SampleRepo, TestWorkspace};
 
 fn app_module() -> Module {
     let id = ModuleRef::new(EcosystemId::new("rust").unwrap(), "app").unwrap();
