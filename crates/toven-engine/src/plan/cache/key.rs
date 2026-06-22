@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use rskit_errors::AppResult;
+use rskit_errors::{AppError, AppResult};
 use toven_model::{Graph, ModuleRef};
 
 use super::super::source::SourceDigest;
@@ -64,12 +64,11 @@ pub(in crate::plan) fn unit_key(
 ) -> AppResult<String> {
     let mut hasher = blake3::Hasher::new();
 
-    let empty = String::new();
-    let module_hash = sources.get(inputs.module).unwrap_or(&empty);
+    let module_hash = source_hash(sources, inputs.module)?;
     fold(&mut hasher, b"module", module_hash.as_bytes());
 
     for dependency in transitive_dependencies(inputs.module, graph) {
-        let dep_hash = sources.get(&dependency).unwrap_or(&empty);
+        let dep_hash = source_hash(sources, &dependency)?;
         fold(&mut hasher, b"dep", dependency.to_string().as_bytes());
         fold(&mut hasher, b"dep-hash", dep_hash.as_bytes());
     }
@@ -105,6 +104,21 @@ fn fold(hasher: &mut blake3::Hasher, label: &[u8], value: &[u8]) {
     hasher.update(b":");
     hasher.update(value);
     hasher.update(b"\0");
+}
+
+/// Look up a module's precomputed source hash, erroring if it is absent.
+///
+/// Every graph module is hashed up front by [`source_hashes`], so a missing
+/// entry signals an internal inconsistency; hashing an empty fallback would let
+/// distinct graphs alias to one key, so this is a hard error rather than a
+/// silent default.
+fn source_hash<'a>(sources: &'a SourceHashes, module: &ModuleRef) -> AppResult<&'a String> {
+    sources.get(module).ok_or_else(|| {
+        AppError::new(
+            rskit_errors::ErrorCode::Internal,
+            format!("missing source hash for module '{module}'"),
+        )
+    })
 }
 
 /// The transitive set of modules `module` depends on (forward edges), sorted.

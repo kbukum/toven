@@ -11,7 +11,7 @@ use toven_model::{
     AbsPath, CacheVerdict, DepKind, Edge, Event, Module, ModuleRef, Phase, Plan, RepoPath,
     ToolchainTag, Workspace, WorkspaceId,
 };
-use toven_ports::{DiscoverResponse, FanOut, Provider, Task, TaskKind, VcsReader};
+use toven_ports::{DiscoverResponse, FanOut, Provider, Task, TaskKind};
 use toven_testkit::{FakeConfiguredAdapter, FakeProvider, FakeVcsReader, RecordingReporter};
 
 fn mref(ecosystem: &str, name: &str) -> ModuleRef {
@@ -254,7 +254,6 @@ fn changed_selection_restricts_active_units() {
     let mut ids: Vec<&str> = plan.units.iter().map(|unit| unit.id.as_str()).collect();
     ids.sort_unstable();
     assert_eq!(ids, vec!["rust:app#test", "rust:errors#test"]);
-    let _ = vcs.worktree_status();
 }
 
 #[test]

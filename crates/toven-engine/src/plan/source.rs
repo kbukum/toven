@@ -124,8 +124,17 @@ fn collect_files(base: &Path, dir: &Path, files: &mut BTreeMap<PathBuf, PathBuf>
                     ),
                 ));
             }
-            let relative = path.strip_prefix(base).unwrap_or(&path).to_path_buf();
-            files.insert(relative, path);
+            let relative = path.strip_prefix(base).map_err(|_| {
+                AppError::new(
+                    rskit_errors::ErrorCode::Internal,
+                    format!(
+                        "collected file '{}' is not under module root '{}'",
+                        path.display(),
+                        base.display()
+                    ),
+                )
+            })?;
+            files.insert(relative.to_path_buf(), path);
         }
     }
     Ok(())

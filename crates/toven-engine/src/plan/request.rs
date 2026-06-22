@@ -6,7 +6,7 @@ use toven_ports::{BaselineSpec, TaskKind};
 /// How the active module set is selected before scheduling.
 ///
 /// [`Selection::All`] activates every discovered module (a full `toven test`);
-/// [`Selection::Changed`] runs the the change mapper against the
+/// [`Selection::Changed`] runs the change mapper against the
 /// changed paths the [`VcsReader`](toven_ports::VcsReader) reports for `spec`.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Selection {
