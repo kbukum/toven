@@ -22,13 +22,17 @@ homepage = "https://github.com/kbukum/toven"
 [workspace.dependencies]
 rskit-errors = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-errors" }
 rskit-validation = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-validation" }
-rskit-util = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-util" }
-rskit-version = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-version" }
-rskit-fs = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-fs" }
+rskit-codec = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-codec" }
 rskit-git = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-git" }
 rskit-testutil = { version = "0.1.0-alpha.1", path = "rskit/core/rskit-testutil" }
+rskit-util = { version = "0.1.0-alpha.2", path = "rskit/core/rskit-util" }
+rskit-version = { version = "0.1.0-alpha.2", path = "rskit/core/rskit-version" }
+rskit-fs = { version = "0.1.0-alpha.2", path = "rskit/core/rskit-fs" }
+rskit-config = { version = "0.1.0-alpha.3", path = "rskit/core/rskit-config", default-features = false }
 toven-model = { version = "0.1.0-alpha.1", path = "crates/toven-model" }
 toven-ports = { version = "0.1.0-alpha.1", path = "crates/toven-ports" }
+toven-engine = { version = "0.1.0-alpha.1", path = "crates/toven-engine" }
+toven-testkit = { version = "0.1.0-alpha.1", path = "crates/toven-testkit" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1.1"

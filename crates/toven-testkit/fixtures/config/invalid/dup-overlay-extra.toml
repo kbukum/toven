@@ -1,0 +1,5 @@
+# Included by `duplicate-overlay-include.toml`; repeats the same overlay edge to
+# force a cross-file duplicate overlay identity.
+[[overlays]]
+from = { ecosystem = "go", module = "api" }
+to = { ecosystem = "rust", module = "shared-types" }

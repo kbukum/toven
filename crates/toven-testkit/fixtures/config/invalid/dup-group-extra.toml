@@ -1,0 +1,5 @@
+# Included by `duplicate-group-include.toml`; redeclares `[groups.core]` to force a
+# cross-file duplicate group identity.
+[groups.core]
+ecosystem = "rust"
+modules = ["config"]

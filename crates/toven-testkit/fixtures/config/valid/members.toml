@@ -1,0 +1,12 @@
+# A multi-repo umbrella declaring `[[members]]` alongside `[project]`.
+[project]
+name = "umbrella"
+
+[[members]]
+name = "core"
+root = "repos/core"
+base_ref = "origin/main"
+
+[[members]]
+name = "services"
+root = "repos/services"

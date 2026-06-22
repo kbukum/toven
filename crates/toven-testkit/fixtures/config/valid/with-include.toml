@@ -1,0 +1,10 @@
+# Canonical document that splits its groups into an include file. Includes are
+# merged beneath the canonical file as defaults (canonical wins on collisions).
+[project]
+name = "with-include"
+
+[toven]
+include = ["include/groups.toml"]
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]

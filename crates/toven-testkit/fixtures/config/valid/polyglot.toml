@@ -1,0 +1,38 @@
+# A full polyglot Document exercising every reserved section.
+[project]
+name = "acme-monorepo"
+root = "."
+base_ref = "origin/main"
+
+[toven]
+report = "json"
+max_parallel = 8
+
+[toven.cache]
+dir = ".toven/cache"
+
+[ecosystems.rust]
+manifests = ["core/Cargo.toml", "contrib/Cargo.toml"]
+run_strategy = "leaf-to-top"
+
+[ecosystems.rust.release]
+strategy = "semver-cascade"
+registry = "crates-io"
+
+[ecosystems.go]
+modules = ["api", "worker"]
+
+[groups.core]
+ecosystem = "rust"
+modules = ["errors", "config", "rust:shared-types"]
+
+[groups.core.guardrails]
+forbid = ["rust:internal-only"]
+allow = ["rust:shared-types"]
+
+[groups.services]
+modules = ["go:api", "rust:shared-types"]
+
+[[overlays]]
+from = { ecosystem = "go", module = "api" }
+to = { ecosystem = "rust", module = "shared-types" }

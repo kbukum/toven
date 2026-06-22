@@ -1,0 +1,9 @@
+# Rejected: `rust:bad:ref` is a structurally malformed `ecosystem:module` ref (the
+# module half still contains a separator). Structural failure fires at load time,
+# unlike a merely-unresolved-but-well-formed ref.
+[project]
+name = "bad-group-ref"
+
+[groups.core]
+ecosystem = "rust"
+modules = ["rust:bad:ref"]

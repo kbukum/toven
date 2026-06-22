@@ -1,0 +1,5 @@
+# Included beneath `with-include.toml`: contributes a group the canonical file does
+# not declare. Uses the same top-level schema as any canonical document.
+[groups.core]
+ecosystem = "rust"
+modules = ["errors", "config"]

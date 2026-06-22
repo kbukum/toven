@@ -1,0 +1,13 @@
+# Rejected: the canonical file and the included file declare the same overlay edge
+# (`go:api -> rust:shared-types`), a duplicate overlay identity. Overlays are
+# registered with a composite identity over both endpoints, so the duplicate is a
+# hard error rather than a silently concatenated edge.
+[project]
+name = "dup-overlay-include"
+
+[toven]
+include = ["dup-overlay-extra.toml"]
+
+[[overlays]]
+from = { ecosystem = "go", module = "api" }
+to = { ecosystem = "rust", module = "shared-types" }

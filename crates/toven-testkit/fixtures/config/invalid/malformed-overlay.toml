@@ -1,0 +1,8 @@
+# Rejected: the overlay's `to.module` is not a valid module name (it contains a
+# `:` separator). A structurally malformed ref fails at load time.
+[project]
+name = "bad-overlay"
+
+[[overlays]]
+from = { ecosystem = "go", module = "api" }
+to = { ecosystem = "rust", module = "shared:types" }

@@ -1,0 +1,13 @@
+# Rejected: `[groups.core]` is declared by both the canonical file and the
+# included file, a duplicate group identity across merged documents. The merge
+# policy registers `groups` as a unique-keyed map, so this is a hard error rather
+# than a silent recursive merge.
+[project]
+name = "dup-group-include"
+
+[toven]
+include = ["dup-group-extra.toml"]
+
+[groups.core]
+ecosystem = "rust"
+modules = ["errors"]
