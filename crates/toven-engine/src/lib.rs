@@ -15,6 +15,10 @@
 //! - [`config`] — the strict `Document`, reserved-section schemas, the
 //!   structural-validation pass, the ecosystem-id three-way dispatch, and the
 //!   `rskit-config::strict`-backed loader.
+//! - [`vcs`] — the single git seam's implementation side: the rskit-git-backed
+//!   [`vcs::RskitGitVcs`] adapter, the engine-owned [`vcs::BaselineStrategy`], and
+//!   the per-repo [`vcs::VcsReaderSet`] dedup + fan-out.
 #![warn(missing_docs)]
 
 pub mod config;
+pub mod vcs;

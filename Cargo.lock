@@ -1300,6 +1300,7 @@ dependencies = [
  "rskit-config",
  "rskit-errors",
  "rskit-fs",
+ "rskit-git",
  "rskit-validation",
  "serde",
  "serde_json",

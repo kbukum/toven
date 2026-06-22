@@ -115,7 +115,7 @@ impl GitScenario {
 
     /// Create an annotated tag at the current `HEAD`.
     pub fn tag(&self, name: &str, message: &str) -> AppResult<()> {
-        self.repo.create_tag(name, "HEAD", message)
+        self.repo.create_tag(name, "HEAD", Some(message))
     }
 
     /// Short helper: assert a tag exists by name.
