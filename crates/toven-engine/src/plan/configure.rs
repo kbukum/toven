@@ -34,10 +34,18 @@ pub(super) fn configure(
     document: &Document,
     providers: &[&dyn Provider],
 ) -> AppResult<ConfiguredSet> {
-    let by_id: BTreeMap<&EcosystemId, &&dyn Provider> = providers
-        .iter()
-        .map(|provider| (provider.ecosystem_id(), provider))
-        .collect();
+    let mut by_id: BTreeMap<&EcosystemId, &&dyn Provider> = BTreeMap::new();
+    for provider in providers {
+        if by_id.insert(provider.ecosystem_id(), provider).is_some() {
+            return Err(AppError::new(
+                rskit_errors::ErrorCode::Internal,
+                format!(
+                    "two providers claim ecosystem '{}'",
+                    provider.ecosystem_id()
+                ),
+            ));
+        }
+    }
 
     let mut configured = ConfiguredSet::new();
     for (ecosystem, raw) in &document.ecosystems {
@@ -60,4 +68,44 @@ fn to_toml_value(ecosystem: &EcosystemId, raw: &RawValue) -> AppResult<toml::Val
             format!("could not convert configuration subtree: {error}"),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use toven_model::EcosystemId;
+    use toven_ports::Provider;
+    use toven_testkit::FakeProvider;
+
+    use super::configure;
+    use crate::config::{Document, ProjectConfig, TovenConfig};
+
+    fn eid(id: &str) -> EcosystemId {
+        EcosystemId::new(id).unwrap()
+    }
+
+    fn empty_document() -> Document {
+        Document {
+            project: ProjectConfig {
+                name: "t".to_string(),
+                root: ".".to_string(),
+                base_ref: None,
+            },
+            toven: TovenConfig::default(),
+            groups: BTreeMap::new(),
+            overlays: Vec::new(),
+            ecosystems: BTreeMap::new(),
+            members: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn two_providers_claiming_one_ecosystem_is_rejected() {
+        let first = FakeProvider::new(eid("rust"));
+        let second = FakeProvider::new(eid("rust"));
+        let providers: Vec<&dyn Provider> = vec![&first, &second];
+
+        assert!(configure(&empty_document(), &providers).is_err());
+    }
 }

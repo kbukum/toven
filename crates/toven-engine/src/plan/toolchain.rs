@@ -72,7 +72,18 @@ impl ToolchainProber for ProcessToolchainProber {
             .with_max_output_bytes(self.max_output_bytes);
 
         let result = run(&spec, &config)?;
-        if result.timed_out || !result.success() {
+        if result.timed_out {
+            return Err(AppError::new(
+                rskit_errors::ErrorCode::Internal,
+                format!(
+                    "toolchain probe '{}' timed out after {:?} in '{}'",
+                    probe.label,
+                    self.timeout,
+                    workspace_root.display()
+                ),
+            ));
+        }
+        if !result.success() {
             return Err(AppError::new(
                 rskit_errors::ErrorCode::Internal,
                 format!(
@@ -102,7 +113,7 @@ pub(super) fn resolve(
     adapters: &ConfiguredSet,
     prober: &dyn ToolchainProber,
 ) -> AppResult<BTreeMap<WorkspaceId, ToolchainTag>> {
-    let active_workspaces = active_workspaces(federation, active);
+    let active_workspaces = active_workspaces(federation, active)?;
 
     let mut resolved = BTreeMap::new();
     for (workspace_id, ecosystem) in active_workspaces {
@@ -125,22 +136,38 @@ pub(super) fn resolve(
 }
 
 /// Map each active workspace id to the ecosystem owning it (via active modules).
+///
+/// # Errors
+/// Two active modules in different ecosystems claiming the same workspace id is
+/// an internal inconsistency (it would pick one adapter's probe arbitrarily).
 fn active_workspaces(
     federation: &Federation,
     active: &BTreeSet<ModuleRef>,
-) -> BTreeMap<WorkspaceId, EcosystemId> {
-    let mut workspaces = BTreeMap::new();
+) -> AppResult<BTreeMap<WorkspaceId, EcosystemId>> {
+    let mut workspaces: BTreeMap<WorkspaceId, EcosystemId> = BTreeMap::new();
     for module in &federation.modules {
         if !active.contains(&module.id) {
             continue;
         }
         if let Some(workspace) = &module.workspace {
-            workspaces
-                .entry(workspace.clone())
-                .or_insert_with(|| module.id.ecosystem.clone());
+            match workspaces.get(workspace) {
+                Some(existing) if existing != &module.id.ecosystem => {
+                    return Err(AppError::new(
+                        rskit_errors::ErrorCode::Internal,
+                        format!(
+                            "workspace '{workspace}' is claimed by ecosystems '{existing}' and '{}'",
+                            module.id.ecosystem
+                        ),
+                    ));
+                }
+                Some(_) => {}
+                None => {
+                    workspaces.insert(workspace.clone(), module.id.ecosystem.clone());
+                }
+            }
         }
     }
-    workspaces
+    Ok(workspaces)
 }
 
 /// Look up a workspace by id in the federation.

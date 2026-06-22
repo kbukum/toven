@@ -113,8 +113,20 @@ fn decide_cache(
     host: PlanHost<'_>,
     reporter: &mut dyn Reporter,
 ) -> AppResult<Vec<ExecutionUnit>> {
-    let hashes = cache::source_hashes(&federation.modules, host.digest)?;
     let adjacency = cache::forward_adjacency(graph);
+    let unit_modules: Vec<ModuleRef> = scheduled
+        .units
+        .iter()
+        .map(|planned| planned.module.clone())
+        .collect();
+    let needed = cache::needed_modules(&unit_modules, &adjacency);
+    let needed_modules: Vec<toven_model::Module> = federation
+        .modules
+        .iter()
+        .filter(|module| needed.contains(&module.id))
+        .cloned()
+        .collect();
+    let hashes = cache::source_hashes(&needed_modules, host.digest)?;
     let passthrough_present = !request.passthrough.is_empty();
 
     let mut units = Vec::with_capacity(scheduled.units.len());

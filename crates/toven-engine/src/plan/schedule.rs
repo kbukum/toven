@@ -104,6 +104,7 @@ pub(super) fn schedule(
 
 /// Index the active modules by identity.
 fn active_modules(federation: &Federation, active: &[ModuleRef]) -> BTreeMap<ModuleRef, Module> {
+    let active: std::collections::BTreeSet<&ModuleRef> = active.iter().collect();
     federation
         .modules
         .iter()

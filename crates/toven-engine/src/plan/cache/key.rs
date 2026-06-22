@@ -20,7 +20,8 @@ use super::super::source::SourceDigest;
 /// Content identities for every module source tree, keyed by module ref.
 pub(in crate::plan) type SourceHashes = BTreeMap<ModuleRef, String>;
 
-/// Hash every module's source tree once, up front, for reuse across unit keys.
+/// Hash the source tree of each module in `modules` (which should be only those
+/// participating in some unit key) for reuse across unit keys.
 ///
 /// # Errors
 /// Propagates a [`SourceDigest`] read failure.
@@ -33,6 +34,23 @@ pub(in crate::plan) fn source_hashes(
         hashes.insert(module.id.clone(), digest.module(module)?);
     }
     Ok(hashes)
+}
+
+/// The set of modules whose source hashes any unit key needs: every scheduled
+/// unit's own module plus its transitive dependency closure.
+///
+/// Hashing only this set avoids walking unrelated ecosystems and prevents an I/O
+/// error under an inactive module root from aborting PLAN.
+pub(in crate::plan) fn needed_modules(
+    units: &[ModuleRef],
+    adjacency: &Adjacency,
+) -> BTreeSet<ModuleRef> {
+    let mut needed = BTreeSet::new();
+    for module in units {
+        needed.insert(module.clone());
+        needed.extend(transitive_dependencies(module, adjacency));
+    }
+    needed
 }
 
 /// The per-unit inputs that compose its content key.

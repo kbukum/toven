@@ -21,7 +21,10 @@ pub trait SourceDigest {
     /// Content identity of a module's source tree (`module.root` subtree).
     fn module(&self, module: &Module) -> AppResult<String>;
 
-    /// Content identity of one workspace-relative shared-input file.
+    /// Content identity of one workspace-relative shared input.
+    ///
+    /// The path may be a regular file or a directory; a directory is hashed as
+    /// its whole subtree. A missing path hashes to the stable empty identity.
     fn path(&self, repo_relative: &Path) -> AppResult<String>;
 }
 
@@ -56,20 +59,13 @@ impl FsSourceDigest {
         hasher.update(&bytes);
         Ok(())
     }
-}
 
-impl SourceDigest for FsSourceDigest {
-    fn module(&self, module: &Module) -> AppResult<String> {
-        let root = safe_join(&self.project_root, module.root.as_path())
-            .map_err(|error| AppError::invalid_input("module.root", error.to_string()))?;
-        if !root.is_dir() {
-            return Ok(empty_digest());
-        }
-
-        // Collect files relative to the module root, sorted for a stable identity
+    /// Hash a directory subtree as a stable, order-independent identity.
+    fn hash_tree(root: &Path) -> AppResult<String> {
+        // Collect files relative to the root, sorted for a stable identity
         // independent of directory-iteration order.
         let mut files = BTreeMap::new();
-        collect_files(&root, &root, &mut files)?;
+        collect_files(root, root, &mut files)?;
 
         let mut hasher = blake3::Hasher::new();
         for (relative, absolute) in &files {
@@ -80,10 +76,27 @@ impl SourceDigest for FsSourceDigest {
         }
         Ok(hasher.finalize().to_hex().to_string())
     }
+}
+
+impl SourceDigest for FsSourceDigest {
+    fn module(&self, module: &Module) -> AppResult<String> {
+        let root = safe_join(&self.project_root, module.root.as_path())
+            .map_err(|error| AppError::invalid_input("module.root", error.to_string()))?;
+        if !root.is_dir() {
+            return Ok(empty_digest());
+        }
+        Self::hash_tree(&root)
+    }
 
     fn path(&self, repo_relative: &Path) -> AppResult<String> {
         let absolute = safe_join(&self.project_root, repo_relative)
             .map_err(|error| AppError::invalid_input("shared_inputs", error.to_string()))?;
+        // A shared input may be a file or a directory; `file::exists` is true
+        // only for regular files, so directories are detected separately and
+        // hashed as a subtree, matching the documented file-or-directory shape.
+        if absolute.is_dir() {
+            return Self::hash_tree(&absolute);
+        }
         if !file::exists(&absolute)? {
             return Ok(empty_digest());
         }
@@ -176,5 +189,27 @@ mod tests {
         let a = digest.module(&module("absent")).unwrap();
         let b = digest.module(&module("also-absent")).unwrap();
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn directory_shared_input_hashes_its_subtree() {
+        let workspace = TestWorkspace::new("source-digest-dir");
+        workspace
+            .write_file("shared/schema.sql", b"create table a();")
+            .unwrap();
+        let root = AbsPath::new(workspace.path()).unwrap();
+        let digest = FsSourceDigest::new(&root);
+
+        // A directory shared input is hashed as a subtree, so a change under it
+        // moves the digest (a regression for `file::exists` rejecting dirs).
+        let before = digest.path(std::path::Path::new("shared")).unwrap();
+        let empty = digest.path(std::path::Path::new("absent")).unwrap();
+        assert_ne!(before, empty, "a populated dir must not hash as empty");
+
+        workspace
+            .write_file("shared/schema.sql", b"create table b();")
+            .unwrap();
+        let after = digest.path(std::path::Path::new("shared")).unwrap();
+        assert_ne!(before, after);
     }
 }
