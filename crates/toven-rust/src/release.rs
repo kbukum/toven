@@ -365,9 +365,12 @@ plain = \"0.4.0\"
 
     #[test]
     fn resolves_version_inherited_from_workspace_in_same_manifest() {
-        let version =
-            read_declared_version(ROOT_INHERITED_MANIFEST, Path::new("Cargo.toml"), Path::new(""))
-                .unwrap();
+        let version = read_declared_version(
+            ROOT_INHERITED_MANIFEST,
+            Path::new("Cargo.toml"),
+            Path::new(""),
+        )
+        .unwrap();
         assert_eq!(version, Version::new(3, 4, 5));
     }
 
