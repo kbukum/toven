@@ -37,7 +37,10 @@ impl<W: Write> HumanReporter<W> {
     }
 
     fn write_line(&mut self, line: &str) -> AppResult<()> {
-        writeln!(self.writer, "{line}").map_err(AppError::internal)
+        writeln!(self.writer, "{line}").map_err(AppError::internal)?;
+        // Flush each progress line so redirected/piped stdout (block-buffered)
+        // surfaces progress promptly instead of in deferred bursts.
+        self.writer.flush().map_err(AppError::internal)
     }
 
     fn write_summary(&mut self, summary: &RunStats) -> AppResult<()> {
@@ -57,7 +60,10 @@ impl<W: Write> HumanReporter<W> {
         // The displayed exit is derived from the summary by the single owner, so
         // it can never disagree with the actual process exit (event-report C).
         kv.add("exit", exit_code(summary).as_i32().to_string());
-        write!(self.writer, "summary\n{kv}").map_err(AppError::internal)
+        write!(self.writer, "summary\n{kv}").map_err(AppError::internal)?;
+        // Flush the final summary so a piped/redirected consumer receives it
+        // promptly and it is not lost in a buffer on an abrupt exit.
+        self.writer.flush().map_err(AppError::internal)
     }
 }
 

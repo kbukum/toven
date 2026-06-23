@@ -56,7 +56,10 @@ impl<W: Write> RawOutputSink for WriterRawSink<W> {
     fn live(&mut self, chunk: &UnitOutput) -> AppResult<()> {
         self.writer
             .write_all(&chunk.bytes)
-            .map_err(AppError::internal)
+            .map_err(AppError::internal)?;
+        // Flush each live chunk so tailing a persistent unit stays responsive
+        // even when the writer is redirected through a buffer.
+        self.writer.flush().map_err(AppError::internal)
     }
 
     fn block(&mut self, unit_id: &str, chunks: &[UnitOutput]) -> AppResult<()> {
@@ -66,7 +69,9 @@ impl<W: Write> RawOutputSink for WriterRawSink<W> {
                 .write_all(&chunk.bytes)
                 .map_err(AppError::internal)?;
         }
-        Ok(())
+        // Flush once at the end of the block so a completed unit's output appears
+        // promptly on redirected/buffered output, without flushing per chunk.
+        self.writer.flush().map_err(AppError::internal)
     }
 }
 

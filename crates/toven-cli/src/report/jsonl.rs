@@ -44,7 +44,9 @@ impl<W: Write> Reporter for JsonlReporter<W> {
     fn emit(&mut self, event: &Event) -> AppResult<()> {
         serde_json::to_writer(&mut self.writer, event).map_err(AppError::internal)?;
         self.writer.write_all(b"\n").map_err(AppError::internal)?;
-        Ok(())
+        // Flush each line so machine consumers tailing a pipe (non-TTY, where
+        // stdout is block-buffered) see every Event immediately.
+        self.writer.flush().map_err(AppError::internal)
     }
 }
 
