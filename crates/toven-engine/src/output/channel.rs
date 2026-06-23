@@ -102,12 +102,16 @@ impl<S: RawOutputSink> UnitOutputChannel<S> {
     /// # Errors
     /// Propagates any [`RawOutputSink`] write failure.
     pub fn finish(&mut self, unit_id: &str) -> AppResult<()> {
-        self.modes.remove(unit_id);
-        if let Some(buffer) = self.buffers.remove(unit_id)
+        // Flush before clearing state: if the sink write fails the buffered
+        // chunks and mode stay intact so the caller can retry without losing
+        // output (development-principles §6/§8, no success-shaped data loss).
+        if let Some(buffer) = self.buffers.get(unit_id)
             && !buffer.chunks.is_empty()
         {
             self.sink.block(unit_id, &buffer.chunks)?;
         }
+        self.buffers.remove(unit_id);
+        self.modes.remove(unit_id);
         Ok(())
     }
 
@@ -123,10 +127,14 @@ impl<S: RawOutputSink> UnitOutputChannel<S> {
         let buffer = self.buffers.entry(unit_id.clone()).or_default();
         buffer.bytes = buffer.bytes.saturating_add(output.bytes.len());
         buffer.chunks.push(output);
-        if buffer.bytes > self.max_buffer_bytes {
-            let spilled = std::mem::take(buffer);
-            self.sink.block(&unit_id, &spilled.chunks)?;
+        if buffer.bytes <= self.max_buffer_bytes {
+            return Ok(());
         }
+        // Over cap: spill as a block. Write before clearing so a sink failure
+        // keeps the accumulated chunks buffered for retry rather than dropping
+        // them (development-principles §6/§8, no success-shaped data loss).
+        self.sink.block(&unit_id, &self.buffers[&unit_id].chunks)?;
+        self.buffers.remove(&unit_id);
         Ok(())
     }
 }
@@ -214,5 +222,46 @@ mod tests {
         channel.register("u1", OutputMode::Buffered);
         channel.finish("u1").unwrap();
         assert!(sink.blocks().is_empty());
+    }
+
+    #[test]
+    fn finish_failure_preserves_buffer_for_retry() {
+        let sink = RecordingRawOutputSink::new();
+        let mut channel = UnitOutputChannel::new(sink.clone());
+        channel.register("u1", OutputMode::Buffered);
+        channel.push(chunk("u1", b"a")).unwrap();
+        channel.push(chunk("u1", b"b")).unwrap();
+
+        sink.fail_blocks(true);
+        assert!(channel.finish("u1").is_err());
+        assert!(sink.blocks().is_empty(), "failed write must record nothing");
+
+        // The buffered chunks survived the failed flush; a retry lands them.
+        sink.fail_blocks(false);
+        channel.finish("u1").unwrap();
+        assert_eq!(
+            sink.blocks(),
+            vec![("u1".to_string(), vec![chunk("u1", b"a"), chunk("u1", b"b")])]
+        );
+    }
+
+    #[test]
+    fn spill_failure_preserves_buffer_for_retry() {
+        let sink = RecordingRawOutputSink::new();
+        let mut channel = UnitOutputChannel::with_max_buffer_bytes(sink.clone(), 2);
+        channel.register("u1", OutputMode::Buffered);
+
+        sink.fail_blocks(true);
+        // 3 bytes > cap → spill attempt fails; chunk must stay buffered.
+        assert!(channel.push(chunk("u1", b"abc")).is_err());
+        assert!(sink.blocks().is_empty(), "failed spill must record nothing");
+
+        // A later finish (after recovery) flushes the preserved chunk.
+        sink.fail_blocks(false);
+        channel.finish("u1").unwrap();
+        assert_eq!(
+            sink.blocks(),
+            vec![("u1".to_string(), vec![chunk("u1", b"abc")])]
+        );
     }
 }
