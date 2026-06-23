@@ -1,7 +1,7 @@
 //! [`WriterRawSink`] — the terminal-bound adapter for the engine's raw-output
 //! channel.
 //!
-//! The engine's [`UnitOutputChannel`](toven_engine::output::UnitOutputChannel)
+//! The engine's `UnitOutputChannel`
 //! owns the buffer-normal / live-persistent *policy* and never prints; this CLI
 //! adapter is where the bytes actually land. It implements the
 //! [`RawOutputSink`](toven_ports::RawOutputSink) port: a normal unit's buffered

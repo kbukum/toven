@@ -14,9 +14,9 @@ use toven_ports::RawOutputSink;
 /// Default per-unit buffer cap before a normal unit's block is spilled early.
 ///
 /// Generous enough that ordinary task output flushes as a single labeled block,
-/// small enough that a pathological producer cannot exhaust host memory
-/// (development-principles §10, bounded resources). Past this cap a unit's
-/// output is spilled as an extra block rather than buffered without limit —
+/// small enough that a pathological producer cannot exhaust host memory (bounded
+/// resources). Past this cap a unit's output is spilled as an extra block rather
+/// than buffered without limit —
 /// see [`UnitOutputChannel::with_max_buffer_bytes`] for the trade-off.
 const DEFAULT_MAX_BUFFER_BYTES: usize = 8 * 1024 * 1024;
 
@@ -105,7 +105,7 @@ impl<S: RawOutputSink> UnitOutputChannel<S> {
     pub fn finish(&mut self, unit_id: &str) -> AppResult<()> {
         // Flush before clearing state: if the sink write fails the buffered
         // chunks and mode stay intact so the caller can retry without losing
-        // output (development-principles §6/§8, no success-shaped data loss).
+        // output (no success-shaped data loss).
         if let Some(buffer) = self.buffers.get(unit_id)
             && !buffer.chunks.is_empty()
         {
@@ -133,7 +133,7 @@ impl<S: RawOutputSink> UnitOutputChannel<S> {
         }
         // Over cap: spill as a block. Write before clearing so a sink failure
         // keeps the accumulated chunks buffered for retry rather than dropping
-        // them (development-principles §6/§8, no success-shaped data loss).
+        // them (no success-shaped data loss).
         self.sink.block(&unit_id, &self.buffers[&unit_id].chunks)?;
         self.buffers.remove(&unit_id);
         Ok(())
