@@ -4,7 +4,7 @@ mod common;
 
 use std::collections::BTreeMap;
 
-use common::{CountingProber, RecordingCache, SetCache, StubDigest, eid};
+use common::eid;
 use toven_engine::config::{Document, ProjectConfig, TovenConfig};
 use toven_engine::plan::{CacheMode, NullCache, PlanHost, PlanRequest, Selection, plan};
 use toven_model::{
@@ -12,7 +12,10 @@ use toven_model::{
     ToolchainTag, Workspace, WorkspaceId,
 };
 use toven_ports::{DiscoverResponse, FanOut, Provider, Task, TaskKind};
-use toven_testkit::{FakeConfiguredAdapter, FakeProvider, FakeVcsReader, RecordingReporter};
+use toven_testkit::{
+    CountingToolchainProber, FakeCacheStore, FakeConfiguredAdapter, FakeProvider, FakeSourceDigest,
+    FakeVcsReader, RecordingCacheStore, RecordingReporter,
+};
 
 fn mref(ecosystem: &str, name: &str) -> ModuleRef {
     ModuleRef::new(eid(ecosystem), name).expect("valid module ref")
@@ -88,8 +91,8 @@ fn plans_full_federation_into_leaf_first_waves() {
     let provider = rust_provider();
     let providers: Vec<&dyn Provider> = vec![&provider];
     let vcs = FakeVcsReader::new();
-    let digest = StubDigest;
-    let prober = CountingProber::default();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
     let cache = NullCache;
     let mut reporter = RecordingReporter::new();
 
@@ -136,8 +139,8 @@ fn emits_phase_and_plan_events_in_order() {
     let provider = rust_provider();
     let providers: Vec<&dyn Provider> = vec![&provider];
     let vcs = FakeVcsReader::new();
-    let digest = StubDigest;
-    let prober = CountingProber::default();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
     let cache = NullCache;
     let mut reporter = RecordingReporter::new();
 
@@ -190,8 +193,8 @@ fn immutable_plan_round_trips_through_serde() {
     let provider = rust_provider();
     let providers: Vec<&dyn Provider> = vec![&provider];
     let vcs = FakeVcsReader::new();
-    let digest = StubDigest;
-    let prober = CountingProber::default();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
     let cache = NullCache;
     let mut reporter = RecordingReporter::new();
 
@@ -215,8 +218,8 @@ fn force_mode_marks_every_unit_forced() {
     let provider = rust_provider();
     let providers: Vec<&dyn Provider> = vec![&provider];
     let vcs = FakeVcsReader::new();
-    let digest = StubDigest;
-    let prober = CountingProber::default();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
     let cache = NullCache;
     let mut reporter = RecordingReporter::new();
 
@@ -240,8 +243,8 @@ fn changed_selection_restricts_active_units() {
         "crates/errors/lib.rs",
         toven_ports::ChangeStatus::Modified,
     )]);
-    let digest = StubDigest;
-    let prober = CountingProber::default();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
     let cache = NullCache;
     let mut reporter = RecordingReporter::new();
 
@@ -261,11 +264,11 @@ fn cache_keys_are_deterministic_and_drive_hits() {
     let provider = rust_provider();
     let providers: Vec<&dyn Provider> = vec![&provider];
     let vcs = FakeVcsReader::new();
-    let digest = StubDigest;
-    let prober = CountingProber::default();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
 
     // First run: capture the deterministic content keys the plan queries.
-    let recording = RecordingCache::default();
+    let recording = RecordingCacheStore::new();
     let mut reporter = RecordingReporter::new();
     let host = PlanHost::new(&vcs, &digest, &prober, &recording);
     plan(
@@ -281,7 +284,7 @@ fn cache_keys_are_deterministic_and_drive_hits() {
 
     // Second run: seed one captured key — the same key must recur (determinism)
     // and turn exactly that unit into a hit.
-    let cache = SetCache::default().with_key(keys[0].clone());
+    let cache = FakeCacheStore::new().with_key(keys[0].clone());
     let mut reporter = RecordingReporter::new();
     let host = PlanHost::new(&vcs, &digest, &prober, &cache);
     let plan = plan(

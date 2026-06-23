@@ -7,9 +7,9 @@
 
 use rskit_errors::AppResult;
 use toven_model::CacheVerdict;
+use toven_ports::CacheStore;
 
 use super::super::request::CacheMode;
-use super::store::CacheStore;
 
 /// Decide the verdict for one unit given its mode, cacheability, and key.
 ///

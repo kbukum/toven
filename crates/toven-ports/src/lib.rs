@@ -1,7 +1,7 @@
 //! `toven-ports` — the port contracts every adapter (in-tree or 3rd-party)
 //! implements, plus the fat helpers that make implementing them easy.
 //!
-//! Layer 2 of the hexagonal architecture: the thin traits ecosystems implement +
+//! Layer 1 of the hexagonal architecture: the thin traits ecosystems implement +
 //! the shared surface behind them. Adapters build against `toven-ports`, never
 //! against the engine. It depends only on [`toven_model`] (the shared
 //! vocabulary), the error contract ([`rskit_errors`]), and the reuse primitives
@@ -9,15 +9,24 @@
 //!
 //! All fallible methods return [`rskit_errors::AppResult`]. Port traits are
 //! object-safe so registries store trait objects (`dyn Provider`,
-//! `dyn ConfiguredAdapter`, `dyn ReleaseTarget`, `dyn Reporter`, `dyn VcsReader`,
-//! `dyn VcsWriter`).
+//! `dyn ConfiguredAdapter`, `dyn ReleaseTarget`, `dyn Reporter`,
+//! `dyn RawOutputSink`, `dyn VcsReader`, `dyn VcsWriter`, `dyn ToolchainProber`,
+//! `dyn SourceDigest`, `dyn CacheStore`).
 //!
 //! ## Ports
 //! - [`provider`] — [`Provider`]/[`ConfiguredAdapter`]: the raw-TOML → configured
 //!   adapter seam.
 //! - [`release`] — [`ReleaseTarget`] and friends: the thin ecosystem release sliver.
 //! - [`reporter`] — [`Reporter`]: the observability output port.
+//! - [`raw_output`] — [`RawOutputSink`]: the raw child-output sink port (sibling
+//!   of [`Reporter`]; fed by the engine's `UnitOutputChannel`).
 //! - [`vcs`] — [`VcsReader`]/[`VcsWriter`]: the single git seam.
+//! - [`toolchain`] — [`ToolchainProber`]: the injected toolchain-probe seam
+//!   (concrete subprocess prober lives in the engine).
+//! - [`source`] — [`SourceDigest`]: the injected content-digest seam (concrete
+//!   filesystem digest lives in the engine).
+//! - [`cache`] — [`CacheStore`]: the injected cache-record lookup seam (concrete
+//!   backend lives in the engine).
 //! - [`discover`] — the discovery request/response vocabulary.
 //!
 //! ## Shared surface
@@ -26,26 +35,34 @@
 //! - [`template`] — [`CommandTemplate`] argv rendering over rskit-util.
 //! - [`merge`] — the [`merge_task`] field-merge helper.
 
+pub mod cache;
 pub mod config;
 pub mod discover;
 pub mod merge;
 pub mod provider;
+pub mod raw_output;
 pub mod release;
 pub mod reporter;
+pub mod source;
 pub mod task;
 pub mod template;
+pub mod toolchain;
 pub mod vcs;
 
+pub use cache::CacheStore;
 pub use config::{CommonEcosystemConfig, ReleaseConfig, RunStrategy, TaskOverride};
 pub use discover::{DISCOVERY_SCHEMA_VERSION, DiscoverContext, DiscoverRequest, DiscoverResponse};
 pub use merge::merge_task;
 pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
+pub use raw_output::RawOutputSink;
 pub use release::{Artifact, PublishOutcome, ReleaseMutation, ReleaseTarget};
 pub use reporter::Reporter;
+pub use source::SourceDigest;
 pub use task::{
     DEFAULT_READINESS_TIMEOUT, FanOut, Readiness, Task, TaskKind, TaskOrigin, ToolchainProbe,
 };
 pub use template::{CommandTemplate, TaskVar};
+pub use toolchain::ToolchainProber;
 pub use vcs::{
     BaselineMode, BaselineSpec, ChangeRecord, ChangeStatus, Oid, TagRef, VcsReader, VcsWriter,
 };
@@ -60,13 +77,30 @@ mod object_safety {
     use rskit_errors::AppResult;
     use rskit_version::semver::Version;
     use toml::Table;
-    use toven_model::{AbsPath, EcosystemId, Event, Module, ModuleRef, RepoPath};
+    use toven_model::{
+        AbsPath, EcosystemId, Event, Module, ModuleRef, OutputStream, RepoPath, UnitOutput,
+    };
 
     use super::*;
 
     struct FakeReporter;
     impl Reporter for FakeReporter {
         fn emit(&mut self, _event: &Event) -> AppResult<()> {
+            Ok(())
+        }
+    }
+
+    struct FakeRawOutputSink {
+        live: usize,
+        blocks: usize,
+    }
+    impl RawOutputSink for FakeRawOutputSink {
+        fn live(&mut self, _chunk: &UnitOutput) -> AppResult<()> {
+            self.live += 1;
+            Ok(())
+        }
+        fn block(&mut self, _unit_id: &str, _chunks: &[UnitOutput]) -> AppResult<()> {
+            self.blocks += 1;
             Ok(())
         }
     }
@@ -131,6 +165,30 @@ mod object_safety {
         }
     }
 
+    struct FakeToolchainProber;
+    impl ToolchainProber for FakeToolchainProber {
+        fn probe(&self, _probe: &ToolchainProbe, _workspace_root: &Path) -> AppResult<String> {
+            Ok("v1".to_string())
+        }
+    }
+
+    struct FakeSourceDigest;
+    impl SourceDigest for FakeSourceDigest {
+        fn module(&self, module: &Module) -> AppResult<String> {
+            Ok(format!("module:{}", module.id))
+        }
+        fn path(&self, repo_relative: &Path) -> AppResult<String> {
+            Ok(format!("path:{}", repo_relative.display()))
+        }
+    }
+
+    struct FakeCacheStore;
+    impl CacheStore for FakeCacheStore {
+        fn contains(&self, _key: &str) -> AppResult<bool> {
+            Ok(false)
+        }
+    }
+
     struct FakeVcs;
     impl VcsReader for FakeVcs {
         fn rev_parse(&self, _rev: &str) -> AppResult<Oid> {
@@ -175,9 +233,14 @@ mod object_safety {
     #[test]
     fn port_traits_are_object_safe() {
         let mut reporter: Box<dyn Reporter> = Box::new(FakeReporter);
+        let mut raw_sink: Box<dyn RawOutputSink> =
+            Box::new(FakeRawOutputSink { live: 0, blocks: 0 });
         let release: Box<dyn ReleaseTarget> = Box::new(FakeReleaseTarget);
         let reader: Box<dyn VcsReader> = Box::new(FakeVcs);
         let writer: Box<dyn VcsWriter> = Box::new(FakeVcs);
+        let prober: Box<dyn ToolchainProber> = Box::new(FakeToolchainProber);
+        let digest: Box<dyn SourceDigest> = Box::new(FakeSourceDigest);
+        let cache: Box<dyn CacheStore> = Box::new(FakeCacheStore);
         let provider: Box<dyn Provider> =
             Box::new(FakeProvider(EcosystemId::new("rust").expect("valid id")));
 
@@ -229,6 +292,17 @@ mod object_safety {
             .emit(&Event::PlanPrepared { waves: 0, units: 0 })
             .expect("emits without error");
 
+        // Exercise the RawOutputSink port (both live and block paths).
+        let chunk = UnitOutput {
+            unit_id: "rust:fake#test".into(),
+            stream: OutputStream::Stdout,
+            bytes: b"out".to_vec(),
+        };
+        raw_sink.live(&chunk).expect("live without error");
+        raw_sink
+            .block("rust:fake#test", std::slice::from_ref(&chunk))
+            .expect("block without error");
+
         // Exercise every VcsReader method.
         assert_eq!(reader.rev_parse("HEAD").expect("ok").as_str(), "deadbeef");
         assert_eq!(
@@ -246,5 +320,25 @@ mod object_safety {
         writer.create_tag("v1", "HEAD", Some("msg")).expect("tags");
         writer.push(&["refs/heads/main".into()]).expect("pushes");
         writer.restore_worktree().expect("restores");
+
+        // Exercise the injected IO ports (toolchain / source-digest / cache).
+        assert_eq!(
+            prober
+                .probe(
+                    &ToolchainProbe::new("cargo", "cargo", vec!["--version".into()]),
+                    Path::new("."),
+                )
+                .expect("probes"),
+            "v1"
+        );
+        assert_eq!(
+            digest.module(&module).expect("module digest"),
+            format!("module:{}", module.id)
+        );
+        assert_eq!(
+            digest.path(Path::new("shared")).expect("path digest"),
+            "path:shared"
+        );
+        assert!(!cache.contains("any-key").expect("cache lookup"));
     }
 }

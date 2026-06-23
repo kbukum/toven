@@ -14,22 +14,10 @@ use rskit_errors::{AppError, AppResult};
 use rskit_fs::safe_join;
 use rskit_process::{CapturedIo, ProcessConfig, ProcessIo, ProcessSpec, run};
 use toven_model::{AbsPath, EcosystemId, ModuleRef, ToolchainTag, Workspace, WorkspaceId};
-use toven_ports::ToolchainProbe;
+use toven_ports::{ToolchainProbe, ToolchainProber};
 
 use super::configure::ConfiguredSet;
 use super::discover::Federation;
-
-/// The injected toolchain probe: run a probe command and return its version line.
-///
-/// Implementations execute the probe (a side effect) and return the opaque,
-/// cache-significant version string; the planner folds it into the cache key.
-pub trait ToolchainProber {
-    /// Probe the toolchain in `workspace_root`, returning the version identity.
-    ///
-    /// # Errors
-    /// A probe that cannot run or exits unsuccessfully is a hard error.
-    fn probe(&self, probe: &ToolchainProbe, workspace_root: &Path) -> AppResult<String>;
-}
 
 /// Default per-probe timeout: bounded so a hung toolchain cannot stall PLAN.
 const DEFAULT_PROBE_TIMEOUT: Duration = Duration::from_secs(30);

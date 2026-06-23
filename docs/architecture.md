@@ -1,6 +1,6 @@
 # Toven architecture
 
-Toven is being rebuilt as a **hexagonal, multi-crate workspace**. The domain vocabulary sits at the center, ports define the contracts adapters and the engine speak, and the apps are thin wiring shells. This document describes the **target topology** the redesign is converging on; only the `toven-model` vocabulary crate is in the workspace today, with the remaining crates and apps landing as the later redesign steps complete.
+Toven is being rebuilt as a **hexagonal, multi-crate workspace**. The domain vocabulary sits at the center, ports define the contracts that adapters and the engine speak, and the apps are thin wiring shells. This document describes the **target topology** the redesign is converging on; the `toven-model` vocabulary, `toven-ports` contracts, `toven-engine` PLAN spine, the `toven-rust` adapter, and the `toven-cli` reporting layer are in the workspace today (alongside the dev-only `toven-testkit`), with the remaining adapters and apps landing as the later redesign steps complete.
 
 > The previous single-crate `src/` tree was removed when the repository converted to this workspace. Its behavior is being re-homed into the crates below.
 
@@ -9,12 +9,12 @@ Toven is being rebuilt as a **hexagonal, multi-crate workspace**. The domain voc
 ```text
 crates/
   toven-model/     # identity, dependency graph, plan + event vocabulary; pure graph/topo/wave algos
-  toven-ports/     # Provider/ConfiguredAdapter, ReleaseTarget, Reporter, Vcs traits + field-merge + Template helpers
+  toven-ports/     # ports: Provider/ConfiguredAdapter, ReleaseTarget, Reporter, Vcs, RawOutputSink, ToolchainProber, SourceDigest, CacheStore + field-merge/Template/config helpers
   toven-engine/    # PLAN spine (load·configure·discover·graph·affected·toolchain·schedule) + APPLY exec/waves + release
   toven-rust/      # Rust adapter over the ports (cargo_metadata discovery, default tasks, toolchain probe)
   toven-go/        # Go adapter over the ports
   toven-command/   # generic command-driver adapter (out-of-proc RemoteAdapter envelope)
-  toven-cli/       # CLI taxonomy, argv-first dispatch, PLAN-cut introspection projections
+  toven-cli/       # CLI taxonomy, argv-first dispatch, Event-stream reporting sinks (Human/Jsonl) + exit mapping
   toven/           # library facade that composes model + ports + engine + adapters
 apps/
   toven/           # umbrella binary (multi-ecosystem dispatch)
@@ -38,9 +38,9 @@ L4  apps/{toven, toven-rs, toven-go} # thin wiring binaries
 
 Key import boundaries:
 
-- `toven-model` has no upward imports; it depends only on `rskit-errors`.
+- `toven-model` has no upward imports; it depends only on `rskit-errors`, `rskit-validation`, and `serde`/`serde_json`.
 - Adapters (`toven-rust`, `toven-go`, `toven-command`) depend on `toven-ports` and `toven-model`, never on the engine, CLI, or apps.
-- `toven-engine` receives normalized workspace/modules/tasks as data through the ports; it does not parse config or own process stdio.
+- `toven-engine` owns the reserved-section schemas and the one strict `Document` loader that parses the single canonical `toven.toml`; `toven-ports` owns the shared `[ecosystems.<id>]` vocabulary (`CommonEcosystemConfig`) that each adapter flattens during its own `configure` parse. The engine does not own process stdio — raw child output and the Event stream are rendered only by `toven-cli`.
 - `toven-cli` is the only layer that handles human command parsing and stdio projections; `apps/*` only wire dependencies together.
 
 ## rskit reuse

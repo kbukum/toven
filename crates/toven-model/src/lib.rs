@@ -1,6 +1,6 @@
 //! `toven-model` — the shared Toven vocabulary.
 //!
-//! Layer 1 of the hexagonal architecture: the types everyone speaks plus the pure
+//! Layer 0 of the hexagonal architecture: the types everyone speaks plus the pure
 //! graph algorithms that ports and the engine consume. It is the dependency root,
 //! depending only on `rskit-errors` (the error contract) and `rskit-validation`
 //! (identifier validation) — never on ports, adapters, or the engine.

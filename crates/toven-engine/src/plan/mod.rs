@@ -30,9 +30,9 @@ mod schedule;
 mod source;
 mod toolchain;
 
-pub use cache::{CacheStore, NullCache};
+pub use cache::NullCache;
 pub use host::PlanHost;
 pub use pipeline::plan;
 pub use request::{CacheMode, PlanRequest, Selection};
-pub use source::{FsSourceDigest, SourceDigest};
-pub use toolchain::{ProcessToolchainProber, ToolchainProber};
+pub use source::FsSourceDigest;
+pub use toolchain::ProcessToolchainProber;

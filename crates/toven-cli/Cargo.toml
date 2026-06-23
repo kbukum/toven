@@ -1,0 +1,20 @@
+[package]
+name = "toven-cli"
+description = "Toven CLI observability layer: Human/Jsonl Reporter sinks, raw-output rendering, and exit mapping"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+toven-model.workspace = true
+toven-ports.workspace = true
+rskit-errors.workspace = true
+rskit-cli.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

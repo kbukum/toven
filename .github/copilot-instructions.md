@@ -39,11 +39,16 @@ Prefer validating only the changed modules/crates unless a broader gate is clear
 
 ## Workspace structure
 
-One Cargo workspace (`members = ["crates/*"]`, `exclude = ["rskit"]`). Layers depend downward only:
+One Cargo workspace (`members = ["crates/*"]`, `exclude = ["rskit"]`). Layers depend **downward only** (L0 → L1 → L2 → L3 → apps); a lower layer never imports a higher one:
 
-- `crates/toven-model` — pure vocabulary: identity, dependency graph, plan, and event types plus graph algorithms. The dependency root; it depends on no other Toven crate (only rskit and third-party crates such as `serde`).
-- `crates/toven-ports` — hexagonal port traits (Provider/ConfiguredAdapter, ReleaseTarget, Reporter, VcsReader/VcsWriter) and helpers (template, merge, config). Depends on `toven-model` + rskit.
+- `crates/toven-model` (L0) — pure vocabulary: identity, dependency graph, plan, and event types plus graph algorithms. The dependency root; it depends on no other Toven crate (only rskit and third-party crates such as `serde`).
+- `crates/toven-ports` (L1) — hexagonal port traits (Provider/ConfiguredAdapter, ReleaseTarget, Reporter, RawOutputSink, VcsReader/VcsWriter, ToolchainProber, SourceDigest, CacheStore) and helpers (template, merge, config). Each port is a declare-only responsibility folder. Depends on `toven-model` + rskit.
+- `crates/toven-engine` (L2) — PLAN/APPLY orchestration and the concrete rskit-backed adapters for the injected ports (e.g. `ProcessToolchainProber`, `FsSourceDigest`, `NullCache`); also owns the strict config `Document` loader.
+- adapter crates `crates/toven-{rust,go,command}` (L2) — ecosystem adapters implementing the `toven-ports` traits; never reach into the engine or cli.
+- `crates/toven-cli` (L3) — CLI taxonomy, argv-first dispatch, and the stdio/Event projection sinks (the only layer that prints).
 - `crates/toven-testkit` — dev-only (`publish = false`) shared test surface: fixtures API, port doubles, sample-repo/git scenario helpers. Tests use it instead of inline TOML.
+
+**Port placement (binding):** a port trait lives in `toven-ports`; its concrete adapter lives in the consuming crate (engine or `toven-<eco>`), never beside the trait; every port has exactly one shared double in `toven-testkit` (`doubles/<port>.rs`) — no port double is stranded inline in a crate's `tests/`. A port trait references only `toven-model` + rskit + std/ports value types; no engine type leaks upward.
 
 The vendored `rskit/` submodule is a separate workspace; Toven depends on individual rskit core crates via path deps pinned to the submodule's prerelease version.
 
@@ -53,6 +58,7 @@ The vendored `rskit/` submodule is a separate workspace; Toven depends on indivi
 - `unsafe_code = "forbid"` and `missing_docs = "warn"` are set workspace-wide; all public items carry `///` docs.
 - `#[must_use]` on `with_*` builder methods; `#[non_exhaustive]` on public enums that may grow.
 - No `unwrap()` / `expect()` in library code (tests are fine).
+- No test-only escape hatches on production public surfaces: a recover-the-inner accessor used only by tests (`into_inner`, `into_sink`, …) is `#[cfg(test)]`-gated or removed; shared doubles expose recording accessors instead.
 - Use rskit's `AppError` / `AppResult` for error handling; preserve the cause.
 - Conventional Commits: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
 
