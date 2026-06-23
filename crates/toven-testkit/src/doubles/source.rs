@@ -112,7 +112,10 @@ mod tests {
         // Absent module and both absent paths hash to the SAME empty identity,
         // matching the production contract for absent optional inputs.
         assert_eq!(digest.module(&module("gone")).unwrap(), EMPTY_IDENTITY);
-        assert_eq!(digest.path(Path::new("optional/lock")).unwrap(), EMPTY_IDENTITY);
+        assert_eq!(
+            digest.path(Path::new("optional/lock")).unwrap(),
+            EMPTY_IDENTITY
+        );
         assert_eq!(
             digest.path(Path::new("optional/config")).unwrap(),
             EMPTY_IDENTITY
