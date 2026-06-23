@@ -17,9 +17,12 @@ use rskit_errors::AppResult;
 use toven_model::{Module, ModuleRef};
 use toven_ports::SourceDigest;
 
-/// The stable identity every absent module/path hashes to, matching the
-/// production `FsSourceDigest` empty-content digest (opaque: compare for
-/// equality only, never parse).
+/// The stable identity every absent module/path hashes to.
+///
+/// A distinct, opaque sentinel: per the [`SourceDigest`] contract, callers
+/// compare digests only for equality, so the double need not reproduce the
+/// production `FsSourceDigest` empty-content value — it only guarantees that all
+/// absent inputs share one stable identity that differs from any present one.
 pub const EMPTY_IDENTITY: &str = "empty";
 
 /// A deterministic [`SourceDigest`] for tests.
