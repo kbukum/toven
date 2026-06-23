@@ -38,7 +38,7 @@ L4  apps/{toven, toven-rs, toven-go} # thin wiring binaries
 
 Key import boundaries:
 
-- `toven-model` has no upward imports; it depends only on `rskit-errors`.
+- `toven-model` has no upward imports; it depends only on `rskit-errors`, `rskit-validation`, and `serde`/`serde_json`.
 - Adapters (`toven-rust`, `toven-go`, `toven-command`) depend on `toven-ports` and `toven-model`, never on the engine, CLI, or apps.
 - `toven-engine` owns the reserved-section schemas and the one strict `Document` loader that parses the single canonical `toven.toml`; `toven-ports` owns the shared `[ecosystems.<id>]` vocabulary (`CommonEcosystemConfig`) that each adapter flattens during its own `configure` parse. The engine does not own process stdio — raw child output and the Event stream are rendered only by `toven-cli`.
 - `toven-cli` is the only layer that handles human command parsing and stdio projections; `apps/*` only wire dependencies together.

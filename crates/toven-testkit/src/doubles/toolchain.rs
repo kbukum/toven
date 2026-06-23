@@ -1,8 +1,8 @@
 //! Shared toolchain-probe port double: [`CountingToolchainProber`].
 //!
 //! Toolchain-resolution tests substitute this deterministic prober instead of
-//! spawning a real subprocess, and assert how many distinct workspaces were
-//! probed via [`CountingToolchainProber::calls`].
+//! spawning a real subprocess, and assert how many times `probe` was invoked
+//! via [`CountingToolchainProber::calls`] (a total call count, not per-workspace).
 
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};

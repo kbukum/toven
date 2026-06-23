@@ -23,7 +23,8 @@ const DEFAULT_MAX_BUFFER_BYTES: usize = 8 * 1024 * 1024;
 /// How a unit's raw output is surfaced.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum OutputMode {
-    /// Normal unit: buffer chunks, flush one labeled block on finish.
+    /// Normal unit: buffer chunks, flush a labeled block on finish (plus an
+    /// extra block early if the buffer spills past `max_buffer_bytes`).
     Buffered,
     /// Persistent unit: live-tail every chunk as it arrives.
     Live,
