@@ -28,9 +28,9 @@ pub trait RawOutputSink {
 
     /// Render a complete, labeled block of buffered chunks for one normal unit.
     ///
-    /// Called when the unit finishes (or, for bounded memory, when its buffer
-    /// spills past the channel cap). `chunks` are in arrival order and all carry
-    /// the same `unit_id`.
+    /// Called when the unit finishes (or, to bound that unit's buffer, when it
+    /// spills past the per-unit channel cap). `chunks` are in arrival order and
+    /// all carry the same `unit_id`.
     ///
     /// # Errors
     /// Propagates any sink write failure.

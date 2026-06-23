@@ -34,7 +34,8 @@
 //!   the injected toolchain/source/cache ports.
 //! - [`output`] — the engine-owned per-unit raw child-output channel: buffers
 //!   normal units into a labeled block (spilling extra blocks if a unit exceeds
-//!   the buffer cap), live-tails persistent ones, and routes bytes through an
+//!   the per-unit buffer cap, to bound any single unit's buffer), live-tails
+//!   persistent ones, and routes bytes through an
 //!   injected `RawOutputSink` (the CLI renders; the engine does not print). The
 //!   APPLY exec layer feeds it.
 #![warn(missing_docs)]

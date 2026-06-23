@@ -3,7 +3,10 @@
 //! The channel is the engine-owned policy layer between the APPLY exec loop and
 //! a [`RawOutputSink`]. It groups raw output deterministically under parallelism
 //! (Bazel/Nx-style per-unit blocks) while keeping persistent server/watch logs
-//! live, and bounds memory so a runaway producer cannot exhaust the host.
+//! live, and caps each unit's buffered output so no single unit buffers without
+//! limit. The cap is *per unit*: total channel memory still scales with the
+//! number of units buffering concurrently, so a global ceiling (if needed) is
+//! the APPLY exec layer's concern, not this channel's.
 
 use std::collections::HashMap;
 
@@ -14,10 +17,11 @@ use toven_ports::RawOutputSink;
 /// Default per-unit buffer cap before a normal unit's block is spilled early.
 ///
 /// Generous enough that ordinary task output flushes as a single labeled block,
-/// small enough that a pathological producer cannot exhaust host memory (bounded
-/// resources). Past this cap a unit's output is spilled as an extra block rather
-/// than buffered without limit —
-/// see [`UnitOutputChannel::with_max_buffer_bytes`] for the trade-off.
+/// small enough that no single unit buffers without limit before spilling. This
+/// caps *per-unit* buffering, not total channel memory — aggregate use still
+/// scales with the number of units buffering concurrently. Past this cap a
+/// unit's output is spilled as an extra block rather than buffered without
+/// limit — see [`UnitOutputChannel::with_max_buffer_bytes`] for the trade-off.
 const DEFAULT_MAX_BUFFER_BYTES: usize = 8 * 1024 * 1024;
 
 /// How a unit's raw output is surfaced.
@@ -61,8 +65,10 @@ impl<S: RawOutputSink> UnitOutputChannel<S> {
     /// Create a channel with an explicit per-unit buffer cap (in bytes).
     ///
     /// When a buffered unit accumulates more than `max_buffer_bytes` it spills
-    /// the accumulated chunks as a block immediately, keeping memory bounded at
-    /// the cost of splitting that unit's output across more than one block.
+    /// the accumulated chunks as a block immediately, bounding any single unit's
+    /// buffer at the cost of splitting that unit's output across more than one
+    /// block. The cap is per unit; total channel memory still scales with the
+    /// number of units buffering concurrently.
     pub fn with_max_buffer_bytes(sink: S, max_buffer_bytes: usize) -> Self {
         Self {
             sink,
