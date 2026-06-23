@@ -4,9 +4,11 @@
 //! The engine's [`UnitOutputChannel`](toven_engine::output::UnitOutputChannel)
 //! owns the buffer-normal / live-persistent *policy* and never prints; this CLI
 //! adapter is where the bytes actually land. It implements the
-//! [`RawOutputSink`](toven_ports::RawOutputSink) port: normal units arrive as one
-//! [`block`](toven_ports::RawOutputSink::block) (rendered under a `==> <unit_id>`
-//! header) and persistent units stream through
+//! [`RawOutputSink`](toven_ports::RawOutputSink) port: a normal unit's buffered
+//! output arrives as one or more [`block`](toven_ports::RawOutputSink::block)
+//! calls (one on finish, plus an extra block whenever the unit spills past the
+//! channel's buffer cap), each rendered under a `==> <unit_id>` header, and
+//! persistent units stream through
 //! [`live`](toven_ports::RawOutputSink::live) as they arrive. Raw bytes are
 //! written verbatim (never interpreted as UTF-8) so build output is preserved;
 //! [`WriterRawSink::stderr`] keeps them off the Jsonl Event stream on stdout.

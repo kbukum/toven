@@ -9,12 +9,12 @@ Toven is being rebuilt as a **hexagonal, multi-crate workspace**. The domain voc
 ```text
 crates/
   toven-model/     # identity, dependency graph, plan + event vocabulary; pure graph/topo/wave algos
-  toven-ports/     # Provider/ConfiguredAdapter, ReleaseTarget, Reporter, Vcs traits + field-merge + Template helpers
+  toven-ports/     # ports: Provider/ConfiguredAdapter, ReleaseTarget, Reporter, Vcs, RawOutputSink, ToolchainProber, SourceDigest, CacheStore + field-merge/Template/config helpers
   toven-engine/    # PLAN spine (load·configure·discover·graph·affected·toolchain·schedule) + APPLY exec/waves + release
   toven-rust/      # Rust adapter over the ports (cargo_metadata discovery, default tasks, toolchain probe)
   toven-go/        # Go adapter over the ports
   toven-command/   # generic command-driver adapter (out-of-proc RemoteAdapter envelope)
-  toven-cli/       # CLI taxonomy, argv-first dispatch, PLAN-cut introspection projections
+  toven-cli/       # CLI taxonomy, argv-first dispatch, Event-stream reporting sinks (Human/Jsonl) + exit mapping
   toven/           # library facade that composes model + ports + engine + adapters
 apps/
   toven/           # umbrella binary (multi-ecosystem dispatch)

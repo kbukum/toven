@@ -17,6 +17,6 @@ pub use cache::{FakeCacheStore, RecordingCacheStore};
 pub use provider::{FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget};
 pub use raw_output::RecordingRawOutputSink;
 pub use reporter::RecordingReporter;
-pub use source::FakeSourceDigest;
+pub use source::{EMPTY_IDENTITY, FakeSourceDigest};
 pub use toolchain::CountingToolchainProber;
 pub use vcs::{FakeVcsReader, FakeVcsWriter, VcsWrite};
