@@ -18,8 +18,9 @@ struct Recorded {
 /// A [`RawOutputSink`] that records every routed chunk in call order.
 ///
 /// Live chunks land in [`live_chunks`](Self::live_chunks) (arrival order) and
-/// flushed blocks in [`blocks`](Self::blocks) (finish order), so tests can
-/// assert the buffer-normal / live-persistent policy without a terminal.
+/// flushed blocks in [`blocks`](Self::blocks) (`block` call order — one per
+/// finish, plus any early spill blocks), so tests can assert the
+/// buffer-normal / live-persistent policy without a terminal.
 ///
 /// The recorder shares its state through an [`Arc`] so a test can keep a handle
 /// to inspect after moving a [`clone`](Clone::clone) into the channel that owns
@@ -59,7 +60,8 @@ impl RecordingRawOutputSink {
             .clone()
     }
 
-    /// The flushed blocks as `(unit_id, chunks)`, in finish order.
+    /// The flushed blocks as `(unit_id, chunks)`, in `block` call order (one per
+    /// finish, plus any early spill blocks).
     #[must_use]
     pub fn blocks(&self) -> Vec<(String, Vec<UnitOutput>)> {
         self.inner

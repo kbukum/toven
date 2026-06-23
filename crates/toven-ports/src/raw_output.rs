@@ -16,8 +16,9 @@ use toven_model::UnitOutput;
 ///
 /// Implemented by the CLI's terminal-bound adapter (and by recording doubles in
 /// tests). Call ordering is fully determined by the engine channel's policy:
-/// `live` is called in arrival order for persistent units; `block` is called
-/// once per flush for a normal unit, in finish order.
+/// `live` is called in arrival order for persistent units; `block` is called in
+/// call order for a normal unit — once on finish, and additionally (before
+/// finish) whenever the unit's buffer spills past the channel cap.
 pub trait RawOutputSink {
     /// Render one live chunk from a persistent (live-tailed) unit, as it arrives.
     ///

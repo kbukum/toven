@@ -7,8 +7,9 @@
 //! output never pays per-line (de)serialization.
 //!
 //! This module owns the concurrency-ordering *policy* and never prints: it
-//! buffers normal units and flushes one labeled block on finish, live-tails
-//! persistent units, and routes the bytes to an injected
+//! buffers normal units and flushes a labeled block on finish (spilling extra
+//! blocks early if a unit exceeds the per-unit buffer cap, to stay bounded),
+//! live-tails persistent units, and routes the bytes to an injected
 //! [`RawOutputSink`](toven_ports::RawOutputSink) adapter (the port lives in
 //! `toven-ports`, beside [`Reporter`](toven_ports::Reporter); the CLI provides
 //! the concrete, terminal-bound sink). The APPLY exec layer (step 8) feeds it
