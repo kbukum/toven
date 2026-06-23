@@ -22,12 +22,15 @@ pub enum Event {
         /// Project name.
         project: String,
     },
-    /// A run finished; carries the summary and process exit code.
+    /// A run finished; carries the aggregated summary.
+    ///
+    /// The process exit code is *not* a field: it is fully derived from
+    /// `summary` by the single owner (`toven-cli`'s `exit_code`), so the event
+    /// vocabulary keeps one source of truth and cannot desync a stored exit from
+    /// the counters (event-report Decision C — "exit derived from the summary").
     RunFinished {
         /// Aggregated run statistics.
         summary: RunStats,
-        /// Process exit code derived from the summary.
-        exit: i32,
     },
 
     // ---- PHASE level ----
@@ -109,7 +112,6 @@ mod tests {
         });
         round_trip(&Event::RunFinished {
             summary: RunStats::new(3),
-            exit: 0,
         });
     }
 }

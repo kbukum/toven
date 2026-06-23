@@ -17,7 +17,8 @@
 //! - [`git`] — git-scenario helpers ([`GitScenario`](git::GitScenario)) over `rskit-git`.
 //! - [`doubles`] — the shared port doubles ([`FakeProvider`],
 //!   [`FakeConfiguredAdapter`], [`FakeVcsReader`], [`FakeVcsWriter`],
-//!   [`RecordingReporter`]).
+//!   [`RecordingReporter`], [`RecordingRawOutputSink`], [`CountingToolchainProber`],
+//!   [`FakeSourceDigest`], [`FakeCacheStore`], [`RecordingCacheStore`]).
 //! - [`assertions`] — rskit `assert_ok`/`assert_err_code` re-exports plus
 //!   Toven-domain event assertions.
 //!
@@ -39,8 +40,9 @@ pub use assertions::{
     assert_emitted, assert_err_code, assert_event_sequence, assert_ok, find_event,
 };
 pub use doubles::{
-    FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, FakeVcsWriter,
-    RecordingReporter,
+    CountingToolchainProber, FakeCacheStore, FakeConfiguredAdapter, FakeProvider,
+    FakeReleaseTarget, FakeSourceDigest, FakeVcsReader, FakeVcsWriter, RecordingCacheStore,
+    RecordingRawOutputSink, RecordingReporter,
 };
 pub use fixtures::{
     FIXTURES_ROOT, document, document_path, document_string, ecosystem, ecosystem_string, repo_path,

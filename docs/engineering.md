@@ -8,6 +8,24 @@
 4. User-owned argv is sacred: Toven validates and expands selectors, but does not infer hidden flags or silently rewrite commands.
 5. Libraries do not print; CLI/reporting layers own user-facing output.
 6. Performance claims require benchmark evidence.
+7. Place every injected contract in `toven-ports`, keep its concrete adapter in the consuming crate, and give it a `toven-testkit` double.
+
+## Module placement and layering
+
+Dependencies flow downward only, never upward:
+
+| Layer | Crate(s) | Owns |
+|-------|----------|------|
+| L0 | `toven-model` | pure vocabulary + graph/topo/wave algorithms (the dependency root) |
+| L1 | `toven-ports` | the port traits + the shared surface behind them |
+| L2 | `toven-engine`, adapter crates (`toven-rust`/`toven-go`/`toven-command`) | orchestration + concrete adapters over the ports |
+| L3 | `toven-cli` | CLI taxonomy, argv dispatch, stdio/Event projections |
+| L4 | `apps/*` | thin wiring binaries |
+
+- **Ports live in `toven-ports`.** Any seam the engine injects as `&dyn` (VCS, toolchain probe, source digest, cache lookup, …) or any contract an adapter implements (Provider/ConfiguredAdapter, ReleaseTarget, Reporter, RawOutputSink) is a port trait in `toven-ports`, as a declare-only responsibility folder per port (`vcs/`, `toolchain/`, `source/`, `cache/`, …). A lower layer that needs higher-layer behavior defines the contract here and the implementation is injected from above.
+- **Concrete adapters live in the consuming crate, never beside the trait.** rskit-backed IO adapters (e.g. `ProcessToolchainProber`, `FsSourceDigest`, `NullCache`) live in `toven-engine`; ecosystem adapters live in `toven-<eco>`. The trait knows only `toven-model` + `rskit` + std/ports value types — no engine type leaks upward into a port.
+- **Every port has exactly one shared double in `toven-testkit`** (`doubles/<port>.rs`, re-exported through the declare-only `doubles/mod.rs`). No port double is left stranded inline in a crate's `tests/`.
+- **No test-only escape hatches on production public surfaces.** A recover-the-inner accessor used only by tests (`into_sink`, `into_inner`, …) is `#[cfg(test)]`-gated or removed; shared doubles expose recording accessors (cloneable shared state) so tests assert without recovering the owned value.
 
 ## Local validation
 

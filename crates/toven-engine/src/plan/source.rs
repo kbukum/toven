@@ -11,22 +11,7 @@ use std::path::{Path, PathBuf};
 use rskit_errors::{AppError, AppResult};
 use rskit_fs::{safe_join, sync_io::file};
 use toven_model::{AbsPath, Module};
-
-/// A stable content identity for module sources and shared-input files.
-///
-/// Both methods return an opaque, stable hex string that changes iff the hashed
-/// content changes. A missing path hashes to a stable empty identity rather than
-/// erroring, so an absent optional shared input does not abort PLAN.
-pub trait SourceDigest {
-    /// Content identity of a module's source tree (`module.root` subtree).
-    fn module(&self, module: &Module) -> AppResult<String>;
-
-    /// Content identity of one workspace-relative shared input.
-    ///
-    /// The path may be a regular file or a directory; a directory is hashed as
-    /// its whole subtree. A missing path hashes to the stable empty identity.
-    fn path(&self, repo_relative: &Path) -> AppResult<String>;
-}
+use toven_ports::SourceDigest;
 
 /// Per-file read cap (16 MiB): large enough for any source/lock file, bounded so
 /// a pathological file cannot exhaust memory.

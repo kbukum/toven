@@ -4,11 +4,7 @@
 //! side effect is reached through this bundle of injected ports, so tests drive a
 //! fully deterministic plan with fakes.
 
-use toven_ports::VcsReader;
-
-use super::cache::CacheStore;
-use super::source::SourceDigest;
-use super::toolchain::ToolchainProber;
+use toven_ports::{CacheStore, SourceDigest, ToolchainProber, VcsReader};
 
 /// The injected side-effect ports a [`plan`](super::plan) run uses.
 ///

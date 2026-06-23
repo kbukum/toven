@@ -14,8 +14,7 @@ use std::path::Path;
 
 use rskit_errors::{AppError, AppResult};
 use toven_model::{Graph, ModuleRef};
-
-use super::super::source::SourceDigest;
+use toven_ports::SourceDigest;
 
 /// Content identities for every module source tree, keyed by module ref.
 pub(in crate::plan) type SourceHashes = BTreeMap<ModuleRef, String>;
@@ -179,8 +178,8 @@ mod tests {
 
     use rskit_errors::AppResult;
     use toven_model::{DepKind, EcosystemId, Edge, Graph, Module, ModuleRef, RepoPath};
+    use toven_ports::SourceDigest;
 
-    use super::super::super::source::SourceDigest;
     use super::{KeyInputs, SourceHashes, forward_adjacency, unit_key};
 
     struct NoFileDigest;
