@@ -15,12 +15,6 @@ fn prefix(module: &ModuleRef) -> String {
     format!("{}/{}", module.ecosystem.as_str(), module.name)
 }
 
-/// Format the glob used to list a module's release tags.
-#[must_use]
-pub(super) fn glob(module: &ModuleRef) -> String {
-    format!("{}@*", prefix(module))
-}
-
 /// Format the release tag for `module` at `version`
 /// (`<ecosystem>/<name>@<version>`).
 #[must_use]
@@ -50,7 +44,7 @@ mod tests {
     use toven_model::{EcosystemId, ModuleRef};
     use toven_ports::{Oid, TagRef};
 
-    use super::{glob, latest, parse};
+    use super::{latest, parse};
 
     fn module() -> ModuleRef {
         ModuleRef::new(EcosystemId::new("rust").unwrap(), "core").unwrap()
@@ -61,7 +55,6 @@ mod tests {
         let module = module();
         let version = Version::new(1, 2, 3);
 
-        assert_eq!(glob(&module), "rust/core@*");
         assert_eq!(super::format(&module, &version), "rust/core@1.2.3");
         assert_eq!(parse(&module, "rust/core@1.2.3"), Some(version));
         // A bare or wrongly-namespaced tag must not match.

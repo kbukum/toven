@@ -56,10 +56,14 @@ fn publish_one(
     stats: &mut ReleaseStats,
 ) -> AppResult<()> {
     // Idempotency pre-skip: never re-publish a version the registry already has.
+    // `published_versions` is best-effort (see `ReleaseTarget` docs): this loop
+    // runs after the release commit, so a transient registry/search failure must
+    // not abort APPLY. On lookup failure, fall through to a live publish attempt —
+    // idempotency is preserved by the `AlreadyPublished` classification below.
     if item
         .target
-        .published_versions(item.module)?
-        .contains(item.version)
+        .published_versions(item.module)
+        .is_ok_and(|versions| versions.contains(item.version))
     {
         stats.skipped_published_modules += 1;
         return Ok(());

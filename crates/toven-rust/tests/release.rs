@@ -107,9 +107,11 @@ fn publish_surfaces_manifest_resolution_failures_before_cargo_runs() {
     let mut module = app_module();
     module.manifest = Some(RepoPath::new("missing/Cargo.toml").unwrap());
 
+    let error = target
+        .publish(&module, &toven_ports::Artifact::new("ignored"))
+        .expect_err("missing manifest must fail fast before cargo runs");
     assert!(
-        target
-            .publish(&module, &toven_ports::Artifact::new("ignored"))
-            .is_err()
+        error.to_string().contains("does not exist"),
+        "expected a typed manifest-existence error, got: {error}"
     );
 }

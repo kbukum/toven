@@ -32,6 +32,10 @@ const MANIFEST_TEMP_PREFIX: &str = "toven-cargo-manifest";
 /// Maximum retained stdout/stderr for cargo registry commands (64 KiB each).
 const MAX_CARGO_OUTPUT_BYTES: usize = 64 * 1024;
 
+/// Maximum retained `cargo metadata` output (16 MiB) — large enough for big
+/// workspaces, bounded so a runaway process cannot exhaust memory.
+const MAX_METADATA_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+
 /// Timeout for a single cargo registry-facing command.
 const CARGO_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -59,7 +63,7 @@ impl CratesIoTarget {
             )
         })?;
         let cwd = Self::working_root()?;
-        safe_join(&cwd, manifest.as_path()).map_err(|error| {
+        let resolved = safe_join(&cwd, manifest.as_path()).map_err(|error| {
             AppError::invalid_input(
                 "module.manifest",
                 format!(
@@ -67,7 +71,40 @@ impl CratesIoTarget {
                     manifest.as_path().display()
                 ),
             )
-        })
+        })?;
+        // `module.manifest` is untrusted input from discovery/config: fail fast
+        // with a typed input error rather than spawning cargo against a path that
+        // does not exist on disk.
+        if !exists(&resolved)? {
+            return Err(AppError::invalid_input(
+                "module.manifest",
+                format!(
+                    "manifest '{}' does not exist for module '{}'",
+                    resolved.display(),
+                    module.id
+                ),
+            ));
+        }
+        Ok(resolved)
+    }
+
+    /// Resolve the cargo target directory for `manifest`, honoring
+    /// `CARGO_TARGET_DIR`, `.cargo/config.toml` `build.target-dir`, and the
+    /// workspace layout — `cargo metadata` reports the effective directory.
+    fn target_directory(manifest: &Path) -> AppResult<PathBuf> {
+        let output = cargo_metadata_command(Self::working_root()?, manifest)?;
+        output.check()?;
+        let metadata =
+            serde_json::from_str::<cargo_metadata::Metadata>(&output.stdout).map_err(|error| {
+                AppError::new(
+                    ErrorCode::InvalidFormat,
+                    format!(
+                        "failed to parse `cargo metadata` output for '{}': {error}",
+                        manifest.display()
+                    ),
+                )
+            })?;
+        Ok(metadata.target_directory.into_std_path_buf())
     }
 
     /// The trust boundary for manifest resolution: the process working directory
@@ -119,8 +156,7 @@ impl ReleaseTarget for CratesIoTarget {
         )?;
         output.check()?;
 
-        let artifact = Self::working_root()?
-            .join("target")
+        let artifact = Self::target_directory(&path)?
             .join("package")
             .join(format!(
                 "{}-{}.crate",
@@ -161,6 +197,28 @@ where
         .with_timeout(Some(CARGO_COMMAND_TIMEOUT))
         .with_io(ProcessIo::captured(CapturedIo::new().with_output(
             OutputPolicy::captured().with_max_output_bytes(MAX_CARGO_OUTPUT_BYTES),
+        )));
+    run(&spec, &config)
+}
+
+/// Run `cargo metadata --no-deps` for `manifest`, bounded and timed-out, to read
+/// the effective target directory. `metadata` output can be large for big
+/// workspaces, so this uses a wider output bound than the registry commands.
+fn cargo_metadata_command(working_dir: PathBuf, manifest: &Path) -> AppResult<ProcessResult> {
+    let spec = ProcessSpec::new("cargo")
+        .args([
+            "metadata".to_string(),
+            "--no-deps".to_string(),
+            "--format-version".to_string(),
+            "1".to_string(),
+            "--manifest-path".to_string(),
+            manifest.display().to_string(),
+        ])
+        .dir(working_dir);
+    let config = ProcessConfig::default()
+        .with_timeout(Some(CARGO_COMMAND_TIMEOUT))
+        .with_io(ProcessIo::captured(CapturedIo::new().with_output(
+            OutputPolicy::captured().with_max_output_bytes(MAX_METADATA_OUTPUT_BYTES),
         )));
     run(&spec, &config)
 }

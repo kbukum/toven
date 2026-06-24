@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::AppResult;
 use toven_model::{Module, ModuleRef};
-use toven_ports::{BaselineSpec, ChangeRecord, VcsReader};
+use toven_ports::{BaselineSpec, ChangeRecord, TagRef, VcsReader};
 
 use crate::config::Document;
 use crate::plan::{PlanContext, Selection};
@@ -30,9 +30,14 @@ pub(super) fn detect(
     let mut records = BTreeMap::new();
     let mut baselines = BTreeMap::new();
     let worktree = vcs.worktree_status()?;
+    // List every tag once: the VCS adapter enumerates all tags and filters
+    // in-memory, so a per-module `list_tags(<glob>)` would re-scan the full tag
+    // set for each module (O(modules × tags)). `tag::latest` parses and filters
+    // by the module's prefix from this shared snapshot instead.
+    let tags = vcs.list_tags(None)?;
 
     for module in &context.federation.modules {
-        let Some(spec) = baseline_spec(module, document, selection, vcs, &mut baselines)? else {
+        let Some(spec) = baseline_spec(module, document, selection, &tags, &mut baselines) else {
             changed.insert(module.id.clone());
             records.insert(module.id.clone(), Vec::new());
             continue;
@@ -58,11 +63,10 @@ fn baseline_spec(
     module: &Module,
     document: &Document,
     selection: &Selection,
-    vcs: &dyn VcsReader,
+    tags: &[TagRef],
     baselines: &mut BTreeMap<ModuleRef, ReleaseBaseline>,
-) -> AppResult<Option<BaselineSpec>> {
-    let tags = vcs.list_tags(Some(&tag::glob(&module.id)))?;
-    if let Some((_version, release_tag)) = tag::latest(&module.id, &tags) {
+) -> Option<BaselineSpec> {
+    if let Some((_version, release_tag)) = tag::latest(&module.id, tags) {
         baselines.insert(
             module.id.clone(),
             ReleaseBaseline::tag(
@@ -71,9 +75,9 @@ fn baseline_spec(
                 release_tag.target.clone(),
             ),
         );
-        return Ok(Some(BaselineSpec::explicit(
+        return Some(BaselineSpec::explicit(
             release_tag.target.as_str().to_string(),
-        )));
+        ));
     }
 
     if let Selection::Changed(spec) = selection {
@@ -81,7 +85,7 @@ fn baseline_spec(
             module.id.clone(),
             ReleaseBaseline::fallback(module.id.clone(), spec.clone()),
         );
-        return Ok(Some(spec.clone()));
+        return Some(spec.clone());
     }
 
     if let Some(base_ref) = &document.project.base_ref {
@@ -90,8 +94,8 @@ fn baseline_spec(
             module.id.clone(),
             ReleaseBaseline::fallback(module.id.clone(), spec.clone()),
         );
-        return Ok(Some(spec));
+        return Some(spec);
     }
 
-    Ok(None)
+    None
 }
