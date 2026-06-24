@@ -2,10 +2,12 @@
 //! rate-limit retry.
 //!
 //! The publish loop runs **after** the release commit, so a failure here never
-//! rolls back history — it surfaces as a typed error and the operator resumes,
-//! relying on registry idempotency (a re-run pre-skips already-published
-//! versions and treats an [`AlreadyPublished`](PublishOutcome::AlreadyPublished)
-//! race as success).
+//! rolls back history — it surfaces as a typed error. Idempotency is scoped to
+//! the publish loop itself: re-attempting publish for the same module/version
+//! pre-skips a version the registry already reports and treats an
+//! [`AlreadyPublished`](PublishOutcome::AlreadyPublished) race as success. This
+//! does not make the surrounding APPLY transaction (mutation/commit/tag/push)
+//! resume-safe — rerunning the whole release is out of scope here.
 
 use std::thread::sleep;
 use std::time::{Duration, SystemTime};
