@@ -62,6 +62,39 @@ fn rust_provider() -> FakeProvider {
     FakeProvider::new(eid("rust")).with_adapter(adapter)
 }
 
+/// The [`rust_provider`] workspace whose Test task declares one `shared_input`,
+/// so the unit key folds (and would hash) that path when caching is active.
+fn rust_provider_with_shared_input(path: &str) -> FakeProvider {
+    let mut response = DiscoverResponse::new(eid("rust"));
+    response.workspaces.push(Workspace::new(
+        wsid("rust"),
+        RepoPath::new(".").expect("root"),
+        ToolchainTag::new("cargo"),
+    ));
+    response
+        .modules
+        .push(module("rust", "errors", "crates/errors", "rust"));
+    response
+        .modules
+        .push(module("rust", "app", "crates/app", "rust"));
+    response.edges.push(Edge::new(
+        mref("rust", "app"),
+        mref("rust", "errors"),
+        DepKind::Normal,
+    ));
+
+    let mut task = Task::new(
+        TaskKind::Test,
+        vec!["cargo".to_string(), "test".to_string()],
+        FanOut::WholeWorkspace,
+    );
+    task.shared_inputs = vec![path.to_string()];
+    let adapter = FakeConfiguredAdapter::new(eid("rust"))
+        .with_response(response)
+        .with_tasks(vec![task]);
+    FakeProvider::new(eid("rust")).with_adapter(adapter)
+}
+
 fn document() -> Document {
     Document {
         project: ProjectConfig {
@@ -211,6 +244,31 @@ fn immutable_plan_round_trips_through_serde() {
     let json = serde_json::to_string(&plan).expect("serialize");
     let back: Plan = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(plan, back);
+}
+
+#[test]
+fn disabled_cache_skips_unit_key_so_unreadable_shared_input_never_aborts_plan() {
+    // With caching disabled every unit's verdict is statically `Disabled`, so no
+    // content key is needed. A shared input whose digest read would fail must
+    // therefore never be consulted: lazy key computation keeps PLAN succeeding
+    // instead of surfacing an avoidable digest error for an uncacheable unit.
+    let provider = rust_provider_with_shared_input("unreadable.lock");
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new().with_failing_path("unreadable.lock");
+    let prober = CountingToolchainProber::new();
+    let cache = NullCache;
+    let mut reporter = RecordingReporter::new();
+
+    let host = PlanHost::new(&vcs, &digest, &prober, &cache);
+    let request = request(TaskKind::Test).with_cache_mode(CacheMode::Disabled);
+    let plan = plan(&request, &document(), &providers, host, &mut reporter).expect("plan succeeds");
+
+    assert!(
+        plan.units
+            .iter()
+            .all(|unit| { unit.cache == CacheVerdict::Disabled && unit.cache_key.is_none() })
+    );
 }
 
 #[test]

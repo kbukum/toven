@@ -10,12 +10,14 @@
 //! immutable per-module `Plan`.)
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult};
 use toven_model::{
-    AbsPath, DepKind, Edge, Graph, Module, ModuleRef, ToolchainTag, Workspace, WorkspaceId,
+    AbsPath, DepKind, Edge, ExecutionReadiness, Graph, Module, ModuleRef, ToolchainTag, Workspace,
+    WorkspaceId,
 };
-use toven_ports::{CommandTemplate, RunStrategy, Task, TaskKind, TaskVar};
+use toven_ports::{CommandTemplate, Readiness, RunStrategy, Task, TaskKind, TaskVar};
 
 use super::configure::ConfiguredSet;
 use super::discover::Federation;
@@ -40,6 +42,10 @@ pub(super) struct PlannedUnit {
     pub(super) argv: Vec<String>,
     /// Whether this unit starts a persistent process.
     pub(super) persistent: bool,
+    /// Persistent readiness signal.
+    pub(super) readiness: ExecutionReadiness,
+    /// Persistent readiness timeout.
+    pub(super) readiness_timeout: Duration,
     /// Rendered base argv (without passthrough) — the `task_hash` source.
     pub(super) base_argv: Vec<String>,
     /// Workspace-relative shared-input paths folded into the key.
@@ -48,6 +54,10 @@ pub(super) struct PlannedUnit {
     pub(super) cache_args: bool,
     /// Opaque `tool@version` identity for the owning workspace.
     pub(super) toolchain_identity: String,
+    /// Unit ids this unit depends on (scheduled dependency edges) for gating.
+    pub(super) depends_on: Vec<String>,
+    /// Optional within-wave serialization key from the module metadata.
+    pub(super) resource_group: Option<String>,
 }
 
 /// The scheduled units plus the wave-ordered unit ids.
@@ -76,6 +86,7 @@ pub(super) fn schedule(
     let subgraph = active_subgraph(&active_modules, federation)?;
 
     let waves = subgraph.waves(|edge| keep_edge(edge, &strategies))?;
+    let kept_deps = kept_dependencies(&active_modules, federation, &strategies);
 
     let workspaces = workspace_index(federation);
     let mut units = Vec::new();
@@ -89,7 +100,14 @@ pub(super) fn schedule(
                     format!("scheduled unknown module '{reference}'"),
                 )
             })?;
-            let unit = plan_unit(request, module, adapters, toolchain, &workspaces)?;
+            let unit = plan_unit(
+                request,
+                module,
+                adapters,
+                toolchain,
+                &workspaces,
+                &kept_deps,
+            )?;
             ids.push(unit.id.clone());
             units.push(unit);
         }
@@ -100,6 +118,35 @@ pub(super) fn schedule(
         units,
         waves: wave_ids,
     })
+}
+
+/// The unit id for `module` under `kind` (`ecosystem:name#kind`).
+fn unit_id(module: &ModuleRef, kind: &str) -> String {
+    format!("{module}#{kind}")
+}
+
+/// Map each active module to the unit ids of its kept dependency edges.
+///
+/// The kept edges are exactly those that ordered the waves (overlay edges plus
+/// intra-ecosystem edges retained under `leaf-to-top`); they drive APPLY's
+/// fail-closed gating. All endpoints are active, so every id resolves to a unit.
+fn kept_dependencies(
+    modules: &BTreeMap<ModuleRef, Module>,
+    federation: &Federation,
+    strategies: &BTreeMap<ModuleRef, RunStrategy>,
+) -> BTreeMap<ModuleRef, Vec<ModuleRef>> {
+    let mut deps: BTreeMap<ModuleRef, Vec<ModuleRef>> = BTreeMap::new();
+    for edge in &federation.edges {
+        if modules.contains_key(&edge.from)
+            && modules.contains_key(&edge.to)
+            && keep_edge(edge, strategies)
+        {
+            deps.entry(edge.from.clone())
+                .or_default()
+                .push(edge.to.clone());
+        }
+    }
+    deps
 }
 
 /// Index the active modules by identity.
@@ -173,6 +220,7 @@ fn plan_unit(
     adapters: &ConfiguredSet,
     toolchain: &BTreeMap<WorkspaceId, ToolchainTag>,
     workspaces: &BTreeMap<WorkspaceId, Workspace>,
+    kept_deps: &BTreeMap<ModuleRef, Vec<ModuleRef>>,
 ) -> AppResult<PlannedUnit> {
     let adapter = adapter_for(&module.id, adapters)?;
     let task = select_task(adapter.default_tasks(), &request.intent).ok_or_else(|| {
@@ -220,18 +268,42 @@ fn plan_unit(
         None => String::new(),
     };
 
+    let kind_name = task.kind.name().to_string();
+    let depends_on = kept_deps
+        .get(&module.id)
+        .map(|deps| deps.iter().map(|dep| unit_id(dep, &kind_name)).collect())
+        .unwrap_or_default();
+    let resource_group = module
+        .metadata
+        .get("resource_group")
+        .and_then(|value| value.as_str())
+        .map(ToString::to_string);
+
     Ok(PlannedUnit {
-        id: format!("{}#{}", module.id, task.kind.name()),
+        id: unit_id(&module.id, &kind_name),
         module: module.id.clone(),
-        kind: task.kind.name().to_string(),
+        kind: kind_name,
         workspace: module.workspace.clone(),
         argv,
         persistent: task.persistent,
+        readiness: readiness(&task.readiness),
+        readiness_timeout: task.readiness_timeout,
         base_argv,
         shared_inputs: task.shared_inputs.clone(),
         cache_args: task.cache_args,
         toolchain_identity,
+        depends_on,
+        resource_group,
     })
+}
+
+/// Convert the adapter task readiness vocabulary into immutable plan vocabulary.
+fn readiness(readiness: &Readiness) -> ExecutionReadiness {
+    match readiness {
+        Readiness::Started => ExecutionReadiness::Started,
+        Readiness::Command(argv) => ExecutionReadiness::Command(argv.clone()),
+        Readiness::OutputContains(value) => ExecutionReadiness::OutputContains(value.clone()),
+    }
 }
 
 /// Select the adapter default task matching the intent kind (no named extra).

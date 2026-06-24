@@ -25,8 +25,10 @@
 //!   (concrete subprocess prober lives in the engine).
 //! - [`source`] — [`SourceDigest`]: the injected content-digest seam (concrete
 //!   filesystem digest lives in the engine).
-//! - [`cache`] — [`CacheStore`]: the injected cache-record lookup seam (concrete
-//!   backend lives in the engine).
+//! - [`cache`] — [`CacheStore`] (read, PLAN) + [`CacheWriter`] (write, APPLY):
+//!   the injected cache-record seam (concrete backend lives in the engine).
+//! - [`exec`] — [`CommandRunner`]: the injected process-execution seam consumed
+//!   by the APPLY wave walk (concrete `rskit-process` runner lives in the engine).
 //! - [`discover`] — the discovery request/response vocabulary.
 //!
 //! ## Shared surface
@@ -38,6 +40,7 @@
 pub mod cache;
 pub mod config;
 pub mod discover;
+pub mod exec;
 pub mod merge;
 pub mod provider;
 pub mod raw_output;
@@ -49,9 +52,13 @@ pub mod template;
 pub mod toolchain;
 pub mod vcs;
 
-pub use cache::CacheStore;
+pub use cache::{CacheStore, CacheWriter};
 pub use config::{CommonEcosystemConfig, ReleaseConfig, RunStrategy, TaskOverride};
 pub use discover::{DISCOVERY_SCHEMA_VERSION, DiscoverContext, DiscoverRequest, DiscoverResponse};
+pub use exec::{
+    CommandRunner, HeldProcess, Invocation, InvocationEnvPolicy, InvocationEnvironment,
+    OutputObserver, RunOutcome, StartOutcome,
+};
 pub use merge::merge_task;
 pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
 pub use raw_output::RawOutputSink;
@@ -189,6 +196,46 @@ mod object_safety {
         }
     }
 
+    struct FakeCacheWriter;
+    impl CacheWriter for FakeCacheWriter {
+        fn record(&self, _key: &str) -> AppResult<()> {
+            Ok(())
+        }
+    }
+
+    struct FakeHeldProcess;
+    impl HeldProcess for FakeHeldProcess {
+        fn unit_id(&self) -> &'static str {
+            "rust:fake#run"
+        }
+        fn shutdown(self: Box<Self>) -> AppResult<()> {
+            Ok(())
+        }
+    }
+
+    struct FakeCommandRunner;
+    #[async_trait::async_trait]
+    impl CommandRunner for FakeCommandRunner {
+        async fn run(
+            &self,
+            _invocation: &Invocation,
+            _cancel: tokio_util::sync::CancellationToken,
+        ) -> AppResult<RunOutcome> {
+            Ok(RunOutcome::succeeded(Vec::new()))
+        }
+        async fn start_persistent(
+            &self,
+            _invocation: &Invocation,
+            _cancel: tokio_util::sync::CancellationToken,
+            _output: OutputObserver,
+        ) -> AppResult<StartOutcome> {
+            Ok(StartOutcome::Ready {
+                output: Vec::new(),
+                process: Box::new(FakeHeldProcess),
+            })
+        }
+    }
+
     struct FakeVcs;
     impl VcsReader for FakeVcs {
         fn rev_parse(&self, _rev: &str) -> AppResult<Oid> {
@@ -241,6 +288,9 @@ mod object_safety {
         let prober: Box<dyn ToolchainProber> = Box::new(FakeToolchainProber);
         let digest: Box<dyn SourceDigest> = Box::new(FakeSourceDigest);
         let cache: Box<dyn CacheStore> = Box::new(FakeCacheStore);
+        let cache_writer: Box<dyn CacheWriter> = Box::new(FakeCacheWriter);
+        let runner: Box<dyn CommandRunner> = Box::new(FakeCommandRunner);
+        let held: Box<dyn HeldProcess> = Box::new(FakeHeldProcess);
         let provider: Box<dyn Provider> =
             Box::new(FakeProvider(EcosystemId::new("rust").expect("valid id")));
 
@@ -340,5 +390,12 @@ mod object_safety {
             "path:shared"
         );
         assert!(!cache.contains("any-key").expect("cache lookup"));
+
+        // Exercise the APPLY-side ports (cache writer, command runner, held
+        // process) enough to prove object-safety without spawning a runtime.
+        cache_writer.record("any-key").expect("records");
+        assert_eq!(held.unit_id(), "rust:fake#run");
+        held.shutdown().expect("shuts down");
+        let _runner: &dyn CommandRunner = &*runner;
     }
 }

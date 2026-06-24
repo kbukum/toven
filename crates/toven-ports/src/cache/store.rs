@@ -8,7 +8,7 @@ use rskit_errors::AppResult;
 /// records is an APPLY concern. The port is injected so the planner stays pure
 /// and tests substitute a deterministic store, while the concrete backend lives
 /// in the engine.
-pub trait CacheStore {
+pub trait CacheStore: Send + Sync {
     /// Whether a reusable record exists for `key`.
     ///
     /// # Errors

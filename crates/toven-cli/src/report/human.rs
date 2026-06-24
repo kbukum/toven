@@ -50,12 +50,18 @@ impl<W: Write> HumanReporter<W> {
         kv.add("cached", summary.cached_units.to_string());
         kv.add("failed", summary.failed_units.to_string());
         kv.add("blocked", summary.blocked_units.to_string());
+        kv.add("cancelled", summary.cancelled_units.to_string());
         kv.add(
             "failed-readiness",
             summary.failed_readiness_units.to_string(),
         );
         if let Some(duration_ms) = summary.duration_ms {
             kv.add("duration-ms", duration_ms.to_string());
+        }
+        // Surfaced only when output was actually dropped, so honest loss is
+        // reported without cluttering the common (lossless) summary.
+        if summary.dropped_output_chunks > 0 {
+            kv.add("dropped-output", summary.dropped_output_chunks.to_string());
         }
         // The displayed exit is derived from the summary by the single owner, so
         // it can never disagree with the actual process exit (event-report C).
@@ -75,7 +81,7 @@ impl HumanReporter<io::Stdout> {
     }
 }
 
-impl<W: Write> Reporter for HumanReporter<W> {
+impl<W: Write + Send> Reporter for HumanReporter<W> {
     fn emit(&mut self, event: &Event) -> AppResult<()> {
         match event {
             Event::RunStarted {
@@ -132,6 +138,7 @@ const fn status_label(status: UnitStatus) -> &'static str {
         UnitStatus::Succeeded => "ok",
         UnitStatus::Failed => "failed",
         UnitStatus::Blocked => "blocked",
+        UnitStatus::Cancelled => "cancelled",
         UnitStatus::Ready => "ready",
         UnitStatus::TornDown => "torn-down",
         UnitStatus::FailedReadiness => "failed-readiness",
@@ -200,6 +207,7 @@ summary
             cached:  1
             failed:  0
            blocked:  0
+         cancelled:  0
   failed-readiness:  0
               exit:  0
 ";
@@ -225,7 +233,7 @@ summary
         ];
         let output = render(&events);
 
-        let expected = "  start u1\n  ok u1\nsummary\n           planned:  1\n               ran:  1\n            cached:  0\n            failed:  0\n           blocked:  0\n  failed-readiness:  0\n              exit:  0\n";
+        let expected = "  start u1\n  ok u1\nsummary\n           planned:  1\n               ran:  1\n            cached:  0\n            failed:  0\n           blocked:  0\n         cancelled:  0\n  failed-readiness:  0\n              exit:  0\n";
         assert_eq!(output, expected);
     }
 
@@ -244,6 +252,7 @@ summary
             cached:  0
             failed:  1
            blocked:  0
+         cancelled:  0
   failed-readiness:  0
               exit:  1
 ";
@@ -270,6 +279,7 @@ summary
             (UnitStatus::Succeeded, "  ok u\n"),
             (UnitStatus::Failed, "  failed u\n"),
             (UnitStatus::Blocked, "  blocked u\n"),
+            (UnitStatus::Cancelled, "  cancelled u\n"),
             (UnitStatus::Ready, "  ready u\n"),
             (UnitStatus::TornDown, "  torn-down u\n"),
             (UnitStatus::FailedReadiness, "  failed-readiness u\n"),

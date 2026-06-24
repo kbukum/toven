@@ -6,6 +6,7 @@
 //! inside a crate.
 
 mod cache;
+mod exec;
 mod provider;
 mod raw_output;
 mod reporter;
@@ -13,7 +14,8 @@ mod source;
 mod toolchain;
 mod vcs;
 
-pub use cache::{FakeCacheStore, RecordingCacheStore};
+pub use cache::{FakeCacheStore, RecordingCacheStore, RecordingCacheWriter};
+pub use exec::FakeCommandRunner;
 pub use provider::{FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget};
 pub use raw_output::RecordingRawOutputSink;
 pub use reporter::RecordingReporter;

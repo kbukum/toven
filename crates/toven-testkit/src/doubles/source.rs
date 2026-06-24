@@ -13,7 +13,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use rskit_errors::AppResult;
+use rskit_errors::{AppError, AppResult, ErrorCode};
 use toven_model::{Module, ModuleRef};
 use toven_ports::SourceDigest;
 
@@ -35,6 +35,7 @@ pub const EMPTY_IDENTITY: &str = "empty";
 pub struct FakeSourceDigest {
     absent_modules: BTreeSet<ModuleRef>,
     absent_paths: BTreeSet<PathBuf>,
+    failing_paths: BTreeSet<PathBuf>,
 }
 
 impl FakeSourceDigest {
@@ -57,6 +58,17 @@ impl FakeSourceDigest {
         self.absent_paths.insert(path.into());
         self
     }
+
+    /// Make hashing `path` fail, modeling an unreadable shared input.
+    ///
+    /// Lets tests assert that a digest read which *would* error is never reached
+    /// for an input the planner has no reason to hash (e.g. a unit whose cache
+    /// verdict is deterministically `Disabled`).
+    #[must_use]
+    pub fn with_failing_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.failing_paths.insert(path.into());
+        self
+    }
 }
 
 impl SourceDigest for FakeSourceDigest {
@@ -68,6 +80,12 @@ impl SourceDigest for FakeSourceDigest {
     }
 
     fn path(&self, repo_relative: &Path) -> AppResult<String> {
+        if self.failing_paths.contains(repo_relative) {
+            return Err(AppError::new(
+                ErrorCode::Internal,
+                format!("digest read failed for '{}'", repo_relative.display()),
+            ));
+        }
         if self.absent_paths.contains(repo_relative) {
             return Ok(EMPTY_IDENTITY.to_string());
         }

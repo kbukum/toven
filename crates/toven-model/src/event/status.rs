@@ -17,6 +17,10 @@ pub enum UnitStatus {
     Failed,
     /// Never ran because an upstream dependency failed (fail-closed).
     Blocked,
+    /// Not run, or interrupted in flight, because the run aborted early under
+    /// fail-fast after a different unit failed. Distinct from `Blocked` (no
+    /// dependency relationship is implied) and not itself a failure.
+    Cancelled,
     /// Persistent unit reached readiness and is held in the background.
     Ready,
     /// Persistent unit shut down cleanly after its dependents drained.

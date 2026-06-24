@@ -19,6 +19,9 @@ pub struct RunStats {
     pub failed_units: usize,
     /// Units blocked by an upstream failure.
     pub blocked_units: usize,
+    /// Units not run, or interrupted in flight, because the run aborted early
+    /// under fail-fast (not themselves failures).
+    pub cancelled_units: usize,
     /// Persistent units that never reached readiness (a failure).
     pub failed_readiness_units: usize,
     /// Cache decisions that were hits.
@@ -29,6 +32,11 @@ pub struct RunStats {
     pub cache_disabled: usize,
     /// Cache decisions forced to execute.
     pub cache_forced: usize,
+    /// Live persistent-output chunks dropped because the bounded output bridge
+    /// was full and the producer could not block (e.g. an async-runtime
+    /// producer). Zero on the blocking-backpressure path; non-zero surfaces
+    /// otherwise-silent output loss.
+    pub dropped_output_chunks: usize,
     /// Total wall time in milliseconds, once the run completes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,

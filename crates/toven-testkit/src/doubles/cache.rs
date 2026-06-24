@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use std::sync::Mutex;
 
 use rskit_errors::AppResult;
-use toven_ports::CacheStore;
+use toven_ports::{CacheStore, CacheWriter};
 
 /// A [`CacheStore`] backed by an explicit set of present keys.
 ///
@@ -75,5 +75,43 @@ impl CacheStore for RecordingCacheStore {
             .expect("RecordingCacheStore mutex poisoned")
             .push(key.to_string());
         Ok(false)
+    }
+}
+
+/// A [`CacheWriter`] that records every recorded key (in order) so APPLY tests
+/// can assert which successful units wrote a cache record.
+///
+/// Interior mutability ([`Mutex`]) keeps it `&self`-callable and `Send + Sync`
+/// behind `dyn CacheWriter`. Inspect the recorded keys with
+/// [`recorded`](Self::recorded).
+#[derive(Debug, Default)]
+pub struct RecordingCacheWriter {
+    recorded: Mutex<Vec<String>>,
+}
+
+impl RecordingCacheWriter {
+    /// Construct an empty recorder.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A snapshot of the recorded keys, in write order.
+    #[must_use]
+    pub fn recorded(&self) -> Vec<String> {
+        self.recorded
+            .lock()
+            .expect("RecordingCacheWriter mutex poisoned")
+            .clone()
+    }
+}
+
+impl CacheWriter for RecordingCacheWriter {
+    fn record(&self, key: &str) -> AppResult<()> {
+        self.recorded
+            .lock()
+            .expect("RecordingCacheWriter mutex poisoned")
+            .push(key.to_string());
+        Ok(())
     }
 }

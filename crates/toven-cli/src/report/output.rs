@@ -52,7 +52,7 @@ impl WriterRawSink<io::Stderr> {
     }
 }
 
-impl<W: Write> RawOutputSink for WriterRawSink<W> {
+impl<W: Write + Send> RawOutputSink for WriterRawSink<W> {
     fn live(&mut self, chunk: &UnitOutput) -> AppResult<()> {
         self.writer
             .write_all(&chunk.bytes)

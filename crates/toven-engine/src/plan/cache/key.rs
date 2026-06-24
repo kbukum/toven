@@ -1,4 +1,4 @@
-//! The per-unit content cache key (blake3).
+//! The per-unit content cache key (BLAKE3 via `rskit_util::hash`).
 //!
 //! A unit's key folds the module `source_hash`, a recursive `dep_hash` over the
 //! transitive (cross-ecosystem) dependency closure, the rendered base argv
@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use rskit_errors::{AppError, AppResult};
+use rskit_util::hash::ContentHasher;
 use toven_model::{Graph, ModuleRef};
 use toven_ports::SourceDigest;
 
@@ -85,7 +86,7 @@ pub(in crate::plan) fn forward_adjacency(graph: &Graph) -> Adjacency {
     adjacency
 }
 
-/// Derive the blake3 content key for one unit.
+/// Derive the content cache key for one unit.
 ///
 /// # Errors
 /// A missing module/dependency source hash (internal inconsistency) or a
@@ -96,48 +97,36 @@ pub(in crate::plan) fn unit_key(
     sources: &SourceHashes,
     digest: &dyn SourceDigest,
 ) -> AppResult<String> {
-    let mut hasher = blake3::Hasher::new();
+    let mut hasher = ContentHasher::new();
 
     let module_hash = source_hash(sources, inputs.module)?;
-    fold(&mut hasher, b"module", module_hash.as_bytes());
+    hasher.update_framed(b"module", module_hash.as_bytes());
 
     for dependency in transitive_dependencies(inputs.module, adjacency) {
         let dep_hash = source_hash(sources, &dependency)?;
-        fold(&mut hasher, b"dep", dependency.to_string().as_bytes());
-        fold(&mut hasher, b"dep-hash", dep_hash.as_bytes());
+        hasher.update_framed(b"dep", dependency.to_string().as_bytes());
+        hasher.update_framed(b"dep-hash", dep_hash.as_bytes());
     }
 
     for arg in inputs.base_argv {
-        fold(&mut hasher, b"argv", arg.as_bytes());
+        hasher.update_framed(b"argv", arg.as_bytes());
     }
 
     for path in inputs.shared_inputs {
         let hash = digest.path(Path::new(path))?;
-        fold(&mut hasher, b"shared", path.as_bytes());
-        fold(&mut hasher, b"shared-hash", hash.as_bytes());
+        hasher.update_framed(b"shared", path.as_bytes());
+        hasher.update_framed(b"shared-hash", hash.as_bytes());
     }
 
-    fold(
-        &mut hasher,
-        b"toolchain",
-        inputs.toolchain_identity.as_bytes(),
-    );
+    hasher.update_framed(b"toolchain", inputs.toolchain_identity.as_bytes());
 
     if inputs.cache_args {
         for arg in inputs.passthrough {
-            fold(&mut hasher, b"args", arg.as_bytes());
+            hasher.update_framed(b"args", arg.as_bytes());
         }
     }
 
-    Ok(hasher.finalize().to_hex().to_string())
-}
-
-/// Fold one labelled field into the hasher with unambiguous framing.
-fn fold(hasher: &mut blake3::Hasher, label: &[u8], value: &[u8]) {
-    hasher.update(label);
-    hasher.update(b":");
-    hasher.update(value);
-    hasher.update(b"\0");
+    Ok(hasher.finalize_hex())
 }
 
 /// Look up a module's precomputed source hash, erroring if it is absent.
