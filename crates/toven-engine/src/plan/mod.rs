@@ -38,5 +38,5 @@ pub use request::{CacheMode, PlanRequest, Selection};
 pub use source::FsSourceDigest;
 pub use toolchain::ProcessToolchainProber;
 
-pub(crate) use affected::changed_seeds;
+pub(crate) use affected::{changed_records_for_module, changed_seeds};
 pub(crate) use front::{PlanContext, prepare as prepare_front};

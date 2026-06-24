@@ -6,7 +6,7 @@ Toven is currently pre-alpha and is not published to crates.io yet. Until the fi
 
 ## Requirements
 
-- Rust toolchain compatible with the repository `rust-toolchain.toml`
+- Rust toolchain compatible with the repository `rust-toolchain.toml`; the workspace `rust-version` and CI matrix define the lower supported MSRV
 - Git, because affected planning compares working-tree changes against git baselines
 - The build tools required by the repository commands you want Toven to run (for example Cargo for Rust workspaces)
 

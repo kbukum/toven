@@ -48,7 +48,14 @@ pub(super) fn detect(
             crate::plan::changed_seeds(&module_changes, &context.graph, &context.federation);
         if seeds.contains(&module.id) {
             changed.insert(module.id.clone());
-            records.insert(module.id.clone(), module_changes);
+            records.insert(
+                module.id.clone(),
+                crate::plan::changed_records_for_module(
+                    module,
+                    &module_changes,
+                    &context.federation,
+                ),
+            );
         }
     }
 

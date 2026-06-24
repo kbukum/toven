@@ -199,6 +199,51 @@ mod tests {
     }
 
     #[test]
+    fn release_plan_changelogs_only_include_module_owned_records() {
+        let core = module("core", "crates/core");
+        let app = module("app", "crates/app");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core.clone(), app.clone()];
+
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_release_target(FakeReleaseTarget::new());
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let request = PlanRequest::new("r1", "t", TaskKind::Test, AbsPath::new("/repo").unwrap())
+            .with_selection(Selection::Changed(BaselineSpec::explicit("main")));
+        let vcs = FakeVcsReader::new()
+            .with_changed_since(vec![
+                ChangeRecord::new("crates/core/src/lib.rs", ChangeStatus::Modified),
+                ChangeRecord::new("crates/app/src/lib.rs", ChangeStatus::Modified),
+            ])
+            .with_worktree_status(vec![ChangeRecord::new(
+                "crates/app/src/main.rs",
+                ChangeStatus::Modified,
+            )]);
+        let mut reporter = RecordingReporter::new();
+
+        let plan = release_plan(&request, &document(), &providers, &vcs, &mut reporter).unwrap();
+        let by_module = plan
+            .entries
+            .iter()
+            .map(|entry| (entry.module.clone(), entry.changelog.lines.clone()))
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(
+            by_module.get(&core.id).unwrap(),
+            &vec!["crates/core/src/lib.rs".to_string()]
+        );
+        assert_eq!(
+            by_module.get(&app.id).unwrap(),
+            &vec![
+                "crates/app/src/lib.rs".to_string(),
+                "crates/app/src/main.rs".to_string()
+            ]
+        );
+    }
+
+    #[test]
     fn release_strategy_reads_a_single_declared_strategy() {
         let mut ecosystems = BTreeMap::new();
         ecosystems.insert(
