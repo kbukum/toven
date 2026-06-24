@@ -42,11 +42,16 @@ impl Gate {
     }
 
     /// Current state for `unit_id`.
+    ///
+    /// An id the gate never indexed defaults to [`UnitState::Pending`] rather
+    /// than [`UnitState::Blocked`]: an unknown id signals an internal plan
+    /// inconsistency that must surface loudly (via the caller's `unit()` lookup)
+    /// instead of being silently skipped as if it were upstream-blocked.
     pub(super) fn state(&self, unit_id: &str) -> UnitState {
         self.states
             .get(unit_id)
             .copied()
-            .unwrap_or(UnitState::Blocked)
+            .unwrap_or(UnitState::Pending)
     }
 
     /// Mark a unit as satisfied.

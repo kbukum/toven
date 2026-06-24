@@ -25,7 +25,7 @@ pub(in crate::apply) async fn start_persistent(
 ) -> AppResult<StartOutcome> {
     let spec = spec(invocation, project_root)?;
     let persistent_config = PersistentConfig::default()
-        .with_readiness(readiness(&invocation.readiness, project_root)?)
+        .with_readiness(readiness(invocation, project_root)?)
         .with_readiness_timeout(invocation.readiness_timeout)
         .with_shutdown_grace_period(shutdown_grace)
         .with_output_observer(process_observer(&invocation.unit_id, output));
@@ -81,17 +81,22 @@ impl HeldProcess for ProcessHeldProcess {
 }
 
 fn readiness(
-    readiness: &ExecutionReadiness,
+    invocation: &Invocation,
     project_root: &Path,
 ) -> AppResult<PersistentReadiness> {
-    match readiness {
+    match &invocation.readiness {
         ExecutionReadiness::Started => Ok(PersistentReadiness::Started),
         ExecutionReadiness::OutputContains(value) => {
             Ok(PersistentReadiness::OutputContains(value.clone()))
         }
         ExecutionReadiness::Command(argv) => {
-            let invocation = Invocation::new("readiness", argv.clone());
-            spec(&invocation, project_root).map(PersistentReadiness::Command)
+            // Run the readiness probe under the same explicit environment as the
+            // main invocation so it inherits the task's PATH allowlist and vars;
+            // otherwise common probe tools (`curl`, `sh`, …) may fail to spawn
+            // even when the persistent command itself runs fine.
+            let probe = Invocation::new("readiness", argv.clone())
+                .with_environment(invocation.environment.clone());
+            spec(&probe, project_root).map(PersistentReadiness::Command)
         }
     }
 }

@@ -87,7 +87,10 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         let torn_down = self.held.teardown_all().await?;
         self.drain_live_output(&mut live_output)?;
         for unit_id in torn_down {
-            self.output.finish(&unit_id)?;
+            // Persistent units stream live, so there is no buffered block to
+            // flush; calling `finish` would only clear the unit's Live mode and
+            // risk dropping late chunks. The live channel is fully drained above
+            // (and again on drop), so emit the terminal event without finishing.
             self.reporter.emit(&Event::UnitFinished {
                 unit_id,
                 status: UnitStatus::TornDown,
@@ -223,7 +226,12 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 Ok(false)
             }
             WorkOutcome::FailedReadiness { output } => {
-                self.route_output(unit_id, output)?;
+                // Persistent units stream live; routing the synthetic readiness
+                // error as a live chunk (without `finish`) keeps the unit's Live
+                // mode registered so any late chunks the failed process already
+                // emitted are still flushed by a later `drain_live_output`
+                // instead of being dropped as a fresh unregistered unit.
+                self.route_output_chunks(output)?;
                 self.failed(unit_id, UnitStatus::FailedReadiness)?;
                 Ok(true)
             }
@@ -277,7 +285,10 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
     fn drain_dependents(&mut self, unit_id: &str) -> AppResult<()> {
         for held_id in self.held.dependent_finished(unit_id) {
             if self.held.teardown_one(&held_id)? {
-                self.output.finish(&held_id)?;
+                // Held units are persistent (live mode): no buffered block to
+                // flush, and finishing would clear their mode and risk dropping
+                // late chunks. Leave the unit live so any final output drains
+                // through `drain_live_output`; only emit the terminal event.
                 self.reporter.emit(&Event::UnitFinished {
                     unit_id: held_id,
                     status: UnitStatus::TornDown,
