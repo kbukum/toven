@@ -80,10 +80,7 @@ impl HeldProcess for ProcessHeldProcess {
     }
 }
 
-fn readiness(
-    invocation: &Invocation,
-    project_root: &Path,
-) -> AppResult<PersistentReadiness> {
+fn readiness(invocation: &Invocation, project_root: &Path) -> AppResult<PersistentReadiness> {
     match &invocation.readiness {
         ExecutionReadiness::Started => Ok(PersistentReadiness::Started),
         ExecutionReadiness::OutputContains(value) => {

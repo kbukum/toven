@@ -712,3 +712,52 @@ fn process_command_runner_smoke_covers_argv_cwd_capture_nonzero_and_readiness() 
             .any(|chunk| chunk.bytes == b"ready")
     );
 }
+
+#[test]
+fn process_command_runner_readiness_command_inherits_invocation_environment() {
+    let workspace = TestWorkspace::new("readiness-command-env");
+    let runner = toven_engine::apply::ProcessCommandRunner::new(workspace.path());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .expect("runtime");
+    let mut env = std::collections::BTreeMap::new();
+    env.insert(
+        "PATH".to_string(),
+        std::env::var("PATH").expect("PATH available for readiness command test"),
+    );
+    let environment = toven_ports::InvocationEnvironment::explicit(env);
+
+    // The readiness probe itself spawns `sh`, which can only be resolved if the
+    // probe inherits the invocation's PATH allowlist. With an empty probe
+    // environment this readiness command would fail to spawn and report
+    // FailedReadiness even though the persistent command runs fine.
+    let persistent = toven_ports::Invocation::new(
+        "srv",
+        vec!["sh".to_string(), "-c".to_string(), "sleep 1".to_string()],
+    )
+    .with_persistent(true)
+    .with_readiness(ExecutionReadiness::Command(vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        "exit 0".to_string(),
+    ]))
+    .with_readiness_timeout(Duration::from_secs(2))
+    .with_environment(environment);
+
+    let observer = toven_ports::OutputObserver::new(|_chunk| {});
+    let started = runtime
+        .block_on(runner.start_persistent(
+            &persistent,
+            tokio_util::sync::CancellationToken::new(),
+            observer,
+        ))
+        .expect("persistent start");
+    match started {
+        toven_ports::StartOutcome::Ready { process, .. } => process.shutdown().expect("shutdown"),
+        toven_ports::StartOutcome::FailedReadiness { output } => {
+            panic!("readiness command should inherit PATH and succeed, got: {output:?}")
+        }
+    }
+}
