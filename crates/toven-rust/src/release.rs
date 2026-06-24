@@ -37,7 +37,7 @@ const MAX_CARGO_OUTPUT_BYTES: usize = 64 * 1024;
 const MAX_METADATA_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 
 /// Timeout for a single cargo registry-facing command.
-const CARGO_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+const CARGO_COMMAND_TIMEOUT: Duration = Duration::from_mins(2);
 
 /// The crates.io release target for the Rust ecosystem.
 ///
@@ -268,8 +268,7 @@ fn classify_publish(
         // first publish; a failed lookup falls back to the existing-name cadence.
         let is_new_release = target
             .published_versions(module)
-            .map(|versions| versions.is_empty())
-            .unwrap_or(false);
+            .is_ok_and(|versions| versions.is_empty());
         return Ok(PublishOutcome::RateLimited {
             retry_after: fallback_retry_after(is_new_release, SystemTime::now()),
         });
@@ -279,7 +278,7 @@ fn classify_publish(
 }
 
 fn fallback_retry_after(is_new_release: bool, now: SystemTime) -> Option<SystemTime> {
-    RegistryCadence::new(Duration::from_secs(600), Duration::from_secs(60))
+    RegistryCadence::new(Duration::from_mins(10), Duration::from_mins(1))
         .fallback_retry_after(is_new_release, now)
 }
 

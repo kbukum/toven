@@ -19,7 +19,7 @@ use super::ReleaseStats;
 
 /// Hard cap on a single rate-limit wait, regardless of the registry's hint, so a
 /// pathological `Retry-After` cannot stall the publish loop indefinitely.
-const MAX_RATE_LIMIT_WAIT: Duration = Duration::from_secs(120);
+const MAX_RATE_LIMIT_WAIT: Duration = Duration::from_mins(2);
 
 /// One resolved unit of publish work, already ordered for deterministic publish.
 pub(super) struct PublishItem<'a> {

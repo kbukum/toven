@@ -49,24 +49,24 @@ mod tests {
 
     #[test]
     fn cadence_selects_new_release_or_update_delay() {
-        let cadence = RegistryCadence::new(Duration::from_secs(600), Duration::from_secs(60));
+        let cadence = RegistryCadence::new(Duration::from_mins(10), Duration::from_mins(1));
 
-        assert_eq!(cadence.fallback_delay(true), Duration::from_secs(600));
-        assert_eq!(cadence.fallback_delay(false), Duration::from_secs(60));
+        assert_eq!(cadence.fallback_delay(true), Duration::from_mins(10));
+        assert_eq!(cadence.fallback_delay(false), Duration::from_mins(1));
     }
 
     #[test]
     fn fallback_retry_after_offsets_from_now() {
         let now = SystemTime::UNIX_EPOCH;
-        let cadence = RegistryCadence::new(Duration::from_secs(600), Duration::from_secs(60));
+        let cadence = RegistryCadence::new(Duration::from_mins(10), Duration::from_mins(1));
 
         assert_eq!(
             cadence.fallback_retry_after(true, now),
-            Some(now + Duration::from_secs(600))
+            Some(now + Duration::from_mins(10))
         );
         assert_eq!(
             cadence.fallback_retry_after(false, now),
-            Some(now + Duration::from_secs(60))
+            Some(now + Duration::from_mins(1))
         );
     }
 }
