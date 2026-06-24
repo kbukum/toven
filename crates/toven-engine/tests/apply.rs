@@ -761,3 +761,50 @@ fn process_command_runner_readiness_command_inherits_invocation_environment() {
         }
     }
 }
+
+#[test]
+fn wave_error_still_tears_down_held_persistent_processes() {
+    // A persistent service reaches readiness in wave 0 and is held; wave 1 then
+    // aborts with a propagated runner error. Teardown and pool shutdown must
+    // still run so the held process is not leaked, while the original error is
+    // surfaced to the caller.
+    let mut service = unit("service");
+    service.persistent = true;
+    service.cache = CacheVerdict::Disabled;
+    service.cache_key = None;
+    let boom = unit("boom");
+    let plan = Plan::new(
+        vec![service, boom],
+        vec![vec!["service".into()], vec!["boom".into()]],
+    );
+    let runner = Arc::new(FakeCommandRunner::new().with_error("boom"));
+    let cache = RecordingCacheWriter::new();
+    let mut reporter = RecordingReporter::new();
+
+    let runner_port: Arc<dyn CommandRunner> = runner.clone();
+    let mut output = UnitOutputChannel::new(RecordingRawOutputSink::new());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .expect("runtime");
+    let result = runtime.block_on(apply(
+        &plan,
+        runner_port,
+        &cache,
+        &mut reporter,
+        &mut output,
+        ApplyOptions {
+            max_parallel: 2,
+            fail_fast: false,
+            ..ApplyOptions::default()
+        },
+    ));
+
+    assert!(result.is_err(), "wave error must propagate to the caller");
+    assert_eq!(
+        runner.shutdowns(),
+        vec!["service".to_string()],
+        "held persistent process must be torn down despite the wave error"
+    );
+}

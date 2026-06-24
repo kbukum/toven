@@ -57,6 +57,11 @@ impl<W: Write> HumanReporter<W> {
         if let Some(duration_ms) = summary.duration_ms {
             kv.add("duration-ms", duration_ms.to_string());
         }
+        // Surfaced only when output was actually dropped, so honest loss is
+        // reported without cluttering the common (lossless) summary.
+        if summary.dropped_output_chunks > 0 {
+            kv.add("dropped-output", summary.dropped_output_chunks.to_string());
+        }
         // The displayed exit is derived from the summary by the single owner, so
         // it can never disagree with the actual process exit (event-report C).
         kv.add("exit", exit_code(summary).as_i32().to_string());

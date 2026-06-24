@@ -1,10 +1,12 @@
 //! Wave walk: cache-hit skip, grouped execution, failure gating, held teardown.
 
 use std::collections::{BTreeMap, VecDeque};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use tokio::sync::mpsc::{UnboundedReceiver, error::TryRecvError};
+use tokio::sync::mpsc::{Receiver, error::TryRecvError};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use toven_model::{CacheVerdict, Event, Plan, RunStats, UnitStatus};
@@ -28,6 +30,7 @@ pub(super) struct Walker<'a, S: RawOutputSink> {
     gate: Gate,
     held: HeldSet,
     stats: RunStats,
+    dropped_output: Arc<AtomicUsize>,
 }
 
 impl<'a, S: RawOutputSink> Walker<'a, S> {
@@ -37,6 +40,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         reporter: &'a mut dyn Reporter,
         output: &'a mut UnitOutputChannel<S>,
         options: ApplyOptions,
+        dropped_output: Arc<AtomicUsize>,
     ) -> Self {
         let mut stats = RunStats::new(plan.units.len());
         for unit in &plan.units {
@@ -57,13 +61,14 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             gate: Gate::new(plan),
             held: HeldSet::new(plan),
             stats,
+            dropped_output,
         }
     }
 
     pub(super) async fn run(
         mut self,
         pool: ApplyPool,
-        mut live_output: UnboundedReceiver<toven_model::UnitOutput>,
+        mut live_output: Receiver<toven_model::UnitOutput>,
     ) -> AppResult<RunStats> {
         let start = Instant::now();
         for unit in &self.plan.units {
@@ -77,15 +82,19 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             );
         }
 
-        for wave in &self.plan.waves {
-            if self.options.fail_fast && self.stats.has_failures() {
-                break;
-            }
-            self.run_wave(wave, &pool, &mut live_output).await?;
-        }
-        self.drain_live_output(&mut live_output)?;
-        let torn_down = self.held.teardown_all().await?;
-        self.drain_live_output(&mut live_output)?;
+        // Run the wave schedule, then tear down held processes and shut the pool
+        // down unconditionally: an error from any wave must still release
+        // persistent child processes and worker tasks instead of leaking them.
+        // The first failure (waves, then teardown, then shutdown) is returned to
+        // the caller after cleanup has run.
+        let wave_result = self.run_waves(&pool, &mut live_output).await;
+        let teardown_result = self.teardown_held(&mut live_output).await;
+        let shutdown_result = pool.shutdown().await;
+
+        wave_result?;
+        let torn_down = teardown_result?;
+        shutdown_result?;
+
         for unit_id in torn_down {
             // Persistent units stream live, so there is no buffered block to
             // flush; calling `finish` would only clear the unit's Live mode and
@@ -96,19 +105,66 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 status: UnitStatus::TornDown,
             })?;
         }
-        pool.shutdown().await?;
         self.stats.duration_ms = Some(start.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
+        self.stats.dropped_output_chunks = self.dropped_output.load(Ordering::Relaxed);
         self.reporter.emit(&Event::RunFinished {
             summary: self.stats,
         })?;
         Ok(self.stats)
     }
 
+    async fn run_waves(
+        &mut self,
+        pool: &ApplyPool,
+        live_output: &mut Receiver<toven_model::UnitOutput>,
+    ) -> AppResult<()> {
+        for wave in &self.plan.waves {
+            if self.options.fail_fast && self.stats.has_failures() {
+                break;
+            }
+            self.run_wave(wave, pool, live_output).await?;
+        }
+        self.drain_live_output(live_output)?;
+        Ok(())
+    }
+
+    /// Tear down every held persistent process while draining live output
+    /// concurrently.
+    ///
+    /// Draining during teardown is required for correctness, not just latency: a
+    /// reader thread blocked on a full bounded bridge would otherwise never
+    /// finish, so the process it feeds could never join and `teardown_all` would
+    /// deadlock. Borrowing `held` and `output` as disjoint fields lets the
+    /// teardown future and the drain push run together.
+    async fn teardown_held(
+        &mut self,
+        live_output: &mut Receiver<toven_model::UnitOutput>,
+    ) -> AppResult<Vec<String>> {
+        let held = &mut self.held;
+        let output = &mut *self.output;
+        let teardown = held.teardown_all();
+        tokio::pin!(teardown);
+        loop {
+            tokio::select! {
+                result = &mut teardown => {
+                    let torn_down = result?;
+                    while let Ok(chunk) = live_output.try_recv() {
+                        output.push(chunk)?;
+                    }
+                    return Ok(torn_down);
+                }
+                Some(chunk) = live_output.recv() => {
+                    output.push(chunk)?;
+                }
+            }
+        }
+    }
+
     async fn run_wave(
         &mut self,
         wave: &[String],
         pool: &ApplyPool,
-        live_output: &mut UnboundedReceiver<toven_model::UnitOutput>,
+        live_output: &mut Receiver<toven_model::UnitOutput>,
     ) -> AppResult<()> {
         let mut groups = BTreeMap::<String, VecDeque<String>>::new();
         for unit_id in wave {
@@ -133,7 +189,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         &mut self,
         mut groups: BTreeMap<String, VecDeque<String>>,
         pool: &ApplyPool,
-        live_output: &mut UnboundedReceiver<toven_model::UnitOutput>,
+        live_output: &mut Receiver<toven_model::UnitOutput>,
     ) -> AppResult<()> {
         let mut joins = JoinSet::new();
         let mut cancels = Vec::<CancellationToken>::new();
@@ -241,6 +297,10 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
     fn cached(&mut self, unit_id: &str) -> AppResult<()> {
         self.stats.cached_units += 1;
         self.gate.satisfy(unit_id);
+        // A cache hit produces no output, but the unit was registered with a
+        // channel mode at run start; finish it so its per-unit channel state is
+        // released now rather than lingering until the channel is dropped.
+        self.output.finish(unit_id)?;
         self.reporter.emit(&Event::UnitFinished {
             unit_id: unit_id.to_string(),
             status: UnitStatus::Cached,
@@ -316,7 +376,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
 
     fn drain_live_output(
         &mut self,
-        live_output: &mut UnboundedReceiver<toven_model::UnitOutput>,
+        live_output: &mut Receiver<toven_model::UnitOutput>,
     ) -> AppResult<()> {
         loop {
             match live_output.try_recv() {

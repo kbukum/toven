@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use rskit_errors::{AppError, AppResult};
+use rskit_errors::{AppError, AppResult, ErrorCode};
 use tokio_util::sync::CancellationToken;
 use toven_model::UnitOutput;
 use toven_ports::{
@@ -34,6 +34,7 @@ struct RunLog {
 /// A scriptable [`CommandRunner`] that records scheduling behavior.
 pub struct FakeCommandRunner {
     failures: HashSet<String>,
+    errors: HashSet<String>,
     persistent_failures: HashSet<String>,
     blocking: HashSet<String>,
     blocking_persistent: HashSet<String>,
@@ -57,6 +58,7 @@ impl FakeCommandRunner {
     pub fn new() -> Self {
         Self {
             failures: HashSet::new(),
+            errors: HashSet::new(),
             persistent_failures: HashSet::new(),
             blocking: HashSet::new(),
             blocking_persistent: HashSet::new(),
@@ -73,6 +75,15 @@ impl FakeCommandRunner {
     #[must_use]
     pub fn with_failure(mut self, unit_id: impl Into<String>) -> Self {
         self.failures.insert(unit_id.into());
+        self
+    }
+
+    /// Script `unit_id`'s normal run to return a propagated runner error
+    /// (`Err`), as opposed to a non-zero exit. Models spawn/IO failures that
+    /// abort the run rather than recording a unit failure.
+    #[must_use]
+    pub fn with_error(mut self, unit_id: impl Into<String>) -> Self {
+        self.errors.insert(unit_id.into());
         self
     }
 
@@ -193,6 +204,11 @@ impl CommandRunner for FakeCommandRunner {
         let unit_id = invocation.unit_id.clone();
         self.enter(&unit_id);
         let output = self.output_for(&unit_id);
+
+        if self.errors.contains(&unit_id) {
+            self.leave(&unit_id);
+            return Err(AppError::new(ErrorCode::Internal, "scripted runner error"));
+        }
 
         if self.blocking.contains(&unit_id) {
             tokio::select! {
