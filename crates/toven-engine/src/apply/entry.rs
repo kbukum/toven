@@ -19,7 +19,7 @@ use super::walk::Walker;
 /// Propagates reporter, raw-output sink, command-runner, cache-write, pool, and
 /// teardown failures. Non-zero child exits are represented in the returned
 /// [`RunStats`], not as `Err`.
-pub async fn apply<S: RawOutputSink + Send>(
+pub async fn apply<S: RawOutputSink>(
     plan: &Plan,
     runner: Arc<dyn CommandRunner>,
     cache: &dyn CacheWriter,

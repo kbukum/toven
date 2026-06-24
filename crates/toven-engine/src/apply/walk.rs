@@ -283,10 +283,10 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             return Ok(());
         };
         let unit = self.unit(&unit_id)?.clone();
+        let handle = pool.submit(WorkItem::new(unit)).await?;
         self.reporter.emit(&Event::UnitStarted {
             unit_id: unit_id.clone(),
         })?;
-        let handle = pool.submit(WorkItem::new(unit)).await?;
         cancels.push(handle.cancel_token());
         joins.spawn(async move {
             let result = handle.result().await;

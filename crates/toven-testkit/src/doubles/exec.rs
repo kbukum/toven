@@ -42,7 +42,6 @@ pub struct FakeCommandRunner {
     log: Arc<Mutex<RunLog>>,
     shutdowns: Arc<Mutex<Vec<String>>>,
     active: Arc<Mutex<HashSet<String>>>,
-    running: AtomicUsize,
     peak: AtomicUsize,
 }
 
@@ -66,7 +65,6 @@ impl FakeCommandRunner {
             log: Arc::new(Mutex::new(RunLog::default())),
             shutdowns: Arc::new(Mutex::new(Vec::new())),
             active: Arc::new(Mutex::new(HashSet::new())),
-            running: AtomicUsize::new(0),
             peak: AtomicUsize::new(0),
         }
     }
@@ -158,7 +156,6 @@ impl FakeCommandRunner {
         let now = active.len();
         drop(active);
         self.peak.fetch_max(now, Ordering::SeqCst);
-        self.running.fetch_add(1, Ordering::SeqCst);
         let mut log = self.log.lock().expect("log poisoned");
         log.started.push(unit_id.to_string());
         log.coactive.push((unit_id.to_string(), others));
@@ -166,7 +163,6 @@ impl FakeCommandRunner {
 
     fn leave(&self, unit_id: &str) {
         self.active.lock().expect("active poisoned").remove(unit_id);
-        self.running.fetch_sub(1, Ordering::SeqCst);
     }
 
     fn output_for(&self, unit_id: &str) -> Vec<UnitOutput> {
