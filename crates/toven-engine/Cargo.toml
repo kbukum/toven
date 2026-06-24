@@ -21,6 +21,7 @@ rskit-component.workspace = true
 rskit-validation.workspace = true
 rskit-config.workspace = true
 rskit-util.workspace = true
+rskit-version.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true

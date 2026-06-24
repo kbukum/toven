@@ -1,22 +1,26 @@
 //! `CratesIoTarget` — the cargo/crates.io [`ReleaseTarget`] sliver.
 //!
-//! Step 4 stubs the **version I/O + manifest mutation** half (the part the
-//! discovery/plan flow needs): read a module's declared version from its
-//! `Cargo.toml`, and apply one atomic version mutation (own version + intra-
-//! project dependency-floor rewrites) with format-preserving `toml_edit`. The
-//! registry-facing half (`published_versions`, `package`, `publish`) lands in
-//! step 9 against the real publish loop and returns a typed error until then —
-//! never a success-shaped fallback.
+//! Owns the ecosystem-specific ~10% of release: reading a module's declared
+//! version from its `Cargo.toml`, applying one atomic version mutation (own
+//! version + intra-project dependency-floor rewrites) with format-preserving
+//! `toml_edit`, and the registry-facing trio (`published_versions`, `package`,
+//! `publish`) routed through `cargo` via `rskit-process` with bounded output and
+//! a hard timeout. Each method returns typed data or a typed error — never a
+//! success-shaped fallback.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::file::{exists, read_string_bounded, write_atomic_replace};
+use rskit_process::{
+    CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessResult, ProcessSpec, run,
+};
 use rskit_version::semver::Version;
 use toml_edit::{DocumentMut, Item, value};
 use toven_model::Module;
-use toven_ports::{Artifact, PublishOutcome, ReleaseMutation, ReleaseTarget};
+use toven_ports::{Artifact, PublishOutcome, RegistryCadence, ReleaseMutation, ReleaseTarget};
 
 /// Hard bound on a `Cargo.toml` read (4 MiB) — manifests are tiny; this only
 /// guards against a pathological file.
@@ -24,6 +28,12 @@ const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Temp-file prefix for atomic manifest rewrites.
 const MANIFEST_TEMP_PREFIX: &str = "toven-cargo-manifest";
+
+/// Maximum retained stdout/stderr for cargo registry commands (64 KiB each).
+const MAX_CARGO_OUTPUT_BYTES: usize = 64 * 1024;
+
+/// Timeout for a single cargo registry-facing command.
+const CARGO_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// The crates.io release target for the Rust ecosystem.
 ///
@@ -77,12 +87,47 @@ impl ReleaseTarget for CratesIoTarget {
         read_declared_version(&text, &path, &root)
     }
 
-    fn published_versions(&self, _module: &Module) -> AppResult<Vec<Version>> {
-        Err(deferred("published_versions"))
+    fn published_versions(&self, module: &Module) -> AppResult<Vec<Version>> {
+        let package = package_name(module);
+        // `cargo search` reports only the single latest version of a crate, so
+        // this is the best-effort "latest published" set the port contract
+        // allows — the publish loop's `AlreadyPublished` classification is the
+        // authoritative idempotency backstop for older versions.
+        let output = cargo(
+            Self::working_root()?,
+            [
+                "search".to_string(),
+                package.clone(),
+                "--limit".to_string(),
+                "1".to_string(),
+            ],
+        )?;
+        output.check()?;
+        Ok(parse_cargo_search_versions(&package, &output.stdout))
     }
 
-    fn package(&self, _module: &Module) -> AppResult<Artifact> {
-        Err(deferred("package"))
+    fn package(&self, module: &Module) -> AppResult<Artifact> {
+        let path = Self::manifest_path(module)?;
+        let output = cargo(
+            Self::working_root()?,
+            [
+                "package".to_string(),
+                "--manifest-path".to_string(),
+                path.display().to_string(),
+                "--allow-dirty".to_string(),
+            ],
+        )?;
+        output.check()?;
+
+        let artifact = Self::working_root()?
+            .join("target")
+            .join("package")
+            .join(format!(
+                "{}-{}.crate",
+                package_name(module),
+                self.declared_version(module)?
+            ));
+        Ok(Artifact::new(artifact))
     }
 
     fn apply_release(&self, module: &Module, mutation: &ReleaseMutation) -> AppResult<()> {
@@ -92,17 +137,94 @@ impl ReleaseTarget for CratesIoTarget {
         write_atomic_replace(&path, rewritten.as_bytes(), MANIFEST_TEMP_PREFIX)
     }
 
-    fn publish(&self, _module: &Module, _artifact: &Artifact) -> AppResult<PublishOutcome> {
-        Err(deferred("publish"))
+    fn publish(&self, module: &Module, _artifact: &Artifact) -> AppResult<PublishOutcome> {
+        let path = Self::manifest_path(module)?;
+        let output = cargo(
+            Self::working_root()?,
+            [
+                "publish".to_string(),
+                "--manifest-path".to_string(),
+                path.display().to_string(),
+                "--allow-dirty".to_string(),
+            ],
+        )?;
+        classify_publish(*self, module, &output)
     }
 }
 
-/// The typed error for the registry-facing methods deferred to step 9.
-fn deferred(method: &str) -> AppError {
-    AppError::new(
-        ErrorCode::Internal,
-        format!("CratesIoTarget::{method} lands in step 9 (publish loop)"),
-    )
+fn cargo<I>(working_dir: PathBuf, args: I) -> AppResult<ProcessResult>
+where
+    I: IntoIterator<Item = String>,
+{
+    let spec = ProcessSpec::new("cargo").args(args).dir(working_dir);
+    let config = ProcessConfig::default()
+        .with_timeout(Some(CARGO_COMMAND_TIMEOUT))
+        .with_io(ProcessIo::captured(CapturedIo::new().with_output(
+            OutputPolicy::captured().with_max_output_bytes(MAX_CARGO_OUTPUT_BYTES),
+        )));
+    run(&spec, &config)
+}
+
+fn package_name(module: &Module) -> String {
+    module
+        .package
+        .clone()
+        .unwrap_or_else(|| module.id.name.clone())
+}
+
+fn parse_cargo_search_versions(package: &str, stdout: &str) -> Vec<Version> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let (name, rest) = line.split_once('=')?;
+            if name.trim() != package {
+                return None;
+            }
+            let raw = rest.trim().trim_matches('"').split('"').next()?;
+            Version::parse(raw).ok()
+        })
+        .collect()
+}
+
+fn classify_publish(
+    target: CratesIoTarget,
+    module: &Module,
+    output: &ProcessResult,
+) -> AppResult<PublishOutcome> {
+    if output.success() {
+        return Ok(PublishOutcome::Published);
+    }
+
+    let combined = format!("{}\n{}", output.stdout, output.stderr).to_ascii_lowercase();
+    if combined.contains("already uploaded")
+        || combined.contains("already exists")
+        || combined.contains("already been uploaded")
+    {
+        return Ok(PublishOutcome::AlreadyPublished);
+    }
+
+    if combined.contains("429")
+        || combined.contains("rate limit")
+        || combined.contains("too many requests")
+    {
+        // crates.io applies a stricter cadence to a brand-new crate name than to a
+        // new version of an existing one. Treat "no versions on the registry" as a
+        // first publish; a failed lookup falls back to the existing-name cadence.
+        let is_new_release = target
+            .published_versions(module)
+            .map(|versions| versions.is_empty())
+            .unwrap_or(false);
+        return Ok(PublishOutcome::RateLimited {
+            retry_after: fallback_retry_after(is_new_release, SystemTime::now()),
+        });
+    }
+
+    output.check().map(|_| PublishOutcome::Published)
+}
+
+fn fallback_retry_after(is_new_release: bool, now: SystemTime) -> Option<SystemTime> {
+    RegistryCadence::new(Duration::from_secs(600), Duration::from_secs(60))
+        .fallback_retry_after(is_new_release, now)
 }
 
 /// Read `[package].version` from a `Cargo.toml` body.
@@ -298,7 +420,7 @@ mod tests {
 
     use toml_edit::Item;
 
-    use super::{apply_mutation, read_declared_version};
+    use super::{apply_mutation, parse_cargo_search_versions, read_declared_version};
 
     const MANIFEST: &str = "\
 [package]
@@ -433,5 +555,34 @@ plain = \"0.4.0\"
             .insert(dep("absent"), Version::new(9, 9, 9));
         let rewritten = apply_mutation(MANIFEST, &mutation, Path::new("Cargo.toml")).unwrap();
         assert!(!rewritten.contains("9.9.9"));
+    }
+
+    #[test]
+    fn parses_matching_crate_version_from_cargo_search() {
+        // Representative `cargo search <name> --limit 1` stdout: one `name = "ver"`
+        // line per crate, optionally trailed by a `# description` comment.
+        let stdout = "\
+core = \"1.4.2\"    # A core crate
+";
+        assert_eq!(
+            parse_cargo_search_versions("core", stdout),
+            vec![Version::new(1, 4, 2)]
+        );
+    }
+
+    #[test]
+    fn cargo_search_parse_ignores_non_matching_and_malformed_lines() {
+        let stdout = "\
+core-extra = \"9.9.9\"    # different crate, prefix match must not count
+not a versions line
+core = \"0.2.0\"
+";
+        // Only the exact-name match is returned; the prefix-similar crate and the
+        // malformed line are skipped.
+        assert_eq!(
+            parse_cargo_search_versions("core", stdout),
+            vec![Version::new(0, 2, 0)]
+        );
+        assert!(parse_cargo_search_versions("absent", stdout).is_empty());
     }
 }

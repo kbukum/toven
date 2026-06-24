@@ -43,7 +43,7 @@ pub use doubles::{
     CountingToolchainProber, EMPTY_IDENTITY, FakeCacheStore, FakeCommandRunner,
     FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeSourceDigest, FakeVcsReader,
     FakeVcsWriter, RecordingCacheStore, RecordingCacheWriter, RecordingRawOutputSink,
-    RecordingReporter,
+    RecordingReporter, ReleaseCall, VcsWrite,
 };
 pub use fixtures::{
     FIXTURES_ROOT, document, document_path, document_string, ecosystem, ecosystem_string, repo_path,

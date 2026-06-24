@@ -1444,6 +1444,7 @@ dependencies = [
  "rskit-process",
  "rskit-util",
  "rskit-validation",
+ "rskit-version",
  "rskit-worker",
  "serde",
  "serde_json",

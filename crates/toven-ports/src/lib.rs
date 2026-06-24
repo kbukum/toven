@@ -62,7 +62,7 @@ pub use exec::{
 pub use merge::merge_task;
 pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
 pub use raw_output::RawOutputSink;
-pub use release::{Artifact, PublishOutcome, ReleaseMutation, ReleaseTarget};
+pub use release::{Artifact, PublishOutcome, RegistryCadence, ReleaseMutation, ReleaseTarget};
 pub use reporter::Reporter;
 pub use source::SourceDigest;
 pub use task::{

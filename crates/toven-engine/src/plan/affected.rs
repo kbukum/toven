@@ -44,18 +44,7 @@ pub(super) fn active_modules(
     let mut changed = vcs.changed_since(spec)?;
     changed.extend(vcs.worktree_status()?);
 
-    let mut seeds = BTreeSet::new();
-    for record in &changed {
-        match classify(record, federation) {
-            Classification::Module(reference) => {
-                seeds.insert(reference);
-            }
-            Classification::Workspace(workspace) => {
-                seeds.extend(modules_in_workspace(&workspace, federation));
-            }
-            Classification::Unclassified => return Ok(all_modules(graph)),
-        }
-    }
+    let seeds = changed_seeds(&changed, graph, federation);
 
     let is_test = matches!(request.intent, TaskKind::Test);
     let include = |kind: DepKind| {
@@ -63,6 +52,29 @@ pub(super) fn active_modules(
             || (is_test && kind == DepKind::Dev)
     };
     graph.closure(&seeds, include)
+}
+
+/// Map changed records to direct seed modules before any reverse-dependent
+/// closure is applied.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn changed_seeds(
+    changed: &[ChangeRecord],
+    graph: &Graph,
+    federation: &Federation,
+) -> BTreeSet<ModuleRef> {
+    let mut seeds = BTreeSet::new();
+    for record in changed {
+        match classify(record, federation) {
+            Classification::Module(reference) => {
+                seeds.insert(reference);
+            }
+            Classification::Workspace(workspace) => {
+                seeds.extend(modules_in_workspace(&workspace, federation));
+            }
+            Classification::Unclassified => return all_modules(graph),
+        }
+    }
+    seeds
 }
 
 /// Every module identity in the graph.

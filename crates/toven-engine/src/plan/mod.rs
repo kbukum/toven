@@ -18,10 +18,11 @@
 //! - `cache` — the content key, lookup port, and per-unit verdict.
 //! - `request` / `source` / `host` — PLAN inputs and injected ports.
 
-mod affected;
+pub(crate) mod affected;
 mod cache;
-mod configure;
-mod discover;
+pub(crate) mod configure;
+pub(crate) mod discover;
+pub(crate) mod front;
 mod graph;
 mod host;
 mod pipeline;
@@ -36,3 +37,6 @@ pub use pipeline::plan;
 pub use request::{CacheMode, PlanRequest, Selection};
 pub use source::FsSourceDigest;
 pub use toolchain::ProcessToolchainProber;
+
+pub(crate) use affected::changed_seeds;
+pub(crate) use front::{PlanContext, prepare as prepare_front};

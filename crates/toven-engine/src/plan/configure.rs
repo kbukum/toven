@@ -18,7 +18,8 @@ use toven_ports::{ConfiguredAdapter, Provider};
 use crate::config::Document;
 
 /// The per-ecosystem configured-adapter set produced by [`configure`].
-pub(super) type ConfiguredSet = BTreeMap<EcosystemId, Box<dyn ConfiguredAdapter>>;
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) type ConfiguredSet = BTreeMap<EcosystemId, Box<dyn ConfiguredAdapter>>;
 
 /// Configure every loaded ecosystem section of `document`.
 ///

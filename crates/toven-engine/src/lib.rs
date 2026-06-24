@@ -42,6 +42,8 @@
 //!   implementing both injected cache ports: the read-only
 //!   [`CacheStore`](toven_ports::CacheStore) for PLAN and the write-only
 //!   [`CacheWriter`](toven_ports::CacheWriter) for APPLY.
+//! - [`release`] — the release-specific PLAN/APPLY tail: immutable release
+//!   planning vocabulary, change detection, bumping, tagging, and publishing.
 #![warn(missing_docs)]
 
 pub mod apply;
@@ -49,4 +51,5 @@ pub mod cache;
 pub mod config;
 pub mod output;
 pub mod plan;
+pub mod release;
 pub mod vcs;
