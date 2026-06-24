@@ -57,8 +57,13 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
             new_version: Some(planned_version.clone()),
             dep_floor_updates,
         };
-        let published = target.published_versions(module)?;
-        let publish_needed = !published.contains(&planned_version);
+        // `published_versions` is best-effort: a transient registry/search
+        // failure must not abort planning. Treat a lookup error as "publish
+        // needed" — the APPLY publish loop's `AlreadyPublished` classification is
+        // the authoritative idempotency backstop.
+        let publish_needed = !target
+            .published_versions(module)
+            .is_ok_and(|published| published.contains(&planned_version));
         entries.push(ReleaseEntry {
             module: reference.clone(),
             current_version,

@@ -119,7 +119,7 @@ fn guard_clean_tree(reader: &dyn VcsReader, options: &ReleaseApplyOptions) -> Ap
     Err(AppError::invalid_input(
         "release.worktree",
         format!(
-            "the working tree has {} uncommitted change(s); commit, stash, or pass allow-dirty",
+            "the working tree has {} uncommitted change(s); commit, stash, or pass --allow-dirty",
             status.len()
         ),
     ))

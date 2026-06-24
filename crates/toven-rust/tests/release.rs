@@ -95,7 +95,9 @@ fn package_builds_a_publishable_artifact() {
     let module = app_module();
 
     let artifact = target.package(&module).expect("cargo package");
-    assert!(artifact.path.ends_with("target/package/app-0.1.0.crate"));
+    // The implementation honors `CARGO_TARGET_DIR` / `build.target-dir`, so only
+    // the target-dir-relative suffix is invariant — not the `target/` segment.
+    assert!(artifact.path.ends_with("package/app-0.1.0.crate"));
 }
 
 #[test]

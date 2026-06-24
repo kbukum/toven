@@ -156,13 +156,11 @@ impl ReleaseTarget for CratesIoTarget {
         )?;
         output.check()?;
 
-        let artifact = Self::target_directory(&path)?
-            .join("package")
-            .join(format!(
-                "{}-{}.crate",
-                package_name(module),
-                self.declared_version(module)?
-            ));
+        let artifact = Self::target_directory(&path)?.join("package").join(format!(
+            "{}-{}.crate",
+            package_name(module),
+            self.declared_version(module)?
+        ));
         Ok(Artifact::new(artifact))
     }
 
