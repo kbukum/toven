@@ -19,7 +19,7 @@ use toven_model::UnitOutput;
 /// `live` is called in arrival order for persistent units; `block` is called in
 /// call order for a normal unit — once on finish, and additionally (before
 /// finish) whenever the unit's buffer spills past the channel cap.
-pub trait RawOutputSink {
+pub trait RawOutputSink: Send {
     /// Render one live chunk from a persistent (live-tailed) unit, as it arrives.
     ///
     /// # Errors

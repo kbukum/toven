@@ -7,6 +7,7 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 ### Added
 
 - Task-level `shared_inputs` for broad cache invalidation and the initial installed-binary benchmark harness scaffold.
+- APPLY execution over the planned unit graph, including fail-closed dependency gating, fail-fast cancellation, persistent readiness/teardown lifecycle, live persistent raw output routing, safe explicit command environment policy, and successful-run cache recording.
 - User-facing `toven generate` workflow with safe stdout/write modes, deterministic TOML rendering, and Rust adapter config contributions.
 - Project/profile/scope adapter configuration, Rust multi-manifest discovery, adapter-owned default Rust tasks, and explicit cross-scope dependency overlays.
 - Developer workflow inspection commands, watch mode, persistent task readiness, JSONL run events, and cache stats/clean.

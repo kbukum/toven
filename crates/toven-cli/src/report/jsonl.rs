@@ -40,7 +40,7 @@ impl JsonlReporter<io::Stdout> {
     }
 }
 
-impl<W: Write> Reporter for JsonlReporter<W> {
+impl<W: Write + Send> Reporter for JsonlReporter<W> {
     fn emit(&mut self, event: &Event) -> AppResult<()> {
         serde_json::to_writer(&mut self.writer, event).map_err(AppError::internal)?;
         self.writer.write_all(b"\n").map_err(AppError::internal)?;

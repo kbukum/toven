@@ -1,5 +1,7 @@
 //! Immutable plan artifacts produced by the PLAN half of the engine.
 
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 
 use crate::identity::{ModuleRef, WorkspaceId};
@@ -26,6 +28,18 @@ impl CacheVerdict {
     }
 }
 
+/// How a persistent execution unit reports readiness.
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExecutionReadiness {
+    /// Ready once the subprocess starts.
+    Started,
+    /// Ready when a bounded health command exits successfully.
+    Command(Vec<String>),
+    /// Ready when literal text appears on stdout/stderr.
+    OutputContains(String),
+}
+
 /// One schedulable unit of work in a [`Plan`].
 ///
 /// A unit carries the rendered invocation plus the planning facts the APPLY half
@@ -47,8 +61,37 @@ pub struct ExecutionUnit {
     /// Whether this unit starts a long-lived (persistent) process.
     #[serde(default)]
     pub persistent: bool,
+    /// Readiness policy for persistent units.
+    #[serde(default = "default_readiness")]
+    pub readiness: ExecutionReadiness,
+    /// Bound on how long to wait for persistent readiness.
+    #[serde(default = "default_readiness_timeout")]
+    pub readiness_timeout: Duration,
     /// Cache outcome decided during PLAN.
     pub cache: CacheVerdict,
+    /// Content cache key to record after a successful cacheable run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_key: Option<String>,
+    /// Ids of the units this unit depends on (the scheduled dependency edges).
+    ///
+    /// APPLY uses these to fail-close: when a unit fails, every unit that lists
+    /// it (transitively) is marked [`Blocked`](crate::UnitStatus::Blocked) and
+    /// never runs. Empty for a leaf unit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub depends_on: Vec<String>,
+    /// Optional within-wave serialization key (a shared resource such as a build
+    /// target directory). Units sharing a `resource_group` run serially; units in
+    /// different groups (or with none) may run in parallel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_group: Option<String>,
+}
+
+const fn default_readiness() -> ExecutionReadiness {
+    ExecutionReadiness::Started
+}
+
+const fn default_readiness_timeout() -> Duration {
+    Duration::from_secs(30)
 }
 
 /// The immutable result of the PLAN half: units + federated wave order.
@@ -74,7 +117,9 @@ impl Plan {
 
 #[cfg(test)]
 mod tests {
-    use super::{CacheVerdict, ExecutionUnit, Plan};
+    use std::time::Duration;
+
+    use super::{CacheVerdict, ExecutionReadiness, ExecutionUnit, Plan};
     use crate::identity::{EcosystemId, ModuleRef};
 
     #[test]
@@ -86,12 +131,21 @@ mod tests {
             workspace: None,
             argv: vec!["cargo".to_string(), "build".to_string()],
             persistent: false,
+            readiness: ExecutionReadiness::Started,
+            readiness_timeout: Duration::from_secs(30),
             cache: CacheVerdict::Miss,
+            cache_key: Some("cache-key".to_string()),
+            depends_on: vec!["rust:core#build".to_string()],
+            resource_group: Some("cargo:.".to_string()),
         };
         let plan = Plan::new(vec![unit], vec![vec!["rust:errors#build".to_string()]]);
         let json = serde_json::to_string(&plan).unwrap();
         let back: Plan = serde_json::from_str(&json).unwrap();
         assert_eq!(plan, back);
         assert!(!plan.units[0].cache.is_hit());
+        assert_eq!(
+            plan.units[0].depends_on,
+            vec!["rust:core#build".to_string()]
+        );
     }
 }

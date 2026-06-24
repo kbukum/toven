@@ -75,7 +75,7 @@ impl HumanReporter<io::Stdout> {
     }
 }
 
-impl<W: Write> Reporter for HumanReporter<W> {
+impl<W: Write + Send> Reporter for HumanReporter<W> {
     fn emit(&mut self, event: &Event) -> AppResult<()> {
         match event {
             Event::RunStarted {

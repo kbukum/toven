@@ -40,9 +40,10 @@ pub use assertions::{
     assert_emitted, assert_err_code, assert_event_sequence, assert_ok, find_event,
 };
 pub use doubles::{
-    CountingToolchainProber, EMPTY_IDENTITY, FakeCacheStore, FakeConfiguredAdapter, FakeProvider,
-    FakeReleaseTarget, FakeSourceDigest, FakeVcsReader, FakeVcsWriter, RecordingCacheStore,
-    RecordingRawOutputSink, RecordingReporter,
+    CountingToolchainProber, EMPTY_IDENTITY, FakeCacheStore, FakeCommandRunner,
+    FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeSourceDigest, FakeVcsReader,
+    FakeVcsWriter, RecordingCacheStore, RecordingCacheWriter, RecordingRawOutputSink,
+    RecordingReporter,
 };
 pub use fixtures::{
     FIXTURES_ROOT, document, document_path, document_string, ecosystem, ecosystem_string, repo_path,

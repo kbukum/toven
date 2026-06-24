@@ -16,12 +16,17 @@ rskit-errors.workspace = true
 rskit-fs.workspace = true
 rskit-git.workspace = true
 rskit-process.workspace = true
+rskit-worker.workspace = true
+rskit-component.workspace = true
 rskit-validation.workspace = true
 rskit-config.workspace = true
-blake3.workspace = true
+rskit-util.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
 
 [dev-dependencies]
 toven-testkit.workspace = true

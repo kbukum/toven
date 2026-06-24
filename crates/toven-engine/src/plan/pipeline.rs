@@ -140,13 +140,17 @@ fn decide_cache(
             passthrough: &request.passthrough,
         };
         let key = cache::unit_key(&inputs, &adjacency, &hashes, host.digest)?;
-        let verdict = cache::verdict(
-            request.cache_mode,
-            planned.cache_args,
-            passthrough_present,
-            &key,
-            host.cache,
-        )?;
+        let verdict = if planned.persistent {
+            toven_model::CacheVerdict::Disabled
+        } else {
+            cache::verdict(
+                request.cache_mode,
+                planned.cache_args,
+                passthrough_present,
+                &key,
+                host.cache,
+            )?
+        };
         reporter.emit(&Event::CacheDecided {
             unit_id: planned.id.clone(),
             verdict,
@@ -158,8 +162,21 @@ fn decide_cache(
             workspace: planned.workspace.clone(),
             argv: planned.argv.clone(),
             persistent: planned.persistent,
+            readiness: planned.readiness.clone(),
+            readiness_timeout: planned.readiness_timeout,
             cache: verdict,
+            cache_key: cacheable_key(verdict, &key),
+            depends_on: planned.depends_on.clone(),
+            resource_group: planned.resource_group.clone(),
         });
     }
     Ok(units)
+}
+
+fn cacheable_key(verdict: toven_model::CacheVerdict, key: &str) -> Option<String> {
+    matches!(
+        verdict,
+        toven_model::CacheVerdict::Miss | toven_model::CacheVerdict::Forced
+    )
+    .then(|| key.to_string())
 }

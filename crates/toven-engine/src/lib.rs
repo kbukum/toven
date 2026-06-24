@@ -38,8 +38,14 @@
 //!   persistent ones, and routes bytes through an
 //!   injected `RawOutputSink` (the CLI renders; the engine does not print). The
 //!   APPLY exec layer feeds it.
+//! - [`cache`] — the concrete filesystem cache backend ([`cache::FsContentCache`])
+//!   implementing both injected cache ports: the read-only
+//!   [`CacheStore`](toven_ports::CacheStore) for PLAN and the write-only
+//!   [`CacheWriter`](toven_ports::CacheWriter) for APPLY.
 #![warn(missing_docs)]
 
+pub mod apply;
+pub mod cache;
 pub mod config;
 pub mod output;
 pub mod plan;
