@@ -162,7 +162,8 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
     }
 
     /// Tear down every held persistent process while draining live output
-    /// concurrently.
+    /// concurrently. If output sink pushes fail, drops the remaining output and
+    /// still completes teardown before returning the first output error.
     ///
     /// Draining during teardown is required for correctness, not just latency: a
     /// reader thread blocked on a full bounded bridge would otherwise never
@@ -177,17 +178,29 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         let output = &mut *self.output;
         let teardown = held.teardown_all();
         tokio::pin!(teardown);
+        let mut output_error: Option<rskit_errors::AppError> = None;
         loop {
             tokio::select! {
                 result = &mut teardown => {
                     let torn_down = result?;
+                    // After teardown completes, drain any remaining buffered output,
+                    // dropping chunks if the sink fails (best-effort).
                     while let Ok(chunk) = live_output.try_recv() {
-                        output.push(chunk)?;
+                        if output_error.is_none() && let Err(e) = output.push(chunk) {
+                            output_error = Some(e);
+                        }
+                    }
+                    // Return teardown success, but re-raise any output error that occurred.
+                    if let Some(err) = output_error {
+                        return Err(err);
                     }
                     return Ok(torn_down);
                 }
                 Some(chunk) = live_output.recv() => {
-                    output.push(chunk)?;
+                    // If output is already failing, drop remaining chunks silently.
+                    if output_error.is_none() && let Err(e) = output.push(chunk) {
+                        output_error = Some(e);
+                    }
                 }
             }
         }

@@ -13,9 +13,10 @@ use super::super::request::CacheMode;
 
 /// Decide the verdict for one unit given its mode and cacheability.
 ///
-/// `passthrough_present` with `cache_args == false` makes a `ReadWrite` unit
-/// uncacheable (`Disabled`), since unhashed user args would otherwise alias
-/// distinct runs to one record.
+/// `passthrough_present` with `cache_args == false` makes both `Force` and
+/// `ReadWrite` units uncacheable (`Disabled`), since unhashed user args would
+/// otherwise alias distinct runs to one record (poisoning the cache) or allow
+/// stale cache hits with different arguments.
 ///
 /// The content key is computed lazily via `compute_key` and only when the
 /// verdict actually needs it (a `Force` record or a `ReadWrite` store lookup):
@@ -38,7 +39,12 @@ where
 {
     match mode {
         CacheMode::Disabled => Ok((CacheVerdict::Disabled, None)),
-        CacheMode::Force => Ok((CacheVerdict::Forced, Some(compute_key()?))),
+        CacheMode::Force => {
+            if passthrough_present && !cache_args {
+                return Ok((CacheVerdict::Disabled, None));
+            }
+            Ok((CacheVerdict::Forced, Some(compute_key()?)))
+        }
         CacheMode::ReadWrite => {
             if passthrough_present && !cache_args {
                 return Ok((CacheVerdict::Disabled, None));
@@ -105,6 +111,23 @@ mod tests {
         .unwrap();
         assert_eq!(decided, CacheVerdict::Forced);
         assert_eq!(key.as_deref(), Some("k"));
+    }
+
+    #[test]
+    fn force_passthrough_without_cache_args_disables_without_key() {
+        let cache = FakeCacheStore::new();
+        let computed = Cell::new(false);
+        let (decided, key) = verdict(CacheMode::Force, false, true, &cache, || {
+            computed.set(true);
+            Ok("k".to_string())
+        })
+        .unwrap();
+        assert_eq!(decided, CacheVerdict::Disabled);
+        assert!(key.is_none());
+        assert!(
+            !computed.get(),
+            "Force with passthrough and !cache_args derives no key to avoid cache poisoning"
+        );
     }
 
     #[test]
