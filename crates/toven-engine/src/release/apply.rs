@@ -81,10 +81,7 @@ pub fn release_apply(
     // Pre-commit phase (undoable): apply mutations, then package every module.
     let artifacts = match prepare(plan, &module_by_ref, targets, &mut stats) {
         Ok(artifacts) => artifacts,
-        Err(error) => {
-            writer.restore_worktree()?;
-            return Err(error);
-        }
+        Err(error) => return Err(restore_or_precommit_error(writer, "prepare", error)),
     };
 
     // Commit boundary: if commit itself fails, no history was created yet, so the
@@ -92,10 +89,7 @@ pub fn release_apply(
     let message = commit_message(plan);
     let commit = match writer.commit(&message) {
         Ok(commit) => commit,
-        Err(error) => {
-            writer.restore_worktree()?;
-            return Err(error);
-        }
+        Err(error) => return Err(restore_or_precommit_error(writer, "commit", error)),
     };
 
     // Post-commit phase (no rollback): tag, optionally push, publish.
@@ -114,6 +108,20 @@ pub fn release_apply(
     publish::run(&items, options.retry_budget, &mut stats)?;
 
     Ok(stats)
+}
+
+fn restore_or_precommit_error(writer: &dyn VcsWriter, phase: &str, error: AppError) -> AppError {
+    match writer.restore_worktree() {
+        Ok(()) => error,
+        Err(restore) => AppError::new(
+            ErrorCode::Internal,
+            format!(
+                "release {phase} failed ({error}); additionally failed to restore worktree: {restore}"
+            ),
+        )
+        .with_cause(error)
+        .with_detail("restore_error", restore.to_string()),
+    }
 }
 
 /// Reject a dirty working tree unless `--allow-dirty` was requested.
@@ -251,6 +259,7 @@ fn push_refspecs(plan: &ReleasePlan) -> Vec<String> {
 mod tests {
     use std::collections::BTreeMap;
 
+    use rskit_errors::ErrorCode;
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
     use toven_ports::{ChangeRecord, ChangeStatus, PublishOutcome, ReleaseMutation, ReleaseTarget};
@@ -412,6 +421,79 @@ mod tests {
         .expect_err("commit failure must surface");
 
         assert!(error.to_string().contains("commit failed"));
+        assert_eq!(
+            writer.writes(),
+            vec![
+                VcsWrite::Commit("release: rust/core@0.1.1".into()),
+                VcsWrite::RestoreWorktree
+            ]
+        );
+    }
+
+    #[test]
+    fn prepare_failure_reports_restore_failure_without_losing_original_error() {
+        let plan = ReleasePlan::new(
+            ReleaseStrategyName::SemverCascade,
+            vec![entry("core", Version::new(0, 1, 1), true, 0)],
+        );
+        let writer = FakeVcsWriter::new().with_restore_failure("restore failed");
+
+        let error = release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![(
+                "core",
+                FakeReleaseTarget::new().with_package_failure("package failed"),
+            )]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("prepare and restore failures must surface together");
+
+        let message = error.to_string();
+        assert!(message.contains("release prepare failed"));
+        assert!(message.contains("package failed"));
+        assert!(message.contains("restore failed"));
+        assert_eq!(error.code(), ErrorCode::Internal);
+        assert!(
+            error
+                .cause()
+                .is_some_and(|cause| cause.to_string().contains("package failed"))
+        );
+        assert_eq!(writer.writes(), vec![VcsWrite::RestoreWorktree]);
+    }
+
+    #[test]
+    fn commit_failure_reports_restore_failure_without_losing_original_error() {
+        let plan = ReleasePlan::new(
+            ReleaseStrategyName::SemverCascade,
+            vec![entry("core", Version::new(0, 1, 1), true, 0)],
+        );
+        let writer = FakeVcsWriter::new()
+            .with_commit_failure("commit failed")
+            .with_restore_failure("restore failed");
+
+        let error = release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("commit and restore failures must surface together");
+
+        let message = error.to_string();
+        assert!(message.contains("release commit failed"));
+        assert!(message.contains("commit failed"));
+        assert!(message.contains("restore failed"));
+        assert_eq!(error.code(), ErrorCode::Internal);
+        assert!(
+            error
+                .cause()
+                .is_some_and(|cause| cause.to_string().contains("commit failed"))
+        );
         assert_eq!(
             writer.writes(),
             vec![

@@ -146,6 +146,7 @@ pub enum VcsWrite {
 pub struct FakeVcsWriter {
     commit_oid: Oid,
     fail_commit: Option<String>,
+    fail_restore: Option<String>,
     writes: Mutex<Vec<VcsWrite>>,
 }
 
@@ -154,6 +155,7 @@ impl Default for FakeVcsWriter {
         Self {
             commit_oid: Oid::new("0000000"),
             fail_commit: None,
+            fail_restore: None,
             writes: Mutex::new(Vec::new()),
         }
     }
@@ -177,6 +179,13 @@ impl FakeVcsWriter {
     #[must_use]
     pub fn with_commit_failure(mut self, message: impl Into<String>) -> Self {
         self.fail_commit = Some(message.into());
+        self
+    }
+
+    /// Make `restore_worktree` fail with a typed internal error after recording the call.
+    #[must_use]
+    pub fn with_restore_failure(mut self, message: impl Into<String>) -> Self {
+        self.fail_restore = Some(message.into());
         self
     }
 
@@ -222,6 +231,9 @@ impl VcsWriter for FakeVcsWriter {
 
     fn restore_worktree(&self) -> AppResult<()> {
         self.record(VcsWrite::RestoreWorktree);
+        if let Some(message) = &self.fail_restore {
+            return Err(AppError::new(ErrorCode::Internal, message.clone()));
+        }
         Ok(())
     }
 }
