@@ -19,6 +19,9 @@ pub struct RunStats {
     pub failed_units: usize,
     /// Units blocked by an upstream failure.
     pub blocked_units: usize,
+    /// Units not run, or interrupted in flight, because the run aborted early
+    /// under fail-fast (not themselves failures).
+    pub cancelled_units: usize,
     /// Persistent units that never reached readiness (a failure).
     pub failed_readiness_units: usize,
     /// Cache decisions that were hits.

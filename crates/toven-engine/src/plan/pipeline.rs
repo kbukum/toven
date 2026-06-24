@@ -131,24 +131,29 @@ fn decide_cache(
 
     let mut units = Vec::with_capacity(scheduled.units.len());
     for planned in &scheduled.units {
-        let inputs = KeyInputs {
-            module: &planned.module,
-            base_argv: &planned.base_argv,
-            shared_inputs: &planned.shared_inputs,
-            toolchain_identity: &planned.toolchain_identity,
-            cache_args: planned.cache_args,
-            passthrough: &request.passthrough,
-        };
-        let key = cache::unit_key(&inputs, &adjacency, &hashes, host.digest)?;
-        let verdict = if planned.persistent {
-            toven_model::CacheVerdict::Disabled
+        // Persistent units never cache; for the rest, `cache::verdict` derives
+        // the content key only when the verdict needs it (Force / ReadWrite),
+        // skipping wasted digest work and avoidable I/O errors for Disabled
+        // units.
+        let (verdict, key) = if planned.persistent {
+            (toven_model::CacheVerdict::Disabled, None)
         } else {
             cache::verdict(
                 request.cache_mode,
                 planned.cache_args,
                 passthrough_present,
-                &key,
                 host.cache,
+                || {
+                    let inputs = KeyInputs {
+                        module: &planned.module,
+                        base_argv: &planned.base_argv,
+                        shared_inputs: &planned.shared_inputs,
+                        toolchain_identity: &planned.toolchain_identity,
+                        cache_args: planned.cache_args,
+                        passthrough: &request.passthrough,
+                    };
+                    cache::unit_key(&inputs, &adjacency, &hashes, host.digest)
+                },
             )?
         };
         reporter.emit(&Event::CacheDecided {
@@ -165,7 +170,7 @@ fn decide_cache(
             readiness: planned.readiness.clone(),
             readiness_timeout: planned.readiness_timeout,
             cache: verdict,
-            cache_key: cacheable_key(verdict, &key),
+            cache_key: cacheable_key(verdict, key),
             depends_on: planned.depends_on.clone(),
             resource_group: planned.resource_group.clone(),
         });
@@ -173,10 +178,14 @@ fn decide_cache(
     Ok(units)
 }
 
-fn cacheable_key(verdict: toven_model::CacheVerdict, key: &str) -> Option<String> {
-    matches!(
-        verdict,
-        toven_model::CacheVerdict::Miss | toven_model::CacheVerdict::Forced
-    )
-    .then(|| key.to_string())
+/// The key to persist for a unit: a freshly computed key is recorded only for a
+/// `Miss` (a new entry to write) or a `Forced` run (which overwrites), and is
+/// dropped for `Hit`/`Disabled` outcomes that never write a record.
+fn cacheable_key(verdict: toven_model::CacheVerdict, key: Option<String>) -> Option<String> {
+    key.filter(|_| {
+        matches!(
+            verdict,
+            toven_model::CacheVerdict::Miss | toven_model::CacheVerdict::Forced
+        )
+    })
 }

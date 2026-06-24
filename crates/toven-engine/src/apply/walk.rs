@@ -105,6 +105,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 status: UnitStatus::TornDown,
             })?;
         }
+        self.cancel_unscheduled()?;
         self.stats.duration_ms = Some(start.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
         self.stats.dropped_output_chunks = self.dropped_output.load(Ordering::Relaxed);
         self.reporter.emit(&Event::RunFinished {
@@ -125,6 +126,38 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             self.run_wave(wave, pool, live_output).await?;
         }
         self.drain_live_output(live_output)?;
+        Ok(())
+    }
+
+    /// Emit a terminal `Cancelled` event for every planned unit that never
+    /// reached a terminal state.
+    ///
+    /// Fail-fast can abort the run before later waves are scheduled, and an
+    /// in-flight unit's worker can be cancelled mid-run; in both cases the unit
+    /// stays `Pending` in the gate. Without this sweep those units would carry
+    /// no terminal `UnitFinished` event, leaving the event stream short of
+    /// `planned_units` and indistinguishable from units that were never in the
+    /// plan. Plan order is preserved for deterministic output.
+    fn cancel_unscheduled(&mut self) -> AppResult<()> {
+        let plan = self.plan;
+        for unit in &plan.units {
+            if !matches!(self.gate.state(&unit.id), UnitState::Pending) {
+                continue;
+            }
+            // Buffered units finish to flush any captured block and release the
+            // per-unit channel state now. Persistent units stream live, so
+            // finishing would clear their Live mode and risk dropping late
+            // chunks; the live channel is already drained, so only the terminal
+            // event is emitted.
+            if !unit.persistent {
+                self.output.finish(&unit.id)?;
+            }
+            self.stats.cancelled_units += 1;
+            self.reporter.emit(&Event::UnitFinished {
+                unit_id: unit.id.clone(),
+                status: UnitStatus::Cancelled,
+            })?;
+        }
         Ok(())
     }
 
@@ -213,6 +246,10 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             let (group_index, unit_id, result) = joined.map_err(AppError::internal)?;
             let failed = match result {
                 Ok(outcome) => self.finish_result(&unit_id, outcome)?,
+                // A cancelled worker leaves its unit `Pending`; the post-wave
+                // `cancel_unscheduled` sweep emits its terminal `Cancelled`
+                // event and finishes its channel, so dropping the error here is
+                // safe rather than lossy.
                 Err(_error) if fail_fast_cancelled => continue,
                 Err(error) => return Err(error),
             };

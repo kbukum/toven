@@ -243,6 +243,23 @@ fn fail_fast_cancels_in_flight_and_stops_later_waves() {
     assert!(stats.has_failures());
     assert_eq!(runner.cancelled(), vec!["b".to_string()]);
     assert!(!runner.started().contains(&"c".to_string()));
+
+    // Every planned unit reaches a terminal event: `a` failed, while the
+    // in-flight-cancelled `b` and the never-scheduled later-wave `c` both get a
+    // terminal `Cancelled` event so the stream accounts for all planned units.
+    assert_eq!(stats.cancelled_units, 2);
+    let cancelled: Vec<&String> = reporter
+        .events()
+        .iter()
+        .filter_map(|event| match event {
+            Event::UnitFinished {
+                unit_id,
+                status: UnitStatus::Cancelled,
+            } => Some(unit_id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(cancelled, vec!["b", "c"]);
 }
 
 #[test]
