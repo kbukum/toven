@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use rskit_errors::AppResult;
+use rskit_errors::{AppError, AppResult, ErrorCode};
 use toven_ports::{BaselineSpec, ChangeRecord, Oid, TagRef, VcsReader, VcsWriter};
 
 /// A [`VcsReader`] that returns scripted, repo-relative responses.
@@ -145,6 +145,7 @@ pub enum VcsWrite {
 #[derive(Debug)]
 pub struct FakeVcsWriter {
     commit_oid: Oid,
+    fail_commit: Option<String>,
     writes: Mutex<Vec<VcsWrite>>,
 }
 
@@ -152,6 +153,7 @@ impl Default for FakeVcsWriter {
     fn default() -> Self {
         Self {
             commit_oid: Oid::new("0000000"),
+            fail_commit: None,
             writes: Mutex::new(Vec::new()),
         }
     }
@@ -168,6 +170,13 @@ impl FakeVcsWriter {
     #[must_use]
     pub fn with_commit_oid(mut self, oid: impl Into<String>) -> Self {
         self.commit_oid = Oid::new(oid);
+        self
+    }
+
+    /// Make `commit` fail with a typed internal error after recording the call.
+    #[must_use]
+    pub fn with_commit_failure(mut self, message: impl Into<String>) -> Self {
+        self.fail_commit = Some(message.into());
         self
     }
 
@@ -191,6 +200,9 @@ impl FakeVcsWriter {
 impl VcsWriter for FakeVcsWriter {
     fn commit(&self, message: &str) -> AppResult<Oid> {
         self.record(VcsWrite::Commit(message.to_string()));
+        if let Some(message) = &self.fail_commit {
+            return Err(AppError::new(ErrorCode::Internal, message.clone()));
+        }
         Ok(self.commit_oid.clone())
     }
 

@@ -2,12 +2,12 @@
 //! packaging, a single release commit, per-module tagging, optional push, and
 //! the bounded publish loop.
 //!
-//! The transaction has a hard pre-commit/post-commit boundary. Everything before
-//! the commit (mutation + packaging) is undoable: any failure restores the
-//! working tree and creates no commit or tag. The commit, tags, optional push,
-//! and publish loop run after that boundary and are **not** rolled back — a
-//! publish failure surfaces as a typed error and the operator resumes, relying
-//! on registry idempotency.
+//! The transaction has a hard commit-success boundary. Everything before a
+//! successful commit (mutation + packaging + attempted commit) is undoable: any
+//! failure restores the working tree and creates no commit or tag. Tags,
+//! optional push, and the publish loop run after that boundary and are **not**
+//! rolled back — a publish failure surfaces as a typed error and the operator
+//! resumes, relying on registry idempotency.
 
 use std::collections::BTreeMap;
 
@@ -52,9 +52,9 @@ impl Default for ReleaseApplyOptions {
 ///
 /// # Errors
 /// Returns a typed error when the clean-tree guardrail trips, a module/target is
-/// missing, a pre-commit mutation/package fails (after restoring the working
-/// tree), a VCS commit/tag/push fails, or the publish loop exhausts its retry
-/// budget.
+/// missing, a pre-commit mutation/package/commit fails (after restoring the
+/// working tree), a VCS tag/push fails, or the publish loop exhausts its
+/// retry budget.
 pub fn release_apply(
     plan: &ReleasePlan,
     modules: &[Module],
@@ -87,9 +87,18 @@ pub fn release_apply(
         }
     };
 
-    // Post-commit phase (no rollback): commit once, tag, optionally push, publish.
+    // Commit boundary: if commit itself fails, no history was created yet, so the
+    // pre-commit working tree mutations are still undoable.
     let message = commit_message(plan);
-    let commit = writer.commit(&message)?;
+    let commit = match writer.commit(&message) {
+        Ok(commit) => commit,
+        Err(error) => {
+            writer.restore_worktree()?;
+            return Err(error);
+        }
+    };
+
+    // Post-commit phase (no rollback): tag, optionally push, publish.
     for entry in &plan.entries {
         if let Some(version) = &entry.planned_version {
             let name = tag::format(&entry.module, version);
@@ -381,6 +390,34 @@ mod tests {
         assert_eq!(
             push,
             vec!["HEAD".to_string(), "refs/tags/rust/core@1.0.0".to_string()]
+        );
+    }
+
+    #[test]
+    fn restores_worktree_when_commit_fails() {
+        let plan = ReleasePlan::new(
+            ReleaseStrategyName::SemverCascade,
+            vec![entry("core", Version::new(0, 1, 1), true, 0)],
+        );
+        let writer = FakeVcsWriter::new().with_commit_failure("commit failed");
+
+        let error = release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("commit failure must surface");
+
+        assert!(error.to_string().contains("commit failed"));
+        assert_eq!(
+            writer.writes(),
+            vec![
+                VcsWrite::Commit("release: rust/core@0.1.1".into()),
+                VcsWrite::RestoreWorktree
+            ]
         );
     }
 

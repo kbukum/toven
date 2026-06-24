@@ -83,6 +83,7 @@ pub(crate) fn changed_seeds(
 /// belong to every module in that workspace. Unclassified records still fail
 /// closed for activation through [`changed_seeds`], but they are not assigned to
 /// a per-module changelog because no owner can be identified.
+#[allow(clippy::redundant_pub_crate)]
 pub(crate) fn changed_records_for_module(
     module: &Module,
     changed: &[ChangeRecord],
