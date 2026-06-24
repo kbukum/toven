@@ -1,4 +1,6 @@
 [toolchain]
-channel = "1.94"
+# Local development tracks the current stable toolchain; Cargo.toml rust-version
+# and the CI matrix define and enforce the lower supported MSRV.
+channel = "1.95"
 components = ["clippy", "rustfmt", "llvm-tools-preview"]
 profile = "minimal"

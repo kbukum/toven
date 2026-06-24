@@ -9,6 +9,7 @@ mod cache;
 mod exec;
 mod provider;
 mod raw_output;
+mod release;
 mod reporter;
 mod source;
 mod toolchain;
@@ -16,8 +17,9 @@ mod vcs;
 
 pub use cache::{FakeCacheStore, RecordingCacheStore, RecordingCacheWriter};
 pub use exec::FakeCommandRunner;
-pub use provider::{FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget};
+pub use provider::{FakeConfiguredAdapter, FakeProvider};
 pub use raw_output::RecordingRawOutputSink;
+pub use release::{FakeReleaseTarget, ReleaseCall};
 pub use reporter::RecordingReporter;
 pub use source::{EMPTY_IDENTITY, FakeSourceDigest};
 pub use toolchain::CountingToolchainProber;

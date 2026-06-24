@@ -18,7 +18,15 @@ pub trait ReleaseTarget {
     /// Read the module's currently declared version from its manifest.
     fn declared_version(&self, module: &Module) -> AppResult<Version>;
 
-    /// Query the registry for already-published versions (idempotency/tag seed).
+    /// Query the registry for the versions it already reports as published —
+    /// the publish loop's idempotency pre-skip and the tag seed.
+    ///
+    /// Best-effort by contract: an ecosystem whose registry CLI exposes only the
+    /// latest published version may return just that one rather than the full
+    /// set. The publish loop therefore treats a non-membership as "attempt and
+    /// let the registry decide", with
+    /// [`PublishOutcome::AlreadyPublished`](super::PublishOutcome::AlreadyPublished)
+    /// as the authoritative idempotency backstop.
     fn published_versions(&self, module: &Module) -> AppResult<Vec<Version>>;
 
     /// Build and verify the publishable artifact.

@@ -44,18 +44,7 @@ pub(super) fn active_modules(
     let mut changed = vcs.changed_since(spec)?;
     changed.extend(vcs.worktree_status()?);
 
-    let mut seeds = BTreeSet::new();
-    for record in &changed {
-        match classify(record, federation) {
-            Classification::Module(reference) => {
-                seeds.insert(reference);
-            }
-            Classification::Workspace(workspace) => {
-                seeds.extend(modules_in_workspace(&workspace, federation));
-            }
-            Classification::Unclassified => return Ok(all_modules(graph)),
-        }
-    }
+    let seeds = changed_seeds(&changed, graph, federation);
 
     let is_test = matches!(request.intent, TaskKind::Test);
     let include = |kind: DepKind| {
@@ -63,6 +52,48 @@ pub(super) fn active_modules(
             || (is_test && kind == DepKind::Dev)
     };
     graph.closure(&seeds, include)
+}
+
+/// Map changed records to direct seed modules before any reverse-dependent
+/// closure is applied.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn changed_seeds(
+    changed: &[ChangeRecord],
+    graph: &Graph,
+    federation: &Federation,
+) -> BTreeSet<ModuleRef> {
+    let mut seeds = BTreeSet::new();
+    for record in changed {
+        match classify(record, federation) {
+            Classification::Module(reference) => {
+                seeds.insert(reference);
+            }
+            Classification::Workspace(workspace) => {
+                seeds.extend(modules_in_workspace(&workspace, federation));
+            }
+            Classification::Unclassified => return all_modules(graph),
+        }
+    }
+    seeds
+}
+
+/// Return only records directly attributable to `module`.
+///
+/// Module-root matches belong to that one module; workspace blast-radius matches
+/// belong to every module in that workspace. Unclassified records still fail
+/// closed for activation through [`changed_seeds`], but they are not assigned to
+/// a per-module changelog because no owner can be identified.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn changed_records_for_module(
+    module: &Module,
+    changed: &[ChangeRecord],
+    federation: &Federation,
+) -> Vec<ChangeRecord> {
+    changed
+        .iter()
+        .filter(|record| record_belongs_to_module(record, module, federation))
+        .cloned()
+        .collect()
 }
 
 /// Every module identity in the graph.
@@ -98,6 +129,18 @@ fn classify(record: &ChangeRecord, federation: &Federation) -> Classification {
     best.map_or(Classification::Unclassified, |(reference, _)| {
         Classification::Module(reference)
     })
+}
+
+fn record_belongs_to_module(
+    record: &ChangeRecord,
+    module: &Module,
+    federation: &Federation,
+) -> bool {
+    match classify(record, federation) {
+        Classification::Module(reference) => reference == module.id,
+        Classification::Workspace(workspace) => module.workspace.as_ref() == Some(&workspace),
+        Classification::Unclassified => false,
+    }
 }
 
 /// The new path plus any pre-rename/-delete path of a change record.
@@ -205,7 +248,7 @@ mod tests {
     use toven_ports::{BaselineSpec, ChangeRecord, ChangeStatus};
     use toven_testkit::FakeVcsReader;
 
-    use super::{BLAST_RADIUS_KEY, active_modules};
+    use super::{BLAST_RADIUS_KEY, active_modules, changed_records_for_module};
     use crate::plan::discover::Federation;
     use crate::plan::request::{PlanRequest, Selection};
 
@@ -346,5 +389,34 @@ mod tests {
             request_for(vec![ChangeRecord::new("README.md", ChangeStatus::Modified)]);
         let active = active_modules(&request, &graph, &federation, &vcs).unwrap();
         assert_eq!(active.len(), 2);
+    }
+
+    #[test]
+    fn changed_records_for_module_keeps_only_owned_and_workspace_changes() {
+        let app = module("rust", "app", "crates/app", Some("rust"));
+        let errors = module("rust", "errors", "crates/errors", Some("rust"));
+        let foreign = module("go", "api", "services/api", Some("go"));
+        let federation = Federation {
+            workspaces: vec![rust_workspace_with_blast()],
+            modules: vec![app.clone(), errors, foreign],
+            edges: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let changes = vec![
+            ChangeRecord::new("crates/app/src/lib.rs", ChangeStatus::Modified),
+            ChangeRecord::new("crates/errors/src/lib.rs", ChangeStatus::Modified),
+            ChangeRecord::new("Cargo.lock", ChangeStatus::Modified),
+            ChangeRecord::new("README.md", ChangeStatus::Modified),
+        ];
+
+        let records = changed_records_for_module(&app, &changes, &federation);
+
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.path.to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
+            vec!["crates/app/src/lib.rs", "Cargo.lock"]
+        );
     }
 }

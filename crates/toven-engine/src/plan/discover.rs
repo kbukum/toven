@@ -18,15 +18,16 @@ use super::configure::ConfiguredSet;
 /// A plain union (`⋃ workspaces`, `⋃ modules`, `⋃ edges ++ overlay edges`); the
 /// `ecosystem:name` module identity guarantees no cross-ecosystem collision.
 #[derive(Debug, Clone, Default)]
-pub(super) struct Federation {
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) struct Federation {
     /// Every discovered workspace across ecosystems.
-    pub(super) workspaces: Vec<Workspace>,
+    pub(crate) workspaces: Vec<Workspace>,
     /// Every discovered module across ecosystems.
-    pub(super) modules: Vec<Module>,
+    pub(crate) modules: Vec<Module>,
     /// Intra-ecosystem edges plus the config overlay edges.
-    pub(super) edges: Vec<Edge>,
+    pub(crate) edges: Vec<Edge>,
     /// Non-fatal warnings surfaced by adapters during discovery.
-    pub(super) warnings: Vec<String>,
+    pub(crate) warnings: Vec<String>,
 }
 
 /// Run discovery across every configured adapter and union the results.

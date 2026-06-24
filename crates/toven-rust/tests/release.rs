@@ -87,17 +87,33 @@ fn does_not_inherit_a_workspace_version_from_above_the_working_root() {
 }
 
 #[test]
-fn registry_facing_methods_are_deferred_not_faked() {
+fn package_builds_a_publishable_artifact() {
     let repo = SampleRepo::materialize("single-rust").expect("materialize");
     let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
 
     let target = CratesIoTarget::new();
     let module = app_module();
-    assert!(target.published_versions(&module).is_err());
-    assert!(target.package(&module).is_err());
+
+    let artifact = target.package(&module).expect("cargo package");
+    // The implementation honors `CARGO_TARGET_DIR` / `build.target-dir`, so only
+    // the target-dir-relative suffix is invariant — not the `target/` segment.
+    assert!(artifact.path.ends_with("package/app-0.1.0.crate"));
+}
+
+#[test]
+fn publish_surfaces_manifest_resolution_failures_before_cargo_runs() {
+    let repo = SampleRepo::materialize("single-rust").expect("materialize");
+    let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
+
+    let target = CratesIoTarget::new();
+    let mut module = app_module();
+    module.manifest = Some(RepoPath::new("missing/Cargo.toml").unwrap());
+
+    let error = target
+        .publish(&module, &toven_ports::Artifact::new("ignored"))
+        .expect_err("missing manifest must fail fast before cargo runs");
     assert!(
-        target
-            .publish(&module, &toven_ports::Artifact::new("ignored"))
-            .is_err()
+        error.to_string().contains("does not exist"),
+        "expected a typed manifest-existence error, got: {error}"
     );
 }

@@ -1,94 +1,19 @@
-//! Shared Provider-side doubles: [`FakeProvider`], [`FakeConfiguredAdapter`],
-//! and [`FakeReleaseTarget`].
+//! Shared Provider-side doubles: [`FakeProvider`] and [`FakeConfiguredAdapter`].
 //!
-//! Planner/discover/release tests configure canned discovery, tasks, probe, and
-//! release behaviour here instead of standing up a real adapter. All three are
-//! `Clone` so a [`FakeProvider`] can hand back a fresh boxed adapter from
-//! `configure` on each call.
+//! Planner/discover tests configure canned discovery, tasks, and probe here
+//! instead of standing up a real adapter. Both are `Clone` so a [`FakeProvider`]
+//! can hand back a fresh boxed adapter from `configure` on each call. The
+//! release-target double lives beside this one in [`release`](super::release).
 
 use rskit_errors::AppResult;
-use rskit_version::semver::Version;
 use toml::Table;
-use toven_model::{EcosystemId, Module};
+use toven_model::EcosystemId;
 use toven_ports::{
-    Artifact, CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse,
-    EcosystemFragment, Provider, PublishOutcome, ReleaseMutation, ReleaseTarget, RunStrategy, Task,
-    TaskKind, ToolchainProbe,
+    CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, EcosystemFragment,
+    Provider, ReleaseTarget, RunStrategy, Task, TaskKind, ToolchainProbe,
 };
 
-/// A [`ReleaseTarget`] with canned version I/O and publish behaviour.
-///
-/// `apply_release` and `publish` are no-ops that succeed; planning/idempotency
-/// tests drive ordering and the bump plan in the engine, which owns them.
-#[derive(Debug, Clone)]
-pub struct FakeReleaseTarget {
-    declared: Version,
-    published: Vec<Version>,
-    artifact_path: String,
-    outcome: PublishOutcome,
-}
-
-impl Default for FakeReleaseTarget {
-    fn default() -> Self {
-        Self {
-            declared: Version::new(0, 1, 0),
-            published: Vec::new(),
-            artifact_path: "dist/fake.pkg".to_string(),
-            outcome: PublishOutcome::Published,
-        }
-    }
-}
-
-impl FakeReleaseTarget {
-    /// Construct a target declaring `0.1.0` with nothing published.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the version read from the manifest.
-    #[must_use]
-    pub fn with_declared_version(mut self, version: Version) -> Self {
-        self.declared = version;
-        self
-    }
-
-    /// Set the versions the registry reports as already published.
-    #[must_use]
-    pub fn with_published_versions(mut self, versions: Vec<Version>) -> Self {
-        self.published = versions;
-        self
-    }
-
-    /// Set the classified outcome returned by `publish`.
-    #[must_use]
-    pub const fn with_publish_outcome(mut self, outcome: PublishOutcome) -> Self {
-        self.outcome = outcome;
-        self
-    }
-}
-
-impl ReleaseTarget for FakeReleaseTarget {
-    fn declared_version(&self, _module: &Module) -> AppResult<Version> {
-        Ok(self.declared.clone())
-    }
-
-    fn published_versions(&self, _module: &Module) -> AppResult<Vec<Version>> {
-        Ok(self.published.clone())
-    }
-
-    fn package(&self, _module: &Module) -> AppResult<Artifact> {
-        Ok(Artifact::new(&self.artifact_path))
-    }
-
-    fn apply_release(&self, _module: &Module, _mutation: &ReleaseMutation) -> AppResult<()> {
-        Ok(())
-    }
-
-    fn publish(&self, _module: &Module, _artifact: &Artifact) -> AppResult<PublishOutcome> {
-        Ok(self.outcome.clone())
-    }
-}
+use super::release::FakeReleaseTarget;
 
 /// A [`ConfiguredAdapter`] returning canned discovery, tasks, and defaults.
 ///
@@ -249,22 +174,15 @@ impl Provider for FakeProvider {
 
 #[cfg(test)]
 mod tests {
-    use rskit_version::semver::Version;
     use toml::Table;
-    use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
-    use toven_ports::{Artifact, DiscoverRequest, Provider, PublishOutcome, ReleaseTarget};
+    use toven_model::{AbsPath, EcosystemId};
+    use toven_ports::{DiscoverRequest, Provider};
 
-    use super::{FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget};
+    use super::super::release::FakeReleaseTarget;
+    use super::{FakeConfiguredAdapter, FakeProvider};
 
     fn rust() -> EcosystemId {
         EcosystemId::new("rust").expect("valid id")
-    }
-
-    fn module() -> Module {
-        Module::new(
-            ModuleRef::new(rust(), "errors").expect("valid ref"),
-            RepoPath::new("crates/errors").expect("valid path"),
-        )
     }
 
     #[test]
@@ -282,24 +200,5 @@ mod tests {
         let response = configured.discover(&request).expect("discovers");
         assert_eq!(response.schema_version, request.schema_version);
         assert!(configured.release_target().expect("ok").is_some());
-    }
-
-    #[test]
-    fn release_target_returns_scripted_outcome() {
-        let target = FakeReleaseTarget::new()
-            .with_declared_version(Version::new(1, 2, 3))
-            .with_publish_outcome(PublishOutcome::AlreadyPublished);
-        let module = module();
-
-        assert_eq!(
-            target.declared_version(&module).expect("ok"),
-            Version::new(1, 2, 3)
-        );
-        assert_eq!(
-            target
-                .publish(&module, &Artifact::new("dist/x"))
-                .expect("ok"),
-            PublishOutcome::AlreadyPublished
-        );
     }
 }

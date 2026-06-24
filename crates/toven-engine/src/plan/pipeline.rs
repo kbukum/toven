@@ -14,7 +14,7 @@ use crate::config::Document;
 use super::cache::{self, KeyInputs};
 use super::host::PlanHost;
 use super::request::PlanRequest;
-use super::{affected, configure, discover, graph, schedule, toolchain};
+use super::{affected, discover, front, schedule, toolchain};
 
 /// Run the pure PLAN pipeline, producing one immutable [`Plan`](toven_model::Plan).
 ///
@@ -32,35 +32,12 @@ pub fn plan(
     host: PlanHost<'_>,
     reporter: &mut dyn Reporter,
 ) -> AppResult<Plan> {
-    reporter.emit(&Event::PhaseStarted {
-        phase: Phase::Configure,
-    })?;
-    let adapters = configure::configure(document, providers)?;
-    reporter.emit(&Event::PhaseFinished {
-        phase: Phase::Configure,
-    })?;
-
-    reporter.emit(&Event::PhaseStarted {
-        phase: Phase::Discover,
-    })?;
-    let federation = discover::discover(&request.project_root, &adapters, document)?;
-    reporter.emit(&Event::PhaseFinished {
-        phase: Phase::Discover,
-    })?;
-
-    reporter.emit(&Event::PhaseStarted {
-        phase: Phase::Graph,
-    })?;
-    let federated_graph = graph::build(&federation)?;
-    graph::validate_semantics(&federated_graph, document)?;
-    reporter.emit(&Event::PhaseFinished {
-        phase: Phase::Graph,
-    })?;
+    let context = front::prepare(request, document, providers, reporter)?;
 
     reporter.emit(&Event::PhaseStarted {
         phase: Phase::Affected,
     })?;
-    let active = affected::active_modules(request, &federated_graph, &federation, host.vcs)?;
+    let active = affected::active_modules(request, &context.graph, &context.federation, host.vcs)?;
     reporter.emit(&Event::PhaseFinished {
         phase: Phase::Affected,
     })?;
@@ -70,9 +47,9 @@ pub fn plan(
     })?;
     let toolchains = toolchain::resolve(
         &request.project_root,
-        &federation,
+        &context.federation,
         &active,
-        &adapters,
+        &context.adapters,
         host.prober,
     )?;
     reporter.emit(&Event::PhaseFinished {
@@ -83,11 +60,17 @@ pub fn plan(
         phase: Phase::Schedule,
     })?;
     let active_list: Vec<ModuleRef> = active.iter().cloned().collect();
-    let scheduled = schedule::schedule(request, &federation, &active_list, &adapters, &toolchains)?;
+    let scheduled = schedule::schedule(
+        request,
+        &context.federation,
+        &active_list,
+        &context.adapters,
+        &toolchains,
+    )?;
     let units = decide_cache(
         request,
-        &federation,
-        &federated_graph,
+        &context.federation,
+        &context.graph,
         &scheduled,
         host,
         reporter,

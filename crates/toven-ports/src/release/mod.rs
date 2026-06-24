@@ -3,9 +3,11 @@
 mod artifact;
 mod mutation;
 mod outcome;
+mod registry;
 mod target;
 
 pub use artifact::Artifact;
 pub use mutation::ReleaseMutation;
 pub use outcome::PublishOutcome;
+pub use registry::RegistryCadence;
 pub use target::ReleaseTarget;
