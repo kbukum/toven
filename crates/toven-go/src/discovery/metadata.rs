@@ -32,7 +32,7 @@ use crate::discovery::blast;
 const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 
 /// Wall-clock bound on a single `go mod edit` / `go work edit` invocation.
-const EDIT_TIMEOUT: Duration = Duration::from_mins(2);
+const EDIT_TIMEOUT: Duration = Duration::new(120, 0);
 
 /// The go driver name stamped on every discovered [`Workspace`].
 const GO_TOOL: &str = "go";

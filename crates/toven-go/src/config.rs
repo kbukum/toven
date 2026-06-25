@@ -22,9 +22,9 @@ fn default_modules() -> Vec<String> {
 ///
 /// A root `go.work` is auto-detected by discovery (it groups the listed modules
 /// into one workspace); it is not configured here. Selecting the discovery
-/// driver is intentionally not exposed yet — the driver is isolated inside the
-/// [`discovery`](crate::GoAdapter) module so a future `driver` knob is a
-/// localized addition.
+/// driver is intentionally not exposed yet — the driver is isolated behind
+/// [`GoAdapter`](crate::GoAdapter) so a future `driver` knob is a localized
+/// addition.
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GoConfig {
