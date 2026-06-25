@@ -37,8 +37,9 @@ Dependencies flow downward only, never upward:
 | `make test` | Workspace cargo tests. |
 | `make coverage` | Workspace coverage gate. |
 | `make structure` | `mod.rs` declare-only guard across `crates/*`. |
+| `make smoke` | End-to-end smoke: drives the `toven-rs` app over a fixture repo (modules + plan + build). |
 
-The binary smoke and benchmark harnesses return alongside the CLI apps later in the workspace redesign.
+The smoke harness runs offline against a committed fixture repo; the benchmark harness returns later in the workspace redesign.
 
 Prefer validating changed modules/areas unless a broader gate is clearly necessary.
 

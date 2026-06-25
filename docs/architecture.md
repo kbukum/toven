@@ -1,6 +1,6 @@
 # Toven architecture
 
-Toven is being rebuilt as a **hexagonal, multi-crate workspace**. The domain vocabulary sits at the center, ports define the contracts that adapters and the engine speak, and the apps are thin wiring shells. This document describes the **target topology** the redesign is converging on; the `toven-model` vocabulary, `toven-ports` contracts, `toven-engine` PLAN spine, the `toven-rust` adapter, and the `toven-cli` reporting layer are in the workspace today (alongside the dev-only `toven-testkit`), with the remaining adapters and apps landing as the later redesign steps complete.
+Toven is being rebuilt as a **hexagonal, multi-crate workspace**. The domain vocabulary sits at the center, ports define the contracts that adapters and the engine speak, and the apps are thin wiring shells. This document describes the **target topology** the redesign is converging on; the `toven-model` vocabulary, `toven-ports` contracts, `toven-engine` PLAN/APPLY spine, the `toven-rust`/`toven-go`/`toven-command` adapters, the `toven-cli` taxonomy + reporting layer, and the three `apps/*` wiring binaries are in the workspace today (alongside the dev-only `toven-testkit`), with the `crates/toven` library facade landing once a real embedding consumer needs it.
 
 > The previous single-crate `src/` tree was removed when the repository converted to this workspace. Its behavior is being re-homed into the crates below.
 

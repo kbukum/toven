@@ -32,6 +32,7 @@ mod source;
 mod toolchain;
 
 pub use cache::NullCache;
+pub use configure::addressable_task_names;
 pub use host::PlanHost;
 pub use pipeline::plan;
 pub use request::{CacheMode, PlanRequest, Selection};

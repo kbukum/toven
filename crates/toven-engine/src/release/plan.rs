@@ -26,8 +26,27 @@ pub fn release_plan(
 ) -> AppResult<ReleasePlan> {
     let context = prepare_front(request, document, providers, reporter)?;
     let targets = release_targets(&context)?;
+    plan_with_context(&context, document, request, vcs, &targets)
+}
+
+/// Build a [`ReleasePlan`] from an already-prepared [`PlanContext`] and its
+/// resolved release `targets`.
+///
+/// Shared by [`release_plan`] and the combined [`release_run`](super::release_run)
+/// facade so the PLAN cut is computed by exactly one path.
+///
+/// # Errors
+/// Propagates strategy selection, change-detection, and bump-planning failures.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn plan_with_context(
+    context: &crate::plan::PlanContext,
+    document: &Document,
+    request: &PlanRequest,
+    vcs: &dyn VcsReader,
+    targets: &BTreeMap<EcosystemId, Box<dyn ReleaseTarget>>,
+) -> AppResult<ReleasePlan> {
     let strategy = strategy::resolve(release_strategy(document)?.as_deref())?;
-    let changes = change::detect(&context, document, &request.selection, vcs)?;
+    let changes = change::detect(context, document, &request.selection, vcs)?;
     let changelogs = context
         .federation
         .modules
@@ -44,14 +63,19 @@ pub fn release_plan(
         changed: &changes.changed,
         baselines: &changes.baselines,
         changelogs: &changelogs,
-        targets: &targets,
+        targets,
         release_strategy: strategy,
     })?;
 
     Ok(ReleasePlan::new(strategy, entries))
 }
 
-fn release_targets(
+/// Resolve the release targets declared by each configured ecosystem adapter.
+///
+/// # Errors
+/// Propagates a release target's construction failure.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn release_targets(
     context: &crate::plan::PlanContext,
 ) -> AppResult<BTreeMap<EcosystemId, Box<dyn ReleaseTarget>>> {
     let mut targets = BTreeMap::new();

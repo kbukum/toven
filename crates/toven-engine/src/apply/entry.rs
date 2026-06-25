@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use rskit_errors::AppResult;
+use tokio_util::sync::CancellationToken;
 use toven_model::{Plan, RunStats};
 use toven_ports::{CacheWriter, CommandRunner, OutputObserver, RawOutputSink, Reporter};
 
@@ -14,6 +15,12 @@ use super::pool::ApplyPool;
 use super::walk::Walker;
 
 /// Execute an immutable [`Plan`] and return aggregated run statistics.
+///
+/// `cancel` is a cooperative external cancellation signal (typically wired to
+/// Ctrl+C by the CLI). When it fires, the in-flight workers are sent the same
+/// SIGTERM-and-wait teardown as a `--fail-fast` failure, scheduling stops, and
+/// the held-process teardown and pool shutdown still run — no child process is
+/// abandoned. Passing a never-cancelled token disables external cancellation.
 ///
 /// # Errors
 /// Propagates reporter, raw-output sink, command-runner, cache-write, pool, and
@@ -26,6 +33,7 @@ pub async fn apply<S: RawOutputSink>(
     reporter: &mut dyn Reporter,
     output: &mut UnitOutputChannel<S>,
     options: ApplyOptions,
+    cancel: CancellationToken,
 ) -> AppResult<RunStats> {
     // Bounded bridge between persistent reader threads and the APPLY consumer so
     // the queue cannot grow without limit when the consumer falls behind.
@@ -57,7 +65,7 @@ pub async fn apply<S: RawOutputSink>(
         options.environment.clone(),
         observer,
     );
-    Walker::new(plan, cache, reporter, output, options, dropped)
+    Walker::new(plan, cache, reporter, output, options, dropped, cancel)
         .run(pool, live_rx)
         .await
 }

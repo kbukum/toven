@@ -7,6 +7,7 @@ mod changelog;
 mod model;
 mod plan;
 mod publish;
+mod run;
 mod strategy;
 mod tag;
 
@@ -15,3 +16,4 @@ pub use model::{
     ChangelogEntry, ReleaseBaseline, ReleaseEntry, ReleasePlan, ReleaseStats, ReleaseStrategyName,
 };
 pub use plan::release_plan;
+pub use run::release_run;

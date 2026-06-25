@@ -1,0 +1,24 @@
+[package]
+name = "toven-go-app"
+description = "Toven for Go workspaces: the engine + the Go adapter wired into a standalone CLI"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "toven-go"
+path = "src/main.rs"
+
+[dependencies]
+toven-cli.workspace = true
+toven-ports.workspace = true
+toven-go.workspace = true
+rskit-cli.workspace = true
+rskit-errors.workspace = true
+
+[lints]
+workspace = true

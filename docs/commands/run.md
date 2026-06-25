@@ -78,6 +78,7 @@ Task cache records use the platform user cache directory by default so normal ru
 | `--force` | Skip cache reads and write fresh success records. |
 | `--timeout-seconds SECONDS` | Bound child process execution time. |
 | `--output human\|jsonl` | Select human or machine-readable run events. |
+| `-v` / `-q` | Raise or lower reporter verbosity (repeatable): quiet shows only the run summary, verbose adds per-phase, cache, and unit-lifecycle lines. Affects human output only; the JSONL stream always carries every event. |
 | `--watch` | Watch files and rerun affected work. |
 | `--watch-debounce-ms MILLIS` | Debounce interval for watch events. |
 

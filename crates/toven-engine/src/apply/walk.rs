@@ -31,6 +31,8 @@ pub(super) struct Walker<'a, S: RawOutputSink> {
     held: HeldSet,
     stats: RunStats,
     dropped_output: Arc<AtomicUsize>,
+    /// Cooperative external cancellation (Ctrl+C); fires the fail-fast teardown.
+    external_cancel: CancellationToken,
 }
 
 impl<'a, S: RawOutputSink> Walker<'a, S> {
@@ -41,6 +43,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         output: &'a mut UnitOutputChannel<S>,
         options: ApplyOptions,
         dropped_output: Arc<AtomicUsize>,
+        external_cancel: CancellationToken,
     ) -> Self {
         let mut stats = RunStats::new(plan.units.len());
         for unit in &plan.units {
@@ -62,6 +65,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             held: HeldSet::new(plan),
             stats,
             dropped_output,
+            external_cancel,
         }
     }
 
@@ -120,7 +124,12 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         live_output: &mut Receiver<toven_model::UnitOutput>,
     ) -> AppResult<()> {
         for wave in &self.plan.waves {
-            if self.options.fail_fast && self.stats.has_failures() {
+            // Stop launching new waves once fail-fast tripped or Ctrl+C fired;
+            // the post-run `cancel_unscheduled` sweep emits the terminal
+            // `Cancelled` events for whatever stayed `Pending`.
+            if self.external_cancel.is_cancelled()
+                || (self.options.fail_fast && self.stats.has_failures())
+            {
                 break;
             }
             self.run_wave(wave, pool, live_output).await?;
@@ -245,8 +254,24 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         }
 
         let mut fail_fast_cancelled = false;
+        // A clone so the cancel future can be awaited in `select!` without
+        // borrowing `self` (the other branch needs `&mut self`).
+        let external_cancel = self.external_cancel.clone();
         while !joins.is_empty() {
             let joined = tokio::select! {
+                // Ctrl+C (or any external cancel): fire the same teardown a
+                // fail-fast failure does — stop scheduling, SIGTERM every
+                // in-flight worker, then fall through to held teardown / pool
+                // shutdown so no child process is abandoned. Guarded so the
+                // already-ready cancelled future cannot busy-spin the loop.
+                () = external_cancel.cancelled(), if !fail_fast_cancelled => {
+                    pool.close();
+                    fail_fast_cancelled = true;
+                    for cancel in &cancels {
+                        cancel.cancel();
+                    }
+                    continue;
+                }
                 Some(chunk) = live_output.recv() => {
                     self.output.push(chunk)?;
                     continue;

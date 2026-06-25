@@ -1,6 +1,6 @@
 PACKAGE_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 
-.PHONY: check fmt fmt-check lint test structure doc deny coverage release-dry-run release-artifacts act-ci act-supply-chain act-release-readiness
+.PHONY: check fmt fmt-check lint test structure doc deny coverage smoke release-dry-run release-artifacts act-ci act-supply-chain act-release-readiness
 
 # Canonical local/CI gate for the virtual workspace.
 check: fmt-check lint test structure doc deny release-dry-run
@@ -28,6 +28,11 @@ deny:
 
 coverage:
 	cargo llvm-cov --workspace --fail-under-lines 85 --fail-under-functions 80
+
+# Managed end-to-end smoke: drive the toven-rs binary over the single-rust
+# fixture (modules + plan + build). Offline; no real network access.
+smoke:
+	./scripts/smoke.sh
 
 # Every crate is currently an unpublished, path-dependent library, so there is
 # nothing to publish yet. Validate workspace metadata and a release build instead.

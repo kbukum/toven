@@ -7,5 +7,7 @@
 //! serve both.
 
 mod fs;
+mod root;
 
 pub use fs::FsContentCache;
+pub use root::{CACHE_DIR_ENV, CACHE_FORMAT_VERSION, resolve_root};
