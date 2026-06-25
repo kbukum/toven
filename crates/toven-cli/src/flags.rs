@@ -284,19 +284,11 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     Ok(())
 }
 
-/// Whether `command` is an execution or PLAN-projection verb that accepts the
-/// execution flags.
+/// Whether `command` is an execution verb that accepts reporter/APPLY-shaping flags.
 const fn accepts_execution_flags(command: &Command) -> bool {
     matches!(
         command,
-        Command::Run { .. }
-            | Command::Plan { .. }
-            | Command::Release
-            | Command::Explain { .. }
-            | Command::Affected { .. }
-            | Command::Modules
-            | Command::Graph
-            | Command::External(_)
+        Command::Run { .. } | Command::Plan { .. } | Command::Release | Command::External(_)
     )
 }
 
@@ -389,6 +381,32 @@ mod tests {
     #[test]
     fn execution_flags_rejected_on_cache() {
         assert!(super::gate(&parse(&["--dry-run", "cache", "path"]).unwrap()).is_err());
+    }
+
+    #[test]
+    fn execution_flags_rejected_on_introspection_verbs() {
+        for args in [
+            ["--dry-run", "explain", "rust:app", "test"].as_slice(),
+            ["--explain", "affected", "test"].as_slice(),
+            ["--fail-fast", "modules"].as_slice(),
+            ["--output", "jsonl", "graph"].as_slice(),
+        ] {
+            let cli = parse(args).expect("parses");
+            assert!(super::gate(&cli).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn execution_flags_accepted_on_execution_verbs() {
+        for args in [
+            ["--dry-run", "run", "test"].as_slice(),
+            ["--explain", "plan", "test"].as_slice(),
+            ["--output", "jsonl", "release"].as_slice(),
+            ["--fail-fast", "test"].as_slice(),
+        ] {
+            let cli = parse(args).expect("parses");
+            assert!(super::gate(&cli).is_ok(), "{args:?}");
+        }
     }
 
     #[test]

@@ -54,3 +54,9 @@ fn graph_format_flag_on_a_non_graph_verb_is_gated_to_usage() {
 fn execution_flags_on_a_cache_verb_are_gated_to_usage() {
     assert_eq!(run(&["--dry-run", "cache", "path"]), ExitCode::Usage);
 }
+
+#[test]
+fn execution_flags_on_introspection_verbs_are_gated_to_usage() {
+    assert_eq!(run(&["--output", "jsonl", "modules"]), ExitCode::Usage);
+    assert_eq!(run(&["--fail-fast", "affected", "test"]), ExitCode::Usage);
+}

@@ -65,7 +65,8 @@ fn resolve_root_with(
         })?;
         return Ok(base.join(CACHE_FORMAT_VERSION));
     }
-    let workspace_id = &hash_hex(project_root.as_path().to_string_lossy().as_bytes())[..16];
+    let digest = hash_hex(project_root.as_path().to_string_lossy().as_bytes());
+    let workspace_id = &digest[..16];
     Ok(app_cache_dir(APP_NAME)?
         .join(workspace_id)
         .join(CACHE_FORMAT_VERSION))

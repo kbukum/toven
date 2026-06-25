@@ -80,9 +80,9 @@ pub fn addressable_task_names(
     let mut names = Vec::new();
     for adapter in configured.values() {
         for task in adapter.default_tasks() {
-            let name = match (task.name, &task.kind) {
+            let name = match (task.name, task.kind) {
                 (Some(explicit), _) => explicit,
-                (None, TaskKind::Custom(custom)) => custom.clone(),
+                (None, TaskKind::Custom(custom)) => custom,
                 (None, _) => continue,
             };
             names.push(name);
