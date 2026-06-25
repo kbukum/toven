@@ -45,7 +45,7 @@ fn declared_task(key: &str, over: &TaskOverride) -> AppResult<Task> {
             "a command task must define 'argv' (the adapter infers no default command)",
         )
     })?;
-    if argv.is_empty() {
+    if argv.first().is_none_or(|program| program.trim().is_empty()) {
         return Err(AppError::invalid_input(
             format!("ecosystems.command.tasks.{key}.argv"),
             "must include a program",
@@ -156,6 +156,17 @@ mod tests {
             },
         );
         let error = resolve_tasks(&overrides).expect_err("empty argv rejected");
+        assert!(
+            error.to_string().contains("must include a program"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn task_with_blank_program_is_rejected() {
+        let mut overrides = BTreeMap::new();
+        overrides.insert("build".to_string(), over(&[""]));
+        let error = resolve_tasks(&overrides).expect_err("blank program rejected");
         assert!(
             error.to_string().contains("must include a program"),
             "{error}"
