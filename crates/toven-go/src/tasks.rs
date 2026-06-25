@@ -13,13 +13,26 @@ use std::collections::BTreeMap;
 use rskit_errors::{AppError, AppResult};
 use toven_ports::{FanOut, RunStrategy, Task, TaskKind, TaskOrigin, TaskOverride, merge_task};
 
-/// The workspace-level cache input every `go` task shares: the checksum file
-/// pins resolved dependency versions, so a change invalidates the workspace.
-const SHARED_SUM: &str = "go.sum";
+/// The workspace-level cache inputs every `go` task shares. A change to any of
+/// these repo-root files invalidates the workspace regardless of layout: a lone
+/// module pins resolved versions in `go.sum`, while a `go.work` grouping pins
+/// them in `go.work.sum` and selects its members through the `go.work` manifest.
+/// Per-module `go.sum` files live inside each module's hashed source tree, so
+/// they need no entry here; absent files hash as empty, so listing the superset
+/// is safe for every project shape.
+const SHARED_INPUTS: [&str; 3] = ["go.sum", "go.work", "go.work.sum"];
 
 /// The package pattern a per-module `go` invocation targets (all packages in the
 /// module), spliced at the explicit `{module.selector}` point.
 const PACKAGE_PATTERN: &str = "./...";
+
+/// The default workspace-level shared cache inputs as an owned vector.
+fn shared_inputs() -> Vec<String> {
+    SHARED_INPUTS
+        .iter()
+        .map(|input| (*input).to_string())
+        .collect()
+}
 
 /// Build the adapter's built-in default task for `kind`, before any user
 /// override is applied.
@@ -39,19 +52,22 @@ fn default_task(kind: &TaskKind) -> Task {
 }
 
 /// A `go` task scoped to one module via `go -C {module.root} <subcommand>
-/// {module.selector}`, fanning out per module with the `./...` package pattern.
+/// {args} {module.selector}`, fanning out per module with the `./...` package
+/// pattern. `{args}` is spliced **before** the package selector because most
+/// `go` subcommands stop parsing flags at the first non-flag argument, so user
+/// passthrough (`-count=1`, `-run=…`, `-tags=…`) must precede `./...`.
 fn module_task(kind_name: &str, subcommand: &str) -> Task {
     let argv = vec![
         "go".to_string(),
         "-C".to_string(),
         "{module.root}".to_string(),
         subcommand.to_string(),
-        "{module.selector}".to_string(),
         "{args}".to_string(),
+        "{module.selector}".to_string(),
     ];
     let mut task = Task::new(kind_for(kind_name), argv, FanOut::PerModule);
     task.selector = vec![PACKAGE_PATTERN.to_string()];
-    task.shared_inputs = vec![SHARED_SUM.to_string()];
+    task.shared_inputs = shared_inputs();
     task
 }
 
@@ -66,7 +82,7 @@ fn doc_task() -> Task {
         "{args}".to_string(),
     ];
     let mut task = Task::new(TaskKind::Doc, argv, FanOut::PerModule);
-    task.shared_inputs = vec![SHARED_SUM.to_string()];
+    task.shared_inputs = shared_inputs();
     task
 }
 
@@ -83,7 +99,7 @@ fn run_task() -> Task {
     ];
     let mut task = Task::new(TaskKind::Run, argv, FanOut::PerModule);
     task.persistent = true;
-    task.shared_inputs = vec![SHARED_SUM.to_string()];
+    task.shared_inputs = shared_inputs();
     task
 }
 
@@ -204,7 +220,7 @@ mod tests {
     }
 
     #[test]
-    fn test_default_fans_out_per_module_with_sum_input() {
+    fn test_default_fans_out_per_module_with_workspace_inputs() {
         let tasks = resolve_tasks(&BTreeMap::new()).expect("defaults resolve");
         let test = tasks
             .iter()
@@ -212,10 +228,13 @@ mod tests {
             .expect("test task present");
         assert_eq!(test.fan_out, FanOut::PerModule);
         assert_eq!(test.selector, ["./..."]);
-        assert_eq!(test.shared_inputs, ["go.sum"]);
+        assert_eq!(test.shared_inputs, ["go.sum", "go.work", "go.work.sum"]);
         assert_eq!(test.argv.first().map(String::as_str), Some("go"));
         assert!(test.argv.contains(&"{module.root}".to_string()));
-        assert!(test.argv.contains(&"{module.selector}".to_string()));
+        // `{args}` is spliced before the package selector so go flags parse.
+        let args_pos = test.argv.iter().position(|a| a == "{args}");
+        let selector_pos = test.argv.iter().position(|a| a == "{module.selector}");
+        assert!(matches!((args_pos, selector_pos), (Some(a), Some(s)) if a < s));
     }
 
     #[test]
@@ -253,7 +272,7 @@ mod tests {
         assert!(test.cache_args);
         // selector + shared_inputs inherited from the default:
         assert_eq!(test.selector, ["./..."]);
-        assert_eq!(test.shared_inputs, ["go.sum"]);
+        assert_eq!(test.shared_inputs, ["go.sum", "go.work", "go.work.sum"]);
         assert_eq!(test.origin, TaskOrigin::Project);
     }
 

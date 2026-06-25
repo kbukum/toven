@@ -7,7 +7,7 @@ use toven_ports::ToolchainProbe;
 ///
 /// Phase 1 (discovery) only stamps `Workspace.toolchain.tool = "go"`; this spec
 /// is executed in phase 2 (after affected-filtering), and its trimmed stdout —
-/// e.g. `"go version go1.26.0 darwin/arm64"` — becomes the cache-significant
+/// e.g. `"go version go1.X.Y <os>/<arch>"` — becomes the cache-significant
 /// version string.
 #[must_use]
 pub(crate) fn go_probe() -> ToolchainProbe {

@@ -53,7 +53,7 @@ fn test_task_renders_a_go_argv() {
     assert!(test.argv.iter().any(|arg| arg == "test"));
     assert!(test.argv.iter().any(|arg| arg == "{module.root}"));
     assert_eq!(test.selector, ["./..."]);
-    assert_eq!(test.shared_inputs, ["go.sum"]);
+    assert_eq!(test.shared_inputs, ["go.sum", "go.work", "go.work.sum"]);
 }
 
 #[test]
