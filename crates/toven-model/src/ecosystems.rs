@@ -28,6 +28,10 @@ const CANONICAL: &[CanonicalEcosystem] = &[
         label: "Go",
     },
     CanonicalEcosystem {
+        id: "command",
+        label: "Command",
+    },
+    CanonicalEcosystem {
         id: "ts",
         label: "TypeScript",
     },
@@ -66,6 +70,8 @@ mod tests {
     fn known_ids_resolve() {
         assert!(is_canonical("rust"));
         assert!(is_canonical("go"));
+        assert!(is_canonical("command"));
+        assert_eq!(label("command"), Some("Command"));
         assert_eq!(label("python"), Some("Python"));
     }
 

@@ -1,0 +1,24 @@
+[package]
+name = "toven-command"
+description = "Toven command ecosystem adapter — the argv-only escape hatch: declared modules, user-owned tasks, no tooling probe"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+toven-model.workspace = true
+toven-ports.workspace = true
+rskit-errors.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+toven-testkit.workspace = true
+
+[lints]
+workspace = true

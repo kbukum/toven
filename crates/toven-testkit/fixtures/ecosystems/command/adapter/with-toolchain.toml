@@ -1,0 +1,13 @@
+# A command project with an explicit toolchain probe overriding the
+# first-task-program default.
+[toolchain]
+program = "bazel"
+args = ["version"]
+label = "bazel-toolchain"
+
+[[modules]]
+name = "app"
+root = "app"
+
+[tasks.build]
+argv = ["bazel", "build", "//{module.name}/..."]
