@@ -24,13 +24,13 @@ Affected commands use git changes between a baseline and the working tree:
 - `project.base_ref` in `toven.toml` supplies the default baseline when no `--base` is provided.
 - Without `--base` or `project.base_ref`, affected detection compares against `HEAD`, so only staged, unstaged, and untracked local changes are considered.
 
-Execution and explanation commands share cache mode flags:
+Execution and explanation commands share cache mode states. The default state is active today; explicit per-invocation overrides land as the redesign steps complete.
 
-| Flag | Behavior |
+| Mode | Behavior |
 |------|----------|
 | default | Read cache records and write fresh success records. |
-| `--force` | Skip cache reads, run work, and write fresh success records. |
-| `--no-cache` | Disable cache reads and writes for that invocation. |
+| force | Skip cache reads, run work, and write fresh success records. |
+| disabled | Disable cache reads and writes for that invocation. |
 
 Passthrough args after `--` are expanded into `{args}` in configured task argv. They disable cache by default unless the task sets `cache_args = true`.
 

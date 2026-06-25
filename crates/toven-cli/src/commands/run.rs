@@ -86,7 +86,7 @@ pub(crate) fn execute(
     }
     let mut output = UnitOutputChannel::new(WriterRawSink::stderr());
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
+    let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(AppError::internal)?;

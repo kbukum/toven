@@ -58,8 +58,9 @@ fn validate_project(project: &ProjectConfig) -> AppResult<()> {
 /// path (no traversal/absolute escape) — validated here at the trust boundary.
 fn validate_settings(settings: &TovenConfig) -> AppResult<()> {
     if let Some(dir) = &settings.cache.dir {
-        validate_safe_path(dir)
-            .map_err(|error| AppError::invalid_input("toven.cache.dir", error.to_string()))?;
+        validate_safe_path(dir).map_err(|error| {
+            AppError::invalid_input("toven.cache.dir", error.to_string()).with_cause(error)
+        })?;
     }
     Ok(())
 }
@@ -132,7 +133,8 @@ fn validate_relative_root(field: &str, root: &str) -> AppResult<()> {
     if root == "." {
         return Ok(());
     }
-    validate_safe_path(root).map_err(|error| AppError::invalid_input(field, error.to_string()))
+    validate_safe_path(root)
+        .map_err(|error| AppError::invalid_input(field, error.to_string()).with_cause(error))
 }
 
 fn require_canonical(

@@ -92,7 +92,7 @@ impl CommandTemplate {
 
 fn parse_base_element(element: &str) -> AppResult<Template<TaskVar>> {
     let template =
-        Template::parse(element, TaskVar::ALL).map_err(|error| to_app_error(FIELD_ARGV, &error))?;
+        Template::parse(element, TaskVar::ALL).map_err(|error| to_app_error(FIELD_ARGV, error))?;
     for var in SPLICE_VARS {
         if template.contains(var) && !is_splice(&template, var) {
             return Err(AppError::invalid_input(
@@ -106,7 +106,7 @@ fn parse_base_element(element: &str) -> AppResult<Template<TaskVar>> {
 
 fn parse_selector_element(element: &str) -> AppResult<Template<TaskVar>> {
     let template = Template::parse(element, TaskVar::ALL)
-        .map_err(|error| to_app_error(FIELD_SELECTOR, &error))?;
+        .map_err(|error| to_app_error(FIELD_SELECTOR, error))?;
     for var in SPLICE_VARS {
         if template.contains(var) {
             return Err(AppError::invalid_input(
@@ -133,11 +133,11 @@ where
 {
     template
         .render_with(&mut *resolve)
-        .map_err(|error| to_app_error(field, &error))
+        .map_err(|error| to_app_error(field, error))
 }
 
-fn to_app_error(field: &'static str, error: &rskit_util::template::TemplateError) -> AppError {
-    AppError::invalid_input(field, error.to_string())
+fn to_app_error(field: &'static str, error: rskit_util::template::TemplateError) -> AppError {
+    AppError::invalid_input(field, error.to_string()).with_cause(error)
 }
 
 #[cfg(test)]

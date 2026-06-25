@@ -11,7 +11,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fixture="${repo_root}/crates/toven-testkit/fixtures/repos/single-rust"
 
-echo "smoke: building toven-rs"
+echo "smoke: building toven-rs" >&2
 cargo build -p toven-rs
 bin="${repo_root}/target/debug/toven-rs"
 [ -x "${bin}" ] || { echo "smoke: toven-rs binary not found at ${bin}" >&2; exit 1; }
@@ -21,7 +21,7 @@ work="$(mktemp -d "${repo_root}/target/smoke.XXXXXX")"
 trap 'rm -rf "${work}"' EXIT
 cp -R "${fixture}/." "${work}/"
 
-echo "smoke: initializing fixture git tree in ${work}"
+echo "smoke: initializing fixture git tree in ${work}" >&2
 git -C "${work}" init -q
 git -C "${work}" add -A
 git -C "${work}" -c user.email=smoke@toven.dev -c user.name=smoke commit -q -m "smoke fixture"
@@ -38,4 +38,4 @@ printf '%s\n' "${modules_out}" | grep -q "rust:app" \
 run plan build
 run build
 
-echo "smoke: OK"
+echo "smoke: OK" >&2

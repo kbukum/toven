@@ -38,7 +38,7 @@ impl Provider for RustProvider {
 
     fn configure(&self, raw: toml::Value) -> AppResult<Box<dyn ConfiguredAdapter>> {
         let config: RustConfig = raw.try_into().map_err(|error: toml::de::Error| {
-            AppError::invalid_input("ecosystems.rust", error.to_string())
+            AppError::invalid_input("ecosystems.rust", error.to_string()).with_cause(error)
         })?;
         let tasks = tasks::resolve_tasks(&config.common.tasks)?;
         Ok(Box::new(RustAdapter::new(config, tasks)))

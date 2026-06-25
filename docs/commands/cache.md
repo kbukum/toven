@@ -31,23 +31,24 @@ Workspace-local cache records live under `.toven/cache/v3` and should not be com
 
 ## Cache modes during execution
 
-| Mode | Command | Behavior |
-|------|---------|----------|
-| Default | `toven check` | Read existing records and write fresh success records. |
-| Force | `toven check --force` | Skip cache reads, run work, and write fresh success records. |
-| Disabled | `toven check --no-cache` | Disable cache reads and writes for that invocation. |
+Run output and JSONL cache events distinguish three execution cache states. The default state is active today; explicit per-invocation overrides (force/disable) land as the redesign steps complete.
 
-## `toven cache stats`, `toven cache info`
+| Mode | Behavior |
+|------|----------|
+| Default | Read existing records and write fresh success records. |
+| Force | Skip cache reads, run work, and write fresh success records. |
+| Disabled | Disable cache reads and writes for that invocation. |
 
-Shows local cache size and age information:
+## `toven cache stats`
+
+Shows the resolved local cache directory and its size:
 
 ```bash
 toven cache stats
-toven cache info
 toven cache stats --config path/to/toven.toml
 ```
 
-The command loads the workspace root from config and inspects the Toven cache directory. It reports cache directory, entry count, total bytes, oldest/newest entry age, and notes that hit rate is per-run only.
+The command loads the workspace root from config and inspects the Toven cache directory. It reports the cache directory path, the entry count, and the total bytes on disk.
 
 ## `toven cache path`
 
@@ -60,17 +61,16 @@ toven cache path --config path/to/toven.toml
 
 Use this when you need to verify whether Toven is using the default user cache, `TOVEN_CACHE_DIR`, or `toven.cache.dir`.
 
-## `toven cache clean`, `toven cache clear`
+## `toven cache clean`
 
 Removes local cache records for the workspace:
 
 ```bash
 toven cache clean
-toven cache clear
 toven cache clean --config path/to/toven.toml
 ```
 
-Missing cache directories are treated as already clean. The command reports how many entries and bytes were removed.
+Missing cache directories are treated as already clean. The command reports whether it removed the cache directory or found it already absent.
 
 ## What invalidates cache
 

@@ -135,8 +135,10 @@ pub(super) fn resolve(
             ))
         })?;
         let probe = adapter.toolchain_probe();
-        let root = safe_join(project_root.as_path(), workspace.root.as_path())
-            .map_err(|error| AppError::invalid_input("workspace.root", error.to_string()))?;
+        let root =
+            safe_join(project_root.as_path(), workspace.root.as_path()).map_err(|error| {
+                AppError::invalid_input("workspace.root", error.to_string()).with_cause(error)
+            })?;
         let version = prober.probe(&probe, &root)?;
         resolved.insert(
             workspace_id,

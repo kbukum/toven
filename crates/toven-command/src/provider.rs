@@ -41,7 +41,7 @@ impl Provider for CommandProvider {
 
     fn configure(&self, raw: toml::Value) -> AppResult<Box<dyn ConfiguredAdapter>> {
         let config: CommandConfig = raw.try_into().map_err(|error: toml::de::Error| {
-            AppError::invalid_input("ecosystems.command", error.to_string())
+            AppError::invalid_input("ecosystems.command", error.to_string()).with_cause(error)
         })?;
         let tasks = tasks::resolve_tasks(&config.common.tasks)?;
         // A command project that declares modules but neither tasks nor an
