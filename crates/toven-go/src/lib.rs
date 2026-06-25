@@ -1,0 +1,39 @@
+//! `toven-go` — the Go ecosystem adapter.
+//!
+//! A sibling of the `toven-rust` template, implementing the step-2 hexagonal
+//! ports against real `go` tooling. It depends only on [`toven_ports`] +
+//! [`toven_model`] (never the engine) and is registered by id `"go"`:
+//!
+//! - [`GoProvider`] parses `[ecosystems.go]` into a typed [`GoConfig`] and bakes
+//!   a [`GoAdapter`]; it also self-detects a Go module for `toven generate`
+//!   scaffolding.
+//! - [`GoAdapter`] implements discovery (via `go mod edit -json` /
+//!   `go work edit -json`), the default `go` task table, the toolchain probe,
+//!   and run-strategy defaults. Go module release is out of scope, so
+//!   [`release_target`](toven_ports::ConfiguredAdapter::release_target) is
+//!   always `None`.
+//!
+//! Discovery reads each configured `go.mod` offline (no module graph resolution,
+//! no network) and auto-detects a root `go.work` purely to group its member
+//! modules into one workspace. All work returns typed data + typed errors; no
+//! user-facing printing, no panics on runtime paths.
+
+// The adapter's internal helpers live in private modules but are shared across
+// sibling modules as `pub(crate)`. The `redundant_pub_crate` (nursery) lint would
+// rather they be plain `pub`, but `unreachable_pub` then flags them as
+// crate-internal — the two lints conflict for this shape. Allow the nursery lint
+// crate-wide (the structure guard forbids per-`mod.rs` attributes) and keep the
+// honest `pub(crate)` visibility.
+#![allow(clippy::redundant_pub_crate)]
+
+mod adapter;
+mod config;
+mod discovery;
+mod provider;
+mod scaffold;
+mod tasks;
+mod toolchain;
+
+pub use adapter::GoAdapter;
+pub use config::GoConfig;
+pub use provider::GoProvider;

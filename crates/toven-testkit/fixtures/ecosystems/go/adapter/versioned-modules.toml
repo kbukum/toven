@@ -1,0 +1,3 @@
+# Two Go modules that both carry a `/v2` major-version suffix. Their names must
+# stay distinct (`alpha`, `beta`) rather than both collapsing onto `v2`.
+modules = ["alpha/go.mod", "beta/go.mod"]

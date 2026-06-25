@@ -1457,6 +1457,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "toven-go"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "rskit-errors",
+ "rskit-fs",
+ "rskit-process",
+ "serde",
+ "serde_json",
+ "toml",
+ "toven-model",
+ "toven-ports",
+ "toven-testkit",
+]
+
+[[package]]
 name = "toven-model"
 version = "0.1.0-alpha.1"
 dependencies = [

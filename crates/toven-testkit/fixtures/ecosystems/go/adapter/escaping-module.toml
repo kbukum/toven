@@ -1,0 +1,3 @@
+# A Go adapter config whose module path escapes the project root. Discovery must
+# reject it at the `safe_join` trust boundary before invoking go.
+modules = ["../escape/go.mod"]
