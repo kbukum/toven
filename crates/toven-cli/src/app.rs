@@ -93,7 +93,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
         Command::Federation { action } => commands::driver::federation(action, cli.auto_install),
         Command::External(tokens) => dispatch_task(providers, cli, tokens),
         Command::Run { task, passthrough } => {
-            let project = load(providers, cli)?;
+            let project = load(providers, cli, true)?;
             let report = Report::resolve(cli.output, cli.verbosity(), &project.document);
             commands::run::execute(
                 providers,
@@ -106,7 +106,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
             )
         }
         Command::Plan { task } => {
-            let project = load(providers, cli)?;
+            let project = load(providers, cli, true)?;
             let report = Report::resolve(cli.output, cli.verbosity(), &project.document);
             commands::run::execute(
                 providers,
@@ -119,7 +119,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
             )
         }
         Command::Release => {
-            let project = load(providers, cli)?;
+            let project = load(providers, cli, false)?;
             let report = Report::resolve(cli.output, cli.verbosity(), &project.document);
             commands::run::release(
                 providers,
@@ -131,19 +131,19 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
             )
         }
         Command::Explain { module, task } => {
-            let project = load(providers, cli)?;
+            let project = load(providers, cli, false)?;
             commands::introspect::explain(providers, &project, module, intent_for(task))
         }
         Command::Affected { task } => {
-            let project = load(providers, cli)?;
+            let project = load(providers, cli, false)?;
             commands::introspect::affected(providers, &project, intent_for(task))
         }
         Command::Modules => {
-            let project = load(providers, cli)?;
+            let project = load(providers, cli, false)?;
             commands::introspect::modules(providers, &project)
         }
         Command::Graph => {
-            let project = load(providers, cli)?;
+            let project = load(providers, cli, false)?;
             commands::introspect::graph(
                 providers,
                 &project,
@@ -151,7 +151,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
             )
         }
         Command::Cache { action } => {
-            let project = load(providers, cli)?;
+            let project = load(providers, cli, false)?;
             commands::cache::execute(&project, action)
         }
     }
@@ -164,7 +164,7 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
     let flags = &invocation.flags;
 
     let config = flags.config.clone().or_else(|| cli.config.clone());
-    let project = load_with_config(providers, config.as_deref())?;
+    let project = load_with_config(providers, config.as_deref(), true)?;
 
     let output = flags.output.or(cli.output);
     let verbosity = flags::Verbosity::from_counts(
@@ -187,18 +187,21 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
 }
 
 /// Load the project using the verb's `--config` global flag.
-fn load(providers: &[&dyn Provider], cli: &Cli) -> AppResult<Project> {
-    load_with_config(providers, cli.config.as_deref())
+fn load(providers: &[&dyn Provider], cli: &Cli, warn_task_collisions: bool) -> AppResult<Project> {
+    load_with_config(providers, cli.config.as_deref(), warn_task_collisions)
 }
 
-/// Load the project at the resolved config path and emit collision warnings.
+/// Load the project at the resolved config path and optionally emit collision warnings.
 fn load_with_config(
     providers: &[&dyn Provider],
     config: Option<&std::path::Path>,
+    warn_task_collisions: bool,
 ) -> AppResult<Project> {
     let config_path = host::discover_config(config)?;
     let project = host::load_project(&config_path, providers)?;
-    warn_collisions(&project, providers);
+    if warn_task_collisions {
+        warn_collisions(&project, providers);
+    }
     Ok(project)
 }
 

@@ -1606,7 +1606,7 @@ dependencies = [
 name = "toven-example-embed"
 version = "0.1.0-alpha.1"
 dependencies = [
- "rskit-errors",
+ "rskit-cli",
  "toven-cli",
  "toven-ports",
  "toven-rust",

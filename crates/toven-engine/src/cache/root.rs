@@ -36,8 +36,9 @@ const APP_NAME: &str = "toven";
 ///    format-version segment.
 ///
 /// # Errors
-/// Propagates a malformed workspace-relative `configured_dir` (path traversal) or
-/// a platform user-cache-directory resolution failure.
+/// Propagates a relative [`CACHE_DIR_ENV`] override, malformed workspace-relative
+/// `configured_dir` (path traversal), or a platform user-cache-directory
+/// resolution failure.
 pub fn resolve_root(project_root: &AbsPath, configured_dir: Option<&str>) -> AppResult<PathBuf> {
     resolve_root_with(project_root, configured_dir, || {
         rskit_util::env::get_non_empty(CACHE_DIR_ENV)
@@ -54,7 +55,14 @@ fn resolve_root_with(
     env_override: impl Fn() -> Option<String>,
 ) -> AppResult<PathBuf> {
     if let Some(base) = env_override() {
-        return Ok(PathBuf::from(base).join(CACHE_FORMAT_VERSION));
+        let base = PathBuf::from(&base);
+        if !base.is_absolute() {
+            return Err(AppError::invalid_input(
+                CACHE_DIR_ENV,
+                format!("{CACHE_DIR_ENV} must be an absolute path"),
+            ));
+        }
+        return Ok(base.join(CACHE_FORMAT_VERSION));
     }
     if let Some(dir) = configured_dir.filter(|dir| !dir.is_empty()) {
         let base = safe_join(project_root.as_path(), dir).map_err(|error| {
@@ -81,14 +89,27 @@ mod tests {
         AbsPath::new(if cfg!(windows) { r"C:\repo" } else { "/repo" }).expect("absolute")
     }
 
+    fn cache_override() -> &'static str {
+        if cfg!(windows) {
+            r"C:\toven-cache"
+        } else {
+            "/tmp/toven-cache"
+        }
+    }
+
     #[test]
     fn env_override_wins_and_appends_format_version() {
         let resolved = resolve_root_with(&root(), Some("local"), || {
-            Some("/tmp/toven-cache".to_string())
+            Some(cache_override().to_string())
         })
         .expect("resolved");
         assert!(resolved.ends_with(CACHE_FORMAT_VERSION));
-        assert!(resolved.starts_with("/tmp/toven-cache"));
+        assert!(resolved.starts_with(cache_override()));
+    }
+
+    #[test]
+    fn relative_env_override_is_rejected() {
+        assert!(resolve_root_with(&root(), None, || Some("relative/cache".to_string())).is_err());
     }
 
     #[test]

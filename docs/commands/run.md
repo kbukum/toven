@@ -25,10 +25,9 @@ Modules in the same ready wave can execute in parallel when the plan and resourc
 
 ```bash
 toven check
-toven check --affected --base origin/main --merge-base
-toven check --no-cache
-toven check --force
-toven check --timeout-seconds 300
+toven check --dry-run
+toven check --explain
+toven check --fail-fast
 toven test -- --no-capture
 ```
 
@@ -50,37 +49,19 @@ toven check --output jsonl
 
 JSONL mode reserves stdout for newline-delimited Toven events. Child stdout is forwarded to stderr so consumers can parse every stdout line as JSON. Cache decision events expose the same structured cache states and reasons.
 
-## Watch mode
-
-Watch mode runs the task once, watches the project root, then reruns affected modules and reverse dependents after file changes:
-
-```bash
-toven test --watch
-toven check --watch --watch-debounce-ms 500
-```
-
-Watch mode ignores generated/noisy paths such as `.git/`, `.toven/`, `target/`, and `node_modules/`. If the Toven config changes, watch mode reloads the workspace and performs a broader rerun because discovery or task policy may have changed.
-
-Persistent tasks opt out of cache, can wait for readiness, and are restarted when watch invalidation requires a new affected set.
-
 ## Cache location
 
-Task cache records use the platform user cache directory by default so normal runs do not create repository file changes. Use `toven cache path` to inspect the resolved directory. Set `TOVEN_CACHE_DIR` to an absolute path for isolated CI/benchmark runs, or configure `[cache] location = "workspace"` to store under `.toven/cache`.
+Task cache records use the platform user cache directory by default so normal runs do not create repository file changes. Use `toven cache path` to inspect the resolved directory. Set `TOVEN_CACHE_DIR` to an absolute path for isolated CI/benchmark runs, or configure `[toven.cache].dir = ".toven/cache"` to store records under the workspace.
 
 ## Options
 
 | Option | Purpose |
 |--------|---------|
-| `--affected` | Run only modules affected by the selected git baseline. |
-| `--base REF` | Baseline ref or SHA for affected detection. |
-| `--merge-base` | Use the merge-base of `HEAD` and the selected baseline. |
-| `--no-cache` | Disable cache reads and writes. |
-| `--force` | Skip cache reads and write fresh success records. |
-| `--timeout-seconds SECONDS` | Bound child process execution time. |
+| `--dry-run` | Stop after PLAN and report what would run. |
+| `--explain` | Stop after PLAN with reasoning detail. |
+| `--fail-fast` | Stop scheduling new work after the first failure. |
 | `--output human\|jsonl` | Select human or machine-readable run events. |
 | `-v` / `-q` | Raise or lower reporter verbosity (repeatable): quiet shows only the run summary, verbose adds per-phase, cache, and unit-lifecycle lines. Affects human output only; the JSONL stream always carries every event. |
-| `--watch` | Watch files and rerun affected work. |
-| `--watch-debounce-ms MILLIS` | Debounce interval for watch events. |
 
 ## Discussion points
 

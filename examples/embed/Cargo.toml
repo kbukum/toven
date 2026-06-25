@@ -14,10 +14,10 @@ name = "toven-example-embed"
 path = "src/main.rs"
 
 [dependencies]
+rskit-cli.workspace = true
 toven-cli.workspace = true
 toven-ports.workspace = true
 toven-rust.workspace = true
-rskit-errors.workspace = true
 
 [lints]
 workspace = true

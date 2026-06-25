@@ -336,6 +336,18 @@ mod tests {
     }
 
     #[test]
+    fn bare_task_trailing_flags_are_captured_as_external_tokens() {
+        let cli = parse(&["test", "--dry-run", "--", "--flag"]).expect("parses");
+        assert!(!cli.dry_run);
+        match &cli.command {
+            Command::External(tokens) => {
+                assert_eq!(tokens, &["test", "--dry-run", "--", "--flag"]);
+            }
+            other => panic!("expected external, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn reserved_verb_dispatches_builtin() {
         let cli = parse(&["plan", "test"]).expect("parses");
         assert!(matches!(cli.command, Command::Plan { .. }));

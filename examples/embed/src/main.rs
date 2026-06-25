@@ -14,12 +14,12 @@ use toven_rust::RustProvider;
 fn main() -> ExitCode {
     let provider = match RustProvider::new() {
         Ok(provider) => provider,
-        Err(error) => {
-            eprintln!("error: failed to initialize the Rust adapter: {error}");
-            return ExitCode::FAILURE;
-        }
+        Err(error) => return process_exit(toven_cli::report_error(&error)),
     };
     let providers: Vec<&dyn Provider> = vec![&provider];
-    let code = toven_cli::run(&providers);
-    ExitCode::from(u8::try_from(code.as_i32()).unwrap_or(1))
+    process_exit(toven_cli::run(&providers))
+}
+
+fn process_exit(code: rskit_cli::ExitCode) -> ExitCode {
+    u8::try_from(code.as_i32()).map_or(ExitCode::FAILURE, ExitCode::from)
 }
