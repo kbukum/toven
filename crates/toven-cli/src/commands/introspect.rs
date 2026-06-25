@@ -139,7 +139,6 @@ pub(crate) fn explain(
             .add("module", unit.module.to_string())
             .add("task", unit.kind.clone())
             .add("argv", unit.argv.join(" "))
-            .add("cache", format!("{:?}", unit.cache))
             .add("persistent", unit.persistent.to_string())
             .add("depends_on", unit.depends_on.join(", "));
         println!("{detail}");

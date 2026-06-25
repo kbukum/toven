@@ -51,7 +51,12 @@ JSONL mode reserves stdout for newline-delimited Toven events. Child stdout is f
 
 ## Cache location
 
-Task cache records use the platform user cache directory by default so normal runs do not create repository file changes. Use `toven cache path` to inspect the resolved directory. Set `TOVEN_CACHE_DIR` to an absolute path for isolated CI/benchmark runs, or configure `[toven.cache].dir = ".toven/cache"` to store records under the workspace.
+Task cache records use the platform user cache directory by default so normal runs do not create repository file changes. Use `toven cache path` to inspect the resolved directory. Set `TOVEN_CACHE_DIR` to an absolute path for isolated CI/benchmark runs, or configure the workspace-relative cache directory in TOML:
+
+```toml
+[toven.cache]
+dir = ".toven/cache"
+```
 
 ## Options
 

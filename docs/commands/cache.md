@@ -23,8 +23,8 @@ The override must be an absolute path. Toven still appends the current cache for
 To opt into repository-local cache records:
 
 ```toml
-[cache]
-location = "workspace"
+[toven.cache]
+dir = ".toven/cache"
 ```
 
 Workspace-local cache records live under `.toven/cache/v3` and should not be committed.
@@ -58,7 +58,7 @@ toven cache path
 toven cache path --config path/to/toven.toml
 ```
 
-Use this when you need to verify whether Toven is using the default user cache, `TOVEN_CACHE_DIR`, or workspace-local cache.
+Use this when you need to verify whether Toven is using the default user cache, `TOVEN_CACHE_DIR`, or `toven.cache.dir`.
 
 ## `toven cache clean`, `toven cache clear`
 

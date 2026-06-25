@@ -34,4 +34,4 @@ Execution and explanation commands share cache mode flags:
 
 Passthrough args after `--` are expanded into `{args}` in configured task argv. They disable cache by default unless the task sets `cache_args = true`.
 
-Toven stores task cache records in the platform user cache directory by default, under a workspace-specific hash and cache-format version. Set `TOVEN_CACHE_DIR` to an absolute path for CI or benchmark isolation, or configure `[toven.cache].dir` with a workspace-relative path (such as `.toven/cache`) to keep records inside the repository.
+Toven stores task cache records in the platform user cache directory by default, under a workspace-specific hash and cache-format version. Set `TOVEN_CACHE_DIR` to an absolute path for CI or benchmark isolation, or configure `toven.cache.dir` with a workspace-relative path (such as `.toven/cache`) to keep records inside the repository.

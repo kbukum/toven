@@ -45,8 +45,8 @@ Rust generation records manifest discovery in the profile. Cargo metadata stays 
 Generated configs make the default user-cache policy explicit:
 
 ```toml
-[cache]
-location = "user"
+[toven.cache]
+# dir is omitted by default so records use the platform user-cache directory.
 ```
 
 Generated Rust configs materialize standard Rust application task definitions from the Rust adapter defaults, so committed command policy stays reviewable:
