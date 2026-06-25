@@ -1,6 +1,6 @@
 //! The public CLI entry point: parse argv, gate flag applicability, load the
-//! project, warn on task/reserved collisions, dispatch the verb, and map any
-//! typed error to a process [`ExitCode`].
+//! project, warn on task/reserved collisions for argv-first task dispatch,
+//! dispatch the verb, and map any typed error to a process [`ExitCode`].
 //!
 //! This is the one place that ties the argv-first grammar to the engine spine.
 //! The three apps (`apps/{toven, toven-rs, toven-go}`) are thin: each builds its
@@ -187,25 +187,37 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
 }
 
 /// Load the project using the verb's `--config` global flag.
-fn load(providers: &[&dyn Provider], cli: &Cli, warn_task_collisions: bool) -> AppResult<Project> {
-    load_with_config(providers, cli.config.as_deref(), warn_task_collisions)
+fn load(
+    providers: &[&dyn Provider],
+    cli: &Cli,
+    warn_task_dispatch_collisions: bool,
+) -> AppResult<Project> {
+    load_with_config(
+        providers,
+        cli.config.as_deref(),
+        warn_task_dispatch_collisions,
+    )
 }
 
-/// Load the project at the resolved config path and optionally emit collision warnings.
+/// Load the project at the resolved config path and optionally emit task-dispatch collision warnings.
 fn load_with_config(
     providers: &[&dyn Provider],
     config: Option<&std::path::Path>,
-    warn_task_collisions: bool,
+    warn_task_dispatch_collisions: bool,
 ) -> AppResult<Project> {
     let config_path = host::discover_config(config)?;
     let project = host::load_project(&config_path, providers)?;
-    if warn_task_collisions {
+    if warn_task_dispatch_collisions {
         warn_collisions(&project, providers);
     }
     Ok(project)
 }
 
-/// Emit a stderr warning for every task name that shadows a reserved verb.
+/// Emit a stderr warning for every argv-first task name that shadows a reserved verb.
+///
+/// Only argv-first task dispatch surfaces (`toven <task>`, `toven run <task>`,
+/// and `toven plan <task>`) need this warning. Introspection/cache verbs do not
+/// route ambiguous task names and stay on the cheaper load path.
 ///
 /// Best-effort: a configuration that cannot even enumerate its task names will
 /// surface that same error from the verb's own PLAN call with full context, so

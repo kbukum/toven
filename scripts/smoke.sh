@@ -27,7 +27,7 @@ git -C "${work}" add -A
 git -C "${work}" -c user.email=smoke@toven.dev -c user.name=smoke commit -q -m "smoke fixture"
 
 run() {
-  echo "smoke: toven-rs $*"
+  echo "smoke: toven-rs $*" >&2
   ( cd "${work}" && "${bin}" "$@" )
 }
 
