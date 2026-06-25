@@ -31,8 +31,8 @@ use crate::report::{WriterRawSink, exit_code};
 /// derived from the terminal [`RunStats`].
 ///
 /// # Errors
-/// Propagates PLAN/APPLY failures, runtime construction failures, and a
-/// cancellation error when interrupted.
+/// Propagates PLAN/APPLY failures and runtime construction failures. Ctrl+C is
+/// handled cooperatively by APPLY and returned as a terminal run summary.
 pub(crate) fn execute(
     providers: &[&dyn Provider],
     project: &Project,

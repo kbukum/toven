@@ -180,18 +180,31 @@ fn render_graph_dot(plan: &Plan) -> String {
     let mut out = String::from("digraph toven {\n");
     for unit in &plan.units {
         out.push_str("  \"");
-        out.push_str(&unit.id);
+        out.push_str(&dot_id(&unit.id));
         out.push_str("\";\n");
         for dependency in &unit.depends_on {
             out.push_str("  \"");
-            out.push_str(dependency);
+            out.push_str(&dot_id(&unit.id));
             out.push_str("\" -> \"");
-            out.push_str(&unit.id);
+            out.push_str(&dot_id(dependency));
             out.push_str("\";\n");
         }
     }
     out.push_str("}\n");
     out
+}
+
+/// Escape a DOT quoted string identifier.
+fn dot_id(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
 }
 
 #[cfg(test)]
@@ -202,7 +215,7 @@ mod tests {
         CacheVerdict, EcosystemId, ExecutionReadiness, ExecutionUnit, ModuleRef, Plan,
     };
 
-    use super::{module_names, render_graph_dot, render_graph_text};
+    use super::{dot_id, module_names, render_graph_dot, render_graph_text};
 
     fn unit(module: &str, depends_on: Vec<&str>) -> ExecutionUnit {
         ExecutionUnit {
@@ -255,7 +268,12 @@ mod tests {
     fn graph_dot_emits_a_digraph_with_directed_edges() {
         let rendered = render_graph_dot(&plan());
         assert!(rendered.starts_with("digraph toven {"));
-        assert!(rendered.contains("\"rust:core#build\" -> \"rust:app#build\";"));
+        assert!(rendered.contains("\"rust:app#build\" -> \"rust:core#build\";"));
         assert!(rendered.trim_end().ends_with('}'));
+    }
+
+    #[test]
+    fn graph_dot_escapes_quoted_identifiers() {
+        assert_eq!(dot_id("rust:app\"#build\\dev"), "rust:app\\\"#build\\\\dev");
     }
 }
