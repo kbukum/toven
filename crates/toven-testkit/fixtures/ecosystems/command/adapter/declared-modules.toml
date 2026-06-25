@@ -1,0 +1,17 @@
+# A declared command project: a `site` module that depends on an `api` module,
+# plus a couple of user-owned tasks (no built-in defaults are invented).
+[[modules]]
+name = "api"
+root = "services/api"
+manifest = "services/api/Makefile"
+
+[[modules]]
+name = "site"
+root = "apps/site"
+depends_on = ["api"]
+
+[tasks.build]
+argv = ["make", "-C", "{module.root}", "build"]
+
+[tasks.deploy]
+argv = ["./scripts/deploy.sh", "{module.name}"]
