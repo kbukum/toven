@@ -167,9 +167,10 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
     let project = load_with_config(providers, config.as_deref(), true)?;
 
     let output = flags.output.or(cli.output);
-    let verbosity = flags::Verbosity::from_counts(
+    let verbosity = flags::Verbosity::for_execution(
         cli.verbose.saturating_add(flags.verbose),
         cli.quiet.saturating_add(flags.quiet),
+        cli.explain || flags.explain,
     );
     let report = Report::resolve(output, verbosity, &project.document);
     let plan_only = cli.is_plan_only() || flags.dry_run || flags.explain;

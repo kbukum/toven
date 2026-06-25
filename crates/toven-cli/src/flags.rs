@@ -65,6 +65,14 @@ impl Verbosity {
             _ => Self::Verbose,
         }
     }
+
+    /// Resolve the level for execution output, treating `--explain` as one
+    /// additional verbosity step so its promised reasoning detail is visible by
+    /// default while still allowing explicit quiet flags to reduce output.
+    #[must_use]
+    pub fn for_execution(verbose: u8, quiet: u8, explain: bool) -> Self {
+        Self::from_counts(verbose.saturating_add(u8::from(explain)), quiet)
+    }
 }
 
 /// The parsed top-level CLI surface: global flags plus the dispatched verb.
@@ -229,7 +237,7 @@ impl Cli {
     /// The reporter verbosity selected by the global `-v`/`-q` counts.
     #[must_use]
     pub fn verbosity(&self) -> Verbosity {
-        Verbosity::from_counts(self.verbose, self.quiet)
+        Verbosity::for_execution(self.verbose, self.quiet, self.explain)
     }
 }
 
@@ -431,5 +439,12 @@ mod tests {
         assert_eq!(Verbosity::from_counts(1, 1), Verbosity::Normal);
         assert_eq!(Verbosity::from_counts(2, 1), Verbosity::Verbose);
         assert_eq!(Verbosity::from_counts(1, 2), Verbosity::Quiet);
+    }
+
+    #[test]
+    fn explain_raises_execution_verbosity() {
+        use super::Verbosity;
+        assert_eq!(Verbosity::for_execution(0, 0, true), Verbosity::Verbose);
+        assert_eq!(Verbosity::for_execution(0, 1, true), Verbosity::Normal);
     }
 }

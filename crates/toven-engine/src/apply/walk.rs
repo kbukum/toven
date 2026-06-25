@@ -253,7 +253,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 .await?;
         }
 
-        let mut fail_fast_cancelled = false;
+        let mut teardown_cancelled = false;
         // A clone so the cancel future can be awaited in `select!` without
         // borrowing `self` (the other branch needs `&mut self`).
         let external_cancel = self.external_cancel.clone();
@@ -264,9 +264,9 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 // in-flight worker, then fall through to held teardown / pool
                 // shutdown so no child process is abandoned. Guarded so the
                 // already-ready cancelled future cannot busy-spin the loop.
-                () = external_cancel.cancelled(), if !fail_fast_cancelled => {
+                () = external_cancel.cancelled(), if !teardown_cancelled => {
                     pool.close();
-                    fail_fast_cancelled = true;
+                    teardown_cancelled = true;
                     for cancel in &cancels {
                         cancel.cancel();
                     }
@@ -288,17 +288,17 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 // `cancel_unscheduled` sweep emits its terminal `Cancelled`
                 // event and finishes its channel, so dropping the error here is
                 // safe rather than lossy.
-                Err(_error) if fail_fast_cancelled => continue,
+                Err(_error) if teardown_cancelled => continue,
                 Err(error) => return Err(error),
             };
             if failed && self.options.fail_fast {
                 pool.close();
-                fail_fast_cancelled = true;
+                teardown_cancelled = true;
                 for cancel in &cancels {
                     cancel.cancel();
                 }
             }
-            if !(fail_fast_cancelled || failed && self.options.fail_fast)
+            if !(teardown_cancelled || failed && self.options.fail_fast)
                 && let Some(group) = groups.values_mut().nth(group_index)
             {
                 self.submit_next(group_index, group, pool, &mut joins, &mut cancels)
