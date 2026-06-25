@@ -114,11 +114,13 @@ pub(crate) fn discover(
             ));
         }
 
-        let (workspace_id, workspace_root) = match &work_members {
-            Some(members) if members.contains(&module_root) => {
-                (workspace_id_for(&RepoPath::new(".")?)?, RepoPath::new(".")?)
-            }
-            _ => (workspace_id_for(&module_root)?, module_root.clone()),
+        let (workspace_id, workspace_root, is_work) = match &work_members {
+            Some(members) if members.contains(&module_root) => (
+                workspace_id_for(&RepoPath::new(".")?)?,
+                RepoPath::new(".")?,
+                true,
+            ),
+            _ => (workspace_id_for(&module_root)?, module_root.clone(), false),
         };
 
         if let std::collections::btree_map::Entry::Vacant(slot) =
@@ -129,7 +131,7 @@ pub(crate) fn discover(
                 workspace_root.clone(),
                 ToolchainTag::new(GO_TOOL),
             );
-            blast::annotate_workspace(&mut workspace, &workspace_root);
+            blast::annotate_workspace(&mut workspace, &workspace_root, is_work);
             slot.insert(workspace);
         }
 

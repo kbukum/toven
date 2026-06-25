@@ -89,6 +89,16 @@ fn go_work_groups_members_into_one_workspace_with_an_edge() {
     assert_eq!(edge.from, module_ref("app"));
     assert_eq!(edge.to, module_ref("core"));
     assert_eq!(edge.kind, DepKind::Normal);
+
+    // A go.work grouping keys its blast radius off the workspace-level
+    // go.work / go.work.sum, not a (nonexistent) root go.sum.
+    let globs = response.workspaces[0]
+        .metadata
+        .get("blast_radius")
+        .and_then(|v| v.as_array())
+        .expect("blast radius globs");
+    let globs: Vec<&str> = globs.iter().filter_map(|v| v.as_str()).collect();
+    assert_eq!(globs, ["go.work", "go.work.sum"]);
 }
 
 #[test]
