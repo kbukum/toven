@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use rskit_config::RawValue;
 use rskit_errors::{AppError, AppResult};
 use toven_model::EcosystemId;
-use toven_ports::{ConfiguredAdapter, Provider};
+use toven_ports::{ConfiguredAdapter, Provider, TaskKind};
 
 use crate::config::Document;
 
@@ -58,6 +58,37 @@ pub(super) fn configure(
         configured.insert(ecosystem.clone(), adapter);
     }
     Ok(configured)
+}
+
+/// The user-addressable task names declared across every configured ecosystem.
+///
+/// A name is "user-addressable" when it can be typed as `toven <name>`: either an
+/// explicit per-task `name` override or a [`TaskKind::Custom`] task's name. The
+/// canonical built-in kinds (`build`/`test`/… and the by-design `run` overlap)
+/// are excluded — only these names can genuinely collide with a reserved verb.
+/// The CLI uses this for load-time collision warnings without re-deriving the
+/// configuration itself.
+///
+/// # Errors
+/// Propagates `configure` failures (provider conflicts, subtree conversion, or
+/// a provider's `configure` rejection).
+pub fn addressable_task_names(
+    document: &Document,
+    providers: &[&dyn Provider],
+) -> AppResult<Vec<String>> {
+    let configured = configure(document, providers)?;
+    let mut names = Vec::new();
+    for adapter in configured.values() {
+        for task in adapter.default_tasks() {
+            let name = match (task.name, task.kind) {
+                (Some(explicit), _) => explicit,
+                (None, TaskKind::Custom(custom)) => custom,
+                (None, _) => continue,
+            };
+            names.push(name);
+        }
+    }
+    Ok(names)
 }
 
 /// Convert a `serde_json`-backed [`RawValue`] subtree into the [`toml::Value`]

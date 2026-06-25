@@ -1,0 +1,25 @@
+# The same Document as `dotted-keys.toml`, written with `[table]` headers.
+# Loading both must yield an identical `Document`.
+[project]
+name = "dotted-equivalence"
+root = "."
+base_ref = "origin/main"
+
+[toven]
+report = "json"
+max_parallel = 4
+
+[toven.cache]
+dir = ".toven/cache"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"
+
+[ecosystems.rust.release]
+strategy = "semver-cascade"
+registry = "crates-io"
+
+[ecosystems.rust.tasks.test]
+argv = ["cargo", "nextest", "run", "{module.selector}", "{args}"]
+cache_args = true

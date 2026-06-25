@@ -8,6 +8,7 @@ use toven_model::{CacheVerdict, Event, Phase, RunStats, UnitStatus};
 use toven_ports::Reporter;
 
 use super::exit::exit_code;
+use crate::flags::Verbosity;
 
 /// A [`Reporter`] that renders the Event stream as readable terminal text.
 ///
@@ -15,16 +16,41 @@ use super::exit::exit_code;
 /// `RunFinished` summary becomes an [`OutputKV`] block (rskit-cli). The same
 /// renderer serves a real run and an `--explain`/dry-run PLAN-only projection —
 /// it simply renders whatever subset of the stream it is given, so there is no
-/// bespoke plan-dump. Generic over the writer for testability;
-/// [`HumanReporter::stdout`] binds the process stdout.
+/// bespoke plan-dump. A [`Verbosity`] level filters how much of the stream is
+/// shown (quiet collapses to the run summary; verbose adds the per-phase,
+/// cache-decision, and unit-lifecycle detail). Generic over the writer for
+/// testability; [`HumanReporter::stderr`] binds the process stderr (progress
+/// and status are diagnostics, so stdout stays reserved for the machine
+/// projection).
 pub struct HumanReporter<W: Write> {
     writer: W,
+    level: Verbosity,
 }
 
 impl<W: Write> HumanReporter<W> {
-    /// Create a reporter that renders events to `writer`.
-    pub const fn new(writer: W) -> Self {
-        Self { writer }
+    /// Create a reporter that renders events to `writer` at `level`.
+    pub const fn new(writer: W, level: Verbosity) -> Self {
+        Self { writer, level }
+    }
+
+    /// Whether an event is rendered at the given verbosity level.
+    ///
+    /// Run start/finish always render; the plan line and terminal per-unit
+    /// results are suppressed only at [`Verbosity::Quiet`]; and the per-phase,
+    /// cache-decision, and intermediate unit-lifecycle lines render only at
+    /// [`Verbosity::Verbose`].
+    const fn renders(level: Verbosity, event: &Event) -> bool {
+        match event {
+            Event::RunStarted { .. } | Event::RunFinished { .. } => true,
+            Event::PlanPrepared { .. } | Event::UnitFinished { .. } => {
+                !matches!(level, Verbosity::Quiet)
+            }
+            Event::PhaseStarted { .. }
+            | Event::PhaseFinished { .. }
+            | Event::CacheDecided { .. }
+            | Event::UnitStarted { .. }
+            | Event::UnitReady { .. } => matches!(level, Verbosity::Verbose),
+        }
     }
 
     /// Consume the reporter and recover the underlying writer.
@@ -73,16 +99,23 @@ impl<W: Write> HumanReporter<W> {
     }
 }
 
-impl HumanReporter<io::Stdout> {
-    /// Create a reporter writing human-readable text to process stdout.
+impl HumanReporter<io::Stderr> {
+    /// Create a reporter writing human-readable text to process stderr at `level`.
+    ///
+    /// Progress, status, and the run summary are human-facing diagnostics, so
+    /// they land on stderr; stdout is reserved for the machine-parseable
+    /// projection (the Jsonl reporter) and any future structured stdout output.
     #[must_use]
-    pub fn stdout() -> Self {
-        Self::new(io::stdout())
+    pub fn stderr(level: Verbosity) -> Self {
+        Self::new(io::stderr(), level)
     }
 }
 
 impl<W: Write + Send> Reporter for HumanReporter<W> {
     fn emit(&mut self, event: &Event) -> AppResult<()> {
+        if !Self::renders(self.level, event) {
+            return Ok(());
+        }
         match event {
             Event::RunStarted {
                 run_id,
@@ -151,9 +184,14 @@ mod tests {
     use toven_ports::Reporter;
 
     use super::HumanReporter;
+    use crate::flags::Verbosity;
 
     fn render(events: &[Event]) -> String {
-        let mut reporter = HumanReporter::new(Vec::new());
+        render_at(Verbosity::Verbose, events)
+    }
+
+    fn render_at(level: Verbosity, events: &[Event]) -> String {
+        let mut reporter = HumanReporter::new(Vec::new(), level);
         for event in events {
             reporter.emit(event).expect("emit");
         }
@@ -306,5 +344,77 @@ summary
         ];
         let output = render(&events);
         assert_eq!(output, "  ready srv\n  torn-down srv\n");
+    }
+
+    /// The full stream every level test renders a subset of.
+    fn full_stream() -> Vec<Event> {
+        vec![
+            Event::RunStarted {
+                run_id: "r1".into(),
+                intent: "build".into(),
+                project: "toven".into(),
+            },
+            Event::PhaseStarted {
+                phase: Phase::Schedule,
+            },
+            Event::PhaseFinished {
+                phase: Phase::Schedule,
+            },
+            Event::PlanPrepared { waves: 1, units: 1 },
+            Event::CacheDecided {
+                unit_id: "rust:core#build".into(),
+                verdict: CacheVerdict::Miss,
+            },
+            Event::UnitStarted {
+                unit_id: "rust:core#build".into(),
+            },
+            Event::UnitFinished {
+                unit_id: "rust:core#build".into(),
+                status: UnitStatus::Succeeded,
+            },
+            Event::RunFinished {
+                summary: RunStats::new(1),
+            },
+        ]
+    }
+
+    #[test]
+    fn quiet_collapses_to_the_run_lines_and_summary() {
+        let output = render_at(Verbosity::Quiet, &full_stream());
+        // Run start + summary survive; everything in between is suppressed.
+        assert!(output.starts_with("run r1: build on toven\n"), "{output}");
+        assert!(output.contains("summary\n"), "{output}");
+        for noise in ["phase ", "plan:", "cache ", "  start ", "  ok "] {
+            assert!(!output.contains(noise), "quiet leaked {noise:?}: {output}");
+        }
+    }
+
+    #[test]
+    fn normal_shows_plan_and_terminal_results_but_not_intermediate_noise() {
+        let output = render_at(Verbosity::Normal, &full_stream());
+        assert!(output.contains("run r1: build on toven\n"), "{output}");
+        assert!(output.contains("plan: 1 units in 1 waves\n"), "{output}");
+        assert!(output.contains("  ok rust:core#build\n"), "{output}");
+        assert!(output.contains("summary\n"), "{output}");
+        // Per-phase, cache-decision, and unit-start lines are verbose-only.
+        for noise in ["phase ", "cache ", "  start "] {
+            assert!(!output.contains(noise), "normal leaked {noise:?}: {output}");
+        }
+    }
+
+    #[test]
+    fn verbose_renders_every_event() {
+        let output = render_at(Verbosity::Verbose, &full_stream());
+        for line in [
+            "run r1: build on toven\n",
+            "  phase schedule: started\n",
+            "plan: 1 units in 1 waves\n",
+            "  cache rust:core#build: miss\n",
+            "  start rust:core#build\n",
+            "  ok rust:core#build\n",
+            "summary\n",
+        ] {
+            assert!(output.contains(line), "verbose missing {line:?}: {output}");
+        }
     }
 }

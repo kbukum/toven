@@ -14,7 +14,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use tokio_util::sync::CancellationToken;
-use toven_model::UnitOutput;
+use toven_model::{OutputStream, UnitOutput};
 use toven_ports::{
     CommandRunner, HeldProcess, Invocation, OutputObserver, RunOutcome, StartOutcome,
 };
@@ -39,6 +39,7 @@ pub struct FakeCommandRunner {
     blocking: HashSet<String>,
     blocking_persistent: HashSet<String>,
     outputs: HashMap<String, Vec<UnitOutput>>,
+    teardown_outputs: HashMap<String, usize>,
     log: Arc<Mutex<RunLog>>,
     shutdowns: Arc<Mutex<Vec<String>>>,
     active: Arc<Mutex<HashSet<String>>>,
@@ -62,6 +63,7 @@ impl FakeCommandRunner {
             blocking: HashSet::new(),
             blocking_persistent: HashSet::new(),
             outputs: HashMap::new(),
+            teardown_outputs: HashMap::new(),
             log: Arc::new(Mutex::new(RunLog::default())),
             shutdowns: Arc::new(Mutex::new(Vec::new())),
             active: Arc::new(Mutex::new(HashSet::new())),
@@ -110,6 +112,21 @@ impl FakeCommandRunner {
     #[must_use]
     pub fn with_output(mut self, unit_id: impl Into<String>, output: Vec<UnitOutput>) -> Self {
         self.outputs.insert(unit_id.into(), output);
+        self
+    }
+
+    /// Make a persistent `unit_id` emit `count` raw output chunks *during
+    /// teardown* on a dedicated reader thread that applies real backpressure
+    /// (`blocking_send`) against the bounded live-output bridge.
+    ///
+    /// With a small `live_output_capacity` this fills the bridge while the
+    /// process is shutting down, so the reader thread parks until the APPLY
+    /// consumer drains it. It reproduces the production teardown-deadlock
+    /// shape: shutdown only completes once the consumer keeps draining live
+    /// output concurrently with the (off-thread) blocking shutdown.
+    #[must_use]
+    pub fn with_teardown_output(mut self, unit_id: impl Into<String>, count: usize) -> Self {
+        self.teardown_outputs.insert(unit_id.into(), count);
         self
     }
 
@@ -174,6 +191,10 @@ impl FakeCommandRunner {
 struct FakeHeldProcess {
     unit_id: String,
     shutdowns: Arc<Mutex<Vec<String>>>,
+    /// Live-output sink used to emit teardown chunks under backpressure.
+    observer: OutputObserver,
+    /// Number of chunks emitted during shutdown on a dedicated reader thread.
+    teardown_chunks: usize,
 }
 
 impl HeldProcess for FakeHeldProcess {
@@ -182,6 +203,28 @@ impl HeldProcess for FakeHeldProcess {
     }
 
     fn shutdown(self: Box<Self>) -> AppResult<()> {
+        // Mirror a real persistent process: a dedicated reader thread flushes
+        // final output (here via the live-output observer's `blocking_send`
+        // backpressure path) and shutdown joins it. If the APPLY consumer does
+        // not keep draining the bounded bridge concurrently with this blocking
+        // shutdown, the reader thread parks forever and teardown deadlocks.
+        if self.teardown_chunks > 0 {
+            let observer = self.observer.clone();
+            let unit_id = self.unit_id.clone();
+            let count = self.teardown_chunks;
+            let reader = std::thread::spawn(move || {
+                for index in 0..count {
+                    observer.emit(UnitOutput {
+                        unit_id: unit_id.clone(),
+                        stream: OutputStream::Stdout,
+                        bytes: format!("teardown-{index}").into_bytes(),
+                    });
+                }
+            });
+            reader.join().map_err(|_| {
+                AppError::new(ErrorCode::Internal, "teardown reader thread panicked")
+            })?;
+        }
         self.shutdowns
             .lock()
             .expect("shutdowns poisoned")
@@ -260,11 +303,18 @@ impl CommandRunner for FakeCommandRunner {
         for chunk in chunks {
             output.emit(chunk);
         }
+        let teardown_chunks = self
+            .teardown_outputs
+            .get(&unit_id)
+            .copied()
+            .unwrap_or_default();
         Ok(StartOutcome::Ready {
             output: Vec::new(),
             process: Box::new(FakeHeldProcess {
                 unit_id,
                 shutdowns: Arc::clone(&self.shutdowns),
+                observer: output,
+                teardown_chunks,
             }),
         })
     }

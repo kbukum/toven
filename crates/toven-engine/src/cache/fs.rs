@@ -88,52 +88,38 @@ fn marker_collision_error(path: &Path) -> AppError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
+    use rskit_fs::TempDir;
     use rskit_fs::sync_io::file;
     use toven_ports::{CacheStore, CacheWriter};
 
     use super::{FsContentCache, MAX_MARKER_BYTES};
 
-    fn temp_root() -> std::path::PathBuf {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        std::env::temp_dir().join(format!(
-            "toven-fs-cache-{}-{}",
-            std::process::id(),
-            COUNTER.fetch_add(1, Ordering::Relaxed)
-        ))
-    }
-
     #[test]
     fn miss_then_hit_after_record() {
-        let root = temp_root();
-        let cache = FsContentCache::new(&root);
+        let root = TempDir::new().unwrap();
+        let cache = FsContentCache::new(root.path());
 
         assert!(!cache.contains("key-a").unwrap());
         cache.record("key-a").unwrap();
         assert!(cache.contains("key-a").unwrap());
         // A distinct key is independent.
         assert!(!cache.contains("key-b").unwrap());
-
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn record_is_idempotent() {
-        let root = temp_root();
-        let cache = FsContentCache::new(&root);
+        let root = TempDir::new().unwrap();
+        let cache = FsContentCache::new(root.path());
 
         cache.record("key").unwrap();
         cache.record("key").unwrap();
         assert!(cache.contains("key").unwrap());
-
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn marker_with_mismatched_key_is_a_conflict() {
-        let root = temp_root();
-        let cache = FsContentCache::new(&root);
+        let root = TempDir::new().unwrap();
+        let cache = FsContentCache::new(root.path());
         let path = cache.marker_path("key");
         file::create_parent_dir(&path).unwrap();
         file::write_atomic(&path, b"some-other-key", "toven-cache-test").unwrap();
@@ -142,21 +128,17 @@ mod tests {
             .contains("key")
             .expect_err("a key mismatch at the shard path must fail loudly");
         assert_eq!(error.code(), rskit_errors::ErrorCode::Conflict);
-
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn oversized_marker_file_is_rejected() {
-        let root = temp_root();
-        let cache = FsContentCache::new(&root);
+        let root = TempDir::new().unwrap();
+        let cache = FsContentCache::new(root.path());
         let path = cache.marker_path("key");
         file::create_parent_dir(&path).unwrap();
         let oversized = vec![b'x'; usize::try_from(MAX_MARKER_BYTES).unwrap() + 1];
         file::write_atomic(&path, oversized, "toven-cache-test").unwrap();
 
         assert!(cache.contains("key").is_err());
-
-        let _ = std::fs::remove_dir_all(root);
     }
 }

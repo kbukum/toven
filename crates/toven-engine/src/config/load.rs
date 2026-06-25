@@ -91,10 +91,12 @@ fn resolve_includes(path: &Path, raw: &RawValue) -> AppResult<Vec<PathBuf>> {
         let relative = entry
             .as_str()
             .ok_or_else(|| AppError::invalid_input(&field, "include entries must be strings"))?;
-        validate_safe_path(relative)
-            .map_err(|error| AppError::invalid_input(&field, error.to_string()))?;
-        let joined = safe_join(base, relative)
-            .map_err(|error| AppError::invalid_input(&field, error.to_string()))?;
+        validate_safe_path(relative).map_err(|error| {
+            AppError::invalid_input(&field, error.to_string()).with_cause(error)
+        })?;
+        let joined = safe_join(base, relative).map_err(|error| {
+            AppError::invalid_input(&field, error.to_string()).with_cause(error)
+        })?;
         resolved.push(joined);
     }
     Ok(resolved)

@@ -75,8 +75,9 @@ impl FsSourceDigest {
 
 impl SourceDigest for FsSourceDigest {
     fn module(&self, module: &Module) -> AppResult<String> {
-        let root = safe_join(&self.project_root, module.root.as_path())
-            .map_err(|error| AppError::invalid_input("module.root", error.to_string()))?;
+        let root = safe_join(&self.project_root, module.root.as_path()).map_err(|error| {
+            AppError::invalid_input("module.root", error.to_string()).with_cause(error)
+        })?;
         if !root.is_dir() {
             return Ok(empty_digest());
         }
@@ -84,8 +85,9 @@ impl SourceDigest for FsSourceDigest {
     }
 
     fn path(&self, repo_relative: &Path) -> AppResult<String> {
-        let absolute = safe_join(&self.project_root, repo_relative)
-            .map_err(|error| AppError::invalid_input("shared_inputs", error.to_string()))?;
+        let absolute = safe_join(&self.project_root, repo_relative).map_err(|error| {
+            AppError::invalid_input("shared_inputs", error.to_string()).with_cause(error)
+        })?;
         // A shared input may be a file or a directory; `file::exists` is true
         // only for regular files, so directories are detected separately and
         // hashed as a subtree, matching the documented file-or-directory shape.

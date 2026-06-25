@@ -7,15 +7,21 @@ Toven stores local successful-result cache records outside the repository by def
 The default path is workspace-specific and versioned:
 
 ```text
-<platform-user-cache>/toven/workspaces/<workspace-hash>/v3
+<platform-user-cache>/toven/<workspace-hash>/v3
 ```
 
 The `v3` segment is the task-cache record/key format version. Toven starts a new directory when that format changes instead of trying to read incompatible records.
 
+Resolution follows a fixed precedence (highest first): the `TOVEN_CACHE_DIR` environment override (an absolute base), then a workspace-relative `[toven.cache].dir`, then the platform user-cache directory namespaced by a stable hash of the workspace root. Each appends the current cache format version.
+
 Use `TOVEN_CACHE_DIR` to override the base cache directory for CI or benchmark isolation:
 
 ```bash
-TOVEN_CACHE_DIR=/tmp/toven-cache toven check
+TOVEN_CACHE_DIR=/absolute/path/to/toven-cache toven check
+```
+
+```powershell
+$Env:TOVEN_CACHE_DIR = "C:\cache\toven"; toven check
 ```
 
 The override must be an absolute path. Toven still appends the current cache format version, such as `v3`.
@@ -23,31 +29,32 @@ The override must be an absolute path. Toven still appends the current cache for
 To opt into repository-local cache records:
 
 ```toml
-[cache]
-location = "workspace"
+[toven.cache]
+dir = ".toven/cache"
 ```
 
 Workspace-local cache records live under `.toven/cache/v3` and should not be committed.
 
 ## Cache modes during execution
 
-| Mode | Command | Behavior |
-|------|---------|----------|
-| Default | `toven check` | Read existing records and write fresh success records. |
-| Force | `toven check --force` | Skip cache reads, run work, and write fresh success records. |
-| Disabled | `toven check --no-cache` | Disable cache reads and writes for that invocation. |
+Run output and JSONL cache events distinguish three execution cache states. The default state is active today; explicit per-invocation overrides (force/disable) land as the redesign steps complete.
 
-## `toven cache stats`, `toven cache info`
+| Mode | Behavior |
+|------|----------|
+| Default | Read existing records and write fresh success records. |
+| Force | Skip cache reads, run work, and write fresh success records. |
+| Disabled | Disable cache reads and writes for that invocation. |
 
-Shows local cache size and age information:
+## `toven cache stats`
+
+Shows the resolved local cache directory and its size:
 
 ```bash
 toven cache stats
-toven cache info
 toven cache stats --config path/to/toven.toml
 ```
 
-The command loads the workspace root from config and inspects the Toven cache directory. It reports cache directory, entry count, total bytes, oldest/newest entry age, and notes that hit rate is per-run only.
+The command loads the workspace root from config and inspects the Toven cache directory. It reports the cache directory path, the entry count, and the total bytes on disk.
 
 ## `toven cache path`
 
@@ -58,19 +65,18 @@ toven cache path
 toven cache path --config path/to/toven.toml
 ```
 
-Use this when you need to verify whether Toven is using the default user cache, `TOVEN_CACHE_DIR`, or workspace-local cache.
+Use this when you need to verify whether Toven is using the default user cache, `TOVEN_CACHE_DIR`, or `toven.cache.dir`.
 
-## `toven cache clean`, `toven cache clear`
+## `toven cache clean`
 
 Removes local cache records for the workspace:
 
 ```bash
 toven cache clean
-toven cache clear
 toven cache clean --config path/to/toven.toml
 ```
 
-Missing cache directories are treated as already clean. The command reports how many entries and bytes were removed.
+Missing cache directories are treated as already clean. The command reports whether it removed the cache directory or found it already absent.
 
 ## What invalidates cache
 
@@ -80,7 +86,7 @@ Cache decisions include task inputs such as:
 - dependency results
 - task argv and task configuration
 - shared inputs declared by the task
-- adapter-provided toolchain version probes, such as Cargo and rustc for Rust profiles
+- adapter-provided toolchain version probes, such as Cargo and rustc for Rust ecosystems
 - relevant toolchain/config files when configured as shared inputs, such as `rust-toolchain.toml`
 - passthrough args when `cache_args = true`
 

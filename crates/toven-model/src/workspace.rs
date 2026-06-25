@@ -2,10 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    identity::{RepoPath, WorkspaceId},
-    metadata::Metadata,
-};
+use crate::identity::{RepoPath, WorkspaceId};
 
 /// Driver identity for a workspace, folded into every unit's cache key.
 ///
@@ -52,20 +49,23 @@ pub struct Workspace {
     pub root: RepoPath,
     /// Resolved driver identity for this workspace.
     pub toolchain: ToolchainTag,
-    /// Freeform adapter data (e.g. shared target dir for resource grouping).
+    /// Workspace-wide blast-radius input globs: a change to any path matching one
+    /// of these activates every member of the workspace (e.g. a shared
+    /// `Cargo.lock`). Adapter-set during discovery; empty leaves only per-module
+    /// source patterns to drive change detection.
     #[serde(default)]
-    pub metadata: Metadata,
+    pub blast_radius: Vec<String>,
 }
 
 impl Workspace {
-    /// Construct a workspace with empty metadata.
+    /// Construct a workspace with an empty blast radius.
     #[must_use]
     pub const fn new(id: WorkspaceId, root: RepoPath, toolchain: ToolchainTag) -> Self {
         Self {
             id,
             root,
             toolchain,
-            metadata: Metadata::new(),
+            blast_radius: Vec::new(),
         }
     }
 }

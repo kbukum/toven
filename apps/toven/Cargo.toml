@@ -1,0 +1,27 @@
+[package]
+name = "toven"
+description = "Toven — the umbrella CLI bundling the Rust, Go, and command adapters"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "toven"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+toven-cli.workspace = true
+toven-ports.workspace = true
+toven-rust.workspace = true
+toven-go.workspace = true
+toven-command.workspace = true
+rskit-cli.workspace = true
+rskit-errors.workspace = true
+
+[lints]
+workspace = true

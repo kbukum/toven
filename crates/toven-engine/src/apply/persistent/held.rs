@@ -44,6 +44,17 @@ impl SharedHeldProcess {
         }
         Ok(())
     }
+
+    /// Shut the process down on a blocking thread, so an async caller can keep
+    /// draining the bounded live-output bridge while shutdown waits on the
+    /// process's reader threads to join. Running [`shutdown`](Self::shutdown)
+    /// inline on the runtime would stall draining and risk deadlocking a reader
+    /// thread parked in `blocking_send`.
+    pub(in crate::apply) async fn shutdown_offloaded(self) -> AppResult<()> {
+        tokio::task::spawn_blocking(move || self.shutdown())
+            .await
+            .map_err(AppError::internal)?
+    }
 }
 
 struct HeldEntry {
@@ -104,13 +115,17 @@ impl HeldSet {
         ready
     }
 
-    /// Tear down one held unit if present.
-    pub(in crate::apply) fn teardown_one(&mut self, unit_id: &str) -> AppResult<bool> {
-        let Some(entry) = self.entries.remove(unit_id) else {
-            return Ok(false);
-        };
-        entry.process.shutdown()?;
-        Ok(true)
+    /// Remove one held unit and hand back its process handle for teardown.
+    ///
+    /// Returns `None` when the unit is not (or no longer) held. The caller runs
+    /// the blocking shutdown off-thread via
+    /// [`SharedHeldProcess::shutdown_offloaded`] while it keeps draining live
+    /// output, so a process parked on a full bounded bridge can still join.
+    pub(in crate::apply) fn take_for_teardown(
+        &mut self,
+        unit_id: &str,
+    ) -> Option<SharedHeldProcess> {
+        self.entries.remove(unit_id).map(|entry| entry.process)
     }
 
     /// Tear down everything still held through the registry's LIFO backstop.

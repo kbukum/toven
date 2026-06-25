@@ -1,21 +1,15 @@
 //! Blast-radius and resource-group annotations layered onto discovered units.
 //!
-//! These are go-specific defaults the planner reads back through opaque
-//! [`Metadata`]: every module grouped under one workspace shares the workspace's
-//! checksum file (a blast-radius input) and contends on one build cache (a
-//! serialization resource), so they are grouped by workspace root. The
-//! workspace-level checksum differs by grouping: a `go.work` workspace pins
-//! resolved versions in `go.work.sum` (and the `go.work` manifest itself selects
-//! its members), whereas a lone module pins them in its own `go.sum`.
+//! These are go-specific defaults the planner reads back through the typed
+//! [`Module::resource_group`] and [`Workspace::blast_radius`] fields: every
+//! module grouped under one workspace shares the workspace's checksum file (a
+//! blast-radius input) and contends on one build cache (a serialization
+//! resource), so they are grouped by workspace root. The workspace-level checksum
+//! differs by grouping: a `go.work` workspace pins resolved versions in
+//! `go.work.sum` (and the `go.work` manifest itself selects its members), whereas
+//! a lone module pins them in its own `go.sum`.
 
-use serde_json::Value;
 use toven_model::{Module, RepoPath, Workspace};
-
-/// Metadata key carrying a module's default serialization resource group.
-pub(crate) const RESOURCE_GROUP_KEY: &str = "resource_group";
-
-/// Metadata key carrying a workspace's blast-radius input globs.
-pub(crate) const BLAST_RADIUS_KEY: &str = "blast_radius";
 
 /// The checksum file a lone (non-`go.work`) module shares.
 const MODULE_SUM_FILE: &str = "go.sum";
@@ -26,13 +20,10 @@ const WORK_FILE: &str = "go.work";
 /// The workspace-level checksum file a `go.work` grouping shares.
 const WORK_SUM_FILE: &str = "go.work.sum";
 
-/// Stamp the default `resource_group` (`go:<workspace-root>`) on a module so the
+/// Stamp the default resource group (`go:<workspace-root>`) on a module so the
 /// executor serializes `go` invocations that contend on one build cache.
 pub(crate) fn annotate_module(module: &mut Module, workspace_root: &RepoPath) {
-    module.metadata.insert(
-        RESOURCE_GROUP_KEY.to_string(),
-        Value::String(resource_group(workspace_root)),
-    );
+    module.resource_group = Some(resource_group(workspace_root));
 }
 
 /// Stamp the workspace-wide blast-radius globs so a checksum change invalidates
@@ -49,13 +40,10 @@ pub(crate) fn annotate_workspace(
     } else {
         &[MODULE_SUM_FILE]
     };
-    let globs = files
+    workspace.blast_radius = files
         .iter()
-        .map(|file| Value::String(root_relative(workspace_root, file)))
+        .map(|file| root_relative(workspace_root, file))
         .collect();
-    workspace
-        .metadata
-        .insert(BLAST_RADIUS_KEY.to_string(), Value::Array(globs));
 }
 
 /// The `go:<workspace-root>` resource-group label.
@@ -75,12 +63,11 @@ fn root_relative(workspace_root: &RepoPath, file: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::Value;
     use toven_model::{
         EcosystemId, Module, ModuleRef, RepoPath, ToolchainTag, Workspace, WorkspaceId,
     };
 
-    use super::{BLAST_RADIUS_KEY, RESOURCE_GROUP_KEY, annotate_module, annotate_workspace};
+    use super::{annotate_module, annotate_workspace};
 
     fn module() -> Module {
         let id = ModuleRef::new(EcosystemId::new("go").unwrap(), "app").unwrap();
@@ -91,10 +78,7 @@ mod tests {
     fn module_gets_workspace_scoped_resource_group() {
         let mut m = module();
         annotate_module(&mut m, &RepoPath::new(".").unwrap());
-        assert_eq!(
-            m.metadata.get(RESOURCE_GROUP_KEY),
-            Some(&Value::String("go:.".to_string()))
-        );
+        assert_eq!(m.resource_group.as_deref(), Some("go:."));
     }
 
     #[test]
@@ -105,10 +89,7 @@ mod tests {
             ToolchainTag::new("go"),
         );
         annotate_workspace(&mut ws, &RepoPath::new(".").unwrap(), false);
-        assert_eq!(
-            ws.metadata.get(BLAST_RADIUS_KEY),
-            Some(&Value::Array(vec![Value::String("go.sum".to_string())]))
-        );
+        assert_eq!(ws.blast_radius, vec!["go.sum".to_string()]);
     }
 
     #[test]
@@ -120,11 +101,8 @@ mod tests {
         );
         annotate_workspace(&mut ws, &RepoPath::new(".").unwrap(), true);
         assert_eq!(
-            ws.metadata.get(BLAST_RADIUS_KEY),
-            Some(&Value::Array(vec![
-                Value::String("go.work".to_string()),
-                Value::String("go.work.sum".to_string()),
-            ]))
+            ws.blast_radius,
+            vec!["go.work".to_string(), "go.work.sum".to_string()]
         );
     }
 
@@ -136,9 +114,6 @@ mod tests {
             ToolchainTag::new("go"),
         );
         annotate_workspace(&mut ws, &RepoPath::new("svc").unwrap(), false);
-        assert_eq!(
-            ws.metadata.get(BLAST_RADIUS_KEY),
-            Some(&Value::Array(vec![Value::String("svc/go.sum".to_string())]))
-        );
+        assert_eq!(ws.blast_radius, vec!["svc/go.sum".to_string()]);
     }
 }

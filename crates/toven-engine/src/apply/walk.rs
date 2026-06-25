@@ -31,6 +31,8 @@ pub(super) struct Walker<'a, S: RawOutputSink> {
     held: HeldSet,
     stats: RunStats,
     dropped_output: Arc<AtomicUsize>,
+    /// Cooperative external cancellation (Ctrl+C); fires the fail-fast teardown.
+    external_cancel: CancellationToken,
 }
 
 impl<'a, S: RawOutputSink> Walker<'a, S> {
@@ -41,6 +43,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         output: &'a mut UnitOutputChannel<S>,
         options: ApplyOptions,
         dropped_output: Arc<AtomicUsize>,
+        external_cancel: CancellationToken,
     ) -> Self {
         let mut stats = RunStats::new(plan.units.len());
         for unit in &plan.units {
@@ -62,6 +65,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             held: HeldSet::new(plan),
             stats,
             dropped_output,
+            external_cancel,
         }
     }
 
@@ -120,7 +124,12 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         live_output: &mut Receiver<toven_model::UnitOutput>,
     ) -> AppResult<()> {
         for wave in &self.plan.waves {
-            if self.options.fail_fast && self.stats.has_failures() {
+            // Stop launching new waves once fail-fast tripped or Ctrl+C fired;
+            // the post-run `cancel_unscheduled` sweep emits the terminal
+            // `Cancelled` events for whatever stayed `Pending`.
+            if self.external_cancel.is_cancelled()
+                || (self.options.fail_fast && self.stats.has_failures())
+            {
                 break;
             }
             self.run_wave(wave, pool, live_output).await?;
@@ -219,7 +228,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             }
             let unit = self.unit(unit_id)?;
             if unit.cache.is_hit() {
-                self.cached(unit_id)?;
+                self.cached(unit_id, live_output).await?;
                 continue;
             }
             let group = unit
@@ -244,9 +253,25 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 .await?;
         }
 
-        let mut fail_fast_cancelled = false;
+        let mut teardown_cancelled = false;
+        // A clone so the cancel future can be awaited in `select!` without
+        // borrowing `self` (the other branch needs `&mut self`).
+        let external_cancel = self.external_cancel.clone();
         while !joins.is_empty() {
             let joined = tokio::select! {
+                // Ctrl+C (or any external cancel): fire the same teardown a
+                // fail-fast failure does — stop scheduling, SIGTERM every
+                // in-flight worker, then fall through to held teardown / pool
+                // shutdown so no child process is abandoned. Guarded so the
+                // already-ready cancelled future cannot busy-spin the loop.
+                () = external_cancel.cancelled(), if !teardown_cancelled => {
+                    pool.close();
+                    teardown_cancelled = true;
+                    for cancel in &cancels {
+                        cancel.cancel();
+                    }
+                    continue;
+                }
                 Some(chunk) = live_output.recv() => {
                     self.output.push(chunk)?;
                     continue;
@@ -258,22 +283,22 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             };
             let (group_index, unit_id, result) = joined.map_err(AppError::internal)?;
             let failed = match result {
-                Ok(outcome) => self.finish_result(&unit_id, outcome)?,
+                Ok(outcome) => self.finish_result(&unit_id, outcome, live_output).await?,
                 // A cancelled worker leaves its unit `Pending`; the post-wave
                 // `cancel_unscheduled` sweep emits its terminal `Cancelled`
                 // event and finishes its channel, so dropping the error here is
                 // safe rather than lossy.
-                Err(_error) if fail_fast_cancelled => continue,
+                Err(_error) if teardown_cancelled => continue,
                 Err(error) => return Err(error),
             };
             if failed && self.options.fail_fast {
                 pool.close();
-                fail_fast_cancelled = true;
+                teardown_cancelled = true;
                 for cancel in &cancels {
                     cancel.cancel();
                 }
             }
-            if !(fail_fast_cancelled || failed && self.options.fail_fast)
+            if !(teardown_cancelled || failed && self.options.fail_fast)
                 && let Some(group) = groups.values_mut().nth(group_index)
             {
                 self.submit_next(group_index, group, pool, &mut joins, &mut cancels)
@@ -308,15 +333,21 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         Ok(())
     }
 
-    fn finish_result(&mut self, unit_id: &str, result: WorkOutcome) -> AppResult<bool> {
+    async fn finish_result(
+        &mut self,
+        unit_id: &str,
+        result: WorkOutcome,
+        live_output: &mut Receiver<toven_model::UnitOutput>,
+    ) -> AppResult<bool> {
         match result {
             WorkOutcome::Normal { success, output } => {
                 self.route_output(unit_id, output)?;
                 if success {
-                    self.succeeded(unit_id)?;
+                    self.succeeded(unit_id, live_output).await?;
                     Ok(false)
                 } else {
-                    self.failed(unit_id, UnitStatus::Failed)?;
+                    self.failed(unit_id, UnitStatus::Failed, live_output)
+                        .await?;
                     Ok(true)
                 }
             }
@@ -328,7 +359,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 })?;
                 self.stats.ran_units += 1;
                 self.gate.satisfy(unit_id);
-                self.drain_dependents(unit_id)?;
+                self.drain_dependents(unit_id, live_output).await?;
                 Ok(false)
             }
             WorkOutcome::FailedReadiness { output } => {
@@ -338,13 +369,18 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 // emitted are still flushed by a later `drain_live_output`
                 // instead of being dropped as a fresh unregistered unit.
                 self.route_output_chunks(output)?;
-                self.failed(unit_id, UnitStatus::FailedReadiness)?;
+                self.failed(unit_id, UnitStatus::FailedReadiness, live_output)
+                    .await?;
                 Ok(true)
             }
         }
     }
 
-    fn cached(&mut self, unit_id: &str) -> AppResult<()> {
+    async fn cached(
+        &mut self,
+        unit_id: &str,
+        live_output: &mut Receiver<toven_model::UnitOutput>,
+    ) -> AppResult<()> {
         self.stats.cached_units += 1;
         self.gate.satisfy(unit_id);
         // A cache hit produces no output, but the unit was registered with a
@@ -355,10 +391,14 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             unit_id: unit_id.to_string(),
             status: UnitStatus::Cached,
         })?;
-        self.drain_dependents(unit_id)
+        self.drain_dependents(unit_id, live_output).await
     }
 
-    fn succeeded(&mut self, unit_id: &str) -> AppResult<()> {
+    async fn succeeded(
+        &mut self,
+        unit_id: &str,
+        live_output: &mut Receiver<toven_model::UnitOutput>,
+    ) -> AppResult<()> {
         let unit = self.unit(unit_id)?;
         record_success(unit, self.cache)?;
         self.stats.ran_units += 1;
@@ -367,10 +407,15 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             unit_id: unit_id.to_string(),
             status: UnitStatus::Succeeded,
         })?;
-        self.drain_dependents(unit_id)
+        self.drain_dependents(unit_id, live_output).await
     }
 
-    fn failed(&mut self, unit_id: &str, status: UnitStatus) -> AppResult<()> {
+    async fn failed(
+        &mut self,
+        unit_id: &str,
+        status: UnitStatus,
+        live_output: &mut Receiver<toven_model::UnitOutput>,
+    ) -> AppResult<()> {
         match status {
             UnitStatus::FailedReadiness => self.stats.failed_readiness_units += 1,
             UnitStatus::Failed => self.stats.failed_units += 1,
@@ -380,21 +425,28 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             unit_id: unit_id.to_string(),
             status,
         })?;
-        self.drain_dependents(unit_id)?;
+        self.drain_dependents(unit_id, live_output).await?;
         for blocked in self.gate.fail_and_block_dependents(unit_id) {
             self.stats.blocked_units += 1;
             self.reporter.emit(&Event::UnitFinished {
                 unit_id: blocked.clone(),
                 status: UnitStatus::Blocked,
             })?;
-            self.drain_dependents(&blocked)?;
+            self.drain_dependents(&blocked, live_output).await?;
         }
         Ok(())
     }
 
-    fn drain_dependents(&mut self, unit_id: &str) -> AppResult<()> {
+    /// Tear down any held persistent units whose dependents just drained, while
+    /// continuing to drain live output so a process parked on a full bounded
+    /// bridge can make progress and join.
+    async fn drain_dependents(
+        &mut self,
+        unit_id: &str,
+        live_output: &mut Receiver<toven_model::UnitOutput>,
+    ) -> AppResult<()> {
         for held_id in self.held.dependent_finished(unit_id) {
-            if self.held.teardown_one(&held_id)? {
+            if self.teardown_held_unit(&held_id, live_output).await? {
                 // Held units are persistent (live mode): no buffered block to
                 // flush, and finishing would clear their mode and risk dropping
                 // late chunks. Leave the unit live so any final output drains
@@ -406,6 +458,50 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             }
         }
         Ok(())
+    }
+
+    /// Shut down one held unit, draining live output concurrently with the
+    /// blocking process shutdown. The shutdown runs on a blocking thread (via
+    /// [`SharedHeldProcess::shutdown_offloaded`]); this loop keeps pulling from
+    /// the bounded live-output bridge so a reader thread parked in
+    /// `blocking_send` can drain and the process can join instead of deadlocking.
+    /// Returns whether a held unit was present and torn down.
+    async fn teardown_held_unit(
+        &mut self,
+        held_id: &str,
+        live_output: &mut Receiver<toven_model::UnitOutput>,
+    ) -> AppResult<bool> {
+        let Some(process) = self.held.take_for_teardown(held_id) else {
+            return Ok(false);
+        };
+        let output = &mut *self.output;
+        let shutdown = process.shutdown_offloaded();
+        tokio::pin!(shutdown);
+        let mut output_error: Option<rskit_errors::AppError> = None;
+        loop {
+            tokio::select! {
+                result = &mut shutdown => {
+                    result?;
+                    // After shutdown completes, drain whatever the process
+                    // flushed last, dropping chunks only if the sink itself
+                    // already failed (best-effort, never silent loss).
+                    while let Ok(chunk) = live_output.try_recv() {
+                        if output_error.is_none() && let Err(e) = output.push(chunk) {
+                            output_error = Some(e);
+                        }
+                    }
+                    if let Some(err) = output_error {
+                        return Err(err);
+                    }
+                    return Ok(true);
+                }
+                Some(chunk) = live_output.recv() => {
+                    if output_error.is_none() && let Err(e) = output.push(chunk) {
+                        output_error = Some(e);
+                    }
+                }
+            }
+        }
     }
 
     fn route_output(

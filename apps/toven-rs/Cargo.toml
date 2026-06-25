@@ -1,0 +1,25 @@
+[package]
+name = "toven-rs"
+description = "Toven for Rust workspaces: the engine + the Rust adapter wired into a standalone CLI"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "toven-rs"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+toven-cli.workspace = true
+toven-ports.workspace = true
+toven-rust.workspace = true
+rskit-cli.workspace = true
+rskit-errors.workspace = true
+
+[lints]
+workspace = true

@@ -8,7 +8,7 @@ Toven is a fast, argv-first development and CI task planner for multi-module rep
 
 **Pre-alpha, mid-redesign.** The workspace is being rebuilt into a hexagonal `crates/*` + `apps/*` stack. Today only the [`toven-model`](crates/toven-model) vocabulary crate (identity, dependency graph, plan, and event types plus the pure graph algorithms) is in the workspace.
 
-The product surface below — strict configuration loading, Rust workspace discovery, dependency-aware batching, affected-module planning, command execution, cache-backed skipping, affected/cache explanation, watch-mode reruns, persistent task readiness, developer workflow inspection commands, adapter-owned default tasks, multi-manifest discovery, cross-scope dependency overlays, and the `toven generate` adoption workflow — describes the **target** behavior that returns as the redesign steps land. Additional discovery adapters arrive in follow-up steps.
+The product surface below — strict configuration loading, Rust workspace discovery, dependency-aware batching, affected-module planning, command execution, cache-backed skipping, affected/cache explanation, watch-mode reruns, persistent task readiness, developer workflow inspection commands, adapter-owned default tasks, multi-manifest discovery, cross-ecosystem dependency overlays, and the `toven generate` adoption workflow — describes the **target** behavior that returns as the redesign steps land. Additional discovery adapters arrive in follow-up steps.
 
 Toven is not published to crates.io yet. Until the first alpha release, install from source after cloning the repository.
 
@@ -37,7 +37,7 @@ Stable project documentation lives in [`docs/`](docs/). Start with [`Installatio
 
 Toven loads strict TOML from `toven.toml`. Unknown fields are rejected early, project roots are resolved relative to the config file, and command templates are validated before planning.
 
-Use `toven generate` to create an initial reviewable config. By default it prints TOML to stdout; `--write` creates `root/toven.toml`, and `--overwrite` is required before replacing an existing config. Rust generation emits profile-level Cargo manifest discovery plus explicit standard Rust task argv; pass repeated `--manifest path/to/Cargo.toml` values for repositories with multiple independent manifests.
+Use `toven generate` to create an initial reviewable config. By default it prints TOML to stdout; `--write` creates `root/toven.toml`, and `--overwrite` is required before replacing an existing config. Rust generation emits ecosystem-level Cargo manifest discovery plus explicit standard Rust task argv; pass repeated `--manifest path/to/Cargo.toml` values for repositories with multiple independent manifests.
 
 Very small hand-written Rust configs can still rely on adapter-provided fallback Rust tasks:
 
@@ -46,14 +46,12 @@ Very small hand-written Rust configs can still rely on adapter-provided fallback
 name = "demo"
 root = "."
 
-[profiles.main]
-adapter = "rust"
-execution = "batch-ready"
-module_arg_template = ["-p", "{module.package}"]
-resource_group = "cargo:{project.root}"
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"
 ```
 
-Repositories with multiple Cargo manifests configure those as Rust adapter discovery options. Scopes are optional named overrides when a subset needs different discovery, execution, or task behavior.
+Repositories with multiple Cargo manifests list them under the Rust ecosystem's discovery options. Per-task argv overrides are optional named entries under `[ecosystems.<id>.tasks.<name>]` when a task needs different command or caching behavior.
 
 ```toml
 [project]
@@ -61,26 +59,22 @@ name = "rskit"
 root = "."
 base_ref = "origin/main"
 
-[profiles.main]
-adapter = "rust"
-execution = "batch-ready"
-module_arg_template = ["-p", "{module.package}"]
-resource_group = "cargo:{project.root}"
-
-[profiles.main.discovery]
+[ecosystems.rust]
 manifests = ["core/Cargo.toml", "contrib/Cargo.toml"]
+run_strategy = "leaf-to-top"
 
-[profiles.main.tasks]
-nextest = { argv = ["cargo", "nextest", "run", "--manifest-path", "{module.manifest}", "-p", "{module.package}", "{args}"], cache_args = true }
+[ecosystems.rust.tasks.nextest]
+argv = ["cargo", "nextest", "run", "--manifest-path", "{module.manifest}", "-p", "{module.package}", "{args}"]
+cache_args = true
 
 [[overlays]]
-from = { scope = "app", module = "api" }
-to = { scope = "lib", module = "shared" }
+from = { ecosystem = "go", module = "api" }
+to = { ecosystem = "rust", module = "shared-types" }
 ```
 
 Overlays are only for relationships an adapter cannot infer safely. Native Rust discovery infers local Cargo path dependencies across configured manifests.
 
-Run a task directly with `toven <task>` or `toven run <task>` when the task name matches a built-in subcommand. Successful executions write local cache records under `.toven/cache/`, and later runs skip modules whose exact source, dependency, task, toolchain, shared-input, and cache-format inputs still match. Use `--force` to skip cache reads while writing fresh success records, or `--no-cache` to disable reads and writes. Use `--output jsonl` to reserve stdout for stable newline-delimited run events; subprocess stdout is redirected to stderr in JSONL mode so event consumers can parse every stdout line as JSON. JSONL includes plan metadata, plan units, cache decisions, unit lifecycle, persistent readiness, and final run summaries.
+Run a task directly with `toven <task>` or `toven run <task>` when the task name matches a built-in subcommand. Successful executions write cache records under the platform user-cache directory by default (`<app-cache>/toven/<workspace-hash>/v3`); set `TOVEN_CACHE_DIR` (an absolute path) or a workspace-relative `[toven.cache].dir` to relocate them. Later runs skip modules whose exact source, dependency, task, toolchain, shared-input, and cache-format inputs still match. Use `--force` to skip cache reads while writing fresh success records, or `--no-cache` to disable reads and writes. Use `--output jsonl` to reserve stdout for stable newline-delimited run events; subprocess stdout is redirected to stderr in JSONL mode so event consumers can parse every stdout line as JSON. JSONL includes plan metadata, plan units, cache decisions, unit lifecycle, persistent readiness, and final run summaries.
 
 Affected planning narrows a plan to modules changed since a git baseline plus their reverse dependents:
 
@@ -104,8 +98,10 @@ Set `project.base_ref` in `toven.toml` to provide a default baseline. Without `-
 Passthrough args disable cache by default because arbitrary flags can change command semantics. For task definitions where passthrough args are deterministic and should be part of the task key, set `cache_args = true`:
 
 ```toml
-[profiles.main.tasks]
-test = { argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"], cache_args = true, shared_inputs = ["Cargo.lock", "rust-toolchain.toml"] }
+[ecosystems.rust.tasks.test]
+argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"]
+cache_args = true
+shared_inputs = ["Cargo.lock", "rust-toolchain.toml"]
 ```
 
 `shared_inputs` are plain workspace-relative files or directories that invalidate every module using the task. They intentionally do not support templates, globs, `.` components, parent paths, or absolute paths; use explicit canonical-looking paths such as `Cargo.lock` instead of `./Cargo.lock` for workspace manifests, lockfiles, toolchain files, lint config, and CI-relevant config.
@@ -113,8 +109,11 @@ test = { argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{modu
 Persistent tasks opt out of cache automatically and can declare when they are ready. Readiness can be immediate after start, a bounded health command, or a literal stdout/stderr matcher:
 
 ```toml
-[profiles.main.tasks]
-dev = { argv = ["cargo", "run", "-p", "server"], persistent = true, ready_output = "listening", ready_timeout_seconds = 30 }
+[ecosystems.rust.tasks.dev]
+argv = ["cargo", "run", "-p", "server"]
+persistent = true
+ready_output = "listening"
+ready_timeout_seconds = 30
 ```
 
 Watch mode uses filesystem events, debounces rapid saves, ignores `.git/`, `.toven/`, `target/`, and `node_modules/`, then maps changed paths directly to affected modules and reverse dependents before rerunning work.

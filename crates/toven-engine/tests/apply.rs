@@ -62,6 +62,7 @@ fn run(
                 fail_fast: false,
                 ..ApplyOptions::default()
             },
+            tokio_util::sync::CancellationToken::new(),
         ))
         .expect("apply succeeds")
 }
@@ -92,6 +93,7 @@ fn run_with_sink(
                 fail_fast: false,
                 ..ApplyOptions::default()
             },
+            tokio_util::sync::CancellationToken::new(),
         ))
         .expect("apply succeeds")
 }
@@ -237,6 +239,7 @@ fn fail_fast_cancels_in_flight_and_stops_later_waves() {
                 fail_fast: true,
                 ..ApplyOptions::default()
             },
+            tokio_util::sync::CancellationToken::new(),
         ))
         .expect("apply succeeds");
 
@@ -260,6 +263,93 @@ fn fail_fast_cancels_in_flight_and_stops_later_waves() {
         })
         .collect();
     assert_eq!(cancelled, vec!["b", "c"]);
+}
+
+#[test]
+fn external_cancel_tears_down_in_flight_and_stops_later_waves() {
+    // `a` blocks in its first wave; `b` sits in a later wave. Once `a` is
+    // in-flight an external cancel (the Ctrl+C wiring) fires, which must run the
+    // same cooperative teardown a `--fail-fast` failure does even though
+    // `fail_fast` is false here: SIGTERM the in-flight worker, stop scheduling
+    // later waves, drain held processes / shut the pool down (no orphan), and
+    // still return aggregated `RunStats` with terminal `Cancelled` events.
+    let a = unit("a");
+    let b = unit("b");
+    let plan = Plan::new(vec![a, b], vec![vec!["a".into()], vec!["b".into()]]);
+    let runner = Arc::new(FakeCommandRunner::new().with_blocking("a"));
+    let runner_port: Arc<dyn CommandRunner> = runner.clone();
+    let cache = RecordingCacheWriter::new();
+    let mut reporter = RecordingReporter::new();
+    let sink = RecordingRawOutputSink::new();
+    let mut output = UnitOutputChannel::new(sink);
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("runtime");
+
+    let stats = runtime.block_on(async {
+        // Fire the external cancel only once `a` is actually in-flight, so the
+        // run exercises the live-worker teardown branch rather than the
+        // pre-scheduling short-circuit.
+        let watcher_token = cancel.clone();
+        let watcher_runner = runner.clone();
+        let watcher = tokio::spawn(async move {
+            loop {
+                if watcher_runner.started().contains(&"a".to_string()) {
+                    watcher_token.cancel();
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        });
+        let stats = apply(
+            &plan,
+            runner_port,
+            &cache,
+            &mut reporter,
+            &mut output,
+            ApplyOptions {
+                max_parallel: 2,
+                fail_fast: false,
+                ..ApplyOptions::default()
+            },
+            cancel,
+        )
+        .await
+        .expect("apply succeeds");
+        watcher.await.expect("watcher joins");
+        stats
+    });
+
+    // `a` observed cancellation while in-flight; the later-wave `b` never started.
+    assert_eq!(runner.cancelled(), vec!["a".to_string()]);
+    assert!(!runner.started().contains(&"b".to_string()));
+
+    // Both the in-flight-cancelled `a` and the never-scheduled `b` reach a
+    // terminal `Cancelled` event so the stream accounts for every planned unit.
+    assert_eq!(stats.cancelled_units, 2);
+    let cancelled: Vec<&String> = reporter
+        .events()
+        .iter()
+        .filter_map(|event| match event {
+            Event::UnitFinished {
+                unit_id,
+                status: UnitStatus::Cancelled,
+            } => Some(unit_id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(cancelled, vec!["a", "b"]);
+
+    // Teardown completed and aggregated stats were emitted (the run returned
+    // rather than hanging on an orphaned worker).
+    assert!(
+        reporter
+            .events()
+            .iter()
+            .any(|event| matches!(event, Event::RunFinished { .. }))
+    );
 }
 
 #[test]
@@ -630,6 +720,7 @@ fn fail_fast_cancels_persistent_unit_waiting_for_readiness() {
                 fail_fast: true,
                 ..ApplyOptions::default()
             },
+            tokio_util::sync::CancellationToken::new(),
         ))
         .expect("apply succeeds");
 
@@ -816,6 +907,7 @@ fn wave_error_still_tears_down_held_persistent_processes() {
             fail_fast: false,
             ..ApplyOptions::default()
         },
+        tokio_util::sync::CancellationToken::new(),
     ));
 
     assert!(result.is_err(), "wave error must propagate to the caller");
@@ -824,4 +916,95 @@ fn wave_error_still_tears_down_held_persistent_processes() {
         vec!["service".to_string()],
         "held persistent process must be torn down despite the wave error"
     );
+}
+
+/// Run `apply` with a tiny live-output bridge and an overall timeout so a
+/// teardown deadlock surfaces as a test failure (the watchdog aborts the
+/// blocked runtime thread) instead of hanging the suite indefinitely.
+fn run_backpressured_with_timeout(
+    plan: &Plan,
+    runner: Arc<FakeCommandRunner>,
+    cache: &RecordingCacheWriter,
+    reporter: &mut RecordingReporter,
+) -> toven_model::RunStats {
+    let runner_port: Arc<dyn CommandRunner> = runner;
+    let mut output = UnitOutputChannel::new(RecordingRawOutputSink::new());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .expect("runtime");
+    runtime
+        .block_on(async {
+            tokio::time::timeout(
+                Duration::from_secs(10),
+                apply(
+                    plan,
+                    runner_port,
+                    cache,
+                    reporter,
+                    &mut output,
+                    ApplyOptions {
+                        max_parallel: 2,
+                        fail_fast: false,
+                        // One slot: a held process flushing more than one chunk
+                        // during teardown parks its reader thread until the
+                        // consumer drains, reproducing the deadlock shape.
+                        live_output_capacity: 1,
+                        ..ApplyOptions::default()
+                    },
+                    tokio_util::sync::CancellationToken::new(),
+                ),
+            )
+            .await
+        })
+        .expect("apply must not deadlock during teardown backpressure")
+        .expect("apply succeeds")
+}
+
+#[test]
+fn teardown_drains_live_output_under_backpressure_lifo_backstop() {
+    // A persistent goal with no dependents is held until run end and torn down
+    // through the LIFO backstop. It flushes more output than the bridge holds
+    // during shutdown; teardown must keep draining concurrently or deadlock.
+    let mut service = unit("service");
+    service.persistent = true;
+    service.cache = CacheVerdict::Disabled;
+    service.cache_key = None;
+    let normal = unit("normal");
+    let plan = Plan::new(
+        vec![service, normal],
+        vec![vec!["service".into()], vec!["normal".into()]],
+    );
+    let runner = Arc::new(FakeCommandRunner::new().with_teardown_output("service", 8));
+    let cache = RecordingCacheWriter::new();
+    let mut reporter = RecordingReporter::new();
+
+    run_backpressured_with_timeout(&plan, runner.clone(), &cache, &mut reporter);
+
+    assert_eq!(runner.shutdowns(), vec!["service".to_string()]);
+}
+
+#[test]
+fn teardown_drains_live_output_under_backpressure_dependent_drain() {
+    // A persistent service whose only dependent finishes is torn down mid-run
+    // via the per-unit teardown path. It flushes more output than the bridge
+    // holds during shutdown; the per-unit teardown must drain concurrently.
+    let mut service = unit("service");
+    service.persistent = true;
+    service.cache = CacheVerdict::Disabled;
+    service.cache_key = None;
+    let mut test = unit("test");
+    test.depends_on = vec!["service".to_string()];
+    let plan = Plan::new(
+        vec![service, test],
+        vec![vec!["service".into()], vec!["test".into()]],
+    );
+    let runner = Arc::new(FakeCommandRunner::new().with_teardown_output("service", 8));
+    let cache = RecordingCacheWriter::new();
+    let mut reporter = RecordingReporter::new();
+
+    run_backpressured_with_timeout(&plan, runner.clone(), &cache, &mut reporter);
+
+    assert_eq!(runner.shutdowns(), vec!["service".to_string()]);
 }

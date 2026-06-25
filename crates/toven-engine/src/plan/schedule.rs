@@ -269,18 +269,16 @@ fn plan_unit(
     };
 
     let kind_name = task.kind.name().to_string();
+    let id = unit_id(&module.id, &kind_name);
+    super::shared_inputs::validate_shared_inputs(&id, &task.shared_inputs)?;
     let depends_on = kept_deps
         .get(&module.id)
         .map(|deps| deps.iter().map(|dep| unit_id(dep, &kind_name)).collect())
         .unwrap_or_default();
-    let resource_group = module
-        .metadata
-        .get("resource_group")
-        .and_then(|value| value.as_str())
-        .map(ToString::to_string);
+    let resource_group = module.resource_group.clone();
 
     Ok(PlannedUnit {
-        id: unit_id(&module.id, &kind_name),
+        id,
         module: module.id.clone(),
         kind: kind_name,
         workspace: module.workspace.clone(),

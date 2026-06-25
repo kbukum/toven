@@ -40,19 +40,19 @@ toven generate \
 
 Without explicit manifests, Rust generation searches for a root `Cargo.toml` or first-level Cargo manifests that are not ignored by Git.
 
-Rust generation records manifest discovery in the profile. Cargo metadata stays the source of truth for local path dependencies, so generated overlays are reserved for relationships native metadata cannot prove.
+Rust generation records manifest discovery in the ecosystem section. Cargo metadata stays the source of truth for local path dependencies, so generated overlays are reserved for relationships native metadata cannot prove.
 
 Generated configs make the default user-cache policy explicit:
 
 ```toml
-[cache]
-location = "user"
+[toven.cache]
+# dir is omitted by default so records use the platform user-cache directory.
 ```
 
 Generated Rust configs materialize standard Rust application task definitions from the Rust adapter defaults, so committed command policy stays reviewable:
 
 ```toml
-[profiles.main.tasks]
+[ecosystems.rust.tasks]
 bench = { argv = ["cargo", "bench", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"] }
 build = { argv = ["cargo", "build", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"] }
 check = { argv = ["cargo", "check", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"] }
@@ -63,7 +63,7 @@ fmt-check = { argv = ["cargo", "fmt", "--manifest-path", "{module.manifest}", "{
 test = { argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"] }
 ```
 
-The generated profile also includes `module_arg_template`, which is expanded by `{module.args}` for each planned module.
+The generated ecosystem section also includes `module_arg_template`, which is expanded by `{module.args}` for each planned module.
 
 Rust cache identity is still owned by the Rust adapter even though the generated tasks use visible direct argv. Planned Rust units include Cargo and rustc version probes in their cache keys without adding per-task toolchain settings.
 

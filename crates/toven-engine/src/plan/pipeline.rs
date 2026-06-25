@@ -32,7 +32,7 @@ pub fn plan(
     host: PlanHost<'_>,
     reporter: &mut dyn Reporter,
 ) -> AppResult<Plan> {
-    let context = front::prepare(request, document, providers, reporter)?;
+    let context = front::prepare(&request.project_root, document, providers, reporter)?;
 
     reporter.emit(&Event::PhaseStarted {
         phase: Phase::Affected,

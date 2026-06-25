@@ -5,7 +5,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use serde_json::Value;
 use toven_model::{
     DepKind, EcosystemId, Edge, Module, ModuleRef, RepoPath, ToolchainTag, Workspace, WorkspaceId,
 };
@@ -15,9 +14,6 @@ use crate::config::{CommandConfig, DeclaredModule};
 
 /// The command driver name stamped on the workspace and resource groups.
 const COMMAND_TOOL: &str = "command";
-
-/// Metadata key carrying a module's default serialization resource group.
-const RESOURCE_GROUP_KEY: &str = "resource_group";
 
 /// Normalize the declared modules and `depends_on` edges into a
 /// [`DiscoverResponse`] with a single `command` workspace.
@@ -78,10 +74,7 @@ fn build_module(
     }
     // Each declared module serializes on its own resource group by default; the
     // adapter infers no shared contention between independent commands.
-    module.metadata.insert(
-        RESOURCE_GROUP_KEY.to_string(),
-        Value::String(format!("{COMMAND_TOOL}:{}", declared.name)),
-    );
+    module.resource_group = Some(format!("{COMMAND_TOOL}:{}", declared.name));
     Ok(module)
 }
 

@@ -50,7 +50,12 @@ impl Component for HeldComponent {
     }
 
     async fn stop(&self) -> AppResult<()> {
-        self.process.shutdown()
+        // Offload the synchronous, potentially process-join-blocking shutdown to
+        // a blocking thread so the async teardown caller (e.g. `teardown_held`)
+        // can keep draining the bounded live-output bridge while shutdown waits.
+        // Running shutdown inline here would park this task on the runtime and
+        // stall draining, deadlocking a reader thread parked in `blocking_send`.
+        self.process.clone().shutdown_offloaded().await
     }
 
     fn health(&self) -> Health {
