@@ -120,9 +120,19 @@ pub fn parse_task(tokens: &[String]) -> AppResult<TaskInvocation> {
 
 /// Consume the next token as the value for a value-taking flag.
 fn value_for<'a>(flag: &str, iter: &mut impl Iterator<Item = &'a String>) -> AppResult<String> {
-    iter.next()
-        .cloned()
-        .ok_or_else(|| AppError::invalid_input(flag, format!("`{flag}` requires a value")))
+    let Some(value) = iter.next() else {
+        return Err(AppError::invalid_input(
+            flag,
+            format!("`{flag}` requires a value"),
+        ));
+    };
+    if value == "--" {
+        return Err(AppError::invalid_input(
+            flag,
+            format!("`{flag}` requires a value before passthrough separator `--`"),
+        ));
+    }
+    Ok(value.clone())
 }
 
 fn parse_output(value: &str) -> AppResult<OutputKind> {
@@ -227,6 +237,12 @@ mod tests {
     #[test]
     fn missing_flag_value_is_rejected() {
         assert!(parse_task(&tokens(&["test", "--output"])).is_err());
+    }
+
+    #[test]
+    fn passthrough_separator_is_not_a_flag_value() {
+        assert!(parse_task(&tokens(&["test", "--config", "--", "--flag"])).is_err());
+        assert!(parse_task(&tokens(&["test", "--output", "--", "--flag"])).is_err());
     }
 
     #[test]

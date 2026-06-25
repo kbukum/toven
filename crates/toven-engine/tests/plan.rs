@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 
 use common::eid;
 use toven_engine::config::{Document, ProjectConfig, TovenConfig};
-use toven_engine::plan::{CacheMode, NullCache, PlanHost, PlanRequest, Selection, plan};
+use toven_engine::plan::{
+    CacheMode, NullCache, PlanHost, PlanRequest, Selection, dependency_graph, plan,
+};
 use toven_model::{
     AbsPath, CacheVerdict, DepKind, Edge, Event, Module, ModuleRef, Phase, Plan, RepoPath,
     ToolchainTag, Workspace, WorkspaceId,
@@ -59,6 +61,30 @@ fn rust_provider() -> FakeProvider {
     let adapter = FakeConfiguredAdapter::new(eid("rust"))
         .with_response(response)
         .with_tasks(vec![task]);
+    FakeProvider::new(eid("rust")).with_adapter(adapter)
+}
+
+/// The [`rust_provider`] discovery graph with no configured tasks.
+fn rust_provider_without_tasks() -> FakeProvider {
+    let mut response = DiscoverResponse::new(eid("rust"));
+    response.workspaces.push(Workspace::new(
+        wsid("rust"),
+        RepoPath::new(".").expect("root"),
+        ToolchainTag::new("cargo"),
+    ));
+    response
+        .modules
+        .push(module("rust", "errors", "crates/errors", "rust"));
+    response
+        .modules
+        .push(module("rust", "app", "crates/app", "rust"));
+    response.edges.push(Edge::new(
+        mref("rust", "app"),
+        mref("rust", "errors"),
+        DepKind::Normal,
+    ));
+
+    let adapter = FakeConfiguredAdapter::new(eid("rust")).with_response(response);
     FakeProvider::new(eid("rust")).with_adapter(adapter)
 }
 
@@ -117,6 +143,26 @@ fn request(intent: TaskKind) -> PlanRequest {
         intent,
         AbsPath::new("/repo").expect("absolute"),
     )
+}
+
+#[test]
+fn dependency_graph_does_not_require_a_schedulable_task() {
+    let provider = rust_provider_without_tasks();
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let mut reporter = RecordingReporter::new();
+
+    let graph = dependency_graph(
+        &AbsPath::new("/repo").expect("absolute"),
+        &document(),
+        &providers,
+        &mut reporter,
+    )
+    .expect("graph succeeds");
+
+    assert_eq!(graph.len(), 2);
+    assert_eq!(graph.edges().len(), 1);
+    assert_eq!(graph.edges()[0].from, mref("rust", "app"));
+    assert_eq!(graph.edges()[0].to, mref("rust", "errors"));
 }
 
 #[test]

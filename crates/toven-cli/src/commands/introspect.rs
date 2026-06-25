@@ -1,22 +1,22 @@
 //! Introspection verbs: `modules`/`list`, `graph`/`deps`, `affected`, and
 //! `explain` (cli-taxonomy Decision D).
 //!
-//! Each verb is a **thin projection over one immutable [`Plan`]** — there is no
-//! second planning path. The shared [`build_plan`] runs the PLAN spine once with
-//! caching disabled (introspection never executes, so cache verdicts are noise)
-//! and a silent reporter (the projection is the output, not the event stream),
-//! then the verb filters and formats the resulting units / dependency edges.
+//! `affected` and `explain` are thin projections over one immutable [`Plan`].
+//! The shared [`build_plan`] runs the PLAN spine once with caching disabled
+//! (introspection never executes, so cache verdicts are noise) and a silent
+//! reporter (the projection is the output, not the event stream), then the verb
+//! filters the resulting units.
 //!
-//! `modules`/`graph` have no task argument, so they plan a representative
-//! [`TaskKind::Build`] cut to populate the unit set; `affected`/`explain` project
-//! the task the user named.
+//! `modules` and `graph` project the validated discovered [`Graph`] directly, so
+//! they do not depend on any particular task kind being configured or schedulable.
 
 use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult};
 use toven_engine::plan::{
-    CacheMode, FsSourceDigest, NullCache, PlanHost, PlanRequest, ProcessToolchainProber, plan,
+    CacheMode, FsSourceDigest, NullCache, PlanHost, PlanRequest, ProcessToolchainProber,
+    dependency_graph, plan,
 };
-use toven_model::{Event, Plan};
+use toven_model::{Event, Graph, Plan};
 use toven_ports::{Provider, Reporter, TaskKind};
 
 use crate::flags::GraphFormat;
@@ -58,13 +58,27 @@ fn build_plan(providers: &[&dyn Provider], project: &Project, intent: TaskKind) 
     plan(&request, &project.document, providers, host, &mut reporter)
 }
 
-/// `toven modules` / `list` / `ls`: the discovered, planned module set.
+/// Build the validated discovered module graph for topology introspection verbs.
 ///
 /// # Errors
-/// Propagates [`build_plan`] failures.
+/// Propagates Configure/Discover/Graph failures.
+fn build_graph(providers: &[&dyn Provider], project: &Project) -> AppResult<Graph> {
+    let mut reporter = SilentReporter;
+    dependency_graph(
+        &project.project_root,
+        &project.document,
+        providers,
+        &mut reporter,
+    )
+}
+
+/// `toven modules` / `list` / `ls`: the discovered module set.
+///
+/// # Errors
+/// Propagates [`build_graph`] failures.
 pub(crate) fn modules(providers: &[&dyn Provider], project: &Project) -> AppResult<ExitCode> {
-    let plan = build_plan(providers, project, TaskKind::Build)?;
-    print_module_table("Modules", &plan);
+    let graph = build_graph(providers, project)?;
+    print_module_table("Modules", graph_module_names(&graph));
     Ok(ExitCode::Success)
 }
 
@@ -78,23 +92,23 @@ pub(crate) fn affected(
     intent: TaskKind,
 ) -> AppResult<ExitCode> {
     let plan = build_plan(providers, project, intent)?;
-    print_module_table("Affected", &plan);
+    print_module_table("Affected", plan_module_names(&plan));
     Ok(ExitCode::Success)
 }
 
-/// `toven graph` / `deps`: the scheduled dependency edges (`--format text|dot`).
+/// `toven graph` / `deps`: the discovered dependency edges (`--format text|dot`).
 ///
 /// # Errors
-/// Propagates [`build_plan`] failures.
+/// Propagates [`build_graph`] failures.
 pub(crate) fn graph(
     providers: &[&dyn Provider],
     project: &Project,
     format: GraphFormat,
 ) -> AppResult<ExitCode> {
-    let plan = build_plan(providers, project, TaskKind::Build)?;
+    let graph = build_graph(providers, project)?;
     let rendered = match format {
-        GraphFormat::Text => render_graph_text(&plan),
-        GraphFormat::Dot => render_graph_dot(&plan),
+        GraphFormat::Text => render_graph_text(&graph),
+        GraphFormat::Dot => render_graph_dot(&graph),
     };
     print!("{rendered}");
     Ok(ExitCode::Success)
@@ -139,17 +153,25 @@ pub(crate) fn explain(
     Ok(ExitCode::Success)
 }
 
-/// Print the unique module set of `plan` as a titled table.
-fn print_module_table(title: &str, plan: &Plan) {
+/// Print a module-name list as a titled table.
+fn print_module_table(title: &str, modules: Vec<String>) {
     let mut table = OutputTable::new(vec!["Module"]).with_title(title);
-    for module in module_names(plan) {
+    for module in modules {
         table.add_row(vec![module]);
     }
     println!("{table}");
 }
 
+/// The sorted module set referenced by a graph.
+fn graph_module_names(graph: &Graph) -> Vec<String> {
+    graph
+        .modules()
+        .map(|module| module.id.to_string())
+        .collect()
+}
+
 /// The sorted, de-duplicated module set referenced by a plan's units.
-fn module_names(plan: &Plan) -> Vec<String> {
+fn plan_module_names(plan: &Plan) -> Vec<String> {
     let mut modules: Vec<String> = plan
         .units
         .iter()
@@ -160,35 +182,35 @@ fn module_names(plan: &Plan) -> Vec<String> {
     modules
 }
 
-/// Render the scheduled dependency edges as indented adjacency text.
-fn render_graph_text(plan: &Plan) -> String {
+/// Render the discovered dependency edges as indented adjacency text.
+fn render_graph_text(graph: &Graph) -> String {
     let mut out = String::new();
-    for unit in &plan.units {
-        out.push_str(&unit.id);
+    for module in graph.modules() {
+        out.push_str(&module.id.to_string());
         out.push('\n');
-        for dependency in &unit.depends_on {
+        for edge in graph.edges().iter().filter(|edge| edge.from == module.id) {
             out.push_str("  -> ");
-            out.push_str(dependency);
+            out.push_str(&edge.to.to_string());
             out.push('\n');
         }
     }
     out
 }
 
-/// Render the scheduled dependency edges as a Graphviz DOT digraph.
-fn render_graph_dot(plan: &Plan) -> String {
+/// Render the discovered dependency edges as a Graphviz DOT digraph.
+fn render_graph_dot(graph: &Graph) -> String {
     let mut out = String::from("digraph toven {\n");
-    for unit in &plan.units {
+    for module in graph.modules() {
         out.push_str("  \"");
-        out.push_str(&dot_id(&unit.id));
+        out.push_str(&dot_id(&module.id.to_string()));
         out.push_str("\";\n");
-        for dependency in &unit.depends_on {
-            out.push_str("  \"");
-            out.push_str(&dot_id(&unit.id));
-            out.push_str("\" -> \"");
-            out.push_str(&dot_id(dependency));
-            out.push_str("\";\n");
-        }
+    }
+    for edge in graph.edges() {
+        out.push_str("  \"");
+        out.push_str(&dot_id(&edge.from.to_string()));
+        out.push_str("\" -> \"");
+        out.push_str(&dot_id(&edge.to.to_string()));
+        out.push_str("\";\n");
     }
     out.push_str("}\n");
     out
@@ -209,66 +231,43 @@ fn dot_id(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use toven_model::{DepKind, EcosystemId, Edge, Graph, Module, ModuleRef, RepoPath};
 
-    use toven_model::{
-        CacheVerdict, EcosystemId, ExecutionReadiness, ExecutionUnit, ModuleRef, Plan,
-    };
+    use super::{dot_id, graph_module_names, render_graph_dot, render_graph_text};
 
-    use super::{dot_id, module_names, render_graph_dot, render_graph_text};
-
-    fn unit(module: &str, depends_on: Vec<&str>) -> ExecutionUnit {
-        ExecutionUnit {
-            id: format!("rust:{module}#build"),
-            module: ModuleRef::new(EcosystemId::new("rust").unwrap(), module).unwrap(),
-            kind: "build".to_string(),
-            workspace: None,
-            argv: vec!["cargo".to_string(), "build".to_string()],
-            persistent: false,
-            readiness: ExecutionReadiness::Started,
-            readiness_timeout: Duration::from_secs(30),
-            cache: CacheVerdict::Miss,
-            cache_key: None,
-            depends_on: depends_on.into_iter().map(str::to_string).collect(),
-            resource_group: None,
-        }
+    fn module(name: &str) -> Module {
+        Module::new(mref(name), RepoPath::new(format!("crates/{name}")).unwrap())
     }
 
-    fn plan() -> Plan {
-        Plan::new(
-            vec![
-                unit("core", Vec::new()),
-                unit("app", vec!["rust:core#build"]),
-            ],
-            Vec::new(),
+    fn mref(name: &str) -> ModuleRef {
+        ModuleRef::new(EcosystemId::new("rust").unwrap(), name).unwrap()
+    }
+
+    fn graph() -> Graph {
+        Graph::build(
+            vec![module("core"), module("app")],
+            vec![Edge::new(mref("app"), mref("core"), DepKind::Normal)],
         )
+        .expect("valid graph")
     }
 
     #[test]
     fn module_names_are_sorted_and_deduplicated() {
-        let plan = Plan::new(
-            vec![
-                unit("app", Vec::new()),
-                unit("core", Vec::new()),
-                unit("app", Vec::new()),
-            ],
-            Vec::new(),
-        );
-        assert_eq!(module_names(&plan), vec!["rust:app", "rust:core"]);
+        assert_eq!(graph_module_names(&graph()), vec!["rust:app", "rust:core"]);
     }
 
     #[test]
-    fn graph_text_lists_each_unit_and_its_edges() {
-        let rendered = render_graph_text(&plan());
-        assert!(rendered.contains("rust:app#build"));
-        assert!(rendered.contains("  -> rust:core#build"));
+    fn graph_text_lists_each_module_and_its_edges() {
+        let rendered = render_graph_text(&graph());
+        assert!(rendered.contains("rust:app"));
+        assert!(rendered.contains("  -> rust:core"));
     }
 
     #[test]
     fn graph_dot_emits_a_digraph_with_directed_edges() {
-        let rendered = render_graph_dot(&plan());
+        let rendered = render_graph_dot(&graph());
         assert!(rendered.starts_with("digraph toven {"));
-        assert!(rendered.contains("\"rust:app#build\" -> \"rust:core#build\";"));
+        assert!(rendered.contains("\"rust:app\" -> \"rust:core\";"));
         assert!(rendered.trim_end().ends_with('}'));
     }
 

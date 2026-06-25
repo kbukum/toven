@@ -24,7 +24,7 @@ pub fn release_plan(
     vcs: &dyn VcsReader,
     reporter: &mut dyn Reporter,
 ) -> AppResult<ReleasePlan> {
-    let context = prepare_front(request, document, providers, reporter)?;
+    let context = prepare_front(&request.project_root, document, providers, reporter)?;
     let targets = release_targets(&context)?;
     plan_with_context(&context, document, request, vcs, &targets)
 }

@@ -35,7 +35,7 @@ pub fn release_run(
     reporter: &mut dyn Reporter,
     options: &ReleaseApplyOptions,
 ) -> AppResult<ReleaseStats> {
-    let context = prepare_front(request, document, providers, reporter)?;
+    let context = prepare_front(&request.project_root, document, providers, reporter)?;
     let targets = release_targets(&context)?;
     let plan = plan_with_context(&context, document, request, reader, &targets)?;
     release_apply(
