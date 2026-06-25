@@ -6,7 +6,7 @@
 2. Toven and rskit are pre-stable, so prefer clean redesigns over compatibility detours.
 3. Cascade-complete model changes through schema, normalization, planner, executor, output, tests, and docs.
 4. User-owned argv is sacred: Toven validates and expands selectors, but does not infer hidden flags or silently rewrite commands.
-5. Libraries do not print; CLI/reporting layers own user-facing output.
+5. Libraries do not print; CLI/reporting layers own user-facing output — and reserve `stdout` for the machine-readable stream (route human progress and diagnostics to `stderr`), rejecting flags on verbs that do not consume them.
 6. Performance claims require benchmark evidence.
 7. Place every injected contract in `toven-ports`, keep its concrete adapter in the consuming crate, and give it a `toven-testkit` double.
 

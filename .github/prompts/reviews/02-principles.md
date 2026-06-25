@@ -29,6 +29,14 @@ Only `toven-cli` produces user-facing output. Any `println!` / `print!` / `eprin
 - No `Any`-style escape hatches (`Box<dyn Any>`, stringly-typed returns) on public surfaces.
 - Errors use rskit `AppError` / `AppResult` and preserve the cause.
 
+## No blocking on the async runtime
+
+On an async runtime path, never run a synchronous, potentially long-blocking call — process shutdown/join, a `blocking_send` into a bounded channel, blocking filesystem IO — inline on a task that must keep making progress. It can park the runtime and deadlock a bounded live-output / IPC channel whose reader thread is waiting on that same task (this is exactly the APPLY persistent-teardown class of hang). Offload blocking work via `tokio::task::spawn_blocking` (or an async API) and `await` it so draining continues while the blocking work waits. Every subprocess/RPC call carries a timeout and honors the cancellation token.
+
+## CLI output and flag discipline
+
+The complement to *libraries don't print* (this section is the one place `toven-cli` is in scope): the CLI is the only layer that prints, but it must keep the channels clean. `stdout` is reserved for the machine-readable stream — the JSONL event projection — so human progress, status, and diagnostics go to `stderr`; a consumer of `--output jsonl` must never have to filter human chrome out of stdout. A global flag must be rejected (or scoped) on any verb that does not consume it: never advertise a flag that is silently a no-op for the dispatched verb (e.g. `--fail-fast` on a verb that never schedules multiple units, or `-v`/`-q` on a verb with no reporter). Each accepted flag must actually change that verb's behavior.
+
 ## Security
 
 User commands and repository files are untrusted at the CLI boundary. Validate at every trust boundary, use argv-only subprocess execution, never log secrets, bound input and output. Flag any unbounded read of repo files or any unvalidated path/selector flowing into execution. (For a deeper, dedicated sweep, pair this with a security-focused review; this pass covers the baseline.)
@@ -46,4 +54,6 @@ rg '\.unwrap\(\)|\.expect\(' crates/*/src
 rg 'println!|print!|eprintln!|eprint!' crates/toven-{model,ports,engine,rust,go,command}/src
 rg 'dyn Any|Box<dyn Any>' crates/*/src
 rg 'format!\(.*\)\s*(\+|\.push_str)|sh -c|"bash"|"sh"' crates/*/src   # string-built / shelled commands
+rg 'blocking_send|\.shutdown\(\)|\.join\(\)|std::fs::' crates/toven-engine/src   # blocking call on an async path? must be spawn_blocking
+rg 'println!|print!|io::stdout|Stdout' crates/toven-cli/src   # human/progress/diagnostics must be stderr; stdout only for the jsonl sink
 ```

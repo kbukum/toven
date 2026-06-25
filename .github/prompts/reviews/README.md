@@ -15,10 +15,10 @@ Six focused passes, each runnable on its own when you only need one lens:
 
 - [`00-structure-placement.md`](./00-structure-placement.md) — layering, port placement, `mod.rs` guard, file homes.
 - [`01-rskit-reuse.md`](./01-rskit-reuse.md) — did the code reuse rskit, or quietly reimplement a concern rskit already owns?
-- [`02-principles.md`](./02-principles.md) — cascade-complete, argv-is-sacred, libraries-don't-print, typed/no-panic, security, performance evidence.
+- [`02-principles.md`](./02-principles.md) — cascade-complete, argv-is-sacred, libraries-don't-print, CLI output/flag discipline, no-blocking-on-the-async-runtime, typed/no-panic, security, performance evidence.
 - [`03-quality.md`](./03-quality.md) — simplicity/root-cause, dead code, outdated patterns, style gates.
 - [`04-tests-tdd.md`](./04-tests-tdd.md) — TDD, fixtures, failure paths, shared doubles, determinism.
-- [`05-docs-supply-chain.md`](./05-docs-supply-chain.md) — docs policy, Conventional Commits, `Cargo.lock`, `cargo-deny`, SHA-pinned actions.
+- [`05-docs-supply-chain.md`](./05-docs-supply-chain.md) — docs policy, docs-examples-match-the-live-schema, Conventional Commits, `Cargo.lock`, `cargo-deny`, no-unused-deps, SHA-pinned actions.
 
 The orchestrators just sequence these six passes and add scope handling; the focused files hold the actual checks. Read the focused file you need and run it directly when a full review is overkill.
 
