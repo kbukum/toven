@@ -10,7 +10,11 @@ use crate::config::CommandConfig;
 use crate::discovery;
 use crate::tasks;
 
-/// The default toolchain program/label when nothing can be derived.
+/// The toolchain program/label for an empty (module-less) ecosystem. This is a
+/// stable placeholder, never executed: [`CommandProvider::configure`] rejects a
+/// config that declares modules without tasks or a `[toolchain]`, and the engine
+/// only probes a workspace that owns an active module — so the degenerate branch
+/// is unreachable for any probed workspace.
 const DEFAULT_TOOL: &str = "command";
 
 /// The configured command adapter: a baked [`CommandConfig`] plus its resolved
@@ -44,9 +48,11 @@ impl ConfiguredAdapter for CommandAdapter {
     /// Resolve the toolchain probe with no inference beyond what's declared.
     ///
     /// Precedence: an explicit `[toolchain]` block wins; otherwise the first
-    /// declared task's program is probed with `--version`; if neither exists the
-    /// degenerate `command --version` placeholder is returned (never executed in
-    /// practice — a command project with no tasks has nothing to plan).
+    /// declared task's program is probed with `--version`. The final
+    /// `command --version` placeholder is only reachable for an empty,
+    /// module-less ecosystem — which the engine never probes — because
+    /// [`CommandProvider::configure`](toven_ports::Provider::configure) rejects
+    /// modules declared without any task or `[toolchain]`.
     fn toolchain_probe(&self) -> ToolchainProbe {
         if let Some(toolchain) = &self.config.toolchain {
             let args = if toolchain.args.is_empty() {

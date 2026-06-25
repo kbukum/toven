@@ -71,6 +71,20 @@ fn configure_rejects_unknown_section_field() {
 }
 
 #[test]
+fn configure_rejects_modules_without_tasks_or_toolchain() {
+    let raw_text = fixtures::ecosystem_string("command", "adapter/modules-without-toolchain.toml")
+        .expect("adapter fixture");
+    let raw: toml::Value = toml::from_str(&raw_text).expect("valid adapter toml");
+    let Err(error) = provider().configure(raw) else {
+        panic!("modules without tasks or [toolchain] must be rejected");
+    };
+    assert!(
+        error.to_string().contains("no tasks or [toolchain]"),
+        "{error}"
+    );
+}
+
+#[test]
 fn command_never_offers_a_release_target() {
     let adapter = configure("adapter/declared-modules.toml");
     assert!(adapter.release_target().expect("ok").is_none());

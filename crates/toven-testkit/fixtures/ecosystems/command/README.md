@@ -8,3 +8,4 @@ The command adapter declares everything (no tooling probe, no filesystem walk), 
   - `declared-modules.toml` — two modules with a `depends_on` edge and user-owned tasks.
   - `with-toolchain.toml` — an explicit `[toolchain]` overriding the first-task default.
   - `unknown-dependency.toml` — a `depends_on` referencing an undeclared module (rejected).
+  - `modules-without-toolchain.toml` — modules declared without tasks or `[toolchain]` (rejected).

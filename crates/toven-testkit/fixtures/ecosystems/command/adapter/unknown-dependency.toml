@@ -1,6 +1,10 @@
 # A `depends_on` referencing a module that was never declared: discovery must
 # reject this typo at the trust boundary rather than silently dropping the edge.
+# A task is declared so configure passes and discovery is the layer that rejects.
 [[modules]]
 name = "site"
 root = "apps/site"
 depends_on = ["ghost"]
+
+[tasks.build]
+argv = ["make", "-C", "{module.root}", "build"]

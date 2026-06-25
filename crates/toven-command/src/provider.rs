@@ -44,6 +44,18 @@ impl Provider for CommandProvider {
             AppError::invalid_input("ecosystems.command", error.to_string())
         })?;
         let tasks = tasks::resolve_tasks(&config.common.tasks)?;
+        // A command project that declares modules but neither tasks nor an
+        // explicit `[toolchain]` has no probeable toolchain, yet its modules
+        // would still be probed in phase 6 (toolchain resolution runs before
+        // scheduling). Reject that at the config boundary with an actionable
+        // error instead of letting PLAN fail on an un-runnable degenerate probe.
+        if !config.modules.is_empty() && tasks.is_empty() && config.toolchain.is_none() {
+            return Err(AppError::invalid_input(
+                "ecosystems.command",
+                "declares modules but no tasks or [toolchain]: add at least one [tasks.*] or a \
+                 [toolchain] block so the workspace has a probeable toolchain identity",
+            ));
+        }
         Ok(Box::new(CommandAdapter::new(config, tasks)))
     }
 

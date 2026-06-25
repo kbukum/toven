@@ -1,0 +1,6 @@
+# A command project that declares a module but neither tasks nor a [toolchain].
+# The workspace would be probed in phase 6 with no probeable toolchain, so
+# configure rejects it at the boundary.
+[[modules]]
+name = "app"
+root = "app"
