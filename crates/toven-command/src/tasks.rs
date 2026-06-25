@@ -45,6 +45,12 @@ fn declared_task(key: &str, over: &TaskOverride) -> AppResult<Task> {
             "a command task must define 'argv' (the adapter infers no default command)",
         )
     })?;
+    if argv.is_empty() {
+        return Err(AppError::invalid_input(
+            format!("ecosystems.command.tasks.{key}.argv"),
+            "must include a program",
+        ));
+    }
 
     // A built-in kind key and an ad-hoc custom key are both selected by kind.
     // Only an explicitly reclassified task is a named extra within that kind.
@@ -137,6 +143,23 @@ mod tests {
         overrides.insert("build".to_string(), TaskOverride::default());
         let error = resolve_tasks(&overrides).expect_err("missing argv rejected");
         assert!(error.to_string().contains("argv"), "{error}");
+    }
+
+    #[test]
+    fn task_with_empty_argv_is_rejected() {
+        let mut overrides = BTreeMap::new();
+        overrides.insert(
+            "build".to_string(),
+            TaskOverride {
+                argv: Some(Vec::new()),
+                ..TaskOverride::default()
+            },
+        );
+        let error = resolve_tasks(&overrides).expect_err("empty argv rejected");
+        assert!(
+            error.to_string().contains("must include a program"),
+            "{error}"
+        );
     }
 
     #[test]
