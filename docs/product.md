@@ -44,13 +44,15 @@ Toven keeps command ownership in project config. The CLI selects the task, adapt
 Toven uses one strict `toven.toml` with:
 
 - `[project]` for project name, root, schema, and default baseline.
-- `[profiles.<name>]` for adapter selection, discovery options, execution mode, selector templates, resource groups, and tasks.
-- `[scopes.<name>]` for scoped overrides when one repository needs multiple discovery/task policies.
-- `[[overlays]]` for explicit cross-scope dependency edges that native adapter metadata cannot prove.
+- `[toven]` for run-wide settings (report format, parallelism, cache) under `[toven.cache]`.
+- `[ecosystems.<id>]` for per-ecosystem discovery options, run strategy, release policy, and per-task argv under `[ecosystems.<id>.tasks.<name>]`.
+- `[groups.<name>]` for named module groupings and their guardrails.
+- `[[overlays]]` for explicit cross-ecosystem dependency edges that native adapter metadata cannot prove.
+- `[[members]]` for multi-repo federation roots.
 
 `toven generate` is the adoption path for new repositories. It renders a reviewable starter config from structured generation fragments, previews to stdout by default, and refuses to overwrite an existing `toven.toml` unless `--write --overwrite` is explicit.
 
-Rust generation emits profile-level Cargo manifest discovery. Cargo metadata is the source of truth for Rust path dependencies; generated overlays are reserved for relationships native metadata cannot prove.
+Rust generation emits ecosystem-level Cargo manifest discovery. Cargo metadata is the source of truth for Rust path dependencies; generated overlays are reserved for relationships native metadata cannot prove.
 
 ## Target CLI surface
 
@@ -71,6 +73,6 @@ Rust generation emits profile-level Cargo manifest discovery. Cargo metadata is 
 
 ## Release scope
 
-The first alpha release should include strict TOML config, Rust discovery, profile/scope adapter configuration, selector placeholders, readiness planning, affected detection, successful-result caching, smoke coverage, workflow inspection commands, watch/persistent tasks, and `toven generate`.
+The first alpha release should include strict TOML config, Rust discovery, per-ecosystem adapter configuration, selector placeholders, readiness planning, affected detection, successful-result caching, smoke coverage, workflow inspection commands, watch/persistent tasks, and `toven generate`.
 
 Out of scope for the first alpha: distributed execution, remote cache, CI token handling in core, toolchain installation, package installation, and Windows artifacts.

@@ -12,6 +12,7 @@ publish = false
 [[bin]]
 name = "toven-rs"
 path = "src/main.rs"
+doc = false
 
 [dependencies]
 toven-cli.workspace = true

@@ -12,15 +12,11 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use rskit_errors::AppResult;
-use serde_json::Value;
 use toven_model::{DepKind, Graph, Module, ModuleRef, Workspace, WorkspaceId};
 use toven_ports::{ChangeRecord, TaskKind, VcsReader};
 
 use super::discover::Federation;
 use super::request::{PlanRequest, Selection};
-
-/// Metadata key carrying a workspace's blast-radius input globs (adapter-set).
-const BLAST_RADIUS_KEY: &str = "blast_radius";
 
 /// Resolve the active module set for this request.
 ///
@@ -166,12 +162,7 @@ fn blast_match(path: &Path, workspaces: &[Workspace]) -> Option<WorkspaceId> {
 
 /// The blast-radius glob strings declared on a workspace.
 fn blast_globs(workspace: &Workspace) -> Vec<&str> {
-    workspace
-        .metadata
-        .get(BLAST_RADIUS_KEY)
-        .and_then(Value::as_array)
-        .map(|globs| globs.iter().filter_map(Value::as_str).collect())
-        .unwrap_or_default()
+    workspace.blast_radius.iter().map(String::as_str).collect()
 }
 
 /// The module whose root is the longest path-prefix of `path` (and its depth).
@@ -240,7 +231,6 @@ fn wildcard(pattern: &[u8], text: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::Value;
     use toven_model::{
         AbsPath, DepKind, EcosystemId, Edge, Graph, Module, ModuleRef, RepoPath, ToolchainTag,
         Workspace, WorkspaceId,
@@ -248,7 +238,7 @@ mod tests {
     use toven_ports::{BaselineSpec, ChangeRecord, ChangeStatus};
     use toven_testkit::FakeVcsReader;
 
-    use super::{BLAST_RADIUS_KEY, active_modules, changed_records_for_module};
+    use super::{active_modules, changed_records_for_module};
     use crate::plan::discover::Federation;
     use crate::plan::request::{PlanRequest, Selection};
 
@@ -268,10 +258,7 @@ mod tests {
             RepoPath::new(".").unwrap(),
             ToolchainTag::new("cargo"),
         );
-        workspace.metadata.insert(
-            BLAST_RADIUS_KEY.to_string(),
-            Value::Array(vec![Value::String("Cargo.lock".to_string())]),
-        );
+        workspace.blast_radius = vec!["Cargo.lock".to_string()];
         workspace
     }
 

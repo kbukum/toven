@@ -69,6 +69,7 @@ impl<S: RawOutputSink> UnitOutputChannel<S> {
     /// buffer at the cost of splitting that unit's output across more than one
     /// block. The cap is per unit; total channel memory still scales with the
     /// number of units buffering concurrently.
+    #[must_use]
     pub fn with_max_buffer_bytes(sink: S, max_buffer_bytes: usize) -> Self {
         Self {
             sink,

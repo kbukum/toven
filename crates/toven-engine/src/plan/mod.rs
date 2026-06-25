@@ -28,6 +28,7 @@ mod host;
 mod pipeline;
 mod request;
 mod schedule;
+mod shared_inputs;
 mod source;
 mod toolchain;
 

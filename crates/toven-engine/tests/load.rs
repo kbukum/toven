@@ -67,6 +67,18 @@ fn loads_multi_repo_members() {
 }
 
 #[test]
+fn dotted_key_and_table_forms_load_to_the_same_document() {
+    // TOML lets the same data be written with dotted keys
+    // (`toven.cache.dir = …`, `ecosystems.rust.release.registry = …`) or with
+    // `[table]` headers. The strict loader must treat them as identical, so the
+    // two fixtures — one of each form, same data — parse to equal `Document`s.
+    let dotted = load_fixture("valid/dotted-keys.toml", &["rust"]);
+    let table = load_fixture("valid/table-form.toml", &["rust"]);
+
+    assert_eq!(dotted, table);
+}
+
+#[test]
 fn merges_include_files_beneath_canonical() {
     // `with-include.toml` declares no groups itself; the included file does.
     let document = load_fixture("valid/with-include.toml", &["rust"]);

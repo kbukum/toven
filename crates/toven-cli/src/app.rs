@@ -74,6 +74,10 @@ pub fn report_error(error: &AppError) -> ExitCode {
 /// Print a clap parse outcome and map it to an exit code (help/version succeed;
 /// everything else is a usage error).
 fn clap_exit(error: &clap::Error) -> ExitCode {
+    // `error.print()` writes help/usage (or the parse error) to stderr/stdout as
+    // clap chooses. A failure to write that diagnostic is itself unrecoverable
+    // here — there is no second channel to report it on, and we still owe the
+    // caller the mapped exit code — so the write result is intentionally ignored.
     let _ = error.print();
     match error.kind() {
         ErrorKind::DisplayHelp

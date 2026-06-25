@@ -917,3 +917,94 @@ fn wave_error_still_tears_down_held_persistent_processes() {
         "held persistent process must be torn down despite the wave error"
     );
 }
+
+/// Run `apply` with a tiny live-output bridge and an overall timeout so a
+/// teardown deadlock surfaces as a test failure (the watchdog aborts the
+/// blocked runtime thread) instead of hanging the suite indefinitely.
+fn run_backpressured_with_timeout(
+    plan: &Plan,
+    runner: Arc<FakeCommandRunner>,
+    cache: &RecordingCacheWriter,
+    reporter: &mut RecordingReporter,
+) -> toven_model::RunStats {
+    let runner_port: Arc<dyn CommandRunner> = runner;
+    let mut output = UnitOutputChannel::new(RecordingRawOutputSink::new());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .expect("runtime");
+    runtime
+        .block_on(async {
+            tokio::time::timeout(
+                Duration::from_secs(10),
+                apply(
+                    plan,
+                    runner_port,
+                    cache,
+                    reporter,
+                    &mut output,
+                    ApplyOptions {
+                        max_parallel: 2,
+                        fail_fast: false,
+                        // One slot: a held process flushing more than one chunk
+                        // during teardown parks its reader thread until the
+                        // consumer drains, reproducing the deadlock shape.
+                        live_output_capacity: 1,
+                        ..ApplyOptions::default()
+                    },
+                    tokio_util::sync::CancellationToken::new(),
+                ),
+            )
+            .await
+        })
+        .expect("apply must not deadlock during teardown backpressure")
+        .expect("apply succeeds")
+}
+
+#[test]
+fn teardown_drains_live_output_under_backpressure_lifo_backstop() {
+    // A persistent goal with no dependents is held until run end and torn down
+    // through the LIFO backstop. It flushes more output than the bridge holds
+    // during shutdown; teardown must keep draining concurrently or deadlock.
+    let mut service = unit("service");
+    service.persistent = true;
+    service.cache = CacheVerdict::Disabled;
+    service.cache_key = None;
+    let normal = unit("normal");
+    let plan = Plan::new(
+        vec![service, normal],
+        vec![vec!["service".into()], vec!["normal".into()]],
+    );
+    let runner = Arc::new(FakeCommandRunner::new().with_teardown_output("service", 8));
+    let cache = RecordingCacheWriter::new();
+    let mut reporter = RecordingReporter::new();
+
+    run_backpressured_with_timeout(&plan, runner.clone(), &cache, &mut reporter);
+
+    assert_eq!(runner.shutdowns(), vec!["service".to_string()]);
+}
+
+#[test]
+fn teardown_drains_live_output_under_backpressure_dependent_drain() {
+    // A persistent service whose only dependent finishes is torn down mid-run
+    // via the per-unit teardown path. It flushes more output than the bridge
+    // holds during shutdown; the per-unit teardown must drain concurrently.
+    let mut service = unit("service");
+    service.persistent = true;
+    service.cache = CacheVerdict::Disabled;
+    service.cache_key = None;
+    let mut test = unit("test");
+    test.depends_on = vec!["service".to_string()];
+    let plan = Plan::new(
+        vec![service, test],
+        vec![vec!["service".into()], vec!["test".into()]],
+    );
+    let runner = Arc::new(FakeCommandRunner::new().with_teardown_output("service", 8));
+    let cache = RecordingCacheWriter::new();
+    let mut reporter = RecordingReporter::new();
+
+    run_backpressured_with_timeout(&plan, runner.clone(), &cache, &mut reporter);
+
+    assert_eq!(runner.shutdowns(), vec!["service".to_string()]);
+}

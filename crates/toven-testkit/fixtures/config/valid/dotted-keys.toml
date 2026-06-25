@@ -1,0 +1,16 @@
+# The same Document as `table-form.toml`, written with TOML dotted keys instead
+# of `[table]` headers. Loading both must yield an identical `Document`.
+project.name = "dotted-equivalence"
+project.root = "."
+project.base_ref = "origin/main"
+
+toven.report = "json"
+toven.max_parallel = 4
+toven.cache.dir = ".toven/cache"
+
+ecosystems.rust.manifests = ["Cargo.toml"]
+ecosystems.rust.run_strategy = "leaf-to-top"
+ecosystems.rust.release.strategy = "semver-cascade"
+ecosystems.rust.release.registry = "crates-io"
+ecosystems.rust.tasks.test.argv = ["cargo", "nextest", "run", "{module.selector}", "{args}"]
+ecosystems.rust.tasks.test.cache_args = true

@@ -92,13 +92,8 @@ fn go_work_groups_members_into_one_workspace_with_an_edge() {
 
     // A go.work grouping keys its blast radius off the workspace-level
     // go.work / go.work.sum, not a (nonexistent) root go.sum.
-    let globs = response.workspaces[0]
-        .metadata
-        .get("blast_radius")
-        .and_then(|v| v.as_array())
-        .expect("blast radius globs");
-    let globs: Vec<&str> = globs.iter().filter_map(|v| v.as_str()).collect();
-    assert_eq!(globs, ["go.work", "go.work.sum"]);
+    let globs = &response.workspaces[0].blast_radius;
+    assert_eq!(globs, &["go.work", "go.work.sum"]);
 }
 
 #[test]
@@ -160,20 +155,8 @@ fn modules_carry_resource_group_and_workspaces_carry_blast_radius() {
     let response = discover("adapter/single-module.toml", "workspaces/single-module");
 
     let module = &response.modules[0];
-    assert_eq!(
-        module
-            .metadata
-            .get("resource_group")
-            .and_then(|v| v.as_str()),
-        Some("go:.")
-    );
+    assert_eq!(module.resource_group.as_deref(), Some("go:."));
 
     let workspace = &response.workspaces[0];
-    let globs = workspace
-        .metadata
-        .get("blast_radius")
-        .and_then(|v| v.as_array())
-        .expect("blast radius globs");
-    assert_eq!(globs.len(), 1);
-    assert_eq!(globs[0].as_str(), Some("go.sum"));
+    assert_eq!(workspace.blast_radius, ["go.sum"]);
 }

@@ -7,15 +7,21 @@ Toven stores local successful-result cache records outside the repository by def
 The default path is workspace-specific and versioned:
 
 ```text
-<platform-user-cache>/toven/workspaces/<workspace-hash>/v3
+<platform-user-cache>/toven/<workspace-hash>/v3
 ```
 
 The `v3` segment is the task-cache record/key format version. Toven starts a new directory when that format changes instead of trying to read incompatible records.
 
+Resolution follows a fixed precedence (highest first): the `TOVEN_CACHE_DIR` environment override (an absolute base), then a workspace-relative `[toven.cache].dir`, then the platform user-cache directory namespaced by a stable hash of the workspace root. Each appends the current cache format version.
+
 Use `TOVEN_CACHE_DIR` to override the base cache directory for CI or benchmark isolation:
 
 ```bash
-TOVEN_CACHE_DIR=/tmp/toven-cache toven check
+TOVEN_CACHE_DIR=/absolute/path/to/toven-cache toven check
+```
+
+```powershell
+$Env:TOVEN_CACHE_DIR = "C:\cache\toven"; toven check
 ```
 
 The override must be an absolute path. Toven still appends the current cache format version, such as `v3`.
@@ -80,7 +86,7 @@ Cache decisions include task inputs such as:
 - dependency results
 - task argv and task configuration
 - shared inputs declared by the task
-- adapter-provided toolchain version probes, such as Cargo and rustc for Rust profiles
+- adapter-provided toolchain version probes, such as Cargo and rustc for Rust ecosystems
 - relevant toolchain/config files when configured as shared inputs, such as `rust-toolchain.toml`
 - passthrough args when `cache_args = true`
 

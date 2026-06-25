@@ -83,28 +83,47 @@ fn resolve_root_with(
 #[cfg(test)]
 mod tests {
     use super::{CACHE_FORMAT_VERSION, resolve_root_with};
+    use std::path::Path;
     use toven_model::AbsPath;
 
+    /// An absolute workspace root for the current platform, built with
+    /// `Path::join` so no separator is hard-coded into the test.
+    #[cfg(unix)]
     fn root() -> AbsPath {
-        AbsPath::new(if cfg!(windows) { r"C:\repo" } else { "/repo" }).expect("absolute")
+        AbsPath::new("/repo").expect("absolute")
     }
 
-    fn cache_override() -> &'static str {
-        if cfg!(windows) {
-            r"C:\toven-cache"
-        } else {
-            "/tmp/toven-cache"
-        }
+    #[cfg(windows)]
+    fn root() -> AbsPath {
+        AbsPath::new(r"C:\repo").expect("absolute")
+    }
+
+    /// An absolute cache-override base for the current platform.
+    #[cfg(unix)]
+    fn cache_override() -> AbsPath {
+        AbsPath::new(Path::new("/").join("toven-cache").to_str().expect("utf-8")).expect("absolute")
+    }
+
+    #[cfg(windows)]
+    fn cache_override() -> AbsPath {
+        AbsPath::new(
+            Path::new(r"C:\")
+                .join("toven-cache")
+                .to_str()
+                .expect("utf-8"),
+        )
+        .expect("absolute")
     }
 
     #[test]
     fn env_override_wins_and_appends_format_version() {
+        let base = cache_override();
         let resolved = resolve_root_with(&root(), Some("local"), || {
-            Some(cache_override().to_string())
+            Some(base.as_path().to_string_lossy().into_owned())
         })
         .expect("resolved");
         assert!(resolved.ends_with(CACHE_FORMAT_VERSION));
-        assert!(resolved.starts_with(cache_override()));
+        assert!(resolved.starts_with(base.as_path()));
     }
 
     #[test]
@@ -114,7 +133,8 @@ mod tests {
 
     #[test]
     fn configured_dir_is_confined_under_the_workspace_root() {
-        let resolved = resolve_root_with(&root(), Some(".toven/cache"), || None).expect("resolved");
+        let configured = Path::new(".toven").join("cache");
+        let resolved = resolve_root_with(&root(), configured.to_str(), || None).expect("resolved");
         assert!(resolved.starts_with(root().as_path()));
         assert!(resolved.ends_with(CACHE_FORMAT_VERSION));
     }

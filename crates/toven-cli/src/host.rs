@@ -151,15 +151,17 @@ impl Report {
         Self { format, verbosity }
     }
 
-    /// Build the matching stdout reporter sink at the resolved verbosity.
+    /// Build the matching reporter sink at the resolved verbosity.
     ///
-    /// The verbosity filters the human reporter's rendering of the Event stream;
-    /// the JSON-lines sink ignores it and always emits every event so a machine
-    /// consumer sees the complete record.
+    /// The human sink lands on stderr (its progress/status/summary lines are
+    /// diagnostics), while the Jsonl sink lands on stdout as the machine-readable
+    /// projection. The verbosity filters the human reporter's rendering of the
+    /// Event stream; the JSON-lines sink ignores it and always emits every event
+    /// so a machine consumer sees the complete record.
     #[must_use]
     pub(crate) fn reporter(self) -> Box<dyn toven_ports::Reporter> {
         match self.format {
-            Format::Human => Box::new(HumanReporter::stdout(self.verbosity)),
+            Format::Human => Box::new(HumanReporter::stderr(self.verbosity)),
             Format::Jsonl => Box::new(JsonlReporter::stdout()),
         }
     }

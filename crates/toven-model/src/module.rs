@@ -2,10 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    identity::{MemberId, ModuleRef, RepoPath, WorkspaceId},
-    metadata::Metadata,
-};
+use crate::identity::{MemberId, ModuleRef, RepoPath, WorkspaceId};
 
 /// A discovered module, independent of language-specific manifests.
 ///
@@ -33,9 +30,11 @@ pub struct Module {
     /// Repo-relative globs used for change detection.
     #[serde(default)]
     pub source_patterns: Vec<String>,
-    /// Freeform adapter data (feeds topology/release/report).
-    #[serde(default)]
-    pub metadata: Metadata,
+    /// Serialization resource group: units sharing this label are serialized by
+    /// the executor because they contend on one resource (e.g. a shared `target/`
+    /// directory). Adapter-set during discovery; `None` leaves the unit unguarded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_group: Option<String>,
 }
 
 impl Module {
@@ -51,7 +50,7 @@ impl Module {
             workspace: None,
             member: None,
             source_patterns: Vec::new(),
-            metadata: Metadata::new(),
+            resource_group: None,
         }
     }
 }

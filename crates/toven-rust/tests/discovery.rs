@@ -127,20 +127,8 @@ fn modules_carry_resource_group_and_workspaces_carry_blast_radius() {
     let response = discover("adapter/single-manifest.toml", "workspaces/single-crate");
 
     let module = &response.modules[0];
-    assert_eq!(
-        module
-            .metadata
-            .get("resource_group")
-            .and_then(|v| v.as_str()),
-        Some("cargo:.")
-    );
+    assert_eq!(module.resource_group.as_deref(), Some("cargo:."));
 
     let workspace = &response.workspaces[0];
-    let globs = workspace
-        .metadata
-        .get("blast_radius")
-        .and_then(|v| v.as_array())
-        .expect("blast radius globs");
-    assert_eq!(globs.len(), 1);
-    assert_eq!(globs[0].as_str(), Some("Cargo.lock"));
+    assert_eq!(workspace.blast_radius, ["Cargo.lock"]);
 }

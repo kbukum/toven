@@ -19,7 +19,9 @@ use crate::flags::Verbosity;
 /// bespoke plan-dump. A [`Verbosity`] level filters how much of the stream is
 /// shown (quiet collapses to the run summary; verbose adds the per-phase,
 /// cache-decision, and unit-lifecycle detail). Generic over the writer for
-/// testability; [`HumanReporter::stdout`] binds the process stdout.
+/// testability; [`HumanReporter::stderr`] binds the process stderr (progress
+/// and status are diagnostics, so stdout stays reserved for the machine
+/// projection).
 pub struct HumanReporter<W: Write> {
     writer: W,
     level: Verbosity,
@@ -97,11 +99,15 @@ impl<W: Write> HumanReporter<W> {
     }
 }
 
-impl HumanReporter<io::Stdout> {
-    /// Create a reporter writing human-readable text to process stdout at `level`.
+impl HumanReporter<io::Stderr> {
+    /// Create a reporter writing human-readable text to process stderr at `level`.
+    ///
+    /// Progress, status, and the run summary are human-facing diagnostics, so
+    /// they land on stderr; stdout is reserved for the machine-parseable
+    /// projection (the Jsonl reporter) and any future structured stdout output.
     #[must_use]
-    pub fn stdout(level: Verbosity) -> Self {
-        Self::new(io::stdout(), level)
+    pub fn stderr(level: Verbosity) -> Self {
+        Self::new(io::stderr(), level)
     }
 }
 

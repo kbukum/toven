@@ -99,13 +99,13 @@ pub struct Cli {
     /// Run the PLAN cut only, with reasoning detail.
     #[arg(long, global = true)]
     pub explain: bool,
-    /// Stop scheduling after the first failure.
+    /// Stop scheduling after the first failure (task-APPLY verbs only).
     #[arg(long, global = true)]
     pub fail_fast: bool,
-    /// Increase reporter verbosity (repeatable).
+    /// Increase reporter verbosity (repeatable; execution verbs only).
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
-    /// Decrease reporter verbosity (repeatable).
+    /// Decrease reporter verbosity (repeatable; execution verbs only).
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub quiet: u8,
     /// Release only: commit/tag a dirty working tree.
@@ -133,6 +133,7 @@ pub struct Cli {
 
 /// The reserved built-in verbs plus the argv-first task escape hatch.
 #[derive(Debug, Subcommand)]
+#[non_exhaustive]
 pub enum Command {
     /// Run a task by name (escape hatch for task names that shadow a reserved word).
     Run {
@@ -194,6 +195,7 @@ pub enum Command {
 
 /// `toven driver <action>` (logic lands in the umbrella-federation step).
 #[derive(Debug, Subcommand)]
+#[non_exhaustive]
 pub enum DriverAction {
     /// Install an out-of-process driver by id.
     Install {
@@ -206,6 +208,7 @@ pub enum DriverAction {
 
 /// `toven federation <action>` (logic lands in the cross-repo federation step).
 #[derive(Debug, Subcommand)]
+#[non_exhaustive]
 pub enum FederationAction {
     /// Synchronize federated member repositories.
     Sync,
@@ -215,6 +218,7 @@ pub enum FederationAction {
 
 /// `toven cache <action>`.
 #[derive(Debug, Subcommand)]
+#[non_exhaustive]
 pub enum CacheAction {
     /// Summarize the local cache directory.
     Stats,
@@ -279,25 +283,57 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
             verb,
         ));
     }
-    if (cli.dry_run || cli.explain || cli.fail_fast || cli.output.is_some())
+    if (cli.dry_run || cli.explain || cli.output.is_some())
         && !accepts_execution_flags(&cli.command)
     {
         return Err(AppError::invalid_input(
             "flags",
             format!(
-                "execution flags (--dry-run/--explain/--fail-fast/--output) do not apply to `toven {verb}`"
+                "execution flags (--dry-run/--explain/--output) do not apply to `toven {verb}`"
+            ),
+        ));
+    }
+    // `-v`/`-q` only shape the human reporter, which only the execution verbs
+    // build; the introspection/maintenance verbs render their own projection and
+    // would silently ignore the flag, so reject it rather than advertise a no-op.
+    if (cli.verbose > 0 || cli.quiet > 0) && !accepts_execution_flags(&cli.command) {
+        return Err(AppError::invalid_input(
+            "flags",
+            format!(
+                "reporter verbosity (-v/--verbose, -q/--quiet) does not apply to `toven {verb}`"
+            ),
+        ));
+    }
+    // `--fail-fast` shapes APPLY scheduling, so it is meaningful only on the
+    // task-APPLY verbs. `plan` stops at PLAN and `release` never multiplexes
+    // independent units, so the flag is a no-op there and is rejected.
+    if cli.fail_fast && !accepts_fail_fast(&cli.command) {
+        return Err(AppError::invalid_input(
+            "flags",
+            format!(
+                "`--fail-fast` only applies to task-APPLY verbs (`toven run`/`toven <task>`); it has no effect on `toven {verb}`"
             ),
         ));
     }
     Ok(())
 }
 
-/// Whether `command` is an execution verb that accepts reporter/APPLY-shaping flags.
+/// Whether `command` is an execution verb that accepts reporter-shaping flags
+/// (`--dry-run`/`--explain`/`--output` and the `-v`/`-q` verbosity counts).
 const fn accepts_execution_flags(command: &Command) -> bool {
     matches!(
         command,
         Command::Run { .. } | Command::Plan { .. } | Command::Release | Command::External(_)
     )
+}
+
+/// Whether `command` is a task-APPLY verb that consumes `--fail-fast`.
+///
+/// Only the verbs that drive multi-unit APPLY scheduling read fail-fast; `plan`
+/// stops at PLAN and `release` runs a single linear pipeline, so the flag is a
+/// no-op for them.
+const fn accepts_fail_fast(command: &Command) -> bool {
+    matches!(command, Command::Run { .. } | Command::External(_))
 }
 
 fn only_applies(flag: &str, owner: &str, verb: &str) -> AppError {
@@ -423,6 +459,58 @@ mod tests {
             ["--explain", "plan", "test"].as_slice(),
             ["--output", "jsonl", "release"].as_slice(),
             ["--fail-fast", "test"].as_slice(),
+        ] {
+            let cli = parse(args).expect("parses");
+            assert!(super::gate(&cli).is_ok(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn fail_fast_rejected_on_non_apply_verbs() {
+        // `--fail-fast` shapes APPLY scheduling, so it is a no-op on `plan`
+        // (PLAN-only) and `release` (single linear pipeline) and rejected there.
+        for args in [
+            ["--fail-fast", "plan", "test"].as_slice(),
+            ["--fail-fast", "release"].as_slice(),
+        ] {
+            let cli = parse(args).expect("parses");
+            assert!(super::gate(&cli).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn fail_fast_accepted_on_task_apply_verbs() {
+        for args in [
+            ["--fail-fast", "run", "test"].as_slice(),
+            ["--fail-fast", "test"].as_slice(),
+        ] {
+            let cli = parse(args).expect("parses");
+            assert!(super::gate(&cli).is_ok(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn verbosity_rejected_on_non_execution_verbs() {
+        // `-v`/`-q` only shape the human reporter the execution verbs build; the
+        // introspection/maintenance verbs ignore it, so it is rejected there.
+        for args in [
+            ["-v", "modules"].as_slice(),
+            ["--verbose", "graph"].as_slice(),
+            ["-q", "cache", "path"].as_slice(),
+            ["--quiet", "explain", "rust:app", "test"].as_slice(),
+        ] {
+            let cli = parse(args).expect("parses");
+            assert!(super::gate(&cli).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn verbosity_accepted_on_execution_verbs() {
+        for args in [
+            ["-v", "run", "test"].as_slice(),
+            ["-q", "plan", "test"].as_slice(),
+            ["--verbose", "release"].as_slice(),
+            ["-vv", "test"].as_slice(),
         ] {
             let cli = parse(args).expect("parses");
             assert!(super::gate(&cli).is_ok(), "{args:?}");

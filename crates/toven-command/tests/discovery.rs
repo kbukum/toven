@@ -59,12 +59,7 @@ fn module_metadata_and_manifest_round_trip() {
             .map(|p| p.as_path().to_string_lossy().into_owned()),
         Some("services/api/Makefile".to_string())
     );
-    assert_eq!(
-        api.metadata
-            .get("resource_group")
-            .and_then(serde_json::Value::as_str),
-        Some("command:api")
-    );
+    assert_eq!(api.resource_group.as_deref(), Some("command:api"));
     assert_eq!(
         api.workspace.as_ref().map(toven_model::WorkspaceId::as_str),
         Some("command")
@@ -92,5 +87,5 @@ fn depends_on_unknown_module_is_rejected() {
 fn workspace_carries_no_blast_radius() {
     let response = discover_result("adapter/declared-modules.toml").expect("discover");
     // The escape hatch infers no shared inputs across declared commands.
-    assert!(!response.workspaces[0].metadata.contains_key("blast_radius"));
+    assert!(response.workspaces[0].blast_radius.is_empty());
 }
