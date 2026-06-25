@@ -1,0 +1,4 @@
+# Two Go modules whose paths share a final `svc` segment (`.../first/svc`,
+# `.../second/svc`). Both resolve to the name `svc`, so discovery must abort
+# with a duplicate-module conflict.
+modules = ["first/go.mod", "second/go.mod"]

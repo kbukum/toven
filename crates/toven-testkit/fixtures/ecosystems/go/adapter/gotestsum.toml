@@ -1,0 +1,9 @@
+# A flattened Go adapter config: engine-common knobs + adapter-specific
+# `modules`, parsed under the adapter's own deny_unknown_fields.
+modules = ["go.mod"]
+run_strategy = "leaf-to-top"
+
+[tasks.test]
+argv = ["gotestsum", "--", "{module.selector}", "{args}"]
+cache_args = true
+shared_inputs = ["go.work.sum"]

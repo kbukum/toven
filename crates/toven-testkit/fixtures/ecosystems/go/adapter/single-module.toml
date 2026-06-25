@@ -1,0 +1,2 @@
+# Minimal Go adapter config: discover the single root go.mod only.
+modules = ["go.mod"]

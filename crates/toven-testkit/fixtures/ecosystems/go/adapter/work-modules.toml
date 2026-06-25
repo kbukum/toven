@@ -1,0 +1,3 @@
+# Go adapter config spanning a go.work workspace's two member modules,
+# exercising in-repo require edges and shared-workspace grouping.
+modules = ["app/go.mod", "core/go.mod"]
