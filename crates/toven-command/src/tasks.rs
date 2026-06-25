@@ -2,9 +2,10 @@
 //!
 //! The escape-hatch adapter invents no defaults. Every entry in the user's
 //! `[ecosystems.command.tasks.*]` table becomes a [`Task`] verbatim — a built-in
-//! kind key (`build`, `test`, …) classifies the task by that kind, any other key
-//! is a named extra / [`TaskKind::Custom`]. Each entry must define `argv`: there
-//! is no default command to inherit (argv-is-sacred).
+//! kind key (`build`, `test`, …) classifies the task by that kind, and any other
+//! key is either an ad-hoc [`TaskKind::Custom`] task or a named extra when it
+//! declares an explicit `kind`. Each entry must define `argv`: there is no
+//! default command to inherit (argv-is-sacred).
 
 use std::collections::BTreeMap;
 
@@ -45,12 +46,12 @@ fn declared_task(key: &str, over: &TaskOverride) -> AppResult<Task> {
         )
     })?;
 
-    // A built-in kind key classifies the task by that kind (name stays unset);
-    // any other key is a named extra carrying the key as its name.
+    // A built-in kind key and an ad-hoc custom key are both selected by kind.
+    // Only an explicitly reclassified task is a named extra within that kind.
     let (kind, name) = TaskKind::builtin(key).map_or_else(
         || {
             over.kind.as_ref().map_or_else(
-                || (TaskKind::Custom(key.to_string()), Some(key.to_string())),
+                || (TaskKind::Custom(key.to_string()), None),
                 |kind| (kind.clone(), Some(key.to_string())),
             )
         },
@@ -110,12 +111,24 @@ mod tests {
     }
 
     #[test]
-    fn custom_key_becomes_a_named_custom_task() {
+    fn custom_key_becomes_an_unnamed_custom_task() {
         let mut overrides = BTreeMap::new();
         overrides.insert("deploy".to_string(), over(&["./deploy.sh"]));
         let tasks = resolve_tasks(&overrides).expect("resolves");
         assert_eq!(tasks[0].kind, TaskKind::Custom("deploy".to_string()));
-        assert_eq!(tasks[0].name.as_deref(), Some("deploy"));
+        assert!(tasks[0].name.is_none());
+    }
+
+    #[test]
+    fn explicit_kind_on_custom_key_becomes_a_named_extra() {
+        let mut overrides = BTreeMap::new();
+        let mut task = over(&["cargo", "test", "--test", "integration"]);
+        task.kind = Some(TaskKind::Test);
+        overrides.insert("test-integration".to_string(), task);
+
+        let tasks = resolve_tasks(&overrides).expect("resolves");
+        assert_eq!(tasks[0].kind, TaskKind::Test);
+        assert_eq!(tasks[0].name.as_deref(), Some("test-integration"));
     }
 
     #[test]

@@ -35,7 +35,7 @@ fn only_user_declared_tasks_are_emitted() {
         .iter()
         .find(|t| t.kind == TaskKind::Custom("deploy".to_string()))
         .expect("deploy task");
-    assert_eq!(deploy.name.as_deref(), Some("deploy"));
+    assert!(deploy.name.is_none());
     assert_eq!(deploy.argv, ["./scripts/deploy.sh", "{module.name}"]);
 }
 
