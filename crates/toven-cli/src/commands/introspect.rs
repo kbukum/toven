@@ -3,9 +3,9 @@
 //!
 //! `affected` and `explain` are thin projections over one immutable [`Plan`].
 //! The shared [`build_plan`] runs the PLAN spine once with caching disabled
-//! (introspection never executes, so cache verdicts are noise) and a silent
-//! reporter (the projection is the output, not the event stream), then the verb
-//! filters the resulting units.
+//! (introspection never executes, so cache verdicts are noise) and a reporter that
+//! keeps stdout reserved for the projection while still surfacing warnings, then
+//! the verb filters the resulting units.
 //!
 //! `modules` and `graph` project the validated discovered [`Graph`] directly, so
 //! they do not depend on any particular task kind being configured or schedulable.
@@ -23,12 +23,15 @@ use toven_ports::{Provider, Reporter, TaskKind};
 use crate::flags::GraphFormat;
 use crate::host::{Project, new_run_id};
 
-/// A discarding [`Reporter`]: introspection prints its projection, not the event
-/// stream, so the PLAN-spine events are swallowed.
+/// A quiet [`Reporter`]: introspection prints its projection on stdout, while
+/// warnings still go to stderr so warn-and-skip diagnostics are visible.
 struct SilentReporter;
 
 impl Reporter for SilentReporter {
-    fn emit(&mut self, _event: &Event) -> AppResult<()> {
+    fn emit(&mut self, event: &Event) -> AppResult<()> {
+        if let Event::Warning { message } = event {
+            eprintln!("warning: {message}");
+        }
         Ok(())
     }
 }
@@ -36,7 +39,8 @@ impl Reporter for SilentReporter {
 /// Build the single immutable [`Plan`] every introspection verb projects.
 ///
 /// Caching is disabled (no execution happens, so a real cache verdict is
-/// irrelevant and the cache port is never consulted) and the reporter is silent.
+/// irrelevant and the cache port is never consulted) and the reporter is quiet
+/// except for warnings.
 ///
 /// # Errors
 /// Propagates PLAN-spine failures (configuration, discovery, graph, scheduling).

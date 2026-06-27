@@ -17,7 +17,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use rskit_errors::AppResult;
+use rskit_errors::{AppError, AppResult};
 use toven_model::EcosystemId;
 use toven_ports::{ConfiguredAdapter, Provider};
 
@@ -87,34 +87,33 @@ fn locate_in_path(paths: impl IntoIterator<Item = PathBuf>, binary_name: &str) -
 }
 
 /// Classify one ecosystem id into its four-way [`Resolution`].
-#[must_use]
 pub fn resolve_ecosystem(
     id: &EcosystemId,
     loaded: &BTreeSet<EcosystemId>,
     document: &Document,
     canonical: &CanonicalRegistry,
     locator: &dyn DriverLocator,
-) -> Resolution {
+) -> AppResult<Resolution> {
     if loaded.contains(id) {
-        return Resolution::Linked;
+        return Ok(Resolution::Linked);
     }
     if !canonical.contains(id) {
-        return Resolution::Unknown;
+        return Ok(Resolution::Unknown);
     }
-    if let Some(program) = pinned_driver(document, id) {
-        return Resolution::Driver(DriverBinary {
+    if let Some(program) = pinned_driver(document, id)? {
+        return Ok(Resolution::Driver(DriverBinary {
             program,
             pinned: true,
-        });
+        }));
     }
-    locator
+    Ok(locator
         .locate(&driver_binary_name(id))
         .map_or(Resolution::Absent, |program| {
             Resolution::Driver(DriverBinary {
                 program,
                 pinned: false,
             })
-        })
+        }))
 }
 
 /// The resolved remote adapters plus the warn-and-skip diagnostics.
@@ -147,7 +146,7 @@ pub fn resolve_adapters(
     let mut resolution = RemoteResolution::default();
 
     for (id, raw) in &document.ecosystems {
-        match resolve_ecosystem(id, &loaded, document, &canonical, locator) {
+        match resolve_ecosystem(id, &loaded, document, &canonical, locator)? {
             Resolution::Linked | Resolution::Unknown => {}
             Resolution::Absent => resolution.warnings.push(absent_hint(id)),
             Resolution::Driver(driver) => {
@@ -175,27 +174,66 @@ fn absent_hint(id: &EcosystemId) -> String {
 }
 
 /// Extract an explicit driver pin: per-section `driver` first, then `[toven.drivers]`.
-fn pinned_driver(document: &Document, id: &EcosystemId) -> Option<PathBuf> {
-    per_section_pin(document, id).or_else(|| drivers_map_pin(document, id))
+fn pinned_driver(document: &Document, id: &EcosystemId) -> AppResult<Option<PathBuf>> {
+    if let Some(path) = per_section_pin(document, id)? {
+        return Ok(Some(path));
+    }
+    drivers_map_pin(document, id)
 }
 
 /// `[ecosystems.<id>].driver = "<path>"`.
-fn per_section_pin(document: &Document, id: &EcosystemId) -> Option<PathBuf> {
-    let raw = document.ecosystems.get(id)?;
-    let value = toml::Value::try_from(raw).ok()?;
-    let driver = value.get("driver")?.as_str()?;
-    Some(PathBuf::from(driver))
+fn per_section_pin(document: &Document, id: &EcosystemId) -> AppResult<Option<PathBuf>> {
+    let Some(raw) = document.ecosystems.get(id) else {
+        return Ok(None);
+    };
+    let value = toml::Value::try_from(raw).map_err(|error| {
+        AppError::invalid_input(
+            format!("ecosystems.{id}"),
+            format!("could not inspect driver pin: {error}"),
+        )
+    })?;
+    let Some(driver) = value.get("driver") else {
+        return Ok(None);
+    };
+    let Some(path) = driver.as_str() else {
+        return Err(AppError::invalid_input(
+            format!("ecosystems.{id}.driver"),
+            "driver pin must be a string path",
+        ));
+    };
+    Ok(Some(PathBuf::from(path)))
 }
 
 /// `[toven.drivers].<id>` as either a bare path string or a `{ path = "..." }` table.
-fn drivers_map_pin(document: &Document, id: &EcosystemId) -> Option<PathBuf> {
-    let raw = document.toven.drivers.get(id.as_str())?;
-    let value = toml::Value::try_from(raw).ok()?;
+fn drivers_map_pin(document: &Document, id: &EcosystemId) -> AppResult<Option<PathBuf>> {
+    let Some(raw) = document.toven.drivers.get(id.as_str()) else {
+        return Ok(None);
+    };
+    let value = toml::Value::try_from(raw).map_err(|error| {
+        AppError::invalid_input(
+            format!("toven.drivers.{id}"),
+            format!("could not inspect driver pin: {error}"),
+        )
+    })?;
     if let Some(path) = value.as_str() {
-        return Some(PathBuf::from(path));
+        return Ok(Some(PathBuf::from(path)));
     }
-    let path = value.get("path")?.as_str()?;
-    Some(PathBuf::from(path))
+    let Some(table) = value.as_table() else {
+        return Err(AppError::invalid_input(
+            format!("toven.drivers.{id}"),
+            "driver pin must be a string path or a table with `path`/`version`",
+        ));
+    };
+    let Some(path) = table.get("path") else {
+        return Ok(None);
+    };
+    let Some(path) = path.as_str() else {
+        return Err(AppError::invalid_input(
+            format!("toven.drivers.{id}.path"),
+            "driver path pin must be a string",
+        ));
+    };
+    Ok(Some(PathBuf::from(path)))
 }
 
 /// Umbrella-only keys stripped from an ecosystem subtree before it is handed to a
@@ -296,7 +334,8 @@ mod tests {
             &document,
             &CanonicalRegistry::model(),
             &FakeLocator(Vec::new()),
-        );
+        )
+        .expect("resolution succeeds");
         assert_eq!(resolution, Resolution::Linked);
     }
 
@@ -310,7 +349,8 @@ mod tests {
             &document,
             &CanonicalRegistry::model(),
             &FakeLocator(vec!["toven-go".to_string()]),
-        );
+        )
+        .expect("resolution succeeds");
         assert!(matches!(resolution, Resolution::Driver(driver) if !driver.pinned));
     }
 
@@ -324,7 +364,8 @@ mod tests {
             &document,
             &CanonicalRegistry::model(),
             &FakeLocator(Vec::new()),
-        );
+        )
+        .expect("resolution succeeds");
         assert_eq!(resolution, Resolution::Absent);
     }
 
@@ -338,7 +379,8 @@ mod tests {
             &document,
             &CanonicalRegistry::model(),
             &FakeLocator(vec!["toven-go".to_string()]),
-        );
+        )
+        .expect("resolution succeeds");
         match resolution {
             Resolution::Driver(driver) => {
                 assert!(driver.pinned);
@@ -358,9 +400,56 @@ mod tests {
             &document,
             &CanonicalRegistry::model(),
             &FakeLocator(Vec::new()),
-        );
+        )
+        .expect("resolution succeeds");
         assert_eq!(resolution, Resolution::Unknown);
         let _ = PathDriverLocator::new();
+    }
+
+    #[test]
+    fn malformed_per_section_driver_pin_is_invalid_input() {
+        let loaded = BTreeSet::new();
+        let document = document_with(&[("go", "driver = 123\nmanifests = []")]);
+
+        let error = resolve_ecosystem(
+            &eid("go"),
+            &loaded,
+            &document,
+            &CanonicalRegistry::model(),
+            &FakeLocator(Vec::new()),
+        )
+        .expect_err("non-string per-section driver pin must fail");
+
+        assert_eq!(error.code(), rskit_errors::ErrorCode::InvalidInput);
+        assert!(
+            error.to_string().contains("ecosystems.go.driver"),
+            "error should point at the malformed key: {error}"
+        );
+    }
+
+    #[test]
+    fn malformed_drivers_map_pin_is_invalid_input() {
+        let loaded = BTreeSet::new();
+        let mut document = document_with(&[("go", "manifests = []")]);
+        document.toven.drivers.insert(
+            "go".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(123)),
+        );
+
+        let error = resolve_ecosystem(
+            &eid("go"),
+            &loaded,
+            &document,
+            &CanonicalRegistry::model(),
+            &FakeLocator(Vec::new()),
+        )
+        .expect_err("non-string/non-table toven driver pin must fail");
+
+        assert_eq!(error.code(), rskit_errors::ErrorCode::InvalidInput);
+        assert!(
+            error.to_string().contains("toven.drivers.go"),
+            "error should point at the malformed key: {error}"
+        );
     }
 
     #[test]

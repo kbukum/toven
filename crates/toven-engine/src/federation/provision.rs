@@ -108,16 +108,18 @@ pub fn referenced_ecosystems(document: &Document) -> BTreeSet<EcosystemId> {
 }
 
 /// Build the provisioning status of every canonical ecosystem.
-#[must_use]
+///
+/// # Errors
+/// Returns a typed configuration error if an explicit driver pin is malformed.
 pub fn list_drivers(
     document: &Document,
     loaded: &BTreeSet<EcosystemId>,
     locator: &dyn DriverLocator,
-) -> Vec<DriverStatus> {
+) -> AppResult<Vec<DriverStatus>> {
     let canonical = CanonicalRegistry::model();
     let mut statuses = Vec::new();
     for id in canonical.ids() {
-        let state = match resolve_ecosystem(&id, loaded, document, &canonical, locator) {
+        let state = match resolve_ecosystem(&id, loaded, document, &canonical, locator)? {
             Resolution::Linked => DriverState::Linked,
             Resolution::Driver(driver)
                 if driver.pinned && program_is_executable(&driver.program) =>
@@ -132,7 +134,7 @@ pub fn list_drivers(
         };
         statuses.push(DriverStatus { id, state });
     }
-    statuses
+    Ok(statuses)
 }
 
 /// Provision every driver pinned in `[toven.drivers]`, returning the installed ids.
@@ -245,7 +247,7 @@ mod tests {
     fn list_marks_loaded_as_linked_and_others_absent() {
         let document = document(&[]);
         let loaded: BTreeSet<EcosystemId> = std::iter::once(eid("rust")).collect();
-        let statuses = list_drivers(&document, &loaded, &NoLocator);
+        let statuses = list_drivers(&document, &loaded, &NoLocator).expect("status succeeds");
         let rust = statuses
             .iter()
             .find(|s| s.id == eid("rust"))
@@ -263,7 +265,8 @@ mod tests {
             serde_json::Value::String("/definitely/missing/toven-go".to_string()),
         );
 
-        let statuses = list_drivers(&document, &BTreeSet::new(), &NoLocator);
+        let statuses =
+            list_drivers(&document, &BTreeSet::new(), &NoLocator).expect("status succeeds");
         let go = statuses
             .iter()
             .find(|s| s.id == eid("go"))

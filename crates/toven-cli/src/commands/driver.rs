@@ -58,7 +58,7 @@ pub(crate) fn driver(
             if auto_install {
                 install_absent(providers, project)?;
             }
-            report_statuses("driver", providers, project);
+            report_statuses("driver", providers, project)?;
             Ok(ExitCode::Success)
         }
     }
@@ -93,7 +93,7 @@ pub(crate) fn federation(
             Ok(ExitCode::Success)
         }
         FederationAction::Status => {
-            report_statuses("federation", providers, project);
+            report_statuses("federation", providers, project)?;
             Ok(ExitCode::Success)
         }
     }
@@ -117,7 +117,7 @@ fn install(project: &Project, id: &str) -> AppResult<ExitCode> {
 /// drivers for canonical ecosystems this project does not use.
 fn install_absent(providers: &[&dyn Provider], project: &Project) -> AppResult<()> {
     let referenced = provision::referenced_ecosystems(&project.document);
-    for status in statuses(providers, project) {
+    for status in statuses(providers, project)? {
         if status.state == DriverState::Absent && referenced.contains(&status.id) {
             let version = version_pin(&project.document, &status.id);
             install_driver(&status.id, version.as_deref())?;
@@ -128,14 +128,15 @@ fn install_absent(providers: &[&dyn Provider], project: &Project) -> AppResult<(
 }
 
 /// Render every canonical ecosystem's provisioning state to stderr.
-fn report_statuses(verb: &str, providers: &[&dyn Provider], project: &Project) {
-    for status in statuses(providers, project) {
+fn report_statuses(verb: &str, providers: &[&dyn Provider], project: &Project) -> AppResult<()> {
+    for status in statuses(providers, project)? {
         eprintln!("{verb}: {} -> {}", status.id, describe(&status.state));
     }
+    Ok(())
 }
 
 /// The provisioning status of every canonical ecosystem for this project.
-fn statuses(providers: &[&dyn Provider], project: &Project) -> Vec<DriverStatus> {
+fn statuses(providers: &[&dyn Provider], project: &Project) -> AppResult<Vec<DriverStatus>> {
     let loaded = providers
         .iter()
         .map(|provider| provider.ecosystem_id().clone())
