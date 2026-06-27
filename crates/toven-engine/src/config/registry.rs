@@ -44,6 +44,14 @@ impl CanonicalRegistry {
     pub fn contains(&self, id: &EcosystemId) -> bool {
         self.ids.contains(id.as_str())
     }
+
+    /// Iterate the canonical ecosystem ids as typed [`EcosystemId`]s.
+    ///
+    /// Used by federation provisioning to enumerate every known ecosystem when
+    /// reporting driver status.
+    pub fn ids(&self) -> impl Iterator<Item = EcosystemId> + '_ {
+        self.ids.iter().filter_map(|id| EcosystemId::new(id).ok())
+    }
 }
 
 impl Default for CanonicalRegistry {

@@ -44,11 +44,17 @@
 //!   [`CacheWriter`](toven_ports::CacheWriter) for APPLY.
 //! - [`release`] — the release-specific PLAN/APPLY tail: immutable release
 //!   planning vocabulary, change detection, bumping, tagging, and publishing.
+//! - [`federation`] — umbrella federation: in-proc adapters plus the
+//!   [`RemoteAdapter`](federation::RemoteAdapter) proxy that drives a separately
+//!   installed `toven-<eco> __serve` over a thin framed stdio transport, the
+//!   four-way driver dispatch, the `__serve` port-server loop, and the explicit
+//!   driver provisioning surface.
 #![warn(missing_docs)]
 
 pub mod apply;
 pub mod cache;
 pub mod config;
+pub mod federation;
 pub mod output;
 pub mod plan;
 pub mod release;

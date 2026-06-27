@@ -256,10 +256,6 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     let is_release = matches!(cli.command, Command::Release);
     let is_generate = matches!(cli.command, Command::Generate);
     let is_graph = matches!(cli.command, Command::Graph);
-    let is_provisioning = matches!(
-        cli.command,
-        Command::Driver { .. } | Command::Federation { .. }
-    );
 
     if cli.allow_dirty && !is_release {
         return Err(only_applies("--allow-dirty", "toven release", verb));
@@ -276,10 +272,18 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     if cli.format.is_some() && !is_graph {
         return Err(only_applies("--format", "toven graph", verb));
     }
-    if cli.auto_install && !is_provisioning {
+    let accepts_auto_install = matches!(
+        cli.command,
+        Command::Driver {
+            action: DriverAction::List
+        } | Command::Federation {
+            action: FederationAction::Sync
+        }
+    );
+    if cli.auto_install && !accepts_auto_install {
         return Err(only_applies(
             "--auto-install",
-            "toven driver / toven federation",
+            "toven driver list / toven federation sync",
             verb,
         ));
     }

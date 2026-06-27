@@ -1,0 +1,17 @@
+# cargo-nextest configuration
+# See https://nexte.st/docs/configuration/
+
+[profile.default]
+# Fail fast: stop on first failure during local development.
+fail-fast = true
+# No retries in dev; the CI profile adds retries for flaky integration tests.
+retries = 0
+
+[profile.ci]
+# In CI, run every test even after a failure so one flake does not mask others.
+fail-fast = false
+# Retry flaky tests (real-subprocess federation/apply tests) up to twice.
+retries = 2
+# Some integration tests drive real subprocesses with second-scale sleeps, so
+# allow a generous timeout before a test is considered hung.
+slow-timeout = { period = "120s", terminate-after = 2 }

@@ -42,6 +42,15 @@ where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
+    let args: Vec<std::ffi::OsString> = args.into_iter().map(Into::into).collect();
+    // The hidden `__serve` port-server entry is intercepted before clap: a driven
+    // `toven-<eco> __serve` runs the engine's framed stdio loop over the in-proc
+    // providers and never touches the reserved-verb grammar. stdout carries the
+    // frame stream; diagnostics (and any error) go to stderr.
+    if is_serve_invocation(&args) {
+        return commands::driver::serve(providers);
+    }
+
     let cli = match Cli::try_parse_from(args) {
         Ok(cli) => cli,
         Err(error) => return clap_exit(&error),
@@ -55,6 +64,16 @@ where
             code
         }
     }
+}
+
+/// The reserved hidden subcommand that puts a driver into port-server mode.
+const SERVE_SUBCOMMAND: &str = "__serve";
+
+/// Whether the argv selects the hidden `__serve` port-server entry (the first
+/// token after the program name).
+fn is_serve_invocation(args: &[std::ffi::OsString]) -> bool {
+    args.get(1)
+        .is_some_and(|token| token.as_os_str() == std::ffi::OsStr::new(SERVE_SUBCOMMAND))
 }
 
 /// Render a typed wiring/bootstrap failure and map it to a process exit code.
@@ -93,8 +112,14 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
 
     match &cli.command {
         Command::Generate => commands::generate::execute(),
-        Command::Driver { action } => commands::driver::driver(action, cli.auto_install),
-        Command::Federation { action } => commands::driver::federation(action, cli.auto_install),
+        Command::Driver { action } => {
+            let project = load(providers, cli, false)?;
+            commands::driver::driver(providers, &project, action, cli.auto_install)
+        }
+        Command::Federation { action } => {
+            let project = load(providers, cli, false)?;
+            commands::driver::federation(providers, &project, action, cli.auto_install)
+        }
         Command::External(tokens) => dispatch_task(providers, cli, tokens),
         Command::Run { task, passthrough } => {
             let project = load(providers, cli, true)?;

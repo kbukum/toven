@@ -1,0 +1,13 @@
+# A canonical-but-unloaded ecosystem (`go`) pinned to a driver binary that does
+# not exist. A Rust-only umbrella resolves the pin, tries to spawn it, and must
+# hard-error (a resolved-but-broken driver never degrades to warn+skip), whereas
+# the unpinned `[ecosystems.rust]` is served in-proc.
+[project]
+name = "rust-with-bogus-go-driver"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+
+[ecosystems.go]
+modules = ["api"]
+driver = "/nonexistent/toven-go-bogus-driver-binary"

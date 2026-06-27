@@ -1,0 +1,424 @@
+//! Four-way ecosystem dispatch and remote-adapter resolution.
+//!
+//! Extends the load-time three-way config dispatch (loaded / canonical-unloaded /
+//! unknown) into the federation four-way:
+//!
+//! | Case | [`Resolution`] | Behavior |
+//! |------|----------------|----------|
+//! | linked in this binary | [`Resolution::Linked`] | in-proc configure |
+//! | canonical, driver resolved (pin or PATH) | [`Resolution::Driver`] | drive out-of-proc |
+//! | canonical, no driver | [`Resolution::Absent`] | warn + skip |
+//! | unknown id | [`Resolution::Unknown`] | (already hard-errored at load) |
+//!
+//! A *resolved* driver that fails to spawn or handshake is a hard PLAN error (a
+//! partial federation would corrupt the affected closure); only an *absent*
+//! driver is warn + skip.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+
+use rskit_errors::AppResult;
+use toven_model::EcosystemId;
+use toven_ports::{ConfiguredAdapter, Provider};
+
+use super::remote::RemoteAdapter;
+use crate::config::{CanonicalRegistry, Document};
+
+/// How an ecosystem id declared in `toven.toml` is served.
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum Resolution {
+    /// An adapter for this ecosystem is compiled into this binary.
+    Linked,
+    /// A separately-installed driver binary serves this ecosystem.
+    Driver(DriverBinary),
+    /// A canonical ecosystem with no installed driver (warn + skip).
+    Absent,
+    /// An unknown ecosystem id (a typo); hard-errored at config load.
+    Unknown,
+}
+
+/// A resolved external driver binary.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct DriverBinary {
+    /// Path or program name to spawn (`<program> __serve`).
+    pub program: PathBuf,
+    /// Whether the path came from an explicit config pin (vs. PATH convention).
+    pub pinned: bool,
+}
+
+/// Locates a driver binary by its conventional name (e.g. `toven-go`).
+///
+/// Injected so resolution stays pure and testable without touching the real
+/// `PATH`.
+pub trait DriverLocator {
+    /// Resolve `binary_name` to an executable path, or `None` if not found.
+    fn locate(&self, binary_name: &str) -> Option<PathBuf>;
+}
+
+/// The production locator: scans the process `PATH` for `binary_name`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PathDriverLocator;
+
+impl PathDriverLocator {
+    /// Construct a `PATH`-scanning locator.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl DriverLocator for PathDriverLocator {
+    fn locate(&self, binary_name: &str) -> Option<PathBuf> {
+        let path = std::env::var_os("PATH")?;
+        locate_in_path(std::env::split_paths(&path), binary_name)
+    }
+}
+
+/// Find an executable `binary_name` in `paths`.
+fn locate_in_path(paths: impl IntoIterator<Item = PathBuf>, binary_name: &str) -> Option<PathBuf> {
+    paths
+        .into_iter()
+        .map(|dir| dir.join(binary_name))
+        // Require an executable regular file: a same-named non-executable file on
+        // PATH must not masquerade as a resolved driver (which would turn an
+        // absent driver's warn-and-skip into a hard spawn failure).
+        .find(|candidate| rskit_fs::sync_io::file::is_executable(candidate).unwrap_or(false))
+}
+
+/// Classify one ecosystem id into its four-way [`Resolution`].
+#[must_use]
+pub fn resolve_ecosystem(
+    id: &EcosystemId,
+    loaded: &BTreeSet<EcosystemId>,
+    document: &Document,
+    canonical: &CanonicalRegistry,
+    locator: &dyn DriverLocator,
+) -> Resolution {
+    if loaded.contains(id) {
+        return Resolution::Linked;
+    }
+    if !canonical.contains(id) {
+        return Resolution::Unknown;
+    }
+    if let Some(program) = pinned_driver(document, id) {
+        return Resolution::Driver(DriverBinary {
+            program,
+            pinned: true,
+        });
+    }
+    locator
+        .locate(&driver_binary_name(id))
+        .map_or(Resolution::Absent, |program| {
+            Resolution::Driver(DriverBinary {
+                program,
+                pinned: false,
+            })
+        })
+}
+
+/// The resolved remote adapters plus the warn-and-skip diagnostics.
+#[derive(Default)]
+pub struct RemoteResolution {
+    /// Configured remote adapters, keyed by ecosystem id.
+    pub adapters: BTreeMap<EcosystemId, Box<dyn ConfiguredAdapter>>,
+    /// Actionable warnings for canonical ecosystems with no installed driver.
+    pub warnings: Vec<String>,
+}
+
+/// Resolve and connect every canonical-but-unloaded ecosystem to its driver.
+///
+/// Linked ecosystems are configured in-proc elsewhere and skipped here. Absent
+/// drivers produce a warning. A resolved driver that fails to connect aborts.
+///
+/// # Errors
+/// Propagates a hard PLAN error if a *resolved* driver cannot be spawned or
+/// completes its handshake/prefetch with a failure.
+pub fn resolve_adapters(
+    document: &Document,
+    providers: &[&dyn Provider],
+    locator: &dyn DriverLocator,
+) -> AppResult<RemoteResolution> {
+    let loaded: BTreeSet<EcosystemId> = providers
+        .iter()
+        .map(|provider| provider.ecosystem_id().clone())
+        .collect();
+    let canonical = CanonicalRegistry::model();
+    let mut resolution = RemoteResolution::default();
+
+    for (id, raw) in &document.ecosystems {
+        match resolve_ecosystem(id, &loaded, document, &canonical, locator) {
+            Resolution::Linked | Resolution::Unknown => {}
+            Resolution::Absent => resolution.warnings.push(absent_hint(id)),
+            Resolution::Driver(driver) => {
+                let config_toml = render_subtree(id, raw)?;
+                let adapter = RemoteAdapter::spawn(&driver.program, id.clone(), config_toml)?;
+                resolution
+                    .adapters
+                    .insert(id.clone(), Box::new(adapter) as Box<dyn ConfiguredAdapter>);
+            }
+        }
+    }
+    Ok(resolution)
+}
+
+/// The conventional driver binary name for an ecosystem id (`toven-<id>`).
+fn driver_binary_name(id: &EcosystemId) -> String {
+    format!("toven-{id}")
+}
+
+/// The actionable warn-and-skip hint for an absent driver.
+fn absent_hint(id: &EcosystemId) -> String {
+    format!(
+        "ecosystem '{id}' is declared but no adapter is linked and no driver is installed; skipping (run `toven driver install {id}`)"
+    )
+}
+
+/// Extract an explicit driver pin: per-section `driver` first, then `[toven.drivers]`.
+fn pinned_driver(document: &Document, id: &EcosystemId) -> Option<PathBuf> {
+    per_section_pin(document, id).or_else(|| drivers_map_pin(document, id))
+}
+
+/// `[ecosystems.<id>].driver = "<path>"`.
+fn per_section_pin(document: &Document, id: &EcosystemId) -> Option<PathBuf> {
+    let raw = document.ecosystems.get(id)?;
+    let value = toml::Value::try_from(raw).ok()?;
+    let driver = value.get("driver")?.as_str()?;
+    Some(PathBuf::from(driver))
+}
+
+/// `[toven.drivers].<id>` as either a bare path string or a `{ path = "..." }` table.
+fn drivers_map_pin(document: &Document, id: &EcosystemId) -> Option<PathBuf> {
+    let raw = document.toven.drivers.get(id.as_str())?;
+    let value = toml::Value::try_from(raw).ok()?;
+    if let Some(path) = value.as_str() {
+        return Some(PathBuf::from(path));
+    }
+    let path = value.get("path")?.as_str()?;
+    Some(PathBuf::from(path))
+}
+
+/// Umbrella-only keys stripped from an ecosystem subtree before it is handed to a
+/// driver: they steer federation in the umbrella and are not part of the adapter's
+/// own (`deny_unknown_fields`) configuration schema.
+const UMBRELLA_ONLY_KEYS: &[&str] = &["driver"];
+
+/// Render an `[ecosystems.<id>]` raw subtree back to TOML for the driver's parse.
+fn render_subtree(id: &EcosystemId, raw: &rskit_config::RawValue) -> AppResult<String> {
+    let mut value = toml::Value::try_from(raw).map_err(|error| {
+        rskit_errors::AppError::invalid_input(
+            format!("ecosystems.{id}"),
+            format!("could not render configuration subtree for driver: {error}"),
+        )
+    })?;
+    if let toml::Value::Table(table) = &mut value {
+        for key in UMBRELLA_ONLY_KEYS {
+            table.remove(*key);
+        }
+    }
+    toml::to_string(&value).map_err(|error| {
+        rskit_errors::AppError::invalid_input(
+            format!("ecosystems.{id}"),
+            format!("could not serialize configuration subtree for driver: {error}"),
+        )
+    })
+}
+
+/// Whether `program` exists as a file (used by provisioning status views).
+#[must_use]
+pub fn program_exists(program: &Path) -> bool {
+    program.is_file()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    use toven_model::EcosystemId;
+    use toven_testkit::FakeProvider;
+
+    use super::{
+        DriverLocator, PathDriverLocator, Resolution, locate_in_path, render_subtree,
+        resolve_ecosystem,
+    };
+    use crate::config::{CanonicalRegistry, Document, ProjectConfig, TovenConfig};
+
+    fn eid(id: &str) -> EcosystemId {
+        EcosystemId::new(id).expect("valid id")
+    }
+
+    fn raw_subtree(body: &str) -> rskit_config::RawValue {
+        let value: toml::Value = toml::from_str(body).expect("valid toml");
+        serde_json::to_value(value).expect("json")
+    }
+
+    fn document_with(ecosystems: &[(&str, &str)]) -> Document {
+        let mut map = std::collections::BTreeMap::new();
+        for (id, body) in ecosystems {
+            map.insert(eid(id), raw_subtree(body));
+        }
+        Document {
+            project: ProjectConfig {
+                name: "t".to_string(),
+                root: ".".to_string(),
+                base_ref: None,
+            },
+            toven: TovenConfig::default(),
+            groups: std::collections::BTreeMap::new(),
+            overlays: Vec::new(),
+            ecosystems: map,
+            members: Vec::new(),
+        }
+    }
+
+    /// A locator that resolves a fixed set of names.
+    struct FakeLocator(Vec<String>);
+    impl DriverLocator for FakeLocator {
+        fn locate(&self, binary_name: &str) -> Option<PathBuf> {
+            self.0
+                .iter()
+                .any(|name| name == binary_name)
+                .then(|| PathBuf::from(format!("/usr/bin/{binary_name}")))
+        }
+    }
+
+    #[test]
+    fn linked_ecosystem_resolves_in_proc() {
+        let rust = FakeProvider::new(eid("rust"));
+        let loaded: BTreeSet<EcosystemId> = std::iter::once(eid("rust")).collect();
+        let document = document_with(&[("rust", "manifests = []")]);
+        let _ = rust;
+        let resolution = resolve_ecosystem(
+            &eid("rust"),
+            &loaded,
+            &document,
+            &CanonicalRegistry::model(),
+            &FakeLocator(Vec::new()),
+        );
+        assert_eq!(resolution, Resolution::Linked);
+    }
+
+    #[test]
+    fn canonical_unloaded_with_path_driver_resolves_out_of_proc() {
+        let loaded = BTreeSet::new();
+        let document = document_with(&[("go", "manifests = []")]);
+        let resolution = resolve_ecosystem(
+            &eid("go"),
+            &loaded,
+            &document,
+            &CanonicalRegistry::model(),
+            &FakeLocator(vec!["toven-go".to_string()]),
+        );
+        assert!(matches!(resolution, Resolution::Driver(driver) if !driver.pinned));
+    }
+
+    #[test]
+    fn canonical_unloaded_without_driver_is_absent() {
+        let loaded = BTreeSet::new();
+        let document = document_with(&[("go", "manifests = []")]);
+        let resolution = resolve_ecosystem(
+            &eid("go"),
+            &loaded,
+            &document,
+            &CanonicalRegistry::model(),
+            &FakeLocator(Vec::new()),
+        );
+        assert_eq!(resolution, Resolution::Absent);
+    }
+
+    #[test]
+    fn per_section_pin_takes_precedence_over_path() {
+        let loaded = BTreeSet::new();
+        let document = document_with(&[("go", "driver = \"/opt/toven-go\"\nmanifests = []")]);
+        let resolution = resolve_ecosystem(
+            &eid("go"),
+            &loaded,
+            &document,
+            &CanonicalRegistry::model(),
+            &FakeLocator(vec!["toven-go".to_string()]),
+        );
+        match resolution {
+            Resolution::Driver(driver) => {
+                assert!(driver.pinned);
+                assert_eq!(driver.program, PathBuf::from("/opt/toven-go"));
+            }
+            other => panic!("expected pinned driver, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unknown_ecosystem_is_unknown() {
+        let loaded = BTreeSet::new();
+        let document = document_with(&[("go", "manifests = []")]);
+        let resolution = resolve_ecosystem(
+            &eid("rsut"),
+            &loaded,
+            &document,
+            &CanonicalRegistry::model(),
+            &FakeLocator(Vec::new()),
+        );
+        assert_eq!(resolution, Resolution::Unknown);
+        let _ = PathDriverLocator::new();
+    }
+
+    #[test]
+    fn render_subtree_strips_umbrella_only_driver_pin() {
+        let raw = raw_subtree("driver = \"/opt/toven-go\"\nmodules = [\"api\"]");
+        let rendered = render_subtree(&eid("go"), &raw).expect("render");
+        let value: toml::Value = toml::from_str(&rendered).expect("valid toml");
+        let table = value.as_table().expect("table");
+        assert!(
+            !table.contains_key("driver"),
+            "driver pin must not reach the adapter"
+        );
+        assert!(table.contains_key("modules"), "adapter keys must survive");
+    }
+
+    #[test]
+    fn path_locator_ignores_non_executable_candidates() {
+        let root = unique_temp_dir("toven-path-locator");
+        fs::create_dir_all(&root).expect("temp dir created");
+        let candidate = root.join("toven-go");
+        fs::write(&candidate, "#!/bin/sh\n").expect("candidate written");
+
+        let resolved = locate_in_path([root.clone()], "toven-go");
+        assert_eq!(resolved, None);
+
+        fs::remove_file(&candidate).expect("candidate removed");
+        fs::remove_dir(&root).expect("temp dir removed");
+    }
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}-{}-{nanos}", std::process::id()))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_locator_accepts_executable_candidates() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        fn make_executable(path: &Path) {
+            let mut permissions = fs::metadata(path).expect("metadata").permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(path, permissions).expect("permissions set");
+        }
+
+        let root = unique_temp_dir("toven-path-locator-exec");
+        fs::create_dir_all(&root).expect("temp dir created");
+        let candidate = root.join("toven-go");
+        fs::write(&candidate, "#!/bin/sh\n").expect("candidate written");
+        make_executable(&candidate);
+
+        let resolved = locate_in_path([root.clone()], "toven-go");
+        assert_eq!(resolved.as_deref(), Some(candidate.as_path()));
+
+        fs::remove_file(&candidate).expect("candidate removed");
+        fs::remove_dir(&root).expect("temp dir removed");
+    }
+}

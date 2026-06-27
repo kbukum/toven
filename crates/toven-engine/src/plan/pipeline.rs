@@ -10,6 +10,7 @@ use toven_model::{Event, ExecutionUnit, ModuleRef, Phase, Plan};
 use toven_ports::{Provider, Reporter};
 
 use crate::config::Document;
+use crate::federation::resolve::PathDriverLocator;
 
 use super::cache::{self, KeyInputs};
 use super::host::PlanHost;
@@ -32,7 +33,14 @@ pub fn plan(
     host: PlanHost<'_>,
     reporter: &mut dyn Reporter,
 ) -> AppResult<Plan> {
-    let context = front::prepare(&request.project_root, document, providers, reporter)?;
+    let locator = PathDriverLocator::new();
+    let context = front::prepare(
+        &request.project_root,
+        document,
+        providers,
+        &locator,
+        reporter,
+    )?;
 
     reporter.emit(&Event::PhaseStarted {
         phase: Phase::Affected,

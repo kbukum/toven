@@ -1,6 +1,6 @@
 PACKAGE_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 
-.PHONY: check fmt fmt-check lint test structure doc deny coverage smoke release-dry-run release-artifacts act-ci act-supply-chain act-release-readiness
+.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc deny coverage smoke release-dry-run release-artifacts act-ci act-supply-chain act-release-readiness
 
 # Canonical local/CI gate for the virtual workspace.
 check: fmt-check lint test structure doc deny release-dry-run
@@ -14,8 +14,15 @@ fmt-check:
 lint:
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-test:
-	cargo test --workspace --all-targets --all-features
+# Tests run via nextest (fast, globally parallel across every test binary).
+# nextest does not execute doctests, so they run separately under `test-doc`.
+test: test-nextest test-doc
+
+test-nextest:
+	cargo nextest run --workspace --all-targets --all-features
+
+test-doc:
+	cargo test --workspace --all-features --doc
 
 structure:
 	./scripts/check-structure.sh

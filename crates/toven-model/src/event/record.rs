@@ -45,6 +45,15 @@ pub enum Event {
         phase: Phase,
     },
 
+    // ---- DIAGNOSTIC level ----
+    /// A non-fatal diagnostic surfaced during a run (e.g. a canonical ecosystem
+    /// whose driver is absent was skipped). Advisory only — it never changes the
+    /// run outcome or exit code, but is always shown so the skip is not silent.
+    Warning {
+        /// Human-readable, actionable warning text.
+        message: String,
+    },
+
     // ---- PLAN level ----
     /// The immutable plan was prepared (the PLAN→APPLY boundary).
     PlanPrepared {
@@ -101,6 +110,9 @@ mod tests {
         });
         round_trip(&Event::PhaseStarted {
             phase: Phase::Discover,
+        });
+        round_trip(&Event::Warning {
+            message: "ecosystem 'go' skipped: no driver installed".into(),
         });
         round_trip(&Event::CacheDecided {
             unit_id: "u1".into(),

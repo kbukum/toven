@@ -12,6 +12,7 @@
 
 use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult};
+use toven_engine::federation::resolve::PathDriverLocator;
 use toven_engine::plan::{
     CacheMode, FsSourceDigest, NullCache, PlanHost, PlanRequest, ProcessToolchainProber,
     dependency_graph, plan,
@@ -63,11 +64,13 @@ fn build_plan(providers: &[&dyn Provider], project: &Project, intent: TaskKind) 
 /// # Errors
 /// Propagates Configure/Discover/Graph failures.
 fn build_graph(providers: &[&dyn Provider], project: &Project) -> AppResult<Graph> {
+    let locator = PathDriverLocator::new();
     let mut reporter = SilentReporter;
     dependency_graph(
         &project.project_root,
         &project.document,
         providers,
+        &locator,
         &mut reporter,
     )
 }
