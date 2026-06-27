@@ -52,14 +52,14 @@ pub enum DriverState {
 /// # Errors
 /// Returns an error if `cargo` cannot be launched or exits non-zero.
 pub fn install_driver(id: &EcosystemId, version: Option<&str>) -> AppResult<()> {
-let crate_name = format!("toven-{id}");
-let mut spec = ProcessSpec::new("cargo")
-    .arg("install")
-    .arg("--locked")
-    .arg(&crate_name);
-if let Some(version) = version {
-    spec = spec.arg("--version").arg(version);
-}
+    let crate_name = format!("toven-{id}");
+    let mut spec = ProcessSpec::new("cargo")
+        .arg("install")
+        .arg("--locked")
+        .arg(&crate_name);
+    if let Some(version) = version {
+        spec = spec.arg("--version").arg(version);
+    }
     // Installs are long and interactive-ish; inherit stdio and lift the timeout.
     let config = ProcessConfig::default()
         .with_timeout(None)
