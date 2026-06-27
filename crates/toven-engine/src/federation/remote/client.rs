@@ -137,7 +137,7 @@ impl RpcClient {
             .as_ref()
             .map(|child| child.arm_watchdog(self.timeout));
         let outcome = codec::read_frame(&mut self.reader, MAX_FRAME_BYTES);
-        let timed_out = watchdog.map(Watchdog::disarm).unwrap_or(false);
+        let timed_out = watchdog.map_or(false, Watchdog::disarm);
         // A watchdog kill unblocks the read either as an error or as a clean EOF at
         // the frame boundary (`Ok(None)`); classify both as a timeout, not transport.
         if timed_out {
