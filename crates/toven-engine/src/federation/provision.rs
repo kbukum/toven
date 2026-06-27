@@ -9,7 +9,7 @@
 //! in `[toven.drivers]`.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_process::{InheritedIo, ProcessConfig, ProcessIo, ProcessSpec, run};
@@ -35,6 +35,8 @@ pub enum DriverState {
     Linked,
     /// An explicitly pinned driver binary serves it.
     Pinned(PathBuf),
+    /// An explicitly pinned driver path is missing or not executable.
+    PinnedUnavailable(PathBuf),
     /// A driver was found on `PATH`.
     OnPath(PathBuf),
     /// No adapter and no driver — declared sections would warn + skip.
@@ -114,7 +116,14 @@ pub fn list_drivers(
     for id in canonical.ids() {
         let state = match resolve_ecosystem(&id, loaded, document, &canonical, locator) {
             Resolution::Linked => DriverState::Linked,
-            Resolution::Driver(driver) if driver.pinned => DriverState::Pinned(driver.program),
+            Resolution::Driver(driver)
+                if driver.pinned && program_is_executable(&driver.program) =>
+            {
+                DriverState::Pinned(driver.program)
+            }
+            Resolution::Driver(driver) if driver.pinned => {
+                DriverState::PinnedUnavailable(driver.program)
+            }
             Resolution::Driver(driver) => DriverState::OnPath(driver.program),
             Resolution::Absent | Resolution::Unknown => DriverState::Absent,
         };
@@ -140,6 +149,15 @@ pub fn federation_sync(document: &Document) -> AppResult<Vec<EcosystemId>> {
                 format!("invalid driver id '{id}': {error}"),
             )
         })?;
+        if let Some(path) = path_pin(document, &ecosystem) {
+            return Err(AppError::invalid_input(
+                format!("toven.drivers.{id}"),
+                format!(
+                    "path-pinned driver '{id}' cannot be installed by `toven federation sync`; validate the configured binary separately at {}",
+                    path.display()
+                ),
+            ));
+        }
         let version = version_pin(document, &ecosystem);
         install_driver(&ecosystem, version.as_deref())?;
         installed.push(ecosystem);
@@ -147,13 +165,31 @@ pub fn federation_sync(document: &Document) -> AppResult<Vec<EcosystemId>> {
     Ok(installed)
 }
 
+/// Whether `program` exists and is executable (used by provisioning status views).
+#[must_use]
+pub fn program_is_executable(program: &Path) -> bool {
+    rskit_fs::sync_io::file::is_executable(program).unwrap_or(false)
+}
+
+/// Read a path pin from `[toven.drivers].<id>` as a bare string or `{ path = "..." }`.
+fn path_pin(document: &Document, id: &EcosystemId) -> Option<PathBuf> {
+    let raw = document.toven.drivers.get(id.as_str())?;
+    let value = toml::Value::try_from(raw).ok()?;
+    if let Some(path) = value.as_str() {
+        return Some(PathBuf::from(path));
+    }
+    Some(PathBuf::from(value.get("path")?.as_str()?))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
+    use std::path::PathBuf;
 
+    use rskit_errors::ErrorCode;
     use toven_model::EcosystemId;
 
-    use super::{DriverState, list_drivers, referenced_ecosystems, version_pin};
+    use super::{DriverState, federation_sync, list_drivers, referenced_ecosystems, version_pin};
     use crate::config::{Document, ProjectConfig, TovenConfig};
     use crate::federation::resolve::{DriverLocator, PathDriverLocator};
 
@@ -214,6 +250,39 @@ mod tests {
         assert_eq!(rust.state, DriverState::Linked);
         assert!(statuses.iter().any(|s| s.state == DriverState::Absent));
         let _ = PathDriverLocator::new();
+    }
+
+    #[test]
+    fn list_marks_broken_path_pins_as_unavailable() {
+        let mut document = document(&[]);
+        document.toven.drivers.insert(
+            "go".to_string(),
+            serde_json::Value::String("/definitely/missing/toven-go".to_string()),
+        );
+
+        let statuses = list_drivers(&document, &BTreeSet::new(), &NoLocator);
+        let go = statuses
+            .iter()
+            .find(|s| s.id == eid("go"))
+            .expect("go listed");
+
+        assert_eq!(
+            go.state,
+            DriverState::PinnedUnavailable(PathBuf::from("/definitely/missing/toven-go"))
+        );
+    }
+
+    #[test]
+    fn federation_sync_rejects_path_pins_without_installing() {
+        let document = document(&[("go", "path = \"/opt/toven-go\"")]);
+
+        let error = federation_sync(&document).expect_err("path pins are not installable");
+
+        assert_eq!(error.code(), ErrorCode::InvalidInput);
+        assert!(
+            error.to_string().contains("path-pinned driver"),
+            "error should explain path pins are not installable: {error}"
+        );
     }
 
     #[test]

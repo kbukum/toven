@@ -148,6 +148,12 @@ fn describe(state: &DriverState) -> String {
     match state {
         DriverState::Linked => "linked (in this binary)".to_string(),
         DriverState::Pinned(path) => format!("pinned driver {}", path.display()),
+        DriverState::PinnedUnavailable(path) => {
+            format!(
+                "pinned driver unavailable (missing or not executable) {}",
+                path.display()
+            )
+        }
         DriverState::OnPath(path) => format!("driver on PATH {}", path.display()),
         DriverState::Absent => "absent (run `toven driver install <id>`)".to_string(),
         _ => "unknown".to_string(),
