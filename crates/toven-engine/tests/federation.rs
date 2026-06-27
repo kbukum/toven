@@ -140,6 +140,49 @@ fn remote_adapter_mirrors_per_custom_name_run_strategies() {
 }
 
 #[test]
+fn fallback_custom_strategy_is_isolated_from_a_sentinel_named_task() {
+    // The fallback for an *undeclared* custom task is prefetched with an internal
+    // sentinel name. A driver that happens to declare a real custom task must not
+    // poison that fallback even if its name resembles a probe sentinel: the
+    // declared task keeps its own strategy while undeclared names fall back to the
+    // driver's generic default, never the declared task's strategy.
+    let ServeDouble {
+        reader,
+        writer,
+        join,
+    } = ServeDouble::spawn(|| {
+        let adapter = FakeConfiguredAdapter::new(eid("go"))
+            .with_run_strategy(RunStrategy::LeafToTop)
+            .with_tasks(vec![Task::new(
+                TaskKind::Custom("__probe__".into()),
+                vec!["go".into(), "test".into()],
+                FanOut::WholeWorkspace,
+            )])
+            .with_custom_run_strategy("__probe__", RunStrategy::Unordered);
+        vec![Box::new(FakeProvider::new(eid("go")).with_adapter(adapter))]
+    })
+    .expect("serve double spawns");
+
+    let remote = RemoteAdapter::connect_io(reader, writer, eid("go"), "modules = []".to_string())
+        .expect("handshake + prefetch succeed");
+
+    // The declared "__probe__" task keeps its own per-name strategy...
+    assert_eq!(
+        remote.run_strategy_default(&TaskKind::Custom("__probe__".into())),
+        RunStrategy::Unordered
+    );
+    // ...and an undeclared custom name falls back to the generic default, NOT the
+    // declared "__probe__" task's strategy (which a colliding sentinel would leak).
+    assert_eq!(
+        remote.run_strategy_default(&TaskKind::Custom("undeclared".into())),
+        RunStrategy::LeafToTop
+    );
+
+    drop(remote);
+    join.wait().expect("serve loop exits cleanly");
+}
+
+#[test]
 fn handshake_accepts_an_additive_minor_protocol() {
     let ServeDouble {
         mut reader,

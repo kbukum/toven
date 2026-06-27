@@ -170,11 +170,13 @@ impl RemoteAdapter {
             let strategy = fetch_run_strategy(&mut client, ecosystem.as_str(), &kind)?;
             custom_run_strategies.insert(name, strategy);
         }
-        let custom_run_strategy = fetch_run_strategy(
-            &mut client,
-            ecosystem.as_str(),
-            &TaskKind::Custom("__probe__".to_string()),
-        )?;
+        // The fallback for an *undeclared* custom task must reflect how the driver
+        // answers for a name it does not know, so probe with a sentinel guaranteed
+        // not to collide with any declared custom task (otherwise a real task named
+        // like the sentinel would leak its per-name strategy onto every unknown one).
+        let sentinel = unique_probe_name(&custom_run_strategies);
+        let custom_run_strategy =
+            fetch_run_strategy(&mut client, ecosystem.as_str(), &TaskKind::Custom(sentinel))?;
 
         Ok(Self {
             ecosystem,
@@ -265,6 +267,19 @@ fn distinct_custom_names(tasks: &[Task]) -> Vec<String> {
         }
     }
     names
+}
+
+/// A custom-task name guaranteed not to be one of the `declared` custom tasks.
+///
+/// The fallback run strategy is meant to capture how a driver answers for a
+/// custom task it never declared, so the probe name must not collide with any
+/// declared name. Starts from a fixed sentinel and extends it until unique.
+fn unique_probe_name(declared: &std::collections::HashMap<String, RunStrategy>) -> String {
+    let mut name = "__toven_unknown_custom_probe__".to_string();
+    while declared.contains_key(&name) {
+        name.push('_');
+    }
+    name
 }
 
 /// Prefetch the run strategy for one kind.
