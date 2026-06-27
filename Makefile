@@ -1,5 +1,10 @@
 PACKAGE_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 
+# nextest profile (see .config/nextest.toml). Local runs use `default`
+# (fail-fast, no retries); CI overrides this to `ci` (retries + slow-timeout for
+# the real-subprocess integration tests) by exporting NEXTEST_PROFILE=ci.
+NEXTEST_PROFILE ?= default
+
 .PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc deny coverage smoke release-dry-run release-artifacts act-ci act-supply-chain act-release-readiness
 
 # Canonical local/CI gate for the virtual workspace.
@@ -19,7 +24,7 @@ lint:
 test: test-nextest test-doc
 
 test-nextest:
-	cargo nextest run --workspace --all-targets --all-features
+	cargo nextest run --profile $(NEXTEST_PROFILE) --workspace --all-targets --all-features
 
 test-doc:
 	cargo test --workspace --all-features --doc

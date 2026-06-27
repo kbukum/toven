@@ -18,6 +18,10 @@ jobs:
   rust:
     name: Rust ${{ matrix.rust }}
     runs-on: ubuntu-latest
+    env:
+      # Use the nextest CI profile (retries + slow-timeout) for the
+      # real-subprocess integration tests; `make` picks this up via NEXTEST_PROFILE ?=.
+      NEXTEST_PROFILE: ci
     strategy:
       fail-fast: false
       matrix:
