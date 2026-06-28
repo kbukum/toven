@@ -10,7 +10,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use rskit_errors::AppResult;
+use rskit_errors::{AppError, AppResult};
 use toven_model::EcosystemId;
 use toven_ports::{EcosystemFragment, Provider};
 
@@ -57,9 +57,15 @@ impl DriverScaffolder for ProcessDriverScaffolder {
 /// fragment from an in-proc provider always wins over a driver's for the same
 /// ecosystem id.
 ///
+/// A `toven-<id>` driver may only scaffold its **own** ecosystem: a located
+/// driver returning a fragment for any other ecosystem id is misbehavior across
+/// the `PATH`-discovery trust boundary and is rejected as a hard error rather
+/// than silently merged.
+///
 /// # Errors
 /// Propagates a provider's own scaffold failure, or a *located* driver that
-/// fails the scaffold exchange (an absent driver is simply not probed).
+/// fails the scaffold exchange or returns a fragment for an ecosystem other than
+/// the one it was probed for (an absent driver is simply not probed).
 pub(super) fn probe(
     providers: &[&dyn Provider],
     scaffolder: &dyn DriverScaffolder,
@@ -91,6 +97,17 @@ pub(super) fn probe(
             continue;
         };
         for fragment in scaffolder.scaffold(&program, project_root)? {
+            if fragment.ecosystem != id {
+                return Err(AppError::invalid_input(
+                    "generate.scaffold",
+                    format!(
+                        "driver '{}' scaffolded ecosystem '{}', but a 'toven-{id}' driver may \
+                         only scaffold its own '{id}' ecosystem",
+                        program.display(),
+                        fragment.ecosystem,
+                    ),
+                ));
+            }
             if detected.insert(fragment.ecosystem.clone()) {
                 fragments.push(fragment);
             }
