@@ -1,5 +1,4 @@
 //! Release tag formatting and parsing.
-#![allow(unreachable_pub)]
 
 use rskit_version::semver::Version;
 use toven_model::ModuleRef;
@@ -19,7 +18,8 @@ fn prefix(module: &ModuleRef) -> String {
 /// Format the release tag for `module` at `version`
 /// (`<ecosystem>/<name>@<version>`).
 #[must_use]
-pub fn format(module: &ModuleRef, version: &Version) -> String {
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn format(module: &ModuleRef, version: &Version) -> String {
     format!("{}@{version}", prefix(module))
 }
 

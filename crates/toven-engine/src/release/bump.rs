@@ -17,7 +17,7 @@ pub(super) struct BumpInputs<'a> {
     pub(super) changed: &'a BTreeSet<ModuleKey>,
     pub(super) baselines: &'a BTreeMap<ModuleKey, ReleaseBaseline>,
     pub(super) changelogs: &'a BTreeMap<ModuleKey, ChangelogEntry>,
-    pub(super) targets: &'a BTreeMap<toven_model::EcosystemId, Box<dyn ReleaseTarget>>,
+    pub(super) targets: &'a super::ReleaseTargets,
     pub(super) release_strategy: ReleaseStrategyName,
 }
 
@@ -90,11 +90,11 @@ const fn release_closure_edge(kind: DepKind) -> bool {
 }
 
 fn target_for<'a>(
-    targets: &'a BTreeMap<toven_model::EcosystemId, Box<dyn ReleaseTarget>>,
+    targets: &'a super::ReleaseTargets,
     module: &Module,
 ) -> AppResult<&'a dyn ReleaseTarget> {
     targets
-        .get(&module.id.ecosystem)
+        .get(&(module.member.clone(), module.id.ecosystem.clone()))
         .map(Box::as_ref)
         .ok_or_else(|| {
             AppError::invalid_input(

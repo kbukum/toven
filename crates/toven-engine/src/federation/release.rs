@@ -8,8 +8,8 @@
 use std::collections::BTreeMap;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_model::{EcosystemId, MemberId, Module, ModuleKey};
-use toven_ports::{Artifact, ReleaseTarget, VcsReader, VcsWriter};
+use toven_model::{MemberId, Module, ModuleKey};
+use toven_ports::{Artifact, VcsReader, VcsWriter};
 
 use crate::release::apply;
 use crate::release::publish;
@@ -84,7 +84,7 @@ impl<'a> MemberReleaseRepos<'a> {
 pub fn release_apply_by_member(
     plan: &ReleasePlan,
     modules: &[Module],
-    targets: &BTreeMap<EcosystemId, Box<dyn ReleaseTarget>>,
+    targets: &crate::release::ReleaseTargets,
     repos: &MemberReleaseRepos<'_>,
     options: &ReleaseApplyOptions,
 ) -> AppResult<ReleaseStats> {
@@ -129,7 +129,7 @@ fn guard_member_trees(
 fn apply_member_shard(
     shard: &MemberReleaseShard,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
-    targets: &BTreeMap<EcosystemId, Box<dyn ReleaseTarget>>,
+    targets: &crate::release::ReleaseTargets,
     repos: &MemberReleaseRepos<'_>,
     options: &ReleaseApplyOptions,
     stats: &mut ReleaseStats,
@@ -223,11 +223,10 @@ fn shard_plan(plan: &ReleasePlan, modules: &[Module]) -> AppResult<Vec<MemberRel
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
 
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, MemberId, Module, ModuleKey, ModuleRef, RepoPath};
-    use toven_ports::{ReleaseMutation, ReleaseTarget};
+    use toven_ports::ReleaseMutation;
     use toven_testkit::{FakeReleaseTarget, FakeVcsReader, FakeVcsWriter, ReleaseCall, VcsWrite};
 
     use super::{MemberReleaseRepo, MemberReleaseRepos, release_apply_by_member};
@@ -273,9 +272,12 @@ mod tests {
         }
     }
 
-    fn targets(target: FakeReleaseTarget) -> BTreeMap<EcosystemId, Box<dyn ReleaseTarget>> {
-        let mut map: BTreeMap<EcosystemId, Box<dyn ReleaseTarget>> = BTreeMap::new();
-        map.insert(eid("rust"), Box::new(target));
+    fn targets(target: &FakeReleaseTarget) -> crate::release::ReleaseTargets {
+        let mut map = crate::release::ReleaseTargets::new();
+        // Every member in these fixtures exposes the same publishable `rust` target.
+        for owner in ["core", "gateway"] {
+            map.insert((Some(member(owner)), eid("rust")), Box::new(target.clone()));
+        }
         map
     }
 
@@ -302,7 +304,7 @@ mod tests {
         let stats = release_apply_by_member(
             &plan,
             &modules,
-            &targets(target.clone()),
+            &targets(&target),
             &repos,
             &ReleaseApplyOptions::default(),
         )
@@ -364,7 +366,7 @@ mod tests {
         let error = release_apply_by_member(
             &plan,
             &modules,
-            &targets(target),
+            &targets(&target),
             &repos,
             &ReleaseApplyOptions::default(),
         )
@@ -373,5 +375,46 @@ mod tests {
         assert!(error.to_string().contains("package failed"));
         assert_eq!(core_writer.writes(), vec![VcsWrite::RestoreWorktree]);
         assert!(gateway_writer.writes().is_empty());
+    }
+
+    #[test]
+    fn member_without_a_release_target_is_not_served_by_another_members_target() {
+        // `core` publishes `rust`; `gateway` does not (its rust adapter is
+        // `publish = false`, so it contributes no target). Keying targets by
+        // `(member, ecosystem)` must not let `gateway`'s module borrow `core`'s
+        // target and get silently released.
+        let plan = ReleasePlan::new(
+            ReleaseStrategyName::SemverCascade,
+            vec![
+                entry("core", "shared", Version::new(0, 1, 1), 0),
+                entry("gateway", "api", Version::new(0, 1, 1), 1),
+            ],
+        );
+        let modules = vec![module("core", "shared"), module("gateway", "api")];
+        let mut targets = crate::release::ReleaseTargets::new();
+        targets.insert(
+            (Some(member("core")), eid("rust")),
+            Box::new(FakeReleaseTarget::new()),
+        );
+        let core_reader = FakeVcsReader::new();
+        let gateway_reader = FakeVcsReader::new();
+        let core_writer = FakeVcsWriter::new().with_commit_oid("corecommit");
+        let gateway_writer = FakeVcsWriter::new();
+        let repos = MemberReleaseRepos::new(vec![
+            MemberReleaseRepo::new(Some(member("core")), &core_reader, &core_writer),
+            MemberReleaseRepo::new(Some(member("gateway")), &gateway_reader, &gateway_writer),
+        ]);
+
+        let error = release_apply_by_member(
+            &plan,
+            &modules,
+            &targets,
+            &repos,
+            &ReleaseApplyOptions::default(),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("has no release target"));
+        assert_eq!(gateway_writer.writes(), vec![VcsWrite::RestoreWorktree]);
     }
 }

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use rskit_config::{RawValue, deserialize_subtree};
 use rskit_errors::{AppError, AppResult};
 use toven_model::EcosystemId;
-use toven_ports::{Provider, ReleaseTarget, Reporter};
+use toven_ports::{Provider, Reporter};
 
 use crate::config::Document;
 use crate::federation::baseline::MemberVcsReaders;
@@ -52,7 +52,7 @@ pub(crate) fn plan_with_context(
     document: &Document,
     request: &PlanRequest,
     readers: &MemberVcsReaders<'_>,
-    targets: &BTreeMap<EcosystemId, Box<dyn ReleaseTarget>>,
+    targets: &super::ReleaseTargets,
 ) -> AppResult<ReleasePlan> {
     let changes = change::detect(context, &request.selection, readers)?;
     plan_with_changes(context, document, request, &changes, targets)
@@ -63,7 +63,7 @@ fn plan_with_changes(
     document: &Document,
     _request: &PlanRequest,
     changes: &change::ReleaseChanges,
-    targets: &BTreeMap<EcosystemId, Box<dyn ReleaseTarget>>,
+    targets: &super::ReleaseTargets,
 ) -> AppResult<ReleasePlan> {
     let strategy = strategy::resolve(release_strategy(document)?.as_deref())?;
     let changelogs = context
@@ -100,14 +100,11 @@ fn plan_with_changes(
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn release_targets(
     context: &crate::plan::PlanContext,
-) -> AppResult<BTreeMap<EcosystemId, Box<dyn ReleaseTarget>>> {
-    let mut targets = BTreeMap::new();
-    for (_member, ecosystem, adapter) in context.adapters.iter() {
-        if targets.contains_key(ecosystem) {
-            continue;
-        }
+) -> AppResult<super::ReleaseTargets> {
+    let mut targets = super::ReleaseTargets::new();
+    for (member, ecosystem, adapter) in context.adapters.iter() {
         if let Some(target) = adapter.release_target()? {
-            targets.insert(ecosystem.clone(), target);
+            targets.insert((member.cloned(), ecosystem.clone()), target);
         }
     }
     Ok(targets)

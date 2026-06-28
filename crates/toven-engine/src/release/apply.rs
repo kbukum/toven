@@ -8,12 +8,11 @@
 //! optional push, and the publish loop run after that boundary and are **not**
 //! rolled back — a publish failure surfaces as a typed error and the operator
 //! resumes, relying on registry idempotency.
-#![allow(unreachable_pub)]
 
 use std::collections::BTreeMap;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_model::{EcosystemId, Module, ModuleKey};
+use toven_model::{Module, ModuleKey};
 use toven_ports::{Artifact, ReleaseTarget, VcsReader, VcsWriter};
 
 use super::publish::{self, PublishItem};
@@ -59,7 +58,7 @@ impl Default for ReleaseApplyOptions {
 pub fn release_apply(
     plan: &ReleasePlan,
     modules: &[Module],
-    targets: &BTreeMap<EcosystemId, Box<dyn ReleaseTarget>>,
+    targets: &super::ReleaseTargets,
     reader: &dyn VcsReader,
     writer: &dyn VcsWriter,
     options: &ReleaseApplyOptions,
@@ -113,7 +112,8 @@ pub fn release_apply(
     Ok(stats)
 }
 
-pub fn restore_or_precommit_error(
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn restore_or_precommit_error(
     writer: &dyn VcsWriter,
     phase: &str,
     error: AppError,
@@ -132,7 +132,11 @@ pub fn restore_or_precommit_error(
 }
 
 /// Reject a dirty working tree unless `--allow-dirty` was requested.
-pub fn guard_clean_tree(reader: &dyn VcsReader, options: &ReleaseApplyOptions) -> AppResult<()> {
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn guard_clean_tree(
+    reader: &dyn VcsReader,
+    options: &ReleaseApplyOptions,
+) -> AppResult<()> {
     if options.allow_dirty {
         return Ok(());
     }
@@ -152,10 +156,11 @@ pub fn guard_clean_tree(reader: &dyn VcsReader, options: &ReleaseApplyOptions) -
 /// Apply every mutation and package every module, returning the artifacts keyed
 /// by module. Runs entirely before the commit so the caller can restore the
 /// working tree on failure.
-pub fn prepare(
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn prepare(
     plan: &ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
-    targets: &BTreeMap<EcosystemId, Box<dyn ReleaseTarget>>,
+    targets: &super::ReleaseTargets,
     stats: &mut ReleaseStats,
 ) -> AppResult<BTreeMap<ModuleKey, Artifact>> {
     for entry in &plan.entries {
@@ -176,10 +181,11 @@ pub fn prepare(
 }
 
 /// Resolve the ordered publish items, skipping entries that need no publish.
-pub fn publish_items<'a>(
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn publish_items<'a>(
     plan: &'a ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &'a Module>,
-    targets: &'a BTreeMap<EcosystemId, Box<dyn ReleaseTarget>>,
+    targets: &'a super::ReleaseTargets,
     artifacts: &'a BTreeMap<ModuleKey, Artifact>,
 ) -> AppResult<Vec<PublishItem<'a>>> {
     let mut items = Vec::new();
@@ -221,11 +227,11 @@ fn module_for<'a>(
 }
 
 fn target_for<'a>(
-    targets: &'a BTreeMap<EcosystemId, Box<dyn ReleaseTarget>>,
+    targets: &'a super::ReleaseTargets,
     module: &Module,
 ) -> AppResult<&'a dyn ReleaseTarget> {
     targets
-        .get(&module.id.ecosystem)
+        .get(&(module.member.clone(), module.id.ecosystem.clone()))
         .map(Box::as_ref)
         .ok_or_else(|| {
             AppError::invalid_input(
@@ -236,7 +242,8 @@ fn target_for<'a>(
 }
 
 /// Build the single release commit message from the released module versions.
-pub fn commit_message(plan: &ReleasePlan) -> String {
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn commit_message(plan: &ReleasePlan) -> String {
     let released = plan
         .entries
         .iter()
@@ -252,7 +259,8 @@ pub fn commit_message(plan: &ReleasePlan) -> String {
 }
 
 /// Refspecs pushed after tagging: the release commit plus every release tag.
-pub fn push_refspecs(plan: &ReleasePlan) -> Vec<String> {
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn push_refspecs(plan: &ReleasePlan) -> Vec<String> {
     let mut refspecs = vec!["HEAD".to_string()];
     for entry in &plan.entries {
         if let Some(version) = &entry.planned_version {
@@ -267,12 +275,11 @@ pub fn push_refspecs(plan: &ReleasePlan) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
 
     use rskit_errors::ErrorCode;
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleKey, ModuleRef, RepoPath};
-    use toven_ports::{ChangeRecord, ChangeStatus, PublishOutcome, ReleaseMutation, ReleaseTarget};
+    use toven_ports::{ChangeRecord, ChangeStatus, PublishOutcome, ReleaseMutation};
     use toven_testkit::{FakeReleaseTarget, FakeVcsReader, FakeVcsWriter, ReleaseCall, VcsWrite};
 
     use super::{ReleaseApplyOptions, release_apply};
@@ -305,13 +312,11 @@ mod tests {
         }
     }
 
-    fn targets(
-        pairs: Vec<(&str, FakeReleaseTarget)>,
-    ) -> BTreeMap<EcosystemId, Box<dyn ReleaseTarget>> {
-        // All fixtures use a single `rust` ecosystem; the first target wins.
-        let mut map: BTreeMap<EcosystemId, Box<dyn ReleaseTarget>> = BTreeMap::new();
+    fn targets(pairs: Vec<(&str, FakeReleaseTarget)>) -> super::super::ReleaseTargets {
+        // All fixtures use a single single-repo `rust` ecosystem.
+        let mut map = super::super::ReleaseTargets::new();
         let (_, target) = pairs.into_iter().next().expect("at least one target");
-        map.insert(EcosystemId::new("rust").unwrap(), Box::new(target));
+        map.insert((None, EcosystemId::new("rust").unwrap()), Box::new(target));
         map
     }
 
