@@ -344,6 +344,36 @@ fn bootstrap_probe_picks_up_a_path_driver() {
 }
 
 #[test]
+fn path_driver_scaffolding_a_foreign_ecosystem_is_rejected() {
+    // A `toven-go` driver may only scaffold its own `go` ecosystem. A located
+    // driver returning a fragment for a different ecosystem (here `rust`) is
+    // misbehavior across the PATH-discovery trust boundary and must be a hard
+    // error, never silently merged into the generated config.
+    let dir = TempDir::new().expect("temp dir");
+    let providers: Vec<&dyn Provider> = Vec::new();
+
+    let go_driver = PathBuf::from("/fake/bin/toven-go");
+    let locator = MapLocator(BTreeMap::from([(
+        "toven-go".to_string(),
+        go_driver.clone(),
+    )]));
+    let scaffolder = MapScaffolder(BTreeMap::from([(
+        go_driver,
+        vec![fragment("rust", &["Cargo.toml"])],
+    )]));
+
+    let error = generate_with(dir.path(), &providers, &scaffolder, &locator, None, false)
+        .expect_err("a foreign-ecosystem fragment must be rejected");
+
+    assert_eq!(error.kind(), rskit_errors::ErrorKind::InvalidInput);
+    let message = error.to_string();
+    assert!(
+        message.contains("toven-go") && message.contains("rust"),
+        "error must name the misbehaving driver and the foreign ecosystem: {message}"
+    );
+}
+
+#[test]
 fn in_proc_provider_wins_over_a_path_driver_for_the_same_ecosystem() {
     let dir = TempDir::new().expect("temp dir");
     let go_in_proc = scaffolding_provider("go", &["go.mod"]);
