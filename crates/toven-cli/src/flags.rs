@@ -120,6 +120,9 @@ pub struct Cli {
     /// Generate only: project root to scaffold against.
     #[arg(long, global = true, value_name = "PATH")]
     pub root: Option<PathBuf>,
+    /// Generate only: write the rendered `toven.toml` instead of printing it.
+    #[arg(long, global = true)]
+    pub write: bool,
     /// Graph only: dependency-graph rendering format.
     #[arg(long, global = true, value_name = "FORMAT")]
     pub format: Option<GraphFormat>,
@@ -268,6 +271,9 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     }
     if cli.root.is_some() && !is_generate {
         return Err(only_applies("--root", "toven generate", verb));
+    }
+    if cli.write && !is_generate {
+        return Err(only_applies("--write", "toven generate", verb));
     }
     if cli.format.is_some() && !is_graph {
         return Err(only_applies("--format", "toven graph", verb));
@@ -430,6 +436,24 @@ mod tests {
     fn release_accepts_its_own_flags() {
         let cli = parse(&["--allow-dirty", "--no-push", "release"]).expect("parses");
         assert!(super::gate(&cli).is_ok());
+    }
+
+    #[test]
+    fn generate_flags_only_on_generate() {
+        for args in [
+            ["--write", "generate"].as_slice(),
+            ["--root", "/tmp", "generate"].as_slice(),
+            ["--force", "rust", "generate"].as_slice(),
+        ] {
+            assert!(super::gate(&parse(args).unwrap()).is_ok(), "{args:?}");
+        }
+        for args in [
+            ["--write", "plan", "test"].as_slice(),
+            ["--root", "/tmp", "modules"].as_slice(),
+            ["--force", "rust", "graph"].as_slice(),
+        ] {
+            assert!(super::gate(&parse(args).unwrap()).is_err(), "{args:?}");
+        }
     }
 
     #[test]

@@ -6,15 +6,19 @@
 //!   local stand-in).
 //! - [`envelope`] — the [`Hello`]/[`Welcome`] handshake and the
 //!   [`Request`]/[`Response`] RPC mirror, built only from model/port types.
+//! - [`scaffold`] — the config-less [`ScaffoldRequest`]/[`ScaffoldOutcome`]
+//!   exchange that powers federated `toven generate`.
 //! - [`handshake`] — protocol-version negotiation and the typed [`DriverFault`]
 //!   classification.
 
 pub mod codec;
 pub mod envelope;
 pub mod handshake;
+pub mod scaffold;
 
 pub use codec::{MAX_FRAME_BYTES, read_value, write_value};
 pub use envelope::{
     Capabilities, ENVELOPE_SCHEMA_VERSION, Hello, Request, Response, Welcome, WireError,
 };
 pub use handshake::{DriverFault, PROTOCOL_VERSION, negotiate, protocol_version};
+pub use scaffold::{ScaffoldOutcome, ScaffoldRequest};

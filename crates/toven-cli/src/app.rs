@@ -50,6 +50,11 @@ where
     if is_serve_invocation(&args) {
         return commands::driver::serve(providers);
     }
+    // The sibling `__scaffold` entry runs the config-less scaffold exchange so
+    // `toven generate` can probe an out-of-process `toven-<eco>` driver.
+    if is_scaffold_invocation(&args) {
+        return commands::driver::scaffold(providers);
+    }
 
     let cli = match Cli::try_parse_from(args) {
         Ok(cli) => cli,
@@ -69,6 +74,9 @@ where
 /// The reserved hidden subcommand that puts a driver into port-server mode.
 const SERVE_SUBCOMMAND: &str = "__serve";
 
+/// The reserved hidden subcommand that runs the config-less scaffold exchange.
+const SCAFFOLD_SUBCOMMAND: &str = "__scaffold";
+
 /// Whether the argv selects the hidden `__serve` port-server entry.
 ///
 /// Requires `__serve` to be the *sole* argument after the program name: the
@@ -77,7 +85,18 @@ const SERVE_SUBCOMMAND: &str = "__serve";
 /// must fall through to clap and fail fast rather than silently starting the
 /// loop and blocking on stdin.
 fn is_serve_invocation(args: &[std::ffi::OsString]) -> bool {
-    args.len() == 2 && args[1].as_os_str() == std::ffi::OsStr::new(SERVE_SUBCOMMAND)
+    is_sole_subcommand(args, SERVE_SUBCOMMAND)
+}
+
+/// Whether the argv selects the hidden `__scaffold` entry (same sole-argument
+/// discipline as [`is_serve_invocation`]).
+fn is_scaffold_invocation(args: &[std::ffi::OsString]) -> bool {
+    is_sole_subcommand(args, SCAFFOLD_SUBCOMMAND)
+}
+
+/// Whether `args` is exactly `<program> <subcommand>` (the hidden-entry shape).
+fn is_sole_subcommand(args: &[std::ffi::OsString], subcommand: &str) -> bool {
+    args.len() == 2 && args[1].as_os_str() == std::ffi::OsStr::new(subcommand)
 }
 
 /// Render a typed wiring/bootstrap failure and map it to a process exit code.
@@ -115,7 +134,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
     flags::gate(cli)?;
 
     match &cli.command {
-        Command::Generate => commands::generate::execute(),
+        Command::Generate => commands::generate::execute(providers, cli),
         Command::Driver { action } => {
             let project = load(providers, cli, false)?;
             commands::driver::driver(providers, &project, action, cli.auto_install)
@@ -272,7 +291,9 @@ fn intent_for(task: &str) -> TaskKind {
 
 #[cfg(test)]
 mod tests {
-    use super::{SERVE_SUBCOMMAND, is_serve_invocation};
+    use super::{
+        SCAFFOLD_SUBCOMMAND, SERVE_SUBCOMMAND, is_scaffold_invocation, is_serve_invocation,
+    };
     use std::ffi::OsString;
 
     fn argv(tokens: &[&str]) -> Vec<OsString> {
@@ -314,5 +335,45 @@ mod tests {
     fn empty_or_program_only_argv_is_not_a_server_loop() {
         assert!(!is_serve_invocation(&argv(&[])));
         assert!(!is_serve_invocation(&argv(&["toven-go"])));
+    }
+
+    #[test]
+    fn bare_scaffold_token_selects_the_scaffold_exchange() {
+        assert!(is_scaffold_invocation(&argv(&[
+            "toven-go",
+            SCAFFOLD_SUBCOMMAND
+        ])));
+    }
+
+    #[test]
+    fn scaffold_with_trailing_arguments_falls_through_to_clap() {
+        assert!(!is_scaffold_invocation(&argv(&[
+            "toven-go",
+            SCAFFOLD_SUBCOMMAND,
+            "--help"
+        ])));
+        assert!(!is_scaffold_invocation(&argv(&[
+            "toven-go",
+            SCAFFOLD_SUBCOMMAND,
+            "extra"
+        ])));
+    }
+
+    #[test]
+    fn scaffold_and_serve_tokens_do_not_cross_match() {
+        assert!(!is_scaffold_invocation(&argv(&[
+            "toven-go",
+            SERVE_SUBCOMMAND
+        ])));
+        assert!(!is_serve_invocation(&argv(&[
+            "toven-go",
+            SCAFFOLD_SUBCOMMAND
+        ])));
+    }
+
+    #[test]
+    fn empty_or_program_only_argv_is_not_a_scaffold_exchange() {
+        assert!(!is_scaffold_invocation(&argv(&[])));
+        assert!(!is_scaffold_invocation(&argv(&["toven-go"])));
     }
 }

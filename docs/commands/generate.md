@@ -1,91 +1,87 @@
 # Generating config
 
-`toven generate` creates an initial reviewable `toven.toml` with visible task argv.
-
-> Target behavior; returns as the redesign steps land (the CLI is being rebuilt on the `crates/*` + `apps/*` stack).
+`toven generate` is the onboarding workflow: point it at a repo and get a working, reviewable `toven.toml`. It detects each ecosystem present (Rust by `Cargo.toml`, Go by `go.mod`, …) and emits a minimal config that leans on smart defaults — only the discovery hints plus a few commented override hints, never a full dump of the default surface.
 
 ```bash
-toven generate [--root PATH] [--profile NAME] [--adapter ID] \
-  [--manifest PATH ...] [--stdout | --write] [--overwrite]
+toven generate [--root PATH] [--force ID] [--write]
 ```
 
 ## Behavior
 
-By default, generation prints TOML to stdout:
+By default, generation prints the rendered TOML to stdout (diagnostics go to stderr), so you can review or redirect it:
 
 ```bash
-toven generate --stdout
+toven generate            # preview on stdout
+toven generate > toven.toml
 ```
 
-`--write` writes `<root>/toven.toml`:
+`--write` writes `<root>/toven.toml` atomically and prints a one-line confirmation to stderr:
 
 ```bash
 toven generate --write
 ```
 
-Toven refuses to replace an existing config unless overwrite is explicit:
-
-```bash
-toven generate --write --overwrite
-```
-
-For Rust repositories, `--manifest` can be repeated when the repository has multiple independent Cargo manifests:
-
-```bash
-toven generate \
-  --manifest core/Cargo.toml \
-  --manifest contrib/Cargo.toml \
-  --stdout
-```
-
-Without explicit manifests, Rust generation searches for a root `Cargo.toml` or first-level Cargo manifests that are not ignored by Git.
-
-Rust generation records manifest discovery in the ecosystem section. Cargo metadata stays the source of truth for local path dependencies, so generated overlays are reserved for relationships native metadata cannot prove.
-
-Generated configs make the default user-cache policy explicit:
+A first run writes a minimal document: `[project]` plus one `[ecosystems.<id>]` section per detected ecosystem, carrying only the discovery hints.
 
 ```toml
-[toven.cache]
-# dir is omitted by default so records use the platform user-cache directory.
+[project]
+name = "my-repo"
+root = "."
+base_ref = "origin/main"
+
+# Smart defaults fill in tasks, run strategy, and toolchain probes.
+# Uncomment to override, e.g.:
+#   run_strategy = "leaf-to-top"
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
 ```
 
-Generated Rust configs materialize standard Rust application task definitions from the Rust adapter defaults, so committed command policy stays reviewable:
+## Re-running is additive and idempotent
 
-```toml
-[ecosystems.rust.tasks]
-bench = { argv = ["cargo", "bench", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"] }
-build = { argv = ["cargo", "build", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"] }
-check = { argv = ["cargo", "check", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"] }
-clippy = { argv = ["cargo", "clippy", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"] }
-doc = { argv = ["cargo", "doc", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"] }
-fmt = { argv = ["cargo", "fmt", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"] }
-fmt-check = { argv = ["cargo", "fmt", "--manifest-path", "{module.manifest}", "{module.args}", "--check", "{args}"] }
-test = { argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"] }
+A polyglot config grows over time. Re-running `toven generate` against an existing config:
+
+- adds only `[ecosystems.<id>]` sections that are **not already present**;
+- **warns** (to stderr) and leaves any section that already exists untouched;
+- **never modifies** `[project]`/`[toven]` or any existing section;
+- preserves your formatting and comments (the edit goes through a format-preserving TOML editor, not a destructive rewrite).
+
+A re-run that adds nothing leaves the file byte-identical.
+
+To regenerate one section on demand — for example after restructuring a workspace — name it with `--force`:
+
+```bash
+toven generate --write --force rust
 ```
 
-The generated ecosystem section also includes `module_arg_template`, which is expanded by `{module.args}` for each planned module.
+`--force` replaces exactly that one section; every other section, and `[project]`/`[toven]`, are left alone.
 
-Rust cache identity is still owned by the Rust adapter even though the generated tasks use visible direct argv. Planned Rust units include Cargo and rustc version probes in their cache keys without adding per-task toolchain settings.
+## Polyglot and federation
+
+Generation runs **before** any config exists, so it cannot resolve drivers from `toven.toml`. Instead it probes a bootstrap set: every adapter linked into the running binary, plus any `toven-<eco>` driver found on `PATH`. Each self-detects whether it applies and contributes its `[ecosystems.<id>]` fragment. This is the one command that uses `PATH` discovery without config — precisely because the config does not exist yet. A linked adapter always wins over a `PATH` driver for the same ecosystem.
+
+The umbrella `toven generate` scaffolds **all** detected ecosystems; a standalone driver such as `toven-rs generate` scaffolds only its own.
+
+## Scope
+
+Generation emits config only — `[project]`, `[toven]`, and `[ecosystems.*]`:
+
+- **No automatic `[groups.*]`.** Group membership is human-declared; generation cannot prove it, so at most a commented example.
+- **No automatic `[[overlays]]`.** Cross-ecosystem dependency edges are relationships generation cannot infer; Cargo/Go metadata stays the source of truth for native edges, and overlays are reserved for what native metadata cannot prove.
+- **No workspace or CI scaffolding.** Generation detects existing workspaces; it never creates them, and CI-file generation is a separate concern.
 
 ## Options
 
 | Option | Purpose |
 |--------|---------|
-| `--root PATH` | Project root to inspect. Defaults to `.`. |
-| `--profile NAME` | Generated profile name. Defaults to `main`. |
-| `--adapter ID` | Limit generation to one adapter. |
-| `--manifest PATH` | Rust Cargo manifest to include, relative to `--root`; repeatable. |
-| `--stdout` | Print generated config. This is the default. |
-| `--write` | Write `toven.toml` under the selected root. |
-| `--overwrite` | Allow `--write` to replace an existing config. |
+| `--root PATH` | Project root to inspect and scaffold against. Defaults to `.`. |
+| `--force ID` | Regenerate exactly one `[ecosystems.<id>]` section. |
+| `--write` | Write `<root>/toven.toml` (atomically). Without it, the document is printed to stdout. |
 
 ## Review checklist
 
-- Generated tasks are understandable and minimal.
-- Repository-specific workflow policy remains visible in task argv.
-- Cache location policy is explicit at the top level.
-- Multiple Cargo manifests are represented in discovery settings.
-- Dependency overlays are used only for relationships the adapter cannot infer.
+- Generated sections are minimal — discovery hints, with overrides left commented.
+- Repository-specific workflow policy stays visible once you uncomment and edit task argv.
+- Existing sections and `[project]`/`[toven]` survive a re-run untouched.
 
 After writing a config, inspect it before running tasks:
 
@@ -94,5 +90,3 @@ toven modules --task check
 toven graph --task check
 toven plan --task check
 ```
-
-The Rust adapter still provides fallback defaults for very small hand-written configs, but generated configs prefer explicit task argv.

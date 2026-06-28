@@ -17,8 +17,8 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use toven_engine::config::{CanonicalRegistry, load};
 use toven_engine::federation::RemoteAdapter;
 use toven_engine::federation::protocol::{
-    Capabilities, ENVELOPE_SCHEMA_VERSION, Hello, MAX_FRAME_BYTES, Response, Welcome, read_value,
-    write_value,
+    Capabilities, ENVELOPE_SCHEMA_VERSION, Hello, MAX_FRAME_BYTES, Response, ScaffoldOutcome,
+    ScaffoldRequest, Welcome, read_value, write_value,
 };
 use toven_engine::federation::resolve::{PathDriverLocator, resolve_adapters};
 use toven_engine::plan::dependency_graph;
@@ -519,4 +519,145 @@ fn pipe_error(error: &std::io::Error) -> AppError {
         ErrorCode::Internal,
         format!("could not create __serve double pipe: {error}"),
     )
+}
+
+#[test]
+fn scaffold_exchange_round_trips_over_the_framed_transport() {
+    // Drive the real config-less scaffold wire (serve_scaffold ↔ probe_io) over
+    // OS pipes — no subprocess — exactly as the federated `toven generate` probe
+    // would over a `toven-<eco> __scaffold` child's stdio.
+    let (umbrella_reader, driver_out) = std::io::pipe().expect("pipe");
+    let (driver_in, umbrella_writer) = std::io::pipe().expect("pipe");
+
+    let mut table = toml::Table::new();
+    table.insert(
+        "manifests".to_string(),
+        toml::Value::Array(vec![toml::Value::String("go.mod".to_string())]),
+    );
+    let scripted = toven_ports::EcosystemFragment::new(eid("go"), table);
+
+    let driver_fragment = scripted.clone();
+    let join: JoinHandle<()> = thread::spawn(move || {
+        let provider = FakeProvider::new(eid("go")).with_scaffold(Some(driver_fragment));
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        toven_engine::federation::serve_scaffold(&providers, driver_in, driver_out)
+            .expect("serve_scaffold completes");
+    });
+
+    let fragments = toven_engine::federation::probe_io(
+        umbrella_reader,
+        umbrella_writer,
+        "toven-go",
+        std::path::Path::new("/repo"),
+    )
+    .expect("scaffold probe succeeds");
+
+    assert_eq!(fragments, vec![scripted]);
+    join.join().expect("driver scaffold thread exits");
+}
+
+#[test]
+fn scaffold_driver_failure_surfaces_as_a_typed_error() {
+    // A driver whose own self-detection errors must reach the umbrella as a typed
+    // failure (serve_scaffold → ScaffoldOutcome::Error → probe_io decode), never a
+    // silent empty fragment set.
+    let (umbrella_reader, driver_out) = std::io::pipe().expect("pipe");
+    let (driver_in, umbrella_writer) = std::io::pipe().expect("pipe");
+
+    let join: JoinHandle<()> = thread::spawn(move || {
+        let provider = FakeProvider::new(eid("go"))
+            .with_scaffold_error(ErrorCode::InvalidInput, "go.mod is malformed");
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        toven_engine::federation::serve_scaffold(&providers, driver_in, driver_out)
+            .expect("serve_scaffold completes the exchange even when detection fails");
+    });
+
+    let error = toven_engine::federation::probe_io(
+        umbrella_reader,
+        umbrella_writer,
+        "toven-go",
+        std::path::Path::new("/repo"),
+    )
+    .expect_err("a driver detection failure must be a hard error");
+
+    assert_eq!(
+        error.code(),
+        ErrorCode::InvalidInput,
+        "the driver's typed code must survive the wire round-trip"
+    );
+    assert!(
+        error.message().contains("go.mod is malformed"),
+        "{}",
+        error.message()
+    );
+    join.join().expect("driver scaffold thread exits");
+}
+
+#[test]
+fn scaffold_schema_mismatch_is_reported_as_a_typed_error() {
+    // An umbrella speaking a future envelope schema must get a typed Conflict
+    // reply, not a misparsed fragment set.
+    let (umbrella_reader, driver_out) = std::io::pipe().expect("pipe");
+    let (driver_in, umbrella_writer) = std::io::pipe().expect("pipe");
+
+    let join: JoinHandle<()> = thread::spawn(move || {
+        let provider = FakeProvider::new(eid("go"));
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        toven_engine::federation::serve_scaffold(&providers, driver_in, driver_out)
+            .expect("serve_scaffold replies to a version-skewed request");
+    });
+
+    let mut writer = umbrella_writer;
+    let mut reader = umbrella_reader;
+    let request = ScaffoldRequest {
+        schema_version: ENVELOPE_SCHEMA_VERSION + 1,
+        project_root: std::path::PathBuf::from("/repo"),
+    };
+    write_value(&mut writer, &request).expect("send a version-skewed request");
+
+    let outcome = read_value::<_, ScaffoldOutcome>(&mut reader, MAX_FRAME_BYTES)
+        .expect("read the reply")
+        .expect("driver replies before closing");
+
+    match outcome {
+        ScaffoldOutcome::Error(wire) => {
+            assert_eq!(wire.code, ErrorCode::Conflict.as_str());
+            assert!(wire.message.contains("envelope schema"), "{}", wire.message);
+        }
+        ScaffoldOutcome::Fragments(fragments) => {
+            panic!("a schema mismatch must not yield fragments: {fragments:?}")
+        }
+        other => panic!("expected a typed Error reply, got {other:?}"),
+    }
+    join.join().expect("driver scaffold thread exits");
+}
+
+#[test]
+fn scaffold_peer_closing_before_a_request_is_a_clean_no_op() {
+    // If the umbrella drops the stream before sending a ScaffoldRequest, the
+    // driven `serve_scaffold` loop must exit Ok(()) without writing a reply —
+    // never an error and never a stray frame.
+    let (umbrella_reader, driver_out) = std::io::pipe().expect("pipe");
+    let (driver_in, umbrella_writer) = std::io::pipe().expect("pipe");
+
+    // Close the umbrella's write end immediately so the driver reads EOF.
+    drop(umbrella_writer);
+
+    let join: JoinHandle<AppResult<()>> = thread::spawn(move || {
+        let provider = FakeProvider::new(eid("go"));
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        toven_engine::federation::serve_scaffold(&providers, driver_in, driver_out)
+    });
+
+    let mut reader = umbrella_reader;
+    let reply = read_value::<_, ScaffoldOutcome>(&mut reader, MAX_FRAME_BYTES)
+        .expect("reading the closed driver stream is not an error");
+    assert!(
+        reply.is_none(),
+        "a peer that closes before requesting must get no reply frame, got {reply:?}"
+    );
+
+    join.join()
+        .expect("driver scaffold thread exits")
+        .expect("serve_scaffold treats an early EOF as a clean no-op");
 }

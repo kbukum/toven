@@ -7,7 +7,7 @@ Toven is a developer-first task orchestrator for repositories with many modules.
 ## User promise
 
 ```bash
-toven generate --stdout
+toven generate
 toven plan --task check --affected
 toven check
 toven test -- --no-capture
@@ -50,7 +50,7 @@ Toven uses one strict `toven.toml` with:
 - `[[overlays]]` for explicit cross-ecosystem dependency edges that native adapter metadata cannot prove.
 - `[[members]]` for multi-repo federation roots.
 
-`toven generate` is the adoption path for new repositories. It renders a reviewable starter config from structured generation fragments, previews to stdout by default, and refuses to overwrite an existing `toven.toml` unless `--write --overwrite` is explicit.
+`toven generate` is the adoption path for new repositories. It detects each ecosystem present, renders a minimal reviewable starter config that leans on smart defaults, previews to stdout by default, and writes `<root>/toven.toml` with `--write`. Re-running is additive and idempotent: it adds only missing `[ecosystems.<id>]` sections, warns on existing ones, never touches `[project]`/`[toven]`, and preserves comments; `--force <id>` regenerates a single section.
 
 Rust generation emits ecosystem-level Cargo manifest discovery. Cargo metadata is the source of truth for Rust path dependencies; generated overlays are reserved for relationships native metadata cannot prove.
 

@@ -1,5 +1,6 @@
 //! The `[ecosystems.<id>]` fragment a config-less scaffold emits.
 
+use serde::{Deserialize, Serialize};
 use toml::Table;
 use toven_model::EcosystemId;
 
@@ -11,7 +12,12 @@ use toven_model::EcosystemId;
 /// table; `toven generate` merges every provider's fragment into one
 /// polyglot `toven.toml`. Keeping it raw [`Table`] means generate owns rendering
 /// and comment preservation, not this port.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// It is (de)serializable so a config-less scaffold can also cross the federated
+/// driver transport: `toven generate` probes any out-of-process `toven-<eco>`
+/// driver, which returns its fragment over the same framed protocol the PLAN
+/// spine uses.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EcosystemFragment {
     /// The ecosystem the fragment configures (the `[ecosystems.<id>]` key).
     pub ecosystem: EcosystemId,

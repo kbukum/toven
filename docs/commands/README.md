@@ -2,7 +2,7 @@
 
 Toven commands are grouped by workflow rather than listed as one flat page.
 
-> The Toven CLI runs on the hexagonal `crates/*` + `apps/*` stack. The execution (`run`/`task`/`release`), inspection (`plan`/`affected`/`explain`/`modules`/`graph`), and `cache` verbs are wired end to end; `generate` and the `driver`/`federation` verbs are stubbed pending their later redesign steps.
+> The Toven CLI runs on the hexagonal `crates/*` + `apps/*` stack. The execution (`run`/`task`/`release`), inspection (`plan`/`affected`/`explain`/`modules`/`graph`), `cache`, and `generate` verbs are wired end to end; the `driver`/`federation` verbs are stubbed pending their later redesign steps.
 
 | Topic | Commands |
 |-------|----------|

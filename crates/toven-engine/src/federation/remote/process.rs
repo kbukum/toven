@@ -40,15 +40,21 @@ pub(crate) struct SpawnedDriver {
     pub(crate) stdout: ChildStdout,
 }
 
-/// Spawn `program __serve`, wiring piped stdin/stdout and inherited stderr.
+/// Spawn `program <subcommand>`, wiring piped stdin/stdout and inherited stderr.
+///
+/// `subcommand` is the hidden driver entry to launch — `__serve` for the
+/// port-call protocol or `__scaffold` for the config-less scaffold exchange.
 ///
 /// # Errors
 /// Returns [`DriverFault::Spawn`] if the process cannot be launched or its
 /// stdin/stdout pipes cannot be captured.
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) fn spawn(program: &std::path::Path) -> Result<SpawnedDriver, DriverFault> {
+pub(crate) fn spawn(
+    program: &std::path::Path,
+    subcommand: &str,
+) -> Result<SpawnedDriver, DriverFault> {
     let mut child = Command::new(program)
-        .arg("__serve")
+        .arg(subcommand)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
