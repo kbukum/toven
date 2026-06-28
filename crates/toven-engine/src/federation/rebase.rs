@@ -32,9 +32,9 @@ use crate::plan::discover::Federation;
 
 /// Rebase `federation` (one member's discovery output) into umbrella coordinates.
 ///
-/// `prefix` is the member's discovery root relative to the umbrella root; it is
-/// empty when the member sits at the umbrella root, in which case only identity
-/// scoping is applied and paths are left untouched.
+/// `prefix` is the member's discovery root relative to the umbrella root. Member
+/// and workspace identities are always scoped; an empty prefix means paths stay
+/// untouched because the member already sits at the umbrella root.
 ///
 /// # Errors
 /// Propagates a [`RepoPath`] construction failure while prefixing a path.
