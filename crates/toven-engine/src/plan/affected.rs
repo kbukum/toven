@@ -62,13 +62,17 @@ fn changed_for_members(readers: &MemberVcsReaders<'_>) -> AppResult<Vec<ChangeRe
 
 fn changed_for_member(reader: &MemberVcsReader<'_>) -> AppResult<Vec<ChangeRecord>> {
     let Some(baseline) = reader.baseline() else {
-        let hint = match reader.member() {
-            Some(member) => format!(
-                "changed selection needs a baseline for member '{member}': pass --base <ref> or set its [[members]].base_ref (or [project].base_ref)"
-            ),
-            None => "changed selection needs a baseline: pass --base <ref> or set [project].base_ref"
-                .to_string(),
-        };
+        let hint = reader.member().map_or_else(
+            || {
+                "changed selection needs a baseline: pass --base <ref> or set [project].base_ref"
+                    .to_string()
+            },
+            |member| {
+                format!(
+                    "changed selection needs a baseline for member '{member}': pass --base <ref> or set its [[members]].base_ref (or [project].base_ref)"
+                )
+            },
+        );
         return Err(rskit_errors::AppError::invalid_input("base_ref", hint));
     };
     let mut changed = reader.reader().changed_since(baseline)?;

@@ -12,4 +12,5 @@ use toven_ports::ReleaseTarget;
 /// `rust`) can disagree on `publish`, so a publishable member must never cause
 /// a `publish = false` member's modules in that ecosystem to be released. The
 /// single-repo case is one entry under the `None` member.
+#[allow(clippy::redundant_pub_crate)]
 pub(crate) type ReleaseTargets = BTreeMap<(Option<MemberId>, EcosystemId), Box<dyn ReleaseTarget>>;

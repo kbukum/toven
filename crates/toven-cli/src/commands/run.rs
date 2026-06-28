@@ -34,6 +34,7 @@ use crate::report::{WriterRawSink, exit_code};
 /// # Errors
 /// Propagates PLAN/APPLY failures and runtime construction failures. Ctrl+C is
 /// handled cooperatively by APPLY and returned as a terminal run summary.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn execute(
     providers: &[&dyn Provider],
     project: &Project,
@@ -42,6 +43,7 @@ pub(crate) fn execute(
     passthrough: Vec<String>,
     fail_fast: bool,
     plan_only: bool,
+    baseline: &BaselineFlags,
 ) -> AppResult<ExitCode> {
     let run_id = new_run_id();
     let intent_name = intent.name().to_string();
@@ -53,7 +55,7 @@ pub(crate) fn execute(
     )
     .with_passthrough(passthrough);
 
-    let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
+    let opened = project.open_member_vcs(providers, baseline)?;
     let readers = opened.readers();
     let digest = FsSourceDigest::new(&project.project_root);
     let prober = ProcessToolchainProber::new();

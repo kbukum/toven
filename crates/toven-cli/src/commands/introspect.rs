@@ -45,7 +45,12 @@ impl Reporter for QuietReporter {
 ///
 /// # Errors
 /// Propagates PLAN-spine failures (configuration, discovery, graph, scheduling).
-fn build_plan(providers: &[&dyn Provider], project: &Project, intent: TaskKind) -> AppResult<Plan> {
+fn build_plan(
+    providers: &[&dyn Provider],
+    project: &Project,
+    intent: TaskKind,
+    baseline: &BaselineFlags,
+) -> AppResult<Plan> {
     let request = PlanRequest::new(
         new_run_id(),
         project.document.project.name.clone(),
@@ -54,7 +59,7 @@ fn build_plan(providers: &[&dyn Provider], project: &Project, intent: TaskKind) 
     )
     .with_cache_mode(CacheMode::Disabled);
 
-    let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
+    let opened = project.open_member_vcs(providers, baseline)?;
     let readers = opened.readers();
     let digest = FsSourceDigest::new(&project.project_root);
     let prober = ProcessToolchainProber::new();
@@ -99,8 +104,9 @@ pub(crate) fn affected(
     providers: &[&dyn Provider],
     project: &Project,
     intent: TaskKind,
+    baseline: &BaselineFlags,
 ) -> AppResult<ExitCode> {
-    let plan = build_plan(providers, project, intent)?;
+    let plan = build_plan(providers, project, intent, baseline)?;
     print_module_table("Affected", plan_module_names(&plan));
     Ok(ExitCode::Success)
 }
@@ -134,7 +140,7 @@ pub(crate) fn explain(
     module: &str,
     intent: TaskKind,
 ) -> AppResult<ExitCode> {
-    let plan = build_plan(providers, project, intent)?;
+    let plan = build_plan(providers, project, intent, &BaselineFlags::new())?;
     let mut matched = 0_usize;
     for unit in plan
         .units
