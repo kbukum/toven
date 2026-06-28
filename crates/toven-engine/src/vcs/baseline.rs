@@ -64,7 +64,7 @@ impl BaselineStrategy {
         Self::resolve_optional(flags, project_base_ref).ok_or_else(|| {
             AppError::invalid_input(
                 "base_ref",
-                "no baseline reference: pass --base <ref> or set [project].base_ref",
+                "no baseline reference: pass --base <ref> or set [project].base_ref / [[members]].base_ref",
             )
         })
     }
@@ -125,5 +125,6 @@ mod tests {
         let error = BaselineStrategy::resolve(&BaselineFlags::new(), None)
             .expect_err("no reference available");
         assert!(error.message().contains("no baseline reference"));
+        assert!(error.message().contains("[[members]].base_ref"));
     }
 }
