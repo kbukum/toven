@@ -45,7 +45,7 @@ pub(super) fn rebase_member(
 ) -> AppResult<()> {
     stamp_modules(&mut federation.modules, member);
     stamp_edges(federation, member);
-    scope_workspaces(federation, member);
+    scope_workspaces(federation, member)?;
     if prefix.as_os_str().is_empty() {
         return Ok(());
     }
@@ -65,10 +65,10 @@ fn stamp_edges(federation: &mut Federation, member: &MemberId) {
 }
 
 /// Namespace every workspace id by `member` and rewrite module references to it.
-fn scope_workspaces(federation: &mut Federation, member: &MemberId) {
+fn scope_workspaces(federation: &mut Federation, member: &MemberId) -> AppResult<()> {
     let mut remap: BTreeMap<WorkspaceId, WorkspaceId> = BTreeMap::new();
     for workspace in &mut federation.workspaces {
-        let scoped = scoped_workspace_id(member, &workspace.id);
+        let scoped = scoped_workspace_id(member, &workspace.id)?;
         remap.insert(workspace.id.clone(), scoped.clone());
         workspace.id = scoped;
     }
@@ -79,14 +79,18 @@ fn scope_workspaces(federation: &mut Federation, member: &MemberId) {
             module.workspace = Some(scoped.clone());
         }
     }
+    Ok(())
 }
 
 /// Derive a member-scoped workspace id (`member/<id>`).
-fn scoped_workspace_id(member: &MemberId, id: &WorkspaceId) -> WorkspaceId {
-    // The component parts are already validated identifiers, so the composed id
-    // is non-empty by construction; fall back to the original id on the
-    // impossible empty case rather than panicking.
-    WorkspaceId::new(format!("{member}/{id}")).unwrap_or_else(|_| id.clone())
+fn scoped_workspace_id(member: &MemberId, id: &WorkspaceId) -> AppResult<WorkspaceId> {
+    WorkspaceId::new(format!("{member}/{id}")).map_err(|error| {
+        AppError::new(
+            ErrorCode::Internal,
+            format!("could not scope workspace '{id}' to member '{member}'"),
+        )
+        .with_cause(error)
+    })
 }
 
 /// Prefix every member-relative path and glob with `prefix`.
