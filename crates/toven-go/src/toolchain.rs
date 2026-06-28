@@ -5,8 +5,8 @@ use toven_ports::ToolchainProbe;
 /// The probe the planner runs once per active workspace to compose the opaque
 /// toolchain version identity.
 ///
-/// Phase 1 (discovery) only stamps `Workspace.toolchain.tool = "go"`; this spec
-/// is executed in phase 2 (after affected-filtering), and its trimmed stdout —
+/// Discovery only stamps `Workspace.toolchain.tool = "go"`; this spec
+/// is executed after affected-filtering, and its trimmed stdout —
 /// e.g. `"go version go1.X.Y <os>/<arch>"` — becomes the cache-significant
 /// version string.
 #[must_use]

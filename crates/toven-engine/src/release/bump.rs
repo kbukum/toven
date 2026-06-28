@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::{AppError, AppResult};
 use rskit_version::semver::Version;
-use toven_model::{DepKind, Edge, Graph, Module, ModuleRef};
+use toven_model::{DepKind, Edge, Graph, Module, ModuleKey, ModuleRef};
 use toven_ports::{ReleaseMutation, ReleaseTarget};
 
 use super::{ChangelogEntry, ReleaseBaseline, ReleaseEntry, ReleaseStrategyName, strategy};
@@ -14,9 +14,9 @@ pub(super) struct BumpInputs<'a> {
     pub(super) graph: &'a Graph,
     pub(super) modules: &'a [Module],
     pub(super) edges: &'a [Edge],
-    pub(super) changed: &'a BTreeSet<ModuleRef>,
-    pub(super) baselines: &'a BTreeMap<ModuleRef, ReleaseBaseline>,
-    pub(super) changelogs: &'a BTreeMap<ModuleRef, ChangelogEntry>,
+    pub(super) changed: &'a BTreeSet<ModuleKey>,
+    pub(super) baselines: &'a BTreeMap<ModuleKey, ReleaseBaseline>,
+    pub(super) changelogs: &'a BTreeMap<ModuleKey, ChangelogEntry>,
     pub(super) targets: &'a BTreeMap<toven_model::EcosystemId, Box<dyn ReleaseTarget>>,
     pub(super) release_strategy: ReleaseStrategyName,
 }
@@ -28,7 +28,7 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
     let module_by_ref = input
         .modules
         .iter()
-        .map(|module| (module.id.clone(), module))
+        .map(|module| (module.key(), module))
         .collect::<BTreeMap<_, _>>();
 
     for reference in &active {
@@ -105,29 +105,30 @@ fn target_for<'a>(
 }
 
 fn dep_floor_updates(
-    module: &ModuleRef,
+    module: &ModuleKey,
     edges: &[Edge],
-    planned_versions: &BTreeMap<ModuleRef, (Version, Version)>,
+    planned_versions: &BTreeMap<ModuleKey, (Version, Version)>,
 ) -> BTreeMap<ModuleRef, Version> {
     edges
         .iter()
         .filter(|edge| {
             &edge.from == module
-                && edge.from.ecosystem == edge.to.ecosystem
+                && edge.from.module.ecosystem == edge.to.module.ecosystem
+                && edge.from.member == edge.to.member
                 && !matches!(edge.kind, DepKind::Overlay)
         })
         .filter_map(|edge| {
             planned_versions
                 .get(&edge.to)
-                .map(|(_, version)| (edge.to.clone(), version.clone()))
+                .map(|(_, version)| (edge.to.module.clone(), version.clone()))
         })
         .collect()
 }
 
 fn publish_ranks(
     graph: &Graph,
-    active: &BTreeSet<ModuleRef>,
-) -> AppResult<BTreeMap<ModuleRef, usize>> {
+    active: &BTreeSet<ModuleKey>,
+) -> AppResult<BTreeMap<ModuleKey, usize>> {
     let waves = graph.waves(|edge| active.contains(&edge.from) && active.contains(&edge.to))?;
     let mut ranks = BTreeMap::new();
     let mut rank = 0;

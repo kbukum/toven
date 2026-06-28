@@ -11,7 +11,7 @@ Two orchestrators that run the full review:
 - [`review-changes.md`](./review-changes.md) — review a diff (a branch, commit, or `HEAD~1`). Use after every change set, especially fast/"vibe-coded" work.
 - [`review-project.md`](./review-project.md) — audit the whole tree, independent of any diff. Use periodically, before a release, or when onboarding to a crate.
 
-Six focused passes, each runnable on its own when you only need one lens:
+Seven focused passes, each runnable on its own when you only need one lens:
 
 - [`00-structure-placement.md`](./00-structure-placement.md) — layering, port placement, `mod.rs` guard, file homes.
 - [`01-rskit-reuse.md`](./01-rskit-reuse.md) — did the code reuse rskit, or quietly reimplement a concern rskit already owns?
@@ -19,8 +19,9 @@ Six focused passes, each runnable on its own when you only need one lens:
 - [`03-quality.md`](./03-quality.md) — simplicity/root-cause, dead code, outdated patterns, style gates.
 - [`04-tests-tdd.md`](./04-tests-tdd.md) — TDD, fixtures, failure paths, shared doubles, determinism.
 - [`05-docs-supply-chain.md`](./05-docs-supply-chain.md) — docs policy, docs-examples-match-the-live-schema, Conventional Commits, `Cargo.lock`, `cargo-deny`, no-unused-deps, SHA-pinned actions.
+- [`06-comments-rustdoc.md`](./06-comments-rustdoc.md) — comments and `///` docs explain the code as it is, not plans/history/process; rewrite or delete the rest. Standalone, runnable any time over the whole tree.
 
-The orchestrators just sequence these six passes and add scope handling; the focused files hold the actual checks. Read the focused file you need and run it directly when a full review is overkill.
+The orchestrators just sequence these seven passes and add scope handling; the focused files hold the actual checks. Read the focused file you need and run it directly when a full review is overkill.
 
 ## Run reviews in a separate, clean-context agent
 
@@ -32,7 +33,7 @@ A plan, spec, issue, or roadmap may be passed in *as a scope checklist only* —
 
 1. **Pick scope.** Changes review: set a base ref and get the diff (`git diff <base>...HEAD --stat`, then per file). Project review: pick the crate(s)/area or the whole workspace.
 2. **Initialize the submodule** if it is not already: `git submodule update --init --recursive`. rskit lives in the `rskit/` submodule and the rskit-reuse pass needs it on disk.
-3. **Work passes in order** (00 → 05). Stop and reject as soon as a change fails pass `00` or `01` — misplaced or duplicated code makes every later pass moot.
+3. **Work passes in order** (00 → 06). Stop and reject as soon as a change fails pass `00` or `01` — misplaced or duplicated code makes every later pass moot.
 4. **Run the validation commands** (below). Treat green `make check` as necessary but not sufficient: it does not catch layering-by-convention, cascade gaps, rskit-reuse violations, or weak tests. Those are on the reviewer.
 
 ## Severity and finding format

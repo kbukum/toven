@@ -1,4 +1,4 @@
-//! Phase 5 — Affected: map changed paths to the active module set.
+//! Affected: map changed paths to the active module set.
 //!
 //! The engine-owned `longest-prefix` change mapper attributes each changed
 //! workspace-relative path to the module whose root is its longest prefix, refined
@@ -8,12 +8,13 @@
 //! and is **fail-closed**: an unclassifiable path conservatively activates every
 //! module. A full run (no change filter) activates everything directly.
 
+use rskit_errors::AppResult;
 use std::collections::BTreeSet;
 use std::path::Path;
+use toven_model::{DepKind, Graph, Module, ModuleKey, Workspace, WorkspaceId};
+use toven_ports::{ChangeRecord, TaskKind};
 
-use rskit_errors::AppResult;
-use toven_model::{DepKind, Graph, Module, ModuleRef, Workspace, WorkspaceId};
-use toven_ports::{ChangeRecord, TaskKind, VcsReader};
+use crate::federation::baseline::{MemberVcsReader, MemberVcsReaders, prefix_records};
 
 use super::discover::Federation;
 use super::request::{PlanRequest, Selection};
@@ -21,24 +22,25 @@ use super::request::{PlanRequest, Selection};
 /// Resolve the active module set for this request.
 ///
 /// [`Selection::All`] activates every module; [`Selection::Changed`] maps the
-/// changed paths (committed ∪ worktree) to seed modules and returns the
-/// reverse-dependents closure, failing closed to the full set on any
-/// unclassifiable path.
+/// changed paths (committed ∪ worktree) reported by every member reader to seed
+/// modules and returns the reverse-dependents closure, failing closed to the full
+/// set on any unclassifiable path. Each member reader uses its own resolved
+/// baseline; the single-repo project is the N=1 degenerate member.
 ///
 /// # Errors
-/// Propagates [`VcsReader`] failures and the graph closure (an unknown seed).
+/// Propagates [`VcsReader`](toven_ports::VcsReader) failures and the graph
+/// closure (an unknown seed).
 pub(super) fn active_modules(
     request: &PlanRequest,
     graph: &Graph,
     federation: &Federation,
-    vcs: &dyn VcsReader,
-) -> AppResult<BTreeSet<ModuleRef>> {
-    let Selection::Changed(spec) = &request.selection else {
+    vcs: &MemberVcsReaders<'_>,
+) -> AppResult<BTreeSet<ModuleKey>> {
+    let Selection::Changed(_) = &request.selection else {
         return Ok(all_modules(graph));
     };
 
-    let mut changed = vcs.changed_since(spec)?;
-    changed.extend(vcs.worktree_status()?);
+    let changed = changed_for_members(vcs)?;
 
     let seeds = changed_seeds(&changed, graph, federation);
 
@@ -50,6 +52,26 @@ pub(super) fn active_modules(
     graph.closure(&seeds, include)
 }
 
+fn changed_for_members(readers: &MemberVcsReaders<'_>) -> AppResult<Vec<ChangeRecord>> {
+    let mut changed = Vec::new();
+    for reader in readers.entries() {
+        changed.extend(changed_for_member(reader)?);
+    }
+    Ok(changed)
+}
+
+fn changed_for_member(reader: &MemberVcsReader<'_>) -> AppResult<Vec<ChangeRecord>> {
+    let Some(baseline) = reader.baseline() else {
+        return Err(rskit_errors::AppError::invalid_input(
+            "base_ref",
+            "changed selection needs a baseline: pass --base <ref> or set [project].base_ref",
+        ));
+    };
+    let mut changed = reader.reader().changed_since(baseline)?;
+    changed.extend(reader.reader().worktree_status()?);
+    Ok(prefix_records(&changed, reader.prefix()))
+}
+
 /// Map changed records to direct seed modules before any reverse-dependent
 /// closure is applied.
 #[allow(clippy::redundant_pub_crate)]
@@ -57,7 +79,7 @@ pub(crate) fn changed_seeds(
     changed: &[ChangeRecord],
     graph: &Graph,
     federation: &Federation,
-) -> BTreeSet<ModuleRef> {
+) -> BTreeSet<ModuleKey> {
     let mut seeds = BTreeSet::new();
     for record in changed {
         match classify(record, federation) {
@@ -92,15 +114,15 @@ pub(crate) fn changed_records_for_module(
         .collect()
 }
 
-/// Every module identity in the graph.
-fn all_modules(graph: &Graph) -> BTreeSet<ModuleRef> {
-    graph.modules().map(|module| module.id.clone()).collect()
+/// Every module key in the graph.
+fn all_modules(graph: &Graph) -> BTreeSet<ModuleKey> {
+    graph.modules().map(Module::key).collect()
 }
 
 /// How one changed path was attributed.
 enum Classification {
     /// Attributed to a single module by longest-prefix root match.
-    Module(ModuleRef),
+    Module(ModuleKey),
     /// Matched a workspace blast-radius glob (whole-workspace invalidation).
     Workspace(WorkspaceId),
     /// Could not be attributed — forces fail-closed full activation.
@@ -114,7 +136,7 @@ fn classify(record: &ChangeRecord, federation: &Federation) -> Classification {
             return Classification::Workspace(workspace);
         }
     }
-    let mut best: Option<(ModuleRef, usize)> = None;
+    let mut best: Option<(ModuleKey, usize)> = None;
     for path in record_paths(record) {
         if let Some((reference, depth)) = longest_prefix(path, &federation.modules)
             && best.as_ref().is_none_or(|(_, current)| depth > *current)
@@ -133,7 +155,7 @@ fn record_belongs_to_module(
     federation: &Federation,
 ) -> bool {
     match classify(record, federation) {
-        Classification::Module(reference) => reference == module.id,
+        Classification::Module(reference) => reference == module.key(),
         Classification::Workspace(workspace) => module.workspace.as_ref() == Some(&workspace),
         Classification::Unclassified => false,
     }
@@ -166,14 +188,14 @@ fn blast_globs(workspace: &Workspace) -> Vec<&str> {
 }
 
 /// The module whose root is the longest path-prefix of `path` (and its depth).
-fn longest_prefix(path: &Path, modules: &[Module]) -> Option<(ModuleRef, usize)> {
-    let mut best: Option<(ModuleRef, usize)> = None;
+fn longest_prefix(path: &Path, modules: &[Module]) -> Option<(ModuleKey, usize)> {
+    let mut best: Option<(ModuleKey, usize)> = None;
     for module in modules {
         let root = module.root.as_path();
         let depth = prefix_depth(root);
         let matches = root == Path::new(".") || path.starts_with(root);
         if matches && best.as_ref().is_none_or(|(_, current)| depth > *current) {
-            best = Some((module.id.clone(), depth));
+            best = Some((module.key(), depth));
         }
     }
     best
@@ -189,12 +211,12 @@ fn prefix_depth(root: &Path) -> usize {
 }
 
 /// Modules owned by a workspace.
-fn modules_in_workspace(workspace: &WorkspaceId, federation: &Federation) -> Vec<ModuleRef> {
+fn modules_in_workspace(workspace: &WorkspaceId, federation: &Federation) -> Vec<ModuleKey> {
     federation
         .modules
         .iter()
         .filter(|module| module.workspace.as_ref() == Some(workspace))
-        .map(|module| module.id.clone())
+        .map(Module::key)
         .collect()
 }
 
@@ -231,19 +253,30 @@ fn wildcard(pattern: &[u8], text: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use toven_model::{
-        AbsPath, DepKind, EcosystemId, Edge, Graph, Module, ModuleRef, RepoPath, ToolchainTag,
-        Workspace, WorkspaceId,
+        AbsPath, DepKind, EcosystemId, Edge, Graph, MemberId, Module, ModuleKey, ModuleRef,
+        RepoPath, ToolchainTag, Workspace, WorkspaceId,
     };
     use toven_ports::{BaselineSpec, ChangeRecord, ChangeStatus};
     use toven_testkit::FakeVcsReader;
 
     use super::{active_modules, changed_records_for_module};
+    use crate::federation::baseline::{MemberVcsReader, MemberVcsReaders};
     use crate::plan::discover::Federation;
     use crate::plan::request::{PlanRequest, Selection};
 
     fn mref(ecosystem: &str, name: &str) -> ModuleRef {
         ModuleRef::new(EcosystemId::new(ecosystem).unwrap(), name).unwrap()
+    }
+
+    fn mkey(ecosystem: &str, name: &str) -> ModuleKey {
+        ModuleKey::bare(mref(ecosystem, name))
+    }
+
+    fn member_key(member: &str, ecosystem: &str, name: &str) -> ModuleKey {
+        ModuleKey::new(Some(MemberId::new(member).unwrap()), mref(ecosystem, name))
     }
 
     fn module(ecosystem: &str, name: &str, root: &str, workspace: Option<&str>) -> Module {
@@ -273,6 +306,10 @@ mod tests {
         (request, FakeVcsReader::new().with_changed_since(changes))
     }
 
+    fn single_view(vcs: &FakeVcsReader) -> MemberVcsReaders<'_> {
+        MemberVcsReaders::single(vcs, BaselineSpec::explicit("main"))
+    }
+
     #[test]
     fn longest_prefix_seeds_the_changed_module_and_its_dependents() {
         let federation = Federation {
@@ -295,19 +332,19 @@ mod tests {
             "crates/errors/lib.rs",
             ChangeStatus::Modified,
         )]);
-        let active = active_modules(&request, &graph, &federation, &vcs).unwrap();
-        assert!(active.contains(&mref("rust", "errors")));
-        assert!(active.contains(&mref("rust", "app")));
+        let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+        assert!(active.contains(&mkey("rust", "errors")));
+        assert!(active.contains(&mkey("rust", "app")));
 
         // A change confined to app activates only app (no dependents).
         let (request, vcs) = request_for(vec![ChangeRecord::new(
             "crates/app/lib.rs",
             ChangeStatus::Modified,
         )]);
-        let active = active_modules(&request, &graph, &federation, &vcs).unwrap();
+        let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
         assert_eq!(
             active,
-            std::collections::BTreeSet::from([mref("rust", "app")])
+            std::collections::BTreeSet::from([mkey("rust", "app")])
         );
     }
 
@@ -328,9 +365,9 @@ mod tests {
             "Cargo.lock",
             ChangeStatus::Modified,
         )]);
-        let active = active_modules(&request, &graph, &federation, &vcs).unwrap();
-        assert!(active.contains(&mref("rust", "app")));
-        assert!(active.contains(&mref("rust", "errors")));
+        let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+        assert!(active.contains(&mkey("rust", "app")));
+        assert!(active.contains(&mkey("rust", "errors")));
     }
 
     #[test]
@@ -354,9 +391,9 @@ mod tests {
             "crates/shared/lib.rs",
             ChangeStatus::Modified,
         )]);
-        let active = active_modules(&request, &graph, &federation, &vcs).unwrap();
-        assert!(active.contains(&mref("rust", "shared")));
-        assert!(active.contains(&mref("go", "api")));
+        let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+        assert!(active.contains(&mkey("rust", "shared")));
+        assert!(active.contains(&mkey("go", "api")));
     }
 
     #[test]
@@ -374,8 +411,70 @@ mod tests {
 
         let (request, vcs) =
             request_for(vec![ChangeRecord::new("README.md", ChangeStatus::Modified)]);
-        let active = active_modules(&request, &graph, &federation, &vcs).unwrap();
+        let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
         assert_eq!(active.len(), 2);
+    }
+
+    #[test]
+    fn member_readers_prefix_repo_changes_before_classification() {
+        let core = MemberId::new("core").unwrap();
+        let gateway = MemberId::new("gateway").unwrap();
+        let mut shared = module(
+            "rust",
+            "shared",
+            "repos/core/crates/shared",
+            Some("core/rust"),
+        );
+        shared.member = Some(core.clone());
+        let mut api = module(
+            "rust",
+            "api",
+            "repos/gateway/crates/api",
+            Some("gateway/rust"),
+        );
+        api.member = Some(gateway.clone());
+        let federation = Federation {
+            workspaces: Vec::new(),
+            modules: vec![shared, api],
+            edges: vec![Edge::new(
+                member_key("gateway", "rust", "api"),
+                member_key("core", "rust", "shared"),
+                DepKind::Overlay,
+            )],
+            warnings: Vec::new(),
+        };
+        let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
+        let core_vcs = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
+            "crates/shared/src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+        let gateway_vcs = FakeVcsReader::new();
+        let readers = MemberVcsReaders::new(vec![
+            MemberVcsReader::new(
+                Some(core),
+                PathBuf::from("repos/core"),
+                Some(BaselineSpec::explicit("main")),
+                &core_vcs,
+            ),
+            MemberVcsReader::new(
+                Some(gateway),
+                PathBuf::from("repos/gateway"),
+                Some(BaselineSpec::explicit("main")),
+                &gateway_vcs,
+            ),
+        ]);
+        let request = PlanRequest::new(
+            "r",
+            "t",
+            toven_ports::TaskKind::Test,
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(BaselineSpec::explicit("main")));
+
+        let active = active_modules(&request, &graph, &federation, &readers).unwrap();
+
+        assert!(active.contains(&member_key("core", "rust", "shared")));
+        assert!(active.contains(&member_key("gateway", "rust", "api")));
     }
 
     #[test]

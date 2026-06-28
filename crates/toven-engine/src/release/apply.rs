@@ -8,11 +8,12 @@
 //! optional push, and the publish loop run after that boundary and are **not**
 //! rolled back — a publish failure surfaces as a typed error and the operator
 //! resumes, relying on registry idempotency.
+#![allow(unreachable_pub)]
 
 use std::collections::BTreeMap;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_model::{EcosystemId, Module, ModuleRef};
+use toven_model::{EcosystemId, Module, ModuleKey};
 use toven_ports::{Artifact, ReleaseTarget, VcsReader, VcsWriter};
 
 use super::publish::{self, PublishItem};
@@ -75,8 +76,10 @@ pub fn release_apply(
         return Ok(stats);
     }
 
-    let module_by_ref: BTreeMap<&ModuleRef, &Module> =
-        modules.iter().map(|module| (&module.id, module)).collect();
+    let module_by_ref: BTreeMap<ModuleKey, &Module> = modules
+        .iter()
+        .map(|module| (module.key(), module))
+        .collect();
 
     // Pre-commit phase (undoable): apply mutations, then package every module.
     let artifacts = match prepare(plan, &module_by_ref, targets, &mut stats) {
@@ -95,7 +98,7 @@ pub fn release_apply(
     // Post-commit phase (no rollback): tag, optionally push, publish.
     for entry in &plan.entries {
         if let Some(version) = &entry.planned_version {
-            let name = tag::format(&entry.module, version);
+            let name = tag::format(&entry.module.module, version);
             writer.create_tag(&name, commit.as_str(), Some(&message))?;
             stats.tagged_modules += 1;
         }
@@ -110,7 +113,11 @@ pub fn release_apply(
     Ok(stats)
 }
 
-fn restore_or_precommit_error(writer: &dyn VcsWriter, phase: &str, error: AppError) -> AppError {
+pub fn restore_or_precommit_error(
+    writer: &dyn VcsWriter,
+    phase: &str,
+    error: AppError,
+) -> AppError {
     match writer.restore_worktree() {
         Ok(()) => error,
         Err(restore) => AppError::new(
@@ -125,7 +132,7 @@ fn restore_or_precommit_error(writer: &dyn VcsWriter, phase: &str, error: AppErr
 }
 
 /// Reject a dirty working tree unless `--allow-dirty` was requested.
-fn guard_clean_tree(reader: &dyn VcsReader, options: &ReleaseApplyOptions) -> AppResult<()> {
+pub fn guard_clean_tree(reader: &dyn VcsReader, options: &ReleaseApplyOptions) -> AppResult<()> {
     if options.allow_dirty {
         return Ok(());
     }
@@ -145,12 +152,12 @@ fn guard_clean_tree(reader: &dyn VcsReader, options: &ReleaseApplyOptions) -> Ap
 /// Apply every mutation and package every module, returning the artifacts keyed
 /// by module. Runs entirely before the commit so the caller can restore the
 /// working tree on failure.
-fn prepare(
+pub fn prepare(
     plan: &ReleasePlan,
-    module_by_ref: &BTreeMap<&ModuleRef, &Module>,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
     targets: &BTreeMap<EcosystemId, Box<dyn ReleaseTarget>>,
     stats: &mut ReleaseStats,
-) -> AppResult<BTreeMap<ModuleRef, Artifact>> {
+) -> AppResult<BTreeMap<ModuleKey, Artifact>> {
     for entry in &plan.entries {
         let module = module_for(module_by_ref, &entry.module)?;
         let target = target_for(targets, module)?;
@@ -169,11 +176,11 @@ fn prepare(
 }
 
 /// Resolve the ordered publish items, skipping entries that need no publish.
-fn publish_items<'a>(
+pub fn publish_items<'a>(
     plan: &'a ReleasePlan,
-    module_by_ref: &BTreeMap<&'a ModuleRef, &'a Module>,
+    module_by_ref: &BTreeMap<ModuleKey, &'a Module>,
     targets: &'a BTreeMap<EcosystemId, Box<dyn ReleaseTarget>>,
-    artifacts: &'a BTreeMap<ModuleRef, Artifact>,
+    artifacts: &'a BTreeMap<ModuleKey, Artifact>,
 ) -> AppResult<Vec<PublishItem<'a>>> {
     let mut items = Vec::new();
     for entry in &plan.entries {
@@ -205,8 +212,8 @@ fn publish_items<'a>(
 }
 
 fn module_for<'a>(
-    module_by_ref: &BTreeMap<&'a ModuleRef, &'a Module>,
-    reference: &ModuleRef,
+    module_by_ref: &BTreeMap<ModuleKey, &'a Module>,
+    reference: &ModuleKey,
 ) -> AppResult<&'a Module> {
     module_by_ref.get(reference).copied().ok_or_else(|| {
         AppError::invalid_input("release.modules", format!("unknown module '{reference}'"))
@@ -229,7 +236,7 @@ fn target_for<'a>(
 }
 
 /// Build the single release commit message from the released module versions.
-fn commit_message(plan: &ReleasePlan) -> String {
+pub fn commit_message(plan: &ReleasePlan) -> String {
     let released = plan
         .entries
         .iter()
@@ -237,7 +244,7 @@ fn commit_message(plan: &ReleasePlan) -> String {
             entry
                 .planned_version
                 .as_ref()
-                .map(|version| tag::format(&entry.module, version))
+                .map(|version| tag::format(&entry.module.module, version))
         })
         .collect::<Vec<_>>()
         .join(", ");
@@ -245,11 +252,14 @@ fn commit_message(plan: &ReleasePlan) -> String {
 }
 
 /// Refspecs pushed after tagging: the release commit plus every release tag.
-fn push_refspecs(plan: &ReleasePlan) -> Vec<String> {
+pub fn push_refspecs(plan: &ReleasePlan) -> Vec<String> {
     let mut refspecs = vec!["HEAD".to_string()];
     for entry in &plan.entries {
         if let Some(version) = &entry.planned_version {
-            refspecs.push(format!("refs/tags/{}", tag::format(&entry.module, version)));
+            refspecs.push(format!(
+                "refs/tags/{}",
+                tag::format(&entry.module.module, version)
+            ));
         }
     }
     refspecs
@@ -261,7 +271,7 @@ mod tests {
 
     use rskit_errors::ErrorCode;
     use rskit_version::semver::Version;
-    use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
+    use toven_model::{EcosystemId, Module, ModuleKey, ModuleRef, RepoPath};
     use toven_ports::{ChangeRecord, ChangeStatus, PublishOutcome, ReleaseMutation, ReleaseTarget};
     use toven_testkit::{FakeReleaseTarget, FakeVcsReader, FakeVcsWriter, ReleaseCall, VcsWrite};
 
@@ -272,6 +282,10 @@ mod tests {
         ModuleRef::new(EcosystemId::new("rust").unwrap(), name).unwrap()
     }
 
+    fn mkey(name: &str) -> ModuleKey {
+        ModuleKey::bare(mref(name))
+    }
+
     fn module(name: &str) -> Module {
         let mut module = Module::new(mref(name), RepoPath::new(format!("crates/{name}")).unwrap());
         module.manifest = Some(RepoPath::new(format!("crates/{name}/Cargo.toml")).unwrap());
@@ -280,14 +294,14 @@ mod tests {
 
     fn entry(name: &str, version: Version, publish_needed: bool, rank: usize) -> ReleaseEntry {
         ReleaseEntry {
-            module: mref(name),
+            module: mkey(name),
             current_version: Version::new(0, 1, 0),
             planned_version: Some(version.clone()),
             mutation: ReleaseMutation::version(version),
             publish_needed,
             topo_rank: rank,
             baseline: None,
-            changelog: ChangelogEntry::new(mref(name), "changed", Vec::new()),
+            changelog: ChangelogEntry::new(mkey(name), "changed", Vec::new()),
         }
     }
 

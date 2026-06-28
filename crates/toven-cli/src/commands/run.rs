@@ -18,6 +18,7 @@ use toven_engine::cache::FsContentCache;
 use toven_engine::output::UnitOutputChannel;
 use toven_engine::plan::{FsSourceDigest, PlanHost, PlanRequest, ProcessToolchainProber, plan};
 use toven_engine::release::{ReleaseApplyOptions, release_run};
+use toven_engine::vcs::BaselineFlags;
 use toven_model::{CacheVerdict, Event, Plan, RunStats};
 use toven_ports::{CommandRunner, Provider, Reporter, TaskKind};
 
@@ -52,7 +53,8 @@ pub(crate) fn execute(
     )
     .with_passthrough(passthrough);
 
-    let vcs = project.open_vcs()?;
+    let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
+    let readers = opened.readers();
     let digest = FsSourceDigest::new(&project.project_root);
     let prober = ProcessToolchainProber::new();
     let cache = FsContentCache::new(project.cache_root()?);
@@ -66,7 +68,7 @@ pub(crate) fn execute(
         project: project.document.project.name.clone(),
     })?;
 
-    let host = PlanHost::new(&vcs, &digest, &prober, &cache);
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let plan = plan(&request, &project.document, providers, host, sink)?;
 
     if plan_only {
@@ -121,7 +123,9 @@ pub(crate) fn release(
         project.project_root.clone(),
     );
 
-    let vcs = project.open_vcs()?;
+    let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
+    let readers = opened.readers();
+    let repos = opened.release_repos();
     let mut reporter = report.reporter();
     let sink: &mut dyn Reporter = reporter.as_mut();
 
@@ -135,8 +139,8 @@ pub(crate) fn release(
         &request,
         &project.document,
         providers,
-        &vcs,
-        &vcs,
+        &readers,
+        &repos,
         sink,
         &options,
     )?;
@@ -171,7 +175,7 @@ mod tests {
     use std::time::Duration;
 
     use toven_model::{
-        CacheVerdict, EcosystemId, ExecutionReadiness, ExecutionUnit, ModuleRef, Plan,
+        CacheVerdict, EcosystemId, ExecutionReadiness, ExecutionUnit, ModuleKey, ModuleRef, Plan,
     };
 
     use super::plan_summary;
@@ -179,7 +183,9 @@ mod tests {
     fn unit(id: &str, cache: CacheVerdict) -> ExecutionUnit {
         ExecutionUnit {
             id: id.to_string(),
-            module: ModuleRef::new(EcosystemId::new("rust").unwrap(), "core").unwrap(),
+            module: ModuleKey::bare(
+                ModuleRef::new(EcosystemId::new("rust").unwrap(), "core").unwrap(),
+            ),
             kind: "build".to_string(),
             workspace: None,
             argv: vec!["cargo".to_string(), "build".to_string()],

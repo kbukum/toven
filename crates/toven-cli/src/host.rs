@@ -13,7 +13,8 @@ use std::path::{Path, PathBuf};
 use rskit_errors::{AppError, AppResult};
 use toven_engine::cache;
 use toven_engine::config::{CanonicalRegistry, Document, ReportFormat, load};
-use toven_engine::vcs::RskitGitVcs;
+use toven_engine::federation::{OpenMemberVcsReaders, open_project_vcs};
+use toven_engine::vcs::BaselineFlags;
 use toven_model::AbsPath;
 use toven_ports::Provider;
 
@@ -45,12 +46,19 @@ impl Project {
         cache::resolve_root(&self.project_root, self.cache_dir())
     }
 
-    /// Open the git working tree rooted at the workspace.
+    /// Open one deduped git reader/writer per composed member repo.
+    ///
+    /// Both PLAN change selection and release borrow this opened set; the
+    /// single-repo project is the N=1 degenerate member at the umbrella root.
     ///
     /// # Errors
-    /// Propagates repository discovery failures.
-    pub(crate) fn open_vcs(&self) -> AppResult<RskitGitVcs> {
-        RskitGitVcs::discover(self.project_root.as_path())
+    /// Propagates member composition and repository discovery/open failures.
+    pub(crate) fn open_member_vcs(
+        &self,
+        providers: &[&dyn Provider],
+        flags: &BaselineFlags,
+    ) -> AppResult<OpenMemberVcsReaders> {
+        open_project_vcs(&self.project_root, &self.document, providers, flags)
     }
 
     /// The configured concurrency ceiling, if `[toven].max_parallel` is set.

@@ -9,21 +9,29 @@ use toven_model::{AbsPath, Event, Graph, Phase};
 use toven_ports::{Provider, Reporter};
 
 use crate::config::Document;
-use crate::federation::resolve::{self, DriverLocator};
+use crate::federation::compose::ComposedFederation;
+use crate::federation::resolve::DriverLocator;
+use crate::federation::spine;
 
-use super::configure::ConfiguredSet;
+use super::configure::MemberAdapters;
 use super::discover::Federation;
-use super::{configure, discover, graph};
+use super::graph;
 
 /// Validated shared state produced before a PLAN tail diverges.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) struct PlanContext {
-    pub(crate) adapters: ConfiguredSet,
+    pub(crate) composed: ComposedFederation,
+    pub(crate) adapters: MemberAdapters,
     pub(crate) federation: Federation,
     pub(crate) graph: Graph,
 }
 
 /// Run the reusable Configure → Discover → Graph front half.
+///
+/// `project_root` is the umbrella project root; members (if any) resolve under
+/// it. Configure bakes every member's adapters, Discover unions every member's
+/// rebased discovery output into one federation, and Graph builds + semantically
+/// validates the result.
 ///
 /// # Errors
 /// Propagates configuration, discovery, graph construction, or semantic
@@ -36,22 +44,16 @@ pub(crate) fn prepare(
     locator: &dyn DriverLocator,
     reporter: &mut dyn Reporter,
 ) -> AppResult<PlanContext> {
+    let composed = spine::compose(project_root, document, providers)?;
+
     reporter.emit(&Event::PhaseStarted {
         phase: Phase::Configure,
     })?;
-    let mut adapters = configure::configure(document, providers)?;
-    // Four-way dispatch (step 11): canonical-but-unloaded ecosystems with a
-    // resolved driver are connected out-of-proc behind the same trait; absent
-    // drivers warn + skip. A resolved driver that fails is a hard PLAN error.
-    let remote = resolve::resolve_adapters(document, providers, locator)?;
-    let remote_warnings = remote.warnings;
-    for (id, adapter) in remote.adapters {
-        adapters.insert(id, adapter);
-    }
+    let (adapters, configure_warnings) = spine::configure_all(&composed, providers, locator)?;
     // Surface absent-driver skips while still in Configure, before discovery can
     // fail: a warn-and-skip is observable even on a later failure, never silently
     // dropped, and keeps the phase attribution accurate.
-    for warning in &remote_warnings {
+    for warning in &configure_warnings {
         reporter.emit(&Event::Warning {
             message: warning.clone(),
         })?;
@@ -63,7 +65,7 @@ pub(crate) fn prepare(
     reporter.emit(&Event::PhaseStarted {
         phase: Phase::Discover,
     })?;
-    let federation = discover::discover(project_root, &adapters, document)?;
+    let federation = spine::discover_all(project_root, &composed, &adapters)?;
     // Surface adapter discovery warnings so a warn-and-skip is observable here too.
     for warning in &federation.warnings {
         reporter.emit(&Event::Warning {
@@ -78,12 +80,13 @@ pub(crate) fn prepare(
         phase: Phase::Graph,
     })?;
     let graph = graph::build(&federation)?;
-    graph::validate_semantics(&graph, document)?;
+    graph::validate_semantics(&graph, &composed)?;
     reporter.emit(&Event::PhaseFinished {
         phase: Phase::Graph,
     })?;
 
     Ok(PlanContext {
+        composed,
         adapters,
         federation,
         graph,

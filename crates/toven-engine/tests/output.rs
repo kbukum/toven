@@ -1,5 +1,5 @@
 //! Integration coverage for the per-unit raw-output channel under simulated
-//! parallel execution (event-report Decision C): buffered normal units flush a
+//! parallel execution: buffered normal units flush a
 //! labeled block per unit (in `block` call order), while persistent units
 //! live-tail in arrival order, even when their chunks interleave.
 

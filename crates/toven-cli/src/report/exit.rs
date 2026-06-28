@@ -9,7 +9,7 @@ use toven_model::RunStats;
 /// `FailedReadiness`; otherwise zero ([`ExitCode::Success`]). An all-cached run
 /// and a persistent-goal run that held until signal and shut down cleanly both
 /// map to success; a held unit that crashed surfaces as a failure counter and
-/// therefore non-zero (event-report Decision C).
+/// therefore non-zero.
 #[must_use]
 pub const fn exit_code(summary: &RunStats) -> ExitCode {
     if summary.has_failures() {

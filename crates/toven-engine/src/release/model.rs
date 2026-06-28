@@ -1,7 +1,7 @@
 //! Immutable release planning vocabulary.
 
 use rskit_version::semver::Version;
-use toven_model::ModuleRef;
+use toven_model::ModuleKey;
 use toven_ports::{BaselineSpec, Oid, ReleaseMutation};
 
 /// Engine-owned named release bump policies.
@@ -29,7 +29,7 @@ impl ReleaseStrategyName {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReleaseBaseline {
     /// Module this baseline belongs to.
-    pub module: ModuleRef,
+    pub module: ModuleKey,
     /// Tag name used as the baseline, when a prior release tag exists.
     pub tag: Option<String>,
     /// Object id the release tag points at, when a prior release tag exists.
@@ -41,7 +41,7 @@ pub struct ReleaseBaseline {
 impl ReleaseBaseline {
     /// Construct a baseline from an existing module release tag.
     #[must_use]
-    pub fn tag(module: ModuleRef, tag: impl Into<String>, target: Oid) -> Self {
+    pub fn tag(module: ModuleKey, tag: impl Into<String>, target: Oid) -> Self {
         Self {
             module,
             tag: Some(tag.into()),
@@ -52,7 +52,7 @@ impl ReleaseBaseline {
 
     /// Construct a baseline from the configured fallback strategy.
     #[must_use]
-    pub const fn fallback(module: ModuleRef, spec: BaselineSpec) -> Self {
+    pub const fn fallback(module: ModuleKey, spec: BaselineSpec) -> Self {
         Self {
             module,
             tag: None,
@@ -66,7 +66,7 @@ impl ReleaseBaseline {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ChangelogEntry {
     /// Module the entry describes.
-    pub module: ModuleRef,
+    pub module: ModuleKey,
     /// Short summary derived from changed paths/commits.
     pub summary: String,
     /// Detailed lines for later report rendering.
@@ -76,7 +76,7 @@ pub struct ChangelogEntry {
 impl ChangelogEntry {
     /// Construct a changelog entry.
     #[must_use]
-    pub fn new(module: ModuleRef, summary: impl Into<String>, lines: Vec<String>) -> Self {
+    pub fn new(module: ModuleKey, summary: impl Into<String>, lines: Vec<String>) -> Self {
         Self {
             module,
             summary: summary.into(),
@@ -89,7 +89,7 @@ impl ChangelogEntry {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReleaseEntry {
     /// Module being considered for release.
-    pub module: ModuleRef,
+    pub module: ModuleKey,
     /// Version currently declared by the adapter.
     pub current_version: Version,
     /// Version to release, if this module receives an own-version bump.
@@ -176,13 +176,13 @@ impl ReleaseStats {
 #[cfg(test)]
 mod tests {
     use rskit_version::semver::Version;
-    use toven_model::{EcosystemId, ModuleRef};
+    use toven_model::{EcosystemId, ModuleKey, ModuleRef};
     use toven_ports::ReleaseMutation;
 
     use super::{ChangelogEntry, ReleaseEntry, ReleasePlan, ReleaseStats, ReleaseStrategyName};
 
-    fn module(name: &str) -> ModuleRef {
-        ModuleRef::new(EcosystemId::new("rust").unwrap(), name).unwrap()
+    fn module(name: &str) -> ModuleKey {
+        ModuleKey::bare(ModuleRef::new(EcosystemId::new("rust").unwrap(), name).unwrap())
     }
 
     #[test]

@@ -14,11 +14,11 @@ use std::path::Path;
 
 use rskit_errors::{AppError, AppResult};
 use rskit_util::hash::ContentHasher;
-use toven_model::{Graph, ModuleRef};
+use toven_model::{Graph, ModuleKey};
 use toven_ports::SourceDigest;
 
 /// Content identities for every module source tree, keyed by module ref.
-pub(in crate::plan) type SourceHashes = BTreeMap<ModuleRef, String>;
+pub(in crate::plan) type SourceHashes = BTreeMap<ModuleKey, String>;
 
 /// Hash the source tree of each module in `modules` (which should be only those
 /// participating in some unit key) for reuse across unit keys.
@@ -31,7 +31,7 @@ pub(in crate::plan) fn source_hashes(
 ) -> AppResult<SourceHashes> {
     let mut hashes = SourceHashes::new();
     for module in modules {
-        hashes.insert(module.id.clone(), digest.module(module)?);
+        hashes.insert(module.key(), digest.module(module)?);
     }
     Ok(hashes)
 }
@@ -42,9 +42,9 @@ pub(in crate::plan) fn source_hashes(
 /// Hashing only this set avoids walking unrelated ecosystems and prevents an I/O
 /// error under an inactive module root from aborting PLAN.
 pub(in crate::plan) fn needed_modules(
-    units: &[ModuleRef],
+    units: &[ModuleKey],
     adjacency: &Adjacency,
-) -> BTreeSet<ModuleRef> {
+) -> BTreeSet<ModuleKey> {
     let mut needed = BTreeSet::new();
     for module in units {
         needed.insert(module.clone());
@@ -57,7 +57,7 @@ pub(in crate::plan) fn needed_modules(
 #[derive(Debug, Clone, Copy)]
 pub(in crate::plan) struct KeyInputs<'a> {
     /// Module the unit operates on.
-    pub(in crate::plan) module: &'a ModuleRef,
+    pub(in crate::plan) module: &'a ModuleKey,
     /// Rendered base argv (without passthrough) — the `task_hash` source.
     pub(in crate::plan) base_argv: &'a [String],
     /// Workspace-relative shared-input paths folded into the key.
@@ -72,7 +72,7 @@ pub(in crate::plan) struct KeyInputs<'a> {
 
 /// A forward adjacency map (`from` → its direct dependency `to`s), built once and
 /// reused across every unit's closure to avoid rescanning all edges per node.
-pub(in crate::plan) type Adjacency = BTreeMap<ModuleRef, Vec<ModuleRef>>;
+pub(in crate::plan) type Adjacency = BTreeMap<ModuleKey, Vec<ModuleKey>>;
 
 /// Build the forward adjacency map of the graph in one pass.
 pub(in crate::plan) fn forward_adjacency(graph: &Graph) -> Adjacency {
@@ -135,7 +135,7 @@ pub(in crate::plan) fn unit_key(
 /// entry signals an internal inconsistency; hashing an empty fallback would let
 /// distinct graphs alias to one key, so this is a hard error rather than a
 /// silent default.
-fn source_hash<'a>(sources: &'a SourceHashes, module: &ModuleRef) -> AppResult<&'a String> {
+fn source_hash<'a>(sources: &'a SourceHashes, module: &ModuleKey) -> AppResult<&'a String> {
     sources.get(module).ok_or_else(|| {
         AppError::new(
             rskit_errors::ErrorCode::Internal,
@@ -145,7 +145,7 @@ fn source_hash<'a>(sources: &'a SourceHashes, module: &ModuleRef) -> AppResult<&
 }
 
 /// The transitive set of modules `module` depends on, via the forward adjacency.
-fn transitive_dependencies(module: &ModuleRef, adjacency: &Adjacency) -> BTreeSet<ModuleRef> {
+fn transitive_dependencies(module: &ModuleKey, adjacency: &Adjacency) -> BTreeSet<ModuleKey> {
     let mut dependencies = BTreeSet::new();
     let mut pending = vec![module.clone()];
     while let Some(current) = pending.pop() {
@@ -166,7 +166,7 @@ mod tests {
     use std::path::Path;
 
     use rskit_errors::AppResult;
-    use toven_model::{DepKind, EcosystemId, Edge, Graph, Module, ModuleRef, RepoPath};
+    use toven_model::{DepKind, EcosystemId, Edge, Graph, Module, ModuleKey, RepoPath};
     use toven_ports::SourceDigest;
 
     use super::{KeyInputs, SourceHashes, forward_adjacency, unit_key};
@@ -181,27 +181,29 @@ mod tests {
         }
     }
 
-    fn mref(name: &str) -> ModuleRef {
-        ModuleRef::new(EcosystemId::new("rust").unwrap(), name).unwrap()
+    fn mkey(name: &str) -> ModuleKey {
+        ModuleKey::bare(
+            toven_model::ModuleRef::new(EcosystemId::new("rust").unwrap(), name).unwrap(),
+        )
     }
 
     fn graph() -> Graph {
         // app depends on errors.
         Graph::build(
             vec![
-                Module::new(mref("app"), RepoPath::new("app").unwrap()),
-                Module::new(mref("errors"), RepoPath::new("errors").unwrap()),
+                Module::new(mkey("app").module, RepoPath::new("app").unwrap()),
+                Module::new(mkey("errors").module, RepoPath::new("errors").unwrap()),
             ],
-            vec![Edge::new(mref("app"), mref("errors"), DepKind::Normal)],
+            vec![Edge::new(mkey("app"), mkey("errors"), DepKind::Normal)],
         )
         .unwrap()
     }
 
     fn app_key(errors_hash: &str) -> String {
-        let app = mref("app");
+        let app = mkey("app");
         let mut sources = SourceHashes::new();
-        sources.insert(mref("app"), "app-1".to_string());
-        sources.insert(mref("errors"), errors_hash.to_string());
+        sources.insert(mkey("app"), "app-1".to_string());
+        sources.insert(mkey("errors"), errors_hash.to_string());
         let inputs = KeyInputs {
             module: &app,
             base_argv: &["cargo".to_string(), "test".to_string()],

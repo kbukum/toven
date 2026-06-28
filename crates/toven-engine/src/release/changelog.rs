@@ -20,5 +20,5 @@ pub(super) fn entry(module: &Module, changes: &[ChangeRecord]) -> ChangelogEntry
     } else {
         format!("{} changed path(s)", lines.len())
     };
-    ChangelogEntry::new(module.id.clone(), summary, lines)
+    ChangelogEntry::new(module.key(), summary, lines)
 }

@@ -1,7 +1,7 @@
 //! Git-scenario helpers built on `rskit-git`.
 //!
-//! These wrap a `rskit-git` [`Repo`] so vcs-adapter (step 5) and Affected
-//! detection (step 6) tests share one git-scenario builder instead of shelling
+//! These wrap a `rskit-git` [`Repo`] so the VCS adapter and affected-change
+//! detection tests share one git-scenario builder instead of shelling
 //! out to raw `git`. The canonical owner of git operations is `rskit-git`; this
 //! type only sequences its operations into common test scenarios.
 

@@ -94,8 +94,8 @@ fn cross_workspace_path_dep_becomes_an_edge() {
 
     assert_eq!(response.edges.len(), 1);
     let edge = &response.edges[0];
-    assert_eq!(edge.from, module_ref("cross-app"));
-    assert_eq!(edge.to, module_ref("cross-core"));
+    assert_eq!(edge.from.module, module_ref("cross-app"));
+    assert_eq!(edge.to.module, module_ref("cross-core"));
     assert_eq!(edge.kind, DepKind::Normal);
 
     // Each standalone manifest is its own workspace; the ids derive from the

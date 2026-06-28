@@ -1,4 +1,4 @@
-//! Phase 4 — Graph: build + validate the federated graph, then run the SEMANTIC
+//! Graph: build + validate the federated graph, then run the SEMANTIC
 //! config validation deferred from Load.
 //!
 //! [`toven_model::Graph::build`] already validates unique identity, resolvable
@@ -9,9 +9,10 @@
 use std::collections::BTreeSet;
 
 use rskit_errors::{AppError, AppResult};
-use toven_model::{Graph, ModuleRef};
+use toven_model::{Graph, MemberId, ModuleKey, ModuleRef};
 
-use crate::config::{Document, GroupConfig};
+use crate::config::GroupConfig;
+use crate::federation::compose::ComposedFederation;
 
 use super::discover::Federation;
 
@@ -26,49 +27,135 @@ pub(super) fn build(federation: &Federation) -> AppResult<Graph> {
 
 /// Run the deferred SEMANTIC config validation against the real graph.
 ///
-/// Resolves group membership and enforces `forbid`/`allow` guardrails over the
-/// actual edges.
+/// Groups are validated in the coordinate space they were declared in: each
+/// member's own `[groups.*]` resolve against that member (bare refs bind to the
+/// member's own modules), while the umbrella's cross-member `[groups.*]` resolve
+/// against the whole union with optional `member/` qualifiers. The degenerate
+/// single-repo project is one member with no id, so its groups resolve to bare
+/// keys exactly as before and the umbrella layer is empty.
 ///
 /// # Errors
 /// A group ref that does not resolve to a real module, a forbidden edge that is
 /// actually present, or an external dependency outside a non-empty `allow` list.
-pub(super) fn validate_semantics(graph: &Graph, document: &Document) -> AppResult<()> {
-    for (name, group) in &document.groups {
-        let members = resolve_members(name, group, graph)?;
-        enforce_guardrails(name, group, &members, graph)?;
+pub(super) fn validate_semantics(graph: &Graph, composed: &ComposedFederation) -> AppResult<()> {
+    for member in composed.members() {
+        validate_groups(
+            graph,
+            &member.document().groups,
+            GroupScope::Member(member.member().id()),
+        )?;
+    }
+    validate_groups(graph, composed.groups(), GroupScope::Umbrella)
+}
+
+/// The coordinate scope a group's references resolve in.
+#[derive(Clone, Copy)]
+enum GroupScope<'a> {
+    /// A member-local group: every reference binds to this one member. The id is
+    /// `None` for the degenerate single-repo project, giving bare keys.
+    Member(Option<&'a MemberId>),
+    /// An umbrella cross-member group: references may carry an optional `member/`
+    /// qualifier and bare references resolve against the union when unambiguous.
+    Umbrella,
+}
+
+/// Validate one group set (membership + guardrails) in `scope`.
+fn validate_groups(
+    graph: &Graph,
+    groups: &std::collections::BTreeMap<String, GroupConfig>,
+    scope: GroupScope<'_>,
+) -> AppResult<()> {
+    for (name, group) in groups {
+        let members = resolve_members(name, group, graph, scope)?;
+        enforce_guardrails(name, group, &members, graph, scope)?;
     }
     Ok(())
 }
 
-/// Resolve one group's membership entries to real module refs.
+/// Resolve one group's membership entries to real module keys.
 fn resolve_members(
     name: &str,
     group: &GroupConfig,
     graph: &Graph,
-) -> AppResult<BTreeSet<ModuleRef>> {
+    scope: GroupScope<'_>,
+) -> AppResult<BTreeSet<ModuleKey>> {
     let field = format!("groups.{name}.modules");
     let mut members = BTreeSet::new();
     for entry in &group.modules {
-        let reference = resolve_entry(&field, entry, group.ecosystem.as_ref())?;
-        if !graph.contains(&reference) {
-            return Err(AppError::invalid_input(
-                &field,
-                format!("group '{name}' references unknown module '{reference}'"),
-            ));
-        }
-        members.insert(reference);
+        let key = resolve_ref(&field, entry, group.ecosystem.as_ref(), graph, scope)?;
+        members.insert(key);
     }
     Ok(members)
 }
 
-/// Resolve a single membership entry (qualified, or bare against the default).
-fn resolve_entry(
+/// Resolve one membership/guardrail entry to a concrete graph key in `scope`.
+fn resolve_ref(
     field: &str,
     entry: &str,
     default_ecosystem: Option<&toven_model::EcosystemId>,
+    graph: &Graph,
+    scope: GroupScope<'_>,
+) -> AppResult<ModuleKey> {
+    match scope {
+        GroupScope::Member(member) => {
+            // A member-local entry names a module within its own member, so it
+            // never carries a `member/` qualifier; the whole entry is the module
+            // reference and the owning member is fixed.
+            let reference = parse_module_ref(field, entry.to_string(), default_ecosystem)?;
+            let key = ModuleKey::new(member.cloned(), reference);
+            if graph.contains(&key) {
+                Ok(key)
+            } else {
+                Err(AppError::invalid_input(
+                    field,
+                    format!("references unknown module '{key}'"),
+                ))
+            }
+        }
+        GroupScope::Umbrella => {
+            let (member, reference) = parse_entry(field, entry, default_ecosystem)?;
+            resolve_in_graph(field, graph, member.as_ref(), &reference)
+        }
+    }
+}
+
+/// Resolve a single membership entry into an optional member qualifier and a
+/// two-level [`ModuleRef`] (qualified, or bare against the group default).
+fn parse_entry(
+    field: &str,
+    entry: &str,
+    default_ecosystem: Option<&toven_model::EcosystemId>,
+) -> AppResult<(Option<toven_model::MemberId>, ModuleRef)> {
+    let (member, rest) = split_member_qualifier(field, entry)?;
+    let reference = parse_module_ref(field, rest, default_ecosystem)?;
+    Ok((member, reference))
+}
+
+/// Split an optional leading `member/` qualifier off a reference string.
+fn split_member_qualifier(
+    field: &str,
+    entry: &str,
+) -> AppResult<(Option<toven_model::MemberId>, String)> {
+    match entry.split_once('/') {
+        Some((member, rest)) => {
+            let member = toven_model::MemberId::new(member).map_err(|error| {
+                AppError::invalid_input(field, format!("malformed member qualifier in '{entry}'"))
+                    .with_cause(error)
+            })?;
+            Ok((Some(member), rest.to_string()))
+        }
+        None => Ok((None, entry.to_string())),
+    }
+}
+
+/// Parse the `ecosystem:module` (or bare `module` against the default) portion.
+fn parse_module_ref(
+    field: &str,
+    entry: String,
+    default_ecosystem: Option<&toven_model::EcosystemId>,
 ) -> AppResult<ModuleRef> {
     if entry.contains(':') {
-        return ModuleRef::parse(entry).map_err(|error| {
+        return ModuleRef::parse(&entry).map_err(|error| {
             AppError::invalid_input(field, format!("malformed '{entry}': {error}"))
         });
     }
@@ -81,16 +168,69 @@ fn resolve_entry(
     ModuleRef::new(ecosystem.clone(), entry)
 }
 
+/// Resolve a `(member?, module)` reference to a concrete graph key.
+///
+/// A member-qualified ref must match exactly; an unqualified ref resolves when a
+/// single member exposes that `ecosystem:name`, and is rejected as ambiguous when
+/// two members collide (the caller must add a `member/` qualifier).
+fn resolve_in_graph(
+    field: &str,
+    graph: &Graph,
+    member: Option<&toven_model::MemberId>,
+    reference: &ModuleRef,
+) -> AppResult<ModuleKey> {
+    if let Some(member) = member {
+        let key = ModuleKey::new(Some(member.clone()), reference.clone());
+        if graph.contains(&key) {
+            return Ok(key);
+        }
+        return Err(AppError::invalid_input(
+            field,
+            format!("references unknown module '{key}'"),
+        ));
+    }
+    let mut matches = graph
+        .modules()
+        .map(toven_model::Module::key)
+        .filter(|key| &key.module == reference);
+    let Some(first) = matches.next() else {
+        return Err(AppError::invalid_input(
+            field,
+            format!("references unknown module '{reference}'"),
+        ));
+    };
+    if matches.next().is_some() {
+        return Err(AppError::invalid_input(
+            field,
+            format!(
+                "module '{reference}' is exposed by multiple members; qualify it as 'member/{reference}'"
+            ),
+        ));
+    }
+    Ok(first)
+}
+
 /// Enforce a group's `forbid`/`allow` guardrails against the real edges.
 fn enforce_guardrails(
     name: &str,
     group: &GroupConfig,
-    members: &BTreeSet<ModuleRef>,
+    members: &BTreeSet<ModuleKey>,
     graph: &Graph,
+    scope: GroupScope<'_>,
 ) -> AppResult<()> {
     let field = format!("groups.{name}.guardrails");
-    let forbid = parse_refs(&format!("{field}.forbid"), &group.guardrails.forbid)?;
-    let allow = parse_refs(&format!("{field}.allow"), &group.guardrails.allow)?;
+    let forbid = resolve_refs(
+        &format!("{field}.forbid"),
+        &group.guardrails.forbid,
+        graph,
+        scope,
+    )?;
+    let allow = resolve_refs(
+        &format!("{field}.allow"),
+        &group.guardrails.allow,
+        graph,
+        scope,
+    )?;
 
     for edge in graph.edges() {
         if !members.contains(&edge.from) {
@@ -118,14 +258,15 @@ fn enforce_guardrails(
     Ok(())
 }
 
-/// Parse a list of fully-qualified `ecosystem:module` guardrail refs.
-fn parse_refs(field: &str, refs: &[String]) -> AppResult<BTreeSet<ModuleRef>> {
+/// Resolve a list of (optionally member-qualified) guardrail refs to graph keys.
+fn resolve_refs(
+    field: &str,
+    refs: &[String],
+    graph: &Graph,
+    scope: GroupScope<'_>,
+) -> AppResult<BTreeSet<ModuleKey>> {
     refs.iter()
-        .map(|value| {
-            ModuleRef::parse(value).map_err(|error| {
-                AppError::invalid_input(field, format!("malformed '{value}': {error}"))
-            })
-        })
+        .map(|value| resolve_ref(field, value, None, graph, scope))
         .collect()
 }
 
@@ -133,11 +274,14 @@ fn parse_refs(field: &str, refs: &[String]) -> AppResult<BTreeSet<ModuleRef>> {
 mod tests {
     use std::collections::BTreeMap;
 
-    use toven_model::{DepKind, EcosystemId, Edge, Graph, Module, ModuleRef, RepoPath};
+    use rskit_errors::AppResult;
+    use toven_model::{
+        DepKind, EcosystemId, Edge, Graph, MemberId, Module, ModuleKey, ModuleRef, RepoPath,
+    };
 
-    use crate::config::{Document, GroupConfig, Guardrails, ProjectConfig, TovenConfig};
+    use crate::config::{GroupConfig, Guardrails};
 
-    use super::{build, validate_semantics};
+    use super::{GroupScope, build, validate_groups};
     use crate::plan::discover::Federation;
 
     fn mref(ecosystem: &str, name: &str) -> ModuleRef {
@@ -146,6 +290,15 @@ mod tests {
 
     fn module(ecosystem: &str, name: &str) -> Module {
         Module::new(mref(ecosystem, name), RepoPath::new(name).unwrap())
+    }
+
+    fn member_module(member: &str, ecosystem: &str, name: &str) -> Module {
+        let mut module = Module::new(
+            mref(ecosystem, name),
+            RepoPath::new(format!("repos/{member}/{name}")).unwrap(),
+        );
+        module.member = Some(MemberId::new(member).unwrap());
+        module
     }
 
     fn federation(modules: Vec<Module>, edges: Vec<Edge>) -> Federation {
@@ -157,27 +310,23 @@ mod tests {
         }
     }
 
-    fn document(groups: BTreeMap<String, GroupConfig>) -> Document {
-        Document {
-            project: ProjectConfig {
-                name: "t".to_string(),
-                root: ".".to_string(),
-                base_ref: None,
-            },
-            toven: TovenConfig::default(),
-            groups,
-            overlays: Vec::new(),
-            ecosystems: BTreeMap::new(),
-            members: Vec::new(),
-        }
-    }
-
     fn group(modules: &[&str]) -> GroupConfig {
         GroupConfig {
             ecosystem: None,
             modules: modules.iter().map(ToString::to_string).collect(),
             guardrails: Guardrails::default(),
         }
+    }
+
+    fn one_group(name: &str, group: GroupConfig) -> BTreeMap<String, GroupConfig> {
+        let mut groups = BTreeMap::new();
+        groups.insert(name.to_string(), group);
+        groups
+    }
+
+    /// Validate a degenerate single-repo group set (member id `None`, bare keys).
+    fn validate_local(graph: &Graph, groups: &BTreeMap<String, GroupConfig>) -> AppResult<()> {
+        validate_groups(graph, groups, GroupScope::Member(None))
     }
 
     fn app_depends_on_errors() -> Federation {
@@ -198,7 +347,7 @@ mod tests {
         groups.insert("apps".to_string(), group(&["rust:app"]));
         groups.insert("core".to_string(), group(&["rust:errors"]));
 
-        assert!(validate_semantics(&graph, &document(groups)).is_ok());
+        assert!(validate_local(&graph, &groups).is_ok());
     }
 
     #[test]
@@ -207,10 +356,8 @@ mod tests {
         // `app` really depends on `errors`, but the allowlist omits it.
         let mut restricted = group(&["rust:app"]);
         restricted.guardrails.allow = vec!["rust:other".to_string()];
-        let mut groups = BTreeMap::new();
-        groups.insert("apps".to_string(), restricted);
 
-        assert!(validate_semantics(&graph, &document(groups)).is_err());
+        assert!(validate_local(&graph, &one_group("apps", restricted)).is_err());
     }
 
     #[test]
@@ -218,18 +365,78 @@ mod tests {
         let graph = build(&app_depends_on_errors()).unwrap();
         let mut forbidding = group(&["rust:app"]);
         forbidding.guardrails.forbid = vec!["rust:errors".to_string()];
-        let mut groups = BTreeMap::new();
-        groups.insert("apps".to_string(), forbidding);
 
-        assert!(validate_semantics(&graph, &document(groups)).is_err());
+        assert!(validate_local(&graph, &one_group("apps", forbidding)).is_err());
     }
 
     #[test]
     fn unknown_group_member_is_rejected() {
         let graph = build(&app_depends_on_errors()).unwrap();
-        let mut groups = BTreeMap::new();
-        groups.insert("ghosts".to_string(), group(&["rust:ghost"]));
 
-        assert!(validate_semantics(&graph, &document(groups)).is_err());
+        assert!(validate_local(&graph, &one_group("ghosts", group(&["rust:ghost"]))).is_err());
+    }
+
+    fn two_members_each_with_core() -> Federation {
+        let billing = MemberId::new("billing").unwrap();
+        federation(
+            vec![
+                member_module("billing", "rust", "core"),
+                member_module("billing", "rust", "api"),
+                member_module("catalog", "rust", "core"),
+            ],
+            vec![Edge::new(
+                ModuleKey::bare(mref("rust", "api")).with_member(billing.clone()),
+                ModuleKey::bare(mref("rust", "core")).with_member(billing),
+                DepKind::Normal,
+            )],
+        )
+    }
+
+    #[test]
+    fn member_local_group_binds_bare_refs_to_its_own_member() {
+        let graph = build(&two_members_each_with_core()).unwrap();
+        let billing = MemberId::new("billing").unwrap();
+        // `rust:core` is exposed by both members, but a member-local group
+        // resolves it to that member's own module without a qualifier.
+        let groups = one_group("core", group(&["rust:core"]));
+
+        assert!(validate_groups(&graph, &groups, GroupScope::Member(Some(&billing))).is_ok());
+    }
+
+    #[test]
+    fn member_local_forbid_only_sees_its_own_members_edge() {
+        let graph = build(&two_members_each_with_core()).unwrap();
+        let billing = MemberId::new("billing").unwrap();
+        let mut forbidding = group(&["rust:api"]);
+        forbidding.guardrails.forbid = vec!["rust:core".to_string()];
+
+        assert!(
+            validate_groups(
+                &graph,
+                &one_group("apps", forbidding),
+                GroupScope::Member(Some(&billing))
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn umbrella_group_rejects_an_ambiguous_bare_ref() {
+        let graph = build(&two_members_each_with_core()).unwrap();
+        // Across the union `rust:core` is exposed by two members, so an umbrella
+        // group must qualify it; a bare ref is ambiguous.
+        let groups = one_group("shared", group(&["rust:core"]));
+
+        let error =
+            validate_groups(&graph, &groups, GroupScope::Umbrella).expect_err("ambiguous bare ref");
+        assert!(error.to_string().contains("multiple members"));
+    }
+
+    #[test]
+    fn umbrella_group_resolves_a_member_qualified_ref() {
+        let graph = build(&two_members_each_with_core()).unwrap();
+        let groups = one_group("shared", group(&["billing/rust:core", "catalog/rust:core"]));
+
+        assert!(validate_groups(&graph, &groups, GroupScope::Umbrella).is_ok());
     }
 }

@@ -1,4 +1,4 @@
-//! Phase 3 — Discover: full federation union across every loaded ecosystem.
+//! Discover: full federation union across every loaded ecosystem.
 //!
 //! Discovery is **always full** — never pruned by changed paths. Each configured
 //! adapter returns its `{ workspaces, modules, edges }`; the engine unions them
@@ -8,8 +8,6 @@
 use rskit_errors::{AppError, AppResult};
 use toven_model::{AbsPath, DepKind, EcosystemId, Edge, Module, ModuleRef, Workspace};
 use toven_ports::DiscoverRequest;
-
-use crate::config::Document;
 
 use super::configure::ConfiguredSet;
 
@@ -30,18 +28,18 @@ pub(crate) struct Federation {
     pub(crate) warnings: Vec<String>,
 }
 
-/// Run discovery across every configured adapter and union the results.
+/// Run discovery across one member's configured adapters and union the results.
 ///
 /// Each adapter discovers under `project_root`; the responses are concatenated
-/// and the `[[overlays]]` config edges are appended as [`DepKind::Overlay`].
+/// into a single [`Federation`]. Member-local overlay edges and the
+/// federation-wide uniqueness check are applied later by the federation spine,
+/// once every member's responses have been rebased into the umbrella coordinate
+/// space.
 ///
 /// # Errors
-/// Propagates any adapter discovery failure or a malformed overlay endpoint.
-pub(super) fn discover(
-    project_root: &AbsPath,
-    adapters: &ConfiguredSet,
-    document: &Document,
-) -> AppResult<Federation> {
+/// Propagates any adapter discovery failure.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn union(project_root: &AbsPath, adapters: &ConfiguredSet) -> AppResult<Federation> {
     let request = DiscoverRequest::new(project_root.clone());
     let mut federation = Federation::default();
 
@@ -53,14 +51,27 @@ pub(super) fn discover(
         federation.warnings.append(&mut response.warnings);
     }
 
-    for overlay in &document.overlays {
+    Ok(federation)
+}
+
+/// Append the config-declared overlay edges as [`DepKind::Overlay`].
+///
+/// Endpoints are built as bare (member-unscoped) [`ModuleRef`]s; the federation
+/// spine scopes them to a member when it rebases each member's discovery output.
+///
+/// # Errors
+/// Propagates a malformed overlay endpoint.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn append_overlays(
+    federation: &mut Federation,
+    overlays: &[crate::config::OverlayConfig],
+) -> AppResult<()> {
+    for overlay in overlays {
         let from = overlay_ref(&overlay.from.ecosystem, &overlay.from.module)?;
         let to = overlay_ref(&overlay.to.ecosystem, &overlay.to.module)?;
         federation.edges.push(Edge::new(from, to, DepKind::Overlay));
     }
-
-    ensure_unique_workspaces(&federation.workspaces)?;
-    Ok(federation)
+    Ok(())
 }
 
 /// Reject duplicate workspace ids across the federation.
@@ -68,7 +79,8 @@ pub(super) fn discover(
 /// Later phases index workspaces by [`WorkspaceId`](toven_model::WorkspaceId)
 /// (schedule, toolchain), so two adapters emitting the same id would silently
 /// collapse distinct workspaces and corrupt toolchain probing and cache keys.
-fn ensure_unique_workspaces(workspaces: &[Workspace]) -> AppResult<()> {
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn ensure_unique_workspaces(workspaces: &[Workspace]) -> AppResult<()> {
     let mut seen = std::collections::BTreeSet::new();
     for workspace in workspaces {
         if !seen.insert(&workspace.id) {

@@ -1,4 +1,4 @@
-//! Phase 7 — Schedule: relax edges by `RunStrategy`, level into federated waves,
+//! Schedule: relax edges by `RunStrategy`, level into federated waves,
 //! and render one [`PlannedUnit`] per active module.
 //!
 //! Per-module `RunStrategy` decides whether a module's **intra-ecosystem** ordering
@@ -14,12 +14,12 @@ use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult};
 use toven_model::{
-    AbsPath, DepKind, Edge, ExecutionReadiness, Graph, Module, ModuleRef, ToolchainTag, Workspace,
+    AbsPath, DepKind, Edge, ExecutionReadiness, Graph, Module, ModuleKey, ToolchainTag, Workspace,
     WorkspaceId,
 };
 use toven_ports::{CommandTemplate, Readiness, RunStrategy, Task, TaskKind, TaskVar};
 
-use super::configure::ConfiguredSet;
+use super::configure::MemberAdapters;
 use super::discover::Federation;
 use super::request::PlanRequest;
 
@@ -30,10 +30,10 @@ use super::request::PlanRequest;
 /// the Cache-decision phase folds into the content key.
 #[derive(Debug, Clone)]
 pub(super) struct PlannedUnit {
-    /// Stable unit id (`ecosystem:name#kind`).
+    /// Stable unit id (`ecosystem:name#kind`, member-scoped on collision).
     pub(super) id: String,
     /// Module the unit operates on.
-    pub(super) module: ModuleRef,
+    pub(super) module: ModuleKey,
     /// Task kind name.
     pub(super) kind: String,
     /// Owning workspace (keys the toolchain identity).
@@ -77,8 +77,8 @@ pub(super) struct Scheduled {
 pub(super) fn schedule(
     request: &PlanRequest,
     federation: &Federation,
-    active: &[ModuleRef],
-    adapters: &ConfiguredSet,
+    active: &[ModuleKey],
+    adapters: &MemberAdapters,
     toolchain: &BTreeMap<WorkspaceId, ToolchainTag>,
 ) -> AppResult<Scheduled> {
     let active_modules = active_modules(federation, active);
@@ -120,8 +120,9 @@ pub(super) fn schedule(
     })
 }
 
-/// The unit id for `module` under `kind` (`ecosystem:name#kind`).
-fn unit_id(module: &ModuleRef, kind: &str) -> String {
+/// The unit id for `module` under `kind` (`ecosystem:name#kind`, member-scoped
+/// on a cross-member collision).
+fn unit_id(module: &ModuleKey, kind: &str) -> String {
     format!("{module}#{kind}")
 }
 
@@ -131,11 +132,11 @@ fn unit_id(module: &ModuleRef, kind: &str) -> String {
 /// intra-ecosystem edges retained under `leaf-to-top`); they drive APPLY's
 /// fail-closed gating. All endpoints are active, so every id resolves to a unit.
 fn kept_dependencies(
-    modules: &BTreeMap<ModuleRef, Module>,
+    modules: &BTreeMap<ModuleKey, Module>,
     federation: &Federation,
-    strategies: &BTreeMap<ModuleRef, RunStrategy>,
-) -> BTreeMap<ModuleRef, Vec<ModuleRef>> {
-    let mut deps: BTreeMap<ModuleRef, Vec<ModuleRef>> = BTreeMap::new();
+    strategies: &BTreeMap<ModuleKey, RunStrategy>,
+) -> BTreeMap<ModuleKey, Vec<ModuleKey>> {
+    let mut deps: BTreeMap<ModuleKey, Vec<ModuleKey>> = BTreeMap::new();
     for edge in &federation.edges {
         if modules.contains_key(&edge.from)
             && modules.contains_key(&edge.to)
@@ -149,38 +150,38 @@ fn kept_dependencies(
     deps
 }
 
-/// Index the active modules by identity.
-fn active_modules(federation: &Federation, active: &[ModuleRef]) -> BTreeMap<ModuleRef, Module> {
-    let active: std::collections::BTreeSet<&ModuleRef> = active.iter().collect();
+/// Index the active modules by key.
+fn active_modules(federation: &Federation, active: &[ModuleKey]) -> BTreeMap<ModuleKey, Module> {
+    let active: std::collections::BTreeSet<&ModuleKey> = active.iter().collect();
     federation
         .modules
         .iter()
-        .filter(|module| active.contains(&module.id))
-        .map(|module| (module.id.clone(), module.clone()))
+        .filter(|module| active.contains(&module.key()))
+        .map(|module| (module.key(), module.clone()))
         .collect()
 }
 
 /// Resolve each active module's `RunStrategy` (ecosystem override else per-kind default).
 fn strategies(
-    modules: &BTreeMap<ModuleRef, Module>,
-    adapters: &ConfiguredSet,
+    modules: &BTreeMap<ModuleKey, Module>,
+    adapters: &MemberAdapters,
     intent: &TaskKind,
-) -> AppResult<BTreeMap<ModuleRef, RunStrategy>> {
+) -> AppResult<BTreeMap<ModuleKey, RunStrategy>> {
     let mut strategies = BTreeMap::new();
-    for reference in modules.keys() {
-        let adapter = adapter_for(reference, adapters)?;
+    for (key, module) in modules {
+        let adapter = adapter_for(module, adapters)?;
         let strategy = adapter
             .common()
             .run_strategy
             .unwrap_or_else(|| adapter.run_strategy_default(intent));
-        strategies.insert(reference.clone(), strategy);
+        strategies.insert(key.clone(), strategy);
     }
     Ok(strategies)
 }
 
 /// Build the validated subgraph spanning only the active modules and their edges.
 fn active_subgraph(
-    modules: &BTreeMap<ModuleRef, Module>,
+    modules: &BTreeMap<ModuleKey, Module>,
     federation: &Federation,
 ) -> AppResult<Graph> {
     let nodes: Vec<Module> = modules.values().cloned().collect();
@@ -197,7 +198,7 @@ fn active_subgraph(
 ///
 /// Overlay edges are always kept; an intra-ecosystem edge is kept only when its
 /// dependent module's strategy is `leaf-to-top`.
-fn keep_edge(edge: &Edge, strategies: &BTreeMap<ModuleRef, RunStrategy>) -> bool {
+fn keep_edge(edge: &Edge, strategies: &BTreeMap<ModuleKey, RunStrategy>) -> bool {
     if edge.kind == DepKind::Overlay {
         return true;
     }
@@ -217,12 +218,12 @@ fn workspace_index(federation: &Federation) -> BTreeMap<WorkspaceId, Workspace> 
 fn plan_unit(
     request: &PlanRequest,
     module: &Module,
-    adapters: &ConfiguredSet,
+    adapters: &MemberAdapters,
     toolchain: &BTreeMap<WorkspaceId, ToolchainTag>,
     workspaces: &BTreeMap<WorkspaceId, Workspace>,
-    kept_deps: &BTreeMap<ModuleRef, Vec<ModuleRef>>,
+    kept_deps: &BTreeMap<ModuleKey, Vec<ModuleKey>>,
 ) -> AppResult<PlannedUnit> {
-    let adapter = adapter_for(&module.id, adapters)?;
+    let adapter = adapter_for(module, adapters)?;
     let task = select_task(adapter.default_tasks(), &request.intent).ok_or_else(|| {
         AppError::invalid_input(
             "tasks",
@@ -269,17 +270,18 @@ fn plan_unit(
     };
 
     let kind_name = task.kind.name().to_string();
-    let id = unit_id(&module.id, &kind_name);
+    let key = module.key();
+    let id = unit_id(&key, &kind_name);
     super::shared_inputs::validate_shared_inputs(&id, &task.shared_inputs)?;
     let depends_on = kept_deps
-        .get(&module.id)
+        .get(&key)
         .map(|deps| deps.iter().map(|dep| unit_id(dep, &kind_name)).collect())
         .unwrap_or_default();
     let resource_group = module.resource_group.clone();
 
     Ok(PlannedUnit {
         id,
-        module: module.id.clone(),
+        module: key,
         kind: kind_name,
         workspace: module.workspace.clone(),
         argv,
@@ -316,20 +318,19 @@ fn toolchain_identity(tag: &ToolchainTag) -> String {
     format!("{}@{}", tag.tool, tag.version.as_deref().unwrap_or(""))
 }
 
-/// Look up the configured adapter that owns a module's ecosystem.
+/// Look up the configured adapter that owns a module within its member.
 fn adapter_for<'a>(
-    reference: &ModuleRef,
-    adapters: &'a ConfiguredSet,
+    module: &Module,
+    adapters: &'a MemberAdapters,
 ) -> AppResult<&'a dyn toven_ports::ConfiguredAdapter> {
     adapters
-        .get(&reference.ecosystem)
-        .map(AsRef::as_ref)
+        .get(module.member.as_ref(), &module.id.ecosystem)
         .ok_or_else(|| {
             AppError::new(
                 rskit_errors::ErrorCode::Internal,
                 format!(
                     "no configured adapter for ecosystem '{}'",
-                    reference.ecosystem
+                    module.id.ecosystem
                 ),
             )
         })
@@ -400,7 +401,8 @@ mod tests {
     use toven_ports::{ConfiguredAdapter, DiscoverResponse, FanOut, RunStrategy, Task, TaskKind};
     use toven_testkit::FakeConfiguredAdapter;
 
-    use super::{ConfiguredSet, schedule};
+    use super::super::configure::{ConfiguredSet, MemberAdapters};
+    use super::schedule;
     use crate::plan::discover::Federation;
     use crate::plan::request::PlanRequest;
 
@@ -457,8 +459,15 @@ mod tests {
             .collect()
     }
 
-    fn waves_for(federation: &Federation, adapters: &ConfiguredSet) -> Vec<Vec<String>> {
-        let active: Vec<ModuleRef> = federation.modules.iter().map(|m| m.id.clone()).collect();
+    fn single_member(set: ConfiguredSet) -> MemberAdapters {
+        let mut adapters = MemberAdapters::default();
+        adapters.insert(None, set);
+        adapters
+    }
+
+    fn waves_for(federation: &Federation, adapters: &MemberAdapters) -> Vec<Vec<String>> {
+        let active: Vec<toven_model::ModuleKey> =
+            federation.modules.iter().map(Module::key).collect();
         schedule(
             &request(),
             federation,
@@ -480,8 +489,9 @@ mod tests {
         };
         let mut adapters = ConfiguredSet::new();
         adapters.insert(eid("rust"), adapter("rust", RunStrategy::Unordered));
+        let adapters = single_member(adapters);
 
-        let active = vec![mref("rust", "app")];
+        let active = vec![toven_model::ModuleKey::bare(mref("rust", "app"))];
         // Empty toolchain map: the workspace-owning module has no resolved
         // identity, which must fail closed rather than key against an empty one.
         let result = schedule(
@@ -513,7 +523,7 @@ mod tests {
         adapters.insert(eid("rust"), adapter("rust", RunStrategy::LeafToTop));
 
         assert_eq!(
-            waves_for(&federation, &adapters),
+            waves_for(&federation, &single_member(adapters)),
             vec![
                 vec!["rust:errors#test".to_string()],
                 vec!["rust:app#test".to_string()],
@@ -540,7 +550,7 @@ mod tests {
         adapters.insert(eid("rust"), adapter("rust", RunStrategy::Unordered));
 
         assert_eq!(
-            waves_for(&federation, &adapters),
+            waves_for(&federation, &single_member(adapters)),
             vec![vec![
                 "rust:app#test".to_string(),
                 "rust:errors#test".to_string()
@@ -566,7 +576,7 @@ mod tests {
 
         // The overlay still orders shared before api despite both being unordered.
         assert_eq!(
-            waves_for(&federation, &adapters),
+            waves_for(&federation, &single_member(adapters)),
             vec![
                 vec!["rust:shared#test".to_string()],
                 vec!["go:api#test".to_string()],

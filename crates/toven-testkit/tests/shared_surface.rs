@@ -1,5 +1,5 @@
 //! Integration tests proving the shared `toven-testkit` surface end-to-end
-//! through its **public** API — the one-consumer demonstration for step 2.5.
+//! through its **public** API.
 
 use std::path::PathBuf;
 

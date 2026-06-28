@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::identity::{ModuleRef, WorkspaceId};
+use crate::identity::{ModuleKey, WorkspaceId};
 
 /// Per-unit cache outcome decided statically during PLAN.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Deserialize, Serialize)]
@@ -50,7 +50,7 @@ pub struct ExecutionUnit {
     /// Stable unit identifier (referenced by the wave order and events).
     pub id: String,
     /// Module this unit operates on.
-    pub module: ModuleRef,
+    pub module: ModuleKey,
     /// Task kind (e.g. `build`, `test`, `fmt`).
     pub kind: String,
     /// Owning workspace, whose toolchain identity keys the cache.
@@ -120,13 +120,15 @@ mod tests {
     use std::time::Duration;
 
     use super::{CacheVerdict, ExecutionReadiness, ExecutionUnit, Plan};
-    use crate::identity::{EcosystemId, ModuleRef};
+    use crate::identity::{EcosystemId, ModuleKey, ModuleRef};
 
     #[test]
     fn plan_serde_round_trip() {
         let unit = ExecutionUnit {
             id: "rust:errors#build".to_string(),
-            module: ModuleRef::new(EcosystemId::new("rust").unwrap(), "errors").unwrap(),
+            module: ModuleKey::bare(
+                ModuleRef::new(EcosystemId::new("rust").unwrap(), "errors").unwrap(),
+            ),
             kind: "build".to_string(),
             workspace: None,
             argv: vec!["cargo".to_string(), "build".to_string()],

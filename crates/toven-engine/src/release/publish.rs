@@ -8,6 +8,7 @@
 //! [`AlreadyPublished`](PublishOutcome::AlreadyPublished) race as success. This
 //! does not make the surrounding APPLY transaction (mutation/commit/tag/push)
 //! resume-safe — rerunning the whole release is out of scope here.
+#![allow(unreachable_pub)]
 
 use std::thread::sleep;
 use std::time::{Duration, SystemTime};
@@ -24,15 +25,15 @@ use super::ReleaseStats;
 const MAX_RATE_LIMIT_WAIT: Duration = Duration::from_mins(2);
 
 /// One resolved unit of publish work, already ordered for deterministic publish.
-pub(super) struct PublishItem<'a> {
+pub struct PublishItem<'a> {
     /// Module to publish.
-    pub(super) module: &'a Module,
+    pub module: &'a Module,
     /// Ecosystem release target for the module.
-    pub(super) target: &'a dyn ReleaseTarget,
+    pub target: &'a dyn ReleaseTarget,
     /// Packaged artifact produced in the pre-commit phase.
-    pub(super) artifact: &'a Artifact,
+    pub artifact: &'a Artifact,
     /// Version being released.
-    pub(super) version: &'a Version,
+    pub version: &'a Version,
 }
 
 /// Publish each item in order, accounting outcomes into `stats`.
@@ -41,7 +42,7 @@ pub(super) struct PublishItem<'a> {
 /// without a publish attempt. `AlreadyPublished` from a live attempt (a resume
 /// race) is also treated as a resume-safe skip. `RateLimited` is retried within
 /// `retry_budget`; an exhausted budget surfaces as a typed error.
-pub(super) fn run(
+pub fn run(
     items: &[PublishItem<'_>],
     retry_budget: usize,
     stats: &mut ReleaseStats,

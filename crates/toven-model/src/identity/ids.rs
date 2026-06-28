@@ -65,7 +65,7 @@ string_id!(
     /// Identifier of a repository member in a cross-repo federation.
     ///
     /// `None` on a module means the single-repo case; `Some` scopes the module
-    /// to one `[[members]]` entry (cross-repo design, Decision 3).
+    /// to one `[[members]]` entry in a cross-repo umbrella.
     MemberId,
     "member.id"
 );

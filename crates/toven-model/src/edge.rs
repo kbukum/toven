@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::identity::ModuleRef;
+use crate::identity::ModuleKey;
 
 /// Kind of dependency an [`Edge`] represents.
 ///
@@ -23,20 +23,30 @@ pub enum DepKind {
 }
 
 /// A directed dependency edge: `from` depends on `to`.
+///
+/// Endpoints are [`ModuleKey`]s so a cross-repo umbrella can carry the same
+/// `ecosystem:name` exposed by two members as distinct edges; an intra-repo edge
+/// constructed from bare [`ModuleRef`](crate::ModuleRef)s stays member-unscoped.
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Hash, Deserialize, Serialize)]
 pub struct Edge {
     /// Module that depends on `to`.
-    pub from: ModuleRef,
+    pub from: ModuleKey,
     /// Module required by `from`.
-    pub to: ModuleRef,
+    pub to: ModuleKey,
     /// Relationship kind.
     pub kind: DepKind,
 }
 
 impl Edge {
-    /// Construct an edge.
-    #[must_use]
-    pub const fn new(from: ModuleRef, to: ModuleRef, kind: DepKind) -> Self {
-        Self { from, to, kind }
+    /// Construct an edge between two module keys.
+    ///
+    /// Accepts anything convertible into a [`ModuleKey`], so an intra-repo edge
+    /// built from bare [`ModuleRef`](crate::ModuleRef)s reads unchanged.
+    pub fn new(from: impl Into<ModuleKey>, to: impl Into<ModuleKey>, kind: DepKind) -> Self {
+        Self {
+            from: from.into(),
+            to: to.into(),
+            kind,
+        }
     }
 }

@@ -1,7 +1,7 @@
 //! Federation integration tests: the umbrella-side transport against an
 //! in-process `__serve` double, plus the four-way driver dispatch semantics.
 //!
-//! No real subprocess is spawned for the transport tests (review pass `04`): the
+//! No real subprocess is spawned for the transport tests: the
 //! `ServeDouble` runs the engine's [`serve`](toven_engine::federation::serve)
 //! loop on a thread connected by OS
 //! pipes, so a [`RemoteAdapter`](toven_engine::federation::RemoteAdapter)

@@ -419,7 +419,7 @@ mod tests {
         ];
         let edges = build_edges(&modules, &by_path, &requires);
         assert_eq!(edges.len(), 1);
-        assert_eq!(edges[0].from, app);
-        assert_eq!(edges[0].to, core);
+        assert_eq!(edges[0].from.module, app);
+        assert_eq!(edges[0].to.module, core);
     }
 }

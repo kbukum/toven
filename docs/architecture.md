@@ -87,6 +87,27 @@ Rust discovery is Cargo-metadata backed. Profile-level `discovery.manifests` all
 
 Explicit `[[overlays]]` are top-level dependency edges for relationships that adapter metadata cannot prove.
 
+## Cross-repo federation
+
+A single `toven.toml` can describe either one repository or an **umbrella** that federates several. A *member* is an independently runnable Toven project: it carries its own authoritative `toven.toml` (its own `[ecosystems.*]`, tasks, groups, and overlays) and works on its own when you run Toven inside it. An umbrella file adds a `[[members]]` array that names each member and the repo-relative `root` it lives at, plus optional umbrella-level cross-member `[[overlays]]` and `[groups.*]`. The umbrella never rewrites a member's config; it only composes members and layers cross-member relationships on top.
+
+```mermaid
+flowchart TD
+    Umbrella["umbrella toven.toml ([[members]])"] --> Enumerate["enumerate + confine member roots"]
+    Enumerate --> Compose["load each member's own toven.toml"]
+    Compose --> Discover["discover per member at its own root"]
+    Discover --> Rebase["rebase into umbrella coordinates"]
+    Rebase --> Union["union into one federated graph"]
+    Union --> CrossEdges["resolve cross-member [[overlays]]/[groups]"]
+    CrossEdges --> Graph["federated dependency graph (ModuleKey {member, module})"]
+```
+
+After member discovery the engine owns **one** umbrella-coordinate federation. Every node is keyed by `ModuleKey { member, module }`: module *identity* stays two-level `ecosystem:name`, while the optional `member` qualifier disambiguates the same `ecosystem:name` exposed by two different members. Each member is discovered against its own root, then **rebased** so its module roots, workspace ids, source globs, and change paths are expressed relative to the umbrella root before the union. The degenerate single-repo project is the same code path with one implicit, unstamped member (`member = None`, empty prefix), so its plan stays byte-for-byte unchanged.
+
+User-facing references may omit the member qualifier when a bare `ecosystem:name` is unambiguous across the union; a bare ref that several members expose is a typed error with a member-qualified hint. A declared member that is missing on disk, or present without its own `toven.toml`, is a hard error rather than a warn-and-skip — a declared member is a required graph node. Members are never provisioned implicitly: a run does not clone or check out anything; explicit `toven federation sync` owns provisioning.
+
+Change selection and release are member-aware on top of this one graph. Each member resolves its own change baseline (its configured `base_ref`, or the same `--base <ref>` name applied independently per repo) and contributes umbrella-relative change records, so affected closure spans members through cross-member overlay edges. Release **planning** stays federated over the one graph and one topological publish order, while history mutations **shard per member**: each member repo gets its own clean-tree guardrail, release commit, and module tags, and publishing runs as one federated pass after the per-member commit boundary.
+
 ## Config generation flow
 
 ```mermaid

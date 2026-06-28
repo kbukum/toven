@@ -1,7 +1,7 @@
 //! The clap surface: global flags, the reserved-verb command tree, and the
 //! per-verb applicability gate.
 //!
-//! Behavior-shaping flags are defined **once, globally** (cli-taxonomy Decision C)
+//! Behavior-shaping flags are defined **once, globally**
 //! and accepted before or after the verb; [`gate`] rejects a verb-specific flag
 //! used with a verb it does not apply to with a clear, typed error. The
 //! argv-first task dispatch itself stays Toven domain — clap only models the
@@ -248,8 +248,7 @@ impl Cli {
     }
 }
 
-/// Reject any verb-specific flag used with a verb it does not apply to
-/// (cli-taxonomy Decision C).
+/// Reject any verb-specific flag used with a verb it does not apply to.
 ///
 /// # Errors
 /// Returns a typed usage error naming the misused flag and the verb it belongs

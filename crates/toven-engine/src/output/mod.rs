@@ -1,4 +1,4 @@
-//! The per-unit raw child-output channel (event-report Decision C).
+//! The per-unit raw child-output channel.
 //!
 //! Structured lifecycle flows through the typed [`Event`](toven_model::Event)
 //! stream and a [`Reporter`](toven_ports::Reporter). Raw child output is
@@ -13,7 +13,7 @@
 //! live-tails persistent units, and routes the bytes to an injected
 //! [`RawOutputSink`](toven_ports::RawOutputSink) adapter (the port lives in
 //! `toven-ports`, beside [`Reporter`](toven_ports::Reporter); the CLI provides
-//! the concrete, terminal-bound sink). The APPLY exec layer (step 8) feeds it
+//! the concrete, terminal-bound sink). The APPLY exec layer feeds it
 //! `UnitOutput` chunks plus lifecycle signals.
 
 mod channel;

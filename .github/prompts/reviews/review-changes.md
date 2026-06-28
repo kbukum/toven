@@ -1,6 +1,6 @@
 # Review changes
 
-Standing, re-runnable review of a **change set** in this repository — a branch, a commit range, or `HEAD~1`. Use it after every change set, especially fast/"vibe-coded" work. It sequences the six focused passes in [`reviews/`](./) over a diff and adds scope handling; the actual checks live in the focused files.
+Standing, re-runnable review of a **change set** in this repository — a branch, a commit range, or `HEAD~1`. Use it after every change set, especially fast/"vibe-coded" work. It sequences the seven focused passes in [`reviews/`](./) over a diff and adds scope handling; the actual checks live in the focused files.
 
 ## Run this in a separate, clean-context agent
 
@@ -27,6 +27,7 @@ Work the focused files top to bottom. **Stop and reject as soon as a change fail
 4. [`03-quality.md`](./03-quality.md) — simplicity/root-cause, dead code, outdated patterns, style gates.
 5. [`04-tests-tdd.md`](./04-tests-tdd.md) — TDD, fixtures, failure paths, shared doubles, determinism.
 6. [`05-docs-supply-chain.md`](./05-docs-supply-chain.md) — docs policy, Conventional Commits, `Cargo.lock`, `cargo-deny`, SHA-pinned actions.
+7. [`06-comments-rustdoc.md`](./06-comments-rustdoc.md) — comments and `///` docs explain the code as it is; rewrite or delete plan/history/process prose.
 
 Each focused file carries a "Changes mode" scope note — follow that mode here. When you only need one lens (e.g. just TDD, just security), run that focused file directly instead of this orchestrator.
 

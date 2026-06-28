@@ -27,7 +27,7 @@ pub enum Event {
     /// The process exit code is *not* a field: it is fully derived from
     /// `summary` by the single owner (`toven-cli`'s `exit_code`), so the event
     /// vocabulary keeps one source of truth and cannot desync a stored exit from
-    /// the counters (event-report Decision C — "exit derived from the summary").
+    /// the counters: the exit is derived from the summary.
     RunFinished {
         /// Aggregated run statistics.
         summary: RunStats,

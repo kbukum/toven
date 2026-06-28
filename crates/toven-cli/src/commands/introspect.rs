@@ -1,5 +1,5 @@
 //! Introspection verbs: `modules`/`list`, `graph`/`deps`, `affected`, and
-//! `explain` (cli-taxonomy Decision D).
+//! `explain`.
 //!
 //! `affected` and `explain` are thin projections over one immutable [`Plan`].
 //! The shared [`build_plan`] runs the PLAN spine once with caching disabled
@@ -17,6 +17,7 @@ use toven_engine::plan::{
     CacheMode, FsSourceDigest, NullCache, PlanHost, PlanRequest, ProcessToolchainProber,
     dependency_graph, plan,
 };
+use toven_engine::vcs::BaselineFlags;
 use toven_model::{Event, Graph, Plan};
 use toven_ports::{Provider, Reporter, TaskKind};
 
@@ -53,11 +54,12 @@ fn build_plan(providers: &[&dyn Provider], project: &Project, intent: TaskKind) 
     )
     .with_cache_mode(CacheMode::Disabled);
 
-    let vcs = project.open_vcs()?;
+    let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
+    let readers = opened.readers();
     let digest = FsSourceDigest::new(&project.project_root);
     let prober = ProcessToolchainProber::new();
     let cache = NullCache;
-    let host = PlanHost::new(&vcs, &digest, &prober, &cache);
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
 
     let mut reporter = QuietReporter;
     plan(&request, &project.document, providers, host, &mut reporter)
@@ -194,7 +196,11 @@ fn render_graph_text(graph: &Graph) -> String {
     for module in graph.modules() {
         out.push_str(&module.id.to_string());
         out.push('\n');
-        for edge in graph.edges().iter().filter(|edge| edge.from == module.id) {
+        for edge in graph
+            .edges()
+            .iter()
+            .filter(|edge| edge.from == module.key())
+        {
             out.push_str("  -> ");
             out.push_str(&edge.to.to_string());
             out.push('\n');

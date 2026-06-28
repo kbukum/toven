@@ -4,7 +4,7 @@
 //!
 //! Discovery is faked through `toven-testkit` doubles; the PATH-probe transport
 //! is exercised through an injected [`DriverScaffolder`]/[`DriverLocator`] pair
-//! (no real subprocess, review pass `04`), and the existing-config re-run reads
+//! (no real subprocess), and the existing-config re-run reads
 //! a shared fixture rather than inline TOML.
 
 mod common;
@@ -18,7 +18,7 @@ use rskit_fs::TempDir;
 use rskit_fs::sync_io::file::{read_string, write};
 use toml::{Table, Value};
 use toven_engine::config::{CanonicalRegistry, load};
-use toven_engine::federation::DriverLocator;
+use toven_engine::federation::{DriverLocator, MemberVcsReaders};
 use toven_engine::generate::{DriverScaffolder, generate_with};
 use toven_engine::plan::{NullCache, PlanHost, PlanRequest, plan};
 use toven_model::{
@@ -564,7 +564,8 @@ fn generated_config_feeds_the_plan_spine() {
     let prober = CountingToolchainProber::new();
     let cache = NullCache;
     let mut reporter = RecordingReporter::new();
-    let host = PlanHost::new(&vcs, &digest, &prober, &cache);
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
 
     let request = PlanRequest::new(
         "run-1",

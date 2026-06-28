@@ -5,9 +5,10 @@ use std::collections::BTreeMap;
 use rskit_config::{RawValue, deserialize_subtree};
 use rskit_errors::{AppError, AppResult};
 use toven_model::EcosystemId;
-use toven_ports::{Provider, ReleaseTarget, Reporter, VcsReader};
+use toven_ports::{Provider, ReleaseTarget, Reporter};
 
 use crate::config::Document;
+use crate::federation::baseline::MemberVcsReaders;
 use crate::federation::resolve::PathDriverLocator;
 use crate::plan::{PlanRequest, prepare_front};
 
@@ -22,7 +23,7 @@ pub fn release_plan(
     request: &PlanRequest,
     document: &Document,
     providers: &[&dyn Provider],
-    vcs: &dyn VcsReader,
+    readers: &MemberVcsReaders<'_>,
     reporter: &mut dyn Reporter,
 ) -> AppResult<ReleasePlan> {
     let locator = PathDriverLocator::new();
@@ -34,7 +35,7 @@ pub fn release_plan(
         reporter,
     )?;
     let targets = release_targets(&context)?;
-    plan_with_context(&context, document, request, vcs, &targets)
+    plan_with_context(&context, document, request, readers, &targets)
 }
 
 /// Build a [`ReleasePlan`] from an already-prepared [`PlanContext`] and its
@@ -50,18 +51,32 @@ pub(crate) fn plan_with_context(
     context: &crate::plan::PlanContext,
     document: &Document,
     request: &PlanRequest,
-    vcs: &dyn VcsReader,
+    readers: &MemberVcsReaders<'_>,
+    targets: &BTreeMap<EcosystemId, Box<dyn ReleaseTarget>>,
+) -> AppResult<ReleasePlan> {
+    let changes = change::detect(context, &request.selection, readers)?;
+    plan_with_changes(context, document, request, &changes, targets)
+}
+
+fn plan_with_changes(
+    context: &crate::plan::PlanContext,
+    document: &Document,
+    _request: &PlanRequest,
+    changes: &change::ReleaseChanges,
     targets: &BTreeMap<EcosystemId, Box<dyn ReleaseTarget>>,
 ) -> AppResult<ReleasePlan> {
     let strategy = strategy::resolve(release_strategy(document)?.as_deref())?;
-    let changes = change::detect(context, document, &request.selection, vcs)?;
     let changelogs = context
         .federation
         .modules
         .iter()
         .map(|module| {
-            let records = changes.records.get(&module.id).cloned().unwrap_or_default();
-            (module.id.clone(), changelog::entry(module, &records))
+            let records = changes
+                .records
+                .get(&module.key())
+                .cloned()
+                .unwrap_or_default();
+            (module.key(), changelog::entry(module, &records))
         })
         .collect::<BTreeMap<_, _>>();
     let entries = bump::plan_entries(&bump::BumpInputs {
@@ -87,7 +102,10 @@ pub(crate) fn release_targets(
     context: &crate::plan::PlanContext,
 ) -> AppResult<BTreeMap<EcosystemId, Box<dyn ReleaseTarget>>> {
     let mut targets = BTreeMap::new();
-    for (ecosystem, adapter) in &context.adapters {
+    for (_member, ecosystem, adapter) in context.adapters.iter() {
+        if targets.contains_key(ecosystem) {
+            continue;
+        }
         if let Some(target) = adapter.release_target()? {
             targets.insert(ecosystem.clone(), target);
         }
@@ -125,7 +143,7 @@ fn release_strategy(document: &Document) -> AppResult<Option<String>> {
 ///
 /// Permissive by design (no `deny_unknown_fields`): an ecosystem section carries
 /// many adapter-owned keys the engine ignores here. But a malformed `release`
-/// table or a non-string `strategy` now surfaces as a typed configuration error
+/// table or a non-string `strategy` surfaces as a typed configuration error
 /// instead of being silently treated as "no strategy declared".
 #[derive(serde::Deserialize)]
 struct EcosystemReleaseView {
@@ -163,6 +181,7 @@ mod tests {
     use super::release_plan;
     use super::release_strategy;
     use crate::config::{Document, ProjectConfig, TovenConfig};
+    use crate::federation::baseline::MemberVcsReaders;
     use crate::plan::{PlanRequest, Selection};
 
     fn eid(id: &str) -> EcosystemId {
@@ -215,12 +234,14 @@ mod tests {
         )]);
         let mut reporter = RecordingReporter::new();
 
-        let plan = release_plan(&request, &document(), &providers, &vcs, &mut reporter).unwrap();
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let plan =
+            release_plan(&request, &document(), &providers, &readers, &mut reporter).unwrap();
 
         assert_eq!(plan.publish_count(), 2);
-        assert_eq!(plan.entries[0].module, core.id);
+        assert_eq!(plan.entries[0].module, core.key());
         assert_eq!(plan.entries[0].planned_version, Some(Version::new(0, 1, 1)));
-        assert_eq!(plan.entries[1].module, app.id);
+        assert_eq!(plan.entries[1].module, app.key());
         assert_eq!(
             plan.entries[1]
                 .mutation
@@ -255,7 +276,9 @@ mod tests {
             )]);
         let mut reporter = RecordingReporter::new();
 
-        let plan = release_plan(&request, &document(), &providers, &vcs, &mut reporter).unwrap();
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let plan =
+            release_plan(&request, &document(), &providers, &readers, &mut reporter).unwrap();
         let by_module = plan
             .entries
             .iter()
@@ -263,11 +286,11 @@ mod tests {
             .collect::<BTreeMap<_, _>>();
 
         assert_eq!(
-            by_module.get(&core.id).unwrap(),
+            by_module.get(&core.key()).unwrap(),
             &vec!["crates/core/src/lib.rs".to_string()]
         );
         assert_eq!(
-            by_module.get(&app.id).unwrap(),
+            by_module.get(&app.key()).unwrap(),
             &vec![
                 "crates/app/src/lib.rs".to_string(),
                 "crates/app/src/main.rs".to_string()

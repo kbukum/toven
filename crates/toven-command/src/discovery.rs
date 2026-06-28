@@ -133,8 +133,8 @@ mod tests {
         let names: BTreeSet<String> = modules.iter().map(|m| m.name.clone()).collect();
         let edges = build_edges(&command_id().unwrap(), &modules, &names).expect("edges");
         assert_eq!(edges.len(), 1);
-        assert_eq!(edges[0].from.name, "site");
-        assert_eq!(edges[0].to.name, "api");
+        assert_eq!(edges[0].from.module.name, "site");
+        assert_eq!(edges[0].to.module.name, "api");
     }
 
     #[test]

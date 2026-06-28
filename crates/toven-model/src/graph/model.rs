@@ -9,7 +9,7 @@ use rskit_errors::{AppError, AppResult};
 
 use crate::{
     edge::{DepKind, Edge},
-    identity::ModuleRef,
+    identity::ModuleKey,
     module::Module,
 };
 
@@ -19,12 +19,16 @@ use crate::{
 /// overlay edges in one list). Construction validates that module identities are
 /// unique, every edge endpoint resolves, and the graph is acyclic — so all
 /// downstream consumers (affected, scheduling) operate on a sound graph.
+///
+/// Nodes are keyed by [`ModuleKey`]: a single-repo graph keys by bare
+/// `ecosystem:name`, while a cross-repo umbrella keys the same `ecosystem:name`
+/// from two members under distinct member-scoped keys.
 #[derive(Debug, Clone)]
 pub struct Graph {
-    modules: BTreeMap<ModuleRef, Module>,
+    modules: BTreeMap<ModuleKey, Module>,
     edges: Vec<Edge>,
     /// Reverse adjacency: `to` → its dependents `(from, kind)`.
-    dependents: BTreeMap<ModuleRef, Vec<(ModuleRef, DepKind)>>,
+    dependents: BTreeMap<ModuleKey, Vec<(ModuleKey, DepKind)>>,
 }
 
 impl Graph {
@@ -35,16 +39,16 @@ impl Graph {
     pub fn build(modules: Vec<Module>, edges: Vec<Edge>) -> AppResult<Self> {
         let mut indexed = BTreeMap::new();
         for module in modules {
-            let id = module.id.clone();
-            if indexed.insert(id.clone(), module).is_some() {
+            let key = module.key();
+            if indexed.insert(key.clone(), module).is_some() {
                 return Err(AppError::invalid_input(
                     "modules",
-                    format!("duplicate module '{id}'"),
+                    format!("duplicate module '{key}'"),
                 ));
             }
         }
 
-        let mut dependents: BTreeMap<ModuleRef, Vec<(ModuleRef, DepKind)>> = BTreeMap::new();
+        let mut dependents: BTreeMap<ModuleKey, Vec<(ModuleKey, DepKind)>> = BTreeMap::new();
         for edge in &edges {
             for (role, reference) in [("from", &edge.from), ("to", &edge.to)] {
                 if !indexed.contains_key(reference) {
@@ -75,7 +79,7 @@ impl Graph {
         Ok(graph)
     }
 
-    /// All modules, ordered by identity.
+    /// All modules, ordered by key.
     pub fn modules(&self) -> impl Iterator<Item = &Module> {
         self.modules.values()
     }
@@ -86,16 +90,16 @@ impl Graph {
         &self.edges
     }
 
-    /// Look up a module by reference.
+    /// Look up a module by key.
     #[must_use]
-    pub fn module(&self, reference: &ModuleRef) -> Option<&Module> {
-        self.modules.get(reference)
+    pub fn module(&self, key: &ModuleKey) -> Option<&Module> {
+        self.modules.get(key)
     }
 
-    /// Whether the graph contains a module with this identity.
+    /// Whether the graph contains a module with this key.
     #[must_use]
-    pub fn contains(&self, reference: &ModuleRef) -> bool {
-        self.modules.contains_key(reference)
+    pub fn contains(&self, key: &ModuleKey) -> bool {
+        self.modules.contains_key(key)
     }
 
     /// Number of modules.
@@ -110,8 +114,8 @@ impl Graph {
         self.modules.is_empty()
     }
 
-    pub(crate) fn dependents_of(&self, reference: &ModuleRef) -> &[(ModuleRef, DepKind)] {
-        self.dependents.get(reference).map_or(&[], Vec::as_slice)
+    pub(crate) fn dependents_of(&self, key: &ModuleKey) -> &[(ModuleKey, DepKind)] {
+        self.dependents.get(key).map_or(&[], Vec::as_slice)
     }
 
     fn ensure_acyclic(&self) -> AppResult<()> {
