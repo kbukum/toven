@@ -30,7 +30,7 @@ use super::request::PlanRequest;
 /// the Cache-decision phase folds into the content key.
 #[derive(Debug, Clone)]
 pub(super) struct PlannedUnit {
-    /// Stable unit id (`ecosystem:name#kind`, member-scoped on collision).
+    /// Stable unit id (`ecosystem:name#kind`, member-prefixed under a federation).
     pub(super) id: String,
     /// Module the unit operates on.
     pub(super) module: ModuleKey,
@@ -120,8 +120,9 @@ pub(super) fn schedule(
     })
 }
 
-/// The unit id for `module` under `kind` (`ecosystem:name#kind`, member-scoped
-/// on a cross-member collision).
+/// The unit id for `module` under `kind` (`ecosystem:name#kind`, member-prefixed
+/// whenever the module belongs to a federation member via [`ModuleKey`]'s
+/// `Display`).
 fn unit_id(module: &ModuleKey, kind: &str) -> String {
     format!("{module}#{kind}")
 }

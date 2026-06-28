@@ -236,7 +236,7 @@ fn target_for<'a>(
         .ok_or_else(|| {
             AppError::invalid_input(
                 "release.target",
-                format!("module '{}' has no release target", module.id),
+                format!("module '{}' has no release target", module.key()),
             )
         })
 }

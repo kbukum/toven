@@ -12,7 +12,7 @@ use rskit_errors::AppResult;
 use std::collections::BTreeSet;
 use std::path::Path;
 use toven_model::{DepKind, Graph, Module, ModuleKey, Workspace, WorkspaceId};
-use toven_ports::{ChangeRecord, TaskKind};
+use toven_ports::{BaselineSpec, ChangeRecord, TaskKind};
 
 use crate::federation::baseline::{MemberVcsReader, MemberVcsReaders, prefix_records};
 
@@ -36,11 +36,11 @@ pub(super) fn active_modules(
     federation: &Federation,
     vcs: &MemberVcsReaders<'_>,
 ) -> AppResult<BTreeSet<ModuleKey>> {
-    let Selection::Changed(_) = &request.selection else {
+    let Selection::Changed(spec) = &request.selection else {
         return Ok(all_modules(graph));
     };
 
-    let changed = changed_for_members(vcs)?;
+    let changed = changed_for_members(vcs, spec)?;
 
     let seeds = changed_seeds(&changed, graph, federation);
 
@@ -52,29 +52,28 @@ pub(super) fn active_modules(
     graph.closure(&seeds, include)
 }
 
-fn changed_for_members(readers: &MemberVcsReaders<'_>) -> AppResult<Vec<ChangeRecord>> {
+fn changed_for_members(
+    readers: &MemberVcsReaders<'_>,
+    fallback: &BaselineSpec,
+) -> AppResult<Vec<ChangeRecord>> {
     let mut changed = Vec::new();
     for reader in readers.entries() {
-        changed.extend(changed_for_member(reader)?);
+        changed.extend(changed_for_member(reader, fallback)?);
     }
     Ok(changed)
 }
 
-fn changed_for_member(reader: &MemberVcsReader<'_>) -> AppResult<Vec<ChangeRecord>> {
-    let Some(baseline) = reader.baseline() else {
-        let hint = reader.member().map_or_else(
-            || {
-                "changed selection needs a baseline: pass --base <ref> or set [project].base_ref"
-                    .to_string()
-            },
-            |member| {
-                format!(
-                    "changed selection needs a baseline for member '{member}': pass --base <ref> or set its [[members]].base_ref (or [project].base_ref)"
-                )
-            },
-        );
-        return Err(rskit_errors::AppError::invalid_input("base_ref", hint));
-    };
+/// Map one member's changed paths since its baseline.
+///
+/// The member reader's own resolved baseline takes precedence; when it has none
+/// the request's [`Selection::Changed`] spec is the fallback, so the variant's
+/// payload stays meaningful and the single-repo / unconfigured-member case still
+/// resolves a baseline instead of failing.
+fn changed_for_member(
+    reader: &MemberVcsReader<'_>,
+    fallback: &BaselineSpec,
+) -> AppResult<Vec<ChangeRecord>> {
+    let baseline = reader.baseline().unwrap_or(fallback);
     let mut changed = reader.reader().changed_since(baseline)?;
     changed.extend(reader.reader().worktree_status()?);
     Ok(prefix_records(&changed, reader.prefix()))
@@ -483,6 +482,41 @@ mod tests {
 
         assert!(active.contains(&member_key("core", "rust", "shared")));
         assert!(active.contains(&member_key("gateway", "rust", "api")));
+    }
+
+    #[test]
+    fn member_without_a_baseline_falls_back_to_the_request_spec() {
+        let shared = module("rust", "shared", "crates/shared", Some("rust"));
+        let federation = Federation {
+            workspaces: vec![rust_workspace_with_blast()],
+            modules: vec![shared],
+            edges: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
+        let vcs = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
+            "crates/shared/src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+        // The reader carries no baseline of its own, so change detection must use
+        // the request's `Selection::Changed` spec as the fallback.
+        let readers = MemberVcsReaders::new(vec![MemberVcsReader::new(
+            None,
+            PathBuf::from(""),
+            None,
+            &vcs,
+        )]);
+        let request = PlanRequest::new(
+            "r",
+            "t",
+            toven_ports::TaskKind::Test,
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(BaselineSpec::explicit("main")));
+
+        let active = active_modules(&request, &graph, &federation, &readers).unwrap();
+
+        assert!(active.contains(&ModuleKey::new(None, mref("rust", "shared"))));
     }
 
     #[test]
