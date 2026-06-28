@@ -74,7 +74,7 @@ fn detect_member(
             continue;
         };
         let mut module_changes = reader.umbrella_records(&reader.reader().changed_since(&spec)?);
-        module_changes.extend(worktree.clone());
+        module_changes.extend(worktree.iter().cloned());
         let seeds =
             crate::plan::changed_seeds(&module_changes, &context.graph, &context.federation);
         if seeds.contains(&module.key()) {

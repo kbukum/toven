@@ -180,7 +180,7 @@ fn print_module_table(title: &str, modules: Vec<String>) {
 fn graph_module_names(graph: &Graph) -> Vec<String> {
     graph
         .modules()
-        .map(|module| module.id.to_string())
+        .map(|module| module.key().to_string())
         .collect()
 }
 
@@ -200,7 +200,7 @@ fn plan_module_names(plan: &Plan) -> Vec<String> {
 fn render_graph_text(graph: &Graph) -> String {
     let mut out = String::new();
     for module in graph.modules() {
-        out.push_str(&module.id.to_string());
+        out.push_str(&module.key().to_string());
         out.push('\n');
         for edge in graph
             .edges()
@@ -220,7 +220,7 @@ fn render_graph_dot(graph: &Graph) -> String {
     let mut out = String::from("digraph toven {\n");
     for module in graph.modules() {
         out.push_str("  \"");
-        out.push_str(&dot_id(&module.id.to_string()));
+        out.push_str(&dot_id(&module.key().to_string()));
         out.push_str("\";\n");
     }
     for edge in graph.edges() {
@@ -249,7 +249,7 @@ fn dot_id(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use toven_model::{DepKind, EcosystemId, Edge, Graph, Module, ModuleRef, RepoPath};
+    use toven_model::{DepKind, EcosystemId, Edge, Graph, MemberId, Module, ModuleRef, RepoPath};
 
     use super::{dot_id, graph_module_names, render_graph_dot, render_graph_text};
 
@@ -269,9 +269,26 @@ mod tests {
         .expect("valid graph")
     }
 
+    fn federated_graph() -> Graph {
+        let mut core = module("core");
+        core.member = Some(MemberId::new("core").unwrap());
+        let mut app = module("app");
+        app.member = Some(MemberId::new("gateway").unwrap());
+        let edge = Edge::new(app.key(), core.key(), DepKind::Overlay);
+        Graph::build(vec![core, app], vec![edge]).expect("valid federated graph")
+    }
+
     #[test]
     fn module_names_are_sorted_and_deduplicated() {
         assert_eq!(graph_module_names(&graph()), vec!["rust:app", "rust:core"]);
+    }
+
+    #[test]
+    fn module_names_include_member_scope_when_present() {
+        assert_eq!(
+            graph_module_names(&federated_graph()),
+            vec!["core/rust:core", "gateway/rust:app"]
+        );
     }
 
     #[test]
@@ -282,11 +299,24 @@ mod tests {
     }
 
     #[test]
+    fn graph_text_uses_member_scoped_node_names() {
+        let rendered = render_graph_text(&federated_graph());
+        assert!(rendered.contains("gateway/rust:app"));
+        assert!(rendered.contains("  -> core/rust:core"));
+    }
+
+    #[test]
     fn graph_dot_emits_a_digraph_with_directed_edges() {
         let rendered = render_graph_dot(&graph());
         assert!(rendered.starts_with("digraph toven {"));
         assert!(rendered.contains("\"rust:app\" -> \"rust:core\";"));
         assert!(rendered.trim_end().ends_with('}'));
+    }
+
+    #[test]
+    fn graph_dot_uses_member_scoped_node_names() {
+        let rendered = render_graph_dot(&federated_graph());
+        assert!(rendered.contains("\"gateway/rust:app\" -> \"core/rust:core\";"));
     }
 
     #[test]

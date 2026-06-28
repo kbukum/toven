@@ -103,10 +103,18 @@ pub fn release_apply_by_member(
         return Ok(stats);
     }
 
-    let mut artifacts = BTreeMap::new();
+    let mut prepared = Vec::with_capacity(shards.len());
     for shard in &shards {
-        apply_member_shard(shard, &module_by_ref, targets, repos, options, &mut stats)
-            .map(|member_artifacts| artifacts.extend(member_artifacts))?;
+        match prepare_member_shard(shard, &module_by_ref, targets, repos, &mut stats) {
+            Ok(member_artifacts) => prepared.push((shard, member_artifacts)),
+            Err(error) => return Err(restore_prepared_or_error(&prepared, repos, error)),
+        }
+    }
+
+    let mut artifacts = BTreeMap::new();
+    for (shard, member_artifacts) in prepared {
+        commit_member_shard(shard, repos, options, &mut stats)?;
+        artifacts.extend(member_artifacts);
     }
 
     let items = apply::publish_items(plan, &module_by_ref, targets, &artifacts)?;
@@ -126,25 +134,25 @@ fn guard_member_trees(
     Ok(())
 }
 
-fn apply_member_shard(
+fn prepare_member_shard(
     shard: &MemberReleaseShard,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
     targets: &crate::release::ReleaseTargets,
     repos: &MemberReleaseRepos<'_>,
-    options: &ReleaseApplyOptions,
     stats: &mut ReleaseStats,
 ) -> AppResult<BTreeMap<ModuleKey, Artifact>> {
     let repo = repo_for(repos, shard.member.as_ref())?;
-    let artifacts = match apply::prepare(&shard.plan, module_by_ref, targets, stats) {
-        Ok(artifacts) => artifacts,
-        Err(error) => {
-            return Err(apply::restore_or_precommit_error(
-                repo.writer(),
-                "prepare",
-                error,
-            ));
-        }
-    };
+    apply::prepare(&shard.plan, module_by_ref, targets, stats)
+        .map_err(|error| apply::restore_or_precommit_error(repo.writer(), "prepare", error))
+}
+
+fn commit_member_shard(
+    shard: &MemberReleaseShard,
+    repos: &MemberReleaseRepos<'_>,
+    options: &ReleaseApplyOptions,
+    stats: &mut ReleaseStats,
+) -> AppResult<()> {
+    let repo = repo_for(repos, shard.member.as_ref())?;
     let message = apply::commit_message(&shard.plan);
     let commit = match repo.writer().commit(&message) {
         Ok(commit) => commit,
@@ -167,7 +175,37 @@ fn apply_member_shard(
     if options.push {
         repo.writer().push(&apply::push_refspecs(&shard.plan))?;
     }
-    Ok(artifacts)
+    Ok(())
+}
+
+fn restore_prepared_or_error(
+    prepared: &[(&MemberReleaseShard, BTreeMap<ModuleKey, Artifact>)],
+    repos: &MemberReleaseRepos<'_>,
+    error: AppError,
+) -> AppError {
+    for (shard, _) in prepared.iter().rev() {
+        let repo = match repo_for(repos, shard.member.as_ref()) {
+            Ok(repo) => repo,
+            Err(restore) => {
+                return restore_prepared_failure(error, &restore);
+            }
+        };
+        if let Err(restore) = repo.writer().restore_worktree() {
+            return restore_prepared_failure(error, &restore);
+        }
+    }
+    error
+}
+
+fn restore_prepared_failure(error: AppError, restore: &AppError) -> AppError {
+    AppError::new(
+        ErrorCode::Internal,
+        format!(
+            "release prepare failed ({error}); additionally failed to restore a previously prepared member: {restore}"
+        ),
+    )
+    .with_cause(error)
+    .with_detail("restore_error", restore.to_string())
 }
 
 fn repo_for<'a>(
@@ -281,6 +319,19 @@ mod tests {
         map
     }
 
+    fn targets_by_member(
+        core: &FakeReleaseTarget,
+        gateway: &FakeReleaseTarget,
+    ) -> crate::release::ReleaseTargets {
+        let mut map = crate::release::ReleaseTargets::new();
+        map.insert((Some(member("core")), eid("rust")), Box::new(core.clone()));
+        map.insert(
+            (Some(member("gateway")), eid("rust")),
+            Box::new(gateway.clone()),
+        );
+        map
+    }
+
     #[test]
     fn release_apply_commits_per_member_and_publishes_in_federated_order() {
         let plan = ReleasePlan::new(
@@ -375,6 +426,42 @@ mod tests {
         assert!(error.to_string().contains("package failed"));
         assert_eq!(core_writer.writes(), vec![VcsWrite::RestoreWorktree]);
         assert!(gateway_writer.writes().is_empty());
+    }
+
+    #[test]
+    fn later_member_prepare_failure_restores_prepared_members_before_any_commit() {
+        let plan = ReleasePlan::new(
+            ReleaseStrategyName::SemverCascade,
+            vec![
+                entry("core", "shared", Version::new(0, 1, 1), 0),
+                entry("gateway", "api", Version::new(0, 1, 1), 1),
+            ],
+        );
+        let modules = vec![module("core", "shared"), module("gateway", "api")];
+        let core_target = FakeReleaseTarget::new();
+        let gateway_target =
+            FakeReleaseTarget::new().with_package_failure("gateway package failed");
+        let core_reader = FakeVcsReader::new();
+        let gateway_reader = FakeVcsReader::new();
+        let core_writer = FakeVcsWriter::new().with_commit_oid("corecommit");
+        let gateway_writer = FakeVcsWriter::new();
+        let repos = MemberReleaseRepos::new(vec![
+            MemberReleaseRepo::new(Some(member("core")), &core_reader, &core_writer),
+            MemberReleaseRepo::new(Some(member("gateway")), &gateway_reader, &gateway_writer),
+        ]);
+
+        let error = release_apply_by_member(
+            &plan,
+            &modules,
+            &targets_by_member(&core_target, &gateway_target),
+            &repos,
+            &ReleaseApplyOptions::default(),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("gateway package failed"));
+        assert_eq!(core_writer.writes(), vec![VcsWrite::RestoreWorktree]);
+        assert_eq!(gateway_writer.writes(), vec![VcsWrite::RestoreWorktree]);
     }
 
     #[test]

@@ -113,7 +113,8 @@ fn rate_limit_exhausted(item: &PublishItem<'_>, waits: usize) -> AppError {
         ErrorCode::Internal,
         format!(
             "publishing '{}@{}' exhausted the rate-limit retry budget after {waits} wait(s)",
-            item.module.id, item.version
+            item.module.key(),
+            item.version
         ),
     )
 }
