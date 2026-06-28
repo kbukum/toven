@@ -10,6 +10,8 @@
 //! a hard error rather than a warn-and-skip — a declared member is a required
 //! graph node.
 
+use std::collections::BTreeSet;
+
 use rskit_errors::{AppError, AppResult};
 use rskit_fs::safe_join;
 use rskit_validation::input::validate_safe_path;
@@ -85,10 +87,10 @@ pub fn enumerate_members(
     }
 
     let mut members = Vec::with_capacity(document.members.len());
-    let mut seen_roots: Vec<AbsPath> = Vec::with_capacity(document.members.len());
+    let mut seen_roots: BTreeSet<AbsPath> = BTreeSet::new();
     for member in &document.members {
         let root = resolve_member_root(umbrella_root, &member.name, &member.root)?;
-        if seen_roots.contains(&root) {
+        if !seen_roots.insert(root.clone()) {
             return Err(AppError::invalid_input(
                 "members.root",
                 format!(
@@ -96,7 +98,6 @@ pub fn enumerate_members(
                 ),
             ));
         }
-        seen_roots.push(root.clone());
         members.push(ResolvedMember {
             id: Some(MemberId::new(member.name.clone())?),
             name: member.name.clone(),
@@ -110,6 +111,14 @@ pub fn enumerate_members(
 /// Confine one declared member `root` under the umbrella root and require it to
 /// exist as a directory on disk.
 fn resolve_member_root(umbrella_root: &AbsPath, name: &str, relative: &str) -> AppResult<AbsPath> {
+    if relative == "." {
+        return Err(AppError::invalid_input(
+            "members.root",
+            format!(
+                "member '{name}' root '.' points at the umbrella root; omit [[members]] for a single-repo workspace or choose a child repo path"
+            ),
+        ));
+    }
     validate_safe_path(relative).map_err(|error| {
         AppError::invalid_input(
             "members.root",
@@ -222,5 +231,38 @@ mod tests {
         let doc = document(vec![member("escape", "../outside")]);
 
         assert!(enumerate_members(&doc, &root).is_err());
+    }
+
+    #[test]
+    fn duplicate_member_roots_are_rejected() {
+        let ws = toven_testkit::workspace::workspace("members-duplicate-root");
+        ws.write_file("repos/core/toven.toml", b"").unwrap();
+        let root = umbrella_root(&ws);
+        let doc = document(vec![
+            member("core", "repos/core"),
+            member("again", "repos/core"),
+        ]);
+
+        let error = enumerate_members(&doc, &root).unwrap_err();
+
+        assert!(
+            error.to_string().contains("same repo root"),
+            "error should explain duplicate member roots: {error}"
+        );
+    }
+
+    #[test]
+    fn dot_member_root_gets_an_actionable_error() {
+        let ws = toven_testkit::workspace::workspace("members-dot-root");
+        let root = umbrella_root(&ws);
+        let doc = document(vec![member("umbrella", ".")]);
+
+        let error = enumerate_members(&doc, &root).unwrap_err();
+
+        assert!(
+            error.to_string().contains("omit [[members]]")
+                && error.to_string().contains("child repo path"),
+            "error should explain how to model the workspace: {error}"
+        );
     }
 }
