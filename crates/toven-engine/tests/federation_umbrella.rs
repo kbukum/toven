@@ -309,7 +309,7 @@ fn changed_selection_attributes_changes_to_the_owning_member() {
     let mut reporter = RecordingReporter::new();
 
     let request = PlanRequest::new("run-1", "umbrella", TaskKind::Test, root)
-        .with_selection(Selection::Changed(BaselineSpec::explicit("main")));
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
     let plan = plan(&request, &document, &providers, host, &mut reporter).expect("plan succeeds");
 
     assert_eq!(plan.units.len(), 1, "only the changed member is scheduled");

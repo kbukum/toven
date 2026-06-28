@@ -14,10 +14,10 @@ use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult};
 use toven_engine::federation::resolve::PathDriverLocator;
 use toven_engine::plan::{
-    CacheMode, FsSourceDigest, NullCache, PlanHost, PlanRequest, ProcessToolchainProber,
+    CacheMode, FsSourceDigest, NullCache, PlanHost, PlanRequest, ProcessToolchainProber, Selection,
     dependency_graph, plan,
 };
-use toven_engine::vcs::BaselineFlags;
+use toven_engine::vcs::{BaselineFlags, BaselineStrategy};
 use toven_model::{Event, Graph, Plan};
 use toven_ports::{Provider, Reporter, TaskKind};
 
@@ -50,6 +50,7 @@ fn build_plan(
     project: &Project,
     intent: TaskKind,
     baseline: &BaselineFlags,
+    selection: Selection,
 ) -> AppResult<Plan> {
     let request = PlanRequest::new(
         new_run_id(),
@@ -57,7 +58,8 @@ fn build_plan(
         intent,
         project.project_root.clone(),
     )
-    .with_cache_mode(CacheMode::Disabled);
+    .with_cache_mode(CacheMode::Disabled)
+    .with_selection(selection);
 
     let opened = project.open_member_vcs(providers, baseline)?;
     let readers = opened.readers();
@@ -106,7 +108,11 @@ pub(crate) fn affected(
     intent: TaskKind,
     baseline: &BaselineFlags,
 ) -> AppResult<ExitCode> {
-    let plan = build_plan(providers, project, intent, baseline)?;
+    let selection = Selection::Changed(BaselineStrategy::resolve_optional(
+        baseline,
+        project.document.project.base_ref.as_deref(),
+    ));
+    let plan = build_plan(providers, project, intent, baseline, selection)?;
     print_module_table("Affected", plan_module_names(&plan));
     Ok(ExitCode::Success)
 }
@@ -140,7 +146,13 @@ pub(crate) fn explain(
     module: &str,
     intent: TaskKind,
 ) -> AppResult<ExitCode> {
-    let plan = build_plan(providers, project, intent, &BaselineFlags::new())?;
+    let plan = build_plan(
+        providers,
+        project,
+        intent,
+        &BaselineFlags::new(),
+        Selection::All,
+    )?;
     let mut matched = 0_usize;
     for unit in plan
         .units

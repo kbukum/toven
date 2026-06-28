@@ -6,14 +6,15 @@ use toven_ports::{BaselineSpec, TaskKind};
 /// How the active module set is selected before scheduling.
 ///
 /// [`Selection::All`] activates every discovered module (a full `toven test`);
-/// [`Selection::Changed`] runs the change mapper against the
-/// changed paths the [`VcsReader`](toven_ports::VcsReader) reports for `spec`.
+/// [`Selection::Changed`] runs the change mapper against the per-member
+/// baselines resolved by the VCS reader set, falling back to the optional request
+/// spec for members without their own configured baseline.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Selection {
     /// Activate every discovered module.
     All,
-    /// Activate only the modules affected by the changes since `spec`.
-    Changed(BaselineSpec),
+    /// Activate only modules affected by changes since the resolved baseline.
+    Changed(Option<BaselineSpec>),
 }
 
 /// How the per-unit cache verdict is decided during PLAN.

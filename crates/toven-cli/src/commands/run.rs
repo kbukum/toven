@@ -16,9 +16,11 @@ use rskit_errors::{AppError, AppResult};
 use toven_engine::apply::{ApplyOptions, ProcessCommandRunner, apply};
 use toven_engine::cache::FsContentCache;
 use toven_engine::output::UnitOutputChannel;
-use toven_engine::plan::{FsSourceDigest, PlanHost, PlanRequest, ProcessToolchainProber, plan};
+use toven_engine::plan::{
+    FsSourceDigest, PlanHost, PlanRequest, ProcessToolchainProber, Selection, plan,
+};
 use toven_engine::release::{ReleaseApplyOptions, release_run};
-use toven_engine::vcs::BaselineFlags;
+use toven_engine::vcs::{BaselineFlags, BaselineStrategy};
 use toven_model::{CacheVerdict, Event, Plan, RunStats};
 use toven_ports::{CommandRunner, Provider, Reporter, TaskKind};
 
@@ -53,7 +55,8 @@ pub(crate) fn execute(
         intent,
         project.project_root.clone(),
     )
-    .with_passthrough(passthrough);
+    .with_passthrough(passthrough)
+    .with_selection(task_selection(project, baseline));
 
     let opened = project.open_member_vcs(providers, baseline)?;
     let readers = opened.readers();
@@ -103,6 +106,16 @@ pub(crate) fn execute(
         apply(&plan, runner, &cache, sink, &mut output, options, cancel).await
     })?;
     Ok(exit_code(&summary))
+}
+
+fn task_selection(project: &Project, baseline: &BaselineFlags) -> Selection {
+    if baseline.base.is_none() && !baseline.merge_base {
+        return Selection::All;
+    }
+    Selection::Changed(BaselineStrategy::resolve_optional(
+        baseline,
+        project.document.project.base_ref.as_deref(),
+    ))
 }
 
 /// Plan and publish a release (`toven release`).

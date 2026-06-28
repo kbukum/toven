@@ -124,7 +124,7 @@ fn baseline_spec(
         ));
     }
 
-    if let Selection::Changed(spec) = selection {
+    if let Selection::Changed(Some(spec)) = selection {
         baselines.insert(
             module.key(),
             ReleaseBaseline::fallback(module.key(), spec.clone()),

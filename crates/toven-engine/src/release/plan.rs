@@ -224,7 +224,7 @@ mod tests {
         let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
         let providers: Vec<&dyn Provider> = vec![&provider];
         let request = PlanRequest::new("r1", "t", TaskKind::Test, AbsPath::new("/repo").unwrap())
-            .with_selection(Selection::Changed(BaselineSpec::explicit("main")));
+            .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
         let vcs = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
             "crates/core/src/lib.rs",
             ChangeStatus::Modified,
@@ -261,7 +261,7 @@ mod tests {
         let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
         let providers: Vec<&dyn Provider> = vec![&provider];
         let request = PlanRequest::new("r1", "t", TaskKind::Test, AbsPath::new("/repo").unwrap())
-            .with_selection(Selection::Changed(BaselineSpec::explicit("main")));
+            .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
         let vcs = FakeVcsReader::new()
             .with_changed_since(vec![
                 ChangeRecord::new("crates/core/src/lib.rs", ChangeStatus::Modified),

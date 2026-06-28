@@ -362,9 +362,9 @@ fn changed_selection_restricts_active_units() {
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
-    let request = request(TaskKind::Test).with_selection(Selection::Changed(
+    let request = request(TaskKind::Test).with_selection(Selection::Changed(Some(
         toven_ports::BaselineSpec::explicit("main"),
-    ));
+    )));
     let plan = plan(&request, &document(), &providers, host, &mut reporter).expect("plan succeeds");
 
     let mut ids: Vec<&str> = plan.units.iter().map(|unit| unit.id.as_str()).collect();

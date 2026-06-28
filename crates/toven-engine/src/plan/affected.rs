@@ -40,7 +40,7 @@ pub(super) fn active_modules(
         return Ok(all_modules(graph));
     };
 
-    let changed = changed_for_members(vcs, spec)?;
+    let changed = changed_for_members(vcs, spec.as_ref())?;
 
     let seeds = changed_seeds(&changed, graph, federation);
 
@@ -54,7 +54,7 @@ pub(super) fn active_modules(
 
 fn changed_for_members(
     readers: &MemberVcsReaders<'_>,
-    fallback: &BaselineSpec,
+    fallback: Option<&BaselineSpec>,
 ) -> AppResult<Vec<ChangeRecord>> {
     let mut changed = Vec::new();
     for reader in readers.entries() {
@@ -71,9 +71,17 @@ fn changed_for_members(
 /// resolves a baseline instead of failing.
 fn changed_for_member(
     reader: &MemberVcsReader<'_>,
-    fallback: &BaselineSpec,
+    fallback: Option<&BaselineSpec>,
 ) -> AppResult<Vec<ChangeRecord>> {
-    let baseline = reader.baseline().unwrap_or(fallback);
+    let baseline = reader.baseline().or(fallback).ok_or_else(|| {
+        rskit_errors::AppError::invalid_input(
+            "base_ref",
+            format!(
+                "no baseline reference for member '{}': pass --base <ref> or set [[members]].base_ref / [project].base_ref",
+                reader.member().map_or("<root>", toven_model::MemberId::as_str)
+            ),
+        )
+    })?;
     let mut changed = reader.reader().changed_since(baseline)?;
     changed.extend(reader.reader().worktree_status()?);
     Ok(reader.umbrella_records(&changed))
@@ -309,7 +317,7 @@ mod tests {
             toven_ports::TaskKind::Test,
             AbsPath::new("/repo").unwrap(),
         )
-        .with_selection(Selection::Changed(BaselineSpec::explicit("main")));
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
         (request, FakeVcsReader::new().with_changed_since(changes))
     }
 
@@ -476,7 +484,7 @@ mod tests {
             toven_ports::TaskKind::Test,
             AbsPath::new("/repo").unwrap(),
         )
-        .with_selection(Selection::Changed(BaselineSpec::explicit("main")));
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
 
         let active = active_modules(&request, &graph, &federation, &readers).unwrap();
 
@@ -512,11 +520,41 @@ mod tests {
             toven_ports::TaskKind::Test,
             AbsPath::new("/repo").unwrap(),
         )
-        .with_selection(Selection::Changed(BaselineSpec::explicit("main")));
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
 
         let active = active_modules(&request, &graph, &federation, &readers).unwrap();
 
         assert!(active.contains(&ModuleKey::new(None, mref("rust", "shared"))));
+    }
+
+    #[test]
+    fn member_without_a_baseline_and_no_request_fallback_is_rejected() {
+        let shared = module("rust", "shared", "crates/shared", Some("rust"));
+        let federation = Federation {
+            workspaces: vec![rust_workspace_with_blast()],
+            modules: vec![shared],
+            edges: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
+        let vcs = FakeVcsReader::new();
+        let readers = MemberVcsReaders::new(vec![MemberVcsReader::new(
+            None,
+            PathBuf::from(""),
+            None,
+            &vcs,
+        )]);
+        let request = PlanRequest::new(
+            "r",
+            "t",
+            toven_ports::TaskKind::Test,
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(None));
+
+        let error = active_modules(&request, &graph, &federation, &readers).unwrap_err();
+
+        assert!(error.to_string().contains("no baseline reference"));
     }
 
     #[test]
