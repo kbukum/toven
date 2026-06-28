@@ -365,7 +365,7 @@ fn path_driver_scaffolding_a_foreign_ecosystem_is_rejected() {
     let error = generate_with(dir.path(), &providers, &scaffolder, &locator, None, false)
         .expect_err("a foreign-ecosystem fragment must be rejected");
 
-    assert_eq!(error.kind(), rskit_errors::ErrorKind::InvalidInput);
+    assert_eq!(error.code(), rskit_errors::ErrorCode::InvalidInput);
     let message = error.to_string();
     assert!(
         message.contains("toven-go") && message.contains("rust"),
