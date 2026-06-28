@@ -113,7 +113,11 @@ fn sync_one(remote: &MemberRemote, allow_dirty: bool) -> AppResult<MemberSyncSta
 
 /// Verify a present member root is a clean git repo before leaving it untouched.
 fn guard_present(remote: &MemberRemote, allow_dirty: bool) -> AppResult<()> {
-    let repo = rskit_git::discover(remote.root.as_path()).map_err(|error| {
+    // Anchor the check at the member directory itself with `open` rather than
+    // `discover`: discovery walks up to parent directories, so a non-repo member
+    // dir nested inside a git umbrella would be misread as the umbrella repo and
+    // wrongly reported `AlreadyPresent` instead of being cloned.
+    let repo = rskit_git::open(remote.root.as_path()).map_err(|error| {
         AppError::invalid_input(
             "members.root",
             format!(

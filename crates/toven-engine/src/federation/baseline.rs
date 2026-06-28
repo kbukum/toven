@@ -14,7 +14,7 @@ use toven_ports::{BaselineSpec, ChangeRecord, VcsReader};
 use crate::federation::compose::{ComposedFederation, ComposedMember};
 use crate::federation::rebase::member_prefix;
 use crate::federation::release::{MemberReleaseRepo, MemberReleaseRepos};
-use crate::vcs::{BaselineFlags, BaselineStrategy, VcsReaderSet};
+use crate::vcs::{BaselineFlags, BaselineStrategy, VcsReaderSet, rebase_records};
 
 /// Resolved baseline specs keyed by member.
 #[derive(Debug, Clone)]
@@ -80,6 +80,7 @@ impl OpenMemberVcsReaders {
             .map(|entry| MemberVcsReader {
                 member: entry.member.clone(),
                 prefix: entry.prefix.clone(),
+                repo_prefix: entry.repo_prefix.clone(),
                 baseline: entry.baseline.clone(),
                 reader: self.set.groups()[entry.group_index].vcs(),
             })
@@ -111,6 +112,7 @@ impl OpenMemberVcsReaders {
 struct OpenMemberVcsReader {
     member: Option<MemberId>,
     prefix: PathBuf,
+    repo_prefix: PathBuf,
     baseline: Option<BaselineSpec>,
     group_index: usize,
 }
@@ -140,9 +142,20 @@ pub fn open_member_vcs_readers(
             )
         })?;
         let baseline = baselines.get(member.member().id()).cloned();
+        let group = &set.groups()[group_index];
+        // The opened repo group resolved the actual git repo root; the placement
+        // prefix is this member's discovery root *relative to that repo root*.
+        // Stripping it rebases repo-root-relative change records down to
+        // discovery-root-relative before the umbrella prefix is prepended.
+        let repo_prefix = group
+            .members()
+            .iter()
+            .find(|placement| placement.id() == &placement_id)
+            .map_or_else(PathBuf::new, |placement| placement.prefix().to_path_buf());
         entries.push(OpenMemberVcsReader {
             member: member.member().id().cloned(),
             prefix: member_prefix(umbrella_root.as_path(), member.discover_root().as_path())?,
+            repo_prefix,
             baseline,
             group_index,
         });
@@ -239,6 +252,7 @@ impl<'a> MemberVcsReaders<'a> {
 pub struct MemberVcsReader<'a> {
     member: Option<MemberId>,
     prefix: PathBuf,
+    repo_prefix: PathBuf,
     baseline: Option<BaselineSpec>,
     reader: &'a dyn VcsReader,
 }
@@ -247,8 +261,10 @@ impl<'a> MemberVcsReader<'a> {
     /// Construct one borrowed member reader entry.
     ///
     /// `baseline` is `None` when neither member config nor caller flags named a
-    /// reference; a changed-selection over such a member then errors at the point
-    /// it consumes the baseline.
+    /// reference; a changed-selection over such a member then falls back to the
+    /// request's baseline spec. The repo-root→discovery-root prefix defaults to
+    /// empty (the member sits at its repo root); production wiring populates it
+    /// from the opened repo group.
     #[must_use]
     pub fn new(
         member: Option<MemberId>,
@@ -259,6 +275,7 @@ impl<'a> MemberVcsReader<'a> {
         Self {
             member,
             prefix: prefix.into(),
+            repo_prefix: PathBuf::new(),
             baseline,
             reader,
         }
@@ -268,12 +285,6 @@ impl<'a> MemberVcsReader<'a> {
     #[must_use]
     pub const fn member(&self) -> Option<&MemberId> {
         self.member.as_ref()
-    }
-
-    /// The umbrella-relative prefix prepended to repo-relative change records.
-    #[must_use]
-    pub fn prefix(&self) -> &Path {
-        &self.prefix
     }
 
     /// The resolved baseline spec for this member, if one was named.
@@ -286,6 +297,21 @@ impl<'a> MemberVcsReader<'a> {
     #[must_use]
     pub const fn reader(&self) -> &dyn VcsReader {
         self.reader
+    }
+
+    /// Map this member's repo-root-relative change records into the umbrella
+    /// coordinate space the federated module graph uses.
+    ///
+    /// First strips the member's repo-root→discovery-root prefix (so records
+    /// under a non-default `[project].root` become discovery-root-relative and
+    /// changes outside the discovery root are dropped), then prepends the
+    /// member's umbrella→discovery-root prefix. The net transform mirrors how
+    /// member module roots are rebased into the federated graph, so prefixed
+    /// records line up with module roots for change classification.
+    #[must_use]
+    pub fn umbrella_records(&self, records: &[ChangeRecord]) -> Vec<ChangeRecord> {
+        let rebased = rebase_records(records, &self.repo_prefix);
+        prefix_records(&rebased, &self.prefix)
     }
 }
 

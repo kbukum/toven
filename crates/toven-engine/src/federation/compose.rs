@@ -187,9 +187,13 @@ fn load_member_document(
 /// the member document's `[project].root`, confined at the trust boundary.
 fn resolve_discover_root(member: &ResolvedMember, document: &Document) -> AppResult<AbsPath> {
     let relative = document.project.root();
-    // `.` (the default project root) denotes the member repo root itself; the
-    // safe-path validator rejects it as a non-normal segment, so short-circuit.
-    if relative == "." {
+    // The degenerate single-repo member's root was already resolved to the
+    // umbrella project root (`config_dir` joined with `[project].root`), so
+    // re-applying `[project].root` here would duplicate it. `.` (the default
+    // project root) likewise denotes the member repo root itself, and the
+    // safe-path validator rejects it as a non-normal segment. Either way the
+    // member root is already the discovery root.
+    if member.id().is_none() || relative == "." {
         return Ok(member.root().clone());
     }
     validate_safe_path(relative).map_err(|error| {
@@ -271,6 +275,34 @@ mod tests {
         assert_eq!(only.base_ref(), Some("origin/main"));
         assert!(composed.overlays().is_empty());
         assert!(composed.groups().is_empty());
+    }
+
+    #[test]
+    fn degenerate_member_with_non_dot_project_root_is_not_double_applied() {
+        let ws = toven_testkit::workspace::workspace("compose-degenerate-subroot");
+        let root = AbsPath::new(ws.path().to_path_buf()).unwrap();
+        let mut document = umbrella(Vec::new());
+        document.project.root = "sub".to_string();
+        // Production passes the umbrella project root (config dir joined with
+        // `[project].root`) to `enumerate_members`, so the degenerate member root
+        // already includes `sub`.
+        let project_root = AbsPath::new(root.as_path().join("sub")).unwrap();
+        let members = enumerate_members(&document, &project_root).unwrap();
+
+        let composed = compose_members(
+            &document,
+            &members,
+            &BTreeSet::new(),
+            &CanonicalRegistry::model(),
+        )
+        .unwrap();
+
+        assert_eq!(composed.members().len(), 1);
+        let only = &composed.members()[0];
+        // `[project].root` is applied exactly once: by `enumerate_members` when
+        // resolving the degenerate member root, not a second time here.
+        let expected = AbsPath::new(root.as_path().join("sub")).unwrap();
+        assert_eq!(only.discover_root(), &expected);
     }
 
     #[test]

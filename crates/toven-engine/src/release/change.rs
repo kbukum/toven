@@ -11,7 +11,7 @@ use rskit_errors::AppResult;
 use toven_model::{MemberId, Module, ModuleKey};
 use toven_ports::{BaselineSpec, ChangeRecord, TagRef};
 
-use crate::federation::baseline::{MemberVcsReader, MemberVcsReaders, prefix_records};
+use crate::federation::baseline::{MemberVcsReader, MemberVcsReaders};
 use crate::federation::compose::ComposedMember;
 use crate::plan::{PlanContext, Selection};
 
@@ -54,7 +54,7 @@ fn detect_member(
 ) -> AppResult<()> {
     let member = reader.member();
     let base_ref = member_base_ref(context, member);
-    let worktree = prefix_records(&reader.reader().worktree_status()?, reader.prefix());
+    let worktree = reader.umbrella_records(&reader.reader().worktree_status()?);
     // List every tag once: the VCS adapter enumerates all tags and filters
     // in-memory, so a per-module `list_tags(<glob>)` would re-scan the full tag
     // set for each module (O(modules × tags)). `tag::latest` parses and filters
@@ -73,8 +73,7 @@ fn detect_member(
             changes.records.insert(module.key(), Vec::new());
             continue;
         };
-        let mut module_changes =
-            prefix_records(&reader.reader().changed_since(&spec)?, reader.prefix());
+        let mut module_changes = reader.umbrella_records(&reader.reader().changed_since(&spec)?);
         module_changes.extend(worktree.clone());
         let seeds =
             crate::plan::changed_seeds(&module_changes, &context.graph, &context.federation);

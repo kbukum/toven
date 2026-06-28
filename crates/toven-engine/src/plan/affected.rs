@@ -14,7 +14,7 @@ use std::path::Path;
 use toven_model::{DepKind, Graph, Module, ModuleKey, Workspace, WorkspaceId};
 use toven_ports::{BaselineSpec, ChangeRecord, TaskKind};
 
-use crate::federation::baseline::{MemberVcsReader, MemberVcsReaders, prefix_records};
+use crate::federation::baseline::{MemberVcsReader, MemberVcsReaders};
 
 use super::discover::Federation;
 use super::request::{PlanRequest, Selection};
@@ -76,7 +76,7 @@ fn changed_for_member(
     let baseline = reader.baseline().unwrap_or(fallback);
     let mut changed = reader.reader().changed_since(baseline)?;
     changed.extend(reader.reader().worktree_status()?);
-    Ok(prefix_records(&changed, reader.prefix()))
+    Ok(reader.umbrella_records(&changed))
 }
 
 /// Map changed records to direct seed modules before any reverse-dependent
