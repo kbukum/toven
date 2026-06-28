@@ -8,6 +8,7 @@ use toven_model::EcosystemId;
 use toven_ports::{Provider, ReleaseTarget, Reporter, VcsReader};
 
 use crate::config::Document;
+use crate::federation::resolve::PathDriverLocator;
 use crate::plan::{PlanRequest, prepare_front};
 
 use super::{ReleasePlan, bump, change, changelog, strategy};
@@ -24,7 +25,14 @@ pub fn release_plan(
     vcs: &dyn VcsReader,
     reporter: &mut dyn Reporter,
 ) -> AppResult<ReleasePlan> {
-    let context = prepare_front(&request.project_root, document, providers, reporter)?;
+    let locator = PathDriverLocator::new();
+    let context = prepare_front(
+        &request.project_root,
+        document,
+        providers,
+        &locator,
+        reporter,
+    )?;
     let targets = release_targets(&context)?;
     plan_with_context(&context, document, request, vcs, &targets)
 }

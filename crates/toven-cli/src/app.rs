@@ -42,6 +42,15 @@ where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
+    let args: Vec<std::ffi::OsString> = args.into_iter().map(Into::into).collect();
+    // The hidden `__serve` port-server entry is intercepted before clap: a driven
+    // `toven-<eco> __serve` runs the engine's framed stdio loop over the in-proc
+    // providers and never touches the reserved-verb grammar. stdout carries the
+    // frame stream; diagnostics (and any error) go to stderr.
+    if is_serve_invocation(&args) {
+        return commands::driver::serve(providers);
+    }
+
     let cli = match Cli::try_parse_from(args) {
         Ok(cli) => cli,
         Err(error) => return clap_exit(&error),
@@ -55,6 +64,20 @@ where
             code
         }
     }
+}
+
+/// The reserved hidden subcommand that puts a driver into port-server mode.
+const SERVE_SUBCOMMAND: &str = "__serve";
+
+/// Whether the argv selects the hidden `__serve` port-server entry.
+///
+/// Requires `__serve` to be the *sole* argument after the program name: the
+/// port-server loop takes no flags or positional arguments (everything is driven
+/// over the framed stdio transport), so `toven-<eco> __serve <anything else>`
+/// must fall through to clap and fail fast rather than silently starting the
+/// loop and blocking on stdin.
+fn is_serve_invocation(args: &[std::ffi::OsString]) -> bool {
+    args.len() == 2 && args[1].as_os_str() == std::ffi::OsStr::new(SERVE_SUBCOMMAND)
 }
 
 /// Render a typed wiring/bootstrap failure and map it to a process exit code.
@@ -93,8 +116,14 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
 
     match &cli.command {
         Command::Generate => commands::generate::execute(),
-        Command::Driver { action } => commands::driver::driver(action, cli.auto_install),
-        Command::Federation { action } => commands::driver::federation(action, cli.auto_install),
+        Command::Driver { action } => {
+            let project = load(providers, cli, false)?;
+            commands::driver::driver(providers, &project, action, cli.auto_install)
+        }
+        Command::Federation { action } => {
+            let project = load(providers, cli, false)?;
+            commands::driver::federation(providers, &project, action, cli.auto_install)
+        }
         Command::External(tokens) => dispatch_task(providers, cli, tokens),
         Command::Run { task, passthrough } => {
             let project = load(providers, cli, true)?;
@@ -239,4 +268,51 @@ fn warn_collisions(project: &Project, providers: &[&dyn Provider]) {
 /// Resolve a task token to a built-in [`TaskKind`] or a [`TaskKind::Custom`].
 fn intent_for(task: &str) -> TaskKind {
     TaskKind::builtin(task).unwrap_or_else(|| TaskKind::Custom(task.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SERVE_SUBCOMMAND, is_serve_invocation};
+    use std::ffi::OsString;
+
+    fn argv(tokens: &[&str]) -> Vec<OsString> {
+        tokens.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn bare_serve_token_selects_the_server_loop() {
+        assert!(is_serve_invocation(&argv(&["toven-go", SERVE_SUBCOMMAND])));
+    }
+
+    #[test]
+    fn serve_with_trailing_arguments_falls_through_to_clap() {
+        // `__serve --help` (or any extra token) must NOT start the loop: it should
+        // fall through to clap and fail fast rather than blocking on stdin.
+        assert!(!is_serve_invocation(&argv(&[
+            "toven-go",
+            SERVE_SUBCOMMAND,
+            "--help"
+        ])));
+        assert!(!is_serve_invocation(&argv(&[
+            "toven-go",
+            SERVE_SUBCOMMAND,
+            "extra"
+        ])));
+    }
+
+    #[test]
+    fn serve_not_in_first_position_is_not_a_server_loop() {
+        assert!(!is_serve_invocation(&argv(&["toven-go", "plan"])));
+        assert!(!is_serve_invocation(&argv(&[
+            "toven-go",
+            "run",
+            SERVE_SUBCOMMAND
+        ])));
+    }
+
+    #[test]
+    fn empty_or_program_only_argv_is_not_a_server_loop() {
+        assert!(!is_serve_invocation(&argv(&[])));
+        assert!(!is_serve_invocation(&argv(&["toven-go"])));
+    }
 }

@@ -25,6 +25,7 @@ pub struct FakeConfiguredAdapter {
     tasks: Vec<Task>,
     probe: ToolchainProbe,
     run_strategy: RunStrategy,
+    custom_run_strategies: std::collections::HashMap<String, RunStrategy>,
     release_target: Option<FakeReleaseTarget>,
     common: CommonEcosystemConfig,
 }
@@ -39,6 +40,7 @@ impl FakeConfiguredAdapter {
             tasks: Vec::new(),
             probe: ToolchainProbe::new("fake", "fake", vec!["--version".into()]),
             run_strategy: RunStrategy::LeafToTop,
+            custom_run_strategies: std::collections::HashMap::new(),
             release_target: None,
             common: CommonEcosystemConfig::default(),
         }
@@ -72,6 +74,20 @@ impl FakeConfiguredAdapter {
         self
     }
 
+    /// Script the run strategy returned for a specific [`TaskKind::Custom`] name.
+    ///
+    /// Lets a test prove a driver whose default ordering varies by custom task
+    /// name is mirrored faithfully (rather than collapsed onto one value).
+    #[must_use]
+    pub fn with_custom_run_strategy(
+        mut self,
+        name: impl Into<String>,
+        run_strategy: RunStrategy,
+    ) -> Self {
+        self.custom_run_strategies.insert(name.into(), run_strategy);
+        self
+    }
+
     /// Make this ecosystem publishable via the given [`FakeReleaseTarget`].
     #[must_use]
     pub fn with_release_target(mut self, target: FakeReleaseTarget) -> Self {
@@ -102,7 +118,12 @@ impl ConfiguredAdapter for FakeConfiguredAdapter {
         self.probe.clone()
     }
 
-    fn run_strategy_default(&self, _kind: &TaskKind) -> RunStrategy {
+    fn run_strategy_default(&self, kind: &TaskKind) -> RunStrategy {
+        if let TaskKind::Custom(name) = kind
+            && let Some(strategy) = self.custom_run_strategies.get(name)
+        {
+            return *strategy;
+        }
         self.run_strategy
     }
 

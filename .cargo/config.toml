@@ -1,2 +1,40 @@
 [term]
 color = "auto"
+
+[build]
+# Optional local compile cache (sccache 0.15+; install: cargo install sccache).
+# NOTE: sccache cannot cache *incremental* builds, so enabling it implies
+# CARGO_INCREMENTAL=0 to be effective. That helps cold / cross-branch builds
+# (switching branches, reviewing PRs) but slows the inner edit->rebuild loop, so
+# it is left opt-in. Do NOT combine it with Swatinem/rust-cache in CI (they
+# overlap). To enable locally:
+#   export CARGO_INCREMENTAL=0
+#   export RUSTC_WRAPPER=sccache
+# or uncomment the line below:
+# rustc-wrapper = "sccache"
+
+[alias]
+# Convenience aliases mirroring the Makefile gate.
+xtest = "nextest run --workspace --all-targets --all-features"
+xlint = "clippy --workspace --all-targets --all-features -- -D warnings"
+xdoc = "doc --workspace --no-deps --all-features"
+
+# Linking is a large fraction of the inner edit->test loop because the workspace
+# builds many small test binaries. The macOS link tuning (split-debuginfo) lives
+# in the root Cargo.toml [profile.dev] and applies automatically.
+#
+# Linux: mold is a much faster linker, but forcing it here would break every
+# cargo invocation (including `cargo install`, CodeQL autobuild, contributors
+# without mold), so it is left opt-in. Install mold (`sudo apt install mold` /
+# `brew install mold`) and uncomment:
+# [target.'cfg(target_os = "linux")']
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+# macOS: Apple's default linker (ld-prime, Xcode 15+) is already fast, so no
+# override is set by default. mold/sold do not support Mach-O. lld (from
+# `brew install llvm`) can be marginally faster; opt in per-developer by
+# uncommenting below once llvm is installed (path is for Apple Silicon; Intel
+# Homebrew uses /usr/local/...).
+# [target.aarch64-apple-darwin]
+# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/llvm/bin/ld64.lld"]

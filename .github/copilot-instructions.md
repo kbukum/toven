@@ -28,7 +28,7 @@ make check       # Canonical full gate: fmt-check, lint, test, structure, doc, d
 make fmt         # Format with rustfmt
 make fmt-check   # Check formatting without modifying
 make lint        # Clippy with -D warnings
-make test        # Workspace cargo tests
+make test        # Workspace tests via nextest + doctests (needs cargo-nextest)
 make structure   # mod.rs declare-only guard across crates/*
 make doc         # Build docs with -D warnings
 make deny        # cargo-deny (licenses, advisories, sources)

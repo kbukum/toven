@@ -58,6 +58,9 @@ jobs:
           go-version: "1.26"
           cache: false
 
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@baf1a810e98b6a3001d0d7234864ed75a17c42fb # v2.7.8
+
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov --locked --version 0.8.5
 

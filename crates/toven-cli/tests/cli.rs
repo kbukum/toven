@@ -60,3 +60,18 @@ fn execution_flags_on_introspection_verbs_are_gated_to_usage() {
     assert_eq!(run(&["--output", "jsonl", "modules"]), ExitCode::Usage);
     assert_eq!(run(&["--fail-fast", "affected", "test"]), ExitCode::Usage);
 }
+
+#[test]
+fn auto_install_on_no_op_provisioning_verbs_is_gated_to_usage() {
+    // `--auto-install` only acts on `driver list` / `federation sync`; on the
+    // verbs where it would be a silent no-op (an explicit install, or a
+    // read-only status) it is rejected rather than advertised.
+    assert_eq!(
+        run(&["--auto-install", "driver", "install", "go"]),
+        ExitCode::Usage
+    );
+    assert_eq!(
+        run(&["--auto-install", "federation", "status"]),
+        ExitCode::Usage
+    );
+}

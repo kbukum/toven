@@ -1059,7 +1059,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-errors"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "http",
  "serde",
@@ -1623,7 +1623,9 @@ dependencies = [
  "rskit-cli",
  "rskit-errors",
  "toven-cli",
+ "toven-engine",
  "toven-go",
+ "toven-model",
  "toven-ports",
 ]
 

@@ -79,6 +79,10 @@ strip = "symbols"
 
 [profile.dev]
 debug = "line-tables-only"
+# Keep debug info in the object files instead of running dsymutil on macOS; this
+# meaningfully cuts link time for the many small integration-test binaries. (A
+# no-op on Linux, where unpacked is already the default.)
+split-debuginfo = "unpacked"
 
 [profile.dev.package."*"]
 opt-level = 1

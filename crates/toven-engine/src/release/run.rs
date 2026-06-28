@@ -15,6 +15,7 @@ use toven_ports::{Provider, Reporter, VcsReader, VcsWriter};
 use super::plan::{plan_with_context, release_targets};
 use super::{ReleaseApplyOptions, ReleaseStats, release_apply};
 use crate::config::Document;
+use crate::federation::resolve::PathDriverLocator;
 use crate::plan::{PlanRequest, prepare_front};
 
 /// Plan and apply a release in one call.
@@ -35,7 +36,14 @@ pub fn release_run(
     reporter: &mut dyn Reporter,
     options: &ReleaseApplyOptions,
 ) -> AppResult<ReleaseStats> {
-    let context = prepare_front(&request.project_root, document, providers, reporter)?;
+    let locator = PathDriverLocator::new();
+    let context = prepare_front(
+        &request.project_root,
+        document,
+        providers,
+        &locator,
+        reporter,
+    )?;
     let targets = release_targets(&context)?;
     let plan = plan_with_context(&context, document, request, reader, &targets)?;
     release_apply(

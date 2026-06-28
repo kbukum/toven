@@ -41,7 +41,7 @@ impl<W: Write> HumanReporter<W> {
     /// [`Verbosity::Verbose`].
     const fn renders(level: Verbosity, event: &Event) -> bool {
         match event {
-            Event::RunStarted { .. } | Event::RunFinished { .. } => true,
+            Event::RunStarted { .. } | Event::RunFinished { .. } | Event::Warning { .. } => true,
             Event::PlanPrepared { .. } | Event::UnitFinished { .. } => {
                 !matches!(level, Verbosity::Quiet)
             }
@@ -123,6 +123,7 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
                 project,
             } => self.write_line(&format!("run {run_id}: {intent} on {project}")),
             Event::RunFinished { summary } => self.write_summary(summary),
+            Event::Warning { message } => self.write_line(&format!("warning: {message}")),
             Event::PhaseStarted { phase } => {
                 self.write_line(&format!("  phase {}: started", phase_label(*phase)))
             }
@@ -196,6 +197,20 @@ mod tests {
             reporter.emit(event).expect("emit");
         }
         String::from_utf8(reporter.into_inner()).expect("utf8")
+    }
+
+    #[test]
+    fn warning_renders_at_every_verbosity_so_skips_are_never_silent() {
+        let warning = Event::Warning {
+            message: "ecosystem 'go' skipped: no driver installed".into(),
+        };
+        for level in [Verbosity::Quiet, Verbosity::Normal, Verbosity::Verbose] {
+            let output = render_at(level, std::slice::from_ref(&warning));
+            assert_eq!(
+                output, "warning: ecosystem 'go' skipped: no driver installed\n",
+                "warning must render at {level:?}"
+            );
+        }
     }
 
     #[test]

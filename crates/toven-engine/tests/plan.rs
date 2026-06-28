@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 
 use common::eid;
 use toven_engine::config::{Document, ProjectConfig, TovenConfig};
+use toven_engine::federation::resolve::PathDriverLocator;
 use toven_engine::plan::{
     CacheMode, NullCache, PlanHost, PlanRequest, Selection, dependency_graph, plan,
 };
@@ -155,6 +156,7 @@ fn dependency_graph_does_not_require_a_schedulable_task() {
         &AbsPath::new("/repo").expect("absolute"),
         &document(),
         &providers,
+        &PathDriverLocator::new(),
         &mut reporter,
     )
     .expect("graph succeeds");

@@ -18,6 +18,10 @@ jobs:
   rust:
     name: Rust ${{ matrix.rust }}
     runs-on: ubuntu-latest
+    env:
+      # Use the nextest CI profile (retries + slow-timeout) for the
+      # real-subprocess integration tests; `make` picks this up via NEXTEST_PROFILE ?=.
+      NEXTEST_PROFILE: ci
     strategy:
       fail-fast: false
       matrix:
@@ -42,10 +46,19 @@ jobs:
           go-version: "1.26"
           cache: false
 
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@baf1a810e98b6a3001d0d7234864ed75a17c42fb # v2.7.8
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@682e7d9e49c5e653d371fc6adbda67653461378a # v2
+        with:
+          tool: cargo-nextest
+
       - name: Show tool versions
         run: |
           rustc --version
           cargo --version
+          cargo nextest --version
           go version
 
       - name: Install cargo-deny

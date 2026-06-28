@@ -34,7 +34,7 @@ Dependencies flow downward only, never upward:
 | `make check` | Canonical full gate: fmt, clippy, tests, docs, deny, structure, release build. |
 | `make fmt` | Format code. |
 | `make lint` | Clippy with denied warnings. |
-| `make test` | Workspace cargo tests. |
+| `make test` | Workspace tests via nextest, plus doctests. Requires `cargo-nextest` (`cargo install cargo-nextest`). |
 | `make coverage` | Workspace coverage gate. |
 | `make structure` | `mod.rs` declare-only guard across `crates/*`. |
 | `make smoke` | End-to-end smoke: drives the `toven-rs` app over a fixture repo (modules + plan + build). |
