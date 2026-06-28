@@ -25,9 +25,9 @@ use crate::host::{Project, new_run_id};
 
 /// A quiet [`Reporter`]: introspection prints its projection on stdout, while
 /// warnings still go to stderr so warn-and-skip diagnostics are visible.
-struct SilentReporter;
+struct QuietReporter;
 
-impl Reporter for SilentReporter {
+impl Reporter for QuietReporter {
     fn emit(&mut self, event: &Event) -> AppResult<()> {
         if let Event::Warning { message } = event {
             eprintln!("warning: {message}");
@@ -59,7 +59,7 @@ fn build_plan(providers: &[&dyn Provider], project: &Project, intent: TaskKind) 
     let cache = NullCache;
     let host = PlanHost::new(&vcs, &digest, &prober, &cache);
 
-    let mut reporter = SilentReporter;
+    let mut reporter = QuietReporter;
     plan(&request, &project.document, providers, host, &mut reporter)
 }
 
@@ -69,7 +69,7 @@ fn build_plan(providers: &[&dyn Provider], project: &Project, intent: TaskKind) 
 /// Propagates Configure/Discover/Graph failures.
 fn build_graph(providers: &[&dyn Provider], project: &Project) -> AppResult<Graph> {
     let locator = PathDriverLocator::new();
-    let mut reporter = SilentReporter;
+    let mut reporter = QuietReporter;
     dependency_graph(
         &project.project_root,
         &project.document,
