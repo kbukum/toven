@@ -31,13 +31,18 @@ pub(crate) type ConfiguredSet = BTreeMap<EcosystemId, Box<dyn ConfiguredAdapter>
 #[derive(Default)]
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) struct MemberAdapters {
-    by_member: BTreeMap<Option<MemberId>, ConfiguredSet>,
+    root: Option<ConfiguredSet>,
+    by_member: BTreeMap<MemberId, ConfiguredSet>,
 }
 
 impl MemberAdapters {
     /// Install one member's configured-adapter set.
     pub(crate) fn insert(&mut self, member: Option<MemberId>, adapters: ConfiguredSet) {
-        self.by_member.insert(member, adapters);
+        if let Some(member) = member {
+            self.by_member.insert(member, adapters);
+        } else {
+            self.root = Some(adapters);
+        }
     }
 
     /// Look up the configured adapter that owns `ecosystem` within `member`.
@@ -46,25 +51,33 @@ impl MemberAdapters {
         member: Option<&MemberId>,
         ecosystem: &EcosystemId,
     ) -> Option<&dyn ConfiguredAdapter> {
-        self.by_member
-            .get(&member.cloned())
+        self.set_for(member)
             .and_then(|set| set.get(ecosystem))
             .map(AsRef::as_ref)
     }
 
     /// Borrow one member's whole configured-adapter set.
     pub(crate) fn set_for(&self, member: Option<&MemberId>) -> Option<&ConfiguredSet> {
-        self.by_member.get(&member.cloned())
+        match member {
+            Some(member) => self.by_member.get(member),
+            None => self.root.as_ref(),
+        }
     }
 
     /// Iterate every `(member, ecosystem, adapter)` triple across the federation.
     pub(crate) fn iter(
         &self,
     ) -> impl Iterator<Item = (Option<&MemberId>, &EcosystemId, &dyn ConfiguredAdapter)> {
-        self.by_member.iter().flat_map(|(member, set)| {
-            set.iter()
-                .map(move |(ecosystem, adapter)| (member.as_ref(), ecosystem, adapter.as_ref()))
-        })
+        self.root
+            .iter()
+            .flat_map(|set| {
+                set.iter()
+                    .map(|(ecosystem, adapter)| (None, ecosystem, adapter.as_ref()))
+            })
+            .chain(self.by_member.iter().flat_map(|(member, set)| {
+                set.iter()
+                    .map(move |(ecosystem, adapter)| (Some(member), ecosystem, adapter.as_ref()))
+            }))
     }
 }
 

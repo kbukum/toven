@@ -3,11 +3,10 @@
 //! Clones absent member repos and guards present ones — the cross-repo analogue
 //! of [`provision`](super::provision)'s explicit driver install.
 //!
-//! Provisioning is **never implicit during a run** (the same
-//! supply-chain purity rule as driver install): a normal PLAN treats an absent
-//! declared member as a hard error, and this separate, opt-in surface
-//! a separate explicit member-repo provisioning surface is the only place member
-//! repos are cloned or checked out. Cloning reuses `rskit-git` directly rather
+//! Provisioning is **never implicit during a run** (the same supply-chain purity
+//! rule as driver install): a normal PLAN treats an absent declared member as a
+//! hard error, and only a separate explicit member-repo provisioning surface
+//! clones or checks out member repos. Cloning reuses `rskit-git` directly rather
 //! than introducing a separate git path; the clean-tree guardrail per present
 //! member repo reuses
 //! [`Repository::is_dirty`](rskit_git::Repository).
@@ -153,8 +152,8 @@ fn clone_member(remote: &MemberRemote) -> AppResult<()> {
         AppError::new(
             rskit_errors::ErrorCode::Internal,
             format!(
-                "failed to clone member '{}' from '{}'",
-                remote.name, remote.url
+                "failed to clone member '{}' into '{}'",
+                remote.name, remote.root
             ),
         )
         .with_cause(error)
