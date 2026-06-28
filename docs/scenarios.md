@@ -1,8 +1,6 @@
 # Toven scenarios
 
-This document describes the core runtime scenarios the CLI should make easy to inspect with `plan`, `affected`, `explain`, JSON, and JSONL output.
-
-> These are **target** scenarios for the CLI being rebuilt on the `crates/*` + `apps/*` stack; they return as the later redesign steps land.
+This document describes the core runtime scenarios the CLI makes easy to inspect with `plan`, `affected`, `explain`, human output, and JSONL output.
 
 ## Full task run
 
@@ -15,11 +13,11 @@ flowchart LR
     Plan --> Cache["cache decisions"]
     Cache --> Run["run misses"]
     Cache --> Skip["skip hits"]
-    Run --> Report["human / JSON / JSONL"]
+    Run --> Report["human / JSONL"]
     Skip --> Report
 ```
 
-A full run still uses the module graph. Toven may skip modules that are valid cache hits, but it keeps dependency order for everything that must run.
+A full run still uses the module graph. Toven skips modules that are valid cache hits, but it keeps dependency order for everything that must run.
 
 ## Affected run
 
@@ -30,10 +28,10 @@ flowchart TD
     Downstream --> AlsoRun["crate-b is affected too"]
     Direct --> Plan["plan affected modules only"]
     AlsoRun --> Plan
-    Plan --> Explain["explain baseline, files, edges, cache inputs"]
+    Plan --> Explain["inspect plan and per-unit cache verdicts"]
 ```
 
-Affected mode starts with changed files, maps them to owning modules, and adds dependent modules so downstream breakage is not missed. `toven explain` should show which baseline, files, dependency edges, and cache inputs contributed to a module decision.
+Affected mode starts with changed files, maps them to owning modules, and adds dependent modules so downstream breakage is not missed. `toven affected <task>` lists the resulting module set for a baseline, and `toven plan <task>` (with `-v`) shows the planned units and their cache verdicts. `toven explain <ecosystem:module> <task>` is a planned-unit view: it prints the unit's argv, dependencies, and persistence for one module and task.
 
 ## Wave bundling
 

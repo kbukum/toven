@@ -2,8 +2,6 @@
 
 Benchmarking is release-readiness evidence. Use it to compare Toven orchestration against the native commands it runs, and to identify any remaining output fidelity gaps.
 
-> The benchmark harness and CLI binary return alongside the `apps/*` shells as the later redesign steps land; the rules below describe how benchmarking works once the installed `toven` binary is available again.
-
 ## Rules
 
 1. Use the installed `toven` binary, not `cargo run`.
@@ -13,18 +11,29 @@ Benchmarking is release-readiness evidence. Use it to compare Toven orchestratio
 5. Separate timing, cache behavior, and output-fidelity observations.
 6. Set `TOVEN_CACHE_DIR` to an absolute run-specific directory when isolating Toven cache state.
 
-## rskit comparison matrix
+## Harness
 
-From the rskit repository root:
+The benchmark harness is `scripts/benchmark.sh`, driven through `make benchmark CASE=<case-file>`. A case file is a shell fragment (see `bench/cases/rskit.sh`) that declares the approaches under comparison, the repository scenarios, and the per-iteration reset/mutation hooks. The harness resolves the `toven` binary from `PATH`, so install it first:
 
 ```bash
-toven check --no-cache
-TOVEN_CACHE_DIR=/tmp/toven-rskit-cache toven check
-cargo check --manifest-path core/Cargo.toml --workspace
-cargo check --manifest-path contrib/Cargo.toml --workspace
+cargo install --path apps/toven --locked --force
+make benchmark CASE=bench/cases/rskit.sh
 ```
 
-`toven check --no-cache` measures Toven orchestration plus native command execution without Toven cache reads or writes. Warm `toven check` measures cache decisions and skipped work. Native Cargo checks provide the baseline for raw Cargo timing, output shape, color behavior, and stream behavior.
+Each run writes a timestamped directory under the case's `OUTPUT_DIR` (default `bench/out/<case>`) containing `results.csv` (per-iteration timings), `summary.csv` (min/median/max per scenario/approach/phase), `metadata.env` (binary, repo, and toolchain provenance), and raw per-run logs.
+
+## rskit comparison matrix
+
+The `rskit` case compares, from the vendored rskit workspace, the installed `toven` task verbs against the equivalent native Cargo and nextest invocations. Toven changed-module selection uses the global `--base <ref>` baseline (there is no `--affected` flag); `toven <task>` without a baseline plans every module:
+
+```bash
+toven test                       # plan + run every module
+toven test --base HEAD            # run only modules with local working-tree changes vs HEAD
+cargo test --workspace            # native baseline
+cargo nextest run --workspace     # native nextest baseline
+```
+
+Isolate Toven cache state with `TOVEN_CACHE_DIR=/tmp/toven-rskit-cache` (or `toven cache clean` between runs) so cache reads/writes do not contaminate cold-vs-warm timings. The native Cargo/nextest runs provide the baseline for raw timing, output shape, color behavior, and stream behavior.
 
 ## What to record
 

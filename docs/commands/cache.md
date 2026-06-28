@@ -2,8 +2,6 @@
 
 Toven stores local successful-result cache records outside the repository by default, under the platform user cache directory. Cache records are local execution evidence; they are not a remote or distributed cache.
 
-> Target behavior; returns as the redesign steps land (the CLI is being rebuilt on the `crates/*` + `apps/*` stack).
-
 The default path is workspace-specific and versioned:
 
 ```text
@@ -37,13 +35,7 @@ Workspace-local cache records live under `.toven/cache/v3` and should not be com
 
 ## Cache modes during execution
 
-Run output and JSONL cache events distinguish three execution cache states. The default state is active today; explicit per-invocation overrides (force/disable) land as the redesign steps complete.
-
-| Mode | Behavior |
-|------|----------|
-| Default | Read existing records and write fresh success records. |
-| Force | Skip cache reads, run work, and write fresh success records. |
-| Disabled | Disable cache reads and writes for that invocation. |
+Run output and JSONL cache events distinguish active cache decisions from disabled ones. Cache is controlled by `[toven.cache]` settings, per-task `cache_args`, `shared_inputs`, `persistent`, `TOVEN_CACHE_DIR`, and `[toven.cache].dir`; there are no per-invocation cache bypass flags.
 
 ## `toven cache stats`
 
@@ -92,7 +84,7 @@ Cache decisions include task inputs such as:
 
 Persistent tasks are never cached because readiness and process lifetime are runtime behavior, not reusable success records.
 
-Run output and JSONL cache events distinguish `hit`, `miss`, `forced`, and `disabled` states. Use [inspection commands](inspect.md) for detailed hit, miss, forced, or disabled reasoning for one module/task pair.
+Run output and JSONL cache events distinguish `hit`, `miss`, and `disabled` states per unit. Run a task with `-v` (or read the JSONL `cache-decided` events) to see the per-unit verdict for one module/task pair.
 
 ## Review checklist
 

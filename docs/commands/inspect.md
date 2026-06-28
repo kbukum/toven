@@ -2,53 +2,38 @@
 
 Inspection commands are read-only and should be the first step when adopting Toven in a repository.
 
-> Target behavior; returns as the redesign steps land (the CLI is being rebuilt on the `crates/*` + `apps/*` stack).
-
 ## `toven plan`
 
 Renders a reviewable execution plan without running subprocesses:
 
 ```bash
-toven plan
-toven plan --task check
-toven plan --task check --affected --base origin/main --merge-base
-toven plan --task test -- --no-capture
+toven plan check
+toven plan check --base origin/main --merge-base
+toven plan test
 ```
 
-The plan includes selected modules, dependency order, execution units, and rendered argv. With `--affected`, Toven resolves changed files first and plans only directly affected modules plus dependents. `--base` and `--merge-base` are valid only with `--affected`.
+`toven plan` renders the plan as an event stream rather than executing it: a `plan: N units in M waves` line plus the terminal run summary. Add `-v` (verbose) to also see per-phase markers and a per-unit `cache <unit>: <verdict>` line for each unit. With `--base` and/or `--merge-base`, Toven resolves changed files first and plans only directly affected modules plus dependents. It does not print argv (use `toven explain` for argv) and does not accept passthrough args.
 
 ## `toven affected`
 
-Shows changed paths and the affected module closure for a task:
+Lists the modules with a scheduled unit for a task, given a baseline:
 
 ```bash
-toven affected
-toven affected --task check
-toven affected --task check --base origin/main --merge-base
+toven affected check
+toven affected check --base origin/main --merge-base
 ```
 
-Output includes the baseline provider/OID, changed paths, and modules marked as:
-
-| Reason | Meaning |
-|--------|---------|
-| `direct` | The module owns at least one changed file. |
-| `dependent` | The module depends on a directly affected module. |
-| `global` | A shared input or path outside known module ownership invalidates broad work. |
+The output is a table of affected `ecosystem:module` refs (the directly changed modules plus their dependents). It does not currently surface the baseline OID, changed paths, or a per-module reason category.
 
 ## `toven explain <module> <task>`
 
-Explains affected and cache reasoning for one module/task pair:
+Shows the planned unit(s) for one module/task pair:
 
 ```bash
-toven explain rskit-config check
-toven explain rskit-config check --base origin/main --merge-base
-toven explain rskit-config check --force
-toven explain rskit-config check --no-cache
+toven explain rust:rskit-config check
 ```
 
-The command prints module scope, adapter, task, dependencies, affected reason, changed/global paths when present, cache state, and cache hashes. Cache state can be hit, forced, disabled, or miss with a reason. If the same module name exists in multiple scopes, explanation is printed for each matching scope.
-
-Persistent tasks report cache as disabled because they are never persisted as cache hits.
+For each matching unit the command prints a key/value block: `unit` id, `module`, `task`, `argv`, `persistent`, and `depends_on`. The module argument is an `ecosystem:module` ref, such as `rust:rskit-config`; `explain` plans every module (it does not use `--base` or `--merge-base`) and does not surface cache or affected reasoning.
 
 ## `toven modules`, `toven list`, `toven ls`
 
@@ -56,29 +41,27 @@ Lists modules discovered for a task:
 
 ```bash
 toven modules
-toven modules --task check
-toven list --task test
-toven ls --task test
+toven list
+toven ls
 ```
 
-Each module is printed as `scope/module`, with adapter, root, optional package name, and dependencies. The command is task-aware because scopes and profiles may expose different modules or task availability.
+Each discovered module is printed as a scope-qualified `ecosystem:module` ref in a table. The command takes no task argument.
 
 ## `toven graph`, `toven deps`
 
-Renders the discovered dependency graph for a task:
+Renders the discovered dependency graph:
 
 ```bash
 toven graph
-toven graph --task check
 toven graph --format dot
-toven deps --task test
+toven deps
 ```
 
-Text format prints each module and its dependencies. Overlay-derived edges are marked with `overlay`. DOT format emits a Graphviz `digraph` for visualization.
+Text format prints each module and its dependencies. DOT format emits a Graphviz `digraph` for visualization.
 
 ## Review checklist
 
-- `plan` shows exact argv and batching clearly enough to review before running.
-- `affected` makes baseline and changed paths understandable.
-- `explain` exposes enough cache key inputs to diagnose hits and misses.
+- `plan` shows the unit/wave counts and (at `-v`) per-unit cache verdicts clearly enough to review before running.
+- `affected` makes the affected module set understandable for a baseline.
+- `explain` shows the planned unit details (argv, dependencies, persistence) for a module/task.
 - `modules` and `graph` make scope-qualified module identity clear.

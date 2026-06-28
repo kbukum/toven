@@ -1,8 +1,6 @@
 # Installation
 
-Toven is currently pre-alpha and is not published to crates.io yet. Until the first alpha release, install it from a local checkout.
-
-> The CLI binary is being rebuilt: the `apps/{toven, toven-rs, toven-go}` shells return as the later redesign steps land. Today the workspace builds the library crates only (`cargo build --workspace`). The install steps below describe the intended source-install flow once the apps are in place.
+Toven is currently pre-alpha and is not published to crates.io yet. Install it from a local checkout.
 
 ## Requirements
 
@@ -16,7 +14,7 @@ Clone the repository, initialize submodules, and install the CLI binary:
 
 ```bash
 git submodule update --init --recursive
-cargo install --path . --locked --force
+cargo install --path apps/toven --locked --force
 ```
 
 Confirm that the installed binary is the one on your `PATH`:
@@ -35,10 +33,10 @@ For local development inside the Toven checkout:
 
 ```bash
 make check
-cargo run -- --help
+cargo run -p toven -- --help
 ```
 
-`cargo run` is useful while developing Toven itself. User-facing docs and benchmark evidence should use the installed `toven` binary.
+`cargo run -p toven --` is useful while developing Toven itself. User-facing docs and benchmark evidence should use the installed `toven` binary.
 
 ## Next step
 

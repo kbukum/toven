@@ -2,8 +2,6 @@
 
 Toven commands are grouped by workflow rather than listed as one flat page.
 
-> The Toven CLI runs on the hexagonal `crates/*` + `apps/*` stack. The execution (`run`/`task`/`release`), inspection (`plan`/`affected`/`explain`/`modules`/`graph`), `cache`, and `generate` verbs are wired end to end; the `driver`/`federation` verbs are stubbed pending their later redesign steps.
-
 | Topic | Commands |
 |-------|----------|
 | [Generating config](generate.md) | `toven generate` |
@@ -15,22 +13,16 @@ Toven commands are grouped by workflow rather than listed as one flat page.
 
 Most commands load `toven.toml` from the current directory. Use `--config <PATH>` to point at another config file.
 
-Task-oriented commands discover only the profiles and scopes that define or inherit the selected task. Commands that accept `--task <NAME>` default to `test`.
+Task-oriented commands take the task as a positional argument, such as `toven plan check` or `toven affected test`. `toven modules` and `toven graph` inspect the discovered workspace without a task argument.
 
 Affected commands use git changes between a baseline and the working tree:
 
 - `--base <REF>` selects a baseline ref or SHA.
 - `--merge-base` compares from the merge-base of `HEAD` and the selected baseline.
 - `project.base_ref` in `toven.toml` supplies the default baseline when no `--base` is provided.
-- Without `--base` or a configured baseline (`[project].base_ref`, or `[[members]].base_ref` under an umbrella), affected detection is a typed error rather than silently choosing a hidden default.
+- Without `--base` or `[project].base_ref`, affected detection has no baseline and fails with a `no baseline reference` error.
 
-Execution and explanation commands share cache mode states. The default state is active today; explicit per-invocation overrides land as the redesign steps complete.
-
-| Mode | Behavior |
-|------|----------|
-| default | Read cache records and write fresh success records. |
-| force | Skip cache reads, run work, and write fresh success records. |
-| disabled | Disable cache reads and writes for that invocation. |
+Cache behavior is controlled by config (`[toven.cache]` settings, per-task `cache_args`, `shared_inputs`, and `persistent`) plus `TOVEN_CACHE_DIR`; there are no cache-bypassing per-invocation flags.
 
 Passthrough args after `--` are expanded into `{args}` in configured task argv. They disable cache by default unless the task sets `cache_args = true`.
 

@@ -2,8 +2,6 @@
 
 Run a configured or adapter-provided task directly:
 
-> Target behavior; returns as the redesign steps land (the CLI is being rebuilt on the `crates/*` + `apps/*` stack).
-
 ```bash
 toven check
 toven test
@@ -39,7 +37,7 @@ Human output is the default:
 toven check --output human
 ```
 
-Human mode streams child process bytes for terminal use and reports Toven lifecycle lines such as `run:`, `done:`, `ready:`, cache hit, miss, forced, disabled states, and final timing.
+Human mode streams child process bytes for terminal use and reports Toven lifecycle lines such as `run:`, `done:`, `ready:`, cache hit, miss, disabled states, and final timing.
 
 JSONL output is intended for tools:
 

@@ -6,11 +6,9 @@ Toven is a fast, argv-first development and CI task planner for multi-module rep
 
 ## Status
 
-**Pre-alpha, mid-redesign.** The workspace is being rebuilt into a hexagonal `crates/*` + `apps/*` stack. Today only the [`toven-model`](crates/toven-model) vocabulary crate (identity, dependency graph, plan, and event types plus the pure graph algorithms) is in the workspace.
+**Pre-alpha.** The hexagonal `crates/*` + `apps/*` redesign is complete, with `toven-model`, `toven-ports`, `toven-engine`, `toven-cli`, `toven-rust`, `toven-go`, `toven-command`, `toven-testkit`, the `toven`, `toven-rs`, and `toven-go` apps, plus `examples/embed` in the workspace.
 
-The product surface below — strict configuration loading, Rust workspace discovery, dependency-aware batching, affected-module planning, command execution, cache-backed skipping, affected/cache explanation, watch-mode reruns, persistent task readiness, developer workflow inspection commands, adapter-owned default tasks, multi-manifest discovery, cross-ecosystem dependency overlays, and the `toven generate` adoption workflow — describes the **target** behavior that returns as the redesign steps land. Additional discovery adapters arrive in follow-up steps.
-
-Toven is not published to crates.io yet. Until the first alpha release, install from source after cloning the repository.
+Toven is not published to crates.io yet. Install from source after cloning the repository.
 
 ## Design
 
@@ -27,17 +25,15 @@ make check
 make coverage
 ```
 
-The workspace is mid-redesign into a hexagonal `crates/*` stack. The dependency root, [`toven-model`](crates/toven-model), provides the shared vocabulary (identity, dependency graph, plan, and event types) plus the pure graph algorithms the engine and ports build on. The CLI apps, binary smoke harness, and benchmark rehearsals return as the later redesign steps land.
+The workspace uses a hexagonal `crates/*` plus `apps/*` stack. The dependency root, [`toven-model`](crates/toven-model), provides the shared vocabulary and graph algorithms; ports, engine, adapters, CLI, apps, smoke harnesses, and benchmark rehearsals are wired end to end.
 
 Stable project documentation lives in [`docs/`](docs/). Start with [`Installation`](docs/installation.md), [`Getting started`](docs/getting-started.md), and the split [`Command reference`](docs/commands/README.md).
 
-## Configuration preview
-
-> The configuration and command surface below describes the **target** behavior returning as the redesign steps land. The strict `Document` loader, adapters, engine, and CLI apps are being rebuilt on the `crates/*` + `apps/*` stack.
+## Configuration
 
 Toven loads strict TOML from `toven.toml`. Unknown fields are rejected early, project roots are resolved relative to the config file, and command templates are validated before planning.
 
-Use `toven generate` to create an initial reviewable config. By default it prints TOML to stdout; `--write` creates `root/toven.toml`, and `--overwrite` is required before replacing an existing config. Rust generation emits ecosystem-level Cargo manifest discovery plus explicit standard Rust task argv; pass repeated `--manifest path/to/Cargo.toml` values for repositories with multiple independent manifests.
+Use `toven generate` to create an initial reviewable config. By default it prints TOML to stdout; `--write` writes `<root>/toven.toml`. Re-runs are additive: they add missing `[ecosystems.<id>]` sections, preserve existing sections and `[project]`/`[toven]`, and `--force <id>` regenerates one ecosystem section. Rust generation emits ecosystem-level Cargo manifest discovery plus standard Rust task defaults.
 
 Very small hand-written Rust configs can still rely on adapter-provided fallback Rust tasks:
 
@@ -74,26 +70,24 @@ to = { ecosystem = "rust", module = "shared-types" }
 
 Overlays are only for relationships an adapter cannot infer safely. Native Rust discovery infers local Cargo path dependencies across configured manifests.
 
-Run a task directly with `toven <task>` or `toven run <task>` when the task name matches a built-in subcommand. Successful executions write cache records under the platform user-cache directory by default (`<app-cache>/toven/<workspace-hash>/v3`); set `TOVEN_CACHE_DIR` (an absolute path) or a workspace-relative `[toven.cache].dir` to relocate them. Later runs skip modules whose exact source, dependency, task, toolchain, shared-input, and cache-format inputs still match. Use `--force` to skip cache reads while writing fresh success records, or `--no-cache` to disable reads and writes. Use `--output jsonl` to reserve stdout for stable newline-delimited run events; subprocess stdout is redirected to stderr in JSONL mode so event consumers can parse every stdout line as JSON. JSONL includes plan metadata, plan units, cache decisions, unit lifecycle, persistent readiness, and final run summaries.
+Run a task directly with `toven <task>` or `toven run <task>` when the task name matches a built-in subcommand. Successful executions write cache records under the platform user-cache directory by default (`<app-cache>/toven/<workspace-hash>/v3`); set `TOVEN_CACHE_DIR` (an absolute path) or a workspace-relative `[toven.cache].dir` to relocate them. Later runs skip modules whose exact source, dependency, task, toolchain, shared-input, and cache-format inputs still match. Use `--output jsonl` to reserve stdout for stable newline-delimited run events; subprocess stdout is redirected to stderr in JSONL mode so event consumers can parse every stdout line as JSON. JSONL serializes the typed event stream: run start/finish (with the run summary), phase markers, the `plan-prepared` event (wave and unit counts), per-unit `cache-decided` verdicts, and unit lifecycle events (start, ready, finished).
 
 Affected planning narrows a plan to modules changed since a git baseline plus their reverse dependents:
 
 ```bash
-cargo run -- plan --affected --base origin/main --merge-base
-cargo run -- affected --base origin/main --merge-base
-cargo run -- test --affected --base origin/main --merge-base
-cargo run -- test --watch
-cargo run -- run modules
-cargo run -- explain fixture-core test --base origin/main --merge-base
-cargo run -- modules
-cargo run -- graph --format dot
-cargo run -- cache stats
-cargo run -- cache clean
+toven plan test --base origin/main --merge-base
+toven affected test --base origin/main --merge-base
+toven test --base origin/main --merge-base
+toven explain rust:fixture-core test
+toven modules
+toven graph --format dot
+toven cache stats
+toven cache clean
 ```
 
-Short aliases are available for frequently used inspection commands: `toven list` / `toven ls` for modules, `toven deps` for graph, `toven cache info` for cache stats, and `toven cache clear` for cache clean.
+Short aliases are available for frequently used inspection commands: `toven list` / `toven ls` for modules and `toven deps` for graph. Cache maintenance uses `toven cache stats`, `toven cache clean`, and `toven cache path`.
 
-Set `project.base_ref` in `toven.toml` to provide a default baseline. Without `--base` or `project.base_ref`, affected detection compares `HEAD` to `HEAD` and only local staged, unstaged, and untracked changes are considered.
+Set `project.base_ref` in `toven.toml` to provide a default baseline. Affected detection requires a baseline: with neither `--base` nor `project.base_ref`, it fails with a `no baseline reference` error rather than selecting any modules.
 
 Passthrough args disable cache by default because arbitrary flags can change command semantics. For task definitions where passthrough args are deterministic and should be part of the task key, set `cache_args = true`:
 
@@ -115,8 +109,6 @@ persistent = true
 ready_output = "listening"
 ready_timeout_seconds = 30
 ```
-
-Watch mode uses filesystem events, debounces rapid saves, ignores `.git/`, `.toven/`, `target/`, and `node_modules/`, then maps changed paths directly to affected modules and reverse dependents before rerunning work.
 
 `make release-artifacts` stages the crates.io package and checksum manifest in `dist/`. CI also generates a CycloneDX SBOM and checks Sigstore tooling without publishing the crate; version-tag runs attach GitHub provenance attestations.
 
