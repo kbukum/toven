@@ -14,7 +14,7 @@
 //!   bounded RPC).
 //! - [`mod@serve`] — the driven-binary `__serve` port-server loop.
 //! - [`resolve`] — the four-way dispatch and remote-adapter resolution.
-//! - [`provision`] — the explicit `driver install` / `federation sync` surface.
+//! - [`provision`] — the explicit driver install surface.
 //! - [`members`] — umbrella `[[members]]` enumeration across repos.
 //! - [`compose`] — member-config composition + cross-member overlay/group layer.
 //! - [`identity`] — member metadata stamping on the cross-repo union.

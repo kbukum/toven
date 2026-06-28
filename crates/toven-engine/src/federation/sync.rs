@@ -6,14 +6,12 @@
 //! Provisioning is **never implicit during a run** (the same
 //! supply-chain purity rule as driver install): a normal PLAN treats an absent
 //! declared member as a hard error, and this separate, opt-in surface
-//! (`toven federation sync` / `members sync`) is the only place member repos are
-//! cloned or checked out. Cloning reuses `rskit-git` directly rather than
-//! introducing a separate git path;
-//! the clean-tree guardrail per present member repo reuses
+//! (`toven federation sync`) is the only place member repos are cloned or checked
+//! out. Cloning reuses `rskit-git` directly rather than introducing a separate
+//! git path; the clean-tree guardrail per present member repo reuses
 //! [`Repository::is_dirty`](rskit_git::Repository).
 
 use rskit_errors::{AppError, AppResult};
-use rskit_git::{CheckoutManager, Repository};
 use toven_model::AbsPath;
 
 /// Where one declared member repo is provisioned from and to.
@@ -127,7 +125,7 @@ fn guard_present(remote: &MemberRemote, allow_dirty: bool) -> AppResult<()> {
         )
         .with_cause(error)
     })?;
-    if !allow_dirty && repo.is_dirty()? {
+    if !allow_dirty && rskit_git::Repository::is_dirty(&repo)? {
         return Err(AppError::invalid_input(
             "members.worktree",
             format!(
@@ -152,7 +150,7 @@ fn clone_member(remote: &MemberRemote) -> AppResult<()> {
         .with_cause(error)
     })?;
     if let Some(reference) = &remote.checkout {
-        repo.checkout(reference, None).map_err(|error| {
+        rskit_git::CheckoutManager::checkout(&repo, reference, None).map_err(|error| {
             AppError::invalid_input(
                 "members.checkout",
                 format!(
