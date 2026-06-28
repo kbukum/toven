@@ -6,9 +6,10 @@
 //! Provisioning is **never implicit during a run** (the same
 //! supply-chain purity rule as driver install): a normal PLAN treats an absent
 //! declared member as a hard error, and this separate, opt-in surface
-//! (`toven federation sync`) is the only place member repos are cloned or checked
-//! out. Cloning reuses `rskit-git` directly rather than introducing a separate
-//! git path; the clean-tree guardrail per present member repo reuses
+//! a separate explicit member-repo provisioning surface is the only place member
+//! repos are cloned or checked out. Cloning reuses `rskit-git` directly rather
+//! than introducing a separate git path; the clean-tree guardrail per present
+//! member repo reuses
 //! [`Repository::is_dirty`](rskit_git::Repository).
 
 use rskit_errors::{AppError, AppResult};
@@ -104,6 +105,15 @@ fn sync_one(remote: &MemberRemote, allow_dirty: bool) -> AppResult<MemberSyncSta
     if remote.root.as_path().is_dir() {
         guard_present(remote, allow_dirty)?;
         return Ok(MemberSyncStatus::AlreadyPresent);
+    }
+    if remote.root.as_path().exists() {
+        return Err(AppError::invalid_input(
+            "members.root",
+            format!(
+                "member '{}' root '{}' exists but is not a directory",
+                remote.name, remote.root
+            ),
+        ));
     }
     clone_member(remote)?;
     Ok(MemberSyncStatus::Cloned)
@@ -239,5 +249,16 @@ mod tests {
 
         let error = sync_members(&[request], false).unwrap_err();
         assert!(error.to_string().contains("not a git repository"));
+    }
+
+    #[test]
+    fn present_file_at_member_root_is_rejected() {
+        let ws = toven_testkit::workspace::workspace("sync-file-root");
+        let root = ws.write_file("repos/core", b"not a directory").unwrap();
+
+        let request = MemberRemote::new("core", "unused", AbsPath::new(root).unwrap());
+
+        let error = sync_members(&[request], false).unwrap_err();
+        assert!(error.to_string().contains("not a directory"));
     }
 }

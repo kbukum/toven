@@ -151,7 +151,16 @@ pub fn open_member_vcs_readers(
             .members()
             .iter()
             .find(|placement| placement.id() == &placement_id)
-            .map_or_else(PathBuf::new, |placement| placement.prefix().to_path_buf());
+            .map(|placement| placement.prefix().to_path_buf())
+            .ok_or_else(|| {
+                AppError::new(
+                    ErrorCode::Internal,
+                    format!(
+                        "opened VCS reader group for member '{}' did not include its placement",
+                        member.member().name()
+                    ),
+                )
+            })?;
         entries.push(OpenMemberVcsReader {
             member: member.member().id().cloned(),
             prefix: member_prefix(umbrella_root.as_path(), member.discover_root().as_path())?,

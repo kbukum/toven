@@ -69,8 +69,8 @@ impl ResolvedMember {
 ///
 /// # Errors
 /// Returns a typed error when a declared member `root` escapes the umbrella root,
-/// is absent on disk (with a hint to run `toven federation sync`), or when two
-/// members resolve to the same repo root.
+/// is absent on disk (with a hint to provision or clone it), or when two members
+/// resolve to the same repo root.
 pub fn enumerate_members(
     document: &Document,
     umbrella_root: &AbsPath,
@@ -128,7 +128,7 @@ fn resolve_member_root(umbrella_root: &AbsPath, name: &str, relative: &str) -> A
         return Err(AppError::not_found(
             "members.root",
             Some(&format!(
-                "declared member '{name}' is missing at '{}'; run `toven federation sync` to provision it",
+                "declared member '{name}' is missing at '{}'; provision or clone it at the configured path",
                 joined.display()
             )),
         ));
@@ -212,7 +212,7 @@ mod tests {
         let doc = document(vec![member("core", "repos/core")]);
 
         let error = enumerate_members(&doc, &root).unwrap_err();
-        assert!(error.to_string().contains("federation sync"));
+        assert!(error.to_string().contains("provision or clone"));
     }
 
     #[test]
