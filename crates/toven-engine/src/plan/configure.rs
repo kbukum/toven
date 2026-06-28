@@ -58,10 +58,7 @@ impl MemberAdapters {
 
     /// Borrow one member's whole configured-adapter set.
     pub(crate) fn set_for(&self, member: Option<&MemberId>) -> Option<&ConfiguredSet> {
-        match member {
-            Some(member) => self.by_member.get(member),
-            None => self.root.as_ref(),
-        }
+        member.map_or(self.root.as_ref(), |member| self.by_member.get(member))
     }
 
     /// Iterate every `(member, ecosystem, adapter)` triple across the federation.
