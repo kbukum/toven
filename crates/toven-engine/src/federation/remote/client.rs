@@ -138,23 +138,31 @@ impl RpcClient {
             .map(|child| child.arm_watchdog(self.timeout));
         let outcome = codec::read_frame(&mut self.reader, MAX_FRAME_BYTES);
         let timed_out = watchdog.is_some_and(Watchdog::disarm);
-        // A watchdog kill unblocks the read either as an error or as a clean EOF at
-        // the frame boundary (`Ok(None)`); classify both as a timeout, not transport.
-        if timed_out {
-            return Err(DriverFault::Timeout);
-        }
-        match outcome {
-            Ok(value) => Ok(value),
-            // `read_frame` returns `InvalidInput` for a protocol-level malformed
-            // frame (e.g. an oversized length prefix) and `ServiceUnavailable` for
-            // a genuine transport failure (truncation, broken pipe). Preserve that
-            // distinction in the fault taxonomy instead of flattening both.
-            Err(error) => Err(if error.code() == ErrorCode::InvalidInput {
-                DriverFault::Malformed(error.message().to_string())
-            } else {
-                DriverFault::Transport(error.message().to_string())
-            }),
-        }
+        classify_frame_outcome(outcome, timed_out)
+    }
+}
+
+fn classify_frame_outcome(
+    outcome: rskit_errors::AppResult<Option<Vec<u8>>>,
+    timed_out: bool,
+) -> Result<Option<Vec<u8>>, DriverFault> {
+    // A watchdog kill unblocks the read either as an error or as a clean EOF at
+    // the frame boundary (`Ok(None)`). If a complete frame was read at the timeout
+    // boundary, prefer the successful frame instead of reporting a false timeout.
+    if timed_out && !matches!(outcome, Ok(Some(_))) {
+        return Err(DriverFault::Timeout);
+    }
+    match outcome {
+        Ok(value) => Ok(value),
+        // `read_frame` returns `InvalidInput` for a protocol-level malformed
+        // frame (e.g. an oversized length prefix) and `ServiceUnavailable` for
+        // a genuine transport failure (truncation, broken pipe). Preserve that
+        // distinction in the fault taxonomy instead of flattening both.
+        Err(error) => Err(if error.code() == ErrorCode::InvalidInput {
+            DriverFault::Malformed(error.message().to_string())
+        } else {
+            DriverFault::Transport(error.message().to_string())
+        }),
     }
 }
 
@@ -173,7 +181,9 @@ impl Drop for RpcClient {
 mod tests {
     use std::time::Duration;
 
-    use super::{DriverFault, Request, RpcClient};
+    use rskit_errors::{AppError, ErrorCode};
+
+    use super::{DriverFault, Request, RpcClient, classify_frame_outcome};
 
     /// A frame whose length prefix advertises a payload above `MAX_FRAME_BYTES`
     /// is a protocol-level malformed frame, not a transport failure, so the
@@ -198,5 +208,28 @@ mod tests {
             matches!(fault, DriverFault::Malformed(_)),
             "oversized frame must be Malformed, got {fault:?}"
         );
+    }
+
+    #[test]
+    fn completed_frame_wins_watchdog_boundary_race() {
+        let outcome = classify_frame_outcome(Ok(Some(vec![1, 2, 3])), true)
+            .expect("complete frame should not be reclassified as timeout");
+
+        assert_eq!(outcome, Some(vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn watchdog_fire_classifies_incomplete_reads_as_timeout() {
+        assert!(matches!(
+            classify_frame_outcome(Ok(None), true),
+            Err(DriverFault::Timeout)
+        ));
+        assert!(matches!(
+            classify_frame_outcome(
+                Err(AppError::new(ErrorCode::ServiceUnavailable, "pipe closed")),
+                true
+            ),
+            Err(DriverFault::Timeout)
+        ));
     }
 }
