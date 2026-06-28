@@ -37,7 +37,9 @@ use crate::plan::discover::Federation;
 /// untouched because the member already sits at the umbrella root.
 ///
 /// # Errors
-/// Propagates a [`RepoPath`] construction failure while prefixing a path.
+/// Returns an [`ErrorCode::Internal`] error when discovery emits a module
+/// workspace reference that does not exist in the member's workspace set, or
+/// propagates a [`RepoPath`] construction failure while prefixing a path.
 pub(super) fn rebase_member(
     federation: &mut Federation,
     member: &MemberId,
@@ -73,9 +75,16 @@ fn scope_workspaces(federation: &mut Federation, member: &MemberId) -> AppResult
         workspace.id = scoped;
     }
     for module in &mut federation.modules {
-        if let Some(current) = &module.workspace
-            && let Some(scoped) = remap.get(current)
-        {
+        if let Some(current) = &module.workspace {
+            let scoped = remap.get(current).ok_or_else(|| {
+                AppError::new(
+                    ErrorCode::Internal,
+                    format!(
+                        "module '{}' in member '{member}' references unknown workspace '{current}'",
+                        module.key()
+                    ),
+                )
+            })?;
             module.workspace = Some(scoped.clone());
         }
     }
@@ -264,5 +273,24 @@ mod tests {
     #[test]
     fn member_prefix_rejects_a_root_outside_the_umbrella() {
         assert!(member_prefix(Path::new("/repo"), Path::new("/elsewhere")).is_err());
+    }
+
+    #[test]
+    fn rebase_rejects_module_workspace_missing_from_member_discovery() {
+        let member = MemberId::new("billing").unwrap();
+        let mut federation = federation();
+        federation.modules[0].workspace = Some(WorkspaceId::new("missing").unwrap());
+
+        let error = rebase_member(&mut federation, &member, Path::new("repos/billing"))
+            .expect_err("unknown workspace reference is rejected");
+
+        assert!(
+            error.to_string().contains("unknown workspace 'missing'"),
+            "error should identify the missing workspace: {error}"
+        );
+        assert!(
+            error.to_string().contains("billing/rust:core"),
+            "error should identify the scoped module key: {error}"
+        );
     }
 }

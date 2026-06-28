@@ -153,8 +153,9 @@ pub(super) fn resolve(
 /// Map each active workspace id to the ecosystem and member owning it.
 ///
 /// # Errors
-/// Two active modules in different ecosystems claiming the same workspace id is
-/// an internal inconsistency (it would pick one adapter's probe arbitrarily).
+/// Two active modules with different ecosystem or member owners claiming the
+/// same workspace id is an internal inconsistency (it would pick one adapter's
+/// probe arbitrarily).
 fn active_workspaces(
     federation: &Federation,
     active: &BTreeSet<ModuleKey>,
@@ -166,12 +167,16 @@ fn active_workspaces(
         }
         if let Some(workspace) = &module.workspace {
             match workspaces.get(workspace) {
-                Some((existing, _)) if existing != &module.id.ecosystem => {
+                Some((existing_ecosystem, existing_member))
+                    if existing_ecosystem != &module.id.ecosystem
+                        || existing_member != &module.member =>
+                {
                     return Err(AppError::new(
                         rskit_errors::ErrorCode::Internal,
                         format!(
-                            "workspace '{workspace}' is claimed by ecosystems '{existing}' and '{}'",
-                            module.id.ecosystem
+                            "workspace '{workspace}' is claimed by '{}' and '{}'",
+                            workspace_owner(existing_ecosystem, existing_member.as_ref()),
+                            workspace_owner(&module.id.ecosystem, module.member.as_ref())
                         ),
                     ));
                 }
@@ -186,6 +191,13 @@ fn active_workspaces(
         }
     }
     Ok(workspaces)
+}
+
+fn workspace_owner(ecosystem: &EcosystemId, member: Option<&MemberId>) -> String {
+    member.map_or_else(
+        || ecosystem.to_string(),
+        |member| format!("{member}/{ecosystem}"),
+    )
 }
 
 /// Look up a workspace by id in the federation.
@@ -203,4 +215,45 @@ fn find_workspace<'a>(
                 format!("active module references unknown workspace '{workspace_id}'"),
             )
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use toven_model::{EcosystemId, MemberId, Module, ModuleRef, RepoPath, WorkspaceId};
+
+    use super::active_workspaces;
+    use crate::plan::discover::Federation;
+
+    fn module(member: &str, name: &str, workspace: &str) -> Module {
+        let mut module = Module::new(
+            ModuleRef::new(EcosystemId::new("rust").unwrap(), name).unwrap(),
+            RepoPath::new(format!("repos/{member}/{name}")).unwrap(),
+        );
+        module.member = Some(MemberId::new(member).unwrap());
+        module.workspace = Some(WorkspaceId::new(workspace).unwrap());
+        module
+    }
+
+    #[test]
+    fn active_workspaces_rejects_same_workspace_claimed_by_different_members() {
+        let core = module("core", "lib", "rust");
+        let services = module("services", "api", "rust");
+        let active = BTreeSet::from([core.key(), services.key()]);
+        let federation = Federation {
+            workspaces: Vec::new(),
+            modules: vec![core, services],
+            edges: Vec::new(),
+            warnings: Vec::new(),
+        };
+
+        let error = active_workspaces(&federation, &active)
+            .expect_err("workspace ownership must include the member");
+
+        assert!(
+            error.to_string().contains("core/rust") && error.to_string().contains("services/rust"),
+            "error should identify both workspace owners: {error}"
+        );
+    }
 }
