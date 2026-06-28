@@ -86,7 +86,7 @@ Generation emits config only — `[project]`, `[toven]`, and `[ecosystems.*]`:
 After writing a config, inspect it before running tasks:
 
 ```bash
-toven modules --task check
-toven graph --task check
-toven plan --task check
+toven modules
+toven graph
+toven plan check
 ```

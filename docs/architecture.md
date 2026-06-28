@@ -1,8 +1,6 @@
 # Toven architecture
 
-Toven is being rebuilt as a **hexagonal, multi-crate workspace**. The domain vocabulary sits at the center, ports define the contracts that adapters and the engine speak, and the apps are thin wiring shells. This document describes the **target topology** the redesign is converging on; the `toven-model` vocabulary, `toven-ports` contracts, `toven-engine` PLAN/APPLY spine, the `toven-rust`/`toven-go`/`toven-command` adapters, the `toven-cli` taxonomy + reporting layer, and the three `apps/*` wiring binaries are in the workspace today (alongside the dev-only `toven-testkit`), with the `crates/toven` library facade landing once a real embedding consumer needs it.
-
-> The previous single-crate `src/` tree was removed when the repository converted to this workspace. Its behavior is being re-homed into the crates below.
+Toven is a **hexagonal, multi-crate workspace**. The domain vocabulary sits at the center, ports define the contracts that adapters and the engine speak, and the apps are thin wiring shells. The workspace contains `toven-model`, `toven-ports`, `toven-engine`, `toven-cli`, `toven-rust`, `toven-go`, `toven-command`, `toven-testkit`, the `toven`, `toven-rs`, and `toven-go` apps, plus `examples/embed`.
 
 ## Workspace layout
 
@@ -15,7 +13,6 @@ crates/
   toven-go/        # Go adapter over the ports
   toven-command/   # generic command-driver adapter (out-of-proc RemoteAdapter envelope)
   toven-cli/       # CLI taxonomy, argv-first dispatch, Event-stream reporting sinks (Human/Jsonl) + exit mapping
-  toven/           # library facade that composes model + ports + engine + adapters
 apps/
   toven/           # umbrella binary (multi-ecosystem dispatch)
   toven-rs/        # Rust-focused binary
@@ -32,7 +29,7 @@ Dependencies flow **model → ports → adapters/engine → apps**, and never up
 L0  toven-model                      # foundational vocabulary + pure algorithms
 L1  toven-ports                      # trait contracts over the model
 L2  toven-rust, toven-go, toven-command, toven-engine   # adapters + orchestration over ports
-L3  toven-cli, toven                 # CLI taxonomy + library facade
+L3  toven-cli                        # CLI taxonomy
 L4  apps/{toven, toven-rs, toven-go} # thin wiring binaries
 ```
 
@@ -120,7 +117,7 @@ flowchart TD
     RenderToml --> Write[Safe root/toven.toml write]
 ```
 
-Existing configs are never replaced by default. Writes use safe temporary-file creation and an explicit overwrite path. Adapters contribute language/package specific fragments behind the generic `toven generate` workflow.
+Existing configs are never replaced wholesale. Re-runs add missing `[ecosystems.<id>]` sections, preserve existing sections and `[project]`/`[toven]`, and `--force <id>` regenerates exactly one ecosystem section. Adapters contribute language/package specific fragments behind the generic `toven generate` workflow.
 
 ## Planning, waves, and bundling
 
@@ -168,5 +165,5 @@ flowchart TD
 
 - New language/package-manager adapters are new `crates/toven-<name>` crates that implement the `toven-ports` traits — they never reach into the engine, CLI, or apps.
 - Adapter-specific config generation is contributed through `Provider::scaffold` behind the generic `toven generate` workflow.
-- Multi-ecosystem dispatch is mediated by `toven-command` (in-proc and out-of-proc `RemoteAdapter` over a stdio `toven-model` envelope).
+- Multi-ecosystem dispatch is mediated by the umbrella `toven` app and `toven-command` for out-of-process command drivers over a stdio `toven-model` envelope.
 - Shared foundational capabilities are improved in rskit generically when Toven exposes a reusable framework gap, rather than being reimplemented locally.

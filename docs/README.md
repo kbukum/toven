@@ -10,10 +10,10 @@ Stable project documentation lives here. Temporary planning notes live under `tm
 | [getting-started.md](getting-started.md) | Generate config, inspect work, run tasks, and understand first cache decisions. |
 | [commands/](commands/README.md) | Command reference split by workflow: generate, run, inspect, and cache, including cache location policy. |
 | [benchmarking.md](benchmarking.md) | Benchmark rules and the rskit comparison matrix. |
-| [product.md](product.md) | Product promise, user workflows, target command surface, and release scope. |
-| [architecture.md](architecture.md) | Target hexagonal crates/apps topology, layering rules, config/discovery/planning flow, and extension points. |
+| [product.md](product.md) | Product promise, user workflows, command surface, and release scope. |
+| [architecture.md](architecture.md) | Hexagonal crates/apps topology, layering rules, config/discovery/planning flow, and extension points. |
 | [engineering.md](engineering.md) | Development standards, validation commands, CI gates, testing, release, and docs policy. |
-| [scenarios.md](scenarios.md) | Target behavioral scenarios and examples. |
+| [scenarios.md](scenarios.md) | Behavioral scenarios and examples. |
 
 ## Planning notes
 

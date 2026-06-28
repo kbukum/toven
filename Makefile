@@ -5,7 +5,7 @@ PACKAGE_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head
 # the real-subprocess integration tests) by exporting NEXTEST_PROFILE=ci.
 NEXTEST_PROFILE ?= default
 
-.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc deny coverage smoke release-dry-run release-artifacts act-ci act-supply-chain act-release-readiness
+.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc deny coverage smoke smoke-repo benchmark release-dry-run release-artifacts act-ci act-supply-chain act-release-readiness
 
 # Canonical local/CI gate for the virtual workspace.
 check: fmt-check lint test structure doc deny release-dry-run
@@ -41,10 +41,25 @@ deny:
 coverage:
 	cargo llvm-cov --workspace --fail-under-lines 85 --fail-under-functions 80
 
-# Managed end-to-end smoke: drive the toven-rs binary over the single-rust
-# fixture (modules + plan + build). Offline; no real network access.
+# In-tree app smoke: drive the freshly-built app binaries over the committed
+# fixtures via the `apps/*/tests` integration tests — `toven-rs` runs a full
+# PLAN+APPLY, the umbrella `toven` a read-only PLAN cut, and `toven-go` the real
+# driver handshake (`federation_smoke`). The same tests run under `make test`.
+# Offline.
 smoke:
-	./scripts/smoke.sh
+	cargo nextest run --profile $(NEXTEST_PROFILE) -p toven -p toven-rs -p toven-go-app -E 'binary(/smoke$$/)'
+
+# Binary smoke over an arbitrary real repository: drive the umbrella `toven`
+# binary through `modules` + a PLAN cut (read-only, no APPLY). The repo must
+# carry its own toven.toml. Example: make smoke-repo REPO=./rskit TASK=test
+smoke-repo:
+	./scripts/smoke-repo.sh "$(REPO)" "$(TASK)"
+
+# Release-readiness benchmark: compare Toven orchestration against the native
+# commands it runs, using the installed `toven` binary. Performance claims
+# require this evidence. Example: make benchmark CASE=bench/cases/rskit.sh
+benchmark:
+	./scripts/benchmark.sh "$(CASE)"
 
 # Every crate is currently an unpublished, path-dependent library, so there is
 # nothing to publish yet. Validate workspace metadata and a release build instead.

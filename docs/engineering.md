@@ -37,9 +37,11 @@ Dependencies flow downward only, never upward:
 | `make test` | Workspace tests via nextest, plus doctests. Requires `cargo-nextest` (`cargo install cargo-nextest`). |
 | `make coverage` | Workspace coverage gate. |
 | `make structure` | `mod.rs` declare-only guard across `crates/*`. |
-| `make smoke` | End-to-end smoke: drives the `toven-rs` app over a fixture repo (modules + plan + build). |
+| `make smoke` | Run the in-tree app smokes: drive the built `toven`/`toven-rs`/`toven-go` binaries over committed fixtures (the same tests `make test`/CI run). |
+| `make smoke-repo REPO=<path> [TASK=<task>]` | Binary smoke: drives the umbrella `toven` app over an arbitrary real repo through `modules` + a PLAN cut (read-only). |
+| `make benchmark CASE=<case-file>` | Release-readiness benchmark: compares Toven against the native commands it runs, using the installed `toven` binary. |
 
-The smoke harness runs offline against a committed fixture repo; the benchmark harness returns later in the workspace redesign.
+The shipping apps carry their own in-tree end-to-end smokes that drive the real built binaries and run under `make test`/CI (`make smoke` runs just that subset directly): `apps/toven-rs/tests/smoke.rs` drives a full PLAN+APPLY, `apps/toven/tests/smoke.rs` drives a read-only PLAN cut, and `apps/toven-go/tests/federation_smoke.rs` drives the real driver handshake. `make smoke-repo` is the manual rehearsal over any caller-supplied checkout, and the benchmark harness drives the installed binary; see [benchmarking.md](benchmarking.md).
 
 Prefer validating changed modules/areas unless a broader gate is clearly necessary.
 

@@ -23,5 +23,8 @@ toven-command.workspace = true
 rskit-cli.workspace = true
 rskit-errors.workspace = true
 
+[dev-dependencies]
+toven-testkit.workspace = true
+
 [lints]
 workspace = true

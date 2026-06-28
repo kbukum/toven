@@ -3,8 +3,9 @@
 //! These exercise the argv surface that resolves before any project load — clap
 //! help/usage outcomes and the flag-applicability gate — so they are fully
 //! deterministic and need no fixture repository. Project-execution paths (PLAN /
-//! APPLY against a real workspace) are covered by the managed `make smoke`
-//! target, and the projection/parse/collision logic by the crate's unit tests.
+//! APPLY against a real workspace) are covered by the in-tree app smokes
+//! (`apps/toven/tests/smoke.rs`, `apps/toven-rs/tests/smoke.rs`), and the
+//! projection/parse/collision logic by the crate's unit tests.
 
 use rskit_cli::ExitCode;
 use toven_ports::Provider;

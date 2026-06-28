@@ -1537,6 +1537,7 @@ dependencies = [
  "toven-go",
  "toven-ports",
  "toven-rust",
+ "toven-testkit",
 ]
 
 [[package]]
@@ -1663,6 +1664,7 @@ dependencies = [
  "toven-cli",
  "toven-ports",
  "toven-rust",
+ "toven-testkit",
 ]
 
 [[package]]
