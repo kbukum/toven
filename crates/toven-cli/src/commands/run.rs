@@ -16,8 +16,11 @@ use rskit_errors::{AppError, AppResult};
 use toven_engine::apply::{ApplyOptions, ProcessCommandRunner, apply};
 use toven_engine::cache::FsContentCache;
 use toven_engine::output::UnitOutputChannel;
-use toven_engine::plan::{FsSourceDigest, PlanHost, PlanRequest, ProcessToolchainProber, plan};
+use toven_engine::plan::{
+    FsSourceDigest, PlanHost, PlanRequest, ProcessToolchainProber, Selection, plan,
+};
 use toven_engine::release::{ReleaseApplyOptions, release_run};
+use toven_engine::vcs::{BaselineFlags, BaselineStrategy};
 use toven_model::{CacheVerdict, Event, Plan, RunStats};
 use toven_ports::{CommandRunner, Provider, Reporter, TaskKind};
 
@@ -33,6 +36,7 @@ use crate::report::{WriterRawSink, exit_code};
 /// # Errors
 /// Propagates PLAN/APPLY failures and runtime construction failures. Ctrl+C is
 /// handled cooperatively by APPLY and returned as a terminal run summary.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn execute(
     providers: &[&dyn Provider],
     project: &Project,
@@ -41,6 +45,7 @@ pub(crate) fn execute(
     passthrough: Vec<String>,
     fail_fast: bool,
     plan_only: bool,
+    baseline: &BaselineFlags,
 ) -> AppResult<ExitCode> {
     let run_id = new_run_id();
     let intent_name = intent.name().to_string();
@@ -50,9 +55,11 @@ pub(crate) fn execute(
         intent,
         project.project_root.clone(),
     )
-    .with_passthrough(passthrough);
+    .with_passthrough(passthrough)
+    .with_selection(task_selection(project, baseline));
 
-    let vcs = project.open_vcs()?;
+    let opened = project.open_member_vcs(providers, baseline)?;
+    let readers = opened.readers();
     let digest = FsSourceDigest::new(&project.project_root);
     let prober = ProcessToolchainProber::new();
     let cache = FsContentCache::new(project.cache_root()?);
@@ -66,7 +73,7 @@ pub(crate) fn execute(
         project: project.document.project.name.clone(),
     })?;
 
-    let host = PlanHost::new(&vcs, &digest, &prober, &cache);
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let plan = plan(&request, &project.document, providers, host, sink)?;
 
     if plan_only {
@@ -101,6 +108,16 @@ pub(crate) fn execute(
     Ok(exit_code(&summary))
 }
 
+fn task_selection(project: &Project, baseline: &BaselineFlags) -> Selection {
+    if baseline.base.is_none() && !baseline.merge_base {
+        return Selection::All;
+    }
+    Selection::Changed(BaselineStrategy::resolve_optional(
+        baseline,
+        project.document.project.base_ref.as_deref(),
+    ))
+}
+
 /// Plan and publish a release (`toven release`).
 ///
 /// # Errors
@@ -121,7 +138,9 @@ pub(crate) fn release(
         project.project_root.clone(),
     );
 
-    let vcs = project.open_vcs()?;
+    let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
+    let readers = opened.readers();
+    let repos = opened.release_repos();
     let mut reporter = report.reporter();
     let sink: &mut dyn Reporter = reporter.as_mut();
 
@@ -135,8 +154,8 @@ pub(crate) fn release(
         &request,
         &project.document,
         providers,
-        &vcs,
-        &vcs,
+        &readers,
+        &repos,
         sink,
         &options,
     )?;
@@ -171,7 +190,7 @@ mod tests {
     use std::time::Duration;
 
     use toven_model::{
-        CacheVerdict, EcosystemId, ExecutionReadiness, ExecutionUnit, ModuleRef, Plan,
+        CacheVerdict, EcosystemId, ExecutionReadiness, ExecutionUnit, ModuleKey, ModuleRef, Plan,
     };
 
     use super::plan_summary;
@@ -179,7 +198,9 @@ mod tests {
     fn unit(id: &str, cache: CacheVerdict) -> ExecutionUnit {
         ExecutionUnit {
             id: id.to_string(),
-            module: ModuleRef::new(EcosystemId::new("rust").unwrap(), "core").unwrap(),
+            module: ModuleKey::bare(
+                ModuleRef::new(EcosystemId::new("rust").unwrap(), "core").unwrap(),
+            ),
             kind: "build".to_string(),
             workspace: None,
             argv: vec!["cargo".to_string(), "build".to_string()],

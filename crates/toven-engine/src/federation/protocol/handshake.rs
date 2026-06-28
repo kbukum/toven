@@ -1,7 +1,7 @@
 //! Protocol version negotiation and typed driver-failure classification.
 //!
-//! The umbrella requires a **MAJOR match** and tolerates additive **MINOR**
-//! differences (Decision 5). A resolved driver that fails compatibility — or
+//! Protocol version negotiation requires a **MAJOR match** and tolerates additive
+//! **MINOR** differences. A resolved driver that fails compatibility — or
 //! crashes, times out, or emits a malformed frame — is a hard PLAN error
 //! (classified by [`DriverFault`]); only an *absent* driver is warn + skip, and
 //! that distinction is made earlier, in [`resolve`](super::super::resolve).

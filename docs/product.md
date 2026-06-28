@@ -50,6 +50,10 @@ Toven uses one strict `toven.toml` with:
 - `[[overlays]]` for explicit cross-ecosystem dependency edges that native adapter metadata cannot prove.
 - `[[members]]` for multi-repo federation roots.
 
+## Multi-repo federation
+
+A `toven.toml` can describe a single repository or an **umbrella** that federates several. Each *member* is an independently runnable Toven project with its own `toven.toml`; the umbrella's `[[members]]` array names each member and its repo-relative root, and the umbrella composes them into one federated dependency graph keyed internally by `{member, module}`. The umbrella adds only cross-member `[[overlays]]`/`[groups.*]`; it never rewrites a member's own config. String references such as umbrella group entries may drop the `member/` qualifier when a bare `ecosystem:name` is unambiguous across the union. Umbrella `[[overlays]]` endpoints are structured `{ ecosystem, module }` refs today, so each endpoint must resolve unambiguously across members. Members are never provisioned implicitly — a run never clones or checks out member repos — and a declared member missing on disk (or lacking its own `toven.toml`) is a hard error until it is provisioned or cloned at the configured path. Affected and release run over the one federated graph: each member resolves its own change baseline, and a release plans federated but commits and tags per member repo. See [architecture.md](architecture.md#cross-repo-federation) for the composition flow.
+
 `toven generate` is the adoption path for new repositories. It detects each ecosystem present, renders a minimal reviewable starter config that leans on smart defaults, previews to stdout by default, and writes `<root>/toven.toml` with `--write`. Re-running is additive and idempotent: it adds only missing `[ecosystems.<id>]` sections, warns on existing ones, never touches `[project]`/`[toven]`, and preserves comments; `--force <id>` regenerates a single section.
 
 Rust generation emits ecosystem-level Cargo manifest discovery. Cargo metadata is the source of truth for Rust path dependencies; generated overlays are reserved for relationships native metadata cannot prove.

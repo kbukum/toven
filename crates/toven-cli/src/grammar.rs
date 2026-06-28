@@ -44,6 +44,7 @@ pub fn is_reserved(token: &str) -> bool {
 
 /// Execution flags that may trail a bare task name.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct TaskFlags {
     /// `--config <path>` override.
     pub config: Option<PathBuf>,
@@ -55,6 +56,10 @@ pub struct TaskFlags {
     pub explain: bool,
     /// `--fail-fast`.
     pub fail_fast: bool,
+    /// `--base <ref>`: override the changed-selection baseline reference.
+    pub base: Option<String>,
+    /// `--merge-base`: diff against `merge-base(reference, HEAD)`.
+    pub merge_base: bool,
     /// `-v`/`--verbose` repeat count.
     pub verbose: u8,
     /// `-q`/`--quiet` repeat count.
@@ -103,6 +108,8 @@ pub fn parse_task(tokens: &[String]) -> AppResult<TaskInvocation> {
             "--dry-run" => flags.dry_run = true,
             "--explain" => flags.explain = true,
             "--fail-fast" => flags.fail_fast = true,
+            "--merge-base" => flags.merge_base = true,
+            "--base" => flags.base = Some(value_for("--base", &mut iter)?),
             "-v" | "--verbose" => flags.verbose = flags.verbose.saturating_add(1),
             "-q" | "--quiet" => flags.quiet = flags.quiet.saturating_add(1),
             "--config" => flags.config = Some(PathBuf::from(value_for("--config", &mut iter)?)),
@@ -232,6 +239,15 @@ mod tests {
     #[test]
     fn unknown_flag_on_a_task_is_rejected() {
         assert!(parse_task(&tokens(&["test", "--bogus"])).is_err());
+    }
+
+    #[test]
+    fn parses_baseline_flags_on_a_bare_task() {
+        let invocation = parse_task(&tokens(&["test", "--base", "origin/main", "--merge-base"]))
+            .expect("parses");
+        assert_eq!(invocation.task, "test");
+        assert_eq!(invocation.flags.base.as_deref(), Some("origin/main"));
+        assert!(invocation.flags.merge_base);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! The clap surface: global flags, the reserved-verb command tree, and the
 //! per-verb applicability gate.
 //!
-//! Behavior-shaping flags are defined **once, globally** (cli-taxonomy Decision C)
+//! Behavior-shaping flags are defined **once, globally**
 //! and accepted before or after the verb; [`gate`] rejects a verb-specific flag
 //! used with a verb it does not apply to with a clear, typed error. The
 //! argv-first task dispatch itself stays Toven domain — clap only models the
@@ -12,6 +12,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use rskit_errors::{AppError, AppResult};
+use toven_engine::vcs::BaselineFlags;
 
 /// Event-sink output format selected by `--output`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -102,6 +103,14 @@ pub struct Cli {
     /// Stop scheduling after the first failure (task-APPLY verbs only).
     #[arg(long, global = true)]
     pub fail_fast: bool,
+    /// Changed-selection verbs only: override the diff baseline reference
+    /// (per-member under a federation; falls back to `[[members]].base_ref` /
+    /// `[project].base_ref`).
+    #[arg(long, global = true, value_name = "REF")]
+    pub base: Option<String>,
+    /// Changed-selection verbs only: diff against `merge-base(reference, HEAD)`.
+    #[arg(long, global = true)]
+    pub merge_base: bool,
     /// Increase reporter verbosity (repeatable; execution verbs only).
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
@@ -246,10 +255,21 @@ impl Cli {
     pub fn verbosity(&self) -> Verbosity {
         Verbosity::for_execution(self.verbose, self.quiet, self.explain)
     }
+
+    /// The CLI-sourced baseline selection (`--base`/`--merge-base`) threaded into
+    /// changed-selection. Empty when neither flag is given, so the engine falls
+    /// back to the configured `base_ref`.
+    #[must_use]
+    pub fn baseline_flags(&self) -> BaselineFlags {
+        let mut flags = BaselineFlags::new().with_merge_base(self.merge_base);
+        if let Some(reference) = &self.base {
+            flags = flags.with_base(reference.clone());
+        }
+        flags
+    }
 }
 
-/// Reject any verb-specific flag used with a verb it does not apply to
-/// (cli-taxonomy Decision C).
+/// Reject any verb-specific flag used with a verb it does not apply to.
 ///
 /// # Errors
 /// Returns a typed usage error naming the misused flag and the verb it belongs
@@ -325,6 +345,21 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
             ),
         ));
     }
+    // `--base`/`--merge-base` only shape changed selection, which the execution
+    // verbs and `affected` perform; other verbs would silently ignore them.
+    if (cli.base.is_some() || cli.merge_base) && !accepts_baseline(&cli.command) {
+        let flag = if cli.base.is_some() {
+            "--base"
+        } else {
+            "--merge-base"
+        };
+        return Err(AppError::invalid_input(
+            "flags",
+            format!(
+                "`{flag}` only applies to changed-selection verbs (`toven run`/`toven plan`/`toven affected`/`toven <task>`); it has no effect on `toven {verb}`"
+            ),
+        ));
+    }
     Ok(())
 }
 
@@ -344,6 +379,18 @@ const fn accepts_execution_flags(command: &Command) -> bool {
 /// no-op for them.
 const fn accepts_fail_fast(command: &Command) -> bool {
     matches!(command, Command::Run { .. } | Command::External(_))
+}
+
+/// Whether `command` performs changed selection and thus consumes the baseline
+/// flags (`--base`/`--merge-base`).
+const fn accepts_baseline(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Run { .. }
+            | Command::Plan { .. }
+            | Command::Affected { .. }
+            | Command::External(_)
+    )
 }
 
 fn only_applies(flag: &str, owner: &str, verb: &str) -> AppError {
@@ -543,6 +590,41 @@ mod tests {
             let cli = parse(args).expect("parses");
             assert!(super::gate(&cli).is_ok(), "{args:?}");
         }
+    }
+
+    #[test]
+    fn baseline_flags_accepted_on_changed_selection_verbs() {
+        for args in [
+            ["--base", "origin/main", "run", "test"].as_slice(),
+            ["--base", "origin/main", "plan", "test"].as_slice(),
+            ["--merge-base", "affected", "test"].as_slice(),
+            ["--base", "origin/main", "test"].as_slice(),
+        ] {
+            let cli = parse(args).expect("parses");
+            assert!(super::gate(&cli).is_ok(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn baseline_flags_rejected_on_other_verbs() {
+        for args in [
+            ["--base", "origin/main", "release"].as_slice(),
+            ["--merge-base", "modules"].as_slice(),
+            ["--base", "origin/main", "graph"].as_slice(),
+            ["--merge-base", "explain", "rust:app", "test"].as_slice(),
+        ] {
+            let cli = parse(args).expect("parses");
+            assert!(super::gate(&cli).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn baseline_flags_resolve_into_engine_flags() {
+        let cli =
+            parse(&["--base", "origin/main", "--merge-base", "affected", "test"]).expect("parses");
+        let flags = cli.baseline_flags();
+        assert_eq!(flags.base.as_deref(), Some("origin/main"));
+        assert!(flags.merge_base);
     }
 
     #[test]

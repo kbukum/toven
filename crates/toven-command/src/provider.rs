@@ -46,7 +46,7 @@ impl Provider for CommandProvider {
         let tasks = tasks::resolve_tasks(&config.common.tasks)?;
         // A command project that declares modules but neither tasks nor an
         // explicit `[toolchain]` has no probeable toolchain, yet its modules
-        // would still be probed in phase 6 (toolchain resolution runs before
+        // would still be probed during toolchain resolution (which runs before
         // scheduling). Reject that at the config boundary with an actionable
         // error instead of letting PLAN fail on an un-runnable degenerate probe.
         if !config.modules.is_empty() && tasks.is_empty() && config.toolchain.is_none() {

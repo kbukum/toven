@@ -42,7 +42,7 @@ struct Buffer {
 }
 
 /// Routes per-unit [`UnitOutput`] chunks to a [`RawOutputSink`] under the
-/// buffer-normal / live-persistent policy (event-report Decision C).
+/// buffer-normal / live-persistent policy.
 ///
 /// Lifecycle: [`register`](Self::register) a unit with its mode, [`push`](Self::push)
 /// chunks as they arrive (any interleaving across units is fine), then
@@ -101,7 +101,7 @@ impl<S: RawOutputSink> UnitOutputChannel<S> {
 
     /// Flush `unit_id`'s buffered block (no-op for live or output-free units).
     ///
-    /// Contract: the APPLY exec layer (step 8) must drain a unit's output before
+    /// Contract: the APPLY exec layer must drain a unit's output before
     /// calling `finish` for it. `finish` clears the unit's registered mode, so a
     /// chunk that arrives *after* finish is treated as a fresh unregistered
     /// (buffered) unit and will only be flushed by a later `finish` — callers

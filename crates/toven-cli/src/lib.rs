@@ -1,4 +1,4 @@
-//! `toven-cli` — the observability output layer (event-report Decisions A–C, step 7).
+//! `toven-cli` — the observability output layer.
 //!
 //! Layer 3 of the hexagonal architecture: the CLI-adjacent sinks that consume
 //! the engine's typed [`Event`](toven_model::Event) stream. The engine emits

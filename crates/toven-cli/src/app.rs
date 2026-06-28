@@ -13,6 +13,7 @@ use clap::error::ErrorKind;
 use rskit_cli::{ErrorRenderer, ExitCode};
 use rskit_errors::{AppError, AppResult};
 use toven_engine::plan::addressable_task_names;
+use toven_engine::vcs::BaselineFlags;
 use toven_ports::{Provider, TaskKind};
 
 use crate::flags::{Cli, Command, GraphFormat};
@@ -155,6 +156,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
                 passthrough.clone(),
                 cli.fail_fast,
                 cli.is_plan_only(),
+                &cli.baseline_flags(),
             )
         }
         Command::Plan { task } => {
@@ -168,6 +170,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
                 Vec::new(),
                 cli.fail_fast,
                 true,
+                &cli.baseline_flags(),
             )
         }
         Command::Release => {
@@ -188,7 +191,12 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
         }
         Command::Affected { task } => {
             let project = load(providers, cli, false)?;
-            commands::introspect::affected(providers, &project, intent_for(task))
+            commands::introspect::affected(
+                providers,
+                &project,
+                intent_for(task),
+                &cli.baseline_flags(),
+            )
         }
         Command::Modules => {
             let project = load(providers, cli, false)?;
@@ -228,6 +236,11 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
     let plan_only = cli.is_plan_only() || flags.dry_run || flags.explain;
     let fail_fast = cli.fail_fast || flags.fail_fast;
 
+    let mut baseline = BaselineFlags::new().with_merge_base(cli.merge_base || flags.merge_base);
+    if let Some(reference) = flags.base.clone().or_else(|| cli.base.clone()) {
+        baseline = baseline.with_base(reference);
+    }
+
     commands::run::execute(
         providers,
         &project,
@@ -236,6 +249,7 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
         invocation.passthrough,
         fail_fast,
         plan_only,
+        &baseline,
     )
 }
 

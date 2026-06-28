@@ -22,7 +22,7 @@ Affected commands use git changes between a baseline and the working tree:
 - `--base <REF>` selects a baseline ref or SHA.
 - `--merge-base` compares from the merge-base of `HEAD` and the selected baseline.
 - `project.base_ref` in `toven.toml` supplies the default baseline when no `--base` is provided.
-- Without `--base` or `project.base_ref`, affected detection compares against `HEAD`, so only staged, unstaged, and untracked local changes are considered.
+- Without `--base` or a configured baseline (`[project].base_ref`, or `[[members]].base_ref` under an umbrella), affected detection is a typed error rather than silently choosing a hidden default.
 
 Execution and explanation commands share cache mode states. The default state is active today; explicit per-invocation overrides land as the redesign steps complete.
 

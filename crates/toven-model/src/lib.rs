@@ -10,8 +10,8 @@
 //! out-of-process driver transport.
 //!
 //! ## Modules
-//! - [`identity`] — [`EcosystemId`], [`ModuleRef`], [`WorkspaceId`], [`MemberId`],
-//!   [`RepoPath`], [`AbsPath`].
+//! - [`identity`] — [`EcosystemId`], [`ModuleRef`], [`ModuleKey`], [`WorkspaceId`],
+//!   [`MemberId`], [`RepoPath`], [`AbsPath`].
 //! - [`module`] / [`edge`] / [`workspace`] — [`Module`], [`Edge`]/[`DepKind`],
 //!   [`Workspace`]/[`ToolchainTag`].
 //! - [`graph`] — [`Graph`] build/validate + wave-leveling + reverse closure.
@@ -32,7 +32,7 @@ pub use ecosystems::{CanonicalEcosystem, canonical_ecosystems};
 pub use edge::{DepKind, Edge};
 pub use event::{Event, OutputStream, Phase, RunStats, UnitOutput, UnitStatus};
 pub use graph::Graph;
-pub use identity::{AbsPath, EcosystemId, MemberId, ModuleRef, RepoPath, WorkspaceId};
+pub use identity::{AbsPath, EcosystemId, MemberId, ModuleKey, ModuleRef, RepoPath, WorkspaceId};
 pub use module::Module;
 pub use plan::{CacheVerdict, ExecutionReadiness, ExecutionUnit, Plan};
 pub use workspace::{ToolchainTag, Workspace};

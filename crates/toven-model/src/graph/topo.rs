@@ -7,7 +7,7 @@ use rskit_errors::{AppError, AppResult};
 use super::Graph;
 use crate::{
     edge::{DepKind, Edge},
-    identity::ModuleRef,
+    identity::ModuleKey,
 };
 
 impl Graph {
@@ -21,9 +21,9 @@ impl Graph {
     /// Errors if a seed is not a known module.
     pub fn closure(
         &self,
-        seeds: &BTreeSet<ModuleRef>,
+        seeds: &BTreeSet<ModuleKey>,
         include: impl Fn(DepKind) -> bool,
-    ) -> AppResult<BTreeSet<ModuleRef>> {
+    ) -> AppResult<BTreeSet<ModuleKey>> {
         for seed in seeds {
             if !self.contains(seed) {
                 return Err(AppError::invalid_input(
@@ -34,7 +34,7 @@ impl Graph {
         }
 
         let mut affected = seeds.clone();
-        let mut pending: Vec<ModuleRef> = seeds.iter().cloned().collect();
+        let mut pending: Vec<ModuleKey> = seeds.iter().cloned().collect();
         while let Some(current) = pending.pop() {
             for (dependent, kind) in self.dependents_of(&current) {
                 if !include(*kind) {
@@ -54,24 +54,22 @@ impl Graph {
     /// waves (leaf-first). The `keep` relaxation hook decides, per edge, whether
     /// it counts as an ordering constraint — `leaf-to-top` keeps intra-ecosystem
     /// edges, `unordered` drops them, and overlay edges are always kept by the
-    /// engine. Within a wave, modules are ordered by identity for determinism.
+    /// engine. Within a wave, modules are ordered by key for determinism.
     ///
     /// Errors if a kept-edge cycle remains (defensive — `build` already rejects
     /// cycles over the full edge set, and dropping edges cannot create one).
-    pub fn waves(&self, keep: impl Fn(&Edge) -> bool) -> AppResult<Vec<Vec<ModuleRef>>> {
+    pub fn waves(&self, keep: impl Fn(&Edge) -> bool) -> AppResult<Vec<Vec<ModuleKey>>> {
         self.topo_levels(keep)
     }
 
     pub(super) fn topo_levels(
         &self,
         keep: impl Fn(&Edge) -> bool,
-    ) -> AppResult<Vec<Vec<ModuleRef>>> {
-        let mut remaining: BTreeMap<ModuleRef, usize> = self
-            .modules()
-            .map(|module| (module.id.clone(), 0))
-            .collect();
-        let mut kept_dependents: BTreeMap<ModuleRef, Vec<ModuleRef>> = BTreeMap::new();
-        let mut seen_pairs: BTreeSet<(ModuleRef, ModuleRef)> = BTreeSet::new();
+    ) -> AppResult<Vec<Vec<ModuleKey>>> {
+        let mut remaining: BTreeMap<ModuleKey, usize> =
+            self.modules().map(|module| (module.key(), 0)).collect();
+        let mut kept_dependents: BTreeMap<ModuleKey, Vec<ModuleKey>> = BTreeMap::new();
+        let mut seen_pairs: BTreeSet<(ModuleKey, ModuleKey)> = BTreeSet::new();
 
         for edge in self.edges() {
             if !keep(edge) {
@@ -89,7 +87,7 @@ impl Graph {
                 .push(edge.from.clone());
         }
 
-        let mut ready: BTreeSet<ModuleRef> = remaining
+        let mut ready: BTreeSet<ModuleKey> = remaining
             .iter()
             .filter(|(_, count)| **count == 0)
             .map(|(reference, _)| reference.clone())
@@ -120,7 +118,7 @@ impl Graph {
         if !remaining.is_empty() {
             let cycle = remaining
                 .keys()
-                .map(ModuleRef::to_string)
+                .map(ModuleKey::to_string)
                 .collect::<Vec<_>>()
                 .join(", ");
             return Err(AppError::invalid_input(
@@ -139,26 +137,28 @@ mod tests {
     use crate::{
         edge::{DepKind, Edge},
         graph::Graph,
-        identity::{EcosystemId, ModuleRef, RepoPath},
+        identity::{EcosystemId, ModuleKey, RepoPath},
         module::Module,
     };
 
-    fn module_ref(ecosystem: &str, name: &str) -> ModuleRef {
-        ModuleRef::new(EcosystemId::new(ecosystem).unwrap(), name).unwrap()
+    fn key(ecosystem: &str, name: &str) -> ModuleKey {
+        ModuleKey::bare(
+            crate::identity::ModuleRef::new(EcosystemId::new(ecosystem).unwrap(), name).unwrap(),
+        )
     }
 
     fn module(ecosystem: &str, name: &str) -> Module {
-        Module::new(module_ref(ecosystem, name), RepoPath::new(name).unwrap())
+        Module::new(key(ecosystem, name).module, RepoPath::new(name).unwrap())
     }
 
-    fn edge(from: ModuleRef, to: ModuleRef, kind: DepKind) -> Edge {
+    fn edge(from: ModuleKey, to: ModuleKey, kind: DepKind) -> Edge {
         Edge::new(from, to, kind)
     }
 
     #[test]
     fn build_rejects_cycle() {
-        let a = module_ref("rust", "a");
-        let b = module_ref("rust", "b");
+        let a = key("rust", "a");
+        let b = key("rust", "b");
         let result = Graph::build(
             vec![module("rust", "a"), module("rust", "b")],
             vec![
@@ -171,7 +171,7 @@ mod tests {
 
     #[test]
     fn build_rejects_self_dependency() {
-        let a = module_ref("rust", "a");
+        let a = key("rust", "a");
         let result = Graph::build(
             vec![module("rust", "a")],
             vec![edge(a.clone(), a, DepKind::Normal)],
@@ -184,8 +184,8 @@ mod tests {
         let result = Graph::build(
             vec![module("rust", "a")],
             vec![edge(
-                module_ref("rust", "a"),
-                module_ref("rust", "missing"),
+                key("rust", "a"),
+                key("rust", "missing"),
                 DepKind::Normal,
             )],
         );
@@ -201,11 +201,7 @@ mod tests {
     #[test]
     fn waves_order_dependencies_first() {
         // a -> b -> c  (a depends on b depends on c)
-        let (a, b, c) = (
-            module_ref("rust", "a"),
-            module_ref("rust", "b"),
-            module_ref("rust", "c"),
-        );
+        let (a, b, c) = (key("rust", "a"), key("rust", "b"), key("rust", "c"));
         let graph = Graph::build(
             vec![
                 module("rust", "a"),
@@ -225,11 +221,7 @@ mod tests {
 
     #[test]
     fn relaxation_collapses_to_single_wave() {
-        let (a, b, c) = (
-            module_ref("rust", "a"),
-            module_ref("rust", "b"),
-            module_ref("rust", "c"),
-        );
+        let (a, b, c) = (key("rust", "a"), key("rust", "b"), key("rust", "c"));
         let graph = Graph::build(
             vec![
                 module("rust", "a"),
@@ -252,9 +244,9 @@ mod tests {
     fn closure_respects_dep_kind() {
         // app --Dev--> lib ; downstream --Normal--> lib
         let (app, lib, downstream) = (
-            module_ref("rust", "app"),
-            module_ref("rust", "lib"),
-            module_ref("rust", "downstream"),
+            key("rust", "app"),
+            key("rust", "lib"),
+            key("rust", "downstream"),
         );
         let graph = Graph::build(
             vec![
@@ -285,7 +277,7 @@ mod tests {
     #[test]
     fn closure_spans_ecosystems_via_overlay() {
         // go:api --Overlay--> rust:shared (a Go module depends on a Rust module)
-        let (api, shared) = (module_ref("go", "api"), module_ref("rust", "shared"));
+        let (api, shared) = (key("go", "api"), key("rust", "shared"));
         let graph = Graph::build(
             vec![module("go", "api"), module("rust", "shared")],
             vec![edge(api.clone(), shared.clone(), DepKind::Overlay)],
@@ -301,7 +293,7 @@ mod tests {
     #[test]
     fn closure_rejects_unknown_seed() {
         let graph = Graph::build(vec![module("rust", "a")], vec![]).unwrap();
-        let result = graph.closure(&BTreeSet::from([module_ref("rust", "ghost")]), |_| true);
+        let result = graph.closure(&BTreeSet::from([key("rust", "ghost")]), |_| true);
         assert!(result.is_err());
     }
 }

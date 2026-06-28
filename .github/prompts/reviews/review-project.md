@@ -1,6 +1,6 @@
 # Review project
 
-Standing, re-runnable **whole-project audit**, independent of any diff. Use it periodically, before a release, when onboarding to a crate, or whenever you want assurance the tree as a whole still honors the baseline. It sequences the same six focused passes in [`reviews/`](./) but over the existing code rather than a change set.
+Standing, re-runnable **whole-project audit**, independent of any diff. Use it periodically, before a release, when onboarding to a crate, or whenever you want assurance the tree as a whole still honors the baseline. It sequences the same seven focused passes in [`reviews/`](./) but over the existing code rather than a change set.
 
 ## Run this in a separate, clean-context agent
 
@@ -31,6 +31,7 @@ Work the focused files top to bottom; each carries a "Project mode" scope note d
 4. [`03-quality.md`](./03-quality.md) — dead code, lingering compatibility shims, outdated patterns, style gates.
 5. [`04-tests-tdd.md`](./04-tests-tdd.md) — coverage of behavior and failure paths, fixtures vs. inline TOML, stranded doubles, determinism.
 6. [`05-docs-supply-chain.md`](./05-docs-supply-chain.md) — docs policy (`tmp/` refs, hard-wrapping), Conventional Commits, `Cargo.lock`, rskit pin/submodule parity, `cargo-deny`, SHA-pinned actions.
+7. [`06-comments-rustdoc.md`](./06-comments-rustdoc.md) — sweep all source prose: comments and `///` docs describe the current code, not plans/history; rewrite or delete the rest.
 
 When you only need one lens across the project (e.g. a standalone security or TDD sweep), run that focused file directly with its "Project mode" note.
 

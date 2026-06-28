@@ -61,13 +61,28 @@ impl BaselineStrategy {
         flags: &BaselineFlags,
         project_base_ref: Option<&str>,
     ) -> AppResult<BaselineSpec> {
-        let reference = flags.base.as_deref().or(project_base_ref).ok_or_else(|| {
+        Self::resolve_optional(flags, project_base_ref).ok_or_else(|| {
             AppError::invalid_input(
                 "base_ref",
-                "no baseline reference: pass --base <ref> or set [project].base_ref",
+                "no baseline reference: pass --base <ref> or set [project].base_ref / [[members]].base_ref",
             )
-        })?;
-        Ok(if flags.merge_base {
+        })
+    }
+
+    /// Resolve like [`resolve`](Self::resolve) but yield `None` when neither the
+    /// flags nor config name a reference, instead of erroring.
+    ///
+    /// Opening the per-member reader set must not force a baseline: a single-repo
+    /// `build` planning every module (`Selection::All`) never consults one, so the
+    /// missing-reference error belongs at the point a changed-selection actually
+    /// consumes the baseline — not at open time.
+    #[must_use]
+    pub fn resolve_optional(
+        flags: &BaselineFlags,
+        project_base_ref: Option<&str>,
+    ) -> Option<BaselineSpec> {
+        let reference = flags.base.as_deref().or(project_base_ref)?;
+        Some(if flags.merge_base {
             BaselineSpec::merge_base(reference)
         } else {
             BaselineSpec::explicit(reference)
@@ -110,5 +125,6 @@ mod tests {
         let error = BaselineStrategy::resolve(&BaselineFlags::new(), None)
             .expect_err("no reference available");
         assert!(error.message().contains("no baseline reference"));
+        assert!(error.message().contains("[[members]].base_ref"));
     }
 }

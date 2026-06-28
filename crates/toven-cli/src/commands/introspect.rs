@@ -1,5 +1,5 @@
 //! Introspection verbs: `modules`/`list`, `graph`/`deps`, `affected`, and
-//! `explain` (cli-taxonomy Decision D).
+//! `explain`.
 //!
 //! `affected` and `explain` are thin projections over one immutable [`Plan`].
 //! The shared [`build_plan`] runs the PLAN spine once with caching disabled
@@ -14,9 +14,10 @@ use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult};
 use toven_engine::federation::resolve::PathDriverLocator;
 use toven_engine::plan::{
-    CacheMode, FsSourceDigest, NullCache, PlanHost, PlanRequest, ProcessToolchainProber,
+    CacheMode, FsSourceDigest, NullCache, PlanHost, PlanRequest, ProcessToolchainProber, Selection,
     dependency_graph, plan,
 };
+use toven_engine::vcs::{BaselineFlags, BaselineStrategy};
 use toven_model::{Event, Graph, Plan};
 use toven_ports::{Provider, Reporter, TaskKind};
 
@@ -44,20 +45,28 @@ impl Reporter for QuietReporter {
 ///
 /// # Errors
 /// Propagates PLAN-spine failures (configuration, discovery, graph, scheduling).
-fn build_plan(providers: &[&dyn Provider], project: &Project, intent: TaskKind) -> AppResult<Plan> {
+fn build_plan(
+    providers: &[&dyn Provider],
+    project: &Project,
+    intent: TaskKind,
+    baseline: &BaselineFlags,
+    selection: Selection,
+) -> AppResult<Plan> {
     let request = PlanRequest::new(
         new_run_id(),
         project.document.project.name.clone(),
         intent,
         project.project_root.clone(),
     )
-    .with_cache_mode(CacheMode::Disabled);
+    .with_cache_mode(CacheMode::Disabled)
+    .with_selection(selection);
 
-    let vcs = project.open_vcs()?;
+    let opened = project.open_member_vcs(providers, baseline)?;
+    let readers = opened.readers();
     let digest = FsSourceDigest::new(&project.project_root);
     let prober = ProcessToolchainProber::new();
     let cache = NullCache;
-    let host = PlanHost::new(&vcs, &digest, &prober, &cache);
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
 
     let mut reporter = QuietReporter;
     plan(&request, &project.document, providers, host, &mut reporter)
@@ -97,8 +106,13 @@ pub(crate) fn affected(
     providers: &[&dyn Provider],
     project: &Project,
     intent: TaskKind,
+    baseline: &BaselineFlags,
 ) -> AppResult<ExitCode> {
-    let plan = build_plan(providers, project, intent)?;
+    let selection = Selection::Changed(BaselineStrategy::resolve_optional(
+        baseline,
+        project.document.project.base_ref.as_deref(),
+    ));
+    let plan = build_plan(providers, project, intent, baseline, selection)?;
     print_module_table("Affected", plan_module_names(&plan));
     Ok(ExitCode::Success)
 }
@@ -132,7 +146,13 @@ pub(crate) fn explain(
     module: &str,
     intent: TaskKind,
 ) -> AppResult<ExitCode> {
-    let plan = build_plan(providers, project, intent)?;
+    let plan = build_plan(
+        providers,
+        project,
+        intent,
+        &BaselineFlags::new(),
+        Selection::All,
+    )?;
     let mut matched = 0_usize;
     for unit in plan
         .units
@@ -172,7 +192,7 @@ fn print_module_table(title: &str, modules: Vec<String>) {
 fn graph_module_names(graph: &Graph) -> Vec<String> {
     graph
         .modules()
-        .map(|module| module.id.to_string())
+        .map(|module| module.key().to_string())
         .collect()
 }
 
@@ -192,9 +212,13 @@ fn plan_module_names(plan: &Plan) -> Vec<String> {
 fn render_graph_text(graph: &Graph) -> String {
     let mut out = String::new();
     for module in graph.modules() {
-        out.push_str(&module.id.to_string());
+        out.push_str(&module.key().to_string());
         out.push('\n');
-        for edge in graph.edges().iter().filter(|edge| edge.from == module.id) {
+        for edge in graph
+            .edges()
+            .iter()
+            .filter(|edge| edge.from == module.key())
+        {
             out.push_str("  -> ");
             out.push_str(&edge.to.to_string());
             out.push('\n');
@@ -208,7 +232,7 @@ fn render_graph_dot(graph: &Graph) -> String {
     let mut out = String::from("digraph toven {\n");
     for module in graph.modules() {
         out.push_str("  \"");
-        out.push_str(&dot_id(&module.id.to_string()));
+        out.push_str(&dot_id(&module.key().to_string()));
         out.push_str("\";\n");
     }
     for edge in graph.edges() {
@@ -237,7 +261,7 @@ fn dot_id(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use toven_model::{DepKind, EcosystemId, Edge, Graph, Module, ModuleRef, RepoPath};
+    use toven_model::{DepKind, EcosystemId, Edge, Graph, MemberId, Module, ModuleRef, RepoPath};
 
     use super::{dot_id, graph_module_names, render_graph_dot, render_graph_text};
 
@@ -257,9 +281,26 @@ mod tests {
         .expect("valid graph")
     }
 
+    fn federated_graph() -> Graph {
+        let mut core = module("core");
+        core.member = Some(MemberId::new("core").unwrap());
+        let mut app = module("app");
+        app.member = Some(MemberId::new("gateway").unwrap());
+        let edge = Edge::new(app.key(), core.key(), DepKind::Overlay);
+        Graph::build(vec![core, app], vec![edge]).expect("valid federated graph")
+    }
+
     #[test]
     fn module_names_are_sorted_and_deduplicated() {
         assert_eq!(graph_module_names(&graph()), vec!["rust:app", "rust:core"]);
+    }
+
+    #[test]
+    fn module_names_include_member_scope_when_present() {
+        assert_eq!(
+            graph_module_names(&federated_graph()),
+            vec!["core/rust:core", "gateway/rust:app"]
+        );
     }
 
     #[test]
@@ -270,11 +311,24 @@ mod tests {
     }
 
     #[test]
+    fn graph_text_uses_member_scoped_node_names() {
+        let rendered = render_graph_text(&federated_graph());
+        assert!(rendered.contains("gateway/rust:app"));
+        assert!(rendered.contains("  -> core/rust:core"));
+    }
+
+    #[test]
     fn graph_dot_emits_a_digraph_with_directed_edges() {
         let rendered = render_graph_dot(&graph());
         assert!(rendered.starts_with("digraph toven {"));
         assert!(rendered.contains("\"rust:app\" -> \"rust:core\";"));
         assert!(rendered.trim_end().ends_with('}'));
+    }
+
+    #[test]
+    fn graph_dot_uses_member_scoped_node_names() {
+        let rendered = render_graph_dot(&federated_graph());
+        assert!(rendered.contains("\"gateway/rust:app\" -> \"core/rust:core\";"));
     }
 
     #[test]

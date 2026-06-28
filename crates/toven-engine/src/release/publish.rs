@@ -24,7 +24,8 @@ use super::ReleaseStats;
 const MAX_RATE_LIMIT_WAIT: Duration = Duration::from_mins(2);
 
 /// One resolved unit of publish work, already ordered for deterministic publish.
-pub(super) struct PublishItem<'a> {
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) struct PublishItem<'a> {
     /// Module to publish.
     pub(super) module: &'a Module,
     /// Ecosystem release target for the module.
@@ -41,7 +42,8 @@ pub(super) struct PublishItem<'a> {
 /// without a publish attempt. `AlreadyPublished` from a live attempt (a resume
 /// race) is also treated as a resume-safe skip. `RateLimited` is retried within
 /// `retry_budget`; an exhausted budget surfaces as a typed error.
-pub(super) fn run(
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn run(
     items: &[PublishItem<'_>],
     retry_budget: usize,
     stats: &mut ReleaseStats,
@@ -111,7 +113,8 @@ fn rate_limit_exhausted(item: &PublishItem<'_>, waits: usize) -> AppError {
         ErrorCode::Internal,
         format!(
             "publishing '{}@{}' exhausted the rate-limit retry budget after {waits} wait(s)",
-            item.module.id, item.version
+            item.module.key(),
+            item.version
         ),
     )
 }

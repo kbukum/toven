@@ -1,4 +1,4 @@
-//! Load-time task-name / reserved-word collision detection (cli-taxonomy Decision B).
+//! Load-time task-name / reserved-word collision detection.
 //!
 //! Argv-first dispatch shadows a task whose name equals a reserved built-in word:
 //! `toven <name>` runs the built-in, and the task is reachable only via `toven run

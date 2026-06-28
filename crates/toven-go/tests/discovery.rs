@@ -86,8 +86,8 @@ fn go_work_groups_members_into_one_workspace_with_an_edge() {
 
     assert_eq!(response.edges.len(), 1);
     let edge = &response.edges[0];
-    assert_eq!(edge.from, module_ref("app"));
-    assert_eq!(edge.to, module_ref("core"));
+    assert_eq!(edge.from.module, module_ref("app"));
+    assert_eq!(edge.to.module, module_ref("core"));
     assert_eq!(edge.kind, DepKind::Normal);
 
     // A go.work grouping keys its blast radius off the workspace-level
@@ -121,8 +121,8 @@ fn versioned_modules_keep_distinct_names_instead_of_collapsing_onto_v_major() {
     // Edges are keyed on the full module path, so the versioned require resolves.
     assert_eq!(response.edges.len(), 1);
     let edge = &response.edges[0];
-    assert_eq!(edge.from, module_ref("alpha"));
-    assert_eq!(edge.to, module_ref("beta"));
+    assert_eq!(edge.from.module, module_ref("alpha"));
+    assert_eq!(edge.to.module, module_ref("beta"));
     assert_eq!(edge.kind, DepKind::Normal);
 }
 

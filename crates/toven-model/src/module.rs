@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::identity::{MemberId, ModuleRef, RepoPath, WorkspaceId};
+use crate::identity::{MemberId, ModuleKey, ModuleRef, RepoPath, WorkspaceId};
 
 /// A discovered module, independent of language-specific manifests.
 ///
@@ -52,6 +52,16 @@ impl Module {
             source_patterns: Vec::new(),
             resource_group: None,
         }
+    }
+
+    /// The graph key for this module: its identity scoped by its `member`.
+    ///
+    /// `member` is `None` for a single-repo module, so the key renders and orders
+    /// identically to its [`ModuleRef`] there; under a cross-repo umbrella the
+    /// member qualifier keeps two members' same `ecosystem:name` distinct.
+    #[must_use]
+    pub fn key(&self) -> ModuleKey {
+        ModuleKey::new(self.member.clone(), self.id.clone())
     }
 }
 

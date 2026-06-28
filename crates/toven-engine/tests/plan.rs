@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 
 use common::eid;
 use toven_engine::config::{Document, ProjectConfig, TovenConfig};
+use toven_engine::federation::MemberVcsReaders;
 use toven_engine::federation::resolve::PathDriverLocator;
 use toven_engine::plan::{
     CacheMode, NullCache, PlanHost, PlanRequest, Selection, dependency_graph, plan,
@@ -163,8 +164,8 @@ fn dependency_graph_does_not_require_a_schedulable_task() {
 
     assert_eq!(graph.len(), 2);
     assert_eq!(graph.edges().len(), 1);
-    assert_eq!(graph.edges()[0].from, mref("rust", "app"));
-    assert_eq!(graph.edges()[0].to, mref("rust", "errors"));
+    assert_eq!(graph.edges()[0].from.module, mref("rust", "app"));
+    assert_eq!(graph.edges()[0].to.module, mref("rust", "errors"));
 }
 
 #[test]
@@ -177,7 +178,8 @@ fn plans_full_federation_into_leaf_first_waves() {
     let cache = NullCache;
     let mut reporter = RecordingReporter::new();
 
-    let host = PlanHost::new(&vcs, &digest, &prober, &cache);
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let plan = plan(
         &request(TaskKind::Test),
         &document(),
@@ -225,7 +227,8 @@ fn emits_phase_and_plan_events_in_order() {
     let cache = NullCache;
     let mut reporter = RecordingReporter::new();
 
-    let host = PlanHost::new(&vcs, &digest, &prober, &cache);
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
     plan(
         &request(TaskKind::Test),
         &document(),
@@ -279,7 +282,8 @@ fn immutable_plan_round_trips_through_serde() {
     let cache = NullCache;
     let mut reporter = RecordingReporter::new();
 
-    let host = PlanHost::new(&vcs, &digest, &prober, &cache);
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let plan = plan(
         &request(TaskKind::Test),
         &document(),
@@ -308,7 +312,8 @@ fn disabled_cache_skips_unit_key_so_unreadable_shared_input_never_aborts_plan() 
     let cache = NullCache;
     let mut reporter = RecordingReporter::new();
 
-    let host = PlanHost::new(&vcs, &digest, &prober, &cache);
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let request = request(TaskKind::Test).with_cache_mode(CacheMode::Disabled);
     let plan = plan(&request, &document(), &providers, host, &mut reporter).expect("plan succeeds");
 
@@ -329,7 +334,8 @@ fn force_mode_marks_every_unit_forced() {
     let cache = NullCache;
     let mut reporter = RecordingReporter::new();
 
-    let host = PlanHost::new(&vcs, &digest, &prober, &cache);
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let request = request(TaskKind::Test).with_cache_mode(CacheMode::Force);
     let plan = plan(&request, &document(), &providers, host, &mut reporter).expect("plan succeeds");
 
@@ -354,10 +360,11 @@ fn changed_selection_restricts_active_units() {
     let cache = NullCache;
     let mut reporter = RecordingReporter::new();
 
-    let host = PlanHost::new(&vcs, &digest, &prober, &cache);
-    let request = request(TaskKind::Test).with_selection(Selection::Changed(
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let request = request(TaskKind::Test).with_selection(Selection::Changed(Some(
         toven_ports::BaselineSpec::explicit("main"),
-    ));
+    )));
     let plan = plan(&request, &document(), &providers, host, &mut reporter).expect("plan succeeds");
 
     let mut ids: Vec<&str> = plan.units.iter().map(|unit| unit.id.as_str()).collect();
@@ -376,7 +383,8 @@ fn cache_keys_are_deterministic_and_drive_hits() {
     // First run: capture the deterministic content keys the plan queries.
     let recording = RecordingCacheStore::new();
     let mut reporter = RecordingReporter::new();
-    let host = PlanHost::new(&vcs, &digest, &prober, &recording);
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &recording);
     plan(
         &request(TaskKind::Test),
         &document(),
@@ -392,7 +400,8 @@ fn cache_keys_are_deterministic_and_drive_hits() {
     // and turn exactly that unit into a hit.
     let cache = FakeCacheStore::new().with_key(keys[0].clone());
     let mut reporter = RecordingReporter::new();
-    let host = PlanHost::new(&vcs, &digest, &prober, &cache);
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let plan = plan(
         &request(TaskKind::Test),
         &document(),

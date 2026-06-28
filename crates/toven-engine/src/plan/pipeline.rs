@@ -1,12 +1,12 @@
-//! The PLAN pipeline: drive phases 2–7 and emit PHASE/PLAN events → immutable `Plan`.
+//! The PLAN pipeline: drive the Configure→Schedule phases and emit PHASE/PLAN events → immutable `Plan`.
 //!
-//! Load (phase 1) ran in [`config`](crate::config) before this entry. The pipeline
+//! Load ran in [`config`](crate::config) before this entry. The pipeline
 //! configures adapters, discovers the full federation, builds + semantically
 //! validates the graph, resolves the active set and per-workspace toolchains, then
 //! schedules the federated waves and bakes a static cache verdict into every unit.
 
 use rskit_errors::AppResult;
-use toven_model::{Event, ExecutionUnit, ModuleRef, Phase, Plan};
+use toven_model::{Event, ExecutionUnit, ModuleKey, Phase, Plan};
 use toven_ports::{Provider, Reporter};
 
 use crate::config::Document;
@@ -67,7 +67,7 @@ pub fn plan(
     reporter.emit(&Event::PhaseStarted {
         phase: Phase::Schedule,
     })?;
-    let active_list: Vec<ModuleRef> = active.iter().cloned().collect();
+    let active_list: Vec<ModuleKey> = active.iter().cloned().collect();
     let scheduled = schedule::schedule(
         request,
         &context.federation,
@@ -105,7 +105,7 @@ fn decide_cache(
     reporter: &mut dyn Reporter,
 ) -> AppResult<Vec<ExecutionUnit>> {
     let adjacency = cache::forward_adjacency(graph);
-    let unit_modules: Vec<ModuleRef> = scheduled
+    let unit_modules: Vec<ModuleKey> = scheduled
         .units
         .iter()
         .map(|planned| planned.module.clone())
@@ -114,7 +114,7 @@ fn decide_cache(
     let needed_modules: Vec<toven_model::Module> = federation
         .modules
         .iter()
-        .filter(|module| needed.contains(&module.id))
+        .filter(|module| needed.contains(&module.key()))
         .cloned()
         .collect();
     let hashes = cache::source_hashes(&needed_modules, host.digest)?;

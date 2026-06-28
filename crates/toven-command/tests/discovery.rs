@@ -72,8 +72,8 @@ fn depends_on_yields_a_normal_edge() {
 
     assert_eq!(response.edges.len(), 1);
     let edge = &response.edges[0];
-    assert_eq!(edge.from, module_ref("site"));
-    assert_eq!(edge.to, module_ref("api"));
+    assert_eq!(edge.from.module, module_ref("site"));
+    assert_eq!(edge.to.module, module_ref("api"));
     assert_eq!(edge.kind, DepKind::Normal);
 }
 

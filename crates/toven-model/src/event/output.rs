@@ -1,6 +1,6 @@
 //! Raw child output vocabulary: [`OutputStream`] and [`UnitOutput`].
 //!
-//! Carried on a separate channel from [`Event`](crate::event::Event) (Decision C):
+//! Carried on a separate channel from [`Event`](crate::event::Event):
 //! coarse-grained and not part of the typed event union, so high-throughput build
 //! output never pays per-line (de)serialization.
 

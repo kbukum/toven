@@ -37,7 +37,7 @@ fn record_from_status(entry: StatusEntry) -> ChangeRecord {
 /// Mixed-resets the index to `HEAD` (unstaging the release writes) then checks
 /// the dirty paths back out from the index, restoring their `HEAD` contents.
 /// Scoped to files that exist at `HEAD`: release mutations rewrite tracked,
-/// already-committed manifests (vcs-port Decision 5), so this is the complete
+/// already-committed manifests, so this is the complete
 /// undo for that case. Untracked files — and any first-time, not-yet-committed
 /// manifest — are intentionally left in place.
 pub(super) fn restore_worktree(repo: &Repo) -> AppResult<()> {

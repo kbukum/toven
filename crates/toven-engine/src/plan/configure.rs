@@ -1,4 +1,4 @@
-//! Phase 2 — Configure: bake each `[ecosystems.<id>]` raw subtree into a
+//! Configure: bake each `[ecosystems.<id>]` raw subtree into a
 //! [`ConfiguredAdapter`] via its [`Provider`].
 //!
 //! The loaded [`Document`] keeps every ecosystem subtree verbatim as a
@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 use rskit_config::RawValue;
 use rskit_errors::{AppError, AppResult};
-use toven_model::EcosystemId;
+use toven_model::{EcosystemId, MemberId};
 use toven_ports::{ConfiguredAdapter, Provider, TaskKind};
 
 use crate::config::Document;
@@ -20,6 +20,63 @@ use crate::config::Document;
 /// The per-ecosystem configured-adapter set produced by [`configure`].
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) type ConfiguredSet = BTreeMap<EcosystemId, Box<dyn ConfiguredAdapter>>;
+
+/// The configured adapters of a whole federation, partitioned by member.
+///
+/// Each cross-repo member carries its own authoritative `[ecosystems.*]` config,
+/// so two members exposing the same ecosystem (`rust`) hold *distinct* configured
+/// adapters. Keying by `Option<MemberId>` keeps them apart; the degenerate
+/// single-repo case is one entry under the `None` member, so a lookup with a
+/// `None` member resolves exactly like the old single [`ConfiguredSet`].
+#[derive(Default)]
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) struct MemberAdapters {
+    root: Option<ConfiguredSet>,
+    by_member: BTreeMap<MemberId, ConfiguredSet>,
+}
+
+impl MemberAdapters {
+    /// Install one member's configured-adapter set.
+    pub(crate) fn insert(&mut self, member: Option<MemberId>, adapters: ConfiguredSet) {
+        if let Some(member) = member {
+            self.by_member.insert(member, adapters);
+        } else {
+            self.root = Some(adapters);
+        }
+    }
+
+    /// Look up the configured adapter that owns `ecosystem` within `member`.
+    pub(crate) fn get(
+        &self,
+        member: Option<&MemberId>,
+        ecosystem: &EcosystemId,
+    ) -> Option<&dyn ConfiguredAdapter> {
+        self.set_for(member)
+            .and_then(|set| set.get(ecosystem))
+            .map(AsRef::as_ref)
+    }
+
+    /// Borrow one member's whole configured-adapter set.
+    pub(crate) fn set_for(&self, member: Option<&MemberId>) -> Option<&ConfiguredSet> {
+        member.map_or(self.root.as_ref(), |member| self.by_member.get(member))
+    }
+
+    /// Iterate every `(member, ecosystem, adapter)` triple across the federation.
+    pub(crate) fn iter(
+        &self,
+    ) -> impl Iterator<Item = (Option<&MemberId>, &EcosystemId, &dyn ConfiguredAdapter)> {
+        self.root
+            .iter()
+            .flat_map(|set| {
+                set.iter()
+                    .map(|(ecosystem, adapter)| (None, ecosystem, adapter.as_ref()))
+            })
+            .chain(self.by_member.iter().flat_map(|(member, set)| {
+                set.iter()
+                    .map(move |(ecosystem, adapter)| (Some(member), ecosystem, adapter.as_ref()))
+            }))
+    }
+}
 
 /// Configure every loaded ecosystem section of `document`.
 ///
@@ -31,7 +88,8 @@ pub(crate) type ConfiguredSet = BTreeMap<EcosystemId, Box<dyn ConfiguredAdapter>
 /// # Errors
 /// Propagates a provider's `configure` failure, or a subtree that cannot be
 /// converted into the TOML value the provider expects.
-pub(super) fn configure(
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn configure(
     document: &Document,
     providers: &[&dyn Provider],
 ) -> AppResult<ConfiguredSet> {

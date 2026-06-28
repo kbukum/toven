@@ -2,7 +2,7 @@
 //! Affected → Toolchain → Schedule+Cache) culminating in one immutable
 //! [`Plan`](toven_model::Plan).
 //!
-//! Load (phase 1) is the [`config`](crate::config) loader; the remaining phases
+//! Load is the [`config`](crate::config) loader; the remaining phases
 //! live one-per-file under this module and are driven by [`pipeline::plan`]. The
 //! cross-language differentiator is built here: ONE federated dependency graph,
 //! assembled centrally before affected/schedule.

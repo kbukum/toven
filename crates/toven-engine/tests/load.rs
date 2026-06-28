@@ -46,7 +46,7 @@ fn keeps_ecosystem_subtree_verbatim() {
     let document = load_fixture("valid/polyglot.toml", &["rust", "go"]);
 
     // The engine never typed-parses the adapter subtree; it stays raw for
-    // `Provider::configure` (step 4).
+    // `Provider::configure`.
     let rust = &document.ecosystems[&common::eid("rust")];
     let manifests = rust
         .get("manifests")

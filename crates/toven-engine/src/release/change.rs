@@ -1,12 +1,18 @@
 //! Release change detection.
+//!
+//! Detection is member-scoped: each member repo contributes its own worktree
+//! status, tag namespace, and configured baseline, while the changed seeds are
+//! still resolved against the one federated umbrella graph. A single-repo project
+//! is the N=1 degenerate member (no id, empty path prefix).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::AppResult;
-use toven_model::{Module, ModuleRef};
-use toven_ports::{BaselineSpec, ChangeRecord, TagRef, VcsReader};
+use toven_model::{MemberId, Module, ModuleKey};
+use toven_ports::{BaselineSpec, ChangeRecord, TagRef};
 
-use crate::config::Document;
+use crate::federation::baseline::{MemberVcsReader, MemberVcsReaders};
+use crate::federation::compose::ComposedMember;
 use crate::plan::{PlanContext, Selection};
 
 use super::{ReleaseBaseline, tag};
@@ -14,42 +20,67 @@ use super::{ReleaseBaseline, tag};
 /// Per-module change-detection output.
 #[derive(Debug, Clone)]
 pub(super) struct ReleaseChanges {
-    pub(super) changed: BTreeSet<ModuleRef>,
-    pub(super) records: BTreeMap<ModuleRef, Vec<ChangeRecord>>,
-    pub(super) baselines: BTreeMap<ModuleRef, ReleaseBaseline>,
+    pub(super) changed: BTreeSet<ModuleKey>,
+    pub(super) records: BTreeMap<ModuleKey, Vec<ChangeRecord>>,
+    pub(super) baselines: BTreeMap<ModuleKey, ReleaseBaseline>,
 }
 
-/// Detect modules changed since their release baseline.
+/// Detect modules changed since their release baseline across every member repo.
+///
+/// # Errors
+/// Propagates [`VcsReader`](toven_ports::VcsReader) failures (tag listing,
+/// worktree status, changed-since).
 pub(super) fn detect(
     context: &PlanContext,
-    document: &Document,
     selection: &Selection,
-    vcs: &dyn VcsReader,
+    readers: &MemberVcsReaders<'_>,
 ) -> AppResult<ReleaseChanges> {
-    let mut changed = BTreeSet::new();
-    let mut records = BTreeMap::new();
-    let mut baselines = BTreeMap::new();
-    let worktree = vcs.worktree_status()?;
+    let mut changes = ReleaseChanges {
+        changed: BTreeSet::new(),
+        records: BTreeMap::new(),
+        baselines: BTreeMap::new(),
+    };
+    for reader in readers.entries() {
+        detect_member(context, selection, reader, &mut changes)?;
+    }
+    Ok(changes)
+}
+
+fn detect_member(
+    context: &PlanContext,
+    selection: &Selection,
+    reader: &MemberVcsReader<'_>,
+    changes: &mut ReleaseChanges,
+) -> AppResult<()> {
+    let member = reader.member();
+    let base_ref = member_base_ref(context, member);
+    let worktree = reader.umbrella_records(&reader.reader().worktree_status()?);
     // List every tag once: the VCS adapter enumerates all tags and filters
     // in-memory, so a per-module `list_tags(<glob>)` would re-scan the full tag
     // set for each module (O(modules × tags)). `tag::latest` parses and filters
     // by the module's prefix from this shared snapshot instead.
-    let tags = vcs.list_tags(None)?;
+    let tags = reader.reader().list_tags(None)?;
 
-    for module in &context.federation.modules {
-        let Some(spec) = baseline_spec(module, document, selection, &tags, &mut baselines) else {
-            changed.insert(module.id.clone());
-            records.insert(module.id.clone(), Vec::new());
+    for module in context
+        .federation
+        .modules
+        .iter()
+        .filter(|module| module.member.as_ref() == member)
+    {
+        let Some(spec) = baseline_spec(module, base_ref, selection, &tags, &mut changes.baselines)
+        else {
+            changes.changed.insert(module.key());
+            changes.records.insert(module.key(), Vec::new());
             continue;
         };
-        let mut module_changes = vcs.changed_since(&spec)?;
-        module_changes.extend(worktree.clone());
+        let mut module_changes = reader.umbrella_records(&reader.reader().changed_since(&spec)?);
+        module_changes.extend(worktree.iter().cloned());
         let seeds =
             crate::plan::changed_seeds(&module_changes, &context.graph, &context.federation);
-        if seeds.contains(&module.id) {
-            changed.insert(module.id.clone());
-            records.insert(
-                module.id.clone(),
+        if seeds.contains(&module.key()) {
+            changes.changed.insert(module.key());
+            changes.records.insert(
+                module.key(),
                 crate::plan::changed_records_for_module(
                     module,
                     &module_changes,
@@ -59,25 +90,31 @@ pub(super) fn detect(
         }
     }
 
-    Ok(ReleaseChanges {
-        changed,
-        records,
-        baselines,
-    })
+    Ok(())
+}
+
+/// The configured release baseline ref for `member`, from the composed federation.
+fn member_base_ref<'a>(context: &'a PlanContext, member: Option<&MemberId>) -> Option<&'a str> {
+    context
+        .composed
+        .members()
+        .iter()
+        .find(|composed| composed.member().id() == member)
+        .and_then(ComposedMember::base_ref)
 }
 
 fn baseline_spec(
     module: &Module,
-    document: &Document,
+    base_ref: Option<&str>,
     selection: &Selection,
     tags: &[TagRef],
-    baselines: &mut BTreeMap<ModuleRef, ReleaseBaseline>,
+    baselines: &mut BTreeMap<ModuleKey, ReleaseBaseline>,
 ) -> Option<BaselineSpec> {
     if let Some((_version, release_tag)) = tag::latest(&module.id, tags) {
         baselines.insert(
-            module.id.clone(),
+            module.key(),
             ReleaseBaseline::tag(
-                module.id.clone(),
+                module.key(),
                 release_tag.name.clone(),
                 release_tag.target.clone(),
             ),
@@ -87,19 +124,19 @@ fn baseline_spec(
         ));
     }
 
-    if let Selection::Changed(spec) = selection {
+    if let Selection::Changed(Some(spec)) = selection {
         baselines.insert(
-            module.id.clone(),
-            ReleaseBaseline::fallback(module.id.clone(), spec.clone()),
+            module.key(),
+            ReleaseBaseline::fallback(module.key(), spec.clone()),
         );
         return Some(spec.clone());
     }
 
-    if let Some(base_ref) = &document.project.base_ref {
-        let spec = BaselineSpec::explicit(base_ref.clone());
+    if let Some(base_ref) = base_ref {
+        let spec = BaselineSpec::explicit(base_ref.to_string());
         baselines.insert(
-            module.id.clone(),
-            ReleaseBaseline::fallback(module.id.clone(), spec.clone()),
+            module.key(),
+            ReleaseBaseline::fallback(module.key(), spec.clone()),
         );
         return Some(spec);
     }

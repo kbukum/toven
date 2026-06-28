@@ -6,8 +6,8 @@ use std::time::Duration;
 use toven_engine::apply::{ApplyOptions, apply};
 use toven_engine::output::UnitOutputChannel;
 use toven_model::{
-    CacheVerdict, EcosystemId, Event, ExecutionReadiness, ExecutionUnit, ModuleRef, OutputStream,
-    Plan, UnitOutput, UnitStatus,
+    CacheVerdict, EcosystemId, Event, ExecutionReadiness, ExecutionUnit, ModuleKey, ModuleRef,
+    OutputStream, Plan, UnitOutput, UnitStatus,
 };
 use toven_ports::CommandRunner;
 use toven_testkit::{
@@ -22,7 +22,7 @@ fn mref(name: &str) -> ModuleRef {
 fn unit(id: &str) -> ExecutionUnit {
     ExecutionUnit {
         id: id.to_string(),
-        module: mref(id),
+        module: ModuleKey::bare(mref(id)),
         kind: "test".to_string(),
         workspace: None,
         argv: vec!["fake".to_string(), id.to_string()],

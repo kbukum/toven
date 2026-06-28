@@ -18,7 +18,8 @@ fn prefix(module: &ModuleRef) -> String {
 /// Format the release tag for `module` at `version`
 /// (`<ecosystem>/<name>@<version>`).
 #[must_use]
-pub(super) fn format(module: &ModuleRef, version: &Version) -> String {
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn format(module: &ModuleRef, version: &Version) -> String {
     format!("{}@{version}", prefix(module))
 }
 

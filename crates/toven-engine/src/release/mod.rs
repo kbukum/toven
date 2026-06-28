@@ -1,15 +1,16 @@
 //! Release-specific engine vocabulary and orchestration.
 
-mod apply;
+pub(crate) mod apply;
 mod bump;
 mod change;
 mod changelog;
 mod model;
-mod plan;
-mod publish;
+pub(crate) mod plan;
+pub(crate) mod publish;
 mod run;
 mod strategy;
-mod tag;
+pub(crate) mod tag;
+mod targets;
 
 pub use apply::{ReleaseApplyOptions, release_apply};
 pub use model::{
@@ -17,3 +18,4 @@ pub use model::{
 };
 pub use plan::release_plan;
 pub use run::release_run;
+pub(crate) use targets::ReleaseTargets;

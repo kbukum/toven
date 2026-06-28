@@ -14,14 +14,34 @@
 //!   bounded RPC).
 //! - [`mod@serve`] — the driven-binary `__serve` port-server loop.
 //! - [`resolve`] — the four-way dispatch and remote-adapter resolution.
-//! - [`provision`] — the explicit `driver install` / `federation sync` surface.
+//! - [`provision`] — the explicit driver install surface.
+//! - [`members`] — umbrella `[[members]]` enumeration across repos.
+//! - [`compose`] — member-config composition + cross-member overlay/group layer.
+//! - [`identity`] — member metadata stamping on the cross-repo union.
+//! - [`rebase`] — rebase one member's discovery output into umbrella coordinates.
+//! - [`baseline`] — per-member baseline specs and VCS reader views.
+//! - [`project`] — open one deduped rskit-git reader/writer per member repo.
+//! - [`release`] — federated release planning and per-member APPLY sharding.
+//! - [`spine`] — the N-member Configure → Discover spine that unions members.
+//! - [`sync`] — explicit member-repo provisioning (clone + clean-tree guard).
 
+pub mod baseline;
+pub mod compose;
+pub mod identity;
+pub mod members;
+pub mod project;
 pub mod protocol;
 pub mod provision;
+pub mod rebase;
+pub mod release;
 pub mod remote;
 pub mod resolve;
 pub mod serve;
+pub mod spine;
+pub mod sync;
 
+pub use baseline::{MemberVcsReaders, OpenMemberVcsReaders};
+pub use project::open_project_vcs;
 pub use remote::RemoteAdapter;
 pub use remote::scaffold::{probe_driver, probe_io};
 pub(crate) use resolve::driver_binary_name;
