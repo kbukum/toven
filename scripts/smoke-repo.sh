@@ -5,10 +5,11 @@
 # Unlike the in-tree app smoke integration tests (`apps/toven-rs/tests/smoke.rs`
 # runs a full PLAN+APPLY, `apps/toven/tests/smoke.rs` a read-only PLAN cut, and
 # `apps/toven-go/tests/federation_smoke.rs` the driver handshake, all via
-# `make smoke`), this exercises the installed-shaped umbrella binary over a
-# caller-supplied checkout and stops at PLAN so it stays read-only and safe to
-# point at any working tree. It proves Toven discovers modules and renders a
-# reviewable plan for a real repo — the rehearsal the release policy calls for.
+# `make smoke`), this builds the umbrella `toven` binary from this checkout and
+# runs that debug binary over a caller-supplied checkout, stopping at PLAN so it
+# stays read-only and safe to point at any working tree. It proves Toven
+# discovers modules and renders a reviewable plan for a real repo — the rehearsal
+# the release policy calls for.
 #
 # Usage:
 #   scripts/smoke-repo.sh <repo-path> [task]
@@ -34,7 +35,7 @@ fi
 repo="$(cd "${repo}" && pwd)"
 if [[ ! -f "${repo}/toven.toml" ]]; then
   echo "error: ${repo} has no toven.toml" >&2
-  echo "hint: run 'toven generate' in the repo to scaffold one before smoking it" >&2
+  echo "hint: run 'toven generate --write' in the repo to scaffold one before smoking it" >&2
   exit 2
 fi
 
