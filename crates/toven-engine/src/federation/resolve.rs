@@ -15,7 +15,7 @@
 //! driver is warn + skip.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use rskit_errors::{AppError, AppResult};
 use toven_model::EcosystemId;
@@ -162,7 +162,7 @@ pub fn resolve_adapters(
 }
 
 /// The conventional driver binary name for an ecosystem id (`toven-<id>`).
-fn driver_binary_name(id: &EcosystemId) -> String {
+pub(crate) fn driver_binary_name(id: &EcosystemId) -> String {
     format!("toven-{id}")
 }
 
@@ -260,12 +260,6 @@ fn render_subtree(id: &EcosystemId, raw: &rskit_config::RawValue) -> AppResult<S
             format!("could not serialize configuration subtree for driver: {error}"),
         )
     })
-}
-
-/// Whether `program` exists as a file (used by provisioning status views).
-#[must_use]
-pub fn program_exists(program: &Path) -> bool {
-    program.is_file()
 }
 
 #[cfg(test)]

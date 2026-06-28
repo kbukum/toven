@@ -48,6 +48,14 @@ pub(crate) fn prepare(
     for (id, adapter) in remote.adapters {
         adapters.insert(id, adapter);
     }
+    // Surface absent-driver skips while still in Configure, before discovery can
+    // fail: a warn-and-skip is observable even on a later failure, never silently
+    // dropped, and keeps the phase attribution accurate.
+    for warning in &remote_warnings {
+        reporter.emit(&Event::Warning {
+            message: warning.clone(),
+        })?;
+    }
     reporter.emit(&Event::PhaseFinished {
         phase: Phase::Configure,
     })?;
@@ -55,10 +63,8 @@ pub(crate) fn prepare(
     reporter.emit(&Event::PhaseStarted {
         phase: Phase::Discover,
     })?;
-    let mut federation = discover::discover(project_root, &adapters, document)?;
-    federation.warnings.extend(remote_warnings);
-    // Surface every non-fatal diagnostic (adapter discovery warnings plus the
-    // absent-driver skips) so a warn-and-skip is observable, not silently dropped.
+    let federation = discover::discover(project_root, &adapters, document)?;
+    // Surface adapter discovery warnings so a warn-and-skip is observable here too.
     for warning in &federation.warnings {
         reporter.emit(&Event::Warning {
             message: warning.clone(),

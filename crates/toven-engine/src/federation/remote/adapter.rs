@@ -71,8 +71,8 @@ impl RemoteAdapter {
     /// is incompatible, or a prefetched port call fails. A resolved driver that
     /// fails is always a hard error — never a silent skip.
     pub fn spawn(program: &Path, ecosystem: EcosystemId, config_toml: String) -> AppResult<Self> {
-        let driver =
-            process::spawn(program).map_err(|fault| fault.into_app_error(ecosystem.as_str()))?;
+        let driver = process::spawn(program, "__serve")
+            .map_err(|fault| fault.into_app_error(ecosystem.as_str()))?;
         let child = ChildHandle::new(driver.child);
         let client = RpcClient::new(
             Box::new(driver.stdout),

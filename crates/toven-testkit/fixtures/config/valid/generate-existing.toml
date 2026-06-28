@@ -1,0 +1,11 @@
+# A hand-edited single-ecosystem Document used to prove `toven generate`'s
+# additive re-run preserves existing content, comments, and ordering.
+[project]
+# This human comment must survive an additive re-run untouched.
+name = "already-onboarded"
+root = "."
+base_ref = "origin/trunk"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"

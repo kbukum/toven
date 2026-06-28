@@ -20,6 +20,7 @@ use toven_ports::{ConfiguredAdapter, Provider};
 use super::protocol::codec::{self, MAX_FRAME_BYTES};
 use super::protocol::envelope::{Capabilities, Hello, Request, Response, Welcome, WireError};
 use super::protocol::handshake::{PROTOCOL_VERSION, negotiate, protocol_version};
+use super::protocol::scaffold::{ScaffoldOutcome, ScaffoldRequest};
 
 /// Run the port-server loop over `reader`/`writer` using the in-proc `providers`.
 ///
@@ -130,6 +131,64 @@ fn serve_requests<R: Read, W: Write>(
         codec::write_value(writer, &response)?;
     }
     Ok(())
+}
+
+/// Run the config-less scaffold exchange over `reader`/`writer`.
+///
+/// Reads one [`ScaffoldRequest`], asks every in-proc provider to self-detect its
+/// ecosystem under the named root, and replies with a single [`ScaffoldOutcome`]
+/// carrying the detected fragments (or a typed error). This is the driven half
+/// of federated `toven generate`; a peer that closes before sending a request is
+/// a clean no-op.
+///
+/// # Errors
+/// Returns an error only on a transport failure; a provider's own scaffold
+/// failure is reported to the umbrella as a typed [`ScaffoldOutcome::Error`].
+pub fn serve_scaffold<R: Read, W: Write>(
+    providers: &[&dyn Provider],
+    mut reader: R,
+    mut writer: W,
+) -> AppResult<()> {
+    let Some(request) = codec::read_value::<_, ScaffoldRequest>(&mut reader, MAX_FRAME_BYTES)?
+    else {
+        // Peer closed before sending a request: nothing to scaffold.
+        return Ok(());
+    };
+
+    if request.schema_version != super::protocol::envelope::ENVELOPE_SCHEMA_VERSION {
+        let outcome = ScaffoldOutcome::Error(WireError::new(
+            rskit_errors::ErrorCode::Conflict.as_str(),
+            format!(
+                "umbrella speaks envelope schema v{}, but this driver requires v{}",
+                request.schema_version,
+                super::protocol::envelope::ENVELOPE_SCHEMA_VERSION
+            ),
+        ));
+        return codec::write_value(&mut writer, &outcome);
+    }
+
+    let outcome = match detect_fragments(providers, &request) {
+        Ok(fragments) => ScaffoldOutcome::Fragments(fragments),
+        Err(error) => ScaffoldOutcome::Error(WireError::new(
+            error.code().as_str(),
+            error.message().to_string(),
+        )),
+    };
+    codec::write_value(&mut writer, &outcome)
+}
+
+/// Run every provider's config-less detection under the request's root.
+fn detect_fragments(
+    providers: &[&dyn Provider],
+    request: &ScaffoldRequest,
+) -> AppResult<Vec<toven_ports::EcosystemFragment>> {
+    let mut fragments = Vec::new();
+    for provider in providers {
+        if let Some(fragment) = provider.scaffold(&request.project_root)? {
+            fragments.push(fragment);
+        }
+    }
+    Ok(fragments)
 }
 
 /// Compute the response for one request, mapping adapter failures to a typed

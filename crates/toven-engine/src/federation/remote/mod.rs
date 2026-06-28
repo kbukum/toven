@@ -8,5 +8,7 @@
 mod adapter;
 pub(crate) mod client;
 pub(crate) mod process;
+pub mod scaffold;
 
 pub use adapter::RemoteAdapter;
+pub use scaffold::{probe_driver, probe_io};

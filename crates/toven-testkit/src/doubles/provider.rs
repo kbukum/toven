@@ -5,7 +5,7 @@
 //! can hand back a fresh boxed adapter from `configure` on each call. The
 //! release-target double lives beside this one in [`release`](super::release).
 
-use rskit_errors::AppResult;
+use rskit_errors::{AppError, AppResult, ErrorCode};
 use toml::Table;
 use toven_model::EcosystemId;
 use toven_ports::{
@@ -148,6 +148,7 @@ pub struct FakeProvider {
     ecosystem: EcosystemId,
     adapter: FakeConfiguredAdapter,
     scaffold: Option<EcosystemFragment>,
+    scaffold_error: Option<(ErrorCode, String)>,
 }
 
 impl FakeProvider {
@@ -161,6 +162,7 @@ impl FakeProvider {
             ecosystem,
             adapter,
             scaffold,
+            scaffold_error: None,
         }
     }
 
@@ -177,6 +179,14 @@ impl FakeProvider {
         self.scaffold = scaffold;
         self
     }
+
+    /// Make `scaffold` fail with the given typed error instead of detecting a
+    /// fragment (models a driver whose self-detection itself errors).
+    #[must_use]
+    pub fn with_scaffold_error(mut self, code: ErrorCode, message: impl Into<String>) -> Self {
+        self.scaffold_error = Some((code, message.into()));
+        self
+    }
 }
 
 impl Provider for FakeProvider {
@@ -189,6 +199,9 @@ impl Provider for FakeProvider {
     }
 
     fn scaffold(&self, _project_root: &std::path::Path) -> AppResult<Option<EcosystemFragment>> {
+        if let Some((code, message)) = &self.scaffold_error {
+            return Err(AppError::new(*code, message.clone()));
+        }
         Ok(self.scaffold.clone())
     }
 }
