@@ -191,12 +191,12 @@ fn plans_full_federation_into_leaf_first_waves() {
 
     // Whole-workspace fan-out collapses both modules into a single invocation.
     assert_eq!(plan.units.len(), 1);
-    assert_eq!(plan.waves, vec![vec!["rust#test".to_string()]]);
+    assert_eq!(plan.waves, vec![vec!["rust@rust#test".to_string()]]);
 
     let app = plan
         .units
         .iter()
-        .find(|unit| unit.id == "rust#test")
+        .find(|unit| unit.id == "rust@rust#test")
         .expect("collapsed unit present");
     assert_eq!(app.members.len(), 2);
     assert_eq!(app.argv, vec!["cargo".to_string(), "test".to_string()]);
@@ -364,7 +364,7 @@ fn changed_selection_restricts_active_units() {
 
     let mut ids: Vec<&str> = plan.units.iter().map(|unit| unit.id.as_str()).collect();
     ids.sort_unstable();
-    assert_eq!(ids, vec!["rust#test"]);
+    assert_eq!(ids, vec!["rust@rust#test"]);
 }
 
 #[test]

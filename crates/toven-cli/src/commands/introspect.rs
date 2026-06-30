@@ -163,7 +163,8 @@ pub(crate) fn explain(
         let mut detail = OutputKV::new();
         detail
             .add("unit", unit.id.clone())
-            .add("module", unit.module.to_string())
+            .add("module", module.to_string())
+            .add("representative", unit.module.to_string())
             .add(
                 "modules",
                 unit.members

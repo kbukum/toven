@@ -6,11 +6,12 @@
 //! overlay edges are never dropped**. The residual active subgraph is topo-levelled
 //! into waves. Modules are then grouped by the task's [`FanOut`]: a `PerModule` task
 //! yields one unit per module, while `Batchable`/`WholeWorkspace` tasks collapse all
-//! same-ecosystem-and-kind modules into a single invocation (selectors are repeated
-//! for `Batchable`, omitted for `WholeWorkspace`). A collapsed group may span several
-//! waves; it is scheduled in the latest wave any of its members occupy, so every
-//! gated dependency has already run. Each unit carries the rendered argv and the
-//! facts the Cache-decision phase needs.
+//! same-ecosystem-and-workspace modules into a single invocation (selectors are
+//! repeated for `Batchable`, omitted for `WholeWorkspace`). Grouping by workspace
+//! keeps a collapsed unit's `{workspace.root}` and toolchain identity valid for every
+//! member. A collapsed group may span several waves; it is scheduled in the latest
+//! wave any of its members occupy, so every gated dependency has already run. Each
+//! unit carries the rendered argv and the facts the Cache-decision phase needs.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
@@ -34,7 +35,8 @@ use super::request::PlanRequest;
 #[derive(Debug, Clone)]
 pub(super) struct PlannedUnit {
     /// Stable unit id (`ecosystem:name#kind`, member-prefixed under a federation;
-    /// batched/whole-workspace units drop the module name: `ecosystem#kind`).
+    /// batched/whole-workspace units drop the module name and key by workspace:
+    /// `ecosystem@workspace#kind`, or `ecosystem#kind` when workspace-less).
     pub(super) id: String,
     /// Representative module the unit operates on.
     pub(super) module: ModuleKey,
@@ -152,16 +154,24 @@ fn unit_id(module: &ModuleKey, kind: &str) -> String {
 }
 
 /// The id of the unit a module belongs to: its own per-module id for a
-/// `PerModule` task, or a shared `ecosystem#kind` (member-prefixed) group id for
-/// `Batchable`/`WholeWorkspace` tasks that collapse a wave's modules.
-fn group_id(module: &ModuleKey, kind: &str, fan_out: FanOut) -> String {
+/// `PerModule` task, or a shared group id for `Batchable`/`WholeWorkspace` tasks.
+///
+/// A batch group id is keyed by `member`, `ecosystem`, **and owning workspace**
+/// (`[member/]ecosystem@workspace#kind`, or `[member/]ecosystem#kind` for a
+/// workspace-less module). Keeping the workspace in the key guarantees a collapsed
+/// unit never spans workspaces, so the representative's `{workspace.root}` and
+/// resolved toolchain identity are valid for every member it carries.
+fn group_id(key: &ModuleKey, module: &Module, kind: &str, fan_out: FanOut) -> String {
     if fan_out == FanOut::PerModule {
-        return unit_id(module, kind);
+        return unit_id(key, kind);
     }
-    module.member().map_or_else(
-        || format!("{}#{kind}", module.module().ecosystem),
-        |member| format!("{member}/{}#{kind}", module.module().ecosystem),
-    )
+    let ecosystem = &key.module().ecosystem;
+    let scope = module
+        .workspace
+        .as_ref()
+        .map_or_else(|| ecosystem.to_string(), |ws| format!("{ecosystem}@{ws}"));
+    key.member()
+        .map_or_else(|| format!("{scope}#{kind}"), |member| format!("{member}/{scope}#{kind}"))
 }
 
 /// Map every active module to the id of the unit that will carry it.
@@ -183,7 +193,7 @@ fn group_id_map(
                 ),
             )
         })?;
-        ids.insert(key.clone(), group_id(key, task.kind.name(), task.fan_out));
+        ids.insert(key.clone(), group_id(key, module, task.kind.name(), task.fan_out));
     }
     Ok(ids)
 }
@@ -278,10 +288,12 @@ fn workspace_index(federation: &Federation) -> BTreeMap<WorkspaceId, Workspace> 
 
 /// Render a group of modules collapsed into one [`PlannedUnit`].
 ///
-/// `members` is the wave-ordered set of modules sharing the group `id` (a single
-/// module for `PerModule`, all same-ecosystem-and-kind modules for
-/// `Batchable`/`WholeWorkspace`). Argv is rendered once: `Batchable` repeats each
-/// member's selector fragment, `WholeWorkspace` omits the selector.
+/// `members` is the set of modules sharing the group `id` in first-seen wave order
+/// (a single module for `PerModule`, all same-ecosystem-and-workspace modules for
+/// `Batchable`/`WholeWorkspace`). A batched group may span several waves; it is
+/// scheduled in the latest wave its members occupy. Argv is rendered once from the
+/// representative member: `Batchable` repeats each member's selector fragment,
+/// `WholeWorkspace` omits the selector.
 #[allow(clippy::too_many_arguments)]
 fn plan_unit(
     request: &PlanRequest,
@@ -764,8 +776,44 @@ mod tests {
         );
         assert_eq!(
             waves_for(&federation, &single_member(adapters)),
-            vec![vec!["rust#test".to_string()]]
+            vec![vec!["rust@rust#test".to_string()]]
         );
+    }
+
+    #[test]
+    fn batchable_splits_distinct_workspaces_in_one_ecosystem() {
+        // Two Cargo workspaces under the same ecosystem must not collapse into one
+        // batched unit: each unit's {workspace.root}/toolchain comes from its
+        // representative, so a cross-workspace collapse would mis-render the others.
+        let federation = Federation {
+            workspaces: vec![workspace("core"), workspace("contrib")],
+            modules: vec![
+                module("rust", "errors", "core"),
+                module("rust", "plugin", "contrib"),
+            ],
+            edges: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let mut adapters = ConfiguredSet::new();
+        adapters.insert(
+            eid("rust"),
+            adapter_with("rust", RunStrategy::Unordered, FanOut::Batchable),
+        );
+        let active: Vec<toven_model::ModuleKey> =
+            federation.modules.iter().map(Module::key).collect();
+        let scheduled = schedule(
+            &request(),
+            &federation,
+            &active,
+            &single_member(adapters),
+            &toolchains(&federation),
+        )
+        .unwrap();
+        assert_eq!(scheduled.units.len(), 2);
+        let mut ids: Vec<&str> = scheduled.units.iter().map(|unit| unit.id.as_str()).collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec!["rust@contrib#test", "rust@core#test"]);
+        assert!(scheduled.units.iter().all(|unit| unit.members.len() == 1));
     }
 
     #[test]
@@ -803,7 +851,7 @@ mod tests {
         let rust = scheduled
             .units
             .iter()
-            .find(|unit| unit.id == "rust#test")
+            .find(|unit| unit.id == "rust@rust#test")
             .unwrap();
         assert_eq!(rust.members.len(), 2);
     }
