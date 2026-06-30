@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use rskit_config::{RawValue, deserialize_subtree};
 use rskit_errors::{AppError, AppResult};
 use toven_model::EcosystemId;
 use toven_ports::{ConfiguredAdapter, EcosystemFragment, Provider};
@@ -39,10 +40,8 @@ impl Provider for CommandProvider {
         &self.ecosystem
     }
 
-    fn configure(&self, raw: toml::Value) -> AppResult<Box<dyn ConfiguredAdapter>> {
-        let config: CommandConfig = raw.try_into().map_err(|error: toml::de::Error| {
-            AppError::invalid_input("ecosystems.command", error.to_string()).with_cause(error)
-        })?;
+    fn configure(&self, raw: RawValue) -> AppResult<Box<dyn ConfiguredAdapter>> {
+        let config: CommandConfig = deserialize_subtree("ecosystems.command", raw)?;
         let tasks = tasks::resolve_tasks(&config.common.tasks)?;
         // A command project that declares modules but neither tasks nor an
         // explicit `[toolchain]` has no probeable toolchain, yet its modules
@@ -81,14 +80,14 @@ mod tests {
     #[test]
     fn configure_rejects_unknown_section_field() {
         let provider = CommandProvider::new().unwrap();
-        let raw: toml::Value = toml::from_str("bogus = true\n").unwrap();
+        let raw = toven_testkit::raw_subtree("bogus = true").expect("subtree");
         assert!(provider.configure(raw).is_err());
     }
 
     #[test]
     fn configure_yields_no_builtin_tasks() {
         let provider = CommandProvider::new().unwrap();
-        let raw = toml::Value::Table(toml::Table::new());
+        let raw = toven_testkit::raw_subtree("").expect("subtree");
         let adapter = provider.configure(raw).expect("configures");
         assert!(adapter.default_tasks().is_empty());
     }

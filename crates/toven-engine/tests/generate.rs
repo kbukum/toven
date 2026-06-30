@@ -9,25 +9,24 @@
 
 mod common;
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::collections::BTreeSet;
+use std::path::PathBuf;
 
 use common::eid;
-use rskit_errors::AppResult;
 use rskit_fs::TempDir;
 use rskit_fs::sync_io::file::{read_string, write};
 use toml::{Table, Value};
 use toven_engine::config::{CanonicalRegistry, load};
-use toven_engine::federation::{DriverLocator, MemberVcsReaders};
-use toven_engine::generate::{DriverScaffolder, generate_with};
+use toven_engine::federation::MemberVcsReaders;
+use toven_engine::generate::generate_with;
 use toven_engine::plan::{NullCache, PlanHost, PlanRequest, plan};
 use toven_model::{
     AbsPath, DepKind, Edge, Module, ModuleRef, RepoPath, ToolchainTag, Workspace, WorkspaceId,
 };
 use toven_ports::{DiscoverResponse, EcosystemFragment, FanOut, Provider, Task, TaskKind};
 use toven_testkit::{
-    CountingToolchainProber, FakeConfiguredAdapter, FakeProvider, FakeSourceDigest, FakeVcsReader,
-    RecordingReporter, fixtures,
+    CountingToolchainProber, FakeConfiguredAdapter, FakeDriverLocator, FakeDriverScaffolder,
+    FakeProvider, FakeSourceDigest, FakeVcsReader, RecordingReporter, fixtures,
 };
 
 /// Build a minimal `[ecosystems.<id>]` fragment carrying discovery `manifests`.
@@ -50,42 +49,6 @@ fn scaffolding_provider(id: &str, manifests: &[&str]) -> FakeProvider {
     FakeProvider::new(eid(id)).with_scaffold(Some(fragment(id, manifests)))
 }
 
-/// A [`DriverLocator`] that resolves only the names it was seeded with.
-struct MapLocator(BTreeMap<String, PathBuf>);
-
-impl DriverLocator for MapLocator {
-    fn locate(&self, binary_name: &str) -> Option<PathBuf> {
-        self.0.get(binary_name).cloned()
-    }
-}
-
-/// A locator that resolves nothing (no PATH drivers).
-struct NoLocator;
-
-impl DriverLocator for NoLocator {
-    fn locate(&self, _binary_name: &str) -> Option<PathBuf> {
-        None
-    }
-}
-
-/// A [`DriverScaffolder`] that returns canned fragments keyed by driver path.
-struct MapScaffolder(BTreeMap<PathBuf, Vec<EcosystemFragment>>);
-
-impl DriverScaffolder for MapScaffolder {
-    fn scaffold(&self, program: &Path, _project_root: &Path) -> AppResult<Vec<EcosystemFragment>> {
-        Ok(self.0.get(program).cloned().unwrap_or_default())
-    }
-}
-
-/// A scaffolder that is never expected to be called (no PATH drivers).
-struct NoScaffolder;
-
-impl DriverScaffolder for NoScaffolder {
-    fn scaffold(&self, _program: &Path, _project_root: &Path) -> AppResult<Vec<EcosystemFragment>> {
-        Ok(Vec::new())
-    }
-}
-
 #[test]
 fn minimal_first_run_emits_project_and_ecosystem_only() {
     let dir = TempDir::new().expect("temp dir");
@@ -95,8 +58,8 @@ fn minimal_first_run_emits_project_and_ecosystem_only() {
     let generated = generate_with(
         dir.path(),
         &providers,
-        &NoScaffolder,
-        &NoLocator,
+        &FakeDriverScaffolder::new(),
+        &FakeDriverLocator::new(),
         None,
         false,
     )
@@ -132,8 +95,8 @@ fn generated_config_round_trips_through_the_strict_loader() {
     let generated = generate_with(
         dir.path(),
         &providers,
-        &NoScaffolder,
-        &NoLocator,
+        &FakeDriverScaffolder::new(),
+        &FakeDriverLocator::new(),
         None,
         true,
     )
@@ -165,8 +128,8 @@ fn first_run_write_with_no_detected_ecosystem_reports_a_create() {
     let generated = generate_with(
         dir.path(),
         &providers,
-        &NoScaffolder,
-        &NoLocator,
+        &FakeDriverScaffolder::new(),
+        &FakeDriverLocator::new(),
         None,
         true,
     )
@@ -199,8 +162,8 @@ fn additive_rerun_adds_missing_warns_existing_and_preserves_project() {
     let generated = generate_with(
         dir.path(),
         &providers,
-        &NoScaffolder,
-        &NoLocator,
+        &FakeDriverScaffolder::new(),
+        &FakeDriverLocator::new(),
         None,
         true,
     )
@@ -253,8 +216,8 @@ fn rerun_without_changes_is_idempotent() {
     let generated = generate_with(
         dir.path(),
         &providers,
-        &NoScaffolder,
-        &NoLocator,
+        &FakeDriverScaffolder::new(),
+        &FakeDriverLocator::new(),
         None,
         true,
     )
@@ -286,8 +249,8 @@ fn force_regenerates_exactly_one_section() {
     let generated = generate_with(
         dir.path(),
         &providers,
-        &NoScaffolder,
-        &NoLocator,
+        &FakeDriverScaffolder::new(),
+        &FakeDriverLocator::new(),
         Some("rust"),
         true,
     )
@@ -318,14 +281,9 @@ fn bootstrap_probe_picks_up_a_path_driver() {
     let providers: Vec<&dyn Provider> = vec![&rust];
 
     let go_driver = PathBuf::from("/fake/bin/toven-go");
-    let locator = MapLocator(BTreeMap::from([(
-        "toven-go".to_string(),
-        go_driver.clone(),
-    )]));
-    let scaffolder = MapScaffolder(BTreeMap::from([(
-        go_driver,
-        vec![fragment("go", &["go.mod"])],
-    )]));
+    let locator = FakeDriverLocator::new().with_driver("toven-go", go_driver.clone());
+    let scaffolder =
+        FakeDriverScaffolder::new().with_fragments(go_driver, vec![fragment("go", &["go.mod"])]);
 
     let generated = generate_with(dir.path(), &providers, &scaffolder, &locator, None, false)
         .expect("generates");
@@ -353,14 +311,9 @@ fn path_driver_scaffolding_a_foreign_ecosystem_is_rejected() {
     let providers: Vec<&dyn Provider> = Vec::new();
 
     let go_driver = PathBuf::from("/fake/bin/toven-go");
-    let locator = MapLocator(BTreeMap::from([(
-        "toven-go".to_string(),
-        go_driver.clone(),
-    )]));
-    let scaffolder = MapScaffolder(BTreeMap::from([(
-        go_driver,
-        vec![fragment("rust", &["Cargo.toml"])],
-    )]));
+    let locator = FakeDriverLocator::new().with_driver("toven-go", go_driver.clone());
+    let scaffolder = FakeDriverScaffolder::new()
+        .with_fragments(go_driver, vec![fragment("rust", &["Cargo.toml"])]);
 
     let error = generate_with(dir.path(), &providers, &scaffolder, &locator, None, false)
         .expect_err("a foreign-ecosystem fragment must be rejected");
@@ -382,14 +335,9 @@ fn in_proc_provider_wins_over_a_path_driver_for_the_same_ecosystem() {
     // A PATH `toven-go` exists too, but the in-proc provider is linked, so the
     // probe must never even consult the driver for `go`.
     let go_driver = PathBuf::from("/fake/bin/toven-go");
-    let locator = MapLocator(BTreeMap::from([(
-        "toven-go".to_string(),
-        go_driver.clone(),
-    )]));
-    let scaffolder = MapScaffolder(BTreeMap::from([(
-        go_driver,
-        vec![fragment("go", &["DRIVER/go.mod"])],
-    )]));
+    let locator = FakeDriverLocator::new().with_driver("toven-go", go_driver.clone());
+    let scaffolder = FakeDriverScaffolder::new()
+        .with_fragments(go_driver, vec![fragment("go", &["DRIVER/go.mod"])]);
 
     let generated = generate_with(dir.path(), &providers, &scaffolder, &locator, None, false)
         .expect("generates");
@@ -421,8 +369,8 @@ fn invalid_existing_config_is_a_typed_input_error() {
     let error = generate_with(
         dir.path(),
         &providers,
-        &NoScaffolder,
-        &NoLocator,
+        &FakeDriverScaffolder::new(),
+        &FakeDriverLocator::new(),
         None,
         true,
     )
@@ -446,8 +394,8 @@ fn force_unknown_ecosystem_warns_with_no_effect_on_first_run() {
     let generated = generate_with(
         dir.path(),
         &providers,
-        &NoScaffolder,
-        &NoLocator,
+        &FakeDriverScaffolder::new(),
+        &FakeDriverLocator::new(),
         Some("python"),
         false,
     )
@@ -478,8 +426,8 @@ fn force_unknown_ecosystem_warns_with_no_effect_on_rerun() {
     let generated = generate_with(
         dir.path(),
         &providers,
-        &NoScaffolder,
-        &NoLocator,
+        &FakeDriverScaffolder::new(),
+        &FakeDriverLocator::new(),
         Some("python"),
         true,
     )
@@ -544,8 +492,8 @@ fn generated_config_feeds_the_plan_spine() {
     let generated = generate_with(
         dir.path(),
         &providers,
-        &NoScaffolder,
-        &NoLocator,
+        &FakeDriverScaffolder::new(),
+        &FakeDriverLocator::new(),
         None,
         true,
     )
@@ -578,7 +526,12 @@ fn generated_config_feeds_the_plan_spine() {
 
     assert_eq!(
         planned.units.len(),
+        1,
+        "whole-workspace fan-out collapses both modules into one unit"
+    );
+    assert_eq!(
+        planned.units[0].members.len(),
         2,
-        "generate → plan must schedule both modules"
+        "generate → plan must cover both modules"
     );
 }

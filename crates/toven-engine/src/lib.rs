@@ -2,9 +2,8 @@
 //!
 //! Layer 2 of the hexagonal architecture: the engine that drives the ports
 //! ([`toven_ports`]) over the shared vocabulary ([`toven_model`]). It owns the
-//! PLAN/APPLY spine; the later steps fill in discovery, scheduling, execution,
-//! and release. This step lands the first behavior-bearing piece — the strict
-//! configuration [`config::Document`] and its loader.
+//! PLAN/APPLY spine for config loading, discovery, graphing, scheduling,
+//! execution, federation, generation, cache, and release.
 //!
 //! Config is **engine-owned orchestration**: the engine owns the reserved-section
 //! schemas and the one strict `rskit-config`-backed loader that parses the single

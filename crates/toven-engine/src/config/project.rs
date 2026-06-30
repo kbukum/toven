@@ -6,9 +6,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// In a single-repo workspace this is the canonical identity; in a multi-repo
 /// umbrella it is the degenerate single-member case alongside `[[members]]`
-/// (cross-repo composition is owned by a later step). `base_ref` lives here
-/// because the change baseline is a property of repo branching, not an engine
-/// tuning knob.
+/// during federation composition. `base_ref` lives here because the change
+/// baseline is a property of repo branching, not an engine tuning knob.
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectConfig {

@@ -24,6 +24,8 @@ rskit-errors.workspace = true
 [dev-dependencies]
 toven-engine.workspace = true
 toven-model.workspace = true
+rskit-codec.workspace = true
+rskit-config.workspace = true
 
 [lints]
 workspace = true

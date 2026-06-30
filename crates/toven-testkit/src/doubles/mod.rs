@@ -1,4 +1,4 @@
-//! Shared port test doubles, defined once and reused across all later steps.
+//! Shared port test doubles, defined once and reused across crates.
 //!
 //! Decomposed by port: the Provider seam, the VCS seam, the
 //! Reporter sink, the raw-output sink, and the injected toolchain/source/cache
@@ -6,6 +6,7 @@
 //! inside a crate.
 
 mod cache;
+mod driver;
 mod exec;
 mod provider;
 mod raw_output;
@@ -16,6 +17,7 @@ mod toolchain;
 mod vcs;
 
 pub use cache::{FakeCacheStore, RecordingCacheStore, RecordingCacheWriter};
+pub use driver::{FakeDriverLocator, FakeDriverScaffolder};
 pub use exec::FakeCommandRunner;
 pub use provider::{FakeConfiguredAdapter, FakeProvider};
 pub use raw_output::RecordingRawOutputSink;

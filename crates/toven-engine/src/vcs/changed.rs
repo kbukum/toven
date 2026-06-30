@@ -5,12 +5,9 @@
 //! `--merge-base`, the reference verbatim otherwise) then
 //! [`Differ::diff`](rskit_git::Differ) `base..HEAD`. Records are **repo-relative**.
 //!
-//! Note on renames: rskit-git's committed tree-to-tree diff does not enable
-//! rename detection, so a committed rename currently arrives as a `Deleted` +
-//! `Added` pair — which already reproduces the engine's delete/rename
-//! double-insert. The `Renamed`/`old_path` mapping below is the faithful
-//! projection for the day rename detection is enabled in the backend; it is a
-//! no-op for today's diffs. (See the rskit follow-up note in the step handoff.)
+//! Note on renames: rskit-git's committed tree-to-tree diff reports a rename as
+//! a `Deleted` + `Added` pair. The `Renamed`/`old_path` mapping below preserves
+//! the port shape for backends that emit rename records.
 
 use std::path::PathBuf;
 

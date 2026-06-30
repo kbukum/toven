@@ -14,6 +14,7 @@ use toven_ports::{Artifact, PublishOutcome, ReleaseMutation, ReleaseTarget};
 
 /// A single call recorded by [`FakeReleaseTarget`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum ReleaseCall {
     /// `declared_version` was called for a module.
     DeclaredVersion(ModuleRef),

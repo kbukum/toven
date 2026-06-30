@@ -79,7 +79,14 @@ impl SourceDigest for FsSourceDigest {
             AppError::invalid_input("module.root", error.to_string()).with_cause(error)
         })?;
         if !root.is_dir() {
-            return Ok(empty_digest());
+            return Err(AppError::new(
+                rskit_errors::ErrorCode::NotFound,
+                format!(
+                    "module '{}' root '{}' is not a directory; a vanished or invalid module tree cannot be cached",
+                    module.id,
+                    module.root.as_path().display()
+                ),
+            ));
         }
         Self::hash_tree(&root)
     }
@@ -161,13 +168,12 @@ mod tests {
     }
 
     #[test]
-    fn missing_module_root_is_stable_empty() {
+    fn missing_module_root_is_not_found() {
         let workspace = TestWorkspace::new("source-digest-empty");
         let root = AbsPath::new(workspace.path()).unwrap();
         let digest = FsSourceDigest::new(&root);
-        let a = digest.module(&module("absent")).unwrap();
-        let b = digest.module(&module("also-absent")).unwrap();
-        assert_eq!(a, b);
+        let error = digest.module(&module("absent")).unwrap_err();
+        assert_eq!(error.code(), rskit_errors::ErrorCode::NotFound);
     }
 
     #[test]

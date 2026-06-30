@@ -1,5 +1,5 @@
-//! Graph: build + validate the federated graph, then run the SEMANTIC
-//! config validation deferred from Load.
+//! Graph: build and validate the federated graph, then run semantic config
+//! validation against discovered modules.
 //!
 //! [`toven_model::Graph::build`] already validates unique identity, resolvable
 //! edges, and acyclicity (intra-ecosystem + overlay edges in one set). On top of
@@ -25,7 +25,7 @@ pub(super) fn build(federation: &Federation) -> AppResult<Graph> {
     Graph::build(federation.modules.clone(), federation.edges.clone())
 }
 
-/// Run the deferred SEMANTIC config validation against the real graph.
+/// Run semantic config validation against the real graph.
 ///
 /// Groups are validated in the coordinate space they were declared in: each
 /// member's own `[groups.*]` resolve against that member (bare refs bind to the

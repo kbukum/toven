@@ -2,7 +2,7 @@
 
 use std::{
     fmt,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 use rskit_errors::{AppError, AppResult};
@@ -29,33 +29,11 @@ impl RepoPath {
     /// component.
     pub fn new(path: impl Into<PathBuf>) -> AppResult<Self> {
         let path = path.into();
-        if path.as_os_str().is_empty() {
-            return Err(AppError::invalid_input("path", "repo path cannot be empty"));
-        }
-        let mut normalized = PathBuf::new();
-        for component in path.components() {
-            match component {
-                Component::Normal(part) => normalized.push(part),
-                Component::CurDir => {}
-                Component::ParentDir => {
-                    return Err(AppError::invalid_input(
-                        "path",
-                        format!("repo path '{}' must not contain '..'", path.display()),
-                    ));
-                }
-                Component::RootDir | Component::Prefix(_) => {
-                    return Err(AppError::invalid_input(
-                        "path",
-                        format!("repo path '{}' must be relative", path.display()),
-                    ));
-                }
-            }
-        }
-        // A path made up solely of `.` components denotes the repo root.
-        if normalized.as_os_str().is_empty() {
-            normalized.push(".");
-        }
-        Ok(Self(normalized))
+        rskit_fs::normalize_repo_relative_path(&path)
+            .map(Self)
+            .map_err(|error| {
+                AppError::invalid_input("path", format!("repo path '{}': {error}", path.display()))
+            })
     }
 
     /// Borrow the underlying path.

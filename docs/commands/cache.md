@@ -46,7 +46,7 @@ toven cache stats
 toven cache stats --config path/to/toven.toml
 ```
 
-The command loads the workspace root from config and inspects the Toven cache directory. It reports the cache directory path, the entry count, and the total bytes on disk.
+The command loads the workspace root from config and inspects the Toven cache directory. It reports the cache directory path, the entry count, the total bytes on disk, and a `truncated` flag that is set when a very large cache exceeds the scan cap.
 
 ## `toven cache path`
 

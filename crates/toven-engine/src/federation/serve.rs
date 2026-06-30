@@ -102,15 +102,8 @@ fn handshake(
             )
         })?;
 
-    let value: toml::Value = toml::from_str(&hello.config_toml).map_err(|error| {
-        WireError::new(
-            rskit_errors::ErrorCode::InvalidInput.as_str(),
-            format!("could not parse driver config TOML: {error}"),
-        )
-    })?;
-
     provider
-        .configure(value)
+        .configure(hello.config.clone())
         .map_err(|error| WireError::new(error.code().as_str(), error.message().to_string()))
 }
 

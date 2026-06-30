@@ -46,7 +46,7 @@ pub use remote::RemoteAdapter;
 pub use remote::scaffold::{probe_driver, probe_io};
 pub(crate) use resolve::driver_binary_name;
 pub use resolve::{
-    DriverBinary, DriverLocator, PathDriverLocator, RemoteResolution, Resolution, resolve_adapters,
+    DriverBinary, PathDriverLocator, RemoteResolution, Resolution, resolve_adapters,
     resolve_ecosystem,
 };
 pub use serve::{serve, serve_scaffold};

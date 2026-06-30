@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// Both fields name **engine-owned** concepts (the bump policy and the registry)
 /// resolved by the engine; the adapter only carries the user's selection through
-/// to release-target wiring. The exact value sets land with the field-level
-/// config schema.
+/// to release-target wiring. Field-level validation constrains the accepted
+/// value sets.
 #[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReleaseConfig {

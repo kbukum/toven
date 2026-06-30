@@ -47,7 +47,7 @@ pub(crate) fn execute(
     plan_only: bool,
     baseline: &BaselineFlags,
 ) -> AppResult<ExitCode> {
-    let run_id = new_run_id();
+    let run_id = new_run_id()?;
     let intent_name = intent.name().to_string();
     let request = PlanRequest::new(
         run_id.clone(),
@@ -132,7 +132,7 @@ pub(crate) fn release(
     dry_run: bool,
 ) -> AppResult<ExitCode> {
     let request = PlanRequest::new(
-        new_run_id(),
+        new_run_id()?,
         project.document.project.name.clone(),
         TaskKind::Custom("release".to_string()),
         project.project_root.clone(),
@@ -201,6 +201,9 @@ mod tests {
             module: ModuleKey::bare(
                 ModuleRef::new(EcosystemId::new("rust").unwrap(), "core").unwrap(),
             ),
+            members: vec![ModuleKey::bare(
+                ModuleRef::new(EcosystemId::new("rust").unwrap(), "core").unwrap(),
+            )],
             kind: "build".to_string(),
             workspace: None,
             argv: vec!["cargo".to_string(), "build".to_string()],

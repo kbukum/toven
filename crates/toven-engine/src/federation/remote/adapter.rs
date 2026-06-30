@@ -9,14 +9,14 @@
 //! stays a live RPC.
 //!
 //! Release is capability-gated off for driven ecosystems:
-//! [`release_target`](ConfiguredAdapter::release_target) returns `None` (full
-//! release-over-RPC is deferred). The umbrella keeps all orchestration; this
-//! proxy only answers port calls.
+//! [`release_target`](ConfiguredAdapter::release_target) returns `None`. The
+//! umbrella keeps all orchestration; this proxy only answers port calls.
 
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::Mutex;
 
+use rskit_config::RawValue;
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use toven_model::EcosystemId;
 use toven_ports::{
@@ -63,14 +63,14 @@ pub struct RemoteAdapter {
 impl RemoteAdapter {
     /// Spawn `program __serve` and connect a [`RemoteAdapter`] for `ecosystem`.
     ///
-    /// `config_toml` is the ecosystem's `[ecosystems.<id>]` subtree rendered as
-    /// TOML, parsed by the driver's own `configure`.
+    /// `config` is the ecosystem's `[ecosystems.<id>]` raw subtree, handed to the
+    /// driver's own `configure`.
     ///
     /// # Errors
     /// Returns a typed PLAN error if the driver cannot be spawned, the handshake
     /// is incompatible, or a prefetched port call fails. A resolved driver that
     /// fails is always a hard error — never a silent skip.
-    pub fn spawn(program: &Path, ecosystem: EcosystemId, config_toml: String) -> AppResult<Self> {
+    pub fn spawn(program: &Path, ecosystem: EcosystemId, config: RawValue) -> AppResult<Self> {
         let driver = process::spawn(program, "__serve")
             .map_err(|fault| fault.into_app_error(ecosystem.as_str()))?;
         let child = ChildHandle::new(driver.child);
@@ -81,7 +81,7 @@ impl RemoteAdapter {
             DEFAULT_RPC_TIMEOUT,
             ecosystem.to_string(),
         );
-        Self::connect(client, ecosystem, config_toml)
+        Self::connect(client, ecosystem, config)
     }
 
     /// Connect over an arbitrary framed reader/writer (the in-process test path).
@@ -93,7 +93,7 @@ impl RemoteAdapter {
         reader: R,
         writer: W,
         ecosystem: EcosystemId,
-        config_toml: String,
+        config: RawValue,
     ) -> AppResult<Self>
     where
         R: Read + Send + 'static,
@@ -106,16 +106,12 @@ impl RemoteAdapter {
             DEFAULT_RPC_TIMEOUT,
             ecosystem.to_string(),
         );
-        Self::connect(client, ecosystem, config_toml)
+        Self::connect(client, ecosystem, config)
     }
 
     /// Handshake + prefetch the infallible port surface, building the adapter.
-    fn connect(
-        mut client: RpcClient,
-        ecosystem: EcosystemId,
-        config_toml: String,
-    ) -> AppResult<Self> {
-        let hello = Hello::new(PROTOCOL_VERSION.to_string(), ecosystem.clone(), config_toml);
+    fn connect(mut client: RpcClient, ecosystem: EcosystemId, config: RawValue) -> AppResult<Self> {
+        let hello = Hello::new(PROTOCOL_VERSION.to_string(), ecosystem.clone(), config);
         let welcome = client
             .handshake(&hello)
             .map_err(|fault| fault.into_app_error(ecosystem.as_str()))?;
@@ -234,8 +230,8 @@ impl ConfiguredAdapter for RemoteAdapter {
     }
 
     fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseTarget>>> {
-        // Capability-gated: full release-over-RPC is deferred. A driven ecosystem
-        // is not publishable through the umbrella in this pass.
+        // Capability-gated: driven ecosystems are not publishable through the
+        // umbrella transport.
         Ok(None)
     }
 

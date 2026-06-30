@@ -2,9 +2,8 @@
 //! [`RskitGitVcs`] per distinct repository and maps each repo-relative
 //! [`ChangeRecord`] onto the workspaces beneath it.
 //!
-//! This is the single-repo case the cross-repo step generalizes to N members:
-//! resolve each active workspace's canonical repo root, dedup by root, diff once
-//! per repo, then strip each workspace's prefix. The prefix-strip
+//! For each active workspace, resolve its canonical repo root, dedup by root,
+//! diff once per repo, then strip each workspace's prefix. The prefix-strip
 //! ([`rebase_records`]) and the dedup grouping are pure and unit-testable without
 //! a git repo; only [`VcsReaderSet::open`] touches the filesystem.
 

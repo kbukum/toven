@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// `[project]` is the degenerate single-member case; an umbrella adds a
 /// `[[members]]` array. Loading each member's own `toven.toml` and composing the
-/// federated graph is owned by the cross-repo federation step — here the schema
-/// is parsed and structurally validated only.
+/// federated graph are federation responsibilities; this schema is parsed and
+/// structurally validated during config loading.
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MemberConfig {

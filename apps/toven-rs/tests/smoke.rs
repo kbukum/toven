@@ -3,8 +3,8 @@
 //! Materializes the committed `single-rust` fixture into a throwaway git tree
 //! and drives the real binary across the argv-first surface: an introspection
 //! projection (`modules`), a PLAN-only cut (`plan build`), and a full PLAN+APPLY
-//! run (`build`). This is the first point the whole standalone stack is
-//! exercised as a shipping binary; each step must exit zero. Fixture
+//! run (`build`). The whole standalone stack is exercised as a shipping binary;
+//! each command must exit zero. Fixture
 //! materialization and the real git import reuse `toven-testkit` primitives
 //! rather than an out-of-band shell harness.
 

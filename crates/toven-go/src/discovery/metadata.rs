@@ -201,11 +201,12 @@ fn run_go_mod_edit(project_root: &Path, manifest: &str) -> AppResult<GoModEdit> 
         .arg(&manifest_abs)
         .dir(project_root);
     let stdout = run_go_json(&spec, &format!("go mod edit for '{manifest}'"))?;
-    serde_json::from_str::<GoModEdit>(&stdout).map_err(|error| {
+    rskit_codec::decode::<GoModEdit>(&rskit_codec::JsonCodec::default(), &stdout).map_err(|error| {
         AppError::new(
             ErrorCode::InvalidFormat,
-            format!("failed to parse `go mod edit -json` output for '{manifest}': {error}"),
+            format!("failed to parse `go mod edit -json` output for '{manifest}'"),
         )
+        .with_cause(error)
     })
 }
 
@@ -218,12 +219,15 @@ fn run_go_work_edit(project_root: &Path, work_abs: &Path) -> AppResult<GoWorkEdi
         .arg(work_abs)
         .dir(project_root);
     let stdout = run_go_json(&spec, "go work edit")?;
-    serde_json::from_str::<GoWorkEdit>(&stdout).map_err(|error| {
-        AppError::new(
-            ErrorCode::InvalidFormat,
-            format!("failed to parse `go work edit -json` output: {error}"),
-        )
-    })
+    rskit_codec::decode::<GoWorkEdit>(&rskit_codec::JsonCodec::default(), &stdout).map_err(
+        |error| {
+            AppError::new(
+                ErrorCode::InvalidFormat,
+                "failed to parse `go work edit -json` output",
+            )
+            .with_cause(error)
+        },
+    )
 }
 
 /// Run a captured, bounded, timed-out `go` invocation and return its stdout,

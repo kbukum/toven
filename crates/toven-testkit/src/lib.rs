@@ -41,12 +41,13 @@ pub use assertions::{
 };
 pub use doubles::{
     CountingToolchainProber, EMPTY_IDENTITY, FakeCacheStore, FakeCommandRunner,
-    FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeSourceDigest, FakeVcsReader,
-    FakeVcsWriter, RecordingCacheStore, RecordingCacheWriter, RecordingRawOutputSink,
-    RecordingReporter, ReleaseCall, VcsWrite,
+    FakeConfiguredAdapter, FakeDriverLocator, FakeDriverScaffolder, FakeProvider,
+    FakeReleaseTarget, FakeSourceDigest, FakeVcsReader, FakeVcsWriter, RecordingCacheStore,
+    RecordingCacheWriter, RecordingRawOutputSink, RecordingReporter, ReleaseCall, VcsWrite,
 };
 pub use fixtures::{
-    FIXTURES_ROOT, document, document_path, document_string, ecosystem, ecosystem_string, repo_path,
+    FIXTURES_ROOT, document, document_path, document_string, ecosystem, ecosystem_string,
+    raw_subtree, repo_path,
 };
 pub use repo::SampleRepo;
 pub use rskit_testutil::{CurrentDirGuard, TestWorkspace};

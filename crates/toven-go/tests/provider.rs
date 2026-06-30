@@ -12,7 +12,7 @@ fn provider() -> GoProvider {
 
 fn configure(adapter_config: &str) -> Box<dyn toven_ports::ConfiguredAdapter> {
     let raw_text = fixtures::ecosystem_string("go", adapter_config).expect("adapter fixture");
-    let raw: toml::Value = toml::from_str(&raw_text).expect("valid adapter toml");
+    let raw = toven_testkit::raw_subtree(&raw_text).expect("valid adapter toml");
     provider().configure(raw).expect("configure")
 }
 
@@ -74,9 +74,8 @@ fn configure_accepts_the_flattened_common_knobs() {
 #[test]
 fn configure_rejects_an_unknown_section_field() {
     let adapter = fixtures::ecosystem_string("go", "adapter/single-module.toml").unwrap();
-    let mut raw: toml::Table = toml::from_str(&adapter).unwrap();
-    raw.insert("bogus".to_string(), toml::Value::Boolean(true));
-    assert!(provider().configure(toml::Value::Table(raw)).is_err());
+    let raw = toven_testkit::raw_subtree(&format!("{adapter}\nbogus = true\n")).expect("subtree");
+    assert!(provider().configure(raw).is_err());
 }
 
 #[test]

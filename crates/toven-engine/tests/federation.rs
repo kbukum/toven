@@ -27,7 +27,9 @@ use toven_ports::{
     CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, FanOut, Provider, RunStrategy, Task,
     TaskKind, ToolchainProbe,
 };
-use toven_testkit::{FakeConfiguredAdapter, FakeProvider, RecordingReporter, fixtures};
+use toven_testkit::{
+    FakeConfiguredAdapter, FakeDriverLocator, FakeProvider, RecordingReporter, fixtures,
+};
 
 /// A valid ecosystem id for tests.
 fn eid(id: &str) -> EcosystemId {
@@ -70,8 +72,13 @@ fn remote_adapter_round_trips_the_port_surface_over_the_serve_double() {
     })
     .expect("serve double spawns");
 
-    let remote = RemoteAdapter::connect_io(reader, writer, eid("go"), "modules = []".to_string())
-        .expect("handshake + prefetch succeed");
+    let remote = RemoteAdapter::connect_io(
+        reader,
+        writer,
+        eid("go"),
+        serde_json::json!({ "modules": [] }),
+    )
+    .expect("handshake + prefetch succeed");
 
     // The prefetched infallible surface mirrors the scripted adapter.
     let tasks = remote.default_tasks();
@@ -121,8 +128,13 @@ fn remote_adapter_mirrors_per_custom_name_run_strategies() {
     })
     .expect("serve double spawns");
 
-    let remote = RemoteAdapter::connect_io(reader, writer, eid("go"), "modules = []".to_string())
-        .expect("handshake + prefetch succeed");
+    let remote = RemoteAdapter::connect_io(
+        reader,
+        writer,
+        eid("go"),
+        serde_json::json!({ "modules": [] }),
+    )
+    .expect("handshake + prefetch succeed");
 
     // The declared custom task keeps the driver's per-name strategy...
     assert_eq!(
@@ -163,8 +175,13 @@ fn fallback_custom_strategy_is_isolated_from_a_sentinel_named_task() {
     })
     .expect("serve double spawns");
 
-    let remote = RemoteAdapter::connect_io(reader, writer, eid("go"), "modules = []".to_string())
-        .expect("handshake + prefetch succeed");
+    let remote = RemoteAdapter::connect_io(
+        reader,
+        writer,
+        eid("go"),
+        serde_json::json!({ "modules": [] }),
+    )
+    .expect("handshake + prefetch succeed");
 
     // The declared "__probe__" task keeps its own per-name strategy...
     assert_eq!(
@@ -196,7 +213,7 @@ fn handshake_accepts_an_additive_minor_protocol() {
         schema_version: ENVELOPE_SCHEMA_VERSION,
         protocol: "1.4.2".to_string(),
         ecosystem: eid("go"),
-        config_toml: "modules = []".to_string(),
+        config: serde_json::json!({ "modules": [] }),
     };
     write_value(&mut writer, &hello).expect("send hello");
     let welcome: Welcome = read_value(&mut reader, MAX_FRAME_BYTES)
@@ -222,7 +239,7 @@ fn handshake_rejects_an_incompatible_major_protocol() {
         schema_version: ENVELOPE_SCHEMA_VERSION,
         protocol: "2.0.0".to_string(),
         ecosystem: eid("go"),
-        config_toml: "modules = []".to_string(),
+        config: serde_json::json!({ "modules": [] }),
     };
     write_value(&mut writer, &hello).expect("send hello");
 
@@ -254,7 +271,7 @@ fn serve_rejects_an_ecosystem_it_does_not_serve() {
     let hello = Hello::new(
         "1.0.0".to_string(),
         eid("rust"),
-        "manifests = []".to_string(),
+        serde_json::json!({ "manifests": [] }),
     );
     write_value(&mut writer, &hello).expect("send hello");
     let response: Response = read_value(&mut reader, MAX_FRAME_BYTES)
@@ -279,9 +296,12 @@ fn remote_adapter_surfaces_a_rejected_handshake_as_a_typed_remote_error() {
     } = ServeDouble::spawn(|| vec![Box::new(FakeProvider::new(eid("go")))])
         .expect("serve double spawns");
 
-    let Err(error) =
-        RemoteAdapter::connect_io(reader, writer, eid("rust"), "manifests = []".to_string())
-    else {
+    let Err(error) = RemoteAdapter::connect_io(
+        reader,
+        writer,
+        eid("rust"),
+        serde_json::json!({ "manifests": [] }),
+    ) else {
         panic!("handshake against an unserved ecosystem must fail")
     };
     assert_eq!(
@@ -308,7 +328,7 @@ fn serve_rejects_a_mismatched_envelope_schema() {
         schema_version: ENVELOPE_SCHEMA_VERSION + 1,
         protocol: "1.0.0".to_string(),
         ecosystem: eid("go"),
-        config_toml: "modules = []".to_string(),
+        config: serde_json::json!({ "modules": [] }),
     };
     write_value(&mut writer, &hello).expect("send hello");
     let response: Response = read_value(&mut reader, MAX_FRAME_BYTES)
@@ -349,7 +369,7 @@ fn remote_adapter_rejects_a_mismatched_welcome_schema() {
         umbrella_reader,
         umbrella_writer,
         eid("go"),
-        "modules = []".to_string(),
+        serde_json::json!({ "modules": [] }),
     ) else {
         panic!("a mismatched welcome schema must fail the umbrella")
     };
@@ -385,7 +405,7 @@ fn remote_adapter_rejects_a_driver_missing_required_capabilities() {
         umbrella_reader,
         umbrella_writer,
         eid("go"),
-        "modules = []".to_string(),
+        serde_json::json!({ "modules": [] }),
     ) else {
         panic!("a driver missing required capabilities must fail the umbrella")
     };
@@ -413,14 +433,6 @@ fn resolved_but_broken_driver_is_a_hard_plan_error() {
     );
 }
 
-/// A locator that never resolves a driver on PATH.
-struct NoLocator;
-impl toven_engine::federation::resolve::DriverLocator for NoLocator {
-    fn locate(&self, _binary_name: &str) -> Option<std::path::PathBuf> {
-        None
-    }
-}
-
 #[test]
 fn absent_driver_warns_and_skips() {
     // `[ecosystems.go]` is canonical-but-unloaded with no pin and no PATH driver:
@@ -429,8 +441,8 @@ fn absent_driver_warns_and_skips() {
     let rust = FakeProvider::new(eid("rust"));
     let providers: Vec<&dyn Provider> = vec![&rust];
 
-    let resolution =
-        resolve_adapters(&document, &providers, &NoLocator).expect("absent driver does not error");
+    let resolution = resolve_adapters(&document, &providers, &FakeDriverLocator::new())
+        .expect("absent driver does not error");
     assert!(
         resolution.adapters.is_empty(),
         "no remote adapter is connected for an absent driver"
@@ -459,7 +471,7 @@ fn absent_driver_warning_is_surfaced_through_the_plan_front() {
         &AbsPath::new("/repo").expect("absolute"),
         &document,
         &providers,
-        &NoLocator,
+        &FakeDriverLocator::new(),
         &mut reporter,
     )
     .expect("graph builds with the absent driver skipped");

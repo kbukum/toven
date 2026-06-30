@@ -10,7 +10,7 @@ use toven_testkit::fixtures;
 /// Build a configured Rust adapter from a fixture adapter config.
 fn configure(adapter_config: &str) -> Box<dyn ConfiguredAdapter> {
     let raw_text = fixtures::ecosystem_string("rust", adapter_config).expect("adapter fixture");
-    let raw: toml::Value = toml::from_str(&raw_text).expect("valid adapter toml");
+    let raw = toven_testkit::raw_subtree(&raw_text).expect("valid adapter toml");
     RustProvider::new()
         .expect("provider")
         .configure(raw)

@@ -51,8 +51,7 @@ impl ConfiguredAdapter for GoAdapter {
     }
 
     fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseTarget>>> {
-        // Go-module release is not yet supported; the rust crates.io target
-        // remains the only release path.
+        // Go modules do not expose a release target through this adapter.
         Ok(None)
     }
 

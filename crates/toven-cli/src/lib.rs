@@ -17,7 +17,7 @@
 //!   per-verb applicability gate.
 //! - [`collision`] — the load-time task-name / reserved-word collision warning.
 //! - `commands` — the verb implementations (execution, introspection, cache,
-//!   and the step-deferred stubs).
+//!   federation, generation, and driver management).
 //! - The crate's [`run`] / [`run_from`] entry points tie argv → dispatch → exit
 //!   code (the dispatch internals live in private `app`/`host` modules).
 #![warn(missing_docs)]

@@ -30,6 +30,8 @@
 //! - [`exec`] — [`CommandRunner`]: the injected process-execution seam consumed
 //!   by the APPLY wave walk (concrete `rskit-process` runner lives in the engine).
 //! - [`discover`] — the discovery request/response vocabulary.
+//! - [`driver`] — [`DriverLocator`]/[`DriverScaffolder`]: the out-of-process
+//!   `toven-<eco>` driver seams (concrete adapters live in the engine).
 //!
 //! ## Shared surface
 //! - [`task`] — the tasks vocabulary ([`Task`], [`TaskKind`], [`FanOut`], …).
@@ -40,6 +42,7 @@
 pub mod cache;
 pub mod config;
 pub mod discover;
+pub mod driver;
 pub mod exec;
 pub mod merge;
 pub mod provider;
@@ -55,6 +58,7 @@ pub mod vcs;
 pub use cache::{CacheStore, CacheWriter};
 pub use config::{CommonEcosystemConfig, ReleaseConfig, RunStrategy, TaskOverride};
 pub use discover::{DISCOVERY_SCHEMA_VERSION, DiscoverContext, DiscoverRequest, DiscoverResponse};
+pub use driver::{DriverLocator, DriverScaffolder};
 pub use exec::{
     CommandRunner, HeldProcess, Invocation, InvocationEnvPolicy, InvocationEnvironment,
     OutputObserver, RunOutcome, StartOutcome,
@@ -164,7 +168,7 @@ mod object_safety {
         fn ecosystem_id(&self) -> &EcosystemId {
             &self.0
         }
-        fn configure(&self, _raw: toml::Value) -> AppResult<Box<dyn ConfiguredAdapter>> {
+        fn configure(&self, _raw: rskit_config::RawValue) -> AppResult<Box<dyn ConfiguredAdapter>> {
             Ok(Box::new(FakeConfigured(CommonEcosystemConfig::default())))
         }
         fn scaffold(&self, _project_root: &Path) -> AppResult<Option<EcosystemFragment>> {
@@ -303,7 +307,7 @@ mod object_safety {
                 .is_some()
         );
         let configured = provider
-            .configure(toml::Value::Table(Table::new()))
+            .configure(rskit_config::RawValue::Null)
             .expect("configures");
 
         // Exercise every ConfiguredAdapter method.

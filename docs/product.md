@@ -67,7 +67,7 @@ Rust generation emits ecosystem-level Cargo manifest discovery. Cargo metadata i
 | `toven explain <module> <task>` | Show the planned unit(s) for one module/task: argv, dependencies, and persistence. |
 | `toven modules` | Show module discovery results. |
 | `toven graph` | Show dependency graph. |
-| `toven cache stats` | Show local cache entries, size, and age. |
+| `toven cache stats` | Show the local cache path, entry count, and byte size. |
 | `toven cache clean` | Remove cache entries by policy. |
 
 ## Release scope

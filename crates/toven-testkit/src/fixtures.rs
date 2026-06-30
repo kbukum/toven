@@ -72,6 +72,15 @@ pub fn document(rel: impl AsRef<Path>) -> AppResult<toml::Value> {
         .map_err(|error| AppError::invalid_input("fixture_document", error.to_string()))
 }
 
+/// Parse an inline TOML subtree into a canonical [`RawValue`](rskit_config::RawValue).
+///
+/// The shared way for adapter tests to build a `[ecosystems.<id>]` subtree to
+/// hand a provider's `configure`, so cases live as small declarative TOML rather
+/// than format-specific value-tree construction.
+pub fn raw_subtree(toml: &str) -> AppResult<rskit_config::RawValue> {
+    rskit_codec::decode(&rskit_codec::TomlCodec, toml)
+}
+
 /// Read a UTF-8 ecosystem-specific fixture under `fixtures/ecosystems/<id>/<rel>`.
 ///
 /// Ecosystem fixtures are isolated per id: adding a new ecosystem never edits

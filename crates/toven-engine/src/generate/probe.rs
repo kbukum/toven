@@ -12,24 +12,10 @@ use std::path::Path;
 
 use rskit_errors::{AppError, AppResult};
 use toven_model::EcosystemId;
-use toven_ports::{EcosystemFragment, Provider};
+use toven_ports::{DriverLocator, DriverScaffolder, EcosystemFragment, Provider};
 
 use crate::config::CanonicalRegistry;
-use crate::federation::{self, DriverLocator};
-
-/// Probes an out-of-process `toven-<eco>` driver for the fragments it detects.
-///
-/// Injected so the probe stays testable without spawning a real subprocess; the
-/// production [`ProcessDriverScaffolder`] drives the federated `__scaffold`
-/// exchange.
-pub trait DriverScaffolder {
-    /// Ask the driver at `program` what ecosystems it detects under `project_root`.
-    ///
-    /// # Errors
-    /// Returns a typed error if the driver cannot be reached or reports a
-    /// scaffold failure. A *located* driver that misbehaves is a hard error.
-    fn scaffold(&self, program: &Path, project_root: &Path) -> AppResult<Vec<EcosystemFragment>>;
-}
+use crate::federation;
 
 /// The production [`DriverScaffolder`]: spawns `program __scaffold` and runs the
 /// federated config-less scaffold exchange.
@@ -93,7 +79,7 @@ pub(super) fn probe(
         if loaded.contains(&id) {
             continue;
         }
-        let Some(program) = locator.locate(&federation::driver_binary_name(&id)) else {
+        let Some(program) = locator.locate(&federation::driver_binary_name(&id))? else {
             continue;
         };
         for fragment in scaffolder.scaffold(&program, project_root)? {

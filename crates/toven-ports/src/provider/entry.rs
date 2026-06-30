@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use rskit_config::RawValue;
 use rskit_errors::AppResult;
 use toven_model::EcosystemId;
 
@@ -18,12 +19,15 @@ pub trait Provider {
 
     /// Parse + bake the raw `[ecosystems.<id>]` subtree into a configured adapter.
     ///
-    /// The adapter deserializes `raw` into its own typed schema (with
-    /// [`CommonEcosystemConfig`](crate::config::CommonEcosystemConfig) flattened)
-    /// and applies defaults. Strict unknown-key rejection for the flattened
+    /// `raw` is the canonical [`RawValue`] subtree retained verbatim by the
+    /// loader (format-neutral, regardless of the on-disk source). The adapter
+    /// deserializes it into its own typed schema — typically via
+    /// [`rskit_config::deserialize_subtree`] — with
+    /// [`CommonEcosystemConfig`](crate::config::CommonEcosystemConfig) flattened,
+    /// then applies defaults. Strict unknown-key rejection for the flattened
     /// section is the `Document` loader's job, since serde cannot combine
     /// `deny_unknown_fields` with `#[serde(flatten)]`.
-    fn configure(&self, raw: toml::Value) -> AppResult<Box<dyn ConfiguredAdapter>>;
+    fn configure(&self, raw: RawValue) -> AppResult<Box<dyn ConfiguredAdapter>>;
 
     /// Config-less detection: emit a minimal `[ecosystems.<id>]` fragment if this
     /// ecosystem applies under `project_root`. `None` = not present.

@@ -17,11 +17,11 @@ use std::collections::BTreeSet;
 
 use rskit_errors::{AppError, AppResult};
 use toven_model::{AbsPath, DepKind, EcosystemId, Edge, Module, ModuleKey, ModuleRef};
-use toven_ports::Provider;
+use toven_ports::{DriverLocator, Provider};
 
 use crate::config::{CanonicalRegistry, Document, OverlayConfig, OverlayRef};
 use crate::federation::rebase::{member_prefix, rebase_member};
-use crate::federation::resolve::{self, DriverLocator};
+use crate::federation::resolve;
 use crate::plan::configure::{self, ConfiguredSet, MemberAdapters};
 use crate::plan::discover::{self, Federation};
 

@@ -94,16 +94,20 @@ impl CratesIoTarget {
     fn target_directory(manifest: &Path) -> AppResult<PathBuf> {
         let output = cargo_metadata_command(Self::working_root()?, manifest)?;
         output.check()?;
-        let metadata =
-            serde_json::from_str::<cargo_metadata::Metadata>(&output.stdout).map_err(|error| {
-                AppError::new(
-                    ErrorCode::InvalidFormat,
-                    format!(
-                        "failed to parse `cargo metadata` output for '{}': {error}",
-                        manifest.display()
-                    ),
-                )
-            })?;
+        let metadata = rskit_codec::decode::<cargo_metadata::Metadata>(
+            &rskit_codec::JsonCodec::default(),
+            &output.stdout,
+        )
+        .map_err(|error| {
+            AppError::new(
+                ErrorCode::InvalidFormat,
+                format!(
+                    "failed to parse `cargo metadata` output for '{}'",
+                    manifest.display()
+                ),
+            )
+            .with_cause(error)
+        })?;
         Ok(metadata.target_directory.into_std_path_buf())
     }
 

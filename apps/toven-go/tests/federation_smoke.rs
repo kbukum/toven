@@ -27,7 +27,9 @@ fn umbrella_drives_the_real_go_driver_over_stdio() {
 
     // Spawn `toven-go __serve` and complete the handshake + infallible prefetch
     // against the real process — no in-proc double, no shell string.
-    let remote = RemoteAdapter::spawn(&driver_binary(), ecosystem, "modules = []".to_string())
+    let config: rskit_config::RawValue =
+        rskit_codec::decode(&rskit_codec::TomlCodec, "modules = []").expect("subtree parses");
+    let remote = RemoteAdapter::spawn(&driver_binary(), ecosystem, config)
         .expect("real toven-go __serve handshake + prefetch succeed");
 
     // The driver advertises its built-in Go tasks and a real toolchain probe.

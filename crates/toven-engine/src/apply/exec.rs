@@ -60,6 +60,15 @@ impl CommandRunner for ProcessCommandRunner {
     ) -> AppResult<RunOutcome> {
         let spec = spec(invocation, &self.project_root)?;
         let result = run_with_cancel(&spec, &self.process_config, cancel).await?;
+        if result.stdout_truncated || result.stderr_truncated {
+            return Err(AppError::new(
+                rskit_errors::ErrorCode::Internal,
+                format!(
+                    "unit '{}' exceeded its captured-output bound (stdout_truncated={}, stderr_truncated={})",
+                    invocation.unit_id, result.stdout_truncated, result.stderr_truncated
+                ),
+            ));
+        }
         let output = output(
             invocation.unit_id.as_str(),
             &result.stdout_bytes,

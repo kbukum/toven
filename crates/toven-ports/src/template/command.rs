@@ -88,6 +88,58 @@ impl CommandTemplate {
         }
         Ok(argv)
     }
+
+    /// Render a single command that batches several modules, splicing every
+    /// module's selector fragment at the `{module.selector}` point.
+    ///
+    /// One `resolve` closure per module supplies that module's placeholder
+    /// values; the base argv (non-selector placeholders) is rendered from the
+    /// first module. With one module this matches [`render`](Self::render).
+    /// `WholeWorkspace` tasks omit `{module.selector}` and so collapse to a single
+    /// selector-less argv (still rendered from their one representative module).
+    ///
+    /// # Errors
+    /// Returns an error if `resolvers` is empty (a batch always covers at least
+    /// one module), or propagates any error returned by a module `resolve`.
+    pub fn render_batch<F>(
+        &self,
+        passthrough: &[String],
+        resolvers: &mut [F],
+    ) -> AppResult<Vec<String>>
+    where
+        F: FnMut(TaskVar) -> AppResult<String>,
+    {
+        if resolvers.is_empty() {
+            return Err(AppError::invalid_input(
+                FIELD_ARGV,
+                "batch render requires at least one module",
+            ));
+        }
+        let needs_selector = self
+            .base
+            .iter()
+            .any(|element| is_splice(element, TaskVar::ModuleSelector));
+        let mut selector = Vec::new();
+        if needs_selector {
+            for resolve in resolvers.iter_mut() {
+                for fragment in &self.selector {
+                    selector.push(render_template(FIELD_SELECTOR, fragment, resolve)?);
+                }
+            }
+        }
+        let base = &mut resolvers[0];
+        let mut argv = Vec::with_capacity(self.base.len() + selector.len() + passthrough.len());
+        for element in &self.base {
+            if is_splice(element, TaskVar::ModuleSelector) {
+                argv.extend(selector.iter().cloned());
+            } else if is_splice(element, TaskVar::Args) {
+                argv.extend(passthrough.iter().cloned());
+            } else {
+                argv.push(render_template(FIELD_ARGV, element, base)?);
+            }
+        }
+        Ok(argv)
+    }
 }
 
 fn parse_base_element(element: &str) -> AppResult<Template<TaskVar>> {
@@ -319,5 +371,49 @@ mod tests {
         let error = CommandTemplate::parse(&[], &["{args}".to_string()])
             .expect_err("args token in selector must be rejected");
         assert!(error.to_string().contains("selector fragment"), "{error}");
+    }
+
+    #[test]
+    fn render_batch_rejects_empty_module_set() {
+        let base = ["cargo".to_string(), "test".to_string()];
+        let command = CommandTemplate::parse(&base, &[]).expect("templates parse");
+        let mut resolvers: Vec<fn(TaskVar) -> rskit_errors::AppResult<String>> = Vec::new();
+        let error = command
+            .render_batch(&[], &mut resolvers)
+            .expect_err("empty batch must be rejected");
+        assert!(error.to_string().contains("at least one module"), "{error}");
+    }
+
+    #[test]
+    fn render_batch_repeats_selector_per_module() {
+        let base = [
+            "cargo".to_string(),
+            "test".to_string(),
+            "{module.selector}".to_string(),
+        ];
+        let selector = ["-p".to_string(), "{module.package}".to_string()];
+        let command = CommandTemplate::parse(&base, &selector).expect("templates parse");
+        let mut resolvers: Vec<_> = ["a", "b"]
+            .into_iter()
+            .map(|pkg| {
+                move |var: TaskVar| match var {
+                    TaskVar::ModulePackage => Ok(pkg.to_string()),
+                    other => Ok(other.token().to_string()),
+                }
+            })
+            .collect();
+        let argv = command
+            .render_batch(&[], &mut resolvers)
+            .expect("batch renders");
+        assert_eq!(argv, vec!["cargo", "test", "-p", "a", "-p", "b"]);
+    }
+
+    #[test]
+    fn render_batch_omits_selector_for_whole_workspace() {
+        let base = ["cargo".to_string(), "fmt".to_string()];
+        let mut resolvers = [|var: TaskVar| Ok(var.token().to_string())];
+        let command = CommandTemplate::parse(&base, &[]).expect("templates parse");
+        let argv = command.render_batch(&[], &mut resolvers).expect("renders");
+        assert_eq!(argv, vec!["cargo", "fmt"]);
     }
 }

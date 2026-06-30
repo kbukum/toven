@@ -108,7 +108,7 @@ fn decide_cache(
     let unit_modules: Vec<ModuleKey> = scheduled
         .units
         .iter()
-        .map(|planned| planned.module.clone())
+        .flat_map(|planned| planned.members.iter().cloned())
         .collect();
     let needed = cache::needed_modules(&unit_modules, &adjacency);
     let needed_modules: Vec<toven_model::Module> = federation
@@ -136,7 +136,7 @@ fn decide_cache(
                 host.cache,
                 || {
                     let inputs = KeyInputs {
-                        module: &planned.module,
+                        modules: &planned.members,
                         base_argv: &planned.base_argv,
                         shared_inputs: &planned.shared_inputs,
                         toolchain_identity: &planned.toolchain_identity,
@@ -154,6 +154,7 @@ fn decide_cache(
         units.push(ExecutionUnit {
             id: planned.id.clone(),
             module: planned.module.clone(),
+            members: planned.members.clone(),
             kind: planned.kind.clone(),
             workspace: planned.workspace.clone(),
             argv: planned.argv.clone(),

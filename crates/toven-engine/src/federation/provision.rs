@@ -14,8 +14,9 @@ use std::path::{Path, PathBuf};
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_process::{InheritedIo, ProcessConfig, ProcessIo, ProcessSpec, run};
 use toven_model::EcosystemId;
+use toven_ports::DriverLocator;
 
-use super::resolve::{DriverLocator, Resolution, resolve_ecosystem};
+use super::resolve::{Resolution, resolve_ecosystem};
 use crate::config::{CanonicalRegistry, Document};
 
 /// The resolved provisioning state of one canonical ecosystem.
@@ -23,7 +24,7 @@ use crate::config::{CanonicalRegistry, Document};
 pub struct DriverStatus {
     /// The ecosystem id.
     pub id: EcosystemId,
-    /// How it is (or is not) currently served.
+    /// How it is served.
     pub state: DriverState,
 }
 
@@ -193,10 +194,11 @@ mod tests {
 
     use rskit_errors::ErrorCode;
     use toven_model::EcosystemId;
+    use toven_testkit::FakeDriverLocator;
 
     use super::{DriverState, federation_sync, list_drivers, referenced_ecosystems, version_pin};
     use crate::config::{Document, ProjectConfig, TovenConfig};
-    use crate::federation::resolve::{DriverLocator, PathDriverLocator};
+    use crate::federation::resolve::PathDriverLocator;
 
     fn eid(id: &str) -> EcosystemId {
         EcosystemId::new(id).expect("valid id")
@@ -229,13 +231,6 @@ mod tests {
         }
     }
 
-    struct NoLocator;
-    impl DriverLocator for NoLocator {
-        fn locate(&self, _binary_name: &str) -> Option<std::path::PathBuf> {
-            None
-        }
-    }
-
     #[test]
     fn version_pin_reads_table_version() {
         let document = document(&[("go", "version = \"1.2.3\"")]);
@@ -247,7 +242,8 @@ mod tests {
     fn list_marks_loaded_as_linked_and_others_absent() {
         let document = document(&[]);
         let loaded: BTreeSet<EcosystemId> = std::iter::once(eid("rust")).collect();
-        let statuses = list_drivers(&document, &loaded, &NoLocator).expect("status succeeds");
+        let statuses =
+            list_drivers(&document, &loaded, &FakeDriverLocator::new()).expect("status succeeds");
         let rust = statuses
             .iter()
             .find(|s| s.id == eid("rust"))
@@ -265,8 +261,8 @@ mod tests {
             serde_json::Value::String("/definitely/missing/toven-go".to_string()),
         );
 
-        let statuses =
-            list_drivers(&document, &BTreeSet::new(), &NoLocator).expect("status succeeds");
+        let statuses = list_drivers(&document, &BTreeSet::new(), &FakeDriverLocator::new())
+            .expect("status succeeds");
         let go = statuses
             .iter()
             .find(|s| s.id == eid("go"))

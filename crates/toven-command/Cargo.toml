@@ -13,6 +13,7 @@ publish = false
 toven-model.workspace = true
 toven-ports.workspace = true
 rskit-errors.workspace = true
+rskit-config.workspace = true
 serde.workspace = true
 toml.workspace = true
 

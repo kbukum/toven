@@ -1,8 +1,8 @@
 //! `toven-rust` — the Rust/cargo ecosystem adapter.
 //!
-//! The first concrete implementation of the step-2 hexagonal ports against real
-//! cargo tooling. It depends only on [`toven_ports`] + [`toven_model`] (never the
-//! engine) and is registered by id `"rust"`:
+//! Implements the ecosystem ports against real cargo tooling. It depends only on
+//! [`toven_ports`] + [`toven_model`] (never the engine) and is registered by id
+//! `"rust"`:
 //!
 //! - [`RustProvider`] parses `[ecosystems.rust]` into a typed [`RustConfig`] and
 //!   bakes a [`RustAdapter`]; it also self-detects a Cargo project for
