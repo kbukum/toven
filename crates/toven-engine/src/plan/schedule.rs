@@ -170,8 +170,10 @@ fn group_id(key: &ModuleKey, module: &Module, kind: &str, fan_out: FanOut) -> St
         .workspace
         .as_ref()
         .map_or_else(|| ecosystem.to_string(), |ws| format!("{ecosystem}@{ws}"));
-    key.member()
-        .map_or_else(|| format!("{scope}#{kind}"), |member| format!("{member}/{scope}#{kind}"))
+    key.member().map_or_else(
+        || format!("{scope}#{kind}"),
+        |member| format!("{member}/{scope}#{kind}"),
+    )
 }
 
 /// Map every active module to the id of the unit that will carry it.
@@ -193,7 +195,10 @@ fn group_id_map(
                 ),
             )
         })?;
-        ids.insert(key.clone(), group_id(key, module, task.kind.name(), task.fan_out));
+        ids.insert(
+            key.clone(),
+            group_id(key, module, task.kind.name(), task.fan_out),
+        );
     }
     Ok(ids)
 }
@@ -810,7 +815,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(scheduled.units.len(), 2);
-        let mut ids: Vec<&str> = scheduled.units.iter().map(|unit| unit.id.as_str()).collect();
+        let mut ids: Vec<&str> = scheduled
+            .units
+            .iter()
+            .map(|unit| unit.id.as_str())
+            .collect();
         ids.sort_unstable();
         assert_eq!(ids, vec!["rust@contrib#test", "rust@core#test"]);
         assert!(scheduled.units.iter().all(|unit| unit.members.len() == 1));
