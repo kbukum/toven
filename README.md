@@ -6,7 +6,7 @@ Toven is a fast, argv-first development and CI task planner for multi-module rep
 
 ## Status
 
-**Pre-alpha.** The hexagonal `crates/*` + `apps/*` redesign is complete, with `toven-model`, `toven-ports`, `toven-engine`, `toven-cli`, `toven-rust`, `toven-go`, `toven-command`, `toven-testkit`, the `toven`, `toven-rs`, and `toven-go` apps, plus `examples/embed` in the workspace.
+**Pre-alpha.** The hexagonal `crates/*` + `apps/*` redesign is complete, with `toven-model`, `toven-ports`, `toven-engine`, `toven-cli`, `toven-rust`, `toven-go`, `toven-command`, `toven-testkit`, and the `toven`, `toven-rs`, and `toven-go` apps in the workspace.
 
 Toven is not published to crates.io yet. Install from source after cloning the repository.
 
@@ -93,7 +93,8 @@ Passthrough args disable cache by default because arbitrary flags can change com
 
 ```toml
 [ecosystems.rust.tasks.test]
-argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.args}", "{args}"]
+argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+selector = ["-p", "{module.package}"]
 cache_args = true
 shared_inputs = ["Cargo.lock", "rust-toolchain.toml"]
 ```
@@ -106,8 +107,8 @@ Persistent tasks opt out of cache automatically and can declare when they are re
 [ecosystems.rust.tasks.dev]
 argv = ["cargo", "run", "-p", "server"]
 persistent = true
-ready_output = "listening"
-ready_timeout_seconds = 30
+readiness = { output-contains = "listening" }
+readiness_timeout_secs = 30
 ```
 
 `make release-artifacts` stages the crates.io package and checksum manifest in `dist/`. CI also generates a CycloneDX SBOM and checks Sigstore tooling without publishing the crate; version-tag runs attach GitHub provenance attestations.

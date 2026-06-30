@@ -93,7 +93,7 @@ fn fake_vcs_writer_records_calls() {
 fn fake_provider_drives_discovery() {
     let provider = FakeProvider::new(EcosystemId::new("rust").expect("id"));
     let configured = provider
-        .configure(toml::Value::Table(toml::Table::new()))
+        .configure(rskit_config::RawValue::Null)
         .expect("configures");
 
     let request = DiscoverRequest::new(AbsPath::new("/repo").expect("absolute"));

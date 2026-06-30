@@ -8,6 +8,7 @@
 //! [`Hello`] and a stream of [`Request`]s; the driven server answers with a
 //! [`Welcome`] then one [`Response`] per request.
 
+use rskit_config::RawValue;
 use serde::{Deserialize, Serialize};
 use toven_model::EcosystemId;
 use toven_ports::{
@@ -22,9 +23,11 @@ pub const ENVELOPE_SCHEMA_VERSION: u16 = 1;
 ///
 /// Carries the protocol version (negotiated by [`handshake`](super::handshake)),
 /// the ecosystem the umbrella wants this server to act as, and that ecosystem's
-/// raw `[ecosystems.<id>]` config rendered as TOML for the server's own
-/// `configure` parse.
-#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+/// raw `[ecosystems.<id>]` config as the canonical [`RawValue`] subtree the
+/// server hands straight to its own `configure`.
+// `config` is a `RawValue` (JSON), which is not `Eq`, so only `PartialEq` is derivable.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Hello {
     /// Envelope schema version ([`ENVELOPE_SCHEMA_VERSION`]).
     pub schema_version: u16,
@@ -32,19 +35,19 @@ pub struct Hello {
     pub protocol: String,
     /// Ecosystem the server should configure and answer for.
     pub ecosystem: EcosystemId,
-    /// The ecosystem's `[ecosystems.<id>]` subtree, rendered as TOML.
-    pub config_toml: String,
+    /// The ecosystem's `[ecosystems.<id>]` subtree as a canonical raw value.
+    pub config: RawValue,
 }
 
 impl Hello {
-    /// Build a hello for `ecosystem` carrying its TOML config subtree.
+    /// Build a hello for `ecosystem` carrying its raw config subtree.
     #[must_use]
-    pub const fn new(protocol: String, ecosystem: EcosystemId, config_toml: String) -> Self {
+    pub const fn new(protocol: String, ecosystem: EcosystemId, config: RawValue) -> Self {
         Self {
             schema_version: ENVELOPE_SCHEMA_VERSION,
             protocol,
             ecosystem,
-            config_toml,
+            config,
         }
     }
 }
@@ -69,9 +72,8 @@ pub struct Welcome {
 /// proxy cannot function without it, so the umbrella treats any driver that
 /// reports a required capability as `false` as an incompatible driver and fails
 /// fast (see [`Capabilities::missing_required`]). `release` is the only optional
-/// surface today (`release = false` ⇒ no release target). New capability flags
-/// default to `false` so an older umbrella reading a newer server's set degrades
-/// safely.
+/// surface (`release = false` ⇒ no release target). New capability flags default
+/// to `false` so an older umbrella reading a newer server's set degrades safely.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Default, Deserialize, Serialize)]
 #[serde(default)]
 #[allow(clippy::struct_excessive_bools)] // a flag-per-port capability set
@@ -84,13 +86,13 @@ pub struct Capabilities {
     pub toolchain: bool,
     /// Server answers [`Request::RunStrategy`].
     pub run_strategy: bool,
-    /// Server exposes a release target (deferred — currently always `false`).
+    /// Server exposes a release target.
     pub release: bool,
 }
 
 impl Capabilities {
-    /// The capability set every first-party driver advertises today: the full
-    /// PLAN-side port surface, with release deferred (capability-gated off).
+    /// The capability set every first-party driver advertises: the PLAN-side port
+    /// surface, with release capability-gated off.
     #[must_use]
     pub const fn plan_surface() -> Self {
         Self {
@@ -202,7 +204,11 @@ mod tests {
 
     #[test]
     fn hello_round_trips_through_json() {
-        let hello = Hello::new("1.0.0".to_string(), rust(), "manifests = []".to_string());
+        let hello = Hello::new(
+            "1.0.0".to_string(),
+            rust(),
+            serde_json::json!({ "manifests": [] }),
+        );
         let json = serde_json::to_string(&hello).expect("serialize");
         let back: Hello = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(hello, back);

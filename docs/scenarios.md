@@ -50,7 +50,7 @@ flowchart TD
     end
 ```
 
-Modules in the same wave have no pending dependency between them. In `batch-ready`, Toven tries to run a wave as one command, then splits only when a manifest boundary makes one command unsafe.
+Modules in the same wave have no pending dependency between them. In `batchable`, Toven tries to run a wave as one command, then splits only when a manifest boundary makes one command unsafe.
 
 ## Shared-input invalidation
 

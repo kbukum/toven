@@ -12,6 +12,7 @@ publish = false
 [dependencies]
 toven-model.workspace = true
 rskit-errors.workspace = true
+rskit-config.workspace = true
 rskit-util.workspace = true
 rskit-version.workspace = true
 serde.workspace = true

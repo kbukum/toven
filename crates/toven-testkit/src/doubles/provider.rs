@@ -194,7 +194,7 @@ impl Provider for FakeProvider {
         &self.ecosystem
     }
 
-    fn configure(&self, _raw: toml::Value) -> AppResult<Box<dyn ConfiguredAdapter>> {
+    fn configure(&self, _raw: rskit_config::RawValue) -> AppResult<Box<dyn ConfiguredAdapter>> {
         Ok(Box::new(self.adapter.clone()))
     }
 
@@ -208,7 +208,6 @@ impl Provider for FakeProvider {
 
 #[cfg(test)]
 mod tests {
-    use toml::Table;
     use toven_model::{AbsPath, EcosystemId};
     use toven_ports::{DiscoverRequest, Provider};
 
@@ -227,7 +226,7 @@ mod tests {
 
         assert_eq!(provider.ecosystem_id().as_str(), "rust");
         let configured = provider
-            .configure(toml::Value::Table(Table::new()))
+            .configure(rskit_config::RawValue::Null)
             .expect("configures");
 
         let request = DiscoverRequest::new(AbsPath::new("/repo").expect("absolute"));

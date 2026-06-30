@@ -49,8 +49,14 @@ pub enum ExecutionReadiness {
 pub struct ExecutionUnit {
     /// Stable unit identifier (referenced by the wave order and events).
     pub id: String,
-    /// Module this unit operates on.
+    /// Module this unit operates on (the representative module for a batched or
+    /// whole-workspace unit). See [`members`](Self::members) for the full set.
     pub module: ModuleKey,
+    /// Every module this unit covers. A `PerModule` unit lists exactly its one
+    /// module; a `Batchable`/`WholeWorkspace` unit lists every module collapsed
+    /// into the single invocation. Always non-empty and contains `module`.
+    #[serde(default)]
+    pub members: Vec<ModuleKey>,
     /// Task kind (e.g. `build`, `test`, `fmt`).
     pub kind: String,
     /// Owning workspace, whose toolchain identity keys the cache.
@@ -129,6 +135,9 @@ mod tests {
             module: ModuleKey::bare(
                 ModuleRef::new(EcosystemId::new("rust").unwrap(), "errors").unwrap(),
             ),
+            members: vec![ModuleKey::bare(
+                ModuleRef::new(EcosystemId::new("rust").unwrap(), "errors").unwrap(),
+            )],
             kind: "build".to_string(),
             workspace: None,
             argv: vec!["cargo".to_string(), "build".to_string()],

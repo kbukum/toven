@@ -189,21 +189,16 @@ fn plans_full_federation_into_leaf_first_waves() {
     )
     .expect("plan succeeds");
 
-    // Two per-module units, leaf (errors) scheduled before its dependent (app).
-    assert_eq!(plan.units.len(), 2);
-    assert_eq!(
-        plan.waves,
-        vec![
-            vec!["rust:errors#test".to_string()],
-            vec!["rust:app#test".to_string()],
-        ]
-    );
+    // Whole-workspace fan-out collapses both modules into a single invocation.
+    assert_eq!(plan.units.len(), 1);
+    assert_eq!(plan.waves, vec![vec!["rust#test".to_string()]]);
 
     let app = plan
         .units
         .iter()
-        .find(|unit| unit.id == "rust:app#test")
-        .expect("app unit present");
+        .find(|unit| unit.id == "rust#test")
+        .expect("collapsed unit present");
+    assert_eq!(app.members.len(), 2);
     assert_eq!(app.argv, vec!["cargo".to_string(), "test".to_string()]);
     assert_eq!(app.workspace, Some(wsid("rust")));
     assert_eq!(app.kind, "test");
@@ -261,15 +256,15 @@ fn emits_phase_and_plan_events_in_order() {
     let prepared = reporter
         .events()
         .iter()
-        .any(|event| matches!(event, Event::PlanPrepared { waves: 2, units: 2 }));
-    assert!(prepared, "expected PlanPrepared with 2 waves / 2 units");
+        .any(|event| matches!(event, Event::PlanPrepared { waves: 1, units: 1 }));
+    assert!(prepared, "expected PlanPrepared with 1 wave / 1 unit");
 
     let decided = reporter
         .events()
         .iter()
         .filter(|event| matches!(event, Event::CacheDecided { .. }))
         .count();
-    assert_eq!(decided, 2);
+    assert_eq!(decided, 1);
 }
 
 #[test]
@@ -369,7 +364,7 @@ fn changed_selection_restricts_active_units() {
 
     let mut ids: Vec<&str> = plan.units.iter().map(|unit| unit.id.as_str()).collect();
     ids.sort_unstable();
-    assert_eq!(ids, vec!["rust:app#test", "rust:errors#test"]);
+    assert_eq!(ids, vec!["rust#test"]);
 }
 
 #[test]
@@ -394,7 +389,7 @@ fn cache_keys_are_deterministic_and_drive_hits() {
     )
     .expect("first plan succeeds");
     let keys = recording.queried();
-    assert_eq!(keys.len(), 2, "one key per unit");
+    assert_eq!(keys.len(), 1, "one key per unit");
 
     // Second run: seed one captured key — the same key must recur (determinism)
     // and turn exactly that unit into a hit.

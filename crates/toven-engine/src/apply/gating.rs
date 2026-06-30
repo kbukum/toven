@@ -60,7 +60,7 @@ impl Gate {
             .insert(unit_id.to_string(), UnitState::Satisfied);
     }
 
-    /// Mark a unit as failed and return every newly blocked reverse-dependent.
+    /// Mark a unit as failed and return each reverse-dependent blocked by it.
     pub(super) fn fail_and_block_dependents(&mut self, unit_id: &str) -> Vec<String> {
         self.states.insert(unit_id.to_string(), UnitState::Failed);
         let mut blocked = Vec::new();

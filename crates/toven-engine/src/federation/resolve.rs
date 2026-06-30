@@ -19,7 +19,7 @@ use std::path::PathBuf;
 
 use rskit_errors::{AppError, AppResult};
 use toven_model::EcosystemId;
-use toven_ports::{ConfiguredAdapter, Provider};
+use toven_ports::{ConfiguredAdapter, DriverLocator, Provider};
 
 use super::remote::RemoteAdapter;
 use crate::config::{CanonicalRegistry, Document};
@@ -47,15 +47,6 @@ pub struct DriverBinary {
     pub pinned: bool,
 }
 
-/// Locates a driver binary by its conventional name (e.g. `toven-go`).
-///
-/// Injected so resolution stays pure and testable without touching the real
-/// `PATH`.
-pub trait DriverLocator {
-    /// Resolve `binary_name` to an executable path, or `None` if not found.
-    fn locate(&self, binary_name: &str) -> Option<PathBuf>;
-}
-
 /// The production locator: scans the process `PATH` for `binary_name`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PathDriverLocator;
@@ -69,21 +60,31 @@ impl PathDriverLocator {
 }
 
 impl DriverLocator for PathDriverLocator {
-    fn locate(&self, binary_name: &str) -> Option<PathBuf> {
-        let path = std::env::var_os("PATH")?;
+    fn locate(&self, binary_name: &str) -> AppResult<Option<PathBuf>> {
+        let Some(path) = std::env::var_os("PATH") else {
+            return Ok(None);
+        };
         locate_in_path(std::env::split_paths(&path), binary_name)
     }
 }
 
 /// Find an executable `binary_name` in `paths`.
-fn locate_in_path(paths: impl IntoIterator<Item = PathBuf>, binary_name: &str) -> Option<PathBuf> {
-    paths
-        .into_iter()
-        .map(|dir| dir.join(binary_name))
-        // Require an executable regular file: a same-named non-executable file on
-        // PATH must not masquerade as a resolved driver (which would turn an
-        // absent driver's warn-and-skip into a hard spawn failure).
-        .find(|candidate| rskit_fs::sync_io::file::is_executable(candidate).unwrap_or(false))
+///
+/// Requires an executable regular file: a same-named non-executable file on
+/// `PATH` must not masquerade as a resolved driver (which would turn an absent
+/// driver's warn-and-skip into a hard spawn failure). A filesystem error while
+/// inspecting a candidate is propagated rather than collapsed into "absent".
+fn locate_in_path(
+    paths: impl IntoIterator<Item = PathBuf>,
+    binary_name: &str,
+) -> AppResult<Option<PathBuf>> {
+    for dir in paths {
+        let candidate = dir.join(binary_name);
+        if rskit_fs::sync_io::file::is_executable(&candidate)? {
+            return Ok(Some(candidate));
+        }
+    }
+    Ok(None)
 }
 
 /// Classify one ecosystem id into its four-way [`Resolution`].
@@ -107,7 +108,7 @@ pub fn resolve_ecosystem(
         }));
     }
     Ok(locator
-        .locate(&driver_binary_name(id))
+        .locate(&driver_binary_name(id))?
         .map_or(Resolution::Absent, |program| {
             Resolution::Driver(DriverBinary {
                 program,
@@ -150,8 +151,8 @@ pub fn resolve_adapters(
             Resolution::Linked | Resolution::Unknown => {}
             Resolution::Absent => resolution.warnings.push(absent_hint(id)),
             Resolution::Driver(driver) => {
-                let config_toml = render_subtree(id, raw)?;
-                let adapter = RemoteAdapter::spawn(&driver.program, id.clone(), config_toml)?;
+                let config = driver_config_subtree(raw);
+                let adapter = RemoteAdapter::spawn(&driver.program, id.clone(), config)?;
                 resolution
                     .adapters
                     .insert(id.clone(), Box::new(adapter) as Box<dyn ConfiguredAdapter>);
@@ -241,25 +242,16 @@ fn drivers_map_pin(document: &Document, id: &EcosystemId) -> AppResult<Option<Pa
 /// own (`deny_unknown_fields`) configuration schema.
 const UMBRELLA_ONLY_KEYS: &[&str] = &["driver"];
 
-/// Render an `[ecosystems.<id>]` raw subtree back to TOML for the driver's parse.
-fn render_subtree(id: &EcosystemId, raw: &rskit_config::RawValue) -> AppResult<String> {
-    let mut value = toml::Value::try_from(raw).map_err(|error| {
-        rskit_errors::AppError::invalid_input(
-            format!("ecosystems.{id}"),
-            format!("could not render configuration subtree for driver: {error}"),
-        )
-    })?;
-    if let toml::Value::Table(table) = &mut value {
+/// Strip umbrella-only keys from an `[ecosystems.<id>]` raw subtree, yielding the
+/// canonical [`RawValue`] handed to the driver's own `configure`.
+fn driver_config_subtree(raw: &rskit_config::RawValue) -> rskit_config::RawValue {
+    let mut config = raw.clone();
+    if let Some(table) = config.as_object_mut() {
         for key in UMBRELLA_ONLY_KEYS {
             table.remove(*key);
         }
     }
-    toml::to_string(&value).map_err(|error| {
-        rskit_errors::AppError::invalid_input(
-            format!("ecosystems.{id}"),
-            format!("could not serialize configuration subtree for driver: {error}"),
-        )
-    })
+    config
 }
 
 #[cfg(test)]
@@ -269,11 +261,10 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use toven_model::EcosystemId;
-    use toven_testkit::FakeProvider;
+    use toven_testkit::{FakeDriverLocator, FakeProvider};
 
     use super::{
-        DriverLocator, PathDriverLocator, Resolution, locate_in_path, render_subtree,
-        resolve_ecosystem,
+        PathDriverLocator, Resolution, driver_config_subtree, locate_in_path, resolve_ecosystem,
     };
     use crate::config::{CanonicalRegistry, Document, ProjectConfig, TovenConfig};
 
@@ -306,14 +297,12 @@ mod tests {
     }
 
     /// A locator that resolves a fixed set of names.
-    struct FakeLocator(Vec<String>);
-    impl DriverLocator for FakeLocator {
-        fn locate(&self, binary_name: &str) -> Option<PathBuf> {
-            self.0
-                .iter()
-                .any(|name| name == binary_name)
-                .then(|| PathBuf::from(format!("/usr/bin/{binary_name}")))
-        }
+    fn locator(names: &[&str]) -> FakeDriverLocator {
+        names
+            .iter()
+            .fold(FakeDriverLocator::new(), |locator, name| {
+                locator.with_conventional(*name)
+            })
     }
 
     #[test]
@@ -327,7 +316,7 @@ mod tests {
             &loaded,
             &document,
             &CanonicalRegistry::model(),
-            &FakeLocator(Vec::new()),
+            &locator(&[]),
         )
         .expect("resolution succeeds");
         assert_eq!(resolution, Resolution::Linked);
@@ -342,7 +331,7 @@ mod tests {
             &loaded,
             &document,
             &CanonicalRegistry::model(),
-            &FakeLocator(vec!["toven-go".to_string()]),
+            &locator(&["toven-go"]),
         )
         .expect("resolution succeeds");
         assert!(matches!(resolution, Resolution::Driver(driver) if !driver.pinned));
@@ -357,7 +346,7 @@ mod tests {
             &loaded,
             &document,
             &CanonicalRegistry::model(),
-            &FakeLocator(Vec::new()),
+            &locator(&[]),
         )
         .expect("resolution succeeds");
         assert_eq!(resolution, Resolution::Absent);
@@ -372,7 +361,7 @@ mod tests {
             &loaded,
             &document,
             &CanonicalRegistry::model(),
-            &FakeLocator(vec!["toven-go".to_string()]),
+            &locator(&["toven-go"]),
         )
         .expect("resolution succeeds");
         match resolution {
@@ -393,11 +382,29 @@ mod tests {
             &loaded,
             &document,
             &CanonicalRegistry::model(),
-            &FakeLocator(Vec::new()),
+            &locator(&[]),
         )
         .expect("resolution succeeds");
         assert_eq!(resolution, Resolution::Unknown);
         let _ = PathDriverLocator::new();
+    }
+
+    #[test]
+    fn errored_driver_lookup_propagates_instead_of_reading_as_absent() {
+        let loaded = BTreeSet::new();
+        let document = document_with(&[("go", "manifests = []")]);
+        let locator = FakeDriverLocator::new().with_failing("toven-go");
+
+        let error = resolve_ecosystem(
+            &eid("go"),
+            &loaded,
+            &document,
+            &CanonicalRegistry::model(),
+            &locator,
+        )
+        .expect_err("a failed executability check must not be treated as 'absent'");
+
+        assert_eq!(error.code(), rskit_errors::ErrorCode::Internal);
     }
 
     #[test]
@@ -410,7 +417,7 @@ mod tests {
             &loaded,
             &document,
             &CanonicalRegistry::model(),
-            &FakeLocator(Vec::new()),
+            &locator(&[]),
         )
         .expect_err("non-string per-section driver pin must fail");
 
@@ -435,7 +442,7 @@ mod tests {
             &loaded,
             &document,
             &CanonicalRegistry::model(),
-            &FakeLocator(Vec::new()),
+            &locator(&[]),
         )
         .expect_err("non-string/non-table toven driver pin must fail");
 
@@ -447,11 +454,10 @@ mod tests {
     }
 
     #[test]
-    fn render_subtree_strips_umbrella_only_driver_pin() {
+    fn driver_config_subtree_strips_umbrella_only_driver_pin() {
         let raw = raw_subtree("driver = \"/opt/toven-go\"\nmodules = [\"api\"]");
-        let rendered = render_subtree(&eid("go"), &raw).expect("render");
-        let value: toml::Value = toml::from_str(&rendered).expect("valid toml");
-        let table = value.as_table().expect("table");
+        let config = driver_config_subtree(&raw);
+        let table = config.as_object().expect("object");
         assert!(
             !table.contains_key("driver"),
             "driver pin must not reach the adapter"
@@ -466,7 +472,7 @@ mod tests {
         let candidate = root.join("toven-go");
         fs::write(&candidate, "#!/bin/sh\n").expect("candidate written");
 
-        let resolved = locate_in_path([root.clone()], "toven-go");
+        let resolved = locate_in_path([root.clone()], "toven-go").expect("locate succeeds");
         assert_eq!(resolved, None);
 
         fs::remove_file(&candidate).expect("candidate removed");
@@ -498,7 +504,7 @@ mod tests {
         fs::write(&candidate, "#!/bin/sh\n").expect("candidate written");
         make_executable(&candidate);
 
-        let resolved = locate_in_path([root.clone()], "toven-go");
+        let resolved = locate_in_path([root.clone()], "toven-go").expect("locate succeeds");
         assert_eq!(resolved.as_deref(), Some(candidate.as_path()));
 
         fs::remove_file(&candidate).expect("candidate removed");

@@ -2,9 +2,13 @@
 
 use std::io::{self, Write};
 
+use rskit_codec::{JsonCodec, encode};
 use rskit_errors::{AppError, AppResult};
 use toven_model::Event;
 use toven_ports::Reporter;
+
+/// Compact JSON keeps each event to a single machine-parseable line.
+const CODEC: JsonCodec = JsonCodec::compact();
 
 /// A [`Reporter`] that writes each [`Event`] as one JSON object per line.
 ///
@@ -42,7 +46,10 @@ impl JsonlReporter<io::Stdout> {
 
 impl<W: Write + Send> Reporter for JsonlReporter<W> {
     fn emit(&mut self, event: &Event) -> AppResult<()> {
-        serde_json::to_writer(&mut self.writer, event).map_err(AppError::internal)?;
+        let line = encode(&CODEC, event)?;
+        self.writer
+            .write_all(line.as_bytes())
+            .map_err(AppError::internal)?;
         self.writer.write_all(b"\n").map_err(AppError::internal)?;
         // Flush each line so machine consumers tailing a pipe (non-TTY, where
         // stdout is block-buffered) see every Event immediately.

@@ -119,6 +119,7 @@ impl VcsReader for FakeVcsReader {
 
 /// A single recorded write performed against a [`FakeVcsWriter`].
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum VcsWrite {
     /// A `commit` call with its message.
     Commit(String),

@@ -10,7 +10,6 @@
 
 use std::collections::BTreeMap;
 
-use rskit_config::RawValue;
 use rskit_errors::{AppError, AppResult};
 use toven_model::{EcosystemId, MemberId};
 use toven_ports::{ConfiguredAdapter, Provider, TaskKind};
@@ -111,8 +110,7 @@ pub(crate) fn configure(
         let Some(provider) = by_id.get(ecosystem) else {
             continue;
         };
-        let value = to_toml_value(ecosystem, raw)?;
-        let adapter = provider.configure(value)?;
+        let adapter = provider.configure(raw.clone())?;
         configured.insert(ecosystem.clone(), adapter);
     }
     Ok(configured)
@@ -147,17 +145,6 @@ pub fn addressable_task_names(
         }
     }
     Ok(names)
-}
-
-/// Convert a `serde_json`-backed [`RawValue`] subtree into the [`toml::Value`]
-/// the [`Provider::configure`] contract consumes.
-fn to_toml_value(ecosystem: &EcosystemId, raw: &RawValue) -> AppResult<toml::Value> {
-    toml::Value::try_from(raw).map_err(|error| {
-        AppError::invalid_input(
-            format!("ecosystems.{ecosystem}"),
-            format!("could not convert configuration subtree: {error}"),
-        )
-    })
 }
 
 #[cfg(test)]

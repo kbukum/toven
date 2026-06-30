@@ -176,10 +176,43 @@ impl Report {
 }
 
 /// A stable run identifier echoed into the emitted event stream.
-#[must_use]
-pub(crate) fn new_run_id() -> String {
+///
+/// # Errors
+/// A pre-epoch system clock, which leaves no monotonic basis for a unique id.
+pub(crate) fn new_run_id() -> AppResult<String> {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_nanos());
-    format!("run-{nanos}")
+        .map_err(|error| {
+            AppError::new(
+                rskit_errors::ErrorCode::Internal,
+                "system clock is before the Unix epoch; cannot mint a run id",
+            )
+            .with_cause(error)
+        })?
+        .as_nanos();
+    Ok(format!("run-{nanos}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use super::{discover_config, load_project, new_run_id};
+
+    #[test]
+    fn explicit_config_is_returned_verbatim() {
+        let path = PathBuf::from("/tmp/custom/toven.toml");
+        assert_eq!(discover_config(Some(&path)).unwrap(), path);
+    }
+
+    #[test]
+    fn load_project_on_a_missing_config_fails() {
+        let missing = Path::new("/tmp/toven-host-missing-config/toven.toml");
+        assert!(load_project(missing, &[]).is_err());
+    }
+
+    #[test]
+    fn run_id_is_minted_and_prefixed() {
+        assert!(new_run_id().unwrap().starts_with("run-"));
+    }
 }

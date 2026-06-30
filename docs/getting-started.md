@@ -35,14 +35,14 @@ The generated config should describe:
 
 - project name, root, and optional default baseline
 - cache policy, which defaults to the platform user cache directory
-- one or more profiles using the Rust adapter
+- one or more `[ecosystems.*]` sections, such as `[ecosystems.rust]`
 - discovery settings, such as Cargo manifest paths
 - task argv templates for standard Rust commands such as `check`, `build`, `clippy`, `fmt-check`, and `test`
 - shared inputs that should invalidate broad work, such as lockfiles or toolchain files
 
 Toven should not hide workflow policy. If a command needs a flag, keep that flag visible in the task argv.
 
-Generated Rust task argv uses `{module.args}` with the profile `module_arg_template`, so package selection is visible and not duplicated inside each task.
+Generated Rust task argv uses the selector model: `{module.selector}` marks the splice point in `argv`, and the task's `selector` fragment renders the concrete package selection.
 
 ## 3. Inspect before running
 

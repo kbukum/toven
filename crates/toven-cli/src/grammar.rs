@@ -1,5 +1,5 @@
 //! Argv-first dispatch grammar: the reserved-word set and the bare-task tail
-//! parser (cli-taxonomy Decisions A/B).
+//! parser.
 //!
 //! `toven <token>` is argv-first: a token in the [reserved set](RESERVED) routes
 //! to a built-in (modeled by [`Command`](crate::flags::Command)); anything else

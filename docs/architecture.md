@@ -1,6 +1,6 @@
 # Toven architecture
 
-Toven is a **hexagonal, multi-crate workspace**. The domain vocabulary sits at the center, ports define the contracts that adapters and the engine speak, and the apps are thin wiring shells. The workspace contains `toven-model`, `toven-ports`, `toven-engine`, `toven-cli`, `toven-rust`, `toven-go`, `toven-command`, `toven-testkit`, the `toven`, `toven-rs`, and `toven-go` apps, plus `examples/embed`.
+Toven is a **hexagonal, multi-crate workspace**. The domain vocabulary sits at the center, ports define the contracts that adapters and the engine speak, and the apps are thin wiring shells. The workspace contains `toven-model`, `toven-ports`, `toven-engine`, `toven-cli`, `toven-rust`, `toven-go`, `toven-command`, `toven-testkit`, the `toven`, `toven-rs`, and `toven-go` apps.
 
 ## Workspace layout
 
@@ -80,7 +80,7 @@ flowchart LR
     Render --> Output["Run or report"]
 ```
 
-Rust discovery is Cargo-metadata backed. Profile-level `discovery.manifests` allows multi-manifest repositories, and Cargo path dependencies are inferred across configured manifests. Adapters contribute their default task set, so a hand-written config can stay minimal.
+Rust discovery is Cargo-metadata backed. `[ecosystems.rust].manifests` allows multi-manifest repositories, and Cargo path dependencies are inferred across configured manifests. Adapters contribute their default task set, so a hand-written config can stay minimal.
 
 Explicit `[[overlays]]` are top-level dependency edges for relationships that adapter metadata cannot prove.
 
@@ -129,7 +129,7 @@ flowchart TD
 
     W2 --> Mode{"execution mode"}
     Mode -->|"per-module"| PerModule["one execution unit per module"]
-    Mode -->|"batch-ready"| Batch["bundle ready modules"]
+    Mode -->|"batchable"| Batch["bundle ready modules"]
     Batch --> Manifest{"same Cargo manifest?"}
     Manifest -->|"yes"| OneUnit["one batched unit"]
     Manifest -->|"no"| Split["split by manifest root"]
@@ -138,7 +138,7 @@ flowchart TD
     Split --> Rendered
 ```
 
-Think of a wave as “everything that is safe to start now.” A module joins a later wave when one of its dependencies must finish first. `batch-ready` keeps ready modules together when the command can handle them together, but it still splits by Cargo manifest so selectors are never sent to the wrong workspace.
+Think of a wave as “everything that is safe to start now.” A module joins a later wave when one of its dependencies must finish first. `batchable` keeps ready modules together when the command can handle them together, but it still splits by Cargo manifest so selectors are never sent to the wrong workspace.
 
 ## Affected and cache decision flow
 

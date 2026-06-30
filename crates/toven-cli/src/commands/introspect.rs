@@ -53,7 +53,7 @@ fn build_plan(
     selection: Selection,
 ) -> AppResult<Plan> {
     let request = PlanRequest::new(
-        new_run_id(),
+        new_run_id()?,
         project.document.project.name.clone(),
         intent,
         project.project_root.clone(),
@@ -157,15 +157,23 @@ pub(crate) fn explain(
     for unit in plan
         .units
         .iter()
-        .filter(|unit| unit.module.to_string() == module)
+        .filter(|unit| unit.members.iter().any(|m| m.to_string() == module))
     {
         matched += 1;
         let mut detail = OutputKV::new();
         detail
             .add("unit", unit.id.clone())
             .add("module", unit.module.to_string())
+            .add(
+                "modules",
+                unit.members
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            )
             .add("task", unit.kind.clone())
-            .add("argv", unit.argv.join(" "))
+            .add("argv", format!("{:?}", unit.argv))
             .add("persistent", unit.persistent.to_string())
             .add("depends_on", unit.depends_on.join(", "));
         println!("{detail}");
@@ -201,7 +209,7 @@ fn plan_module_names(plan: &Plan) -> Vec<String> {
     let mut modules: Vec<String> = plan
         .units
         .iter()
-        .map(|unit| unit.module.to_string())
+        .flat_map(|unit| unit.members.iter().map(ToString::to_string))
         .collect();
     modules.sort_unstable();
     modules.dedup();
@@ -334,5 +342,30 @@ mod tests {
     #[test]
     fn graph_dot_escapes_quoted_identifiers() {
         assert_eq!(dot_id("rust:app\"#build\\dev"), "rust:app\\\"#build\\\\dev");
+    }
+
+    #[test]
+    fn plan_module_names_expand_batched_members() {
+        use toven_model::{CacheVerdict, ExecutionReadiness, ExecutionUnit, ModuleKey, Plan};
+        let unit = ExecutionUnit {
+            id: "rust#test".to_string(),
+            module: ModuleKey::bare(mref("app")),
+            members: vec![ModuleKey::bare(mref("app")), ModuleKey::bare(mref("core"))],
+            kind: "test".to_string(),
+            workspace: None,
+            argv: vec!["cargo".to_string(), "test".to_string()],
+            persistent: false,
+            readiness: ExecutionReadiness::Started,
+            readiness_timeout: std::time::Duration::from_secs(30),
+            cache: CacheVerdict::Miss,
+            cache_key: None,
+            depends_on: Vec::new(),
+            resource_group: None,
+        };
+        let plan = Plan::new(vec![unit], vec![vec!["rust#test".to_string()]]);
+        assert_eq!(
+            super::plan_module_names(&plan),
+            vec!["rust:app", "rust:core"]
+        );
     }
 }

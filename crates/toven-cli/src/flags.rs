@@ -17,6 +17,7 @@ use toven_engine::vcs::BaselineFlags;
 /// Event-sink output format selected by `--output`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum OutputKind {
     /// Human-readable terminal rendering.
     Human,
@@ -27,6 +28,7 @@ pub enum OutputKind {
 /// Dependency-graph rendering format selected by `--format`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum GraphFormat {
     /// Indented adjacency text.
     Text,
@@ -205,7 +207,7 @@ pub enum Command {
     External(Vec<String>),
 }
 
-/// `toven driver <action>` (logic lands in the umbrella-federation step).
+/// `toven driver <action>`.
 #[derive(Debug, Subcommand)]
 #[non_exhaustive]
 pub enum DriverAction {
@@ -218,7 +220,7 @@ pub enum DriverAction {
     List,
 }
 
-/// `toven federation <action>` (logic lands in the cross-repo federation step).
+/// `toven federation <action>`.
 #[derive(Debug, Subcommand)]
 #[non_exhaustive]
 pub enum FederationAction {

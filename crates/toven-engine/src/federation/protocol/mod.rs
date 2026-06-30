@@ -2,8 +2,7 @@
 //! of the shared vocabulary, plus semver handshake negotiation.
 //!
 //! Split into three declare-only responsibilities:
-//! - [`codec`] — length-delimited frame read/write (the generic D5 follow-up's
-//!   local stand-in).
+//! - [`codec`] — length-delimited frame read/write.
 //! - [`envelope`] — the [`Hello`]/[`Welcome`] handshake and the
 //!   [`Request`]/[`Response`] RPC mirror, built only from model/port types.
 //! - [`scaffold`] — the config-less [`ScaffoldRequest`]/[`ScaffoldOutcome`]

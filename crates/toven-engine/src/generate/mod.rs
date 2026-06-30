@@ -26,4 +26,4 @@ mod probe;
 mod render;
 
 pub use flow::{GeneratedDocument, generate, generate_with};
-pub use probe::{DriverScaffolder, ProcessDriverScaffolder};
+pub use probe::ProcessDriverScaffolder;

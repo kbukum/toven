@@ -118,11 +118,16 @@ fn run_metadata(project_root: &Path, manifest: &str) -> AppResult<cargo_metadata
         ));
     }
 
-    serde_json::from_str::<cargo_metadata::Metadata>(&result.stdout).map_err(|error| {
+    rskit_codec::decode::<cargo_metadata::Metadata>(
+        &rskit_codec::JsonCodec::default(),
+        &result.stdout,
+    )
+    .map_err(|error| {
         AppError::new(
             ErrorCode::InvalidFormat,
-            format!("failed to parse `cargo metadata` output for '{manifest}': {error}"),
+            format!("failed to parse `cargo metadata` output for '{manifest}'"),
         )
+        .with_cause(error)
     })
 }
 

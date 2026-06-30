@@ -14,7 +14,7 @@ fn provider() -> CommandProvider {
 
 fn configure(adapter_config: &str) -> Box<dyn ConfiguredAdapter> {
     let raw_text = fixtures::ecosystem_string("command", adapter_config).expect("adapter fixture");
-    let raw: toml::Value = toml::from_str(&raw_text).expect("valid adapter toml");
+    let raw = toven_testkit::raw_subtree(&raw_text).expect("valid adapter toml");
     provider().configure(raw).expect("configure")
 }
 
@@ -42,7 +42,7 @@ fn only_user_declared_tasks_are_emitted() {
 #[test]
 fn empty_section_yields_no_tasks() {
     let provider = provider();
-    let raw = toml::Value::Table(toml::Table::new());
+    let raw = toven_testkit::raw_subtree("").expect("subtree");
     let adapter = provider.configure(raw).expect("configures");
     assert!(adapter.default_tasks().is_empty());
 }
@@ -66,7 +66,7 @@ fn toolchain_probe_defaults_to_first_task_program() {
 
 #[test]
 fn configure_rejects_unknown_section_field() {
-    let raw: toml::Value = toml::from_str("bogus = true\n").unwrap();
+    let raw = toven_testkit::raw_subtree("bogus = true").expect("subtree");
     assert!(provider().configure(raw).is_err());
 }
 
@@ -74,7 +74,7 @@ fn configure_rejects_unknown_section_field() {
 fn configure_rejects_modules_without_tasks_or_toolchain() {
     let raw_text = fixtures::ecosystem_string("command", "adapter/modules-without-toolchain.toml")
         .expect("adapter fixture");
-    let raw: toml::Value = toml::from_str(&raw_text).expect("valid adapter toml");
+    let raw = toven_testkit::raw_subtree(&raw_text).expect("valid adapter toml");
     let Err(error) = provider().configure(raw) else {
         panic!("modules without tasks or [toolchain] must be rejected");
     };

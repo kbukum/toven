@@ -1,13 +1,14 @@
-//! Schedule: relax edges by `RunStrategy`, level into federated waves,
-//! and render one [`PlannedUnit`] per active module.
+//! Schedule: relax edges by `RunStrategy`, level into federated waves, group each
+//! wave by intrinsic `FanOut`, and render one [`PlannedUnit`] per resulting group.
 //!
 //! Per-module `RunStrategy` decides whether a module's **intra-ecosystem** ordering
 //! edges are kept (`leaf-to-top`) or dropped (`unordered`); **cross-ecosystem
 //! overlay edges are never dropped**. The residual active subgraph is topo-levelled
-//! into waves, and each active module becomes one per-module unit carrying its
-//! rendered argv and the facts the Cache-decision phase needs. (Within-wave
-//! BuildTopology/FanOut collapse into processes is an APPLY concern over the
-//! immutable per-module `Plan`.)
+//! into waves. Within a wave, modules are grouped by the task's [`FanOut`]: a
+//! `PerModule` task yields one unit per module, while `Batchable`/`WholeWorkspace`
+//! tasks collapse all same-ecosystem-and-kind modules into a single invocation
+//! (selectors are repeated for `Batchable`, omitted for `WholeWorkspace`). Each
+//! unit carries the rendered argv and the facts the Cache-decision phase needs.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -17,7 +18,7 @@ use toven_model::{
     AbsPath, DepKind, Edge, ExecutionReadiness, Graph, Module, ModuleKey, ToolchainTag, Workspace,
     WorkspaceId,
 };
-use toven_ports::{CommandTemplate, Readiness, RunStrategy, Task, TaskKind, TaskVar};
+use toven_ports::{CommandTemplate, FanOut, Readiness, RunStrategy, Task, TaskKind, TaskVar};
 
 use super::configure::MemberAdapters;
 use super::discover::Federation;
@@ -30,10 +31,13 @@ use super::request::PlanRequest;
 /// the Cache-decision phase folds into the content key.
 #[derive(Debug, Clone)]
 pub(super) struct PlannedUnit {
-    /// Stable unit id (`ecosystem:name#kind`, member-prefixed under a federation).
+    /// Stable unit id (`ecosystem:name#kind`, member-prefixed under a federation;
+    /// batched/whole-workspace units drop the module name: `ecosystem#kind`).
     pub(super) id: String,
-    /// Module the unit operates on.
+    /// Representative module the unit operates on.
     pub(super) module: ModuleKey,
+    /// Every module collapsed into this unit (always non-empty, contains `module`).
+    pub(super) members: Vec<ModuleKey>,
     /// Task kind name.
     pub(super) kind: String,
     /// Owning workspace (keys the toolchain identity).
@@ -89,30 +93,48 @@ pub(super) fn schedule(
     let kept_deps = kept_dependencies(&active_modules, federation, &strategies);
 
     let workspaces = workspace_index(federation);
+    let group_ids = group_id_map(&active_modules, adapters, &request.intent)?;
     let mut units = Vec::new();
-    let mut wave_ids = Vec::with_capacity(waves.len());
-    for wave in waves {
-        let mut ids = Vec::with_capacity(wave.len());
+    let mut group_members: BTreeMap<String, Vec<ModuleKey>> = BTreeMap::new();
+    let mut group_wave: BTreeMap<String, usize> = BTreeMap::new();
+    let mut wave_order: Vec<String> = Vec::new();
+    for (index, wave) in waves.into_iter().enumerate() {
         for reference in wave {
-            let module = active_modules.get(&reference).ok_or_else(|| {
+            let id = group_ids.get(&reference).ok_or_else(|| {
                 AppError::new(
                     rskit_errors::ErrorCode::Internal,
                     format!("scheduled unknown module '{reference}'"),
                 )
             })?;
-            let unit = plan_unit(
-                request,
-                module,
-                adapters,
-                toolchain,
-                &workspaces,
-                &kept_deps,
-            )?;
-            ids.push(unit.id.clone());
-            units.push(unit);
+            if !group_members.contains_key(id) {
+                wave_order.push(id.clone());
+            }
+            group_members.entry(id.clone()).or_default().push(reference);
+            group_wave
+                .entry(id.clone())
+                .and_modify(|w| *w = (*w).max(index))
+                .or_insert(index);
         }
-        wave_ids.push(ids);
     }
+    let last_wave = group_wave.values().copied().max().map_or(0, |w| w + 1);
+    let mut wave_ids: Vec<Vec<String>> = vec![Vec::new(); last_wave];
+    for id in wave_order {
+        let members = &group_members[&id];
+        let unit = plan_unit(
+            request,
+            &id,
+            members,
+            &active_modules,
+            adapters,
+            toolchain,
+            &workspaces,
+            &kept_deps,
+            &group_ids,
+        )?;
+        wave_ids[group_wave[&id]].push(unit.id.clone());
+        units.push(unit);
+    }
+    wave_ids.retain(|wave| !wave.is_empty());
 
     Ok(Scheduled {
         units,
@@ -125,6 +147,43 @@ pub(super) fn schedule(
 /// `Display`).
 fn unit_id(module: &ModuleKey, kind: &str) -> String {
     format!("{module}#{kind}")
+}
+
+/// The id of the unit a module belongs to: its own per-module id for a
+/// `PerModule` task, or a shared `ecosystem#kind` (member-prefixed) group id for
+/// `Batchable`/`WholeWorkspace` tasks that collapse a wave's modules.
+fn group_id(module: &ModuleKey, kind: &str, fan_out: FanOut) -> String {
+    if fan_out == FanOut::PerModule {
+        return unit_id(module, kind);
+    }
+    module.member().map_or_else(
+        || format!("{}#{kind}", module.module().ecosystem),
+        |member| format!("{member}/{}#{kind}", module.module().ecosystem),
+    )
+}
+
+/// Map every active module to the id of the unit that will carry it.
+fn group_id_map(
+    modules: &BTreeMap<ModuleKey, Module>,
+    adapters: &MemberAdapters,
+    intent: &TaskKind,
+) -> AppResult<BTreeMap<ModuleKey, String>> {
+    let mut ids = BTreeMap::new();
+    for (key, module) in modules {
+        let adapter = adapter_for(module, adapters)?;
+        let task = select_task(adapter.default_tasks(), intent).ok_or_else(|| {
+            AppError::invalid_input(
+                "tasks",
+                format!(
+                    "ecosystem '{}' has no '{}' task",
+                    module.id.ecosystem,
+                    intent.name()
+                ),
+            )
+        })?;
+        ids.insert(key.clone(), group_id(key, task.kind.name(), task.fan_out));
+    }
+    Ok(ids)
 }
 
 /// Map each active module to the unit ids of its kept dependency edges.
@@ -215,76 +274,66 @@ fn workspace_index(federation: &Federation) -> BTreeMap<WorkspaceId, Workspace> 
         .collect()
 }
 
-/// Render one module into a [`PlannedUnit`].
+/// Render a group of modules collapsed into one [`PlannedUnit`].
+///
+/// `members` is the wave-ordered set of modules sharing the group `id` (a single
+/// module for `PerModule`, all same-ecosystem-and-kind modules for
+/// `Batchable`/`WholeWorkspace`). Argv is rendered once: `Batchable` repeats each
+/// member's selector fragment, `WholeWorkspace` omits the selector.
+#[allow(clippy::too_many_arguments)]
 fn plan_unit(
     request: &PlanRequest,
-    module: &Module,
+    id: &str,
+    members: &[ModuleKey],
+    active_modules: &BTreeMap<ModuleKey, Module>,
     adapters: &MemberAdapters,
     toolchain: &BTreeMap<WorkspaceId, ToolchainTag>,
     workspaces: &BTreeMap<WorkspaceId, Workspace>,
     kept_deps: &BTreeMap<ModuleKey, Vec<ModuleKey>>,
+    group_ids: &BTreeMap<ModuleKey, String>,
 ) -> AppResult<PlannedUnit> {
-    let adapter = adapter_for(module, adapters)?;
+    let representative = active_modules.get(&members[0]).ok_or_else(|| {
+        AppError::new(
+            rskit_errors::ErrorCode::Internal,
+            format!("scheduled unknown module '{}'", members[0]),
+        )
+    })?;
+    let adapter = adapter_for(representative, adapters)?;
     let task = select_task(adapter.default_tasks(), &request.intent).ok_or_else(|| {
         AppError::invalid_input(
             "tasks",
             format!(
                 "ecosystem '{}' has no '{}' task",
-                module.id.ecosystem,
+                representative.id.ecosystem,
                 request.intent.name()
             ),
         )
     })?;
 
-    let workspace = match &module.workspace {
-        Some(id) => Some(workspaces.get(id).ok_or_else(|| {
-            AppError::new(
-                rskit_errors::ErrorCode::Internal,
-                format!("module '{}' references unknown workspace '{id}'", module.id),
-            )
-        })?),
-        None => None,
-    };
-
     let template = CommandTemplate::parse(&task.argv, &task.selector)?;
-    let argv = template.render(&request.passthrough, |var| {
-        resolve(var, module, workspace, &request.project_root)
-    })?;
-    let base_argv = template.render(&[], |var| {
-        resolve(var, module, workspace, &request.project_root)
-    })?;
+    let modules = member_modules(members, active_modules)?;
+    let workspaces_for = member_workspaces(&modules, workspaces)?;
+    let argv = render_argv(
+        &template,
+        &request.passthrough,
+        &modules,
+        &workspaces_for,
+        request,
+    )?;
+    let base_argv = render_argv(&template, &[], &modules, &workspaces_for, request)?;
 
-    let toolchain_identity = match &module.workspace {
-        Some(id) => {
-            let tag = toolchain.get(id).ok_or_else(|| {
-                AppError::new(
-                    rskit_errors::ErrorCode::Internal,
-                    format!(
-                        "module '{}' workspace '{id}' has no resolved toolchain identity",
-                        module.id
-                    ),
-                )
-            })?;
-            toolchain_identity(tag)
-        }
-        None => String::new(),
-    };
-
+    let toolchain_identity = resolve_toolchain_identity(representative, toolchain)?;
     let kind_name = task.kind.name().to_string();
-    let key = module.key();
-    let id = unit_id(&key, &kind_name);
-    super::shared_inputs::validate_shared_inputs(&id, &task.shared_inputs)?;
-    let depends_on = kept_deps
-        .get(&key)
-        .map(|deps| deps.iter().map(|dep| unit_id(dep, &kind_name)).collect())
-        .unwrap_or_default();
-    let resource_group = module.resource_group.clone();
+    super::shared_inputs::validate_shared_inputs(id, &task.shared_inputs)?;
+    let depends_on = group_dependencies(id, members, kept_deps, group_ids);
+    let resource_group = representative.resource_group.clone();
 
     Ok(PlannedUnit {
-        id,
-        module: key,
+        id: id.to_string(),
+        module: members[0].clone(),
+        members: members.to_vec(),
         kind: kind_name,
-        workspace: module.workspace.clone(),
+        workspace: representative.workspace.clone(),
         argv,
         persistent: task.persistent,
         readiness: readiness(&task.readiness),
@@ -296,6 +345,108 @@ fn plan_unit(
         depends_on,
         resource_group,
     })
+}
+
+/// Resolve each member key to its module, failing closed on an unknown key.
+fn member_modules<'a>(
+    members: &[ModuleKey],
+    active_modules: &'a BTreeMap<ModuleKey, Module>,
+) -> AppResult<Vec<&'a Module>> {
+    members
+        .iter()
+        .map(|key| {
+            active_modules.get(key).ok_or_else(|| {
+                AppError::new(
+                    rskit_errors::ErrorCode::Internal,
+                    format!("scheduled unknown module '{key}'"),
+                )
+            })
+        })
+        .collect()
+}
+
+/// Resolve each module's owning workspace (none when the module is workspace-less).
+fn member_workspaces<'a>(
+    modules: &[&Module],
+    workspaces: &'a BTreeMap<WorkspaceId, Workspace>,
+) -> AppResult<Vec<Option<&'a Workspace>>> {
+    modules
+        .iter()
+        .map(|module| {
+            module.workspace.as_ref().map_or_else(
+                || Ok(None),
+                |id| {
+                    workspaces.get(id).map(Some).ok_or_else(|| {
+                        AppError::new(
+                            rskit_errors::ErrorCode::Internal,
+                            format!("module '{}' references unknown workspace '{id}'", module.id),
+                        )
+                    })
+                },
+            )
+        })
+        .collect()
+}
+
+/// The `tool@version` cache identity for the representative module's workspace.
+fn resolve_toolchain_identity(
+    representative: &Module,
+    toolchain: &BTreeMap<WorkspaceId, ToolchainTag>,
+) -> AppResult<String> {
+    let Some(id) = &representative.workspace else {
+        return Ok(String::new());
+    };
+    let tag = toolchain.get(id).ok_or_else(|| {
+        AppError::new(
+            rskit_errors::ErrorCode::Internal,
+            format!(
+                "module '{}' workspace '{id}' has no resolved toolchain identity",
+                representative.id
+            ),
+        )
+    })?;
+    Ok(toolchain_identity(tag))
+}
+
+/// The de-duplicated dependency-group ids a unit gates on (excluding itself).
+fn group_dependencies(
+    id: &str,
+    members: &[ModuleKey],
+    kept_deps: &BTreeMap<ModuleKey, Vec<ModuleKey>>,
+    group_ids: &BTreeMap<ModuleKey, String>,
+) -> Vec<String> {
+    let mut depends_on: Vec<String> = Vec::new();
+    for member in members {
+        if let Some(deps) = kept_deps.get(member) {
+            for dep in deps {
+                if let Some(dep_id) = group_ids.get(dep)
+                    && dep_id != id
+                    && !depends_on.contains(dep_id)
+                {
+                    depends_on.push(dep_id.clone());
+                }
+            }
+        }
+    }
+    depends_on
+}
+
+/// Render a group's argv, batching every member's selector fragment.
+fn render_argv(
+    template: &CommandTemplate,
+    passthrough: &[String],
+    modules: &[&Module],
+    workspaces: &[Option<&Workspace>],
+    request: &PlanRequest,
+) -> AppResult<Vec<String>> {
+    let mut resolvers: Vec<_> = modules
+        .iter()
+        .zip(workspaces)
+        .map(|(module, workspace)| {
+            move |var: TaskVar| resolve(var, module, *workspace, &request.project_root)
+        })
+        .collect();
+    template.render_batch(passthrough, &mut resolvers)
 }
 
 /// Convert the adapter task readiness vocabulary into immutable plan vocabulary.
@@ -430,11 +581,15 @@ mod tests {
     }
 
     fn adapter(ecosystem: &str, strategy: RunStrategy) -> Box<dyn ConfiguredAdapter> {
-        let task = Task::new(
-            TaskKind::Test,
-            vec!["x".to_string()],
-            FanOut::WholeWorkspace,
-        );
+        adapter_with(ecosystem, strategy, FanOut::PerModule)
+    }
+
+    fn adapter_with(
+        ecosystem: &str,
+        strategy: RunStrategy,
+        fan_out: FanOut,
+    ) -> Box<dyn ConfiguredAdapter> {
+        let task = Task::new(TaskKind::Test, vec!["x".to_string()], fan_out);
         Box::new(
             FakeConfiguredAdapter::new(eid(ecosystem))
                 .with_response(DiscoverResponse::new(eid(ecosystem)))
@@ -583,5 +738,67 @@ mod tests {
                 vec!["go:api#test".to_string()],
             ]
         );
+    }
+
+    #[test]
+    fn whole_workspace_collapses_modules_into_one_unit() {
+        let federation = Federation {
+            workspaces: vec![workspace("rust")],
+            modules: vec![
+                module("rust", "app", "rust"),
+                module("rust", "errors", "rust"),
+            ],
+            edges: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let mut adapters = ConfiguredSet::new();
+        adapters.insert(
+            eid("rust"),
+            adapter_with("rust", RunStrategy::Unordered, FanOut::WholeWorkspace),
+        );
+        assert_eq!(
+            waves_for(&federation, &single_member(adapters)),
+            vec![vec!["rust#test".to_string()]]
+        );
+    }
+
+    #[test]
+    fn batchable_groups_members_and_keeps_distinct_ecosystems_apart() {
+        let federation = Federation {
+            workspaces: vec![workspace("go"), workspace("rust")],
+            modules: vec![
+                module("rust", "app", "rust"),
+                module("rust", "errors", "rust"),
+                module("go", "api", "go"),
+            ],
+            edges: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let mut adapters = ConfiguredSet::new();
+        adapters.insert(
+            eid("rust"),
+            adapter_with("rust", RunStrategy::Unordered, FanOut::Batchable),
+        );
+        adapters.insert(
+            eid("go"),
+            adapter_with("go", RunStrategy::Unordered, FanOut::Batchable),
+        );
+        let active: Vec<toven_model::ModuleKey> =
+            federation.modules.iter().map(Module::key).collect();
+        let scheduled = schedule(
+            &request(),
+            &federation,
+            &active,
+            &single_member(adapters),
+            &toolchains(&federation),
+        )
+        .unwrap();
+        assert_eq!(scheduled.units.len(), 2);
+        let rust = scheduled
+            .units
+            .iter()
+            .find(|unit| unit.id == "rust#test")
+            .unwrap();
+        assert_eq!(rust.members.len(), 2);
     }
 }

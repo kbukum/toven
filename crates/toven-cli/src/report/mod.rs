@@ -1,4 +1,4 @@
-//! Observability sinks + exit mapping (event-report Decisions A–C).
+//! Observability sinks and exit mapping.
 //!
 //! The engine emits a closed, typed [`Event`](toven_model::Event) stream; these
 //! sinks render it. Two built-ins ship — [`HumanReporter`] (terminal

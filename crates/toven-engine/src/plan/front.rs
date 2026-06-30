@@ -6,11 +6,10 @@
 
 use rskit_errors::AppResult;
 use toven_model::{AbsPath, Event, Graph, Phase};
-use toven_ports::{Provider, Reporter};
+use toven_ports::{DriverLocator, Provider, Reporter};
 
 use crate::config::Document;
 use crate::federation::compose::ComposedFederation;
-use crate::federation::resolve::DriverLocator;
 use crate::federation::spine;
 
 use super::configure::MemberAdapters;

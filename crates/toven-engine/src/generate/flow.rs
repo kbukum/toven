@@ -5,12 +5,12 @@ use std::path::{Path, PathBuf};
 use rskit_errors::AppResult;
 use rskit_fs::sync_io::file::{read_string_bounded, write_atomic_replace};
 use toven_model::EcosystemId;
-use toven_ports::Provider;
+use toven_ports::{DriverLocator, DriverScaffolder, Provider};
 
 use super::merge::{self, MergeResult};
-use super::probe::{self, DriverScaffolder, ProcessDriverScaffolder};
+use super::probe::{self, ProcessDriverScaffolder};
 use super::render;
-use crate::federation::{DriverLocator, PathDriverLocator};
+use crate::federation::PathDriverLocator;
 
 /// Upper bound on an existing `toven.toml` read for the additive re-run merge.
 const MAX_CONFIG_BYTES: u64 = 8 * 1024 * 1024;
@@ -39,7 +39,7 @@ pub struct GeneratedDocument {
     /// detected ecosystems) from an additive re-run that added no sections, so
     /// the CLI does not report a fresh write as "up to date".
     pub created: bool,
-    /// Ecosystem sections newly added by this run.
+    /// Ecosystem sections added by this run.
     pub added: Vec<EcosystemId>,
     /// Ecosystem sections regenerated because `--force <id>` named them.
     pub regenerated: Vec<EcosystemId>,

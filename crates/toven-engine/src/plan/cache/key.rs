@@ -56,8 +56,8 @@ pub(in crate::plan) fn needed_modules(
 /// The per-unit inputs that compose its content key.
 #[derive(Debug, Clone, Copy)]
 pub(in crate::plan) struct KeyInputs<'a> {
-    /// Module the unit operates on.
-    pub(in crate::plan) module: &'a ModuleKey,
+    /// Modules the unit operates on (one for `PerModule`, several when batched).
+    pub(in crate::plan) modules: &'a [ModuleKey],
     /// Rendered base argv (without passthrough) — the `task_hash` source.
     pub(in crate::plan) base_argv: &'a [String],
     /// Workspace-relative shared-input paths folded into the key.
@@ -99,13 +99,16 @@ pub(in crate::plan) fn unit_key(
 ) -> AppResult<String> {
     let mut hasher = ContentHasher::new();
 
-    let module_hash = source_hash(sources, inputs.module)?;
-    hasher.update_framed(b"module", module_hash.as_bytes());
+    for module in inputs.modules {
+        let module_hash = source_hash(sources, module)?;
+        hasher.update_framed(b"module", module.to_string().as_bytes());
+        hasher.update_framed(b"module-hash", module_hash.as_bytes());
 
-    for dependency in transitive_dependencies(inputs.module, adjacency) {
-        let dep_hash = source_hash(sources, &dependency)?;
-        hasher.update_framed(b"dep", dependency.to_string().as_bytes());
-        hasher.update_framed(b"dep-hash", dep_hash.as_bytes());
+        for dependency in transitive_dependencies(module, adjacency) {
+            let dep_hash = source_hash(sources, &dependency)?;
+            hasher.update_framed(b"dep", dependency.to_string().as_bytes());
+            hasher.update_framed(b"dep-hash", dep_hash.as_bytes());
+        }
     }
 
     for arg in inputs.base_argv {
@@ -200,12 +203,12 @@ mod tests {
     }
 
     fn app_key(errors_hash: &str) -> String {
-        let app = mkey("app");
+        let app = [mkey("app")];
         let mut sources = SourceHashes::new();
         sources.insert(mkey("app"), "app-1".to_string());
         sources.insert(mkey("errors"), errors_hash.to_string());
         let inputs = KeyInputs {
-            module: &app,
+            modules: &app,
             base_argv: &["cargo".to_string(), "test".to_string()],
             shared_inputs: &[],
             toolchain_identity: "cargo@1",

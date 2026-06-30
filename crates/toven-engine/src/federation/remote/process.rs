@@ -5,11 +5,9 @@
 //! the driver boundary carries no child build output. stdin/stdout pipes are the
 //! transport; the umbrella never passes a shell string.
 //!
-//! rskit-process cannot host this seam yet: its persistent stdin is written
-//! **once** (one-shot), with no interactive bidirectional channel. That gap is
-//! recorded as the generic, non-Toven-specific rskit follow-up **D4** (an
-//! interactive persistent-process channel). Until D4 lands, this thin local
-//! spawn is the stand-in; it stays argv-only and reuses rskit's error vocabulary.
+//! The transport keeps an interactive bidirectional pipe open across many
+//! request/response frames while staying argv-only and reusing rskit's error
+//! vocabulary.
 
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError};

@@ -3,8 +3,8 @@
 //! A static, curated list of known [`EcosystemId`](crate::EcosystemId)s embedded
 //! in *every* binary, independent of which adapters are linked. It exists so a
 //! standalone tool can tell a legitimate-but-unloaded ecosystem (warn + ignore)
-//! apart from a typo (hard error) — the central known-ecosystem registry from
-//! architecture §4. Adding an ecosystem is one line here plus shipping its adapter.
+//! apart from a typo (hard error). Adding an ecosystem is one line here plus
+//! shipping its adapter.
 //!
 //! This is immutable data looked up by value, not a mutable global registry.
 

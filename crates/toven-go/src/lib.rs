@@ -1,8 +1,8 @@
 //! `toven-go` — the Go ecosystem adapter.
 //!
-//! A sibling of the `toven-rust` template, implementing the step-2 hexagonal
-//! ports against real `go` tooling. It depends only on [`toven_ports`] +
-//! [`toven_model`] (never the engine) and is registered by id `"go"`:
+//! Implements the ecosystem ports against real `go` tooling. It depends only on
+//! [`toven_ports`] + [`toven_model`] (never the engine) and is registered by id
+//! `"go"`:
 //!
 //! - [`GoProvider`] parses `[ecosystems.go]` into a typed [`GoConfig`] and bakes
 //!   a [`GoAdapter`]; it also self-detects a Go module for `toven generate`

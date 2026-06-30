@@ -20,6 +20,7 @@ rskit-worker.workspace = true
 rskit-component.workspace = true
 rskit-validation.workspace = true
 rskit-config.workspace = true
+rskit-codec.workspace = true
 rskit-util.workspace = true
 rskit-version.workspace = true
 serde.workspace = true

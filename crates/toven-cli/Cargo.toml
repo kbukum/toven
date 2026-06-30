@@ -14,6 +14,7 @@ toven-model.workspace = true
 toven-ports.workspace = true
 toven-engine.workspace = true
 rskit-errors.workspace = true
+rskit-codec.workspace = true
 rskit-cli.workspace = true
 rskit-fs.workspace = true
 clap.workspace = true

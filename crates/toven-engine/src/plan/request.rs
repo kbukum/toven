@@ -10,6 +10,7 @@ use toven_ports::{BaselineSpec, TaskKind};
 /// baselines resolved by the VCS reader set, falling back to the optional request
 /// spec for members without their own configured baseline.
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum Selection {
     /// Activate every discovered module.
     All,
@@ -19,6 +20,7 @@ pub enum Selection {
 
 /// How the per-unit cache verdict is decided during PLAN.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Default)]
+#[non_exhaustive]
 pub enum CacheMode {
     /// Read existing records and write new ones (the default).
     #[default]

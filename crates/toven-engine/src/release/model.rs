@@ -90,7 +90,7 @@ impl ChangelogEntry {
 pub struct ReleaseEntry {
     /// Module being considered for release.
     pub module: ModuleKey,
-    /// Version currently declared by the adapter.
+    /// Version declared by the adapter.
     pub current_version: Version,
     /// Version to release, if this module receives an own-version bump.
     pub planned_version: Option<Version>,

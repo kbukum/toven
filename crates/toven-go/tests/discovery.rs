@@ -10,7 +10,7 @@ use toven_testkit::fixtures;
 /// Build a configured Go adapter from a fixture adapter config.
 fn configure(adapter_config: &str) -> Box<dyn ConfiguredAdapter> {
     let raw_text = fixtures::ecosystem_string("go", adapter_config).expect("adapter fixture");
-    let raw: toml::Value = toml::from_str(&raw_text).expect("valid adapter toml");
+    let raw = toven_testkit::raw_subtree(&raw_text).expect("valid adapter toml");
     GoProvider::new()
         .expect("provider")
         .configure(raw)

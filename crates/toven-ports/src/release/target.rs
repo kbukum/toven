@@ -15,7 +15,7 @@ use super::{Artifact, PublishOutcome, ReleaseMutation};
 /// loop; the port owns reading/writing the version, querying the registry,
 /// packaging, and one classified publish attempt.
 pub trait ReleaseTarget {
-    /// Read the module's currently declared version from its manifest.
+    /// Read the module's declared version from its manifest.
     fn declared_version(&self, module: &Module) -> AppResult<Version>;
 
     /// Query the registry for the versions it already reports as published —
