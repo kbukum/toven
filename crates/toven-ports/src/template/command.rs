@@ -94,12 +94,13 @@ impl CommandTemplate {
     ///
     /// One `resolve` closure per module supplies that module's placeholder
     /// values; the base argv (non-selector placeholders) is rendered from the
-    /// first module. With one module this matches [`render`](Self::render); with
-    /// none it returns the base argv with an empty selector. `WholeWorkspace` tasks
-    /// omit `{module.selector}` and so collapse to a single selector-less argv.
+    /// first module. With one module this matches [`render`](Self::render).
+    /// `WholeWorkspace` tasks omit `{module.selector}` and so collapse to a single
+    /// selector-less argv (still rendered from their one representative module).
     ///
     /// # Errors
-    /// Propagates any error returned by a module `resolve`.
+    /// Returns an error if `resolvers` is empty (a batch always covers at least
+    /// one module), or propagates any error returned by a module `resolve`.
     pub fn render_batch<F>(
         &self,
         passthrough: &[String],
@@ -108,6 +109,12 @@ impl CommandTemplate {
     where
         F: FnMut(TaskVar) -> AppResult<String>,
     {
+        if resolvers.is_empty() {
+            return Err(AppError::invalid_input(
+                FIELD_ARGV,
+                "batch render requires at least one module",
+            ));
+        }
         let needs_selector = self
             .base
             .iter()
@@ -120,7 +127,7 @@ impl CommandTemplate {
                 }
             }
         }
-        let mut base = resolvers.first_mut();
+        let base = &mut resolvers[0];
         let mut argv = Vec::with_capacity(self.base.len() + selector.len() + passthrough.len());
         for element in &self.base {
             if is_splice(element, TaskVar::ModuleSelector) {
@@ -128,10 +135,7 @@ impl CommandTemplate {
             } else if is_splice(element, TaskVar::Args) {
                 argv.extend(passthrough.iter().cloned());
             } else {
-                let resolve = base.as_mut().ok_or_else(|| {
-                    AppError::invalid_input(FIELD_ARGV, "batch render requires at least one module")
-                })?;
-                argv.push(render_template(FIELD_ARGV, element, resolve)?);
+                argv.push(render_template(FIELD_ARGV, element, base)?);
             }
         }
         Ok(argv)
@@ -360,6 +364,24 @@ mod tests {
         let error = CommandTemplate::parse(&[], &["{module.selector}".to_string()])
             .expect_err("selector token in selector must be rejected");
         assert!(error.to_string().contains("selector fragment"), "{error}");
+    }
+
+    #[test]
+    fn rejects_args_token_in_selector_fragment() {
+        let error = CommandTemplate::parse(&[], &["{args}".to_string()])
+            .expect_err("args token in selector must be rejected");
+        assert!(error.to_string().contains("selector fragment"), "{error}");
+    }
+
+    #[test]
+    fn render_batch_rejects_empty_module_set() {
+        let base = ["cargo".to_string(), "test".to_string()];
+        let command = CommandTemplate::parse(&base, &[]).expect("templates parse");
+        let mut resolvers: Vec<fn(TaskVar) -> rskit_errors::AppResult<String>> = Vec::new();
+        let error = command
+            .render_batch(&[], &mut resolvers)
+            .expect_err("empty batch must be rejected");
+        assert!(error.to_string().contains("at least one module"), "{error}");
     }
 
     #[test]

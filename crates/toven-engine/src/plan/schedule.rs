@@ -1,16 +1,18 @@
-//! Schedule: relax edges by `RunStrategy`, level into federated waves, group each
-//! wave by intrinsic `FanOut`, and render one [`PlannedUnit`] per resulting group.
+//! Schedule: relax edges by `RunStrategy`, level into federated waves, group the
+//! active modules by intrinsic `FanOut`, and render one [`PlannedUnit`] per group.
 //!
 //! Per-module `RunStrategy` decides whether a module's **intra-ecosystem** ordering
 //! edges are kept (`leaf-to-top`) or dropped (`unordered`); **cross-ecosystem
 //! overlay edges are never dropped**. The residual active subgraph is topo-levelled
-//! into waves. Within a wave, modules are grouped by the task's [`FanOut`]: a
-//! `PerModule` task yields one unit per module, while `Batchable`/`WholeWorkspace`
-//! tasks collapse all same-ecosystem-and-kind modules into a single invocation
-//! (selectors are repeated for `Batchable`, omitted for `WholeWorkspace`). Each
-//! unit carries the rendered argv and the facts the Cache-decision phase needs.
+//! into waves. Modules are then grouped by the task's [`FanOut`]: a `PerModule` task
+//! yields one unit per module, while `Batchable`/`WholeWorkspace` tasks collapse all
+//! same-ecosystem-and-kind modules into a single invocation (selectors are repeated
+//! for `Batchable`, omitted for `WholeWorkspace`). A collapsed group may span several
+//! waves; it is scheduled in the latest wave any of its members occupy, so every
+//! gated dependency has already run. Each unit carries the rendered argv and the
+//! facts the Cache-decision phase needs.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult};
@@ -409,19 +411,23 @@ fn resolve_toolchain_identity(
 }
 
 /// The de-duplicated dependency-group ids a unit gates on (excluding itself).
+///
+/// Order is the first-seen order across `members`; a `BTreeSet` guards membership
+/// so de-duplication stays linear rather than quadratic in the edge count.
 fn group_dependencies(
     id: &str,
     members: &[ModuleKey],
     kept_deps: &BTreeMap<ModuleKey, Vec<ModuleKey>>,
     group_ids: &BTreeMap<ModuleKey, String>,
 ) -> Vec<String> {
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
     let mut depends_on: Vec<String> = Vec::new();
     for member in members {
         if let Some(deps) = kept_deps.get(member) {
             for dep in deps {
                 if let Some(dep_id) = group_ids.get(dep)
                     && dep_id != id
-                    && !depends_on.contains(dep_id)
+                    && seen.insert(dep_id.as_str())
                 {
                     depends_on.push(dep_id.clone());
                 }
