@@ -82,7 +82,8 @@ pub struct TaskInvocation {
     pub task: String,
     /// Recognized execution flags that trailed the task name.
     pub flags: TaskFlags,
-    /// Passthrough args after `--`, carried verbatim and never rewritten.
+    /// Passthrough args carried verbatim and never rewritten. Begins at either an
+    /// explicit `--` or the first token that is not a recognized Toven flag.
     pub passthrough: Vec<String>,
 }
 
