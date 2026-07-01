@@ -75,7 +75,7 @@ Pass extra tool arguments straight through — no separator needed for the commo
 toven test --nocapture
 ```
 
-Toven consumes only its own flags that lead the task name; the first argument it does not own (and everything after) goes to the task's command verbatim. Use `--` to force the boundary when your first argument would otherwise look like a Toven flag:
+Toven consumes only its own flags that immediately follow the task name (as a contiguous prefix); the first argument it does not own (and everything after) goes to the task's command verbatim. Use `--` to force the boundary when your first argument would otherwise look like a Toven flag:
 
 ```bash
 toven test -- --explain
