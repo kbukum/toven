@@ -597,6 +597,52 @@ fn serial_execution_streams_normal_output_live() {
 }
 
 #[test]
+fn serial_run_with_a_persistent_unit_keeps_normal_output_buffered() {
+    // A held persistent unit keeps emitting live output across the later waves
+    // that run normal units, even at max_parallel == 1. Streaming the normal
+    // unit live would interleave with the persistent stream, so normal output
+    // must stay buffered into a deterministic per-unit block.
+    let normal = unit("normal");
+    let mut service = unit("service");
+    service.persistent = true;
+    service.cache = CacheVerdict::Disabled;
+    service.cache_key = None;
+    let plan = Plan::new(
+        vec![normal, service],
+        vec![vec!["normal".into(), "service".into()]],
+    );
+    let runner = Arc::new(
+        FakeCommandRunner::new()
+            .with_output(
+                "normal",
+                vec![chunk("normal", OutputStream::Stdout, b"normal\n")],
+            )
+            .with_output(
+                "service",
+                vec![chunk("service", OutputStream::Stdout, b"service-live\n")],
+            ),
+    );
+    let sink = RecordingRawOutputSink::new();
+
+    run_with_parallelism(&plan, runner, sink.clone(), 1);
+
+    assert!(
+        sink.blocks().contains(&(
+            "normal".to_string(),
+            vec![chunk("normal", OutputStream::Stdout, b"normal\n")]
+        )),
+        "normal output must be a buffered block when a persistent unit is present; blocks {:?}, live {:?}",
+        sink.blocks(),
+        sink.live_chunks(),
+    );
+    assert!(
+        sink.live_chunks()
+            .contains(&chunk("service", OutputStream::Stdout, b"service-live\n")),
+        "the persistent unit still streams live",
+    );
+}
+
+#[test]
 fn cache_writes_only_successful_cacheable_units() {
     let success = unit("success");
     let mut forced = unit("forced");

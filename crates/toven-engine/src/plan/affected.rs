@@ -90,15 +90,15 @@ fn explicit_seeds(
     for target in targets {
         match target {
             ModuleSelector::Module(reference) => {
-                let matches = graph
+                let matches: Vec<ModuleKey> = graph
                     .modules()
                     .map(Module::key)
-                    .filter(|key| key.module() == reference);
-                let before = seeds.len();
-                seeds.extend(matches);
-                if seeds.len() == before {
+                    .filter(|key| key.module() == reference)
+                    .collect();
+                if matches.is_empty() {
                     return Err(unknown_module_error(reference, graph));
                 }
+                seeds.extend(matches);
             }
             ModuleSelector::Workspace(workspace) => {
                 let matches = modules_in_workspace(workspace, federation);
@@ -786,5 +786,48 @@ mod tests {
         let message = error.to_string();
         assert!(message.contains("unknown workspace 'ghost'"), "{message}");
         assert!(message.contains("rust"), "{message}");
+    }
+
+    #[test]
+    fn explicit_overlapping_targets_do_not_false_error_as_unknown() {
+        let (federation, graph) = app_and_errors_federation();
+        let vcs = FakeVcsReader::new();
+        // Workspace `rust` already activates `rust:app`; naming it again via
+        // `--module` must not be misread as an unknown module just because it
+        // adds no new seed.
+        let request = explicit_request(
+            vec![
+                ModuleSelector::Workspace(WorkspaceId::new("rust").unwrap()),
+                ModuleSelector::Module(mref("rust", "app")),
+            ],
+            false,
+        );
+
+        let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+
+        assert!(active.contains(&mkey("rust", "app")));
+        assert!(active.contains(&mkey("rust", "errors")));
+    }
+
+    #[test]
+    fn explicit_duplicate_module_targets_are_idempotent() {
+        let (federation, graph) = app_and_errors_federation();
+        let vcs = FakeVcsReader::new();
+        // A repeated `--module` for the same identity must succeed, not error on
+        // the second (already-present) occurrence.
+        let request = explicit_request(
+            vec![
+                ModuleSelector::Module(mref("rust", "errors")),
+                ModuleSelector::Module(mref("rust", "errors")),
+            ],
+            false,
+        );
+
+        let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+
+        assert_eq!(
+            active,
+            std::collections::BTreeSet::from([mkey("rust", "errors")])
+        );
     }
 }

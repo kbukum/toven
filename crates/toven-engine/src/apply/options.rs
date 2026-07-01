@@ -50,10 +50,18 @@ impl Default for ApplyOptions {
 
 /// Whether normal-unit output should stream live for this run.
 ///
-/// Live streaming is safe only when no two units can run concurrently — a
-/// single-unit plan, or strictly serial execution (`max_parallel == 1`) —
-/// otherwise chunks from parallel units would interleave, so they are buffered
-/// into deterministic per-unit blocks instead.
-pub(super) const fn stream_normal_live(options: &ApplyOptions, plan: &toven_model::Plan) -> bool {
-    options.max_parallel <= 1 || plan.units.len() <= 1
+/// Live streaming a normal unit's output is safe only when nothing else can be
+/// emitting concurrently. Two things can:
+/// - another unit running in parallel — excluded by requiring serial execution
+///   (`max_parallel <= 1`) or a single-unit plan;
+/// - a held persistent unit, which keeps running (and emitting live) across the
+///   later waves that run normal units, even under serial execution — excluded
+///   by requiring the plan to contain no persistent unit.
+///
+/// When either could interleave, normal output is buffered into a deterministic
+/// per-unit block instead.
+pub(super) fn stream_normal_live(options: &ApplyOptions, plan: &toven_model::Plan) -> bool {
+    let serial_or_single = options.max_parallel <= 1 || plan.units.len() <= 1;
+    let has_persistent = plan.units.iter().any(|unit| unit.persistent);
+    serial_or_single && !has_persistent
 }

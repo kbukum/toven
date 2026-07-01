@@ -55,7 +55,8 @@ struct WorkHandler {
     environment: InvocationEnvironment,
     output: OutputObserver,
     /// Stream normal-unit output live (through `output`) instead of capturing it
-    /// for a buffered block. Only set when no two units can run concurrently, so
+    /// for a buffered block. Only set when nothing else can emit concurrently
+    /// (serial or single-unit execution and no held persistent unit), so
     /// streamed chunks never interleave.
     stream_normal_live: bool,
 }

@@ -81,9 +81,11 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
     ) -> AppResult<RunStats> {
         let start = Instant::now();
         for unit in &self.plan.units {
-            // Persistent units always stream live. Normal units stream live only
-            // when no two units can run concurrently; otherwise their output is
-            // buffered into a deterministic per-unit block.
+            // Persistent units always stream live. Normal units stream live
+            // only when nothing else can emit concurrently — serial or
+            // single-unit execution, and no held persistent unit in the plan;
+            // otherwise their output is buffered into a deterministic per-unit
+            // block.
             let mode = if unit.persistent || self.stream_normal_live {
                 OutputMode::Live
             } else {
