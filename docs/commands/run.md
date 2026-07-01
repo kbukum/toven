@@ -39,6 +39,8 @@ A name collision is resolved deterministically: when a leading token in the pref
 
 Because the boundary is "the first token Toven does not recognize", a *misspelled* Toven flag passes through to the command rather than erroring: `toven test --moduel rust:core` sends `--moduel rust:core` to your command verbatim (it does not select the `rust:core` module). Use `toven explain <module> <task>` to see the exact `argv` Toven planned if a Toven flag seems to have no effect.
 
+The contiguous-prefix rule above applies only to the bare `toven <task>` form. `toven run <task>` is a reserved clap subcommand, not a bare task: its Toven flags are ordinary global flags (they may appear before or after `<task>`), and its passthrough is collected only after an explicit `--`. So `toven run test integration --nocapture` is rejected (a bare positional after the reserved `run <task>` is not passthrough); write `toven run test -- integration --nocapture` instead. Prefer the bare `toven test …` form for friction-free passthrough; reach for `toven run` only when the task name shadows a reserved verb.
+
 ## Selecting which modules run
 
 By default a task plans every module (or, with a baseline, only changed modules). Select the graph explicitly instead:
