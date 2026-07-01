@@ -17,10 +17,11 @@ use toven_engine::plan::{
     CacheMode, FsSourceDigest, NullCache, PlanHost, PlanRequest, ProcessToolchainProber, Selection,
     dependency_graph, plan,
 };
-use toven_engine::vcs::{BaselineFlags, BaselineStrategy};
+use toven_engine::vcs::BaselineFlags;
 use toven_model::{Event, Graph, Plan};
 use toven_ports::{Provider, Reporter, TaskKind};
 
+use crate::commands::selection::TaskSelection;
 use crate::flags::GraphFormat;
 use crate::host::{Project, new_run_id};
 
@@ -106,13 +107,10 @@ pub(crate) fn affected(
     providers: &[&dyn Provider],
     project: &Project,
     intent: TaskKind,
-    baseline: &BaselineFlags,
+    selection: &TaskSelection,
 ) -> AppResult<ExitCode> {
-    let selection = Selection::Changed(BaselineStrategy::resolve_optional(
-        baseline,
-        project.document.project.base_ref.as_deref(),
-    ));
-    let plan = build_plan(providers, project, intent, baseline, selection)?;
+    let resolved = selection.resolve(project.document.project.base_ref.as_deref())?;
+    let plan = build_plan(providers, project, intent, &selection.baseline, resolved)?;
     print_module_table("Affected", plan_module_names(&plan));
     Ok(ExitCode::Success)
 }

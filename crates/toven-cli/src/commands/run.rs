@@ -17,13 +17,14 @@ use toven_engine::apply::{ApplyOptions, ProcessCommandRunner, apply};
 use toven_engine::cache::FsContentCache;
 use toven_engine::output::UnitOutputChannel;
 use toven_engine::plan::{
-    FsSourceDigest, PlanHost, PlanRequest, ProcessToolchainProber, Selection, plan,
+    CacheMode, FsSourceDigest, PlanHost, PlanRequest, ProcessToolchainProber, plan,
 };
 use toven_engine::release::{ReleaseApplyOptions, release_run};
-use toven_engine::vcs::{BaselineFlags, BaselineStrategy};
+use toven_engine::vcs::BaselineFlags;
 use toven_model::{CacheVerdict, Event, Plan, RunStats};
 use toven_ports::{CommandRunner, Provider, Reporter, TaskKind};
 
+use crate::commands::selection::TaskSelection;
 use crate::host::{Project, Report, new_run_id};
 use crate::report::{WriterRawSink, exit_code};
 
@@ -44,21 +45,25 @@ pub(crate) fn execute(
     intent: TaskKind,
     passthrough: Vec<String>,
     fail_fast: bool,
+    no_cache: bool,
     plan_only: bool,
-    baseline: &BaselineFlags,
+    selection: &TaskSelection,
 ) -> AppResult<ExitCode> {
     let run_id = new_run_id()?;
     let intent_name = intent.name().to_string();
-    let request = PlanRequest::new(
+    let mut request = PlanRequest::new(
         run_id.clone(),
         project.document.project.name.clone(),
         intent,
         project.project_root.clone(),
     )
     .with_passthrough(passthrough)
-    .with_selection(task_selection(project, baseline));
+    .with_selection(selection.resolve(project.document.project.base_ref.as_deref())?);
+    if no_cache {
+        request = request.with_cache_mode(CacheMode::Disabled);
+    }
 
-    let opened = project.open_member_vcs(providers, baseline)?;
+    let opened = project.open_member_vcs(providers, &selection.baseline)?;
     let readers = opened.readers();
     let digest = FsSourceDigest::new(&project.project_root);
     let prober = ProcessToolchainProber::new();
@@ -106,16 +111,6 @@ pub(crate) fn execute(
         apply(&plan, runner, &cache, sink, &mut output, options, cancel).await
     })?;
     Ok(exit_code(&summary))
-}
-
-fn task_selection(project: &Project, baseline: &BaselineFlags) -> Selection {
-    if baseline.base.is_none() && !baseline.merge_base {
-        return Selection::All;
-    }
-    Selection::Changed(BaselineStrategy::resolve_optional(
-        baseline,
-        project.document.project.base_ref.as_deref(),
-    ))
 }
 
 /// Plan and publish a release (`toven release`).

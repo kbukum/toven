@@ -1,14 +1,33 @@
 //! The PLAN inputs: what to plan, where, against which change baseline.
 
-use toven_model::AbsPath;
+use toven_model::{AbsPath, ModuleRef, WorkspaceId};
 use toven_ports::{BaselineSpec, TaskKind};
+
+/// A user-named target for [`Selection::Explicit`].
+///
+/// A [`Module`](ModuleSelector::Module) names one module identity
+/// (`ecosystem:name`); it activates every graph node with that identity (one node
+/// in a single repo, or every member exposing it under an umbrella). A
+/// [`Workspace`](ModuleSelector::Workspace) activates every module owned by a
+/// discovered workspace. Toven resolves these against the discovered graph and
+/// errors on a name that matches nothing — it never silently plans an empty run.
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ModuleSelector {
+    /// One module identity (`ecosystem:name`), member-unscoped.
+    Module(ModuleRef),
+    /// Every module owned by a discovered workspace.
+    Workspace(WorkspaceId),
+}
 
 /// How the active module set is selected before scheduling.
 ///
 /// [`Selection::All`] activates every discovered module (a full `toven test`);
 /// [`Selection::Changed`] runs the change mapper against the per-member
 /// baselines resolved by the VCS reader set, falling back to the optional request
-/// spec for members without their own configured baseline.
+/// spec for members without their own configured baseline;
+/// [`Selection::Explicit`] activates exactly the user-named modules/workspaces
+/// (`--module`/`--workspace`), optionally expanded to their reverse dependents.
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Selection {
@@ -16,6 +35,13 @@ pub enum Selection {
     All,
     /// Activate only modules affected by changes since the resolved baseline.
     Changed(Option<BaselineSpec>),
+    /// Activate exactly the named modules/workspaces resolved against the graph.
+    Explicit {
+        /// The user-named module/workspace targets to activate.
+        targets: Vec<ModuleSelector>,
+        /// Whether to also activate the reverse-dependents closure of the targets.
+        include_dependents: bool,
+    },
 }
 
 /// How the per-unit cache verdict is decided during PLAN.

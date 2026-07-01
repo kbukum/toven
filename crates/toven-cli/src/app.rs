@@ -155,8 +155,9 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
                 intent_for(task),
                 passthrough.clone(),
                 cli.fail_fast,
+                cli.no_cache,
                 cli.is_plan_only(),
-                &cli.baseline_flags(),
+                &global_selection(cli),
             )
         }
         Command::Plan { task } => {
@@ -169,8 +170,9 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
                 intent_for(task),
                 Vec::new(),
                 cli.fail_fast,
+                cli.no_cache,
                 true,
-                &cli.baseline_flags(),
+                &global_selection(cli),
             )
         }
         Command::Release => {
@@ -195,7 +197,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
                 providers,
                 &project,
                 intent_for(task),
-                &cli.baseline_flags(),
+                &global_selection(cli),
             )
         }
         Command::Modules => {
@@ -235,11 +237,23 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
     let report = Report::resolve(output, verbosity, &project.document);
     let plan_only = cli.is_plan_only() || flags.dry_run || flags.explain;
     let fail_fast = cli.fail_fast || flags.fail_fast;
+    let no_cache = cli.no_cache || flags.no_cache;
 
     let mut baseline = BaselineFlags::new().with_merge_base(cli.merge_base || flags.merge_base);
     if let Some(reference) = flags.base.clone().or_else(|| cli.base.clone()) {
         baseline = baseline.with_base(reference);
     }
+
+    let mut modules = cli.module.clone();
+    modules.extend(flags.modules.iter().cloned());
+    let mut workspaces = cli.workspace.clone();
+    workspaces.extend(flags.workspaces.iter().cloned());
+    let selection = commands::selection::TaskSelection {
+        baseline,
+        modules,
+        workspaces,
+        with_dependents: cli.with_dependents || flags.with_dependents,
+    };
 
     commands::run::execute(
         providers,
@@ -248,9 +262,20 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
         intent_for(&invocation.task),
         invocation.passthrough,
         fail_fast,
+        no_cache,
         plan_only,
-        &baseline,
+        &selection,
     )
+}
+
+/// Bundle the pre-token global selection flags for the reserved execution verbs.
+fn global_selection(cli: &Cli) -> commands::selection::TaskSelection {
+    commands::selection::TaskSelection {
+        baseline: cli.baseline_flags(),
+        modules: cli.module.clone(),
+        workspaces: cli.workspace.clone(),
+        with_dependents: cli.with_dependents,
+    }
 }
 
 /// Load the project using the verb's `--config` global flag.

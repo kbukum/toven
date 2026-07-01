@@ -239,6 +239,7 @@ impl CommandRunner for FakeCommandRunner {
         &self,
         invocation: &Invocation,
         cancel: CancellationToken,
+        live: Option<OutputObserver>,
     ) -> AppResult<RunOutcome> {
         let unit_id = invocation.unit_id.clone();
         self.enter(&unit_id);
@@ -268,10 +269,20 @@ impl CommandRunner for FakeCommandRunner {
             .expect("log poisoned")
             .finished
             .push(unit_id.clone());
-        if self.failures.contains(&unit_id) {
-            Ok(RunOutcome::failed(Some(1), output))
+        // Streaming mode mirrors the real runner: emit each chunk live through
+        // the observer and return an empty outcome rather than buffered chunks.
+        let returned = if let Some(observer) = live {
+            for chunk in output {
+                observer.emit(chunk);
+            }
+            Vec::new()
         } else {
-            Ok(RunOutcome::succeeded(output))
+            output
+        };
+        if self.failures.contains(&unit_id) {
+            Ok(RunOutcome::failed(Some(1), returned))
+        } else {
+            Ok(RunOutcome::succeeded(returned))
         }
     }
 

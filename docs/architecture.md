@@ -159,6 +159,8 @@ flowchart TD
     Disabled --> Miss
 ```
 
+Explicit selection (`--module`/`--workspace`, optionally `--with-dependents`) short-circuits the changed-file diff at the top of this flow: the named targets (and, with `--with-dependents`, their reverse-dependents closure) become the active set directly, then feed the same cache and execution stages. It is mutually exclusive with the changed-selection baseline.
+
 `shared_inputs` are task-owned, workspace-relative paths that participate in the shared hash for every module in the task. They are for broad invalidators such as lockfiles, toolchain files, lint config, and CI-relevant config. They must be plain paths inside the workspace: no templates, globs, `.` components, parent paths, or absolute paths.
 
 ## Extension points

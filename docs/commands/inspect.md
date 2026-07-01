@@ -9,18 +9,20 @@ Renders a reviewable execution plan without running subprocesses:
 ```bash
 toven plan check
 toven plan check --base origin/main --merge-base
+toven plan check --module rust:core --with-dependents
 toven plan test
 ```
 
-`toven plan` renders the plan as an event stream rather than executing it: a `plan: N units in M waves` line plus the terminal run summary. Add `-v` (verbose) to also see per-phase markers and a per-unit `cache <unit>: <verdict>` line for each unit. With `--base` and/or `--merge-base`, Toven resolves changed files first and plans only directly affected modules plus dependents. It does not print argv (use `toven explain` for argv) and does not accept passthrough args.
+`toven plan` renders the plan as an event stream rather than executing it: a `plan: N units in M waves` line plus the terminal run summary. Add `-v` (verbose) to also see per-phase markers and a per-unit `cache <unit>: <verdict>` line for each unit. With `--base` and/or `--merge-base`, Toven resolves changed files first and plans only directly affected modules plus dependents. With `--module`/`--workspace` (optionally `--with-dependents`) it plans exactly the named targets instead; the explicit and changed-selection flags are mutually exclusive. It does not print argv (use `toven explain` for argv) and does not accept passthrough args.
 
 ## `toven affected`
 
-Lists the modules with a scheduled unit for a task, given a baseline:
+Lists the modules with a scheduled unit for a task, given a baseline or an explicit selection:
 
 ```bash
 toven affected check
 toven affected check --base origin/main --merge-base
+toven affected check --module rust:core --with-dependents
 ```
 
 The output is a table of affected `ecosystem:module` refs (the directly changed modules plus their dependents). It does not currently surface the baseline OID, changed paths, or a per-module reason category.

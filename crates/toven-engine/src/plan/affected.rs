@@ -11,13 +11,13 @@
 use rskit_errors::AppResult;
 use std::collections::BTreeSet;
 use std::path::Path;
-use toven_model::{DepKind, Graph, Module, ModuleKey, Workspace, WorkspaceId};
+use toven_model::{DepKind, Graph, Module, ModuleKey, ModuleRef, Workspace, WorkspaceId};
 use toven_ports::{BaselineSpec, ChangeRecord, TaskKind};
 
 use crate::federation::baseline::{MemberVcsReader, MemberVcsReaders};
 
 use super::discover::Federation;
-use super::request::{PlanRequest, Selection};
+use super::request::{ModuleSelector, PlanRequest, Selection};
 
 /// Resolve the active module set for this request.
 ///
@@ -36,20 +36,118 @@ pub(super) fn active_modules(
     federation: &Federation,
     vcs: &MemberVcsReaders<'_>,
 ) -> AppResult<BTreeSet<ModuleKey>> {
-    let Selection::Changed(spec) = &request.selection else {
-        return Ok(all_modules(graph));
-    };
+    match &request.selection {
+        Selection::All => Ok(all_modules(graph)),
+        Selection::Explicit {
+            targets,
+            include_dependents,
+        } => {
+            let seeds = explicit_seeds(targets, graph, federation)?;
+            if *include_dependents {
+                graph.closure(&seeds, dependents_filter(&request.intent))
+            } else {
+                Ok(seeds)
+            }
+        }
+        Selection::Changed(spec) => {
+            let changed = changed_for_members(vcs, spec.as_ref())?;
+            let seeds = changed_seeds(&changed, graph, federation);
+            graph.closure(&seeds, dependents_filter(&request.intent))
+        }
+    }
+}
 
-    let changed = changed_for_members(vcs, spec.as_ref())?;
-
-    let seeds = changed_seeds(&changed, graph, federation);
-
-    let is_test = matches!(request.intent, TaskKind::Test);
-    let include = |kind: DepKind| {
+/// The reverse-dependents edge filter for `intent`.
+///
+/// Build/normal/overlay edges always propagate; `Dev` edges propagate only for a
+/// [`TaskKind::Test`] run (a dev-only change affects tests but not downstream
+/// builds).
+fn dependents_filter(intent: &TaskKind) -> impl Fn(DepKind) -> bool {
+    let is_test = matches!(intent, TaskKind::Test);
+    move |kind: DepKind| {
         matches!(kind, DepKind::Normal | DepKind::Build | DepKind::Overlay)
             || (is_test && kind == DepKind::Dev)
-    };
-    graph.closure(&seeds, include)
+    }
+}
+
+/// Resolve the user-named [`ModuleSelector`] targets to seed module keys.
+///
+/// A module target activates every graph node with that `ecosystem:name`
+/// identity (one node in a single repo; every member exposing it under an
+/// umbrella); a workspace target activates every module the workspace owns.
+///
+/// # Errors
+/// A target that resolves to no discovered module is an
+/// [`AppError::invalid_input`](rskit_errors::AppError::invalid_input) naming the
+/// unknown ref and listing the available identities — Toven never silently plans
+/// an empty run.
+fn explicit_seeds(
+    targets: &[ModuleSelector],
+    graph: &Graph,
+    federation: &Federation,
+) -> AppResult<BTreeSet<ModuleKey>> {
+    let mut seeds = BTreeSet::new();
+    for target in targets {
+        match target {
+            ModuleSelector::Module(reference) => {
+                let matches = graph
+                    .modules()
+                    .map(Module::key)
+                    .filter(|key| key.module() == reference);
+                let before = seeds.len();
+                seeds.extend(matches);
+                if seeds.len() == before {
+                    return Err(unknown_module_error(reference, graph));
+                }
+            }
+            ModuleSelector::Workspace(workspace) => {
+                let matches = modules_in_workspace(workspace, federation);
+                if matches.is_empty() {
+                    return Err(unknown_workspace_error(workspace, federation));
+                }
+                seeds.extend(matches);
+            }
+        }
+    }
+    Ok(seeds)
+}
+
+/// Typed error for a `--module` ref that matches no discovered module.
+fn unknown_module_error(reference: &ModuleRef, graph: &Graph) -> rskit_errors::AppError {
+    let mut available: Vec<String> = graph
+        .modules()
+        .map(|module| module.key().module().to_string())
+        .collect();
+    available.sort();
+    available.dedup();
+    rskit_errors::AppError::invalid_input(
+        "module",
+        format!(
+            "unknown module '{reference}'; discovered modules: {}",
+            available.join(", ")
+        ),
+    )
+}
+
+/// Typed error for a `--workspace` id that owns no discovered module.
+fn unknown_workspace_error(
+    workspace: &WorkspaceId,
+    federation: &Federation,
+) -> rskit_errors::AppError {
+    let mut available: Vec<String> = federation
+        .workspaces
+        .iter()
+        .map(|workspace| workspace.id.to_string())
+        .collect();
+    available.sort();
+    available.dedup();
+    rskit_errors::AppError::invalid_input(
+        "workspace",
+        format!(
+            "unknown workspace '{workspace}'; discovered workspaces: {}",
+            available.join(", ")
+        ),
+    )
 }
 
 fn changed_for_members(
@@ -280,7 +378,7 @@ mod tests {
     use super::{active_modules, changed_records_for_module};
     use crate::federation::baseline::{MemberVcsReader, MemberVcsReaders};
     use crate::plan::discover::Federation;
-    use crate::plan::request::{PlanRequest, Selection};
+    use crate::plan::request::{ModuleSelector, PlanRequest, Selection};
 
     fn mref(ecosystem: &str, name: &str) -> ModuleRef {
         ModuleRef::new(EcosystemId::new(ecosystem).unwrap(), name).unwrap()
@@ -584,5 +682,109 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["crates/app/src/lib.rs", "Cargo.lock"]
         );
+    }
+
+    fn app_and_errors_federation() -> (Federation, Graph) {
+        let federation = Federation {
+            workspaces: vec![rust_workspace_with_blast()],
+            modules: vec![
+                module("rust", "app", "crates/app", Some("rust")),
+                module("rust", "errors", "crates/errors", Some("rust")),
+            ],
+            edges: vec![Edge::new(
+                mref("rust", "app"),
+                mref("rust", "errors"),
+                DepKind::Normal,
+            )],
+            warnings: Vec::new(),
+        };
+        let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
+        (federation, graph)
+    }
+
+    fn explicit_request(targets: Vec<ModuleSelector>, include_dependents: bool) -> PlanRequest {
+        PlanRequest::new(
+            "r",
+            "t",
+            toven_ports::TaskKind::Test,
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Explicit {
+            targets,
+            include_dependents,
+        })
+    }
+
+    #[test]
+    fn explicit_module_activates_exactly_that_module() {
+        let (federation, graph) = app_and_errors_federation();
+        let vcs = FakeVcsReader::new();
+        let request = explicit_request(vec![ModuleSelector::Module(mref("rust", "errors"))], false);
+
+        let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+
+        // Without dependents, the reverse-closure dependent (app) is not activated.
+        assert_eq!(
+            active,
+            std::collections::BTreeSet::from([mkey("rust", "errors")])
+        );
+    }
+
+    #[test]
+    fn explicit_module_with_dependents_activates_the_closure() {
+        let (federation, graph) = app_and_errors_federation();
+        let vcs = FakeVcsReader::new();
+        let request = explicit_request(vec![ModuleSelector::Module(mref("rust", "errors"))], true);
+
+        let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+
+        assert!(active.contains(&mkey("rust", "errors")));
+        assert!(active.contains(&mkey("rust", "app")));
+    }
+
+    #[test]
+    fn explicit_workspace_activates_every_owned_module() {
+        let (federation, graph) = app_and_errors_federation();
+        let vcs = FakeVcsReader::new();
+        let request = explicit_request(
+            vec![ModuleSelector::Workspace(WorkspaceId::new("rust").unwrap())],
+            false,
+        );
+
+        let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+
+        assert!(active.contains(&mkey("rust", "app")));
+        assert!(active.contains(&mkey("rust", "errors")));
+    }
+
+    #[test]
+    fn explicit_unknown_module_is_a_typed_error_listing_available() {
+        let (federation, graph) = app_and_errors_federation();
+        let vcs = FakeVcsReader::new();
+        let request = explicit_request(vec![ModuleSelector::Module(mref("rust", "ghost"))], false);
+
+        let error = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap_err();
+
+        let message = error.to_string();
+        assert!(message.contains("unknown module 'rust:ghost'"), "{message}");
+        assert!(message.contains("rust:app"), "{message}");
+    }
+
+    #[test]
+    fn explicit_unknown_workspace_is_a_typed_error_listing_available() {
+        let (federation, graph) = app_and_errors_federation();
+        let vcs = FakeVcsReader::new();
+        let request = explicit_request(
+            vec![ModuleSelector::Workspace(
+                WorkspaceId::new("ghost").unwrap(),
+            )],
+            false,
+        );
+
+        let error = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap_err();
+
+        let message = error.to_string();
+        assert!(message.contains("unknown workspace 'ghost'"), "{message}");
+        assert!(message.contains("rust"), "{message}");
     }
 }
