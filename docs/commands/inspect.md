@@ -25,7 +25,7 @@ toven affected check --base origin/main --merge-base
 toven affected check --module rust:core --with-dependents
 ```
 
-The output is a table of affected `ecosystem:module` refs (the directly changed modules plus their dependents). It does not currently surface the baseline OID, changed paths, or a per-module reason category.
+The output is a table of affected `ecosystem:module` refs: with `--base`/`--merge-base` these are the directly changed modules plus their dependents, and with `--module`/`--workspace` (optionally `--with-dependents`) they are the explicitly selected targets. It does not currently surface the baseline OID, changed paths, or a per-module reason category.
 
 ## `toven explain <module> <task>`
 
