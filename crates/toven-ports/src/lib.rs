@@ -224,6 +224,7 @@ mod object_safety {
             &self,
             _invocation: &Invocation,
             _cancel: tokio_util::sync::CancellationToken,
+            _live: Option<OutputObserver>,
         ) -> AppResult<RunOutcome> {
             Ok(RunOutcome::succeeded(Vec::new()))
         }

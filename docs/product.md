@@ -8,7 +8,7 @@ Toven is a developer-first task orchestrator for repositories with many modules.
 toven generate
 toven plan check --base origin/main --merge-base
 toven check
-toven test -- --no-capture
+toven test --nocapture
 toven explain <ecosystem:module> test
 ```
 

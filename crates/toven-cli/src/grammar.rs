@@ -56,10 +56,18 @@ pub struct TaskFlags {
     pub explain: bool,
     /// `--fail-fast`.
     pub fail_fast: bool,
+    /// `--no-cache`: bypass the task cache (re-run every unit; no read/write).
+    pub no_cache: bool,
     /// `--base <ref>`: override the changed-selection baseline reference.
     pub base: Option<String>,
     /// `--merge-base`: diff against `merge-base(reference, HEAD)`.
     pub merge_base: bool,
+    /// `--module <ref>`: explicit graph target (`ecosystem:name`), repeatable.
+    pub modules: Vec<String>,
+    /// `--workspace <id>`: explicit graph target, repeatable.
+    pub workspaces: Vec<String>,
+    /// `--with-dependents`: also activate the reverse-dependents closure.
+    pub with_dependents: bool,
     /// `-v`/`--verbose` repeat count.
     pub verbose: u8,
     /// `-q`/`--quiet` repeat count.
@@ -74,21 +82,25 @@ pub struct TaskInvocation {
     pub task: String,
     /// Recognized execution flags that trailed the task name.
     pub flags: TaskFlags,
-    /// Passthrough args after `--`, carried verbatim and never rewritten.
+    /// Passthrough args carried verbatim and never rewritten. Begins at either an
+    /// explicit `--` or the first token that is not a recognized Toven flag.
     pub passthrough: Vec<String>,
 }
 
-/// Parse the `External` token vector for a bare task: `<task> [exec-flags] [-- passthrough]`.
+/// Parse the `External` token vector for a bare task: `<task> [toven-flags...] [args...]`.
 ///
-/// Only execution flags are recognized before `--`; a verb-specific flag
-/// (`--allow-dirty`, `--force`, …) or any other unknown flag is a typed usage
-/// error pointing at the verb it belongs to. Everything after `--` is passthrough
-/// and is never interpreted.
+/// Toven's own execution/selection flags are consumed only as a *contiguous
+/// prefix* immediately after the task name. The first token that is not a
+/// recognized Toven flag — a positional argument or an unknown flag — begins the
+/// task's own argument vector: it and every token after it are carried through
+/// verbatim, never interpreted. An explicit `--` forces the boundary early. This
+/// keeps `toven test <the task's own args...>` friction-free: users pass their
+/// command's parameters without escaping, and only the leading Toven flags they
+/// deliberately place before them are absorbed.
 ///
 /// # Errors
-/// Returns a usage error for an empty token vector, a flag that requires a value
-/// but is missing one, an unknown/misplaced flag, or a verb-specific flag used on
-/// a task.
+/// Returns a usage error for an empty token vector, or a Toven value-flag in the
+/// prefix that is missing its value.
 pub fn parse_task(tokens: &[String]) -> AppResult<TaskInvocation> {
     let mut iter = tokens.iter();
     let task = iter
@@ -108,13 +120,23 @@ pub fn parse_task(tokens: &[String]) -> AppResult<TaskInvocation> {
             "--dry-run" => flags.dry_run = true,
             "--explain" => flags.explain = true,
             "--fail-fast" => flags.fail_fast = true,
+            "--no-cache" => flags.no_cache = true,
             "--merge-base" => flags.merge_base = true,
+            "--with-dependents" => flags.with_dependents = true,
             "--base" => flags.base = Some(value_for("--base", &mut iter)?),
+            "--module" => flags.modules.push(value_for("--module", &mut iter)?),
+            "--workspace" => flags.workspaces.push(value_for("--workspace", &mut iter)?),
             "-v" | "--verbose" => flags.verbose = flags.verbose.saturating_add(1),
             "-q" | "--quiet" => flags.quiet = flags.quiet.saturating_add(1),
             "--config" => flags.config = Some(PathBuf::from(value_for("--config", &mut iter)?)),
             "--output" => flags.output = Some(parse_output(&value_for("--output", &mut iter)?)?),
-            other => return Err(reject_flag(other, &task)),
+            // First non-Toven token ends the prefix: it and the rest are the
+            // task's own argv, spliced verbatim and never rewritten.
+            _ => {
+                passthrough.push(token.clone());
+                passthrough.extend(iter.cloned());
+                break;
+            }
         }
     }
 
@@ -151,33 +173,6 @@ fn parse_output(value: &str) -> AppResult<OutputKind> {
             format!("unknown output format `{other}` (expected `human` or `jsonl`)"),
         )),
     }
-}
-
-/// Build the typed error for a flag that is not a valid task execution flag.
-fn reject_flag(flag: &str, task: &str) -> AppError {
-    let owner = match flag {
-        "--allow-dirty" | "--no-push" => Some("toven release"),
-        "--force" | "--root" => Some("toven generate"),
-        "--format" => Some("toven graph"),
-        "--auto-install" => Some("toven driver / toven federation"),
-        _ => None,
-    };
-    owner.map_or_else(
-        || {
-            AppError::invalid_input(
-                "flags",
-                format!(
-                    "unrecognized flag `{flag}` for task `{task}` (use `--` to pass args through to the task)"
-                ),
-            )
-        },
-        |owner| {
-            AppError::invalid_input(
-                "flags",
-                format!("`{flag}` only applies to `{owner}`, not task `{task}`"),
-            )
-        },
-    )
 }
 
 #[cfg(test)]
@@ -231,14 +226,53 @@ mod tests {
     }
 
     #[test]
-    fn verb_specific_flag_on_a_task_is_rejected_with_owner() {
-        let error = parse_task(&tokens(&["test", "--allow-dirty"])).expect_err("rejected");
-        assert!(error.to_string().contains("toven release"));
+    fn a_previously_verb_specific_flag_now_passes_through_to_the_task() {
+        // Friction-free passthrough: the first non-Toven token ends the prefix,
+        // so a flag Toven does not own becomes the task's own argument.
+        let invocation = parse_task(&tokens(&["test", "--allow-dirty"])).expect("parses");
+        assert_eq!(invocation.task, "test");
+        assert_eq!(invocation.passthrough, vec!["--allow-dirty"]);
     }
 
     #[test]
-    fn unknown_flag_on_a_task_is_rejected() {
-        assert!(parse_task(&tokens(&["test", "--bogus"])).is_err());
+    fn an_unknown_flag_becomes_task_passthrough_with_the_rest() {
+        let invocation =
+            parse_task(&tokens(&["test", "--bogus", "value", "--more"])).expect("parses");
+        assert_eq!(invocation.task, "test");
+        assert_eq!(invocation.passthrough, vec!["--bogus", "value", "--more"]);
+    }
+
+    #[test]
+    fn toven_flags_before_the_first_task_argument_are_consumed() {
+        let invocation = parse_task(&tokens(&["test", "--dry-run", "--nocapture", "--dry-run"]))
+            .expect("parses");
+        assert!(invocation.flags.dry_run);
+        // The Toven-looking `--dry-run` after the first task arg is not re-parsed.
+        assert_eq!(invocation.passthrough, vec!["--nocapture", "--dry-run"]);
+    }
+
+    #[test]
+    fn a_leading_positional_ends_the_prefix() {
+        let invocation =
+            parse_task(&tokens(&["test", "integration", "--dry-run"])).expect("parses");
+        assert!(!invocation.flags.dry_run);
+        assert_eq!(invocation.passthrough, vec!["integration", "--dry-run"]);
+    }
+
+    #[test]
+    fn parses_explicit_selection_flags_on_a_bare_task() {
+        let invocation = parse_task(&tokens(&[
+            "test",
+            "--module",
+            "rust:core",
+            "--workspace",
+            "rust",
+            "--with-dependents",
+        ]))
+        .expect("parses");
+        assert_eq!(invocation.flags.modules, vec!["rust:core"]);
+        assert_eq!(invocation.flags.workspaces, vec!["rust"]);
+        assert!(invocation.flags.with_dependents);
     }
 
     #[test]
@@ -248,6 +282,13 @@ mod tests {
         assert_eq!(invocation.task, "test");
         assert_eq!(invocation.flags.base.as_deref(), Some("origin/main"));
         assert!(invocation.flags.merge_base);
+    }
+
+    #[test]
+    fn parses_no_cache_on_a_bare_task() {
+        let invocation = parse_task(&tokens(&["test", "--no-cache"])).expect("parses");
+        assert_eq!(invocation.task, "test");
+        assert!(invocation.flags.no_cache);
     }
 
     #[test]

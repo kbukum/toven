@@ -108,19 +108,17 @@ fn chunk(unit_id: &str, stream: OutputStream, bytes: &[u8]) -> UnitOutput {
 }
 
 #[test]
-fn default_apply_environment_is_explicit_path_allowlist_only() {
+fn default_apply_environment_inherits_the_parent() {
     let options = ApplyOptions::default();
 
     assert_eq!(
         options.environment.policy,
-        toven_ports::InvocationEnvPolicy::ExplicitOnly
+        toven_ports::InvocationEnvPolicy::InheritParent,
+        "task commands must inherit the parent env so toolchains see HOME/CARGO_HOME/etc.",
     );
     assert!(
-        options
-            .environment
-            .vars
-            .keys()
-            .all(|key| key.as_str() == "PATH")
+        options.environment.vars.is_empty(),
+        "the default adds no explicit overrides on top of the inherited environment",
     );
 }
 
@@ -506,6 +504,144 @@ fn raw_output_routes_normal_as_block_and_persistent_as_live() {
     assert!(live.contains(&chunk("readiness", OutputStream::Stderr, b"not-ready\n")));
 }
 
+/// Drive `apply` over `plan` with an explicit `max_parallel`, recording raw
+/// output into `sink`.
+fn run_with_parallelism(
+    plan: &Plan,
+    runner: Arc<FakeCommandRunner>,
+    sink: RecordingRawOutputSink,
+    max_parallel: usize,
+) {
+    let runner_port: Arc<dyn CommandRunner> = runner;
+    let cache = RecordingCacheWriter::new();
+    let mut reporter = RecordingReporter::new();
+    let mut output = UnitOutputChannel::new(sink);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .expect("runtime");
+    runtime
+        .block_on(apply(
+            plan,
+            runner_port,
+            &cache,
+            &mut reporter,
+            &mut output,
+            ApplyOptions {
+                max_parallel,
+                fail_fast: false,
+                ..ApplyOptions::default()
+            },
+            tokio_util::sync::CancellationToken::new(),
+        ))
+        .expect("apply succeeds");
+}
+
+#[test]
+fn single_unit_plan_streams_normal_output_live() {
+    // A single-unit plan can never interleave, so a normal unit streams live
+    // (each chunk surfaced as it arrives) rather than buffering a block.
+    let plan = Plan::new(vec![unit("only")], vec![vec!["only".into()]]);
+    let runner = Arc::new(FakeCommandRunner::new().with_output(
+        "only",
+        vec![chunk("only", OutputStream::Stdout, b"building...\n")],
+    ));
+    let sink = RecordingRawOutputSink::new();
+
+    run_with_parallelism(&plan, runner, sink.clone(), 4);
+
+    assert_eq!(
+        sink.live_chunks(),
+        vec![chunk("only", OutputStream::Stdout, b"building...\n")],
+        "the lone normal unit must stream live",
+    );
+    assert!(
+        sink.blocks().is_empty(),
+        "a live-streamed unit emits no buffered block, got {:?}",
+        sink.blocks(),
+    );
+}
+
+#[test]
+fn serial_execution_streams_normal_output_live() {
+    // With `max_parallel == 1` units run strictly one at a time, so even a
+    // multi-unit plan streams each normal unit's output live.
+    let plan = Plan::new(
+        vec![unit("first"), unit("second")],
+        vec![vec!["first".into(), "second".into()]],
+    );
+    let runner = Arc::new(
+        FakeCommandRunner::new()
+            .with_output(
+                "first",
+                vec![chunk("first", OutputStream::Stdout, b"one\n")],
+            )
+            .with_output(
+                "second",
+                vec![chunk("second", OutputStream::Stdout, b"two\n")],
+            ),
+    );
+    let sink = RecordingRawOutputSink::new();
+
+    run_with_parallelism(&plan, runner, sink.clone(), 1);
+
+    let live = sink.live_chunks();
+    assert!(live.contains(&chunk("first", OutputStream::Stdout, b"one\n")));
+    assert!(live.contains(&chunk("second", OutputStream::Stdout, b"two\n")));
+    assert!(
+        sink.blocks().is_empty(),
+        "serial normal units stream live, emitting no buffered blocks, got {:?}",
+        sink.blocks(),
+    );
+}
+
+#[test]
+fn serial_run_with_a_persistent_unit_keeps_normal_output_buffered() {
+    // A held persistent unit keeps emitting live output across the later waves
+    // that run normal units, even at max_parallel == 1. Streaming the normal
+    // unit live would interleave with the persistent stream, so normal output
+    // must stay buffered into a deterministic per-unit block.
+    let normal = unit("normal");
+    let mut service = unit("service");
+    service.persistent = true;
+    service.cache = CacheVerdict::Disabled;
+    service.cache_key = None;
+    let plan = Plan::new(
+        vec![normal, service],
+        vec![vec!["normal".into(), "service".into()]],
+    );
+    let runner = Arc::new(
+        FakeCommandRunner::new()
+            .with_output(
+                "normal",
+                vec![chunk("normal", OutputStream::Stdout, b"normal\n")],
+            )
+            .with_output(
+                "service",
+                vec![chunk("service", OutputStream::Stdout, b"service-live\n")],
+            ),
+    );
+    let sink = RecordingRawOutputSink::new();
+
+    run_with_parallelism(&plan, runner, sink.clone(), 1);
+
+    assert!(
+        sink.blocks().contains(&(
+            "normal".to_string(),
+            vec![chunk("normal", OutputStream::Stdout, b"normal\n")]
+        )),
+        "normal output must be a buffered block when a persistent unit is present; blocks {:?}, live {:?}",
+        sink.blocks(),
+        sink.live_chunks(),
+    );
+    assert!(
+        sink.live_chunks()
+            .contains(&chunk("service", OutputStream::Stdout, b"service-live\n")),
+        "the persistent unit still streams live",
+    );
+}
+
 #[test]
 fn cache_writes_only_successful_cacheable_units() {
     let success = unit("success");
@@ -756,7 +892,7 @@ fn process_command_runner_smoke_covers_argv_cwd_capture_nonzero_and_readiness() 
     )
     .with_environment(environment.clone());
     let ok_result = runtime
-        .block_on(runner.run(&ok, tokio_util::sync::CancellationToken::new()))
+        .block_on(runner.run(&ok, tokio_util::sync::CancellationToken::new(), None))
         .expect("ok run");
     assert!(ok_result.success);
     let expected_cwd = workspace
@@ -779,7 +915,7 @@ fn process_command_runner_smoke_covers_argv_cwd_capture_nonzero_and_readiness() 
     )
     .with_environment(environment.clone());
     let bad_result = runtime
-        .block_on(runner.run(&nonzero, tokio_util::sync::CancellationToken::new()))
+        .block_on(runner.run(&nonzero, tokio_util::sync::CancellationToken::new(), None))
         .expect("bad run maps to outcome");
     assert!(!bad_result.success);
     assert_eq!(bad_result.exit_code, Some(7));

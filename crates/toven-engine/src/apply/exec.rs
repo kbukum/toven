@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use rskit_errors::{AppError, AppResult};
 use rskit_process::{
-    CapturedIo, EnvPolicy, ProcessConfig, ProcessIo, ProcessSpec, SignalPolicy, run_with_cancel,
+    CapturedIo, EnvPolicy, ObservedIo, OutputObserver as ProcessOutputObserver, OutputPolicy,
+    ProcessConfig, ProcessIo, ProcessSpec, SignalPolicy, run_with_cancel,
 };
 use tokio_util::sync::CancellationToken;
 use toven_model::{OutputStream, UnitOutput};
@@ -49,16 +50,16 @@ impl ProcessCommandRunner {
         self.persistent_shutdown_grace = grace;
         self
     }
-}
 
-#[async_trait]
-impl CommandRunner for ProcessCommandRunner {
-    async fn run(
+    /// Capture stdout/stderr, returning the full output once the process exits.
+    /// Used when output must be buffered into a deterministic per-unit block
+    /// (the default under parallelism).
+    async fn run_captured(
         &self,
         invocation: &Invocation,
+        spec: ProcessSpec,
         cancel: CancellationToken,
     ) -> AppResult<RunOutcome> {
-        let spec = spec(invocation, &self.project_root)?;
         let result = run_with_cancel(&spec, &self.process_config, cancel).await?;
         if result.stdout_truncated || result.stderr_truncated {
             return Err(AppError::new(
@@ -78,6 +79,43 @@ impl CommandRunner for ProcessCommandRunner {
             Ok(RunOutcome::succeeded(output))
         } else {
             Ok(RunOutcome::failed(result.exit_code, output))
+        }
+    }
+
+    /// Stream stdout/stderr through `observer` as the process runs (no capture),
+    /// returning an empty [`RunOutcome::output`] because the bytes were already
+    /// surfaced live. Used when no two units can run concurrently.
+    async fn run_streaming(
+        &self,
+        invocation: &Invocation,
+        spec: ProcessSpec,
+        cancel: CancellationToken,
+        observer: OutputObserver,
+    ) -> AppResult<RunOutcome> {
+        let io = ObservedIo::new(streaming_observer(invocation.unit_id.clone(), observer))
+            .with_output(OutputPolicy::observe_only());
+        let config = self.process_config.clone().with_io(ProcessIo::observed(io));
+        let result = run_with_cancel(&spec, &config, cancel).await?;
+        if result.success() {
+            Ok(RunOutcome::succeeded(Vec::new()))
+        } else {
+            Ok(RunOutcome::failed(result.exit_code, Vec::new()))
+        }
+    }
+}
+
+#[async_trait]
+impl CommandRunner for ProcessCommandRunner {
+    async fn run(
+        &self,
+        invocation: &Invocation,
+        cancel: CancellationToken,
+        live: Option<OutputObserver>,
+    ) -> AppResult<RunOutcome> {
+        let spec = spec(invocation, &self.project_root)?;
+        match live {
+            Some(observer) => self.run_streaming(invocation, spec, cancel, observer).await,
+            None => self.run_captured(invocation, spec, cancel).await,
         }
     }
 
@@ -131,4 +169,29 @@ fn output(unit_id: &str, stdout: &[u8], stderr: &[u8]) -> Vec<UnitOutput> {
         });
     }
     output
+}
+
+/// Build an `rskit-process` observer that forwards each raw stdout/stderr chunk
+/// to `observer` as a [`UnitOutput`] tagged with `unit_id`, so the live bridge
+/// streams it while the process is still running.
+fn streaming_observer(unit_id: String, observer: OutputObserver) -> ProcessOutputObserver {
+    let stdout_id = unit_id.clone();
+    let stdout_sink = observer.clone();
+    let stderr_id = unit_id;
+    let stderr_sink = observer;
+    ProcessOutputObserver::new()
+        .with_stdout_bytes(move |bytes| {
+            stdout_sink.emit(UnitOutput {
+                unit_id: stdout_id.clone(),
+                stream: OutputStream::Stdout,
+                bytes: bytes.to_vec(),
+            });
+        })
+        .with_stderr_bytes(move |bytes| {
+            stderr_sink.emit(UnitOutput {
+                unit_id: stderr_id.clone(),
+                stream: OutputStream::Stderr,
+                bytes: bytes.to_vec(),
+            });
+        })
 }

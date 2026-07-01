@@ -31,6 +31,9 @@ pub(super) struct Walker<'a, S: RawOutputSink> {
     held: HeldSet,
     stats: RunStats,
     dropped_output: Arc<AtomicUsize>,
+    /// Stream normal-unit output live instead of buffering a per-unit block.
+    /// Set when no two units can run concurrently (see [`super::entry::apply`]).
+    stream_normal_live: bool,
     /// Cooperative external cancellation (Ctrl+C); fires the fail-fast teardown.
     external_cancel: CancellationToken,
 }
@@ -45,6 +48,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         dropped_output: Arc<AtomicUsize>,
         external_cancel: CancellationToken,
     ) -> Self {
+        let stream_normal_live = super::options::stream_normal_live(&options, plan);
         let mut stats = RunStats::new(plan.units.len());
         for unit in &plan.units {
             match unit.cache {
@@ -65,6 +69,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             held: HeldSet::new(plan),
             stats,
             dropped_output,
+            stream_normal_live,
             external_cancel,
         }
     }
@@ -76,14 +81,17 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
     ) -> AppResult<RunStats> {
         let start = Instant::now();
         for unit in &self.plan.units {
-            self.output.register(
-                unit.id.clone(),
-                if unit.persistent {
-                    OutputMode::Live
-                } else {
-                    OutputMode::Buffered
-                },
-            );
+            // Persistent units always stream live. Normal units stream live
+            // only when nothing else can emit concurrently — serial or
+            // single-unit execution, and no held persistent unit in the plan;
+            // otherwise their output is buffered into a deterministic per-unit
+            // block.
+            let mode = if unit.persistent || self.stream_normal_live {
+                OutputMode::Live
+            } else {
+                OutputMode::Buffered
+            };
+            self.output.register(unit.id.clone(), mode);
         }
 
         // Run the wave schedule, then tear down held processes and shut the pool
@@ -341,7 +349,17 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
     ) -> AppResult<bool> {
         match result {
             WorkOutcome::Normal { success, output } => {
-                self.route_output(unit_id, output)?;
+                if self.stream_normal_live {
+                    // Output streamed live through the observer bridge; the
+                    // returned `output` is empty. Drain any chunks still queued
+                    // (the runner returns only after its reader threads joined,
+                    // so none can arrive later) before finishing, so finishing —
+                    // which clears the unit's Live mode — cannot strand a chunk.
+                    self.drain_live_output(live_output)?;
+                    self.output.finish(unit_id)?;
+                } else {
+                    self.route_output(unit_id, output)?;
+                }
                 if success {
                     self.succeeded(unit_id, live_output).await?;
                     Ok(false)

@@ -2,10 +2,6 @@
 
 use toven_ports::InvocationEnvironment;
 
-/// The `PATH` environment variable, forwarded into the default explicit
-/// invocation environment so resolved programs remain discoverable.
-pub(super) const PATH_ENV: &str = "PATH";
-
 /// Default bound on the live raw-output bridge (see
 /// [`ApplyOptions::live_output_capacity`]). Generous enough to absorb ordinary
 /// bursts without backpressuring well-behaved processes, small enough to keep
@@ -20,6 +16,12 @@ pub struct ApplyOptions {
     /// Cancel in-flight work and stop scheduling after the first failure.
     pub fail_fast: bool,
     /// Environment policy used for every task command.
+    ///
+    /// Defaults to inheriting the parent process environment so spawned
+    /// toolchains (cargo, go, git, …) see the variables they rely on — `HOME`,
+    /// `CARGO_HOME`, `RUSTUP_HOME`, `GOPATH`, `SSH_AUTH_SOCK`, locale, proxies,
+    /// and so on. Embedders wanting a hermetic run can override this with an
+    /// explicit [`InvocationEnvironment`].
     pub environment: InvocationEnvironment,
     /// Bound on the live raw-output bridge between persistent process reader
     /// threads and the APPLY consumer.
@@ -37,15 +39,29 @@ pub struct ApplyOptions {
 
 impl Default for ApplyOptions {
     fn default() -> Self {
-        let mut vars = std::collections::BTreeMap::new();
-        if let Some(path) = rskit_util::env::get(PATH_ENV) {
-            vars.insert(PATH_ENV.to_string(), path);
-        }
         Self {
             max_parallel: std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
             fail_fast: false,
-            environment: InvocationEnvironment::explicit(vars),
+            environment: InvocationEnvironment::inherit_parent(std::collections::BTreeMap::new()),
             live_output_capacity: DEFAULT_LIVE_OUTPUT_CAPACITY,
         }
     }
+}
+
+/// Whether normal-unit output should stream live for this run.
+///
+/// Live streaming a normal unit's output is safe only when nothing else can be
+/// emitting concurrently. Two things can:
+/// - another unit running in parallel — excluded by requiring serial execution
+///   (`max_parallel <= 1`) or a single-unit plan;
+/// - a held persistent unit, which keeps running (and emitting live) across the
+///   later waves that run normal units, even under serial execution — excluded
+///   by requiring the plan to contain no persistent unit.
+///
+/// When either could interleave, normal output is buffered into a deterministic
+/// per-unit block instead.
+pub(super) fn stream_normal_live(options: &ApplyOptions, plan: &toven_model::Plan) -> bool {
+    let serial_or_single = options.max_parallel <= 1 || plan.units.len() <= 1;
+    let has_persistent = plan.units.iter().any(|unit| unit.persistent);
+    serial_or_single && !has_persistent
 }

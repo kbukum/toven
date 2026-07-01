@@ -19,6 +19,14 @@ use super::{Invocation, OutputObserver, RunOutcome, StartOutcome};
 pub trait CommandRunner: Send + Sync {
     /// Run a normal invocation to completion.
     ///
+    /// When `live` is `Some`, the runner streams stdout/stderr chunks through the
+    /// observer as they arrive and returns an empty [`RunOutcome::output`] — the
+    /// caller has already surfaced the bytes. When `live` is `None`, the runner
+    /// captures output and returns it in the [`RunOutcome`] for the caller to
+    /// buffer (the deterministic per-unit grouping used under parallelism). The
+    /// engine streams live only when no two units can run concurrently, so live
+    /// chunks never interleave.
+    ///
     /// # Errors
     /// Propagates a spawn/IO failure. A non-zero exit is *not* an error: it is a
     /// [`RunOutcome`] with `success = false` so the wave walk can gate on it.
@@ -26,6 +34,7 @@ pub trait CommandRunner: Send + Sync {
         &self,
         invocation: &Invocation,
         cancel: CancellationToken,
+        live: Option<OutputObserver>,
     ) -> AppResult<RunOutcome>;
 
     /// Start a persistent invocation and wait for its readiness policy.

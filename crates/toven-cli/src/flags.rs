@@ -105,6 +105,10 @@ pub struct Cli {
     /// Stop scheduling after the first failure (task-APPLY verbs only).
     #[arg(long, global = true)]
     pub fail_fast: bool,
+    /// Execution verbs only: bypass the task cache (every unit re-runs; records
+    /// are neither read nor written).
+    #[arg(long, global = true)]
+    pub no_cache: bool,
     /// Changed-selection verbs only: override the diff baseline reference
     /// (per-member under a federation; falls back to `[[members]].base_ref` /
     /// `[project].base_ref`).
@@ -113,6 +117,18 @@ pub struct Cli {
     /// Changed-selection verbs only: diff against `merge-base(reference, HEAD)`.
     #[arg(long, global = true)]
     pub merge_base: bool,
+    /// Execution/affected verbs only: activate a module explicitly by
+    /// `ecosystem:name`, bypassing changed-selection (repeatable).
+    #[arg(long = "module", global = true, value_name = "ECOSYSTEM:NAME")]
+    pub module: Vec<String>,
+    /// Execution/affected verbs only: activate every module owned by a
+    /// workspace, bypassing changed-selection (repeatable).
+    #[arg(long = "workspace", global = true, value_name = "ID")]
+    pub workspace: Vec<String>,
+    /// Execution/affected verbs only: with `--module`/`--workspace`, also
+    /// activate the reverse-dependents closure of the selected modules.
+    #[arg(long, global = true)]
+    pub with_dependents: bool,
     /// Increase reporter verbosity (repeatable; execution verbs only).
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
@@ -347,9 +363,33 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
             ),
         ));
     }
-    // `--base`/`--merge-base` only shape changed selection, which the execution
-    // verbs and `affected` perform; other verbs would silently ignore them.
-    if (cli.base.is_some() || cli.merge_base) && !accepts_baseline(&cli.command) {
+    // `--no-cache` shapes the PLAN cache verdict, so it is meaningful only on the
+    // execution verbs that build a cache-aware `PlanRequest` (`run`/`plan`/a bare
+    // task). `release` runs its own pipeline without the task cache, so the flag
+    // is a no-op there and is rejected.
+    if cli.no_cache && !accepts_cache_mode(&cli.command) {
+        return Err(AppError::invalid_input(
+            "flags",
+            format!(
+                "`--no-cache` only applies to task verbs (`toven run`/`toven plan`/`toven <task>`); it has no effect on `toven {verb}`"
+            ),
+        ));
+    }
+    // `--base`/`--merge-base` only shape changed selection, and
+    // `--module`/`--workspace`/`--with-dependents` shape explicit selection —
+    // both belong to the same selection verbs; other verbs would ignore them.
+    gate_selection_flags(cli, verb)?;
+    Ok(())
+}
+
+/// Reject the selection flags (`--base`/`--merge-base`,
+/// `--module`/`--workspace`/`--with-dependents`) on a verb that performs no
+/// selection.
+fn gate_selection_flags(cli: &Cli, verb: &str) -> AppResult<()> {
+    if accepts_baseline(&cli.command) {
+        return Ok(());
+    }
+    if cli.base.is_some() || cli.merge_base {
         let flag = if cli.base.is_some() {
             "--base"
         } else {
@@ -359,6 +399,21 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
             "flags",
             format!(
                 "`{flag}` only applies to changed-selection verbs (`toven run`/`toven plan`/`toven affected`/`toven <task>`); it has no effect on `toven {verb}`"
+            ),
+        ));
+    }
+    if !cli.module.is_empty() || !cli.workspace.is_empty() || cli.with_dependents {
+        let flag = if !cli.module.is_empty() {
+            "--module"
+        } else if !cli.workspace.is_empty() {
+            "--workspace"
+        } else {
+            "--with-dependents"
+        };
+        return Err(AppError::invalid_input(
+            "flags",
+            format!(
+                "`{flag}` only applies to selection verbs (`toven run`/`toven plan`/`toven affected`/`toven <task>`); it has no effect on `toven {verb}`"
             ),
         ));
     }
@@ -381,6 +436,18 @@ const fn accepts_execution_flags(command: &Command) -> bool {
 /// no-op for them.
 const fn accepts_fail_fast(command: &Command) -> bool {
     matches!(command, Command::Run { .. } | Command::External(_))
+}
+
+/// Whether `command` builds a cache-aware `PlanRequest` and thus consumes
+/// `--no-cache`.
+///
+/// `run`/`plan`/a bare task all run the cache-aware PLAN spine; `release` runs a
+/// separate pipeline without the task cache, so the flag is a no-op there.
+const fn accepts_cache_mode(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Run { .. } | Command::Plan { .. } | Command::External(_)
+    )
 }
 
 /// Whether `command` performs changed selection and thus consumes the baseline
@@ -509,6 +576,23 @@ mod tests {
     fn graph_format_only_on_graph() {
         assert!(super::gate(&parse(&["--format", "dot", "graph"]).unwrap()).is_ok());
         assert!(super::gate(&parse(&["--format", "dot", "plan", "t"]).unwrap()).is_err());
+    }
+
+    #[test]
+    fn no_cache_only_on_task_verbs() {
+        for args in [
+            ["--no-cache", "run", "test"].as_slice(),
+            ["--no-cache", "plan", "test"].as_slice(),
+        ] {
+            assert!(super::gate(&parse(args).unwrap()).is_ok(), "{args:?}");
+        }
+        for args in [
+            ["--no-cache", "release"].as_slice(),
+            ["--no-cache", "affected", "test"].as_slice(),
+            ["--no-cache", "modules"].as_slice(),
+        ] {
+            assert!(super::gate(&parse(args).unwrap()).is_err(), "{args:?}");
+        }
     }
 
     #[test]

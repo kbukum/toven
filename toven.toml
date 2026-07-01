@@ -1,0 +1,10 @@
+[project]
+name = "toven"
+root = "."
+base_ref = "origin/main"
+
+# Smart defaults fill in tasks, run strategy, and toolchain probes.
+# Uncomment to override, e.g.:
+#   run_strategy = "leaf-to-top"
+[ecosystems.rust]
+manifests = ["Cargo.toml"]

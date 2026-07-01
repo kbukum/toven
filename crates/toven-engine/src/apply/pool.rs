@@ -54,6 +54,11 @@ struct WorkHandler {
     runner: Arc<dyn CommandRunner>,
     environment: InvocationEnvironment,
     output: OutputObserver,
+    /// Stream normal-unit output live (through `output`) instead of capturing it
+    /// for a buffered block. Only set when nothing else can emit concurrently
+    /// (serial or single-unit execution and no held persistent unit), so
+    /// streamed chunks never interleave.
+    stream_normal_live: bool,
 }
 
 #[async_trait]
@@ -80,7 +85,8 @@ impl Handler<WorkItem, WorkOutcome> for WorkHandler {
                 }
             }
         } else {
-            let outcome = self.runner.run(&invocation, cancel).await?;
+            let live = self.stream_normal_live.then(|| self.output.clone());
+            let outcome = self.runner.run(&invocation, cancel, live).await?;
             Ok(WorkOutcome::Normal {
                 success: outcome.success,
                 output: outcome.output,
@@ -102,11 +108,13 @@ impl ApplyPool {
         max_parallel: usize,
         environment: InvocationEnvironment,
         output: OutputObserver,
+        stream_normal_live: bool,
     ) -> Self {
         let handler = Arc::new(WorkHandler {
             runner,
             environment,
             output,
+            stream_normal_live,
         });
         let config = PoolConfig::new("toven-apply").with_size(max_parallel.max(1));
         Self {
