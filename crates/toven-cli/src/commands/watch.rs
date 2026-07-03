@@ -46,8 +46,14 @@ pub(crate) fn run_watch(
     debounce_ms: u64,
     sink: &mut dyn Reporter,
 ) -> AppResult<ExitCode> {
-    let runner: Arc<dyn CommandRunner> =
-        Arc::new(ProcessCommandRunner::new(project.project_root.as_path()));
+    // Mirror the invoking terminal on stderr (where live output lands) so
+    // watched task runs render exactly as an interactive invocation would;
+    // fall back to pipes when stderr is not a tty. PTY streaming is Unix-only;
+    // elsewhere this is a no-op.
+    let runner: Arc<dyn CommandRunner> = Arc::new(
+        ProcessCommandRunner::new(project.project_root.as_path())
+            .with_pty_matching_terminal(&std::io::stderr()),
+    );
     let mut apply_options = ApplyOptions {
         fail_fast,
         unit_timeout,

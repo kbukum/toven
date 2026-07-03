@@ -229,6 +229,12 @@ pub enum Command {
     /// Explain the PLAN cut filtered to one module and task.
     Explain {
         /// Module ref (`ecosystem:module`).
+        ///
+        /// A distinct clap `id` keeps this positional from colliding with the
+        /// global `--module` selection flag (which shares the `module` field
+        /// name); without it the positional value would be absorbed into the
+        /// global `Vec<String>` and trip the selection-flag gate.
+        #[arg(id = "explain-module")]
         module: String,
         /// Task to explain.
         task: String,

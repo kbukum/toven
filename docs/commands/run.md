@@ -94,6 +94,8 @@ toven check --output jsonl
 
 `-v` adds per-phase, cache, and unit-lifecycle lines to human output; `-q` shows only the run summary. The JSONL stream always carries every event.
 
+When human output goes to a real terminal, serially-run commands (serial or single-unit runs, no held persistent unit) execute attached to a pseudoterminal sized to that terminal, so their output renders exactly as it would interactively — colors, progress bars, and other tty-gated styling are preserved verbatim. When output is redirected, captured, or units run in parallel, Toven falls back to deterministic pipe capture (no tty), so tools that gate styling on a terminal emit plain text. Pseudoterminal streaming is currently Unix-only; on other platforms Toven always uses pipe capture.
+
 ## Options
 
 | Option | Purpose |

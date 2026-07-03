@@ -8,6 +8,8 @@ use rskit_process::{
     CapturedIo, EnvPolicy, ObservedIo, OutputObserver as ProcessOutputObserver, OutputPolicy,
     ProcessConfig, ProcessIo, ProcessSpec, SignalPolicy, run_with_cancel,
 };
+#[cfg(unix)]
+use rskit_process::{PtyIo, PtySize};
 use tokio_util::sync::CancellationToken;
 use toven_model::{OutputStream, UnitOutput};
 use toven_ports::{
@@ -21,6 +23,8 @@ pub struct ProcessCommandRunner {
     project_root: PathBuf,
     process_config: ProcessConfig,
     persistent_shutdown_grace: std::time::Duration,
+    #[cfg(unix)]
+    pty_size: Option<PtySize>,
 }
 
 impl ProcessCommandRunner {
@@ -34,7 +38,48 @@ impl ProcessCommandRunner {
             project_root: project_root.into(),
             process_config,
             persistent_shutdown_grace: std::time::Duration::from_secs(5),
+            #[cfg(unix)]
+            pty_size: None,
         }
+    }
+
+    /// Enable PTY streaming sized to `terminal` when it is a real terminal.
+    ///
+    /// Live-streamed units then render exactly as they would interactively
+    /// (colors, progress bars, tty-gated styling). When `terminal` is not a tty
+    /// (output redirected or captured), this is a no-op and the runner keeps
+    /// deterministic pipe capture. On non-Unix targets PTY support is not yet
+    /// available, so this is always a no-op regardless of `terminal`.
+    #[cfg(unix)]
+    #[must_use]
+    pub fn with_pty_matching_terminal(self, terminal: &impl std::os::unix::io::AsRawFd) -> Self {
+        match rskit_process::terminal_size(terminal) {
+            Some(size) => self.with_pty(size),
+            None => self,
+        }
+    }
+
+    /// Non-Unix stub: PTY streaming is Unix-only, so this leaves the runner in
+    /// its pipe-backed mode. See the Unix variant for the full contract.
+    #[cfg(not(unix))]
+    #[must_use]
+    pub fn with_pty_matching_terminal<T>(self, _terminal: &T) -> Self {
+        self
+    }
+
+    /// Render live-streamed commands on a pseudoterminal of the given size.
+    ///
+    /// When set, a unit whose output streams live (serial or single-unit runs)
+    /// executes attached to a real terminal, so it renders exactly as it would
+    /// interactively — colors, progress bars, and other tty-gated output are
+    /// preserved. Buffered (parallel) units keep deterministic pipe capture.
+    /// Leaving this unset keeps the pipe-backed behavior for every unit, which
+    /// is the correct choice when output is redirected or captured (no tty).
+    #[cfg(unix)]
+    #[must_use]
+    pub const fn with_pty(mut self, size: PtySize) -> Self {
+        self.pty_size = Some(size);
+        self
     }
 
     /// Override the process policy used for normal and persistent commands.
@@ -102,6 +147,49 @@ impl ProcessCommandRunner {
             Ok(RunOutcome::failed(result.exit_code, Vec::new()))
         }
     }
+
+    /// Stream stdout/stderr through a pseudoterminal so the child renders as it
+    /// would in a real terminal, forwarding the merged stream through
+    /// `observer`. Like [`Self::run_streaming`], output is surfaced live and the
+    /// returned outcome carries no buffered bytes.
+    #[cfg(unix)]
+    async fn run_streaming_pty(
+        &self,
+        invocation: &Invocation,
+        spec: ProcessSpec,
+        cancel: CancellationToken,
+        observer: OutputObserver,
+        size: PtySize,
+    ) -> AppResult<RunOutcome> {
+        let io = PtyIo::new(streaming_observer(invocation.unit_id.clone(), observer))
+            .with_size(size)
+            .with_output(OutputPolicy::observe_only());
+        let config = self.process_config.clone().with_io(ProcessIo::pty(io));
+        let result = run_with_cancel(&spec, &config, cancel).await?;
+        if result.success() {
+            Ok(RunOutcome::succeeded(Vec::new()))
+        } else {
+            Ok(RunOutcome::failed(result.exit_code, Vec::new()))
+        }
+    }
+
+    /// Dispatch a live-streamed unit to the PTY renderer when one is configured
+    /// (Unix), otherwise to the pipe-backed streamer.
+    async fn run_live(
+        &self,
+        invocation: &Invocation,
+        spec: ProcessSpec,
+        cancel: CancellationToken,
+        observer: OutputObserver,
+    ) -> AppResult<RunOutcome> {
+        #[cfg(unix)]
+        if let Some(size) = self.pty_size {
+            return self
+                .run_streaming_pty(invocation, spec, cancel, observer, size)
+                .await;
+        }
+        self.run_streaming(invocation, spec, cancel, observer).await
+    }
 }
 
 #[async_trait]
@@ -114,7 +202,7 @@ impl CommandRunner for ProcessCommandRunner {
     ) -> AppResult<RunOutcome> {
         let spec = spec(invocation, &self.project_root)?;
         match live {
-            Some(observer) => self.run_streaming(invocation, spec, cancel, observer).await,
+            Some(observer) => self.run_live(invocation, spec, cancel, observer).await,
             None => self.run_captured(invocation, spec, cancel).await,
         }
     }
