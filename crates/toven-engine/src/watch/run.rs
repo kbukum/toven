@@ -198,12 +198,19 @@ impl<S: RawOutputSink> WatchSession<'_, S> {
 
     /// Whether the root repo ignores `relative` (workspace-root-relative).
     ///
-    /// Uses the root member's reader; with no reader (a non-git host) nothing is
-    /// treated as ignored so every change still drives a rerun.
+    /// Only the degenerate/root member's reader (the entry with no
+    /// [`member`](MemberVcsReader::member) id, sitting at the workspace root) is
+    /// consulted: its ignore rules are the ones that apply to root-relative
+    /// paths. In umbrella/federated setups the per-member readers are scoped to
+    /// their own repo roots, so consulting an arbitrary member would risk false
+    /// positives/negatives across repos. With no root reader (a non-git host, or
+    /// a pure umbrella) nothing is treated as ignored, so every change still
+    /// drives a rerun.
     fn is_ignored(&self, relative: &Path) -> AppResult<bool> {
         self.readers
             .entries()
-            .first()
+            .iter()
+            .find(|entry| entry.member().is_none())
             .map_or_else(|| Ok(false), |entry| entry.reader().is_ignored(relative))
     }
 }
