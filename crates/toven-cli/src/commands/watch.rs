@@ -42,6 +42,7 @@ pub(crate) fn run_watch(
     prober: &dyn ToolchainProber,
     cache: &FsContentCache,
     fail_fast: bool,
+    unit_timeout: Option<Duration>,
     debounce_ms: u64,
     sink: &mut dyn Reporter,
 ) -> AppResult<ExitCode> {
@@ -49,6 +50,7 @@ pub(crate) fn run_watch(
         Arc::new(ProcessCommandRunner::new(project.project_root.as_path()));
     let mut apply_options = ApplyOptions {
         fail_fast,
+        unit_timeout,
         ..ApplyOptions::default()
     };
     if let Some(max_parallel) = project.max_parallel() {

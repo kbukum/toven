@@ -63,6 +63,8 @@ Rust generation emits ecosystem-level Cargo manifest discovery. Cargo metadata i
 | `toven generate` | Generate a reviewable starter `toven.toml` without overwriting existing config by default. |
 | `toven <task>` | Run a configured or adapter-default task. |
 | `toven <task> --watch` | Keep running: rerun the affected subgraph on every source change (Ctrl+C exits). |
+| `toven <task> --refresh` | Ignore cached results and re-run every unit, but still write the fresh records back (opposite of `--no-cache`, which never touches the cache). |
+| `toven <task> --timeout <duration>` | Bound each unit's runtime (e.g. `30s`, `5m`); an overrun is cancelled and reported as a timeout failure. |
 | `toven plan <task>` | Show what would run as a plan summary (unit/wave counts, and per-unit cache verdicts with `-v`). |
 | `toven affected <task>` | Show affected modules for a baseline/head. |
 | `toven explain <module> <task>` | Show the planned unit(s) for one module/task: argv, dependencies, and persistence. |

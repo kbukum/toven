@@ -5,11 +5,11 @@ use toven_model::RunStats;
 
 /// Derive the process exit code from a run's `RunFinished` summary.
 ///
-/// Non-zero ([`ExitCode::Failure`]) if any unit ended `Failed`, `Blocked`, or
-/// `FailedReadiness`; otherwise zero ([`ExitCode::Success`]). An all-cached run
-/// and a persistent-goal run that held until signal and shut down cleanly both
-/// map to success; a held unit that crashed surfaces as a failure counter and
-/// therefore non-zero.
+/// Non-zero ([`ExitCode::Failure`]) if any unit ended `Failed`, `Blocked`,
+/// `FailedReadiness`, or `TimedOut`; otherwise zero ([`ExitCode::Success`]). An
+/// all-cached run and a persistent-goal run that held until signal and shut down
+/// cleanly both map to success; a held unit that crashed surfaces as a failure
+/// counter and therefore non-zero.
 #[must_use]
 pub const fn exit_code(summary: &RunStats) -> ExitCode {
     if summary.has_failures() {
@@ -60,6 +60,13 @@ mod tests {
     fn failed_readiness_exits_non_zero() {
         let mut stats = RunStats::new(1);
         stats.failed_readiness_units = 1;
+        assert_eq!(exit_code(&stats), ExitCode::Failure);
+    }
+
+    #[test]
+    fn timed_out_unit_exits_non_zero() {
+        let mut stats = RunStats::new(1);
+        stats.timed_out_units = 1;
         assert_eq!(exit_code(&stats), ExitCode::Failure);
     }
 }

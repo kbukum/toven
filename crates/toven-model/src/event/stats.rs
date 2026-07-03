@@ -24,6 +24,9 @@ pub struct RunStats {
     pub cancelled_units: usize,
     /// Persistent units that never reached readiness (a failure).
     pub failed_readiness_units: usize,
+    /// Units cooperatively cancelled after exceeding their per-unit execution
+    /// timeout (a failure).
+    pub timed_out_units: usize,
     /// Cache decisions that were hits.
     pub cache_hits: usize,
     /// Cache decisions that were misses.
@@ -52,10 +55,14 @@ impl RunStats {
         }
     }
 
-    /// Whether any unit failed, was blocked, or failed readiness (drives a
-    /// non-zero exit). Mirrors [`UnitStatus::is_failure`](crate::UnitStatus::is_failure).
+    /// Whether any unit failed, was blocked, failed readiness, or timed out
+    /// (drives a non-zero exit). Mirrors
+    /// [`UnitStatus::is_failure`](crate::UnitStatus::is_failure).
     #[must_use]
     pub const fn has_failures(&self) -> bool {
-        self.failed_units > 0 || self.blocked_units > 0 || self.failed_readiness_units > 0
+        self.failed_units > 0
+            || self.blocked_units > 0
+            || self.failed_readiness_units > 0
+            || self.timed_out_units > 0
     }
 }

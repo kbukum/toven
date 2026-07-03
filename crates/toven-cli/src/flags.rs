@@ -9,14 +9,35 @@
 //! [`Command::External`] subcommand and re-parsed by [`grammar`](crate::grammar).
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use rskit_errors::{AppError, AppResult};
+use rskit_util::time::parse_duration;
 use toven_engine::vcs::BaselineFlags;
 
 /// Default trailing-edge debounce window (ms) for `--watch` when
 /// `--watch-debounce-ms` is not given.
 pub const DEFAULT_WATCH_DEBOUNCE_MS: u64 = 200;
+
+/// Parse a `--timeout` duration string (e.g. `30s`, `5m`) into a [`Duration`].
+///
+/// A clap `value_parser`, so it also backs the trailing-token path via
+/// [`parse_timeout`](crate::grammar::parse_timeout): both dispatch routes reject
+/// the same malformed values with the same message. Rejects a zero or unparseable
+/// duration — a bound of zero would fail every unit immediately, which is never
+/// what the user means.
+pub(crate) fn parse_duration_arg(value: &str) -> Result<Duration, String> {
+    match parse_duration(value) {
+        Some(duration) if !duration.is_zero() => Ok(duration),
+        Some(_) => Err(format!(
+            "`--timeout` must be greater than zero (got `{value}`)"
+        )),
+        None => Err(format!(
+            "`--timeout` requires a duration like `30s`, `5m`, or `2h` (got `{value}`)"
+        )),
+    }
+}
 
 /// Event-sink output format selected by `--output`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -113,6 +134,16 @@ pub struct Cli {
     /// are neither read nor written).
     #[arg(long, global = true)]
     pub no_cache: bool,
+    /// Execution verbs only: ignore cached results and re-run every unit, but
+    /// still write the fresh results back (distinct from `--no-cache`, which
+    /// neither reads nor writes). Mutually exclusive with `--no-cache`.
+    #[arg(long, global = true)]
+    pub refresh: bool,
+    /// Task-APPLY verbs only: bound how long any single execution unit may run
+    /// before it is cooperatively cancelled and reported as a timeout failure
+    /// (duration string, e.g. `30s`, `5m`).
+    #[arg(long, global = true, value_name = "DURATION", value_parser = parse_duration_arg)]
+    pub timeout: Option<Duration>,
     /// Changed-selection verbs only: override the diff baseline reference
     /// (per-member under a federation; falls back to `[[members]].base_ref` /
     /// `[project].base_ref`).
@@ -387,6 +418,32 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
             ),
         ));
     }
+    // `--refresh` shapes the same PLAN cache verdict as `--no-cache` (force a
+    // re-run) and so is gated to the same cache-aware execution verbs.
+    if cli.refresh && !accepts_cache_mode(&cli.command) {
+        return Err(AppError::invalid_input(
+            "flags",
+            format!(
+                "`--refresh` only applies to task verbs (`toven run`/`toven plan`/`toven <task>`); it has no effect on `toven {verb}`"
+            ),
+        ));
+    }
+    // `--refresh` (force re-run, keep writing) and `--no-cache` (neither read nor
+    // write) are contradictory cache policies; reject the combination rather than
+    // silently letting one win.
+    if cli.refresh && cli.no_cache {
+        return Err(refresh_no_cache_conflict());
+    }
+    // `--timeout` bounds APPLY execution, so — like `--fail-fast`/`--watch` — it
+    // is meaningful only on the task-APPLY verbs that actually run units.
+    if cli.timeout.is_some() && !accepts_fail_fast(&cli.command) {
+        return Err(AppError::invalid_input(
+            "flags",
+            format!(
+                "`--timeout` only applies to task-APPLY verbs (`toven run`/`toven <task>`); it has no effect on `toven {verb}`"
+            ),
+        ));
+    }
     gate_watch_flags(cli, verb)?;
     // `--base`/`--merge-base` only shape changed selection, and
     // `--module`/`--workspace`/`--with-dependents` shape explicit selection —
@@ -434,8 +491,8 @@ fn gate_selection_flags(cli: &Cli, verb: &str) -> AppResult<()> {
 }
 
 /// Reject the watch flags (`--watch`, `--watch-debounce-ms`) on a verb that runs
-/// no APPLY loop, and reject the debounce knob without `--watch` or combined with
-/// the PLAN-only cuts.
+/// no APPLY loop, then enforce the shared APPLY-execution flag combination
+/// invariants on the pre-token global flags.
 fn gate_watch_flags(cli: &Cli, verb: &str) -> AppResult<()> {
     if cli.watch && !accepts_watch(&cli.command) {
         return Err(AppError::invalid_input(
@@ -445,30 +502,44 @@ fn gate_watch_flags(cli: &Cli, verb: &str) -> AppResult<()> {
             ),
         ));
     }
-    gate_watch_combination(
+    gate_apply_flag_combination(
         cli.watch,
+        cli.fail_fast,
+        cli.timeout.is_some(),
         cli.is_plan_only(),
         cli.watch_debounce_ms.is_some(),
     )
 }
 
-/// Reject watch-flag *combinations* that are meaningless however the flags
-/// arrived — as pre-token globals on a reserved verb, or as trailing tokens on a
-/// bare task (which land in [`Command::External`] and never touch [`Cli`]).
+/// Reject APPLY-execution flag *combinations* that are meaningless however the
+/// flags arrived — as pre-token globals on a reserved verb, or as trailing tokens
+/// on a bare task (which land in [`Command::External`] and never touch [`Cli`]).
 ///
-/// `watch`, `plan_only`, and `debounce_present` are the effective values after
-/// merging global and per-task flags, so both dispatch paths enforce the same
-/// invariants: watch drives APPLY, so it cannot combine with a PLAN-only cut, and
-/// the debounce knob is only meaningful with `--watch`.
-pub(crate) fn gate_watch_combination(
+/// `watch`, `fail_fast`, `timeout_present`, `plan_only`, and `debounce_present`
+/// are the effective values after merging global and per-task flags, so both
+/// dispatch paths enforce the same invariants: every APPLY-execution flag
+/// (`--watch`/`--fail-fast`/`--timeout`) drives real unit execution and so cannot
+/// combine with a PLAN-only cut (`--dry-run`/`--explain`), which stops before any
+/// unit runs; and the debounce knob is only meaningful with `--watch`.
+#[allow(clippy::fn_params_excessive_bools)]
+pub(crate) fn gate_apply_flag_combination(
     watch: bool,
+    fail_fast: bool,
+    timeout_present: bool,
     plan_only: bool,
     debounce_present: bool,
 ) -> AppResult<()> {
-    if watch && plan_only {
+    if plan_only
+        && let Some(flag) = watch
+            .then_some("--watch")
+            .or_else(|| fail_fast.then_some("--fail-fast"))
+            .or_else(|| timeout_present.then_some("--timeout"))
+    {
         return Err(AppError::invalid_input(
             "flags",
-            "`--watch` cannot combine with `--dry-run`/`--explain` (watch drives APPLY on every change)",
+            format!(
+                "`{flag}` cannot combine with `--dry-run`/`--explain` (it drives APPLY execution, which a PLAN-only cut skips)"
+            ),
         ));
     }
     if debounce_present && !watch {
@@ -535,6 +606,18 @@ fn only_applies(flag: &str, owner: &str, verb: &str) -> AppError {
     AppError::invalid_input(
         "flags",
         format!("`{flag}` only applies to `{owner}` (used with `toven {verb}`)"),
+    )
+}
+
+/// The shared typed error for combining `--refresh` and `--no-cache`.
+///
+/// Raised from whichever dispatch path first sees both set (the pre-token `gate`
+/// for reserved verbs, or `dispatch_task` for the merged global+task flags on a
+/// bare task), so the contradiction is rejected identically either way.
+pub(crate) fn refresh_no_cache_conflict() -> AppError {
+    AppError::invalid_input(
+        "flags",
+        "`--refresh` and `--no-cache` are mutually exclusive (`--refresh` re-runs but still writes the cache; `--no-cache` neither reads nor writes)",
     )
 }
 
@@ -670,6 +753,53 @@ mod tests {
     }
 
     #[test]
+    fn refresh_only_on_cache_aware_verbs() {
+        for args in [
+            ["--refresh", "run", "test"].as_slice(),
+            ["--refresh", "plan", "test"].as_slice(),
+        ] {
+            assert!(super::gate(&parse(args).unwrap()).is_ok(), "{args:?}");
+        }
+        for args in [
+            ["--refresh", "release"].as_slice(),
+            ["--refresh", "affected", "test"].as_slice(),
+            ["--refresh", "modules"].as_slice(),
+        ] {
+            assert!(super::gate(&parse(args).unwrap()).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn refresh_and_no_cache_are_mutually_exclusive() {
+        assert!(super::gate(&parse(&["--refresh", "--no-cache", "run", "test"]).unwrap()).is_err());
+    }
+
+    #[test]
+    fn timeout_only_on_task_apply_verbs() {
+        for args in [
+            ["--timeout", "5s", "run", "test"].as_slice(),
+            ["--timeout", "2m", "test"].as_slice(),
+        ] {
+            assert!(super::gate(&parse(args).unwrap()).is_ok(), "{args:?}");
+        }
+        // `plan` stops at PLAN and `release`/introspection never run bounded
+        // units, so the bound is a no-op and is rejected.
+        for args in [
+            ["--timeout", "5s", "plan", "test"].as_slice(),
+            ["--timeout", "5s", "release"].as_slice(),
+            ["--timeout", "5s", "affected", "test"].as_slice(),
+        ] {
+            assert!(super::gate(&parse(args).unwrap()).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn timeout_rejects_a_malformed_or_zero_duration() {
+        assert!(parse(&["--timeout", "soon", "test"]).is_err());
+        assert!(parse(&["--timeout", "0s", "test"]).is_err());
+    }
+
+    #[test]
     fn watch_only_on_task_apply_verbs() {
         for args in [
             ["--watch", "run", "test"].as_slice(),
@@ -691,6 +821,31 @@ mod tests {
     fn watch_rejects_plan_only_cuts() {
         assert!(super::gate(&parse(&["--watch", "--dry-run", "run", "test"]).unwrap()).is_err());
         assert!(super::gate(&parse(&["--watch", "--explain", "run", "test"]).unwrap()).is_err());
+    }
+
+    #[test]
+    fn apply_execution_flags_reject_plan_only_cuts() {
+        // `--fail-fast`/`--timeout`, like `--watch`, drive real unit execution,
+        // so combining them with a PLAN-only cut (`--dry-run`/`--explain`) — even
+        // on an APPLY verb that otherwise accepts them — is rejected rather than
+        // silently ignored.
+        for args in [
+            ["--fail-fast", "--dry-run", "run", "test"].as_slice(),
+            ["--fail-fast", "--explain", "test"].as_slice(),
+            ["--timeout", "5s", "--dry-run", "run", "test"].as_slice(),
+            ["--timeout", "5s", "--explain", "test"].as_slice(),
+        ] {
+            assert!(super::gate(&parse(args).unwrap()).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn apply_flag_combination_rejects_each_execution_flag_under_plan_only() {
+        assert!(super::gate_apply_flag_combination(true, false, false, true, false).is_err());
+        assert!(super::gate_apply_flag_combination(false, true, false, true, false).is_err());
+        assert!(super::gate_apply_flag_combination(false, false, true, true, false).is_err());
+        // No PLAN-only cut: every execution flag is accepted.
+        assert!(super::gate_apply_flag_combination(true, true, true, false, false).is_ok());
     }
 
     #[test]

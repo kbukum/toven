@@ -1,5 +1,7 @@
 //! [`ApplyOptions`] — runtime knobs for the APPLY spine.
 
+use std::time::Duration;
+
 use toven_ports::InvocationEnvironment;
 
 /// Default bound on the live raw-output bridge (see
@@ -35,6 +37,16 @@ pub struct ApplyOptions {
     /// concurrently during teardown, so a full channel never deadlocks a process
     /// awaiting shutdown.
     pub live_output_capacity: usize,
+    /// Optional wall-clock bound on any single normal (non-persistent) unit.
+    ///
+    /// When set, a unit that runs longer than this is cooperatively cancelled
+    /// (the same SIGTERM-and-wait teardown as `--fail-fast`/Ctrl+C) and recorded
+    /// as [`UnitStatus::TimedOut`](toven_model::UnitStatus::TimedOut) — a failure
+    /// — rather than being allowed to run unbounded. `None` (the default) leaves
+    /// normal units unbounded. Persistent units are governed by their own
+    /// [`readiness_timeout`](toven_model::ExecutionUnit::readiness_timeout) probe,
+    /// not this bound.
+    pub unit_timeout: Option<Duration>,
 }
 
 impl Default for ApplyOptions {
@@ -44,6 +56,7 @@ impl Default for ApplyOptions {
             fail_fast: false,
             environment: InvocationEnvironment::inherit_parent(std::collections::BTreeMap::new()),
             live_output_capacity: DEFAULT_LIVE_OUTPUT_CAPACITY,
+            unit_timeout: None,
         }
     }
 }

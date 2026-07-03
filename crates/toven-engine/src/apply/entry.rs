@@ -70,6 +70,7 @@ pub async fn apply<S: RawOutputSink>(
         options.environment.clone(),
         observer,
         stream_normal_live,
+        options.unit_timeout,
     );
     Walker::new(plan, cache, reporter, output, options, dropped, cancel)
         .run(pool, live_rx)

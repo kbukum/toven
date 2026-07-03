@@ -87,6 +87,7 @@ impl<W: Write> HumanReporter<W> {
             "failed-readiness",
             summary.failed_readiness_units.to_string(),
         );
+        kv.add("timed-out", summary.timed_out_units.to_string());
         if let Some(duration_ms) = summary.duration_ms {
             kv.add("duration-ms", duration_ms.to_string());
         }
@@ -193,6 +194,7 @@ const fn status_label(status: UnitStatus) -> &'static str {
         UnitStatus::Ready => "ready",
         UnitStatus::TornDown => "torn-down",
         UnitStatus::FailedReadiness => "failed-readiness",
+        UnitStatus::TimedOut => "timed-out",
     }
 }
 
@@ -279,6 +281,7 @@ summary
            blocked:  0
          cancelled:  0
   failed-readiness:  0
+         timed-out:  0
               exit:  0
 ";
         assert_eq!(output, expected);
@@ -303,7 +306,7 @@ summary
         ];
         let output = render(&events);
 
-        let expected = "  start u1\n  ok u1\nsummary\n           planned:  1\n               ran:  1\n            cached:  0\n            failed:  0\n           blocked:  0\n         cancelled:  0\n  failed-readiness:  0\n              exit:  0\n";
+        let expected = "  start u1\n  ok u1\nsummary\n           planned:  1\n               ran:  1\n            cached:  0\n            failed:  0\n           blocked:  0\n         cancelled:  0\n  failed-readiness:  0\n         timed-out:  0\n              exit:  0\n";
         assert_eq!(output, expected);
     }
 
@@ -324,6 +327,7 @@ summary
            blocked:  0
          cancelled:  0
   failed-readiness:  0
+         timed-out:  0
               exit:  1
 ";
         assert_eq!(output, expected);
@@ -353,6 +357,7 @@ summary
             (UnitStatus::Ready, "  ready u\n"),
             (UnitStatus::TornDown, "  torn-down u\n"),
             (UnitStatus::FailedReadiness, "  failed-readiness u\n"),
+            (UnitStatus::TimedOut, "  timed-out u\n"),
         ];
         for (status, expected) in cases {
             let output = render(&[Event::UnitFinished {

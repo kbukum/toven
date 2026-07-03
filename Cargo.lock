@@ -1741,6 +1741,7 @@ dependencies = [
  "rskit-codec",
  "rskit-errors",
  "rskit-fs",
+ "rskit-util",
  "serde_json",
  "tokio",
  "toven-engine",

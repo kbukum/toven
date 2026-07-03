@@ -1145,3 +1145,117 @@ fn teardown_drains_live_output_under_backpressure_dependent_drain() {
 
     assert_eq!(runner.shutdowns(), vec!["service".to_string()]);
 }
+
+#[test]
+fn unit_exceeding_its_timeout_is_cancelled_and_recorded_as_timed_out() {
+    // A single unit that would run for 10s is bounded by a 50ms unit timeout.
+    // It must be cooperatively cancelled (observed by the runner), recorded as a
+    // timeout failure, and never leak — apply still returns a normal RunStats.
+    let plan = Plan::new(vec![unit("slow")], vec![vec!["slow".into()]]);
+    let runner = Arc::new(FakeCommandRunner::new().with_blocking("slow"));
+    let cache = RecordingCacheWriter::new();
+    let mut reporter = RecordingReporter::new();
+
+    let runner_port: Arc<dyn CommandRunner> = runner.clone();
+    let mut output = UnitOutputChannel::new(RecordingRawOutputSink::new());
+    // Paused time: the runtime auto-advances to the next pending timer, so the
+    // 50ms bound fires deterministically against the (10s) blocking unit with no
+    // real wall-clock wait — no CI flakiness.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .start_paused(true)
+        .build()
+        .expect("runtime");
+    let stats = runtime
+        .block_on(apply(
+            &plan,
+            runner_port,
+            &cache,
+            &mut reporter,
+            &mut output,
+            ApplyOptions {
+                max_parallel: 1,
+                unit_timeout: Some(Duration::from_millis(50)),
+                ..ApplyOptions::default()
+            },
+            tokio_util::sync::CancellationToken::new(),
+        ))
+        .expect("apply returns a summary, not an error");
+
+    assert_eq!(stats.timed_out_units, 1);
+    assert!(stats.has_failures());
+    assert_eq!(stats.failed_units, 0, "a timeout is its own failure reason");
+    assert_eq!(runner.cancelled(), vec!["slow".to_string()]);
+    // The timeout surfaces as a distinct terminal status, and the cancelled unit
+    // records nothing to the cache.
+    assert!(reporter.events().iter().any(|event| matches!(
+        event,
+        Event::UnitFinished {
+            status: UnitStatus::TimedOut,
+            ..
+        }
+    )));
+    assert!(cache.recorded().is_empty());
+}
+
+#[test]
+fn a_fast_unit_completes_normally_under_a_generous_timeout() {
+    // The timeout only fires on overrun: a unit that finishes well within the
+    // bound runs to success and writes its cache record as usual.
+    let plan = Plan::new(vec![unit("quick")], vec![vec!["quick".into()]]);
+    let runner = Arc::new(FakeCommandRunner::new());
+    let cache = RecordingCacheWriter::new();
+    let mut reporter = RecordingReporter::new();
+
+    let runner_port: Arc<dyn CommandRunner> = runner;
+    let mut output = UnitOutputChannel::new(RecordingRawOutputSink::new());
+    // Paused time keeps this deterministic too: the runner's scripted run window
+    // is the first pending timer, so the unit completes long before the 30s bound.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .start_paused(true)
+        .build()
+        .expect("runtime");
+    let stats = runtime
+        .block_on(apply(
+            &plan,
+            runner_port,
+            &cache,
+            &mut reporter,
+            &mut output,
+            ApplyOptions {
+                max_parallel: 1,
+                unit_timeout: Some(Duration::from_secs(30)),
+                ..ApplyOptions::default()
+            },
+            tokio_util::sync::CancellationToken::new(),
+        ))
+        .expect("apply succeeds");
+
+    assert_eq!(stats.timed_out_units, 0);
+    assert_eq!(stats.ran_units, 1);
+    assert!(!stats.has_failures());
+    assert_eq!(cache.recorded(), vec!["key-quick".to_string()]);
+}
+
+#[test]
+fn a_forced_verdict_unit_re_runs_and_writes_its_cache_record() {
+    // `--refresh` maps to CacheMode::Force, whose per-unit verdict is `Forced`.
+    // A forced unit is never skipped: it executes and still writes its record,
+    // so the fresh result replaces any prior cache entry.
+    let mut forced = unit("forced");
+    forced.cache = CacheVerdict::Forced;
+    let plan = Plan::new(vec![forced], vec![vec!["forced".into()]]);
+    let runner = Arc::new(FakeCommandRunner::new());
+    let cache = RecordingCacheWriter::new();
+    let mut reporter = RecordingReporter::new();
+
+    let stats = run(&plan, &runner, &cache, &mut reporter);
+
+    assert_eq!(runner.started(), vec!["forced".to_string()]);
+    assert_eq!(stats.ran_units, 1);
+    assert_eq!(stats.cache_forced, 1);
+    assert_eq!(cache.recorded(), vec!["key-forced".to_string()]);
+}

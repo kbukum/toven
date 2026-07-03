@@ -35,7 +35,7 @@ Workspace-local cache records live under `.toven/cache/v3` and should not be com
 
 ## Cache modes during execution
 
-Run output and JSONL cache events distinguish active cache decisions from disabled ones. Cache is controlled by `[toven.cache]` settings, per-task `cache_args`, `shared_inputs`, `persistent`, `TOVEN_CACHE_DIR`, and `[toven.cache].dir`; there are no per-invocation cache bypass flags.
+Run output and JSONL cache events distinguish active cache decisions from disabled ones. Cache is configured by `[toven.cache]` settings, per-task `cache_args`, `shared_inputs`, `persistent`, `TOVEN_CACHE_DIR`, and `[toven.cache].dir`. Two per-invocation execution flags override the cache for a single run: `--no-cache` bypasses it entirely (no record is read or written), while `--refresh` ignores existing records and re-runs every unit but still writes the fresh results back — use `--refresh` to rebuild a distrusted entry and `--no-cache` for a one-off run that must not touch the cache. The two are mutually exclusive.
 
 ## `toven cache stats`
 

@@ -27,12 +27,20 @@ pub enum UnitStatus {
     TornDown,
     /// Persistent unit never became ready within its readiness timeout.
     FailedReadiness,
+    /// Ran past its per-unit execution timeout and was cooperatively cancelled
+    /// (a failure). Distinct from [`FailedReadiness`](Self::FailedReadiness),
+    /// which is a persistent unit's readiness-probe timeout, not a normal unit's
+    /// execution bound.
+    TimedOut,
 }
 
 impl UnitStatus {
     /// Whether this status represents a failure for exit-code purposes.
     #[must_use]
     pub const fn is_failure(self) -> bool {
-        matches!(self, Self::Failed | Self::Blocked | Self::FailedReadiness)
+        matches!(
+            self,
+            Self::Failed | Self::Blocked | Self::FailedReadiness | Self::TimedOut
+        )
     }
 }

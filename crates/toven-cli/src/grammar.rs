@@ -11,10 +11,11 @@
 //! carried through untouched.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult};
 
-use crate::flags::OutputKind;
+use crate::flags::{OutputKind, parse_duration_arg};
 
 /// The reserved built-in words. A bare top-level token equal to one of these
 /// dispatches the built-in; any other token is an argv-first task name.
@@ -58,6 +59,10 @@ pub struct TaskFlags {
     pub fail_fast: bool,
     /// `--no-cache`: bypass the task cache (re-run every unit; no read/write).
     pub no_cache: bool,
+    /// `--refresh`: ignore cached results and re-run, but still write results.
+    pub refresh: bool,
+    /// `--timeout <dur>`: per-unit execution bound (e.g. `30s`, `5m`).
+    pub timeout: Option<Duration>,
     /// `--base <ref>`: override the changed-selection baseline reference.
     pub base: Option<String>,
     /// `--merge-base`: diff against `merge-base(reference, HEAD)`.
@@ -125,6 +130,10 @@ pub fn parse_task(tokens: &[String]) -> AppResult<TaskInvocation> {
             "--explain" => flags.explain = true,
             "--fail-fast" => flags.fail_fast = true,
             "--no-cache" => flags.no_cache = true,
+            "--refresh" => flags.refresh = true,
+            "--timeout" => {
+                flags.timeout = Some(parse_timeout(&value_for("--timeout", &mut iter)?)?);
+            }
             "--merge-base" => flags.merge_base = true,
             "--with-dependents" => flags.with_dependents = true,
             "--watch" => flags.watch = true,
@@ -196,6 +205,15 @@ fn parse_debounce(value: &str) -> AppResult<u64> {
             ),
         )
     })
+}
+
+/// Parse the `--timeout` value as a per-unit execution duration.
+///
+/// Delegates to [`parse_duration_arg`](crate::flags::parse_duration_arg) so the
+/// trailing-token path and the clap global agree on accepted syntax and errors,
+/// lifting its `String` message into a typed usage error.
+fn parse_timeout(value: &str) -> AppResult<Duration> {
+    parse_duration_arg(value).map_err(|message| AppError::invalid_input("--timeout", message))
 }
 
 #[cfg(test)]
@@ -312,6 +330,35 @@ mod tests {
         let invocation = parse_task(&tokens(&["test", "--no-cache"])).expect("parses");
         assert_eq!(invocation.task, "test");
         assert!(invocation.flags.no_cache);
+    }
+
+    #[test]
+    fn parses_refresh_on_a_bare_task() {
+        let invocation = parse_task(&tokens(&["test", "--refresh"])).expect("parses");
+        assert_eq!(invocation.task, "test");
+        assert!(invocation.flags.refresh);
+        assert!(!invocation.flags.no_cache);
+    }
+
+    #[test]
+    fn parses_timeout_duration_on_a_bare_task() {
+        let invocation = parse_task(&tokens(&["test", "--timeout", "5s"])).expect("parses");
+        assert_eq!(invocation.task, "test");
+        assert_eq!(
+            invocation.flags.timeout,
+            Some(std::time::Duration::from_secs(5))
+        );
+    }
+
+    #[test]
+    fn rejects_a_malformed_or_zero_timeout() {
+        assert!(parse_task(&tokens(&["test", "--timeout", "soon"])).is_err());
+        assert!(parse_task(&tokens(&["test", "--timeout", "0s"])).is_err());
+    }
+
+    #[test]
+    fn a_missing_timeout_value_is_rejected() {
+        assert!(parse_task(&tokens(&["test", "--timeout"])).is_err());
     }
 
     #[test]
