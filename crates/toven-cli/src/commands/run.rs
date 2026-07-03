@@ -236,6 +236,7 @@ mod tests {
                 ModuleRef::new(EcosystemId::new("rust").unwrap(), "core").unwrap(),
             )],
             kind: "build".to_string(),
+            origin: toven_model::TaskOrigin::AdapterDefault,
             workspace: None,
             argv: vec!["cargo".to_string(), "build".to_string()],
             persistent: false,

@@ -172,6 +172,7 @@ pub(crate) fn explain(
                     .join(", "),
             )
             .add("task", unit.kind.clone())
+            .add("origin", unit.origin.as_str().to_string())
             .add("argv", format!("{:?}", unit.argv))
             .add("persistent", unit.persistent.to_string())
             .add("depends_on", unit.depends_on.join(", "));
@@ -351,6 +352,7 @@ mod tests {
             module: ModuleKey::bare(mref("app")),
             members: vec![ModuleKey::bare(mref("app")), ModuleKey::bare(mref("core"))],
             kind: "test".to_string(),
+            origin: toven_model::TaskOrigin::AdapterDefault,
             workspace: None,
             argv: vec!["cargo".to_string(), "test".to_string()],
             persistent: false,

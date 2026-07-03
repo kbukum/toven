@@ -21,10 +21,14 @@ use toven_model::{
     AbsPath, DepKind, Edge, ExecutionReadiness, Graph, Module, ModuleKey, ToolchainTag, Workspace,
     WorkspaceId,
 };
-use toven_ports::{CommandTemplate, FanOut, Readiness, RunStrategy, Task, TaskKind, TaskVar};
+use toven_ports::{
+    CommandTemplate, FanOut, Readiness, RunStrategy, Task, TaskKind, TaskOrigin, TaskVar,
+    merge_task,
+};
 
 use super::configure::MemberAdapters;
 use super::discover::Federation;
+use super::overrides::GroupOverrides;
 use super::request::PlanRequest;
 
 /// One scheduled, fully rendered unit awaiting its cache verdict.
@@ -44,6 +48,8 @@ pub(super) struct PlannedUnit {
     pub(super) members: Vec<ModuleKey>,
     /// Task kind name.
     pub(super) kind: String,
+    /// Provenance of the resolved task (which config layer won).
+    pub(super) origin: TaskOrigin,
     /// Owning workspace (keys the toolchain identity).
     pub(super) workspace: Option<WorkspaceId>,
     /// Fully rendered argv (with passthrough spliced).
@@ -79,6 +85,12 @@ pub(super) struct Scheduled {
 
 /// Schedule the active module set into waves of rendered units.
 ///
+/// `overrides` carries any `[groups.*]` scope overrides: a group's `run_strategy`
+/// wins over the ecosystem default for its members, and a group's `tasks` entry
+/// field-merges onto the ecosystem/adapter default for the intent (marking the
+/// resolved task [`TaskOrigin::Group`]). An overridden batch unit is kept distinct
+/// from the un-overridden default so members never collapse across differing argv.
+///
 /// # Errors
 /// An active module with no configured adapter or no task for the intent, a
 /// missing workspace a template requires, or a template parse/render failure.
@@ -87,17 +99,19 @@ pub(super) fn schedule(
     federation: &Federation,
     active: &[ModuleKey],
     adapters: &MemberAdapters,
+    overrides: &GroupOverrides,
     toolchain: &BTreeMap<WorkspaceId, ToolchainTag>,
 ) -> AppResult<Scheduled> {
     let active_modules = active_modules(federation, active);
-    let strategies = strategies(&active_modules, adapters, &request.intent)?;
+    let effective = effective_tasks(&active_modules, adapters, &request.intent, overrides)?;
+    let strategies = strategies(&active_modules, adapters, overrides, &request.intent)?;
     let subgraph = active_subgraph(&active_modules, federation)?;
 
     let waves = subgraph.waves(|edge| keep_edge(edge, &strategies))?;
     let kept_deps = kept_dependencies(&active_modules, federation, &strategies);
 
     let workspaces = workspace_index(federation);
-    let group_ids = group_id_map(&active_modules, adapters, &request.intent)?;
+    let group_ids = group_id_map(&active_modules, &effective)?;
     let mut units = Vec::new();
     let mut group_members: BTreeMap<String, Vec<ModuleKey>> = BTreeMap::new();
     let mut group_wave: BTreeMap<String, usize> = BTreeMap::new();
@@ -129,7 +143,7 @@ pub(super) fn schedule(
             &id,
             members,
             &active_modules,
-            adapters,
+            &effective,
             toolchain,
             &workspaces,
             &kept_deps,
@@ -160,32 +174,52 @@ fn unit_id(module: &ModuleKey, kind: &str) -> String {
 /// (`[member/]ecosystem@workspace#kind`, or `[member/]ecosystem#kind` for a
 /// workspace-less module). Keeping the workspace in the key guarantees a collapsed
 /// unit never spans workspaces, so the representative's `{workspace.root}` and
-/// resolved toolchain identity are valid for every member it carries.
-fn group_id(key: &ModuleKey, module: &Module, kind: &str, fan_out: FanOut) -> String {
+/// resolved toolchain identity are valid for every member it carries. When a group
+/// task override applies, its name is folded into the key (`…~group…`) so members
+/// carrying different overrides — or none — never collapse into one argv.
+fn group_id(
+    key: &ModuleKey,
+    module: &Module,
+    kind: &str,
+    fan_out: FanOut,
+    override_group: Option<&str>,
+) -> String {
     if fan_out == FanOut::PerModule {
         return unit_id(key, kind);
     }
     let ecosystem = &key.module().ecosystem;
-    let scope = module
+    let base = module
         .workspace
         .as_ref()
         .map_or_else(|| ecosystem.to_string(), |ws| format!("{ecosystem}@{ws}"));
+    let scope = override_group.map_or_else(|| base.clone(), |group| format!("{base}~{group}"));
     key.member().map_or_else(
         || format!("{scope}#{kind}"),
         |member| format!("{member}/{scope}#{kind}"),
     )
 }
 
-/// Map every active module to the id of the unit that will carry it.
-fn group_id_map(
+/// A module's resolved task for the intent, with the group (if any) whose
+/// override produced it.
+struct EffectiveTask {
+    /// The adapter default field-merged with any group override.
+    task: Task,
+    /// The declaring group when a `[groups.*].tasks` override applied.
+    group: Option<String>,
+}
+
+/// Resolve every active module's effective task for the intent: the adapter
+/// default, field-merged with the module's group task override when one applies.
+fn effective_tasks(
     modules: &BTreeMap<ModuleKey, Module>,
     adapters: &MemberAdapters,
     intent: &TaskKind,
-) -> AppResult<BTreeMap<ModuleKey, String>> {
-    let mut ids = BTreeMap::new();
+    overrides: &GroupOverrides,
+) -> AppResult<BTreeMap<ModuleKey, EffectiveTask>> {
+    let mut resolved = BTreeMap::new();
     for (key, module) in modules {
         let adapter = adapter_for(module, adapters)?;
-        let task = select_task(adapter.default_tasks(), intent).ok_or_else(|| {
+        let default = select_task(adapter.default_tasks(), intent).ok_or_else(|| {
             AppError::invalid_input(
                 "tasks",
                 format!(
@@ -195,12 +229,58 @@ fn group_id_map(
                 ),
             )
         })?;
+        let effective = match overrides.task(key, intent.name()) {
+            Some((group, over)) => {
+                let mut merged = merge_task(&default, over);
+                merged.origin = TaskOrigin::Group;
+                EffectiveTask {
+                    task: merged,
+                    group: Some(group.to_string()),
+                }
+            }
+            None => EffectiveTask {
+                task: default,
+                group: None,
+            },
+        };
+        resolved.insert(key.clone(), effective);
+    }
+    Ok(resolved)
+}
+
+/// Map every active module to the id of the unit that will carry it.
+fn group_id_map(
+    modules: &BTreeMap<ModuleKey, Module>,
+    effective: &BTreeMap<ModuleKey, EffectiveTask>,
+) -> AppResult<BTreeMap<ModuleKey, String>> {
+    let mut ids = BTreeMap::new();
+    for (key, module) in modules {
+        let eff = effective_for(key, effective)?;
         ids.insert(
             key.clone(),
-            group_id(key, module, task.kind.name(), task.fan_out),
+            group_id(
+                key,
+                module,
+                eff.task.kind.name(),
+                eff.task.fan_out,
+                eff.group.as_deref(),
+            ),
         );
     }
     Ok(ids)
+}
+
+/// Look up a module's resolved effective task, failing closed on an unknown key.
+fn effective_for<'a>(
+    key: &ModuleKey,
+    effective: &'a BTreeMap<ModuleKey, EffectiveTask>,
+) -> AppResult<&'a EffectiveTask> {
+    effective.get(key).ok_or_else(|| {
+        AppError::new(
+            rskit_errors::ErrorCode::Internal,
+            format!("scheduled unknown module '{key}'"),
+        )
+    })
 }
 
 /// Map each active module to the unit ids of its kept dependency edges.
@@ -238,18 +318,20 @@ fn active_modules(federation: &Federation, active: &[ModuleKey]) -> BTreeMap<Mod
         .collect()
 }
 
-/// Resolve each active module's `RunStrategy` (ecosystem override else per-kind default).
+/// Resolve each active module's `RunStrategy`: a group override wins, else the
+/// ecosystem override, else the per-kind adapter default.
 fn strategies(
     modules: &BTreeMap<ModuleKey, Module>,
     adapters: &MemberAdapters,
+    overrides: &GroupOverrides,
     intent: &TaskKind,
 ) -> AppResult<BTreeMap<ModuleKey, RunStrategy>> {
     let mut strategies = BTreeMap::new();
     for (key, module) in modules {
         let adapter = adapter_for(module, adapters)?;
-        let strategy = adapter
-            .common()
-            .run_strategy
+        let strategy = overrides
+            .run_strategy(key)
+            .or_else(|| adapter.common().run_strategy)
             .unwrap_or_else(|| adapter.run_strategy_default(intent));
         strategies.insert(key.clone(), strategy);
     }
@@ -305,7 +387,7 @@ fn plan_unit(
     id: &str,
     members: &[ModuleKey],
     active_modules: &BTreeMap<ModuleKey, Module>,
-    adapters: &MemberAdapters,
+    effective: &BTreeMap<ModuleKey, EffectiveTask>,
     toolchain: &BTreeMap<WorkspaceId, ToolchainTag>,
     workspaces: &BTreeMap<WorkspaceId, Workspace>,
     kept_deps: &BTreeMap<ModuleKey, Vec<ModuleKey>>,
@@ -317,17 +399,7 @@ fn plan_unit(
             format!("scheduled unknown module '{}'", members[0]),
         )
     })?;
-    let adapter = adapter_for(representative, adapters)?;
-    let task = select_task(adapter.default_tasks(), &request.intent).ok_or_else(|| {
-        AppError::invalid_input(
-            "tasks",
-            format!(
-                "ecosystem '{}' has no '{}' task",
-                representative.id.ecosystem,
-                request.intent.name()
-            ),
-        )
-    })?;
+    let task = &effective_for(&members[0], effective)?.task;
 
     let template = CommandTemplate::parse(&task.argv, &task.selector)?;
     let modules = member_modules(members, active_modules)?;
@@ -352,6 +424,7 @@ fn plan_unit(
         module: members[0].clone(),
         members: members.to_vec(),
         kind: kind_name,
+        origin: task.origin,
         workspace: representative.workspace.clone(),
         argv,
         persistent: task.persistent,
@@ -577,6 +650,7 @@ mod tests {
     use toven_testkit::FakeConfiguredAdapter;
 
     use super::super::configure::{ConfiguredSet, MemberAdapters};
+    use super::super::overrides::GroupOverrides;
     use super::schedule;
     use crate::plan::discover::Federation;
     use crate::plan::request::PlanRequest;
@@ -652,6 +726,7 @@ mod tests {
             federation,
             &active,
             adapters,
+            &GroupOverrides::default(),
             &toolchains(federation),
         )
         .unwrap()
@@ -678,6 +753,7 @@ mod tests {
             &federation,
             &active,
             &adapters,
+            &GroupOverrides::default(),
             &BTreeMap::new(),
         );
         assert!(result.is_err());
@@ -811,6 +887,7 @@ mod tests {
             &federation,
             &active,
             &single_member(adapters),
+            &GroupOverrides::default(),
             &toolchains(&federation),
         )
         .unwrap();
@@ -853,6 +930,7 @@ mod tests {
             &federation,
             &active,
             &single_member(adapters),
+            &GroupOverrides::default(),
             &toolchains(&federation),
         )
         .unwrap();
@@ -863,5 +941,127 @@ mod tests {
             .find(|unit| unit.id == "rust@rust#test")
             .unwrap();
         assert_eq!(rust.members.len(), 2);
+    }
+
+    fn task_override(argv: &[&str]) -> toven_ports::TaskOverride {
+        toven_ports::TaskOverride {
+            argv: Some(argv.iter().map(ToString::to_string).collect()),
+            ..toven_ports::TaskOverride::default()
+        }
+    }
+
+    fn group_overrides(
+        name: &str,
+        group: &crate::config::GroupConfig,
+        members: &[toven_model::ModuleKey],
+    ) -> GroupOverrides {
+        let mut overrides = GroupOverrides::default();
+        overrides
+            .record(name, group, &members.iter().cloned().collect())
+            .expect("group overrides record");
+        overrides
+    }
+
+    #[test]
+    fn group_task_override_applies_to_members_only() {
+        let federation = Federation {
+            workspaces: vec![workspace("rust")],
+            modules: vec![
+                module("rust", "app", "rust"),
+                module("rust", "errors", "rust"),
+            ],
+            edges: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let mut adapters = ConfiguredSet::new();
+        adapters.insert(
+            eid("rust"),
+            adapter_with("rust", RunStrategy::Unordered, FanOut::Batchable),
+        );
+        let group = crate::config::GroupConfig {
+            tasks: BTreeMap::from([("test".to_string(), task_override(&["nextest", "run"]))]),
+            ..crate::config::GroupConfig::default()
+        };
+        let overrides = group_overrides(
+            "integration",
+            &group,
+            &[toven_model::ModuleKey::bare(mref("rust", "app"))],
+        );
+
+        let active: Vec<toven_model::ModuleKey> =
+            federation.modules.iter().map(Module::key).collect();
+        let scheduled = schedule(
+            &request(),
+            &federation,
+            &active,
+            &single_member(adapters),
+            &overrides,
+            &toolchains(&federation),
+        )
+        .unwrap();
+
+        // The overridden member splits into its own group-tagged unit; the
+        // non-member keeps the ecosystem default in the plain batch unit.
+        let overridden = scheduled
+            .units
+            .iter()
+            .find(|unit| unit.id == "rust@rust~integration#test")
+            .expect("group-tagged unit present");
+        assert_eq!(overridden.argv, ["nextest", "run"]);
+        assert_eq!(overridden.members, [mref("rust", "app").into()]);
+        let default = scheduled
+            .units
+            .iter()
+            .find(|unit| unit.id == "rust@rust#test")
+            .expect("default unit present");
+        assert_eq!(default.argv, ["x"]);
+        assert_eq!(default.members, [mref("rust", "errors").into()]);
+    }
+
+    #[test]
+    fn group_run_strategy_override_relaxes_members_only() {
+        let federation = Federation {
+            workspaces: vec![workspace("rust")],
+            modules: vec![
+                module("rust", "app", "rust"),
+                module("rust", "errors", "rust"),
+            ],
+            edges: vec![Edge::new(
+                mref("rust", "app"),
+                mref("rust", "errors"),
+                DepKind::Normal,
+            )],
+            warnings: Vec::new(),
+        };
+        let mut adapters = ConfiguredSet::new();
+        // Adapter default is dependency-respecting, so without an override the
+        // edge orders `errors` before `app` across two waves.
+        adapters.insert(eid("rust"), adapter("rust", RunStrategy::LeafToTop));
+        let group = crate::config::GroupConfig {
+            run_strategy: Some(RunStrategy::Unordered),
+            ..crate::config::GroupConfig::default()
+        };
+        let overrides = group_overrides(
+            "flat",
+            &group,
+            &[toven_model::ModuleKey::bare(mref("rust", "app"))],
+        );
+
+        let active: Vec<toven_model::ModuleKey> =
+            federation.modules.iter().map(Module::key).collect();
+        let waves = schedule(
+            &request(),
+            &federation,
+            &active,
+            &single_member(adapters),
+            &overrides,
+            &toolchains(&federation),
+        )
+        .unwrap()
+        .waves;
+
+        // The dependent's `unordered` override drops its intra-ecosystem edge, so
+        // both modules collapse into a single wave.
+        assert_eq!(waves.len(), 1);
     }
 }

@@ -140,6 +140,14 @@ flowchart TD
 
 Think of a wave as “everything that is safe to start now.” A module joins a later wave when one of its dependencies must finish first. `batchable` keeps ready modules together when the command can handle them together, but it still splits by Cargo manifest so selectors are never sent to the wrong workspace.
 
+### Group-scoped task and strategy overrides
+
+A `[groups.<name>]` may carry a group-scoped `run_strategy` and a `[groups.<name>.tasks.<task>]` map that reuse the same `TaskOverride` shape as the ecosystem-level `[ecosystems.<id>.tasks.<task>]` overrides. They layer on top of the ecosystem/adapter defaults for the group's members only, so a subset of a repo can run a task differently without a whole new ecosystem. For example, an `integration` group can run `test` with `cargo nextest run --profile ci` and `run_strategy = "unordered"` while the rest of the workspace keeps the defaults.
+
+The task merge order is `adapter default → ecosystem [tasks] override → group [tasks] override`; the resolved task records `TaskOrigin::Group`. A group `run_strategy` wins over the ecosystem default for its members, and the per-kind adapter default applies when neither is set. Because a group override changes a member's resolved argv, an overridden member never collapses into the same batched unit as an un-overridden peer: the batch unit id folds in the declaring group name (`ecosystem@workspace~group#kind`) so differing commands stay in distinct units. The resolved origin (`adapter-default`, `project`, or `group`) is surfaced per unit in `toven explain` output.
+
+Precedence across overlapping groups is explicit and fails closed: a module reached by two different groups that both override the same task (or both set `run_strategy`) is a hard error rather than an implicit last-writer-wins. Group `tasks` overrides also carry `shared_inputs`, which union into the member's cache-key footprint just as ecosystem overrides do.
+
 ## Affected and cache decision flow
 
 ```mermaid

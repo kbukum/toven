@@ -15,6 +15,7 @@ use crate::config::GroupConfig;
 use crate::federation::compose::ComposedFederation;
 
 use super::discover::Federation;
+use super::overrides::GroupOverrides;
 
 /// Build the validated federated [`Graph`] from the discovery union.
 ///
@@ -25,7 +26,8 @@ pub(super) fn build(federation: &Federation) -> AppResult<Graph> {
     Graph::build(federation.modules.clone(), federation.edges.clone())
 }
 
-/// Run semantic config validation against the real graph.
+/// Run semantic config validation against the real graph, returning the resolved
+/// per-module group overrides gathered along the way.
 ///
 /// Groups are validated in the coordinate space they were declared in: each
 /// member's own `[groups.*]` resolve against that member (bare refs bind to the
@@ -34,18 +36,34 @@ pub(super) fn build(federation: &Federation) -> AppResult<Graph> {
 /// single-repo project is one member with no id, so its groups resolve to bare
 /// keys exactly as before and the umbrella layer is empty.
 ///
+/// The same membership resolution feeds group scope overrides
+/// ([`GroupOverrides`]): a group's `run_strategy`/`tasks` are recorded against
+/// every resolved member so scheduling can layer them on the ecosystem defaults.
+///
 /// # Errors
 /// A group ref that does not resolve to a real module, a forbidden edge that is
-/// actually present, or an external dependency outside a non-empty `allow` list.
-pub(super) fn validate_semantics(graph: &Graph, composed: &ComposedFederation) -> AppResult<()> {
+/// actually present, an external dependency outside a non-empty `allow` list, or
+/// two overlapping groups that override the same module's task/`run_strategy`.
+pub(super) fn validate_semantics(
+    graph: &Graph,
+    composed: &ComposedFederation,
+) -> AppResult<GroupOverrides> {
+    let mut overrides = GroupOverrides::default();
     for member in composed.members() {
         validate_groups(
             graph,
             &member.document().groups,
             GroupScope::Member(member.member().id()),
+            &mut overrides,
         )?;
     }
-    validate_groups(graph, composed.groups(), GroupScope::Umbrella)
+    validate_groups(
+        graph,
+        composed.groups(),
+        GroupScope::Umbrella,
+        &mut overrides,
+    )?;
+    Ok(overrides)
 }
 
 /// The coordinate scope a group's references resolve in.
@@ -59,15 +77,18 @@ enum GroupScope<'a> {
     Umbrella,
 }
 
-/// Validate one group set (membership + guardrails) in `scope`.
+/// Validate one group set (membership + guardrails) in `scope`, recording each
+/// group's scope overrides against its resolved members.
 fn validate_groups(
     graph: &Graph,
     groups: &std::collections::BTreeMap<String, GroupConfig>,
     scope: GroupScope<'_>,
+    overrides: &mut GroupOverrides,
 ) -> AppResult<()> {
     for (name, group) in groups {
         let members = resolve_members(name, group, graph, scope)?;
         enforce_guardrails(name, group, &members, graph, scope)?;
+        overrides.record(name, group, &members)?;
     }
     Ok(())
 }
@@ -279,10 +300,21 @@ mod tests {
         DepKind, EcosystemId, Edge, Graph, MemberId, Module, ModuleKey, ModuleRef, RepoPath,
     };
 
-    use crate::config::{GroupConfig, Guardrails};
+    use crate::config::GroupConfig;
 
     use super::{GroupScope, build, validate_groups};
     use crate::plan::discover::Federation;
+    use crate::plan::overrides::GroupOverrides;
+
+    /// Validate one group set in `scope`, discarding the collected overrides.
+    fn validate_only(
+        graph: &Graph,
+        groups: &BTreeMap<String, GroupConfig>,
+        scope: GroupScope<'_>,
+    ) -> AppResult<()> {
+        let mut overrides = GroupOverrides::default();
+        validate_groups(graph, groups, scope, &mut overrides)
+    }
 
     fn mref(ecosystem: &str, name: &str) -> ModuleRef {
         ModuleRef::new(EcosystemId::new(ecosystem).unwrap(), name).unwrap()
@@ -312,9 +344,8 @@ mod tests {
 
     fn group(modules: &[&str]) -> GroupConfig {
         GroupConfig {
-            ecosystem: None,
             modules: modules.iter().map(ToString::to_string).collect(),
-            guardrails: Guardrails::default(),
+            ..GroupConfig::default()
         }
     }
 
@@ -326,7 +357,7 @@ mod tests {
 
     /// Validate a degenerate single-repo group set (member id `None`, bare keys).
     fn validate_local(graph: &Graph, groups: &BTreeMap<String, GroupConfig>) -> AppResult<()> {
-        validate_groups(graph, groups, GroupScope::Member(None))
+        validate_only(graph, groups, GroupScope::Member(None))
     }
 
     fn app_depends_on_errors() -> Federation {
@@ -400,7 +431,7 @@ mod tests {
         // resolves it to that member's own module without a qualifier.
         let groups = one_group("core", group(&["rust:core"]));
 
-        assert!(validate_groups(&graph, &groups, GroupScope::Member(Some(&billing))).is_ok());
+        assert!(validate_only(&graph, &groups, GroupScope::Member(Some(&billing))).is_ok());
     }
 
     #[test]
@@ -411,7 +442,7 @@ mod tests {
         forbidding.guardrails.forbid = vec!["rust:core".to_string()];
 
         assert!(
-            validate_groups(
+            validate_only(
                 &graph,
                 &one_group("apps", forbidding),
                 GroupScope::Member(Some(&billing))
@@ -428,7 +459,7 @@ mod tests {
         let groups = one_group("shared", group(&["rust:core"]));
 
         let error =
-            validate_groups(&graph, &groups, GroupScope::Umbrella).expect_err("ambiguous bare ref");
+            validate_only(&graph, &groups, GroupScope::Umbrella).expect_err("ambiguous bare ref");
         assert!(error.to_string().contains("multiple members"));
     }
 
@@ -437,6 +468,6 @@ mod tests {
         let graph = build(&two_members_each_with_core()).unwrap();
         let groups = one_group("shared", group(&["billing/rust:core", "catalog/rust:core"]));
 
-        assert!(validate_groups(&graph, &groups, GroupScope::Umbrella).is_ok());
+        assert!(validate_only(&graph, &groups, GroupScope::Umbrella).is_ok());
     }
 }

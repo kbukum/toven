@@ -5,7 +5,7 @@ mod common;
 use std::collections::BTreeMap;
 
 use common::eid;
-use toven_engine::config::{Document, ProjectConfig, TovenConfig};
+use toven_engine::config::{Document, GroupConfig, ProjectConfig, TovenConfig};
 use toven_engine::federation::MemberVcsReaders;
 use toven_engine::federation::resolve::PathDriverLocator;
 use toven_engine::plan::{
@@ -13,9 +13,9 @@ use toven_engine::plan::{
 };
 use toven_model::{
     AbsPath, CacheVerdict, DepKind, Edge, Event, Module, ModuleRef, Phase, Plan, RepoPath,
-    ToolchainTag, Workspace, WorkspaceId,
+    TaskOrigin, ToolchainTag, Workspace, WorkspaceId,
 };
-use toven_ports::{DiscoverResponse, FanOut, Provider, Task, TaskKind};
+use toven_ports::{DiscoverResponse, FanOut, Provider, Task, TaskKind, TaskOverride};
 use toven_testkit::{
     CountingToolchainProber, FakeCacheStore, FakeConfiguredAdapter, FakeProvider, FakeSourceDigest,
     FakeVcsReader, RecordingCacheStore, RecordingReporter,
@@ -210,6 +210,113 @@ fn plans_full_federation_into_leaf_first_waves() {
             .iter()
             .all(|unit| unit.cache == CacheVerdict::Miss)
     );
+}
+
+#[test]
+fn group_task_override_splits_members_into_their_own_unit() {
+    let provider = rust_provider();
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
+    let cache = NullCache;
+    let mut reporter = RecordingReporter::new();
+
+    // `integration` overrides the Test argv for `app` only; `errors` keeps the
+    // adapter default and stays in the plain whole-workspace batch unit.
+    let mut document = document();
+    let mut group = GroupConfig {
+        modules: vec!["rust:app".to_string()],
+        ..GroupConfig::default()
+    };
+    group.tasks.insert(
+        "test".to_string(),
+        TaskOverride {
+            argv: Some(vec!["cargo".to_string(), "nextest".to_string()]),
+            ..TaskOverride::default()
+        },
+    );
+    document.groups.insert("integration".to_string(), group);
+
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let plan = plan(
+        &request(TaskKind::Test),
+        &document,
+        &providers,
+        host,
+        &mut reporter,
+    )
+    .expect("plan succeeds");
+
+    assert_eq!(plan.units.len(), 2);
+    let overridden = plan
+        .units
+        .iter()
+        .find(|unit| unit.id == "rust@rust~integration#test")
+        .expect("group-tagged unit present");
+    assert_eq!(
+        overridden.argv,
+        vec!["cargo".to_string(), "nextest".to_string()]
+    );
+    assert_eq!(overridden.members, vec![mref("rust", "app").into()]);
+    assert_eq!(overridden.origin, TaskOrigin::Group);
+
+    let default = plan
+        .units
+        .iter()
+        .find(|unit| unit.id == "rust@rust#test")
+        .expect("default unit present");
+    assert_eq!(default.argv, vec!["cargo".to_string(), "test".to_string()]);
+    assert_eq!(default.members, vec![mref("rust", "errors").into()]);
+    assert_eq!(default.origin, TaskOrigin::AdapterDefault);
+}
+
+#[test]
+fn conflicting_group_task_overrides_are_rejected() {
+    let provider = rust_provider();
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
+    let cache = NullCache;
+    let mut reporter = RecordingReporter::new();
+
+    // Both groups claim `app` and override `test`: an explicit, fail-closed error
+    // rather than an implicit last-writer-wins.
+    let override_group = |argv: &str| {
+        let mut group = GroupConfig {
+            modules: vec!["rust:app".to_string()],
+            ..GroupConfig::default()
+        };
+        group.tasks.insert(
+            "test".to_string(),
+            TaskOverride {
+                argv: Some(vec![argv.to_string()]),
+                ..TaskOverride::default()
+            },
+        );
+        group
+    };
+    let mut document = document();
+    document
+        .groups
+        .insert("first".to_string(), override_group("nextest"));
+    document
+        .groups
+        .insert("second".to_string(), override_group("cargo-test"));
+
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let error = plan(
+        &request(TaskKind::Test),
+        &document,
+        &providers,
+        host,
+        &mut reporter,
+    )
+    .expect_err("conflicting group overrides rejected");
+    assert!(error.to_string().contains("conflicting groups"), "{error}");
 }
 
 #[test]
