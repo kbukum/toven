@@ -157,6 +157,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
                 cli.fail_fast,
                 cli.no_cache,
                 cli.is_plan_only(),
+                global_watch(cli),
                 &global_selection(cli),
             )
         }
@@ -172,6 +173,10 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
                 cli.fail_fast,
                 cli.no_cache,
                 true,
+                commands::run::WatchFlags {
+                    enabled: false,
+                    debounce_ms: flags::DEFAULT_WATCH_DEBOUNCE_MS,
+                },
                 &global_selection(cli),
             )
         }
@@ -225,6 +230,14 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
     let invocation = grammar::parse_task(tokens)?;
     let flags = &invocation.flags;
 
+    // Trailing task flags land in `Command::External` tokens, so the pre-token
+    // `gate` never sees them — enforce the watch-flag combination invariants here
+    // on the merged global+task values, before the project load.
+    let watch_enabled = cli.watch || flags.watch;
+    let plan_only = cli.is_plan_only() || flags.dry_run || flags.explain;
+    let debounce_present = flags.watch_debounce_ms.is_some() || cli.watch_debounce_ms.is_some();
+    flags::gate_watch_combination(watch_enabled, plan_only, debounce_present)?;
+
     let config = flags.config.clone().or_else(|| cli.config.clone());
     let project = load_with_config(providers, config.as_deref(), true)?;
 
@@ -235,7 +248,6 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
         cli.explain || flags.explain,
     );
     let report = Report::resolve(output, verbosity, &project.document);
-    let plan_only = cli.is_plan_only() || flags.dry_run || flags.explain;
     let fail_fast = cli.fail_fast || flags.fail_fast;
     let no_cache = cli.no_cache || flags.no_cache;
 
@@ -255,6 +267,14 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
         with_dependents: cli.with_dependents || flags.with_dependents,
     };
 
+    let watch = commands::run::WatchFlags {
+        enabled: watch_enabled,
+        debounce_ms: flags
+            .watch_debounce_ms
+            .or(cli.watch_debounce_ms)
+            .unwrap_or(flags::DEFAULT_WATCH_DEBOUNCE_MS),
+    };
+
     commands::run::execute(
         providers,
         &project,
@@ -264,8 +284,19 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
         fail_fast,
         no_cache,
         plan_only,
+        watch,
         &selection,
     )
+}
+
+/// Bundle the pre-token global watch flags for the reserved execution verbs.
+fn global_watch(cli: &Cli) -> commands::run::WatchFlags {
+    commands::run::WatchFlags {
+        enabled: cli.watch,
+        debounce_ms: cli
+            .watch_debounce_ms
+            .unwrap_or(flags::DEFAULT_WATCH_DEBOUNCE_MS),
+    }
 }
 
 /// Bundle the pre-token global selection flags for the reserved execution verbs.

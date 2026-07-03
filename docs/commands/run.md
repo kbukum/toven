@@ -53,6 +53,17 @@ toven test --module rust:core --with-dependents   # rust:core and everything tha
 
 `--module`/`--workspace` are repeatable and mutually exclusive with the changed-selection flags (`--base`/`--merge-base`).
 
+## Watch mode
+
+`--watch` keeps a task running: after the first run Toven watches the workspace tree and reruns only the affected subgraph each time a source file changes. It is a task-APPLY loop, so it is available on `toven <task>` and `toven run <task>` only — not on the PLAN-only, introspection, or `release` verbs — and it cannot combine with `--dry-run`/`--explain`.
+
+```bash
+toven test --watch                       # rerun affected tests on every change
+toven test --watch --watch-debounce-ms 500   # coalesce bursts over a 500ms window
+```
+
+Each change batch is relativized against the workspace root, filtered to tracked (non-`.gitignore`d) files, and mapped to the changed-path selection that plans and applies exactly the affected units. If the filesystem watcher drops events (for example a queue overflow under a large burst), the batch requests a rescan: Toven discards the incomplete path list and re-runs the whole watched scope instead of trusting it. `--watch-debounce-ms <n>` sets the trailing-edge debounce window that coalesces a burst of filesystem events into one rerun (default 200ms); it only applies with `--watch`. Press Ctrl+C to cancel any in-flight run and exit cleanly.
+
 ## Common examples
 
 ```bash
@@ -103,6 +114,8 @@ dir = ".toven/cache"
 | `--module <ecosystem:name>` | Explicit selection: activate this module (repeatable). |
 | `--workspace <id>` | Explicit selection: activate every module owned by the workspace (repeatable). |
 | `--with-dependents` | With `--module`/`--workspace`, also activate the reverse-dependents closure. |
+| `--watch` | Keep running: rerun the affected subgraph each time a watched source file changes (Ctrl+C exits). |
+| `--watch-debounce-ms <n>` | With `--watch`, trailing-edge debounce window in ms for coalescing change bursts (default 200). |
 | `--output human\|jsonl` | Select human or machine-readable run events. |
 | `-v` / `-q` | Raise or lower reporter verbosity (repeatable): quiet shows only the run summary, verbose adds per-phase, cache, and unit-lifecycle lines. Affects human output only; the JSONL stream always carries every event. |
 

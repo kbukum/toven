@@ -54,6 +54,14 @@ pub(super) fn active_modules(
             let seeds = changed_seeds(&changed, graph, federation);
             graph.closure(&seeds, dependents_filter(&request.intent))
         }
+        Selection::ChangedPaths(paths) => {
+            let changed: Vec<ChangeRecord> = paths
+                .iter()
+                .map(|path| ChangeRecord::new(path, toven_ports::ChangeStatus::Modified))
+                .collect();
+            let seeds = changed_seeds(&changed, graph, federation);
+            graph.closure(&seeds, dependents_filter(&request.intent))
+        }
     }
 }
 

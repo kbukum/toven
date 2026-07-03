@@ -23,6 +23,7 @@ toml.workspace = true
 async-trait.workspace = true
 tokio-util.workspace = true
 tokio.workspace = true
+futures.workspace = true
 
 [lints]
 workspace = true

@@ -43,6 +43,9 @@
 //!   [`CacheWriter`](toven_ports::CacheWriter) for APPLY.
 //! - [`release`] — the release-specific PLAN/APPLY tail: immutable release
 //!   planning vocabulary, change detection, bumping, tagging, and publishing.
+//! - [`watch`] — watch mode: the [`watch::WatchSession`] PLAN→APPLY rerun loop
+//!   over the injected [`WatchSource`](toven_ports::WatchSource) port plus the
+//!   concrete rskit-fs [`watch::RskitFsWatch`] adapter.
 //! - [`federation`] — umbrella federation: in-proc adapters plus the
 //!   [`RemoteAdapter`](federation::RemoteAdapter) proxy that drives a separately
 //!   installed `toven-<eco> __serve` over a thin framed stdio transport, the
@@ -59,3 +62,4 @@ pub mod output;
 pub mod plan;
 pub mod release;
 pub mod vcs;
+pub mod watch;

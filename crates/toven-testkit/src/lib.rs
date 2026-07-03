@@ -43,7 +43,8 @@ pub use doubles::{
     CountingToolchainProber, EMPTY_IDENTITY, FakeCacheStore, FakeCommandRunner,
     FakeConfiguredAdapter, FakeDriverLocator, FakeDriverScaffolder, FakeProvider,
     FakeReleaseTarget, FakeSourceDigest, FakeVcsReader, FakeVcsWriter, RecordingCacheStore,
-    RecordingCacheWriter, RecordingRawOutputSink, RecordingReporter, ReleaseCall, VcsWrite,
+    RecordingCacheWriter, RecordingRawOutputSink, RecordingReporter, ReleaseCall,
+    ScriptedWatchSource, VcsWrite, WatchCall,
 };
 pub use fixtures::{
     FIXTURES_ROOT, document, document_path, document_string, ecosystem, ecosystem_string,

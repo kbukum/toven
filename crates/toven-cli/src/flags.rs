@@ -14,6 +14,10 @@ use clap::{Parser, Subcommand, ValueEnum};
 use rskit_errors::{AppError, AppResult};
 use toven_engine::vcs::BaselineFlags;
 
+/// Default trailing-edge debounce window (ms) for `--watch` when
+/// `--watch-debounce-ms` is not given.
+pub const DEFAULT_WATCH_DEBOUNCE_MS: u64 = 200;
+
 /// Event-sink output format selected by `--output`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "lowercase")]
@@ -129,6 +133,14 @@ pub struct Cli {
     /// activate the reverse-dependents closure of the selected modules.
     #[arg(long, global = true)]
     pub with_dependents: bool,
+    /// Task-APPLY verbs only: keep running, re-executing the affected subgraph
+    /// each time a watched source file changes (Ctrl+C exits).
+    #[arg(long, global = true)]
+    pub watch: bool,
+    /// Watch only: trailing-edge debounce window, in milliseconds, for
+    /// coalescing a burst of filesystem events into one rerun (default 200).
+    #[arg(long, global = true, value_name = "MS")]
+    pub watch_debounce_ms: Option<u64>,
     /// Increase reporter verbosity (repeatable; execution verbs only).
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
@@ -375,6 +387,7 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
             ),
         ));
     }
+    gate_watch_flags(cli, verb)?;
     // `--base`/`--merge-base` only shape changed selection, and
     // `--module`/`--workspace`/`--with-dependents` shape explicit selection —
     // both belong to the same selection verbs; other verbs would ignore them.
@@ -418,6 +431,62 @@ fn gate_selection_flags(cli: &Cli, verb: &str) -> AppResult<()> {
         ));
     }
     Ok(())
+}
+
+/// Reject the watch flags (`--watch`, `--watch-debounce-ms`) on a verb that runs
+/// no APPLY loop, and reject the debounce knob without `--watch` or combined with
+/// the PLAN-only cuts.
+fn gate_watch_flags(cli: &Cli, verb: &str) -> AppResult<()> {
+    if cli.watch && !accepts_watch(&cli.command) {
+        return Err(AppError::invalid_input(
+            "flags",
+            format!(
+                "`--watch` only applies to task-APPLY verbs (`toven run`/`toven <task>`); it has no effect on `toven {verb}`"
+            ),
+        ));
+    }
+    gate_watch_combination(
+        cli.watch,
+        cli.is_plan_only(),
+        cli.watch_debounce_ms.is_some(),
+    )
+}
+
+/// Reject watch-flag *combinations* that are meaningless however the flags
+/// arrived — as pre-token globals on a reserved verb, or as trailing tokens on a
+/// bare task (which land in [`Command::External`] and never touch [`Cli`]).
+///
+/// `watch`, `plan_only`, and `debounce_present` are the effective values after
+/// merging global and per-task flags, so both dispatch paths enforce the same
+/// invariants: watch drives APPLY, so it cannot combine with a PLAN-only cut, and
+/// the debounce knob is only meaningful with `--watch`.
+pub(crate) fn gate_watch_combination(
+    watch: bool,
+    plan_only: bool,
+    debounce_present: bool,
+) -> AppResult<()> {
+    if watch && plan_only {
+        return Err(AppError::invalid_input(
+            "flags",
+            "`--watch` cannot combine with `--dry-run`/`--explain` (watch drives APPLY on every change)",
+        ));
+    }
+    if debounce_present && !watch {
+        return Err(AppError::invalid_input(
+            "flags",
+            "`--watch-debounce-ms` only applies with `--watch`",
+        ));
+    }
+    Ok(())
+}
+
+/// Whether `command` is a task-APPLY verb that consumes `--watch`.
+///
+/// Watch reruns the affected subgraph through APPLY, so — like `--fail-fast` —
+/// only the verbs that drive multi-unit APPLY scheduling read it: `plan` stops at
+/// PLAN and `release` runs a single linear pipeline.
+const fn accepts_watch(command: &Command) -> bool {
+    matches!(command, Command::Run { .. } | Command::External(_))
 }
 
 /// Whether `command` is an execution verb that accepts reporter-shaping flags
@@ -598,6 +667,41 @@ mod tests {
     #[test]
     fn execution_flags_rejected_on_cache() {
         assert!(super::gate(&parse(&["--dry-run", "cache", "path"]).unwrap()).is_err());
+    }
+
+    #[test]
+    fn watch_only_on_task_apply_verbs() {
+        for args in [
+            ["--watch", "run", "test"].as_slice(),
+            ["--watch", "test"].as_slice(),
+        ] {
+            assert!(super::gate(&parse(args).unwrap()).is_ok(), "{args:?}");
+        }
+        for args in [
+            ["--watch", "plan", "test"].as_slice(),
+            ["--watch", "affected", "test"].as_slice(),
+            ["--watch", "release"].as_slice(),
+            ["--watch", "graph"].as_slice(),
+        ] {
+            assert!(super::gate(&parse(args).unwrap()).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn watch_rejects_plan_only_cuts() {
+        assert!(super::gate(&parse(&["--watch", "--dry-run", "run", "test"]).unwrap()).is_err());
+        assert!(super::gate(&parse(&["--watch", "--explain", "run", "test"]).unwrap()).is_err());
+    }
+
+    #[test]
+    fn watch_debounce_requires_watch() {
+        assert!(
+            super::gate(&parse(&["--watch-debounce-ms", "500", "run", "test"]).unwrap()).is_err()
+        );
+        assert!(
+            super::gate(&parse(&["--watch", "--watch-debounce-ms", "500", "run", "test"]).unwrap())
+                .is_ok()
+        );
     }
 
     #[test]

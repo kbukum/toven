@@ -41,7 +41,13 @@ impl<W: Write> HumanReporter<W> {
     /// [`Verbosity::Verbose`].
     const fn renders(level: Verbosity, event: &Event) -> bool {
         match event {
-            Event::RunStarted { .. } | Event::RunFinished { .. } | Event::Warning { .. } => true,
+            Event::RunStarted { .. }
+            | Event::RunFinished { .. }
+            | Event::Warning { .. }
+            | Event::WatchStarted { .. }
+            | Event::WatchTriggered { .. }
+            | Event::WatchRescan
+            | Event::WatchStopped => true,
             Event::PlanPrepared { .. } | Event::UnitFinished { .. } => {
                 !matches!(level, Verbosity::Quiet)
             }
@@ -141,6 +147,17 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
             Event::UnitFinished { unit_id, status } => {
                 self.write_line(&format!("  {} {unit_id}", status_label(*status)))
             }
+            Event::WatchStarted { debounce_ms } => self.write_line(&format!(
+                "watch: waiting for changes ({debounce_ms}ms debounce)"
+            )),
+            Event::WatchTriggered { paths } => self.write_line(&format!(
+                "watch: {} change(s) triggered a rerun",
+                paths.len()
+            )),
+            Event::WatchRescan => {
+                self.write_line("watch: dropped events — re-evaluating the whole workspace")
+            }
+            Event::WatchStopped => self.write_line("watch: stopped"),
         }
     }
 }

@@ -83,6 +83,12 @@ toven test -- --explain
 
 Passthrough args disable cache by default unless the task definition explicitly sets `cache_args = true`, because arbitrary flags can change command semantics.
 
+Keep a task running across edits with `--watch`: after the first run Toven reruns only the affected subgraph each time you save a tracked file, and Ctrl+C exits.
+
+```bash
+toven test --watch
+```
+
 ## 5. Inspect planned units
 
 Show the planned unit(s) for one module/task — argv, dependencies, and persistence:

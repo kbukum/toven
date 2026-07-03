@@ -35,6 +35,13 @@ pub enum Selection {
     All,
     /// Activate only modules affected by changes since the resolved baseline.
     Changed(Option<BaselineSpec>),
+    /// Activate only modules affected by an explicit set of changed paths.
+    ///
+    /// Paths are workspace-root-relative and already filtered to tracked,
+    /// non-ignored files. Watch mode feeds this per debounce batch; it maps the
+    /// paths through the same change mapper as [`Selection::Changed`] but sources
+    /// them from the filesystem watcher rather than a VCS baseline diff.
+    ChangedPaths(Vec<String>),
     /// Activate exactly the named modules/workspaces resolved against the graph.
     Explicit {
         /// The user-named module/workspace targets to activate.

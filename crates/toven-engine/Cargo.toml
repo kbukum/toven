@@ -13,7 +13,7 @@ publish = false
 toven-model.workspace = true
 toven-ports.workspace = true
 rskit-errors.workspace = true
-rskit-fs.workspace = true
+rskit-fs = { workspace = true, features = ["watch"] }
 rskit-git.workspace = true
 rskit-process.workspace = true
 rskit-worker.workspace = true
@@ -30,6 +30,7 @@ toml_edit.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+futures.workspace = true
 
 [dev-dependencies]
 toven-testkit.workspace = true
