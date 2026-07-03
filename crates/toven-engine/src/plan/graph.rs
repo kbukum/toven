@@ -88,20 +88,28 @@ fn validate_groups(
     for (name, group) in groups {
         let members = resolve_members(name, group, graph, scope)?;
         enforce_guardrails(name, group, &members, graph, scope)?;
-        overrides.record(&override_identity(name, scope), name, group, &members)?;
+        overrides.record(&override_identity(name, scope), group, &members)?;
     }
     Ok(())
 }
 
-/// The scope-qualified identity of a group declaration, distinguishing two
-/// declarations that merely share a `name` (a member-local group and an umbrella
-/// group both called `test`, or same-named groups in two different members) so
-/// overlapping them on one module fails closed instead of silently overwriting.
+/// The scope-qualified, id-safe identity of a group declaration.
+///
+/// It distinguishes two declarations that merely share a plain `name` — a
+/// member-local group and an umbrella group both called `test`, or same-named
+/// groups in two different members — so overlapping them on one module fails
+/// closed, and so members overridden by distinct declarations never collapse
+/// into the same batch unit id (the identity is folded into that id verbatim).
+///
+/// The degenerate single-repo case (`Member(None)`) yields the bare group name,
+/// keeping its unit ids stable; federated scopes carry a `member.<id>.` or
+/// `umbrella.` prefix. The joiner is `.`, which is id-safe and is not a unit-id
+/// separator.
 fn override_identity(name: &str, scope: GroupScope<'_>) -> String {
     match scope {
-        GroupScope::Member(Some(member)) => format!("member '{member}' group '{name}'"),
-        GroupScope::Member(None) => format!("group '{name}'"),
-        GroupScope::Umbrella => format!("umbrella group '{name}'"),
+        GroupScope::Member(None) => name.to_string(),
+        GroupScope::Member(Some(member)) => format!("member.{member}.{name}"),
+        GroupScope::Umbrella => format!("umbrella.{name}"),
     }
 }
 

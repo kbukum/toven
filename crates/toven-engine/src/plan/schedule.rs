@@ -175,8 +175,9 @@ fn unit_id(module: &ModuleKey, kind: &str) -> String {
 /// workspace-less module). Keeping the workspace in the key guarantees a collapsed
 /// unit never spans workspaces, so the representative's `{workspace.root}` and
 /// resolved toolchain identity are valid for every member it carries. When a group
-/// task override applies, its name is folded into the key (`…~group…`) so members
-/// carrying different overrides — or none — never collapse into one argv.
+/// task override applies, its scope-qualified identity is folded into the key
+/// (`…~identity…`) so members carrying overrides from different declarations — or
+/// none — never collapse into one argv.
 fn group_id(
     key: &ModuleKey,
     module: &Module,
@@ -957,12 +958,7 @@ mod tests {
     ) -> GroupOverrides {
         let mut overrides = GroupOverrides::default();
         overrides
-            .record(
-                &format!("group '{name}'"),
-                name,
-                group,
-                &members.iter().cloned().collect(),
-            )
+            .record(name, group, &members.iter().cloned().collect())
             .expect("group overrides record");
         overrides
     }
@@ -1021,6 +1017,80 @@ mod tests {
             .expect("default unit present");
         assert_eq!(default.argv, ["x"]);
         assert_eq!(default.members, [mref("rust", "errors").into()]);
+    }
+
+    #[test]
+    fn same_name_group_overrides_from_distinct_scopes_do_not_collapse() {
+        // Two modules in the same batch base, overridden by a member-local group
+        // and an umbrella group that share the plain name `integration` but carry
+        // different argv. Folding the plain name would collapse them into one
+        // `…~integration#test` unit and render argv from the representative only;
+        // the scope-qualified identity must keep them in distinct units.
+        let federation = Federation {
+            workspaces: vec![workspace("rust")],
+            modules: vec![
+                module("rust", "app", "rust"),
+                module("rust", "errors", "rust"),
+            ],
+            edges: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let mut adapters = ConfiguredSet::new();
+        adapters.insert(
+            eid("rust"),
+            adapter_with("rust", RunStrategy::Unordered, FanOut::Batchable),
+        );
+
+        let mut overrides = GroupOverrides::default();
+        let local = crate::config::GroupConfig {
+            tasks: BTreeMap::from([("test".to_string(), task_override(&["local", "run"]))]),
+            ..crate::config::GroupConfig::default()
+        };
+        overrides
+            .record(
+                "member.billing.integration",
+                &local,
+                &std::iter::once(toven_model::ModuleKey::bare(mref("rust", "app"))).collect(),
+            )
+            .expect("member-local records");
+        let umbrella = crate::config::GroupConfig {
+            tasks: BTreeMap::from([("test".to_string(), task_override(&["umbrella", "run"]))]),
+            ..crate::config::GroupConfig::default()
+        };
+        overrides
+            .record(
+                "umbrella.integration",
+                &umbrella,
+                &std::iter::once(toven_model::ModuleKey::bare(mref("rust", "errors"))).collect(),
+            )
+            .expect("umbrella records");
+
+        let active: Vec<toven_model::ModuleKey> =
+            federation.modules.iter().map(Module::key).collect();
+        let scheduled = schedule(
+            &request(),
+            &federation,
+            &active,
+            &single_member(adapters),
+            &overrides,
+            &toolchains(&federation),
+        )
+        .unwrap();
+
+        let member_local = scheduled
+            .units
+            .iter()
+            .find(|unit| unit.id == "rust@rust~member.billing.integration#test")
+            .expect("member-local unit present");
+        assert_eq!(member_local.argv, ["local", "run"]);
+        assert_eq!(member_local.members, [mref("rust", "app").into()]);
+        let umbrella_unit = scheduled
+            .units
+            .iter()
+            .find(|unit| unit.id == "rust@rust~umbrella.integration#test")
+            .expect("umbrella unit present");
+        assert_eq!(umbrella_unit.argv, ["umbrella", "run"]);
+        assert_eq!(umbrella_unit.members, [mref("rust", "errors").into()]);
     }
 
     #[test]
