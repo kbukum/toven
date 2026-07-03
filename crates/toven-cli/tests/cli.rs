@@ -52,6 +52,11 @@ fn graph_format_flag_on_a_non_graph_verb_is_gated_to_usage() {
 }
 
 #[test]
+fn generate_stdout_and_write_together_are_gated_to_usage() {
+    assert_eq!(run(&["--stdout", "--write", "generate"]), ExitCode::Usage);
+}
+
+#[test]
 fn execution_flags_on_a_cache_verb_are_gated_to_usage() {
     assert_eq!(run(&["--dry-run", "cache", "path"]), ExitCode::Usage);
 }

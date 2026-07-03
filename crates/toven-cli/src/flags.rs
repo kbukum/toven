@@ -193,6 +193,9 @@ pub struct Cli {
     /// Generate only: write the rendered `toven.toml` instead of printing it.
     #[arg(long, global = true)]
     pub write: bool,
+    /// Generate only: render the `toven.toml` to stdout and write nothing.
+    #[arg(long, global = true)]
+    pub stdout: bool,
     /// Graph only: dependency-graph rendering format.
     #[arg(long, global = true, value_name = "FORMAT")]
     pub format: Option<GraphFormat>,
@@ -355,6 +358,15 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     }
     if cli.write && !is_generate {
         return Err(only_applies("--write", "toven generate", verb));
+    }
+    if cli.stdout && !is_generate {
+        return Err(only_applies("--stdout", "toven generate", verb));
+    }
+    // `--stdout` (preview, write nothing) and `--write` (persist the file) are
+    // contradictory sinks for the rendered document; reject the combination
+    // rather than silently letting one win.
+    if cli.stdout && cli.write {
+        return Err(stdout_write_conflict());
     }
     if cli.format.is_some() && !is_graph {
         return Err(only_applies("--format", "toven graph", verb));
@@ -621,6 +633,18 @@ pub(crate) fn refresh_no_cache_conflict() -> AppError {
     )
 }
 
+/// The shared typed error for combining `--stdout` and `--write` on `generate`.
+///
+/// The two flags name contradictory sinks for the rendered document — preview
+/// on stdout versus an atomic file write — so the combination is rejected rather
+/// than letting one silently win.
+fn stdout_write_conflict() -> AppError {
+    AppError::invalid_input(
+        "flags",
+        "`--stdout` and `--write` are mutually exclusive (`--stdout` previews the config on stdout and writes nothing; `--write` persists `toven.toml`)",
+    )
+}
+
 /// The user-facing name of the dispatched verb (for error messages).
 fn verb_name(command: &Command) -> &str {
     match command {
@@ -710,6 +734,7 @@ mod tests {
     fn generate_flags_only_on_generate() {
         for args in [
             ["--write", "generate"].as_slice(),
+            ["--stdout", "generate"].as_slice(),
             ["--root", "/tmp", "generate"].as_slice(),
             ["--force", "rust", "generate"].as_slice(),
         ] {
@@ -717,11 +742,18 @@ mod tests {
         }
         for args in [
             ["--write", "plan", "test"].as_slice(),
+            ["--stdout", "plan", "test"].as_slice(),
             ["--root", "/tmp", "modules"].as_slice(),
             ["--force", "rust", "graph"].as_slice(),
         ] {
             assert!(super::gate(&parse(args).unwrap()).is_err(), "{args:?}");
         }
+    }
+
+    #[test]
+    fn generate_stdout_and_write_are_mutually_exclusive() {
+        let cli = parse(&["--stdout", "--write", "generate"]).expect("parses");
+        assert!(super::gate(&cli).is_err());
     }
 
     #[test]

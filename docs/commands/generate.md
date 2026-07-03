@@ -3,15 +3,16 @@
 `toven generate` scaffolds a reviewable `toven.toml` for a repository. It detects each ecosystem present (Rust by `Cargo.toml`, Go by `go.mod`) and emits a minimal config that relies on smart defaults.
 
 ```bash
-toven generate [--root PATH] [--force ID] [--write]
+toven generate [--root PATH] [--force ID] [--stdout | --write]
 ```
 
 ## Preview or write
 
-By default the rendered TOML prints to stdout (diagnostics go to stderr), so you can review or redirect it:
+By default the rendered TOML prints to stdout (diagnostics go to stderr), so you can review or redirect it. Pass `--stdout` to make that preview explicit:
 
 ```bash
 toven generate            # preview on stdout
+toven generate --stdout   # same, explicit
 toven generate > toven.toml
 ```
 
@@ -20,6 +21,8 @@ toven generate > toven.toml
 ```bash
 toven generate --write
 ```
+
+`--stdout` and `--write` are mutually exclusive — one previews and writes nothing, the other persists the file.
 
 A first run writes `[project]` plus one `[ecosystems.<id>]` section per detected ecosystem, carrying only the discovery hints:
 
@@ -62,7 +65,10 @@ Generation emits `[project]`, `[toven]`, and `[ecosystems.*]` sections. It leave
 |--------|---------|
 | `--root PATH` | Project root to inspect and scaffold against. Defaults to `.`. |
 | `--force ID` | Regenerate exactly one `[ecosystems.<id>]` section. |
-| `--write` | Write `<root>/toven.toml` atomically instead of printing it. |
+| `--stdout` | Render `toven.toml` to stdout and write nothing (the default preview, made explicit). Mutually exclusive with `--write`. |
+| `--write` | Write `<root>/toven.toml` atomically instead of printing it. Mutually exclusive with `--stdout`. |
+
+Some legacy `generate` flags are intentionally not carried over. `--profile` is gone with the profile model (replaced by ecosystems); `--adapter` and repeated `--manifest` are unnecessary because ecosystem discovery is automatic and `--force <id>` already targets one section; and `--overwrite` is dropped because generation is additive and never clobbers — `--force <id>` regenerates exactly one section instead.
 
 ## After generating
 
