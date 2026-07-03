@@ -15,7 +15,7 @@
 //! - [`module`] / [`edge`] / [`workspace`] — [`Module`], [`Edge`]/[`DepKind`],
 //!   [`Workspace`]/[`ToolchainTag`].
 //! - [`graph`] — [`Graph`] build/validate + wave-leveling + reverse closure.
-//! - [`plan`] — [`Plan`], [`ExecutionUnit`], [`CacheVerdict`], [`ExecutionReadiness`].
+//! - [`plan`] — [`Plan`], [`ExecutionUnit`], [`CacheVerdict`], [`ExecutionReadiness`], [`TaskOrigin`].
 //! - [`event`] — [`Event`], [`UnitStatus`], [`RunStats`].
 //! - [`ecosystems`] — the canonical ecosystem registry.
 
@@ -34,5 +34,5 @@ pub use event::{Event, OutputStream, Phase, RunStats, UnitOutput, UnitStatus};
 pub use graph::Graph;
 pub use identity::{AbsPath, EcosystemId, MemberId, ModuleKey, ModuleRef, RepoPath, WorkspaceId};
 pub use module::Module;
-pub use plan::{CacheVerdict, ExecutionReadiness, ExecutionUnit, Plan};
+pub use plan::{CacheVerdict, ExecutionReadiness, ExecutionUnit, Plan, TaskOrigin};
 pub use workspace::{ToolchainTag, Workspace};

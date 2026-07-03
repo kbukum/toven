@@ -73,6 +73,7 @@ pub fn plan(
         &context.federation,
         &active_list,
         &context.adapters,
+        &context.group_overrides,
         &toolchains,
     )?;
     let units = decide_cache(
@@ -156,6 +157,7 @@ fn decide_cache(
             module: planned.module.clone(),
             members: planned.members.clone(),
             kind: planned.kind.clone(),
+            origin: planned.origin,
             workspace: planned.workspace.clone(),
             argv: planned.argv.clone(),
             persistent: planned.persistent,

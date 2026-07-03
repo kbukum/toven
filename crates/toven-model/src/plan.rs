@@ -40,6 +40,39 @@ pub enum ExecutionReadiness {
     OutputContains(String),
 }
 
+/// Provenance of a resolved task — where its command shape came from.
+///
+/// Populated on each [`ExecutionUnit`] so plan output and reports can explain
+/// which config layer won during field-merge. The same vocabulary is re-exported
+/// by `toven-ports` and carried on the adapter-facing `Task`, so the ports layer
+/// and the plan artifact speak one origin type.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Default, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum TaskOrigin {
+    /// The adapter's built-in default for the kind.
+    #[default]
+    AdapterDefault,
+    /// A project-level `[ecosystems.<id>.tasks.<name>]` override.
+    Project,
+    /// A group-level `[groups.<name>.tasks.<name>]` override that layers on top
+    /// of the ecosystem/adapter default for that group's members only.
+    Group,
+}
+
+impl TaskOrigin {
+    /// The stable kebab-case label for reporting (`adapter-default`, `project`,
+    /// `group`), matching the serialized representation.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AdapterDefault => "adapter-default",
+            Self::Project => "project",
+            Self::Group => "group",
+        }
+    }
+}
+
 /// One schedulable unit of work in a [`Plan`].
 ///
 /// A unit carries the rendered invocation plus the planning facts the APPLY half
@@ -59,6 +92,9 @@ pub struct ExecutionUnit {
     pub members: Vec<ModuleKey>,
     /// Task kind (e.g. `build`, `test`, `fmt`).
     pub kind: String,
+    /// Provenance of the task this unit runs (which config layer won).
+    #[serde(default)]
+    pub origin: TaskOrigin,
     /// Owning workspace, whose toolchain identity keys the cache.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<WorkspaceId>,
@@ -139,6 +175,7 @@ mod tests {
                 ModuleRef::new(EcosystemId::new("rust").unwrap(), "errors").unwrap(),
             )],
             kind: "build".to_string(),
+            origin: super::TaskOrigin::Group,
             workspace: None,
             argv: vec!["cargo".to_string(), "build".to_string()],
             persistent: false,

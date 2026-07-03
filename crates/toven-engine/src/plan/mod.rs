@@ -25,6 +25,7 @@ pub(crate) mod discover;
 pub(crate) mod front;
 mod graph;
 mod host;
+mod overrides;
 mod pipeline;
 mod request;
 mod schedule;

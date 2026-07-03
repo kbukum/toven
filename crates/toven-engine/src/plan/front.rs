@@ -15,6 +15,7 @@ use crate::federation::spine;
 use super::configure::MemberAdapters;
 use super::discover::Federation;
 use super::graph;
+use super::overrides::GroupOverrides;
 
 /// Validated shared state produced before a PLAN tail diverges.
 #[allow(clippy::redundant_pub_crate)]
@@ -23,6 +24,7 @@ pub(crate) struct PlanContext {
     pub(crate) adapters: MemberAdapters,
     pub(crate) federation: Federation,
     pub(crate) graph: Graph,
+    pub(crate) group_overrides: GroupOverrides,
 }
 
 /// Run the reusable Configure → Discover → Graph front half.
@@ -79,7 +81,7 @@ pub(crate) fn prepare(
         phase: Phase::Graph,
     })?;
     let graph = graph::build(&federation)?;
-    graph::validate_semantics(&graph, &composed)?;
+    let group_overrides = graph::validate_semantics(&graph, &composed)?;
     reporter.emit(&Event::PhaseFinished {
         phase: Phase::Graph,
     })?;
@@ -89,6 +91,7 @@ pub(crate) fn prepare(
         adapters,
         federation,
         graph,
+        group_overrides,
     })
 }
 
