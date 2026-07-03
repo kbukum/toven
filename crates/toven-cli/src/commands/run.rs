@@ -28,6 +28,17 @@ use crate::commands::selection::TaskSelection;
 use crate::host::{Project, Report, new_run_id};
 use crate::report::{WriterRawSink, exit_code};
 
+/// Whether a task run should enter watch mode, and its debounce window.
+///
+/// Bundled so the task-APPLY verbs thread one value instead of a bool/ms pair.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct WatchFlags {
+    /// Whether `--watch` was requested.
+    pub(crate) enabled: bool,
+    /// The resolved trailing-edge debounce window, in milliseconds.
+    pub(crate) debounce_ms: u64,
+}
+
 /// Run a task (`toven <task>` / `toven run <task>`), optionally PLAN-only.
 ///
 /// Builds the request, emits [`Event::RunStarted`], runs the PLAN spine, and —
@@ -47,6 +58,7 @@ pub(crate) fn execute(
     fail_fast: bool,
     no_cache: bool,
     plan_only: bool,
+    watch: WatchFlags,
     selection: &TaskSelection,
 ) -> AppResult<ExitCode> {
     let run_id = new_run_id()?;
@@ -71,6 +83,21 @@ pub(crate) fn execute(
 
     let mut reporter = report.reporter();
     let sink: &mut dyn Reporter = reporter.as_mut();
+
+    if watch.enabled {
+        return crate::commands::watch::run_watch(
+            providers,
+            project,
+            &request,
+            &readers,
+            &digest,
+            &prober,
+            &cache,
+            fail_fast,
+            watch.debounce_ms,
+            sink,
+        );
+    }
 
     sink.emit(&Event::RunStarted {
         run_id,

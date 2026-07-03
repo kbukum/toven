@@ -21,6 +21,8 @@
 //! - [`raw_output`] — [`RawOutputSink`]: the raw child-output sink port (sibling
 //!   of [`Reporter`]; fed by the engine's `UnitOutputChannel`).
 //! - [`vcs`] — [`VcsReader`]/[`VcsWriter`]: the single git seam.
+//! - [`watch`] — [`WatchSource`]: the injected filesystem-watch seam (concrete
+//!   rskit-fs adapter lives in the engine).
 //! - [`toolchain`] — [`ToolchainProber`]: the injected toolchain-probe seam
 //!   (concrete subprocess prober lives in the engine).
 //! - [`source`] — [`SourceDigest`]: the injected content-digest seam (concrete
@@ -54,6 +56,7 @@ pub mod task;
 pub mod template;
 pub mod toolchain;
 pub mod vcs;
+pub mod watch;
 
 pub use cache::{CacheStore, CacheWriter};
 pub use config::{CommonEcosystemConfig, ReleaseConfig, RunStrategy, TaskOverride};
@@ -77,6 +80,7 @@ pub use toolchain::ToolchainProber;
 pub use vcs::{
     BaselineMode, BaselineSpec, ChangeRecord, ChangeStatus, Oid, TagRef, VcsReader, VcsWriter,
 };
+pub use watch::{ChangeBatch, ChangeBatchStream, WatchSource};
 
 #[cfg(test)]
 mod object_safety {
@@ -282,6 +286,18 @@ mod object_safety {
         }
     }
 
+    struct FakeWatchSource;
+    impl WatchSource for FakeWatchSource {
+        fn changes(
+            &self,
+            _roots: &[AbsPath],
+            _debounce: std::time::Duration,
+            _cancel: tokio_util::sync::CancellationToken,
+        ) -> AppResult<ChangeBatchStream> {
+            Ok(Box::pin(futures::stream::empty()))
+        }
+    }
+
     #[test]
     fn port_traits_are_object_safe() {
         let mut reporter: Box<dyn Reporter> = Box::new(FakeReporter);
@@ -402,5 +418,18 @@ mod object_safety {
         assert_eq!(held.unit_id(), "rust:fake#run");
         held.shutdown().expect("shuts down");
         let _runner: &dyn CommandRunner = &*runner;
+    }
+
+    #[test]
+    fn watch_source_is_object_safe() {
+        let watch: Box<dyn WatchSource> = Box::new(FakeWatchSource);
+        let root = AbsPath::new(std::env::current_dir().expect("cwd")).expect("absolute");
+        let _stream = watch
+            .changes(
+                std::slice::from_ref(&root),
+                std::time::Duration::from_millis(200),
+                tokio_util::sync::CancellationToken::new(),
+            )
+            .expect("watch stream");
     }
 }

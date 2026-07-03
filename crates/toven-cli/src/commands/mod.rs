@@ -15,3 +15,4 @@ pub(crate) mod generate;
 pub(crate) mod introspect;
 pub(crate) mod run;
 pub(crate) mod selection;
+pub(crate) mod watch;

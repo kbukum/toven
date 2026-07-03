@@ -15,6 +15,7 @@ mod reporter;
 mod source;
 mod toolchain;
 mod vcs;
+mod watch;
 
 pub use cache::{FakeCacheStore, RecordingCacheStore, RecordingCacheWriter};
 pub use driver::{FakeDriverLocator, FakeDriverScaffolder};
@@ -26,3 +27,4 @@ pub use reporter::RecordingReporter;
 pub use source::{EMPTY_IDENTITY, FakeSourceDigest};
 pub use toolchain::CountingToolchainProber;
 pub use vcs::{FakeVcsReader, FakeVcsWriter, VcsWrite};
+pub use watch::{ScriptedWatchSource, WatchCall};

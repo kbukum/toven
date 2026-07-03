@@ -163,6 +163,25 @@ Explicit selection (`--module`/`--workspace`, optionally `--with-dependents`) sh
 
 `shared_inputs` are task-owned, workspace-relative paths that participate in the shared hash for every module in the task. They are for broad invalidators such as lockfiles, toolchain files, lint config, and CI-relevant config. They must be plain paths inside the workspace: no templates, globs, `.` components, parent paths, or absolute paths.
 
+## Watch mode
+
+`--watch` turns a task-APPLY run into a rerun loop. The engine `WatchSession` runs one baseline iteration, then drives the injected `WatchSource` port (an L1 contract yielding a port-owned `ChangeBatch`, so the `notify` dependency stays out of `toven-ports`). The production `RskitFsWatch` adapter in the engine implements `WatchSource` over rskit-fs's debounced filesystem watcher and converts each rskit `FsChangeBatch` into the Toven-owned `ChangeBatch`.
+
+```mermaid
+flowchart LR
+    Baseline["baseline iteration"] --> Watch["WatchSource stream"]
+    Watch --> Batch["debounced ChangeBatch"]
+    Batch -->|"rescan"| Full["baseline Selection (whole scope)"]
+    Batch -->|"paths"| Rel["relativize + drop .git/ignored/out-of-root"]
+    Rel -->|"empty"| Watch
+    Rel -->|"paths"| Sel["Selection::ChangedPaths"]
+    Full --> Rerun["PLAN → APPLY the affected subgraph"]
+    Sel --> Rerun
+    Rerun --> Watch
+```
+
+Each debounced batch is relativized against the workspace root, filtered to drop paths inside `.git` and paths the root repo ignores, and — when anything remains — mapped to a `Selection::ChangedPaths` request that plans and applies exactly the affected units. If the platform watcher drops events (typically a queue overflow) the batch carries a rescan signal (`ChangeBatch::rescan_requested`): the incomplete path list is discarded and the loop re-evaluates the caller's baseline selection instead of trusting it. The loop emits `WatchStarted`, one `WatchTriggered` per change-driven rerun (or `WatchRescan` when overflow forces a full re-evaluation), and `WatchStopped` on exit. A single shared `CancellationToken` both cancels an in-flight run and breaks the loop, so one Ctrl+C exits with the last iteration's summary. As with every other flow, only `toven-cli` prints: the session emits typed events and returns typed results.
+
 ## Extension points
 
 - New language/package-manager adapters are new `crates/toven-<name>` crates that implement the `toven-ports` traits — they never reach into the engine, CLI, or apps.

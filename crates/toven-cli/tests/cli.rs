@@ -85,3 +85,22 @@ fn explicit_selection_flags_on_a_non_selection_verb_are_gated_to_usage() {
     assert_eq!(run(&["--workspace", "rust", "modules"]), ExitCode::Usage);
     assert_eq!(run(&["--with-dependents", "modules"]), ExitCode::Usage);
 }
+
+#[test]
+fn watch_with_a_plan_only_cut_on_a_bare_task_is_gated_to_usage() {
+    // Trailing task flags land in `Command::External`, so the pre-token gate
+    // never sees them; the merged watch-combination gate must still reject a
+    // watch loop paired with a PLAN-only cut, before any project load.
+    assert_eq!(run(&["test", "--watch", "--dry-run"]), ExitCode::Usage);
+    assert_eq!(run(&["test", "--watch", "--explain"]), ExitCode::Usage);
+    // Mixed arrival: a global PLAN-only cut with a per-task `--watch` token.
+    assert_eq!(run(&["--dry-run", "test", "--watch"]), ExitCode::Usage);
+}
+
+#[test]
+fn watch_debounce_without_watch_on_a_bare_task_is_gated_to_usage() {
+    assert_eq!(
+        run(&["test", "--watch-debounce-ms", "500"]),
+        ExitCode::Usage
+    );
+}

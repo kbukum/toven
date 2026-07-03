@@ -88,6 +88,27 @@ pub enum Event {
         /// Final status.
         status: UnitStatus,
     },
+
+    // ---- WATCH level ----
+    /// Watch mode began observing the workspace; each subsequent change batch
+    /// drives one PLAN→APPLY run.
+    WatchStarted {
+        /// Trailing-edge debounce window, in milliseconds.
+        debounce_ms: u64,
+    },
+    /// A debounced batch of changes triggered a rerun. The listed paths are
+    /// workspace-relative, with paths inside `.git` and paths ignored by the
+    /// root repo already dropped.
+    WatchTriggered {
+        /// The changed paths that triggered this iteration.
+        paths: Vec<String>,
+    },
+    /// The watcher dropped events (typically a queue overflow), so the change
+    /// list was incomplete; watch mode re-evaluated the whole watched scope
+    /// instead of trusting the partial paths.
+    WatchRescan,
+    /// Watch mode stopped (cancelled by the operator or a terminating signal).
+    WatchStopped,
 }
 
 #[cfg(test)]
@@ -125,5 +146,11 @@ mod tests {
         round_trip(&Event::RunFinished {
             summary: RunStats::new(3),
         });
+        round_trip(&Event::WatchStarted { debounce_ms: 200 });
+        round_trip(&Event::WatchTriggered {
+            paths: vec!["crates/toven-model/src/lib.rs".into()],
+        });
+        round_trip(&Event::WatchRescan);
+        round_trip(&Event::WatchStopped);
     }
 }

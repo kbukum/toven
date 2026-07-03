@@ -68,6 +68,10 @@ pub struct TaskFlags {
     pub workspaces: Vec<String>,
     /// `--with-dependents`: also activate the reverse-dependents closure.
     pub with_dependents: bool,
+    /// `--watch`: rerun the affected subgraph on filesystem changes.
+    pub watch: bool,
+    /// `--watch-debounce-ms <n>`: debounce window for coalescing changes.
+    pub watch_debounce_ms: Option<u64>,
     /// `-v`/`--verbose` repeat count.
     pub verbose: u8,
     /// `-q`/`--quiet` repeat count.
@@ -123,6 +127,13 @@ pub fn parse_task(tokens: &[String]) -> AppResult<TaskInvocation> {
             "--no-cache" => flags.no_cache = true,
             "--merge-base" => flags.merge_base = true,
             "--with-dependents" => flags.with_dependents = true,
+            "--watch" => flags.watch = true,
+            "--watch-debounce-ms" => {
+                flags.watch_debounce_ms = Some(parse_debounce(&value_for(
+                    "--watch-debounce-ms",
+                    &mut iter,
+                )?)?);
+            }
             "--base" => flags.base = Some(value_for("--base", &mut iter)?),
             "--module" => flags.modules.push(value_for("--module", &mut iter)?),
             "--workspace" => flags.workspaces.push(value_for("--workspace", &mut iter)?),
@@ -173,6 +184,18 @@ fn parse_output(value: &str) -> AppResult<OutputKind> {
             format!("unknown output format `{other}` (expected `human` or `jsonl`)"),
         )),
     }
+}
+
+/// Parse the `--watch-debounce-ms` value as a non-negative millisecond count.
+fn parse_debounce(value: &str) -> AppResult<u64> {
+    value.parse::<u64>().map_err(|error| {
+        AppError::invalid_input(
+            "--watch-debounce-ms",
+            format!(
+                "`--watch-debounce-ms` requires a non-negative integer (got `{value}`): {error}"
+            ),
+        )
+    })
 }
 
 #[cfg(test)]
@@ -289,6 +312,26 @@ mod tests {
         let invocation = parse_task(&tokens(&["test", "--no-cache"])).expect("parses");
         assert_eq!(invocation.task, "test");
         assert!(invocation.flags.no_cache);
+    }
+
+    #[test]
+    fn parses_watch_flags_on_a_bare_task() {
+        let invocation = parse_task(&tokens(&["test", "--watch", "--watch-debounce-ms", "500"]))
+            .expect("parses");
+        assert_eq!(invocation.task, "test");
+        assert!(invocation.flags.watch);
+        assert_eq!(invocation.flags.watch_debounce_ms, Some(500));
+    }
+
+    #[test]
+    fn rejects_a_non_integer_watch_debounce() {
+        assert!(parse_task(&tokens(&["test", "--watch", "--watch-debounce-ms", "soon"])).is_err());
+        assert!(parse_task(&tokens(&["test", "--watch", "--watch-debounce-ms", "-5"])).is_err());
+    }
+
+    #[test]
+    fn a_missing_watch_debounce_value_is_rejected() {
+        assert!(parse_task(&tokens(&["test", "--watch-debounce-ms"])).is_err());
     }
 
     #[test]
