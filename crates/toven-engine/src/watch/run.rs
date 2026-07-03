@@ -11,6 +11,7 @@
 //! shared [`CancellationToken`] both cancels an in-flight run and breaks the
 //! loop, so a single Ctrl+C exits cleanly with the last iteration's summary.
 
+use std::ffi::OsStr;
 use std::path::{Component, Path};
 use std::sync::Arc;
 use std::time::Duration;
@@ -91,12 +92,12 @@ impl<S: RawOutputSink> WatchSession<'_, S> {
     #[allow(clippy::future_not_send)]
     pub async fn run(mut self) -> AppResult<RunStats> {
         let debounce_ms = u64::try_from(self.debounce.as_millis()).unwrap_or(u64::MAX);
-        self.reporter.emit(&Event::WatchStarted { debounce_ms })?;
 
         let roots = watch_roots(&self.request.project_root);
         let mut stream = self
             .watch
             .changes(&roots, self.debounce, self.cancel.clone())?;
+        self.reporter.emit(&Event::WatchStarted { debounce_ms })?;
 
         // Baseline iteration: the caller's selection (a full run by default).
         let baseline = self.iteration_request(0, self.request.selection.clone());
@@ -220,5 +221,5 @@ pub fn watch_roots(project_root: &AbsPath) -> Vec<AbsPath> {
 fn in_git_dir(relative: &Path) -> bool {
     relative
         .components()
-        .any(|component| matches!(component, Component::Normal(name) if name == ".git"))
+        .any(|component| matches!(component, Component::Normal(name) if name == OsStr::new(".git")))
 }

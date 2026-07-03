@@ -66,7 +66,7 @@ impl ChangeBatch {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     use super::ChangeBatch;
 
@@ -85,7 +85,7 @@ mod tests {
     fn default_batch_is_empty() {
         let batch = ChangeBatch::default();
         assert!(batch.is_empty());
-        assert_eq!(batch.paths(), &[] as &[&Path]);
+        assert!(batch.paths().is_empty());
         assert!(!batch.rescan_requested());
     }
 

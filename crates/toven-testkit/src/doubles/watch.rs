@@ -42,7 +42,16 @@ impl ScriptedWatchSource {
     /// batch of paths (no rescan signal).
     #[must_use]
     pub fn new(batches: Vec<Vec<PathBuf>>) -> Self {
-        Self::from_batches(batches.into_iter().map(ChangeBatch::new).collect())
+        Self::from_batches(
+            batches
+                .into_iter()
+                .map(|mut paths| {
+                    paths.sort();
+                    paths.dedup();
+                    ChangeBatch::new(paths)
+                })
+                .collect(),
+        )
     }
 
     /// Construct a source that replays the given [`ChangeBatch`]es verbatim,
