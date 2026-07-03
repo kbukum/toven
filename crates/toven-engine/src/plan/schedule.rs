@@ -957,7 +957,12 @@ mod tests {
     ) -> GroupOverrides {
         let mut overrides = GroupOverrides::default();
         overrides
-            .record(name, group, &members.iter().cloned().collect())
+            .record(
+                &format!("group '{name}'"),
+                name,
+                group,
+                &members.iter().cloned().collect(),
+            )
             .expect("group overrides record");
         overrides
     }

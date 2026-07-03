@@ -29,24 +29,45 @@ pub(crate) struct GroupOverrides {
     per_module: BTreeMap<ModuleKey, ModuleOverride>,
 }
 
+/// A declaring group, split into the scope-qualified `identity` used for
+/// conflict detection and the plain `name` folded into batch unit ids.
+///
+/// Two group declarations that merely share a `name` (e.g. a member-local group
+/// and an umbrella group both called `integration`) have distinct `identity`
+/// strings, so overlapping them on one module fails closed rather than silently
+/// last-writer-wins.
+#[derive(Debug, Clone)]
+struct Declaring {
+    /// Scope-qualified identity (e.g. `member 'billing' group 'integration'`).
+    identity: String,
+    /// Plain group name, folded into the batch unit id to keep overridden
+    /// members distinct.
+    name: String,
+}
+
 /// The overrides a single module inherits from the group(s) it belongs to.
 #[derive(Debug, Clone, Default)]
 struct ModuleOverride {
     /// Task-name → (declaring group, override). At most one group per task name.
-    tasks: BTreeMap<String, (String, TaskOverride)>,
+    tasks: BTreeMap<String, (Declaring, TaskOverride)>,
     /// The declaring group and its wave-ordering override, if any.
-    run_strategy: Option<(String, RunStrategy)>,
+    run_strategy: Option<(Declaring, RunStrategy)>,
 }
 
 impl GroupOverrides {
     /// Fold one group's `tasks`/`run_strategy` overrides onto each of its
     /// resolved members.
     ///
+    /// `identity` is the scope-qualified declaration identity (used to detect
+    /// conflicts between distinct declarations that may share a `name`); `name`
+    /// is the plain group name folded into batch unit ids.
+    ///
     /// # Errors
     /// A member already carrying a `run_strategy` or same-named task override
-    /// from a *different* group — overlapping groups must not disagree.
+    /// from a *different* declaration — overlapping groups must not disagree.
     pub(crate) fn record(
         &mut self,
+        identity: &str,
         name: &str,
         group: &GroupConfig,
         members: &BTreeSet<ModuleKey>,
@@ -58,21 +79,26 @@ impl GroupOverrides {
             let entry = self.per_module.entry(key.clone()).or_default();
             if let Some(strategy) = group.run_strategy {
                 match &entry.run_strategy {
-                    Some((prior, _)) if prior != name => {
-                        return Err(conflict(key, "run_strategy", prior, name));
+                    Some((prior, _)) if prior.identity != identity => {
+                        return Err(conflict(key, "run_strategy", &prior.identity, identity));
                     }
-                    _ => entry.run_strategy = Some((name.to_string(), strategy)),
+                    _ => entry.run_strategy = Some((declaring(identity, name), strategy)),
                 }
             }
             for (task, over) in &group.tasks {
                 match entry.tasks.get(task) {
-                    Some((prior, _)) if prior != name => {
-                        return Err(conflict(key, &format!("task '{task}'"), prior, name));
+                    Some((prior, _)) if prior.identity != identity => {
+                        return Err(conflict(
+                            key,
+                            &format!("task '{task}'"),
+                            &prior.identity,
+                            identity,
+                        ));
                     }
                     _ => {
                         entry
                             .tasks
-                            .insert(task.clone(), (name.to_string(), over.clone()));
+                            .insert(task.clone(), (declaring(identity, name), over.clone()));
                     }
                 }
             }
@@ -94,16 +120,24 @@ impl GroupOverrides {
         self.per_module
             .get(module)
             .and_then(|over| over.tasks.get(task))
-            .map(|(group, over)| (group.as_str(), over))
+            .map(|(group, over)| (group.name.as_str(), over))
     }
 }
 
-/// A typed conflict: two groups disagree on the same module's override slot.
+/// Build a [`Declaring`] from its scope-qualified identity and plain name.
+fn declaring(identity: &str, name: &str) -> Declaring {
+    Declaring {
+        identity: identity.to_string(),
+        name: name.to_string(),
+    }
+}
+
+/// A typed conflict: two declarations disagree on the same module's override slot.
 fn conflict(module: &ModuleKey, slot: &str, prior: &str, next: &str) -> AppError {
     AppError::invalid_input(
         "groups",
         format!(
-            "module '{module}' {slot} is overridden by conflicting groups '{prior}' and '{next}'"
+            "module '{module}' {slot} is overridden by conflicting groups ({prior}) and ({next})"
         ),
     )
 }
@@ -157,7 +191,12 @@ mod tests {
         };
 
         overrides
-            .record("integration", &group, &members(&["it"]))
+            .record(
+                "group 'integration'",
+                "integration",
+                &group,
+                &members(&["it"]),
+            )
             .expect("records");
 
         assert_eq!(
@@ -176,7 +215,12 @@ mod tests {
     fn empty_group_records_nothing() {
         let mut overrides = GroupOverrides::default();
         overrides
-            .record("plain", &GroupConfig::default(), &members(&["it"]))
+            .record(
+                "group 'plain'",
+                "plain",
+                &GroupConfig::default(),
+                &members(&["it"]),
+            )
             .expect("records");
         assert!(overrides.run_strategy(&key("it")).is_none());
     }
@@ -187,10 +231,10 @@ mod tests {
         let group = task_group();
 
         overrides
-            .record("first", &group, &members(&["it"]))
+            .record("group 'first'", "first", &group, &members(&["it"]))
             .expect("first records");
         let error = overrides
-            .record("second", &group, &members(&["it"]))
+            .record("group 'second'", "second", &group, &members(&["it"]))
             .expect_err("conflict rejected");
         assert!(error.to_string().contains("conflicting groups"), "{error}");
     }
@@ -201,11 +245,38 @@ mod tests {
         let group = strategy_group();
 
         overrides
-            .record("first", &group, &members(&["it"]))
+            .record("group 'first'", "first", &group, &members(&["it"]))
             .expect("first records");
         let error = overrides
-            .record("second", &group, &members(&["it"]))
+            .record("group 'second'", "second", &group, &members(&["it"]))
             .expect_err("conflict rejected");
         assert!(error.to_string().contains("run_strategy"), "{error}");
+    }
+
+    #[test]
+    fn same_name_groups_in_different_scopes_conflict() {
+        // A member-local group and an umbrella group that share the plain name
+        // `integration` must not be treated as the same declaration: overlapping
+        // them on one module has to fail closed, not silently overwrite.
+        let mut overrides = GroupOverrides::default();
+        let group = task_group();
+
+        overrides
+            .record(
+                "member 'billing' group 'integration'",
+                "integration",
+                &group,
+                &members(&["it"]),
+            )
+            .expect("member-local records");
+        let error = overrides
+            .record(
+                "umbrella group 'integration'",
+                "integration",
+                &group,
+                &members(&["it"]),
+            )
+            .expect_err("cross-scope conflict rejected");
+        assert!(error.to_string().contains("conflicting groups"), "{error}");
     }
 }

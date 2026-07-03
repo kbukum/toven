@@ -88,9 +88,21 @@ fn validate_groups(
     for (name, group) in groups {
         let members = resolve_members(name, group, graph, scope)?;
         enforce_guardrails(name, group, &members, graph, scope)?;
-        overrides.record(name, group, &members)?;
+        overrides.record(&override_identity(name, scope), name, group, &members)?;
     }
     Ok(())
+}
+
+/// The scope-qualified identity of a group declaration, distinguishing two
+/// declarations that merely share a `name` (a member-local group and an umbrella
+/// group both called `test`, or same-named groups in two different members) so
+/// overlapping them on one module fails closed instead of silently overwriting.
+fn override_identity(name: &str, scope: GroupScope<'_>) -> String {
+    match scope {
+        GroupScope::Member(Some(member)) => format!("member '{member}' group '{name}'"),
+        GroupScope::Member(None) => format!("group '{name}'"),
+        GroupScope::Umbrella => format!("umbrella group '{name}'"),
+    }
 }
 
 /// Resolve one group's membership entries to real module keys.
