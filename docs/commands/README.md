@@ -21,9 +21,9 @@ Affected and changed-selection commands diff a git baseline against your working
 
 - `--base <REF>` sets the baseline ref or SHA.
 - `--merge-base` diffs from `merge-base(<REF>, HEAD)` instead of `<REF>` directly.
-- `[project].base_ref` in `toven.toml` supplies the default baseline.
+- `[project].base_ref` in `toven.toml` supplies the default baseline; under a federation each member can supply its own `[[members]].base_ref`.
 
-With neither `--base` nor `[project].base_ref`, affected detection has no baseline and fails with a `no baseline reference` error.
+When no baseline is available — no `--base`, and no `[project].base_ref` or `[[members]].base_ref` — affected detection fails with a `no baseline reference` error.
 
 ## Passthrough args
 

@@ -13,7 +13,7 @@ Toven answers five questions about any task:
 ## A typical session
 
 ```bash
-toven generate                                 # scaffold toven.toml
+toven generate --write                         # scaffold toven.toml
 toven plan check --base origin/main --merge-base   # see what would run
 toven check                                    # run it
 toven test --nocapture                         # run with passthrough args
