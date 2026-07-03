@@ -12,11 +12,12 @@ use common::eid;
 use toven_engine::apply::ApplyOptions;
 use toven_engine::config::{Document, ProjectConfig, TovenConfig};
 use toven_engine::federation::MemberVcsReaders;
+use toven_engine::federation::baseline::MemberVcsReader;
 use toven_engine::output::UnitOutputChannel;
 use toven_engine::plan::{PlanRequest, Selection};
 use toven_engine::watch::WatchSession;
 use toven_model::{
-    AbsPath, DepKind, Edge, Event, Module, ModuleRef, RepoPath, ToolchainTag, Workspace,
+    AbsPath, DepKind, Edge, Event, MemberId, Module, ModuleRef, RepoPath, ToolchainTag, Workspace,
     WorkspaceId,
 };
 use toven_ports::{CommandRunner, DiscoverResponse, FanOut, Provider, Task, TaskKind};
@@ -111,13 +112,22 @@ fn drive_batches(
     batches: Vec<toven_ports::ChangeBatch>,
     vcs: &FakeVcsReader,
 ) -> (Vec<Event>, Vec<toven_testkit::WatchCall>) {
+    let readers = MemberVcsReaders::single(vcs, toven_ports::BaselineSpec::explicit("main"));
+    drive_batches_with_readers(batches, &readers)
+}
+
+/// Drive the watch loop over verbatim batches against an explicit reader view,
+/// so tests can exercise federated/member-scoped reader arrangements.
+fn drive_batches_with_readers(
+    batches: Vec<toven_ports::ChangeBatch>,
+    readers: &MemberVcsReaders<'_>,
+) -> (Vec<Event>, Vec<toven_testkit::WatchCall>) {
     let provider = rust_provider();
     let providers: Vec<&dyn Provider> = vec![&provider];
     let digest = FakeSourceDigest::new();
     let prober = CountingToolchainProber::new();
     let cache_store = FakeCacheStore::new();
     let cache_writer = RecordingCacheWriter::new();
-    let readers = MemberVcsReaders::single(vcs, toven_ports::BaselineSpec::explicit("main"));
     let runner: Arc<dyn CommandRunner> = Arc::new(FakeCommandRunner::new());
     let mut output = UnitOutputChannel::new(RecordingRawOutputSink::new());
     let mut reporter = RecordingReporter::new();
@@ -135,7 +145,7 @@ fn drive_batches(
                 request: request(),
                 document: &document,
                 providers: &providers,
-                readers: &readers,
+                readers,
                 digest: &digest,
                 prober: &prober,
                 cache_store: &cache_store,
@@ -215,6 +225,31 @@ fn an_all_ignored_batch_does_not_trigger_a_rerun() {
         "ignored paths are filtered out"
     );
     assert_eq!(count_run_started(&events), 1, "only the baseline run");
+}
+
+#[test]
+fn a_member_scoped_readers_ignore_rules_are_not_applied_to_root_paths() {
+    // In a federated setup, entries() holds member-scoped readers (member() is
+    // Some) whose ignore rules apply to their own repo root, not the umbrella
+    // root. is_ignored must consult only the degenerate/root entry, so a member
+    // reader that would "ignore" this path must NOT suppress the rerun.
+    let vcs = FakeVcsReader::new().with_ignored(vec![PathBuf::from("crates/app/src/lib.rs")]);
+    let readers = MemberVcsReaders::new(vec![MemberVcsReader::new(
+        Some(MemberId::new("app").expect("valid member id")),
+        PathBuf::new(),
+        Some(toven_ports::BaselineSpec::explicit("main")),
+        &vcs,
+    )]);
+    let batches = vec![toven_ports::ChangeBatch::new(vec![PathBuf::from(
+        "/repo/crates/app/src/lib.rs",
+    )])];
+    let (events, _calls) = drive_batches_with_readers(batches, &readers);
+
+    assert_eq!(
+        count_triggered(&events),
+        1,
+        "a member reader's ignore rules must not suppress a root-relative change"
+    );
 }
 
 #[test]
