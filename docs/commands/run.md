@@ -7,112 +7,92 @@ toven check
 toven test
 ```
 
-Use `toven run <task>` when the task name is reserved by a built-in command:
+Use `toven run <task>` when the task name shadows a reserved verb (`run`, `plan`, `generate`, `graph`, `cache`, …):
 
 ```bash
 toven run check
 ```
 
-## Behavior
-
-Task execution loads config, discovers modules for the task, builds dependency waves, prepares cache decisions, and executes cache misses. Cache hits are skipped unless the planned unit is workspace-once and must run as part of a coalesced command.
-
-Modules in the same ready wave can execute in parallel when the plan and resource grouping allow it. Dependency order is still preserved across waves.
+A run loads config, discovers modules, builds dependency waves, decides cache hits, and executes the misses. Modules in the same wave run in parallel when the plan allows; dependency order holds across waves.
 
 ## Passing arguments to the task's command
 
-Toven consumes only its own flags when they appear as a *contiguous prefix* right after the task name. The first token that is not a Toven flag — a positional argument or a flag Toven does not own — begins the task's own argument vector: it and everything after it are appended to the command verbatim, never interpreted.
+Toven consumes only its own flags that appear as a contiguous prefix right after the task name. The first token it does not own — a positional argument or an unrecognized flag — starts the command's argument vector: it and everything after it are appended to the command verbatim.
 
 ```bash
-toven test integration --nocapture      # runs: <test command> integration --nocapture
-toven test --release --features full     # --release/--features go straight to the command
-toven test --dry-run integration         # --dry-run is Toven's; integration... is the command's
+toven test integration --nocapture   # runs: <test command> integration --nocapture
+toven test --release --features full  # --release and --features go to the command
+toven test --dry-run integration      # --dry-run is Toven's; integration... is the command's
 ```
 
-An explicit `--` still forces the boundary early, which is only needed when the very first task argument would otherwise be read as a Toven flag:
+When a leading flag matches one of Toven's own, Toven claims it. So `toven test --dry-run` runs Toven's dry-run planning. To send a colliding flag to the command, use `--` or place it after a positional token:
 
 ```bash
-toven test -- --explain                  # pass --explain to the command, not to Toven
+toven test -- --dry-run          # --dry-run goes to the command
+toven test integration --dry-run  # positional ends Toven's prefix; --dry-run goes to the command
 ```
 
-A name collision is resolved deterministically: when a leading token in the prefix exactly matches one of Toven's own flags, Toven claims it. So `toven test --dry-run` runs Toven's dry-run planning, not a `--dry-run` flag on your test command. To send a colliding flag to the command instead, use `--` (`toven test -- --dry-run`), or place it after any positional or non-Toven token (`toven test integration --dry-run`), both of which end Toven's prefix. Only the leading, contiguous run of Toven-owned flags is ever absorbed; Toven never rewrites the tokens it passes through — it only decides where its prefix ends.
+A misspelled Toven flag passes through to the command rather than erroring: `toven test --moduel rust:core` sends `--moduel rust:core` to your command. Use [`toven explain`](inspect.md#toven-explain-module-task) to see the exact argv Toven planned.
 
-Because the boundary is "the first token Toven does not recognize", a *misspelled* Toven flag passes through to the command rather than erroring: `toven test --moduel rust:core` sends `--moduel rust:core` to your command verbatim (it does not select the `rust:core` module). Use `toven explain <module> <task>` to see the exact `argv` Toven planned if a Toven flag seems to have no effect.
-
-The contiguous-prefix rule above applies only to the bare `toven <task>` form. `toven run <task>` is a reserved clap subcommand, not a bare task: its Toven flags are ordinary global flags (they may appear before or after `<task>`), and its passthrough is collected only after an explicit `--`. So `toven run test integration --nocapture` is rejected (a bare positional after the reserved `run <task>` is not passthrough); write `toven run test -- integration --nocapture` instead. Prefer the bare `toven test …` form for friction-free passthrough; reach for `toven run` only when the task name shadows a reserved verb.
+`toven run <task>` is a reserved subcommand, so its passthrough is collected only after an explicit `--`. Write `toven run test -- integration --nocapture`. Prefer the bare `toven test …` form for friction-free passthrough.
 
 ## Selecting which modules run
 
-By default a task plans every module (or, with a baseline, only changed modules). Select the graph explicitly instead:
+By default a task plans every module, or — with a baseline — only changed modules and their dependents. Select the graph explicitly instead:
 
 ```bash
-toven test --module rust:core            # only the rust:core module
-toven test --workspace rust              # every module owned by the rust workspace
+toven test --module rust:core                    # only rust:core
+toven test --workspace rust                       # every module in the rust workspace
 toven test --module rust:core --with-dependents   # rust:core and everything that depends on it
 ```
 
-`--module`/`--workspace` are repeatable and mutually exclusive with the changed-selection flags (`--base`/`--merge-base`).
+`--module` and `--workspace` are repeatable and mutually exclusive with the baseline flags (`--base`/`--merge-base`). See [selecting a baseline](README.md#selecting-a-baseline).
 
 ## Watch mode
 
-`--watch` keeps a task running: after the first run Toven watches the workspace tree and reruns only the affected subgraph each time a source file changes. It is a task-APPLY loop, so it is available on `toven <task>` and `toven run <task>` only — not on the PLAN-only, introspection, or `release` verbs — and it cannot combine with `--dry-run`/`--explain`.
+`--watch` keeps a task running: after the first run it reruns the affected subgraph each time a source file changes. Ctrl+C cancels any in-flight run and exits.
 
 ```bash
-toven test --watch                       # rerun affected tests on every change
+toven test --watch
 toven test --watch --watch-debounce-ms 500   # coalesce bursts over a 500ms window
 ```
 
-Each change batch is relativized against the workspace root, filtered to drop paths inside `.git` and paths the root repo ignores (via `.gitignore`), and mapped to the changed-path selection that plans and applies exactly the affected units. If the filesystem watcher drops events (for example a queue overflow under a large burst), the batch requests a rescan: Toven discards the incomplete path list and re-runs the whole watched scope instead of trusting it. `--watch-debounce-ms <n>` sets the trailing-edge debounce window that coalesces a burst of filesystem events into one rerun (default 200ms); it only applies with `--watch`. Press Ctrl+C to cancel any in-flight run and exit cleanly.
+Each change batch is relativized against the workspace root and filtered to drop paths inside `.git` and paths the repo ignores. If the watcher drops events under a large burst, Toven reruns the whole watched scope rather than trusting a partial list. `--watch-debounce-ms` sets the trailing-edge debounce window (default 200).
+
+Watch is a task-APPLY loop: it works on `toven <task>` and `toven run <task>`, not on inspection or `release` verbs, and cannot combine with `--dry-run`/`--explain`.
 
 ## Cache control: `--refresh` vs `--no-cache`
 
-Both flags force every selected unit to re-run, but they differ in what they do with the cache afterward. `--no-cache` bypasses the cache entirely — no record is read and none is written — so it leaves the cache exactly as it was. `--refresh` also ignores existing records and re-runs, but it *writes the fresh result back*, replacing any stale entry. Reach for `--refresh` when you distrust a cached result and want to rebuild it ("rebuild and remember"); reach for `--no-cache` for a one-off run that should not touch the cache at all. The two are mutually exclusive and Toven rejects them together with a usage error.
+Both flags force every selected unit to re-run:
 
-## Per-unit timeout: `--timeout`
+- `--refresh` ignores existing records, re-runs, and writes the fresh results back. Use it to rebuild a result you distrust.
+- `--no-cache` bypasses the cache entirely — nothing is read or written. Use it for a one-off run that should not touch the cache.
 
-`--timeout <duration>` bounds how long any single execution unit may run. The value is a duration string such as `30s`, `5m`, or `2h`. When a unit exceeds the bound it is cooperatively cancelled — the same SIGTERM-and-wait teardown as `--fail-fast`/Ctrl+C, so no child process is leaked — and recorded as a distinct `timed-out` failure that drives a non-zero exit. It applies to normal units only; persistent tasks are governed by their own configured readiness timeout, not this bound. Like `--fail-fast` and `--watch`, it is available on `toven <task>` and `toven run <task>` only.
+The two are mutually exclusive. See [what invalidates cache](cache.md#what-invalidates-cache).
 
-```bash
-toven test --timeout 90s          # fail any test unit that runs longer than 90s
-toven check --refresh             # re-run every unit and refresh the cache
-```
+## Per-unit timeout
 
-## Common examples
+`--timeout <duration>` bounds how long any single unit may run (`30s`, `5m`, `2h`). On overrun the unit is cooperatively cancelled — the same teardown as `--fail-fast` and Ctrl+C, so no child process leaks — and recorded as a timeout failure that drives a non-zero exit. It applies to normal units only; persistent tasks use their configured readiness timeout.
 
 ```bash
-toven check
-toven check --dry-run
-toven check --explain
-toven check --fail-fast
-toven test --nocapture
+toven test --timeout 90s
 ```
 
 ## Output modes
 
-Human output is the default:
+Human output is the default. It streams child process bytes and reports lifecycle lines (`run:`, `done:`, `ready:`, cache states, final timing):
 
 ```bash
 toven check --output human
 ```
 
-Human mode streams child process bytes for terminal use and reports Toven lifecycle lines such as `run:`, `done:`, `ready:`, cache hit, miss, disabled states, and final timing.
-
-JSONL output is intended for tools:
+JSONL output reserves stdout for newline-delimited Toven events; child stdout is forwarded to stderr so every stdout line parses as JSON:
 
 ```bash
 toven check --output jsonl
 ```
 
-JSONL mode reserves stdout for newline-delimited Toven events. Child stdout is forwarded to stderr so consumers can parse every stdout line as JSON. Cache decision events expose the same structured cache states and reasons.
-
-## Cache location
-
-Task cache records use the platform user cache directory by default so normal runs do not create repository file changes. Use `toven cache path` to inspect the resolved directory. Set `TOVEN_CACHE_DIR` to an absolute path for isolated CI/benchmark runs, or configure the workspace-relative cache directory in TOML:
-
-```toml
-[toven.cache]
-dir = ".toven/cache"
-```
+`-v` adds per-phase, cache, and unit-lifecycle lines to human output; `-q` shows only the run summary. The JSONL stream always carries every event.
 
 ## Options
 
@@ -121,22 +101,15 @@ dir = ".toven/cache"
 | `--dry-run` | Stop after PLAN and report what would run. |
 | `--explain` | Stop after PLAN with reasoning detail. |
 | `--fail-fast` | Stop scheduling new work after the first failure. |
-| `--no-cache` | Bypass the task cache: every unit re-runs and no records are read or written. |
-| `--refresh` | Ignore cached results and re-run every unit, but still write the fresh records back (mutually exclusive with `--no-cache`). |
-| `--timeout <duration>` | Bound how long any single unit may run (e.g. `30s`, `5m`); on overrun the unit is cooperatively cancelled and reported as a timeout failure. Task-APPLY verbs only. |
-| `--base <ref>` | Changed selection: diff against `<ref>` (overrides configured `base_ref`). |
-| `--merge-base` | Changed selection: diff against `merge-base(<ref>, HEAD)`. |
-| `--module <ecosystem:name>` | Explicit selection: activate this module (repeatable). |
-| `--workspace <id>` | Explicit selection: activate every module owned by the workspace (repeatable). |
+| `--no-cache` | Bypass the cache: every unit re-runs; nothing is read or written. |
+| `--refresh` | Re-run every unit and write fresh records back (mutually exclusive with `--no-cache`). |
+| `--timeout <duration>` | Bound each unit's runtime (`30s`, `5m`); overrun is reported as a timeout failure. |
+| `--base <ref>` | Diff against `<ref>` for changed selection (overrides `[project].base_ref`). |
+| `--merge-base` | Diff against `merge-base(<ref>, HEAD)`. |
+| `--module <ecosystem:name>` | Activate this module explicitly (repeatable). |
+| `--workspace <id>` | Activate every module owned by the workspace (repeatable). |
 | `--with-dependents` | With `--module`/`--workspace`, also activate the reverse-dependents closure. |
-| `--watch` | Keep running: rerun the affected subgraph each time a watched source file changes (Ctrl+C exits). |
-| `--watch-debounce-ms <n>` | With `--watch`, trailing-edge debounce window in ms for coalescing change bursts (default 200). |
+| `--watch` | Rerun the affected subgraph on every watched source change (Ctrl+C exits). |
+| `--watch-debounce-ms <n>` | Trailing-edge debounce window in ms for `--watch` (default 200). |
 | `--output human\|jsonl` | Select human or machine-readable run events. |
-| `-v` / `-q` | Raise or lower reporter verbosity (repeatable): quiet shows only the run summary, verbose adds per-phase, cache, and unit-lifecycle lines. Affects human output only; the JSONL stream always carries every event. |
-
-## Discussion points
-
-- Whether human output is close enough to native tool output.
-- Whether JSONL events expose enough plan, cache, lifecycle, and timing data.
-- Whether ready-wave parallelism preserves expected ordering.
-- Whether any remaining output-fidelity gap justifies an opt-in PTY path.
+| `-v` / `-q` | Raise or lower human-output verbosity (repeatable). |

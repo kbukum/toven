@@ -1,29 +1,34 @@
 # Command reference
 
-Toven commands are grouped by workflow rather than listed as one flat page.
-
 | Topic | Commands |
 |-------|----------|
 | [Generating config](generate.md) | `toven generate` |
 | [Running tasks](run.md) | `toven <task>`, `toven run <task>` |
-| [Inspecting work](inspect.md) | `plan`, `affected`, `explain`, `modules`, `list`, `ls`, `graph`, `deps` |
+| [Inspecting work](inspect.md) | `plan`, `affected`, `explain`, `modules` (`list`, `ls`), `graph` (`deps`) |
 | [Managing cache](cache.md) | `cache path`, `cache stats`, `cache clean` |
 
-## Shared behavior
+Advanced verbs: `toven release` plans and publishes a release, `toven driver install|list` manages out-of-process ecosystem drivers, and `toven federation sync|status` manages federated member repos.
 
-Most commands load `toven.toml` from the current directory. Use `--config <PATH>` to point at another config file.
+## Loading config
 
-Task-oriented commands take the task as a positional argument, such as `toven plan check` or `toven affected test`. `toven modules` and `toven graph` inspect the discovered workspace without a task argument.
+Commands load `toven.toml` from the current directory, discovering upward if needed. Point at another file with `--config <PATH>`.
 
-Affected commands use git changes between a baseline and the working tree:
+Task commands take the task as a positional argument (`toven plan check`, `toven affected test`). `toven modules` and `toven graph` take no task.
 
-- `--base <REF>` selects a baseline ref or SHA.
-- `--merge-base` compares from the merge-base of `HEAD` and the selected baseline.
-- `project.base_ref` in `toven.toml` supplies the default baseline when no `--base` is provided.
-- Without `--base` or `[project].base_ref`, affected detection has no baseline and fails with a `no baseline reference` error.
+## Selecting a baseline
 
-Cache behavior is controlled by config (`[toven.cache]` settings, per-task `cache_args`, `shared_inputs`, and `persistent`) plus `TOVEN_CACHE_DIR`; there are no cache-bypassing per-invocation flags.
+Affected and changed-selection commands diff a git baseline against your working tree:
 
-Passthrough args after `--` are expanded into `{args}` in configured task argv. They disable cache by default unless the task sets `cache_args = true`.
+- `--base <REF>` sets the baseline ref or SHA.
+- `--merge-base` diffs from `merge-base(<REF>, HEAD)` instead of `<REF>` directly.
+- `[project].base_ref` in `toven.toml` supplies the default baseline.
 
-Toven stores task cache records in the platform user cache directory by default, under a workspace-specific hash and cache-format version. Set `TOVEN_CACHE_DIR` to an absolute path for CI or benchmark isolation, or configure `toven.cache.dir` with a workspace-relative path (such as `.toven/cache`) to keep records inside the repository.
+With neither `--base` nor `[project].base_ref`, affected detection has no baseline and fails with a `no baseline reference` error.
+
+## Passthrough args
+
+Arguments after the task name that Toven does not own are spliced into the task's `{args}` placeholder and sent to the command verbatim. They disable caching unless the task sets `cache_args = true`. See [passing arguments](run.md#passing-arguments-to-the-tasks-command).
+
+## Cache location
+
+Cache records live in the platform user cache directory by default. Override with `TOVEN_CACHE_DIR` or `[toven.cache].dir`. See [managing cache](cache.md).

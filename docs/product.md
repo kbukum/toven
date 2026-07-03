@@ -1,18 +1,8 @@
-# Toven product
+# What Toven does
 
-Toven is a developer-first task orchestrator for repositories with many modules. It keeps user-owned commands, adds language-aware module discovery, plans affected work, schedules ready modules, and caches successful results.
+Toven is a task orchestrator for repositories with many modules. It keeps your commands, adds language-aware module discovery, plans affected work, schedules ready modules in parallel, and caches successful results.
 
-## User promise
-
-```bash
-toven generate
-toven plan check --base origin/main --merge-base
-toven check
-toven test --nocapture
-toven explain <ecosystem:module> test
-```
-
-Toven should answer:
+Toven answers five questions about any task:
 
 1. What will run?
 2. Why will it run?
@@ -20,7 +10,19 @@ Toven should answer:
 4. What exact argv will execute?
 5. Which baseline and changed files made this affected?
 
-## High-level workflow
+## A typical session
+
+```bash
+toven generate                                 # scaffold toven.toml
+toven plan check --base origin/main --merge-base   # see what would run
+toven check                                    # run it
+toven test --nocapture                         # run with passthrough args
+toven explain rust:core test                   # see the exact planned argv
+```
+
+See the [getting started guide](getting-started.md) for a full walkthrough.
+
+## How a run flows
 
 ```mermaid
 flowchart LR
@@ -35,46 +37,43 @@ flowchart LR
     Exec --> Report[Human / JSONL output]
 ```
 
-Toven keeps command ownership in project config. The CLI selects the task, adapters discover modules, the engine decides what can run together, and the execution layer only renders the argv that was configured or adapter-provided.
+Command ownership stays in your config. The CLI selects the task, adapters discover modules, the engine decides what runs together, and the execution layer renders only the argv you configured or the adapter provided. See [architecture](architecture.md) for the internals.
 
-## Configuration experience
+## Configuration
 
-Toven uses one strict `toven.toml` with:
+Toven uses one strict `toven.toml`:
 
-- `[project]` for project name, root, schema, and default baseline.
-- `[toven]` for run-wide settings (report format, parallelism, cache) under `[toven.cache]`.
-- `[ecosystems.<id>]` for per-ecosystem discovery options, run strategy, release policy, and per-task argv under `[ecosystems.<id>.tasks.<name>]`.
-- `[groups.<name>]` for named module groupings, their guardrails, and optional group-scoped `run_strategy`/`tasks` overrides applied to the group's members only.
-- `[[overlays]]` for explicit cross-ecosystem dependency edges that native adapter metadata cannot prove.
-- `[[members]]` for multi-repo federation roots.
+- `[project]` — project name, root, and default baseline (`base_ref`).
+- `[toven]` — report format, parallelism, and `[toven.cache]`.
+- `[ecosystems.<id>]` — per-ecosystem discovery, run strategy, release policy, and per-task argv under `[ecosystems.<id>.tasks.<name>]`.
+- `[groups.<name>]` — named module groupings with guardrails and optional group-scoped `run_strategy`/`tasks` overrides.
+- `[[overlays]]` — explicit cross-ecosystem dependency edges native metadata cannot prove.
+- `[[members]]` — multi-repo federation roots.
+
+Share tasks, groups, or overlays across repos by factoring them into a file and pulling it in with `[toven].include = ["ci/shared-tasks.toml"]`. Included files must be committed. See [sharing task configuration](architecture.md#sharing-task-configuration).
 
 ## Multi-repo federation
 
-A `toven.toml` can describe a single repository or an **umbrella** that federates several. Each *member* is an independently runnable Toven project with its own `toven.toml`; the umbrella's `[[members]]` array names each member and its repo-relative root, and the umbrella composes them into one federated dependency graph keyed internally by `{member, module}`. The umbrella adds only cross-member `[[overlays]]`/`[groups.*]`; it never rewrites a member's own config. String references such as umbrella group entries may drop the `member/` qualifier when a bare `ecosystem:name` is unambiguous across the union. Umbrella `[[overlays]]` endpoints are structured `{ ecosystem, module }` refs today, so each endpoint must resolve unambiguously across members. Members are never provisioned implicitly — a run never clones or checks out member repos — and a declared member missing on disk (or lacking its own `toven.toml`) is a hard error until it is provisioned or cloned at the configured path. Affected and release run over the one federated graph: each member resolves its own change baseline, and a release plans federated but commits and tags per member repo. See [architecture.md](architecture.md#cross-repo-federation) for the composition flow.
+A `toven.toml` can describe one repository or an umbrella that federates several. Each member is an independently runnable Toven project with its own `toven.toml`; the umbrella's `[[members]]` array names each member and its repo-relative root and composes them into one federated dependency graph. Affected planning and release both operate over that single graph. See [cross-repo federation](architecture.md#cross-repo-federation).
 
-`toven generate` is the adoption path for new repositories. It detects each ecosystem present, renders a minimal reviewable starter config that leans on smart defaults, previews to stdout by default, and writes `<root>/toven.toml` with `--write`. Re-running is additive and idempotent: it adds only missing `[ecosystems.<id>]` sections, warns on existing ones, never touches `[project]`/`[toven]`, and preserves comments; `--force <id>` regenerates a single section.
+## Command surface
 
-Rust generation emits ecosystem-level Cargo manifest discovery. Cargo metadata is the source of truth for Rust path dependencies; generated overlays are reserved for relationships native metadata cannot prove.
-
-## CLI surface
-
-| Command | Product behavior |
-|---------|------------------|
-| `toven generate` | Generate a reviewable starter `toven.toml` without overwriting existing config by default. |
+| Command | What it does |
+|---------|--------------|
+| `toven generate` | Scaffold a reviewable `toven.toml`. |
 | `toven <task>` | Run a configured or adapter-default task. |
-| `toven <task> --watch` | Keep running: rerun the affected subgraph on every source change (Ctrl+C exits). |
-| `toven <task> --refresh` | Ignore cached results and re-run every unit, but still write the fresh records back (opposite of `--no-cache`, which never touches the cache). |
-| `toven <task> --timeout <duration>` | Bound each unit's runtime (e.g. `30s`, `5m`); an overrun is cancelled and reported as a timeout failure. |
-| `toven plan <task>` | Show what would run as a plan summary (unit/wave counts, and per-unit cache verdicts with `-v`). |
-| `toven affected <task>` | Show affected modules for a baseline/head. |
-| `toven explain <module> <task>` | Show the planned unit(s) for one module/task: argv, dependencies, and persistence. |
-| `toven modules` | Show module discovery results. |
-| `toven graph` | Show dependency graph. |
-| `toven cache stats` | Show the local cache path, entry count, and byte size. |
-| `toven cache clean` | Remove cache entries by policy. |
+| `toven <task> --watch` | Rerun the affected subgraph on every source change. |
+| `toven <task> --refresh` | Re-run every unit and refresh the cache. |
+| `toven <task> --timeout <duration>` | Bound each unit's runtime. |
+| `toven plan <task>` | Show what would run (unit and wave counts). |
+| `toven affected <task>` | List affected modules for a baseline. |
+| `toven explain <module> <task>` | Show the planned unit(s): argv, dependencies, persistence. |
+| `toven modules` | List discovered modules. |
+| `toven graph` | Show the dependency graph. |
+| `toven cache stats` / `clean` / `path` | Inspect and manage the local cache. |
 
-## Release scope
+See the [command reference](commands/README.md) for full flag detail.
 
-The current pre-alpha surface includes strict TOML config, Rust and Go discovery, per-ecosystem adapter configuration, selector placeholders, readiness planning, affected detection, successful-result caching, smoke coverage, workflow inspection commands, persistent tasks, and `toven generate`.
+## Status
 
-Out of scope for the first alpha: distributed execution, remote cache, CI token handling in core, toolchain installation, package installation, and Windows artifacts.
+Pre-alpha, installed from source. The current surface covers strict TOML config, Rust and Go discovery, selector placeholders, readiness planning, affected detection, result caching, persistent tasks, and `toven generate`. Distributed execution, remote cache, and toolchain installation are planned but not yet available.

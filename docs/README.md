@@ -1,20 +1,16 @@
 # Toven documentation
 
-Stable project documentation lives here. Temporary planning notes live under `tmp/` and should only describe active or remaining work.
+Start here to install Toven, adopt it in a repository, and understand what each command does.
 
 ## Documents
 
-| File | Purpose |
-|------|---------|
-| [installation.md](installation.md) | Install Toven from source while the project is pre-alpha. |
-| [getting-started.md](getting-started.md) | Generate config, inspect work, run tasks, and understand first cache decisions. |
-| [commands/](commands/README.md) | Command reference split by workflow: generate, run, inspect, and cache, including cache location policy. |
-| [benchmarking.md](benchmarking.md) | Benchmark rules and the rskit comparison matrix. |
-| [product.md](product.md) | Product promise, user workflows, command surface, and release scope. |
-| [architecture.md](architecture.md) | Hexagonal crates/apps topology, layering rules, config/discovery/planning flow, and extension points. |
-| [engineering.md](engineering.md) | Development standards, validation commands, CI gates, testing, release, and docs policy. |
-| [scenarios.md](scenarios.md) | Behavioral scenarios and examples. |
-
-## Planning notes
-
-Local active plans may live under `tmp/` while work is in progress. Durable decisions and completed phase summaries should be moved into the stable docs above instead of depending on ignored temporary files.
+| File | Read it for |
+|------|-------------|
+| [installation.md](installation.md) | Installing the `toven` binary from source. |
+| [getting-started.md](getting-started.md) | Adopting Toven in a repository: generate config, inspect, run, read cache decisions. |
+| [product.md](product.md) | What Toven does, the core workflows, and the command surface at a glance. |
+| [commands/](commands/README.md) | Command reference: generate, run, inspect, and cache. |
+| [architecture.md](architecture.md) | Crate topology, config and planning flow, federation, watch mode, and extension points. |
+| [scenarios.md](scenarios.md) | Diagrams of the core runtime flows: full run, affected run, wave bundling, cache invalidation. |
+| [benchmarking.md](benchmarking.md) | Comparing Toven against the native commands it runs. |
+| [engineering.md](engineering.md) | Contributor standards: layering rules, validation commands, testing, and release policy. |

@@ -1,23 +1,21 @@
 # Installation
 
-Toven is currently pre-alpha and is not published to crates.io yet. Install it from a local checkout.
+Install the `toven` binary from a local checkout.
 
 ## Requirements
 
-- Rust toolchain compatible with the repository `rust-toolchain.toml`; the workspace `rust-version` and CI matrix define the lower supported MSRV
-- Git, because affected planning compares working-tree changes against git baselines
-- The build tools required by the repository commands you want Toven to run (for example Cargo for Rust workspaces)
+- A Rust toolchain matching `rust-toolchain.toml` (the workspace `rust-version` sets the minimum).
+- Git — affected planning diffs your working tree against a git baseline.
+- The tools your tasks invoke (for example Cargo for Rust workspaces).
 
 ## Install from source
-
-Clone the repository, initialize submodules, and install the CLI binary:
 
 ```bash
 git submodule update --init --recursive
 cargo install --path apps/toven --locked --force
 ```
 
-Confirm that the installed binary is the one on your `PATH`:
+Confirm the binary on your `PATH`:
 
 ```bash
 which toven
@@ -25,19 +23,16 @@ toven --version
 toven --help
 ```
 
-Use the installed `toven` binary for adoption checks and benchmarks. Avoid mixing installed-binary evidence with `cargo run` output when evaluating release readiness.
+## Run from the checkout without installing
 
-## Build locally without installing
-
-For local development inside the Toven checkout:
+While developing Toven itself:
 
 ```bash
-make check
 cargo run -p toven -- --help
 ```
 
-`cargo run -p toven --` is useful while developing Toven itself. User-facing docs and benchmark evidence should use the installed `toven` binary.
+Use the installed `toven` binary for adoption checks and benchmarks so evidence reflects a real install.
 
 ## Next step
 
-After installation, follow the [getting started guide](getting-started.md) to generate a starter `toven.toml` and run your first task.
+Generate a config and run your first task with the [getting started guide](getting-started.md).
