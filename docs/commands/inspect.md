@@ -1,69 +1,55 @@
 # Inspecting work
 
-Inspection commands are read-only and should be the first step when adopting Toven in a repository.
+These commands are read-only. Run them first when adopting Toven in a repository.
 
 ## `toven plan`
 
-Renders a reviewable execution plan without running subprocesses:
+Renders the execution plan without running anything:
 
 ```bash
 toven plan check
 toven plan check --base origin/main --merge-base
 toven plan check --module rust:core --with-dependents
-toven plan test
 ```
 
-`toven plan` renders the plan as an event stream rather than executing it: a `plan: N units in M waves` line plus the terminal run summary. Add `-v` (verbose) to also see per-phase markers and a per-unit `cache <unit>: <verdict>` line for each unit. With `--base` and/or `--merge-base`, Toven resolves changed files first and plans only directly affected modules plus dependents. With `--module`/`--workspace` (optionally `--with-dependents`) it plans exactly the named targets instead; the explicit and changed-selection flags are mutually exclusive. It does not print argv (use `toven explain` for argv) and does not accept passthrough args.
+Output is an event stream: a `plan: N units in M waves` line plus the run summary. Add `-v` for per-phase markers and a `cache <unit>: <verdict>` line per unit.
+
+With `--base`/`--merge-base` it plans directly affected modules plus dependents; with `--module`/`--workspace` it plans the named targets (the two are mutually exclusive). It does not print argv — use [`toven explain`](#toven-explain-module-task) — and takes no passthrough args.
 
 ## `toven affected`
 
-Lists the modules with a scheduled unit for a task, given a baseline or an explicit selection:
+Lists the modules with a scheduled unit for a task:
 
 ```bash
-toven affected check
 toven affected check --base origin/main --merge-base
 toven affected check --module rust:core --with-dependents
 ```
 
-The output is a table of affected `ecosystem:module` refs: with `--base`/`--merge-base` these are the directly changed modules plus their dependents, and with `--module`/`--workspace` (optionally `--with-dependents`) they are the explicitly selected targets. It does not currently surface the baseline OID, changed paths, or a per-module reason category.
+Output is a table of `ecosystem:module` refs: the changed modules plus dependents (with a baseline), or the explicitly selected targets (with `--module`/`--workspace`).
 
 ## `toven explain <module> <task>`
 
-Shows the planned unit(s) for one module/task pair:
+Shows the planned unit(s) for one module and task:
 
 ```bash
 toven explain rust:rskit-config check
 ```
 
-For each matching unit the command prints a key/value block: `unit` id, `module`, `task`, `argv`, `persistent`, and `depends_on`. The module argument is an `ecosystem:module` ref, such as `rust:rskit-config`; `explain` plans every module (it does not use `--base` or `--merge-base`) and does not surface cache or affected reasoning.
+For each matching unit it prints a key/value block: `unit`, `module`, `task`, `argv`, `persistent`, and `depends_on`. The module argument is an `ecosystem:module` ref. `explain` plans every module and does not use `--base`/`--merge-base`.
 
-## `toven modules`, `toven list`, `toven ls`
+## `toven modules` (`list`, `ls`)
 
-Lists modules discovered for a task:
+Lists discovered modules as scope-qualified `ecosystem:module` refs. Takes no task argument:
 
 ```bash
 toven modules
-toven list
-toven ls
 ```
 
-Each discovered module is printed as a scope-qualified `ecosystem:module` ref in a table. The command takes no task argument.
+## `toven graph` (`deps`)
 
-## `toven graph`, `toven deps`
-
-Renders the discovered dependency graph:
+Renders the dependency graph. Text prints each module and its dependencies; DOT emits a Graphviz `digraph`:
 
 ```bash
 toven graph
 toven graph --format dot
-toven deps
 ```
-
-Text format prints each module and its dependencies. DOT format emits a Graphviz `digraph` for visualization.
-
-## Review checklist
-
-- `plan` shows the unit/wave counts and (at `-v`) per-unit cache verdicts clearly enough to review before running.
-- `affected` makes the affected module set understandable for a baseline.
-- `explain` shows the planned unit details (argv, dependencies, persistence) for a module/task.
-- `modules` and `graph` make scope-qualified module identity clear.

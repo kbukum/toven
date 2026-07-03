@@ -1,48 +1,44 @@
-# Toven architecture
+# Architecture
 
-Toven is a **hexagonal, multi-crate workspace**. The domain vocabulary sits at the center, ports define the contracts that adapters and the engine speak, and the apps are thin wiring shells. The workspace contains `toven-model`, `toven-ports`, `toven-engine`, `toven-cli`, `toven-rust`, `toven-go`, `toven-command`, `toven-testkit`, the `toven`, `toven-rs`, and `toven-go` apps.
+Toven is a hexagonal, multi-crate workspace. The domain vocabulary sits at the center, ports define the contracts adapters and the engine speak, and the apps are thin wiring shells.
 
 ## Workspace layout
 
 ```text
 crates/
-  toven-model/     # identity, dependency graph, plan + event vocabulary; pure graph/topo/wave algos
-  toven-ports/     # ports: Provider/ConfiguredAdapter, ReleaseTarget, Reporter, Vcs, RawOutputSink, ToolchainProber, SourceDigest, CacheStore + field-merge/Template/config helpers
-  toven-engine/    # PLAN spine (load·configure·discover·graph·affected·toolchain·schedule) + APPLY exec/waves + release
-  toven-rust/      # Rust adapter over the ports (cargo_metadata discovery, default tasks, toolchain probe)
-  toven-go/        # Go adapter over the ports
-  toven-command/   # generic command-driver adapter (out-of-proc RemoteAdapter envelope)
-  toven-cli/       # CLI taxonomy, argv-first dispatch, Event-stream reporting sinks (Human/Jsonl) + exit mapping
+  toven-model/     # identity, dependency graph, plan + event vocabulary; pure graph/topo/wave algorithms
+  toven-ports/     # port traits (Provider, ReleaseTarget, Reporter, Vcs, RawOutputSink, ToolchainProber, SourceDigest, CacheStore) + template/merge/config helpers
+  toven-engine/    # PLAN spine (load, configure, discover, graph, affected, toolchain, schedule) + APPLY execution + release; the strict Document loader
+  toven-rust/      # Rust adapter (cargo_metadata discovery, default tasks, toolchain probe)
+  toven-go/        # Go adapter
+  toven-command/   # generic out-of-process command-driver adapter
+  toven-cli/       # CLI taxonomy, argv-first dispatch, Human/JSONL reporting sinks (the only layer that prints)
 apps/
   toven/           # umbrella binary (multi-ecosystem dispatch)
   toven-rs/        # Rust-focused binary
   toven-go/        # Go-focused binary
 ```
 
-`mod.rs` files are declaration/re-export roots only — no logic or private items. CI enforces this with `make structure` across every `crates/*/src` tree.
+`mod.rs` files declare and re-export only. `make structure` enforces this across every `crates/*/src` tree.
 
 ## Layering rules
 
-Dependencies flow **model → ports → adapters/engine → apps**, and never upward:
+Dependencies flow downward and never upward:
 
 ```text
-L0  toven-model                      # foundational vocabulary + pure algorithms
-L1  toven-ports                      # trait contracts over the model
-L2  toven-rust, toven-go, toven-command, toven-engine   # adapters + orchestration over ports
-L3  toven-cli                        # CLI taxonomy
-L4  apps/{toven, toven-rs, toven-go} # thin wiring binaries
+L0  toven-model                                       # vocabulary + pure algorithms (the dependency root)
+L1  toven-ports                                       # trait contracts over the model
+L2  toven-rust, toven-go, toven-command, toven-engine # adapters + orchestration over ports
+L3  toven-cli                                         # CLI taxonomy
+L4  apps/{toven, toven-rs, toven-go}                  # thin wiring binaries
 ```
 
-Key import boundaries:
+- `toven-model` depends only on `rskit-errors`, `rskit-validation`, and `serde`.
+- Adapters depend on `toven-ports` and `toven-model`, never on the engine, CLI, or apps.
+- `toven-engine` owns the strict `Document` loader that parses the canonical `toven.toml`; `toven-ports` owns the shared `[ecosystems.<id>]` vocabulary (`CommonEcosystemConfig`) each adapter flattens during its own `configure`.
+- `toven-cli` is the only layer that parses human commands and writes stdio.
 
-- `toven-model` has no upward imports; it depends only on `rskit-errors`, `rskit-validation`, and `serde`/`serde_json`.
-- Adapters (`toven-rust`, `toven-go`, `toven-command`) depend on `toven-ports` and `toven-model`, never on the engine, CLI, or apps.
-- `toven-engine` owns the reserved-section schemas and the one strict `Document` loader that parses the single canonical `toven.toml`; `toven-ports` owns the shared `[ecosystems.<id>]` vocabulary (`CommonEcosystemConfig`) that each adapter flattens during its own `configure` parse. The engine does not own process stdio — raw child output and the Event stream are rendered only by `toven-cli`.
-- `toven-cli` is the only layer that handles human command parsing and stdio projections; `apps/*` only wire dependencies together.
-
-## rskit reuse
-
-Toven builds on the checked-in [`rskit`](../rskit) submodule rather than bespoke primitives: process/worker/resilience for execution, git/fs for I/O, cache for memoized results, cli/util/version/component/validation for plumbing, and errors for typed failures. New foundational gaps are fixed generically in rskit, not worked around locally.
+Toven builds on the vendored [`rskit`](../rskit) submodule for process, git/fs, cache, cli, and typed errors. Foundational gaps are fixed generically in rskit.
 
 ## Config and discovery flow
 
@@ -80,44 +76,7 @@ flowchart LR
     Render --> Output["Run or report"]
 ```
 
-Rust discovery is Cargo-metadata backed. `[ecosystems.rust].manifests` allows multi-manifest repositories, and Cargo path dependencies are inferred across configured manifests. Adapters contribute their default task set, so a hand-written config can stay minimal.
-
-Explicit `[[overlays]]` are top-level dependency edges for relationships that adapter metadata cannot prove.
-
-## Cross-repo federation
-
-A single `toven.toml` can describe either one repository or an **umbrella** that federates several. A *member* is an independently runnable Toven project: it carries its own authoritative `toven.toml` (its own `[ecosystems.*]`, tasks, groups, and overlays) and works on its own when you run Toven inside it. An umbrella file adds a `[[members]]` array that names each member and the repo-relative `root` it lives at, plus optional umbrella-level cross-member `[[overlays]]` and `[groups.*]`. The umbrella never rewrites a member's config; it only composes members and layers cross-member relationships on top.
-
-```mermaid
-flowchart TD
-    Umbrella["umbrella toven.toml ([[members]])"] --> Enumerate["enumerate + confine member roots"]
-    Enumerate --> Compose["load each member's own toven.toml"]
-    Compose --> Discover["discover per member at its own root"]
-    Discover --> Rebase["rebase into umbrella coordinates"]
-    Rebase --> Union["union into one federated graph"]
-    Union --> CrossEdges["resolve cross-member [[overlays]]/[groups]"]
-    CrossEdges --> Graph["federated dependency graph (ModuleKey {member, module})"]
-```
-
-After member discovery the engine owns **one** umbrella-coordinate federation. Every node is keyed by `ModuleKey { member, module }`: module *identity* stays two-level `ecosystem:name`, while the optional `member` qualifier disambiguates the same `ecosystem:name` exposed by two different members. Each member is discovered against its own root, then **rebased** so its module roots, workspace ids, source globs, and change paths are expressed relative to the umbrella root before the union. The degenerate single-repo project is the same code path with one implicit, unstamped member (`member = None`, empty prefix), so its plan stays byte-for-byte unchanged.
-
-String references such as umbrella group entries may omit the `member/` qualifier when a bare `ecosystem:name` is unambiguous across the union; a bare ref that several members expose is a typed error with a member-qualified hint. Umbrella `[[overlays]]` endpoints are structured `{ ecosystem, module }` refs today, so each endpoint must resolve unambiguously across members. A declared member that is missing on disk, or present without its own `toven.toml`, is a hard error rather than a warn-and-skip — a declared member is a required graph node. Members are never provisioned implicitly: a run does not clone or check out anything, and missing member repos must be provisioned or cloned at their configured paths before planning.
-
-Change selection and release are member-aware on top of this one graph. Each member resolves its own change baseline (its configured `base_ref`, or the same `--base <ref>` name applied independently per repo) and contributes umbrella-relative change records, so affected closure spans members through cross-member overlay edges. Release **planning** stays federated over the one graph and one topological publish order, while history mutations **shard per member**: each member repo gets its own clean-tree guardrail, release commit, and module tags, and publishing runs as one federated pass after the per-member commit boundary.
-
-## Config generation flow
-
-```mermaid
-flowchart TD
-    Generate[toven generate] --> Workflow[Generic generate workflow]
-    Workflow --> Contributors[Provider::scaffold contributors]
-    Contributors --> Fragments[Structured config fragments]
-    Fragments --> RenderToml[Deterministic TOML renderer]
-    RenderToml --> Preview[stdout preview]
-    RenderToml --> Write[Safe root/toven.toml write]
-```
-
-Existing configs are never replaced wholesale. Re-runs add missing `[ecosystems.<id>]` sections, preserve existing sections and `[project]`/`[toven]`, and `--force <id>` regenerates exactly one ecosystem section. Adapters contribute language/package specific fragments behind the generic `toven generate` workflow.
+Rust discovery is backed by `cargo metadata`. `[ecosystems.rust].manifests` lists the manifests for a multi-workspace repo, and Cargo path dependencies are inferred across them. Adapters contribute their default task set, so a hand-written config stays minimal. `[[overlays]]` add cross-ecosystem edges native metadata cannot prove.
 
 ## Planning, waves, and bundling
 
@@ -138,15 +97,24 @@ flowchart TD
     Split --> Rendered
 ```
 
-Think of a wave as “everything that is safe to start now.” A module joins a later wave when one of its dependencies must finish first. `batchable` keeps ready modules together when the command can handle them together, but it still splits by Cargo manifest so selectors are never sent to the wrong workspace.
+A wave is everything safe to start now. A module joins a later wave when a dependency must finish first. A `batchable` task keeps ready modules together when the command can handle them, splitting by Cargo manifest so selectors reach the right workspace.
 
 ### Group-scoped task and strategy overrides
 
-A `[groups.<name>]` may carry a group-scoped `run_strategy` and a `[groups.<name>.tasks.<task>]` map that reuse the same `TaskOverride` shape as the ecosystem-level `[ecosystems.<id>.tasks.<task>]` overrides. They layer on top of the ecosystem/adapter defaults for the group's members only, so a subset of a repo can run a task differently without a whole new ecosystem. For example, an `integration` group can run `test` with `cargo nextest run --profile ci` and `run_strategy = "unordered"` while the rest of the workspace keeps the defaults.
+A `[groups.<name>]` can carry a group-scoped `run_strategy` and `[groups.<name>.tasks.<task>]` map, reusing the same `TaskOverride` shape as `[ecosystems.<id>.tasks.<task>]`. They apply to the group's members only, so a subset of a repo runs a task differently without a new ecosystem. For example, an `integration` group can run `test` with `cargo nextest run --profile ci` and `run_strategy = "unordered"` while the rest of the workspace keeps the defaults.
 
-The task merge order is `adapter default → ecosystem [tasks] override → group [tasks] override`; the resolved task records `TaskOrigin::Group`. A group `run_strategy` wins over the ecosystem default for its members, and the per-kind adapter default applies when neither is set. Because a group override changes a member's resolved argv, an overridden member never collapses into the same batched unit as an un-overridden peer: the batch unit id folds in the declaring group's scope-qualified identity (`ecosystem@workspace~identity#kind`) so differing commands stay in distinct units. In the degenerate single-repo case that identity is just the group name; under a cross-repo umbrella it is scope-qualified (`member.<id>.<name>` or `umbrella.<name>`) so a member-local group and an umbrella group that happen to share a name never collapse together. The resolved origin (`adapter-default`, `project`, or `group`) is surfaced per unit in `toven explain` output.
+The task merge order is `adapter default → ecosystem [tasks] → group [tasks]`, and the resolved origin (`adapter-default`, `project`, or `group`) shows per unit in `toven explain`. A module reached by two groups that both override the same task or `run_strategy` is a hard error, so overrides stay explicit. Group `tasks` overrides may add `shared_inputs`, which union into the member's cache-key footprint.
 
-Precedence across overlapping groups is explicit and fails closed: a module reached by two different group declarations that both override the same task (or both set `run_strategy`) is a hard error rather than an implicit last-writer-wins. Two declarations that merely share a plain name (a member-local group and an umbrella group both called `integration`) count as distinct, so overlapping them still fails closed. Group `tasks` overrides also carry `shared_inputs`, which union into the member's cache-key footprint just as ecosystem overrides do.
+## Sharing task configuration
+
+Factor reusable tasks, groups, or overlays into a file and pull it in:
+
+```toml
+[toven]
+include = ["ci/shared-tasks.toml"]
+```
+
+`include` is a list of repository-relative files merged beneath `toven.toml` as defaults; the canonical `toven.toml` wins on collisions. Duplicate `[[members]]`, `[[overlays]]`, or `[groups.<name>]` entries across files are a hard error. Every included file must be committed, keeping each plan deterministic.
 
 ## Affected and cache decision flow
 
@@ -167,19 +135,17 @@ flowchart TD
     Disabled --> Miss
 ```
 
-Explicit selection (`--module`/`--workspace`, optionally `--with-dependents`) short-circuits the changed-file diff at the top of this flow: the named targets (and, with `--with-dependents`, their reverse-dependents closure) become the active set directly, then feed the same cache and execution stages. It is mutually exclusive with the changed-selection baseline.
-
-`shared_inputs` are task-owned, workspace-relative paths that participate in the shared hash for every module in the task. They are for broad invalidators such as lockfiles, toolchain files, lint config, and CI-relevant config. They must be plain paths inside the workspace: no templates, globs, `.` components, parent paths, or absolute paths.
+Explicit selection (`--module`/`--workspace`, optionally `--with-dependents`) short-circuits the changed-file diff: the named targets become the active set directly, then feed the same cache and execution stages. It is mutually exclusive with the baseline flags. See [what invalidates cache](commands/cache.md#what-invalidates-cache) for the full list of cache inputs.
 
 ## Watch mode
 
-`--watch` turns a task-APPLY run into a rerun loop. The engine `WatchSession` runs one baseline iteration, then drives the injected `WatchSource` port (an L1 contract yielding a port-owned `ChangeBatch`, so the `notify` dependency stays out of `toven-ports`). The production `RskitFsWatch` adapter in the engine implements `WatchSource` over rskit-fs's debounced filesystem watcher and converts each rskit `FsChangeBatch` into the Toven-owned `ChangeBatch`.
+`--watch` turns a task run into a rerun loop. The engine runs one baseline iteration, then drives an injected `WatchSource` port that yields a debounced `ChangeBatch`. The production adapter implements it over rskit-fs's filesystem watcher.
 
 ```mermaid
 flowchart LR
     Baseline["baseline iteration"] --> Watch["WatchSource stream"]
     Watch --> Batch["debounced ChangeBatch"]
-    Batch -->|"rescan"| Full["baseline Selection (whole scope)"]
+    Batch -->|"rescan"| Full["baseline selection (whole scope)"]
     Batch -->|"paths"| Rel["relativize + drop .git/ignored/out-of-root"]
     Rel -->|"empty"| Watch
     Rel -->|"paths"| Sel["Selection::ChangedPaths"]
@@ -188,11 +154,46 @@ flowchart LR
     Rerun --> Watch
 ```
 
-Each debounced batch is relativized against the workspace root, filtered to drop paths inside `.git` and paths the root repo ignores, and — when anything remains — mapped to a `Selection::ChangedPaths` request that plans and applies exactly the affected units. If the platform watcher drops events (typically a queue overflow) the batch carries a rescan signal (`ChangeBatch::rescan_requested`): the incomplete path list is discarded and the loop re-evaluates the caller's baseline selection instead of trusting it. The loop emits `WatchStarted`, one `WatchTriggered` per change-driven rerun (or `WatchRescan` when overflow forces a full re-evaluation), and `WatchStopped` on exit. A single shared `CancellationToken` both cancels an in-flight run and breaks the loop, so one Ctrl+C exits with the last iteration's summary. As with every other flow, only `toven-cli` prints: the session emits typed events and returns typed results.
+Each batch is relativized against the workspace root and filtered to drop `.git` and ignored paths. Remaining paths map to a changed-path selection that plans and applies exactly the affected units. If the watcher drops events, the batch carries a rescan signal and the loop re-evaluates the caller's baseline selection instead of trusting a partial list. One Ctrl+C cancels the in-flight run and exits with the last iteration's summary. See [watch mode](commands/run.md#watch-mode) for usage.
+
+## Cross-repo federation
+
+A `toven.toml` describes one repository or an umbrella that federates several. A member is an independently runnable Toven project with its own `toven.toml` — its own `[ecosystems.*]`, tasks, groups, and overlays. An umbrella adds a `[[members]]` array naming each member and its repo-relative `root`, plus optional cross-member `[[overlays]]` and `[groups.*]`. The umbrella composes members; it never rewrites a member's config.
+
+```mermaid
+flowchart TD
+    Umbrella["umbrella toven.toml ([[members]])"] --> Enumerate["enumerate + confine member roots"]
+    Enumerate --> Compose["load each member's toven.toml"]
+    Compose --> Discover["discover per member at its own root"]
+    Discover --> Rebase["rebase into umbrella coordinates"]
+    Rebase --> Union["union into one federated graph"]
+    Union --> CrossEdges["resolve cross-member [[overlays]]/[groups]"]
+    CrossEdges --> Graph["federated graph (ModuleKey {member, module})"]
+```
+
+Every node is keyed by `ModuleKey { member, module }`. Module identity stays two-level `ecosystem:name`; the `member` qualifier disambiguates the same `ecosystem:name` exposed by two members. Each member is discovered against its own root, then rebased so its roots, workspace ids, and change paths are expressed relative to the umbrella root.
+
+A bare `ecosystem:name` reference is allowed when it is unambiguous across the union; an ambiguous one is a typed error with a member-qualified hint. A declared member missing on disk, or lacking its own `toven.toml`, is a hard error — Toven never clones or checks out member repos. Provision members at their configured paths before planning.
+
+Affected planning and release both operate over the one graph. Each member resolves its own change baseline (its `base_ref`, or `--base <ref>` applied per repo), so affected closure spans members through cross-member overlay edges. Release planning stays federated over one topological publish order, while commits and tags shard per member repo.
+
+## Config generation flow
+
+```mermaid
+flowchart TD
+    Generate[toven generate] --> Workflow[Generic generate workflow]
+    Workflow --> Contributors[Provider::scaffold contributors]
+    Contributors --> Fragments[Structured config fragments]
+    Fragments --> RenderToml[Deterministic TOML renderer]
+    RenderToml --> Preview[stdout preview]
+    RenderToml --> Write[Safe root/toven.toml write]
+```
+
+Adapters contribute language-specific fragments behind the generic workflow. Re-runs add missing `[ecosystems.<id>]` sections and preserve existing ones. See [generating config](commands/generate.md).
 
 ## Extension points
 
-- New language/package-manager adapters are new `crates/toven-<name>` crates that implement the `toven-ports` traits — they never reach into the engine, CLI, or apps.
-- Adapter-specific config generation is contributed through `Provider::scaffold` behind the generic `toven generate` workflow.
-- Multi-ecosystem dispatch is mediated by the umbrella `toven` app and `toven-command` for out-of-process command drivers over a stdio `toven-model` envelope.
-- Shared foundational capabilities are improved in rskit generically when Toven exposes a reusable framework gap, rather than being reimplemented locally.
+- A new language adapter is a `crates/toven-<name>` crate implementing the `toven-ports` traits. It never reaches into the engine, CLI, or apps.
+- Adapter-specific config generation is contributed through `Provider::scaffold`.
+- Out-of-process command drivers are mediated by the umbrella `toven` app and `toven-command` over a stdio `toven-model` envelope.
+- Shared foundational capabilities are improved in rskit generically when Toven exposes a reusable gap.
