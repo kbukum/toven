@@ -48,7 +48,7 @@ pub(crate) struct WatchFlags {
 /// # Errors
 /// Propagates PLAN/APPLY failures and runtime construction failures. Ctrl+C is
 /// handled cooperatively by APPLY and returned as a terminal run summary.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
 pub(crate) fn execute(
     providers: &[&dyn Provider],
     project: &Project,
@@ -57,6 +57,8 @@ pub(crate) fn execute(
     passthrough: Vec<String>,
     fail_fast: bool,
     no_cache: bool,
+    refresh: bool,
+    unit_timeout: Option<std::time::Duration>,
     plan_only: bool,
     watch: WatchFlags,
     selection: &TaskSelection,
@@ -71,8 +73,13 @@ pub(crate) fn execute(
     )
     .with_passthrough(passthrough)
     .with_selection(selection.resolve(project.document.project.base_ref.as_deref())?);
+    // `--no-cache` bypasses the cache entirely (no read, no write); `--refresh`
+    // forces a re-run but still writes the fresh result. They are mutually
+    // exclusive (rejected upstream), so at most one arm applies.
     if no_cache {
         request = request.with_cache_mode(CacheMode::Disabled);
+    } else if refresh {
+        request = request.with_cache_mode(CacheMode::Force);
     }
 
     let opened = project.open_member_vcs(providers, &selection.baseline)?;
@@ -94,6 +101,7 @@ pub(crate) fn execute(
             &prober,
             &cache,
             fail_fast,
+            unit_timeout,
             watch.debounce_ms,
             sink,
         );
@@ -118,6 +126,7 @@ pub(crate) fn execute(
         Arc::new(ProcessCommandRunner::new(project.project_root.as_path()));
     let mut options = ApplyOptions {
         fail_fast,
+        unit_timeout,
         ..ApplyOptions::default()
     };
     if let Some(max_parallel) = project.max_parallel() {

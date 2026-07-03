@@ -1,9 +1,10 @@
 //! rskit-worker wrapper for already-computed command invocations.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
-use rskit_errors::AppResult;
+use rskit_errors::{AppResult, ErrorCode};
 use rskit_worker::{Handler, Pool, PoolConfig, TaskHandle};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -20,6 +21,11 @@ pub(super) enum WorkOutcome {
         /// Whether it succeeded.
         success: bool,
         /// Raw output chunks.
+        output: Vec<UnitOutput>,
+    },
+    /// A normal unit exceeded its per-unit timeout and was cancelled.
+    TimedOut {
+        /// Raw output chunks captured before the timeout cancellation.
         output: Vec<UnitOutput>,
     },
     /// A persistent unit reached readiness.
@@ -59,6 +65,9 @@ struct WorkHandler {
     /// (serial or single-unit execution and no held persistent unit), so
     /// streamed chunks never interleave.
     stream_normal_live: bool,
+    /// Optional wall-clock bound on any single normal unit; on expiry the unit's
+    /// own cancellation token is fired so the runner tears the child down.
+    unit_timeout: Option<Duration>,
 }
 
 #[async_trait]
@@ -86,11 +95,48 @@ impl Handler<WorkItem, WorkOutcome> for WorkHandler {
             }
         } else {
             let live = self.stream_normal_live.then(|| self.output.clone());
-            let outcome = self.runner.run(&invocation, cancel, live).await?;
-            Ok(WorkOutcome::Normal {
-                success: outcome.success,
-                output: outcome.output,
-            })
+            if let Some(timeout) = self.unit_timeout {
+                // Bound the run: on expiry cancel this unit's own token and then
+                // await the runner to completion so the child is torn down (never
+                // dropped/leaked), reusing the same cooperative-cancellation path
+                // as fail-fast/Ctrl+C. `biased` prefers a natural completion that
+                // lands in the same poll as the deadline.
+                let run = self.runner.run(&invocation, cancel.clone(), live);
+                tokio::pin!(run);
+                tokio::select! {
+                    biased;
+                    result = &mut run => {
+                        let outcome = result?;
+                        Ok(WorkOutcome::Normal {
+                            success: outcome.success,
+                            output: outcome.output,
+                        })
+                    }
+                    () = tokio::time::sleep(timeout) => {
+                        cancel.cancel();
+                        // We deliberately cancelled this unit, so a `Cancelled`
+                        // error (the fake/cooperative path) or an `Ok`
+                        // killed-process outcome (the rskit-process path) both
+                        // mean "timed out": salvage any captured output and
+                        // report the timeout as an explicit failure verdict.
+                        // Any *other* error is a genuine spawn/IO/teardown
+                        // failure unrelated to our cancellation — propagate it
+                        // with its cause rather than masking it as a timeout.
+                        let output = match run.await {
+                            Ok(outcome) => outcome.output,
+                            Err(error) if error.code() == ErrorCode::Cancelled => Vec::new(),
+                            Err(other) => return Err(other),
+                        };
+                        Ok(WorkOutcome::TimedOut { output })
+                    }
+                }
+            } else {
+                let outcome = self.runner.run(&invocation, cancel, live).await?;
+                Ok(WorkOutcome::Normal {
+                    success: outcome.success,
+                    output: outcome.output,
+                })
+            }
         }
     }
 }
@@ -109,12 +155,14 @@ impl ApplyPool {
         environment: InvocationEnvironment,
         output: OutputObserver,
         stream_normal_live: bool,
+        unit_timeout: Option<Duration>,
     ) -> Self {
         let handler = Arc::new(WorkHandler {
             runner,
             environment,
             output,
             stream_normal_live,
+            unit_timeout,
         });
         let config = PoolConfig::new("toven-apply").with_size(max_parallel.max(1));
         Self {

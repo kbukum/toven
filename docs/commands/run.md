@@ -64,6 +64,19 @@ toven test --watch --watch-debounce-ms 500   # coalesce bursts over a 500ms wind
 
 Each change batch is relativized against the workspace root, filtered to drop paths inside `.git` and paths the root repo ignores (via `.gitignore`), and mapped to the changed-path selection that plans and applies exactly the affected units. If the filesystem watcher drops events (for example a queue overflow under a large burst), the batch requests a rescan: Toven discards the incomplete path list and re-runs the whole watched scope instead of trusting it. `--watch-debounce-ms <n>` sets the trailing-edge debounce window that coalesces a burst of filesystem events into one rerun (default 200ms); it only applies with `--watch`. Press Ctrl+C to cancel any in-flight run and exit cleanly.
 
+## Cache control: `--refresh` vs `--no-cache`
+
+Both flags force every selected unit to re-run, but they differ in what they do with the cache afterward. `--no-cache` bypasses the cache entirely — no record is read and none is written — so it leaves the cache exactly as it was. `--refresh` also ignores existing records and re-runs, but it *writes the fresh result back*, replacing any stale entry. Reach for `--refresh` when you distrust a cached result and want to rebuild it ("rebuild and remember"); reach for `--no-cache` for a one-off run that should not touch the cache at all. The two are mutually exclusive and Toven rejects them together with a usage error.
+
+## Per-unit timeout: `--timeout`
+
+`--timeout <duration>` bounds how long any single execution unit may run. The value is a duration string such as `30s`, `5m`, or `2h`. When a unit exceeds the bound it is cooperatively cancelled — the same SIGTERM-and-wait teardown as `--fail-fast`/Ctrl+C, so no child process is leaked — and recorded as a distinct `timed-out` failure that drives a non-zero exit. It applies to normal units only; persistent tasks are governed by their own configured readiness timeout, not this bound. Like `--fail-fast` and `--watch`, it is available on `toven <task>` and `toven run <task>` only.
+
+```bash
+toven test --timeout 90s          # fail any test unit that runs longer than 90s
+toven check --refresh             # re-run every unit and refresh the cache
+```
+
 ## Common examples
 
 ```bash
@@ -109,6 +122,8 @@ dir = ".toven/cache"
 | `--explain` | Stop after PLAN with reasoning detail. |
 | `--fail-fast` | Stop scheduling new work after the first failure. |
 | `--no-cache` | Bypass the task cache: every unit re-runs and no records are read or written. |
+| `--refresh` | Ignore cached results and re-run every unit, but still write the fresh records back (mutually exclusive with `--no-cache`). |
+| `--timeout <duration>` | Bound how long any single unit may run (e.g. `30s`, `5m`); on overrun the unit is cooperatively cancelled and reported as a timeout failure. Task-APPLY verbs only. |
 | `--base <ref>` | Changed selection: diff against `<ref>` (overrides configured `base_ref`). |
 | `--merge-base` | Changed selection: diff against `merge-base(<ref>, HEAD)`. |
 | `--module <ecosystem:name>` | Explicit selection: activate this module (repeatable). |

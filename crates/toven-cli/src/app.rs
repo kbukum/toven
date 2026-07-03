@@ -156,6 +156,8 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
                 passthrough.clone(),
                 cli.fail_fast,
                 cli.no_cache,
+                cli.refresh,
+                cli.timeout,
                 cli.is_plan_only(),
                 global_watch(cli),
                 &global_selection(cli),
@@ -172,6 +174,8 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
                 Vec::new(),
                 cli.fail_fast,
                 cli.no_cache,
+                cli.refresh,
+                cli.timeout,
                 true,
                 commands::run::WatchFlags {
                     enabled: false,
@@ -231,12 +235,18 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
     let flags = &invocation.flags;
 
     // Trailing task flags land in `Command::External` tokens, so the pre-token
-    // `gate` never sees them — enforce the watch-flag combination invariants here
-    // on the merged global+task values, before the project load.
+    // `gate` never sees them — enforce the APPLY-execution flag combination
+    // invariants here on the merged global+task values, before the project load.
     let watch_enabled = cli.watch || flags.watch;
     let plan_only = cli.is_plan_only() || flags.dry_run || flags.explain;
     let debounce_present = flags.watch_debounce_ms.is_some() || cli.watch_debounce_ms.is_some();
-    flags::gate_watch_combination(watch_enabled, plan_only, debounce_present)?;
+    flags::gate_apply_flag_combination(
+        watch_enabled,
+        cli.fail_fast || flags.fail_fast,
+        flags.timeout.or(cli.timeout).is_some(),
+        plan_only,
+        debounce_present,
+    )?;
 
     let config = flags.config.clone().or_else(|| cli.config.clone());
     let project = load_with_config(providers, config.as_deref(), true)?;
@@ -250,6 +260,13 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
     let report = Report::resolve(output, verbosity, &project.document);
     let fail_fast = cli.fail_fast || flags.fail_fast;
     let no_cache = cli.no_cache || flags.no_cache;
+    let refresh = cli.refresh || flags.refresh;
+    // Trailing task flags bypass the pre-token `gate`, so enforce the same
+    // `--refresh`/`--no-cache` contradiction here on the merged values.
+    if refresh && no_cache {
+        return Err(flags::refresh_no_cache_conflict());
+    }
+    let unit_timeout = flags.timeout.or(cli.timeout);
 
     let mut baseline = BaselineFlags::new().with_merge_base(cli.merge_base || flags.merge_base);
     if let Some(reference) = flags.base.clone().or_else(|| cli.base.clone()) {
@@ -283,6 +300,8 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
         invocation.passthrough,
         fail_fast,
         no_cache,
+        refresh,
+        unit_timeout,
         plan_only,
         watch,
         &selection,

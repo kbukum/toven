@@ -369,6 +369,20 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                     Ok(true)
                 }
             }
+            WorkOutcome::TimedOut { output } => {
+                // Same output routing as a normal unit (live-drain or buffered
+                // block), then a distinct timeout failure so the summary and exit
+                // reflect it as its own reason rather than a plain non-zero exit.
+                if self.stream_normal_live {
+                    self.drain_live_output(live_output)?;
+                    self.output.finish(unit_id)?;
+                } else {
+                    self.route_output(unit_id, output)?;
+                }
+                self.failed(unit_id, UnitStatus::TimedOut, live_output)
+                    .await?;
+                Ok(true)
+            }
             WorkOutcome::PersistentReady { output, process } => {
                 self.route_output_chunks(output)?;
                 self.held.hold(process);
@@ -437,6 +451,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         match status {
             UnitStatus::FailedReadiness => self.stats.failed_readiness_units += 1,
             UnitStatus::Failed => self.stats.failed_units += 1,
+            UnitStatus::TimedOut => self.stats.timed_out_units += 1,
             _ => {}
         }
         self.reporter.emit(&Event::UnitFinished {
