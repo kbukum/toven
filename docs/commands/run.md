@@ -62,7 +62,7 @@ toven test --watch                       # rerun affected tests on every change
 toven test --watch --watch-debounce-ms 500   # coalesce bursts over a 500ms window
 ```
 
-Each change batch is relativized against the workspace root, filtered to tracked (non-`.gitignore`d) files, and mapped to the changed-path selection that plans and applies exactly the affected units. If the filesystem watcher drops events (for example a queue overflow under a large burst), the batch requests a rescan: Toven discards the incomplete path list and re-runs the whole watched scope instead of trusting it. `--watch-debounce-ms <n>` sets the trailing-edge debounce window that coalesces a burst of filesystem events into one rerun (default 200ms); it only applies with `--watch`. Press Ctrl+C to cancel any in-flight run and exit cleanly.
+Each change batch is relativized against the workspace root, filtered to drop paths inside `.git` and paths the root repo ignores (via `.gitignore`), and mapped to the changed-path selection that plans and applies exactly the affected units. If the filesystem watcher drops events (for example a queue overflow under a large burst), the batch requests a rescan: Toven discards the incomplete path list and re-runs the whole watched scope instead of trusting it. `--watch-debounce-ms <n>` sets the trailing-edge debounce window that coalesces a burst of filesystem events into one rerun (default 200ms); it only applies with `--watch`. Press Ctrl+C to cancel any in-flight run and exit cleanly.
 
 ## Common examples
 

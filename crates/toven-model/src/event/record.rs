@@ -97,7 +97,8 @@ pub enum Event {
         debounce_ms: u64,
     },
     /// A debounced batch of changes triggered a rerun. The listed paths are
-    /// workspace-relative and already filtered to tracked, non-ignored files.
+    /// workspace-relative, with paths inside `.git` and paths ignored by the
+    /// root repo already dropped.
     WatchTriggered {
         /// The changed paths that triggered this iteration.
         paths: Vec<String>,

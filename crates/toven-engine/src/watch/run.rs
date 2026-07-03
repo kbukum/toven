@@ -3,7 +3,8 @@
 //! Watch mode reruns the affected subgraph each time the workspace tree changes.
 //! The session runs one baseline iteration, then drives the injected
 //! [`WatchSource`] stream: every debounced batch is relativized against the
-//! workspace root, filtered to tracked (non-ignored) files, and — when anything
+//! workspace root, dropping paths inside `.git` and paths the root repo
+//! ignores, and — when anything
 //! remains — mapped to a [`Selection::ChangedPaths`] PLAN request that plans and
 //! applies exactly the affected units. When a batch reports a rescan (the
 //! watcher dropped events), the incomplete path list is discarded and the whole

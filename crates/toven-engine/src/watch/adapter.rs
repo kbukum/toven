@@ -40,6 +40,9 @@ impl WatchSource for RskitFsWatch {
             .collect();
         let stream = FsWatcher::new(debounce).watch(&paths, cancel)?;
         let mapped = stream.map(|batch| {
+            // rskit's `FsChangeBatch` stores paths in a `BTreeSet`, so iterating
+            // yields them already sorted and deduplicated — exactly the
+            // `ChangeBatch` contract, no re-sort needed here.
             ChangeBatch::new(batch.paths().iter().cloned().collect())
                 .with_rescan(batch.rescan_requested())
         });
