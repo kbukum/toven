@@ -25,7 +25,7 @@ fn fixtures_api_loads_shared_tree() {
     let adapter = ecosystem("rust", "adapter/cargo.toml").expect("loads ecosystem fixture");
     assert!(adapter.exists());
 
-    let repo = repo_path("single-rust").expect("resolves seed repo");
+    let repo = repo_path("rust/single").expect("resolves seed repo");
     assert!(repo.join("toven.toml").exists());
 }
 
@@ -38,7 +38,7 @@ fn fixtures_api_rejects_missing_fixture_clearly() {
 
 #[test]
 fn sample_repo_materializes_and_git_inits() {
-    let repo = SampleRepo::materialize("single-rust").expect("materializes seed repo");
+    let repo = SampleRepo::materialize("rust/single").expect("materializes seed repo");
     assert!(repo.root().join("toven.toml").exists());
     assert!(repo.child("crates/app/Cargo.toml").exists());
 

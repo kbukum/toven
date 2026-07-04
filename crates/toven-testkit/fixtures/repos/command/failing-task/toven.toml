@@ -1,0 +1,16 @@
+# A repo whose declared `check` task deliberately fails, for smoking `--fail-fast`,
+# non-zero exit propagation, and failure rendering. Uses the `command` ecosystem
+# so the failure is deterministic and toolchain-independent (`false` always exits
+# non-zero; `build` uses `true` to give the graph a green task too).
+[project]
+name = "failing-task"
+
+[[ecosystems.command.modules]]
+name = "boom"
+root = "."
+
+[ecosystems.command.tasks.check]
+argv = ["false"]
+
+[ecosystems.command.tasks.build]
+argv = ["true"]

@@ -1,0 +1,11 @@
+# A `--config` variant that defaults the report format to JSON lines, proving the
+# `[toven].report` default drives the event sink without an explicit `--output`.
+[project]
+name = "multi-module-rust"
+
+[toven]
+report = "json"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"

@@ -1,0 +1,9 @@
+# One repo containing two independent cargo workspaces (`services/a` and
+# `services/b`), each multi-module, to exercise multiple discovered workspace
+# roots under one project plus `--workspace <id>` targeting.
+[project]
+name = "multi-workspace-rust"
+
+[ecosystems.rust]
+manifests = ["services/a/Cargo.toml", "services/b/Cargo.toml"]
+run_strategy = "leaf-to-top"

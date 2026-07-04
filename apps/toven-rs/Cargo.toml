@@ -23,6 +23,7 @@ rskit-errors.workspace = true
 
 [dev-dependencies]
 toven-testkit.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

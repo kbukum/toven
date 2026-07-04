@@ -54,7 +54,7 @@ fn build_plan(
     selection: Selection,
 ) -> AppResult<Plan> {
     let request = PlanRequest::new(
-        new_run_id()?,
+        new_run_id(),
         project.document.project.name.clone(),
         intent,
         project.project_root.clone(),

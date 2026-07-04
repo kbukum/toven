@@ -9,8 +9,10 @@
 //! data + typed errors.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use rskit_errors::{AppError, AppResult};
+use rskit_util::time::{Clock, FixedClock, SharedClock, system_clock};
 use toven_engine::cache;
 use toven_engine::config::{CanonicalRegistry, Document, ReportFormat, load};
 use toven_engine::federation::{OpenMemberVcsReaders, open_project_vcs};
@@ -175,22 +177,48 @@ impl Report {
     }
 }
 
-/// A stable run identifier echoed into the emitted event stream.
+/// Environment variable that pins the CLI wall clock to a fixed Unix epoch
+/// second.
 ///
-/// # Errors
-/// A pre-epoch system clock, which leaves no monotonic basis for a unique id.
-pub(crate) fn new_run_id() -> AppResult<String> {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|error| {
-            AppError::new(
-                rskit_errors::ErrorCode::Internal,
-                "system clock is before the Unix epoch; cannot mint a run id",
-            )
-            .with_cause(error)
-        })?
-        .as_nanos();
-    Ok(format!("run-{nanos}"))
+/// Unset in normal use, so [`new_run_id`] reads the real system clock. When set
+/// to a `u64`, the clock is replaced by a [`FixedClock`] at that epoch, which
+/// makes the emitted `run_id` — and therefore the whole machine-readable Event
+/// stream — deterministic. End-to-end/snapshot harnesses set this so they can
+/// match the `jsonl` projection byte-for-byte; production leaves it unset.
+pub(crate) const RUN_CLOCK_EPOCH_ENV: &str = "TOVEN_CLOCK_EPOCH";
+
+/// Resolve the wall clock the CLI mints identifiers from.
+///
+/// A [`FixedClock`] when [`RUN_CLOCK_EPOCH_ENV`] pins an epoch second (the
+/// deterministic test/snapshot seam), else the real [`system_clock`]. Injecting
+/// the clock here keeps the wall clock out of the call sites, which reach for a
+/// resolved [`Clock`](rskit_util::time::Clock) rather than `SystemTime::now()`
+/// directly.
+fn resolve_clock() -> SharedClock {
+    std::env::var(RUN_CLOCK_EPOCH_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map_or_else(system_clock, |epoch_seconds| {
+            Arc::new(FixedClock::new(epoch_seconds, 0))
+        })
+}
+
+/// A run identifier echoed into the emitted event stream.
+///
+/// The injected [`Clock`](rskit_util::time::Clock)'s wall second, which under a
+/// [`RUN_CLOCK_EPOCH_ENV`]-pinned [`FixedClock`] is fully deterministic — that
+/// is what lets an e2e/snapshot harness match the `jsonl` Event stream exactly.
+/// `run_id` is observability-only (it is never a cache key or path, and watch
+/// mode further suffixes it per iteration), so second-resolution granularity
+/// under the system clock is sufficient.
+pub(crate) fn new_run_id() -> String {
+    run_id_from(resolve_clock().as_ref())
+}
+
+/// Format a `run_id` from an explicit clock reading (the pure, testable core of
+/// [`new_run_id`], independent of how the clock was resolved).
+fn run_id_from(clock: &dyn Clock) -> String {
+    format!("run-{}", clock.epoch_seconds())
 }
 
 #[cfg(test)]
@@ -213,6 +241,22 @@ mod tests {
 
     #[test]
     fn run_id_is_minted_and_prefixed() {
-        assert!(new_run_id().unwrap().starts_with("run-"));
+        assert!(new_run_id().starts_with("run-"));
+    }
+
+    #[test]
+    fn run_id_from_a_fixed_clock_is_deterministic() {
+        use rskit_util::time::FixedClock;
+        // A pinned clock (the `RUN_CLOCK_EPOCH_ENV` path resolves to this) yields
+        // a fully deterministic id, which is what makes the jsonl Event stream
+        // snapshot-stable. The monotonic reading is not part of the id.
+        assert_eq!(
+            super::run_id_from(&FixedClock::new(1_700_000_000, 0)),
+            "run-1700000000"
+        );
+        assert_eq!(
+            super::run_id_from(&FixedClock::new(1_700_000_042, 99)),
+            "run-1700000042"
+        );
     }
 }

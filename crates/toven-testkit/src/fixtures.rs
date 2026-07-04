@@ -145,7 +145,7 @@ mod tests {
 
     #[test]
     fn resolves_repo_directory() {
-        let repo = repo_path("single-rust").expect("resolves repo");
+        let repo = repo_path("rust/single").expect("resolves repo");
         assert!(repo.join("toven.toml").exists());
     }
 }

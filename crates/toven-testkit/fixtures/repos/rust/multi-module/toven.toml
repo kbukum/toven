@@ -1,0 +1,9 @@
+# One cargo workspace with a real dependency chain (`app -> core -> util`),
+# exercising graph ordering, waves, `--module`/`--workspace`, `affected`, and
+# `explain` against a non-trivial graph.
+[project]
+name = "multi-module-rust"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"

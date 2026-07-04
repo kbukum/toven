@@ -1,0 +1,6 @@
+[project]
+name = "services"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"

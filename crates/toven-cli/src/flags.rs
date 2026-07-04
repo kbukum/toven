@@ -706,6 +706,26 @@ mod tests {
     }
 
     #[test]
+    fn explain_positional_module_does_not_collide_with_global_module_flag() {
+        // Regression: the positional `<module>` once shared the `module` field id
+        // with the global `--module` selection flag, so `ecosystem:name` was
+        // absorbed into the selection `Vec` and tripped the selection gate. The
+        // distinct `id = "explain-module"` keeps them separate.
+        let cli = parse(&["explain", "rust:app", "build"]).expect("parses");
+        match &cli.command {
+            Command::Explain { module, task } => {
+                assert_eq!(module, "rust:app");
+                assert_eq!(task, "build");
+            }
+            other => panic!("expected explain, got {other:?}"),
+        }
+        assert!(
+            cli.module.is_empty(),
+            "the positional must not populate the global --module selection"
+        );
+    }
+
+    #[test]
     fn modules_aliases_resolve() {
         for alias in ["modules", "list", "ls"] {
             let cli = parse(&[alias]).expect("parses");
