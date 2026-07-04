@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Structure guard (development principles §4): `mod.rs` files declare and re-export
 # only — they must never contain logic or private items. Applied to every crate
-# under `crates/*/src`.
+# under `crates/*/src`. Attribute-only lines (e.g. `#[cfg(unix)]`) are permitted
+# because they annotate a following declare/re-export without introducing logic.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,6 +13,7 @@ while IFS= read -r file; do
     /^[[:space:]]*$/ { next }
     /^[[:space:]]*\/\/!/ { next }
     /^[[:space:]]*\/\/\// { next }
+    /^[[:space:]]*#\[.*\][[:space:]]*$/ { next }
     /^[[:space:]]*(pub([[:space:]]*\([^)]*\))?[[:space:]]+)?mod[[:space:]]+[A-Za-z_][A-Za-z0-9_]*;[[:space:]]*$/ { next }
     /^[[:space:]]*pub([[:space:]]*\([^)]*\))?[[:space:]]+use[[:space:]].+;[[:space:]]*$/ { next }
     /^[[:space:]]*pub([[:space:]]*\([^)]*\))?[[:space:]]+use[[:space:]].+\{[[:space:]]*$/ { next }
