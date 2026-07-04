@@ -21,7 +21,7 @@
 //! target the correct stream, so both are captured verbatim.
 
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 /// Environment variable that pins the CLI's wall clock to a fixed epoch second.
 ///
@@ -146,6 +146,10 @@ pub fn run(binary: &Path, cwd: &Path, args: &[&str]) -> RunResult {
     let output = Command::new(binary)
         .args(args)
         .current_dir(cwd)
+        // Detach stdin explicitly so any tool that reads it sees EOF instead of
+        // blocking on the test runner's stdin; keeps the "inherits no stdin"
+        // guarantee true even if this ever moves off `Command::output()`.
+        .stdin(Stdio::null())
         // Pin the wall clock so the emitted `run_id` (the only clock-derived
         // field in the Event stream) is deterministic; see `CLOCK_EPOCH_ENV`.
         .env(CLOCK_EPOCH_ENV, CLOCK_EPOCH_VALUE)
