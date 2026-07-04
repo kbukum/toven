@@ -31,13 +31,13 @@ fn graph_text_and_dot_render_the_dependency_chain() {
     let sample = repo("rust/multi-module");
     toven_rs_ok(&sample, &["graph"])
         .expect_stdout_contains("rust:app")
-        .expect_stdout_contains("  -> rust:core")
+        .expect_stdout_contains("  -> rust:corelib")
         .expect_stdout_contains("  -> rust:util");
 
     let dot = toven_rs_ok(&sample, &["graph", "--format", "dot"]);
     assert!(dot.stdout.trim_start().starts_with("digraph toven {"));
-    dot.expect_stdout_contains("\"rust:app\" -> \"rust:core\";")
-        .expect_stdout_contains("\"rust:core\" -> \"rust:util\";");
+    dot.expect_stdout_contains("\"rust:app\" -> \"rust:corelib\";")
+        .expect_stdout_contains("\"rust:corelib\" -> \"rust:util\";");
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn affected_without_a_diff_reports_the_full_set() {
     let sample = repo("rust/multi-module");
     toven_rs_ok(&sample, &["affected", "build"])
         .expect_stdout_contains("rust:app")
-        .expect_stdout_contains("rust:core")
+        .expect_stdout_contains("rust:corelib")
         .expect_stdout_contains("rust:util");
 }
 
@@ -54,9 +54,9 @@ fn explain_renders_the_planned_unit_for_a_module_and_task() {
     // Regression lock for the flags.rs id-collision fix: the positional
     // `<module>` must not be swallowed by the global `--module` flag.
     let sample = repo("rust/multi-module");
-    toven_rs(&sample, &["explain", "rust:core", "build"])
+    toven_rs(&sample, &["explain", "rust:corelib", "build"])
         .expect_success()
-        .expect_stdout_contains("rust:core")
+        .expect_stdout_contains("rust:corelib")
         .expect_stdout_contains("task:")
         .expect_stdout_contains("argv:");
 }

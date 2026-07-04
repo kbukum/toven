@@ -28,6 +28,6 @@ fn cross_repo_discovers_every_member_module() {
     // graph, so both member-scoped modules are discovered under the umbrella.
     let sample = repo("federation/cross-repo");
     toven_ok(&sample, &["modules"])
-        .expect_stdout_contains("core/rust:core")
+        .expect_stdout_contains("core/rust:corelib")
         .expect_stdout_contains("services/rust:services");
 }

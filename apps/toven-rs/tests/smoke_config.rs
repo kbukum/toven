@@ -13,7 +13,7 @@ fn unordered_variant_collapses_waves_into_one() {
     let sample = repo("rust/multi-module");
     // The graph edges are still discovered, but the run collapses to one wave.
     toven_rs_ok(&sample, &["--config", "variant-unordered.toml", "graph"])
-        .expect_stdout_contains("  -> rust:core");
+        .expect_stdout_contains("  -> rust:corelib");
     toven_rs_ok(
         &sample,
         &["--config", "variant-unordered.toml", "plan", "build"],

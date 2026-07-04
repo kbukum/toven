@@ -1,4 +1,4 @@
-# One cargo workspace with a real dependency chain (`app -> core -> util`),
+# One cargo workspace with a real dependency chain (`app -> corelib -> util`),
 # exercising graph ordering, waves, `--module`/`--workspace`, `affected`, and
 # `explain` against a non-trivial graph.
 [project]
