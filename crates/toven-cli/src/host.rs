@@ -244,7 +244,7 @@ fn run_id_from(clock: &dyn Clock) -> String {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::{discover_config, load_project, new_run_id};
+    use super::{discover_config, load_project};
 
     #[test]
     fn explicit_config_is_returned_verbatim() {
@@ -260,7 +260,11 @@ mod tests {
 
     #[test]
     fn run_id_is_minted_and_prefixed() {
-        assert!(new_run_id().unwrap().starts_with("run-"));
+        // Hermetic: compose the env-free core exactly as `new_run_id` does, so
+        // the assertion never depends on an ambient `TOVEN_CLOCK_EPOCH` (which
+        // could otherwise fail this test if a developer/CI has it set).
+        let clock = super::resolve_clock_from(None).unwrap();
+        assert!(super::run_id_from(clock.as_ref()).starts_with("run-"));
     }
 
     #[test]

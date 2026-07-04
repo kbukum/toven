@@ -179,6 +179,12 @@ pub fn run_ok(binary: &Path, cwd: &Path, args: &[&str]) -> RunResult {
 /// Used to gate toolchain-dependent APPLY smokes (e.g. skip the `go` APPLY when
 /// no `go` toolchain is installed) so a runner without that toolchain stays
 /// green instead of failing.
+///
+/// The probe uses Unix executable-bit semantics (via `rskit_fs`), matching
+/// Toven's currently Unix-only runtime stack (`rskit-process` does not yet build
+/// on Windows). A cross-platform PATH lookup — honouring Windows `PATHEXT` /
+/// `.exe` — belongs in a future generic `which`-style helper in rskit rather
+/// than a bespoke branch here, and lands with the tracked Windows port.
 #[must_use]
 pub fn program_on_path(program: &str) -> bool {
     let Some(path) = std::env::var_os("PATH") else {
