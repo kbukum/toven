@@ -184,7 +184,10 @@ impl Report {
 /// to a `u64`, the clock is replaced by a [`FixedClock`] at that epoch, which
 /// makes the emitted `run_id` — and therefore the whole machine-readable Event
 /// stream — deterministic. End-to-end/snapshot harnesses set this so they can
-/// match the `jsonl` projection byte-for-byte; production leaves it unset.
+/// match the `jsonl` projection byte-for-byte; production leaves it unset. A
+/// value that is present but not a `u64` is rejected as invalid input rather
+/// than silently falling back to the system clock, which would make a snapshot
+/// run non-deterministic for a hard-to-diagnose reason.
 pub(crate) const RUN_CLOCK_EPOCH_ENV: &str = "TOVEN_CLOCK_EPOCH";
 
 /// Resolve the wall clock the CLI mints identifiers from.
@@ -193,14 +196,30 @@ pub(crate) const RUN_CLOCK_EPOCH_ENV: &str = "TOVEN_CLOCK_EPOCH";
 /// deterministic test/snapshot seam), else the real [`system_clock`]. Injecting
 /// the clock here keeps the wall clock out of the call sites, which reach for a
 /// resolved [`Clock`](rskit_util::time::Clock) rather than `SystemTime::now()`
-/// directly.
-fn resolve_clock() -> SharedClock {
-    std::env::var(RUN_CLOCK_EPOCH_ENV)
-        .ok()
-        .and_then(|value| value.trim().parse::<u64>().ok())
-        .map_or_else(system_clock, |epoch_seconds| {
-            Arc::new(FixedClock::new(epoch_seconds, 0))
-        })
+/// directly. Fails when the env var is present but not a `u64`.
+fn resolve_clock() -> AppResult<SharedClock> {
+    resolve_clock_from(std::env::var(RUN_CLOCK_EPOCH_ENV).ok().as_deref())
+}
+
+/// Pure core of [`resolve_clock`]: map the raw env value to a clock.
+///
+/// `None` (var unset) yields the real [`system_clock`]. `Some` is the
+/// deterministic seam: a `u64` epoch second pins a [`FixedClock`], while any
+/// other value is rejected as invalid input rather than silently falling back
+/// to the system clock. Kept env-free so it is unit-testable without touching
+/// the process environment.
+fn resolve_clock_from(raw: Option<&str>) -> AppResult<SharedClock> {
+    let Some(raw) = raw else {
+        return Ok(system_clock());
+    };
+    let trimmed = raw.trim();
+    let epoch_seconds = trimmed.parse::<u64>().map_err(|error| {
+        AppError::invalid_input(
+            RUN_CLOCK_EPOCH_ENV,
+            format!("expected a u64 epoch second, got {trimmed:?}: {error}"),
+        )
+    })?;
+    Ok(Arc::new(FixedClock::new(epoch_seconds, 0)))
 }
 
 /// A run identifier echoed into the emitted event stream.
@@ -211,8 +230,8 @@ fn resolve_clock() -> SharedClock {
 /// `run_id` is observability-only (it is never a cache key or path, and watch
 /// mode further suffixes it per iteration), so second-resolution granularity
 /// under the system clock is sufficient.
-pub(crate) fn new_run_id() -> String {
-    run_id_from(resolve_clock().as_ref())
+pub(crate) fn new_run_id() -> AppResult<String> {
+    Ok(run_id_from(resolve_clock()?.as_ref()))
 }
 
 /// Format a `run_id` from an explicit clock reading (the pure, testable core of
@@ -241,7 +260,24 @@ mod tests {
 
     #[test]
     fn run_id_is_minted_and_prefixed() {
-        assert!(new_run_id().starts_with("run-"));
+        assert!(new_run_id().unwrap().starts_with("run-"));
+    }
+
+    #[test]
+    fn clock_resolves_fixed_for_a_valid_epoch_and_errors_on_garbage() {
+        use super::resolve_clock_from;
+        // Unset → the real system clock (resolves without error).
+        assert!(resolve_clock_from(None).is_ok());
+        // A `u64` epoch (surrounding whitespace trimmed) pins the fixed clock.
+        assert_eq!(
+            resolve_clock_from(Some(" 1700000000 "))
+                .unwrap()
+                .epoch_seconds(),
+            1_700_000_000
+        );
+        // Present but not a `u64` → invalid input, never a silent system-clock
+        // fallback that would make a snapshot run non-deterministic.
+        assert!(resolve_clock_from(Some("not-a-number")).is_err());
     }
 
     #[test]

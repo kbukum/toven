@@ -26,9 +26,7 @@ fn run_dry_run_matches_the_plan_cut_without_applying() {
         .expect_stderr_contains("ran:  0");
     // No APPLY status lines are emitted for a dry run.
     assert!(
-        !toven(&sample, &["run", "build", "--dry-run"])
-            .stderr
-            .contains("  ok "),
+        !out.stderr.contains("  ok "),
         "a dry run must not emit APPLY status lines"
     );
 }
