@@ -959,6 +959,68 @@ fn process_command_runner_smoke_covers_argv_cwd_capture_nonzero_and_readiness() 
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn process_command_runner_pty_gives_the_child_a_real_terminal() {
+    let workspace = TestWorkspace::new("process-command-runner-pty");
+    let runner = toven_engine::apply::ProcessCommandRunner::new(workspace.path())
+        .with_pty(toven_engine::apply::PtySize::new(40, 120));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .expect("runtime");
+    let mut env = std::collections::BTreeMap::new();
+    env.insert(
+        "PATH".to_string(),
+        std::env::var("PATH").expect("PATH available for pty test"),
+    );
+    let environment = toven_ports::InvocationEnvironment::explicit(env);
+
+    // The live observer receives the merged terminal stream as it arrives.
+    let live = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let observer = {
+        let live = Arc::clone(&live);
+        toven_ports::OutputObserver::new(move |chunk: UnitOutput| {
+            live.lock()
+                .expect("live poisoned")
+                .extend_from_slice(&chunk.bytes);
+        })
+    };
+
+    let invocation = toven_ports::Invocation::new(
+        "tty",
+        vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "if [ -t 1 ]; then printf tty; else printf notty; fi; stty size".to_string(),
+        ],
+    )
+    .with_environment(environment);
+
+    let outcome = runtime
+        .block_on(runner.run(
+            &invocation,
+            tokio_util::sync::CancellationToken::new(),
+            Some(observer),
+        ))
+        .expect("pty run");
+
+    // Live-streamed: the outcome carries no buffered bytes.
+    assert!(outcome.success);
+    assert!(outcome.output.is_empty());
+
+    let rendered = String::from_utf8(live.lock().expect("live poisoned").clone()).expect("utf8");
+    assert!(
+        rendered.contains("tty") && !rendered.contains("notty"),
+        "child must see a real terminal, got: {rendered:?}"
+    );
+    assert!(
+        rendered.contains("40 120"),
+        "child must observe the advertised window size, got: {rendered:?}"
+    );
+}
+
 #[test]
 fn process_command_runner_readiness_command_inherits_invocation_environment() {
     let workspace = TestWorkspace::new("readiness-command-env");

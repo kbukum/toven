@@ -122,8 +122,15 @@ pub(crate) fn execute(
         return Ok(exit_code(&summary));
     }
 
-    let runner: Arc<dyn CommandRunner> =
-        Arc::new(ProcessCommandRunner::new(project.project_root.as_path()));
+    // Live output lands on stderr (see `WriterRawSink::stderr`). When that is a
+    // real terminal, run live-streamed units on a PTY sized to it so their
+    // output renders exactly as it would interactively (colors, progress bars);
+    // when it is redirected or captured, fall back to deterministic pipes. PTY
+    // streaming is Unix-only; elsewhere this is a no-op.
+    let runner: Arc<dyn CommandRunner> = Arc::new(
+        ProcessCommandRunner::new(project.project_root.as_path())
+            .with_pty_matching_terminal(&std::io::stderr()),
+    );
     let mut options = ApplyOptions {
         fail_fast,
         unit_timeout,

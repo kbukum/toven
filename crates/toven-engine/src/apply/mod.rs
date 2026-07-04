@@ -12,3 +12,5 @@ mod walk;
 pub use entry::apply;
 pub use exec::ProcessCommandRunner;
 pub use options::ApplyOptions;
+#[cfg(unix)]
+pub use rskit_process::PtySize;
