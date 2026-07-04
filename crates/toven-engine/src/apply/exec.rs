@@ -59,8 +59,11 @@ impl ProcessCommandRunner {
         }
     }
 
-    /// Non-Unix stub: PTY streaming is Unix-only, so this leaves the runner in
-    /// its pipe-backed mode. See the Unix variant for the full contract.
+    /// Enable PTY streaming sized to `terminal` when it is a real terminal.
+    ///
+    /// PTY support is not available on non-Unix targets, so this is always a
+    /// no-op regardless of `terminal`: the runner keeps its deterministic
+    /// pipe-backed capture for every unit.
     #[cfg(not(unix))]
     #[must_use]
     pub fn with_pty_matching_terminal<T>(self, _terminal: &T) -> Self {
