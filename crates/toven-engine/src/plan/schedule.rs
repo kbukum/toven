@@ -221,7 +221,7 @@ fn effective_tasks(
     for (key, module) in modules {
         let adapter = adapter_for(module, adapters)?;
         let default_tasks = adapter.default_tasks();
-        let default = select_task(default_tasks.clone(), intent).ok_or_else(|| {
+        let default = select_task(&default_tasks, intent).ok_or_else(|| {
             unknown_task_error(&module.id.ecosystem.to_string(), intent, &default_tasks)
         })?;
         let effective = match overrides.task(key, intent.name()) {
@@ -578,10 +578,11 @@ fn readiness(readiness: &Readiness) -> ExecutionReadiness {
 }
 
 /// Select the adapter default task matching the intent kind (no named extra).
-fn select_task(tasks: Vec<Task>, intent: &TaskKind) -> Option<Task> {
+fn select_task(tasks: &[Task], intent: &TaskKind) -> Option<Task> {
     tasks
-        .into_iter()
+        .iter()
         .find(|task| &task.kind == intent && task.name.is_none())
+        .cloned()
 }
 
 /// The `tool@version` cache identity for a resolved toolchain tag.

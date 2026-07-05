@@ -8,6 +8,8 @@
 //! consumes), returning data only: the CLI renders it, and the scheduler reuses
 //! the candidate names for "did you mean?" enrichment. Nothing here prints.
 
+use std::collections::HashSet;
+
 use rskit_errors::AppResult;
 use toven_ports::{FanOut, Provider, TaskOrigin};
 
@@ -28,9 +30,10 @@ impl TaskCatalog {
     #[must_use]
     pub fn names(&self) -> Vec<String> {
         let mut names: Vec<String> = Vec::new();
+        let mut seen: HashSet<&str> = HashSet::new();
         for eco in &self.ecosystems {
             for task in &eco.tasks {
-                if !names.contains(&task.name) {
+                if seen.insert(task.name.as_str()) {
                     names.push(task.name.clone());
                 }
             }
