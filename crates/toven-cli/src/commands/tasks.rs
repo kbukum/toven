@@ -59,7 +59,7 @@ fn filtered(mut catalog: TaskCatalog, filter: &str) -> AppResult<TaskCatalog> {
 /// blocks (single-task detail).
 fn render_human(catalog: &TaskCatalog, detail: bool) {
     if catalog.ecosystems.is_empty() {
-        println!("no runnable tasks (no ecosystem configured)");
+        println!("no runnable tasks (no ecosystem with a loaded provider is configured)");
         return;
     }
     for eco in &catalog.ecosystems {

@@ -222,7 +222,7 @@ fn effective_tasks(
         let adapter = adapter_for(module, adapters)?;
         let default_tasks = adapter.default_tasks();
         let default = select_task(&default_tasks, intent).ok_or_else(|| {
-            unknown_task_error(&module.id.ecosystem.to_string(), intent, &default_tasks)
+            unknown_task_error(module.id.ecosystem.as_str(), intent, &default_tasks)
         })?;
         let effective = match overrides.task(key, intent.name()) {
             Some((group, over)) => {

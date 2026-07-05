@@ -9,7 +9,7 @@
 
 Advanced verbs: `toven release` plans and publishes a release, `toven driver install|list` manages out-of-process ecosystem drivers, and `toven federation sync|status` manages federated member repos.
 
-Every command carries worked examples in its `--help`; run `toven <command> --help` to see them.
+Many commands carry worked examples in their `--help`; run `toven <command> --help` to see the usage and any examples.
 
 ## Loading config
 

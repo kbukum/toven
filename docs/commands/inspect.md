@@ -64,7 +64,7 @@ toven tasks format
 toven tasks --output jsonl
 ```
 
-Without an argument it prints one table per ecosystem (task name, run strategy, and origin). Pass a task name to show that task's detail — its canonical name, argv template, and cache inputs. `--output jsonl` emits the same catalog as a machine-readable stream. If you run an unknown task, Toven suggests the nearest valid name and points you back at `toven tasks`.
+Without an argument it prints one table per ecosystem (task name, origin, fan-out, and whether the task is persistent). Pass a task name to show that task's detail — its canonical name, argv template, and cache inputs. `--output jsonl` emits the same catalog as a machine-readable stream. If you run an unknown task, Toven suggests the nearest valid name and points you back at `toven tasks`.
 
 ## `toven completions <shell>`
 
