@@ -143,7 +143,16 @@ impl<W: Write> HumanReporter<W> {
         }
         // The displayed exit is derived from the summary by the single owner, so
         // it can never disagree with the actual process exit (event-report C).
-        kv.add("exit", exit_code(summary).as_i32().to_string());
+        // Colorized by outcome (green success / red failure); a disabled palette
+        // leaves it verbatim so the projection stays byte-stable.
+        let exit = exit_code(summary).as_i32();
+        let exit_text = exit.to_string();
+        let exit_value = if exit == 0 {
+            self.palette.success(&exit_text)
+        } else {
+            self.palette.error(&exit_text)
+        };
+        kv.add("exit", exit_value.into_owned());
         write!(self.writer, "summary\n{kv}").map_err(AppError::internal)?;
         // Flush the final summary so a piped/redirected consumer receives it
         // promptly and it is not lost in a buffer on an abrupt exit.
@@ -524,6 +533,27 @@ summary
             let output = String::from_utf8(reporter.into_inner()).expect("utf8");
             assert_eq!(output, "  ok u\n");
             assert!(!output.contains('\u{1b}'), "no ANSI: {output:?}");
+        }
+    }
+
+    #[test]
+    fn palette_colorizes_the_summary_exit_line_by_outcome() {
+        // The summary exit value is painted green on success and red on failure;
+        // a disabled palette (covered above) leaves it verbatim for byte-stability.
+        let cases = [(0, "\u{1b}[32m0\u{1b}[0m"), (1, "\u{1b}[31m1\u{1b}[0m")];
+        for (failed, painted) in cases {
+            let mut summary = RunStats::new(1);
+            summary.failed_units = failed;
+            let mut reporter =
+                HumanReporter::new(Vec::new(), Verbosity::Verbose).with_palette(Palette::new(true));
+            reporter
+                .emit(&Event::RunFinished { summary })
+                .expect("emit");
+            let output = String::from_utf8(reporter.into_inner()).expect("utf8");
+            assert!(
+                output.contains(&format!("exit:  {painted}\n")),
+                "failed={failed} exit not colorized: {output:?}"
+            );
         }
     }
 
