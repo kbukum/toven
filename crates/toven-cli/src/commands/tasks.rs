@@ -123,13 +123,13 @@ fn render_jsonl(catalog: &TaskCatalog) -> AppResult<()> {
 fn task_record(ecosystem: &str, task: &TaskSummary) -> serde_json::Value {
     serde_json::json!({
         "ecosystem": ecosystem,
-        "task": task.name,
-        "kind": task.kind,
+        "task": &task.name,
+        "kind": &task.kind,
         "origin": task.origin.as_str(),
         "fan_out": task.fan_out.as_str(),
         "persistent": task.persistent,
-        "argv": task.argv,
-        "shared_inputs": task.shared_inputs,
+        "argv": &task.argv,
+        "shared_inputs": &task.shared_inputs,
     })
 }
 
