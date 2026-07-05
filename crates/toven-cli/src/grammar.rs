@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult};
 
-use crate::flags::{OutputKind, parse_duration_arg};
+use crate::flags::{ColorWhen, OutputKind, parse_duration_arg};
 
 /// The reserved built-in words. A bare top-level token equal to one of these
 /// dispatches the built-in; any other token is an argv-first task name.
@@ -82,6 +82,8 @@ pub struct TaskFlags {
     pub config: Option<PathBuf>,
     /// `--output <format>` override.
     pub output: Option<OutputKind>,
+    /// `--color <when>`: how the human reporter colorizes (`auto`/`always`/`never`).
+    pub color: Option<ColorWhen>,
     /// `--dry-run`.
     pub dry_run: bool,
     /// `--explain`.
@@ -181,6 +183,7 @@ pub fn parse_task(tokens: &[String]) -> AppResult<TaskInvocation> {
             "-q" | "--quiet" => flags.quiet = flags.quiet.saturating_add(1),
             "--config" => flags.config = Some(PathBuf::from(value_for("--config", &mut iter)?)),
             "--output" => flags.output = Some(parse_output(&value_for("--output", &mut iter)?)?),
+            "--color" => flags.color = Some(parse_color(&value_for("--color", &mut iter)?)?),
             // First non-Toven token ends the prefix: it and the rest are the
             // task's own argv, spliced verbatim and never rewritten.
             _ => {
@@ -222,6 +225,21 @@ fn parse_output(value: &str) -> AppResult<OutputKind> {
         other => Err(AppError::invalid_input(
             "--output",
             format!("unknown output format `{other}` (expected `human` or `jsonl`)"),
+        )),
+    }
+}
+
+/// Parse the `--color` value, mirroring the clap global's accepted `ColorWhen`
+/// choices so a trailing `--color` on a bare task shapes the human reporter
+/// instead of leaking into the task's passthrough argv.
+fn parse_color(value: &str) -> AppResult<ColorWhen> {
+    match value {
+        "auto" => Ok(ColorWhen::Auto),
+        "always" => Ok(ColorWhen::Always),
+        "never" => Ok(ColorWhen::Never),
+        other => Err(AppError::invalid_input(
+            "--color",
+            format!("unknown color choice `{other}` (expected `auto`, `always`, or `never`)"),
         )),
     }
 }
@@ -428,6 +446,23 @@ mod tests {
     #[test]
     fn missing_flag_value_is_rejected() {
         assert!(parse_task(&tokens(&["test", "--output"])).is_err());
+    }
+
+    #[test]
+    fn parses_color_choice_on_a_bare_task() {
+        use super::ColorWhen;
+        let invocation = parse_task(&tokens(&["test", "--color", "always"])).expect("parses");
+        assert_eq!(invocation.task, "test");
+        assert_eq!(invocation.flags.color, Some(ColorWhen::Always));
+        // `--color` is a Toven flag, so it is absorbed — never leaked into the
+        // task's own passthrough argv.
+        assert!(invocation.passthrough.is_empty());
+    }
+
+    #[test]
+    fn rejects_an_unknown_or_valueless_color_choice() {
+        assert!(parse_task(&tokens(&["test", "--color", "sometimes"])).is_err());
+        assert!(parse_task(&tokens(&["test", "--color"])).is_err());
     }
 
     #[test]

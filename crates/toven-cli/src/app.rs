@@ -273,7 +273,8 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
         cli.quiet.saturating_add(flags.quiet),
         cli.explain || flags.explain,
     );
-    let report = Report::resolve(output, verbosity, cli.color_choice(), &project.document);
+    let color = flags.color.or(cli.color).unwrap_or_default();
+    let report = Report::resolve(output, verbosity, color, &project.document);
     let fail_fast = cli.fail_fast || flags.fail_fast;
     let no_cache = cli.no_cache || flags.no_cache;
     let refresh = cli.refresh || flags.refresh;
@@ -331,8 +332,15 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
 /// argv stays sacred: a real task named `modual` still runs, so the hint is only
 /// appended *after* the token failed to resolve as a task, and never rewrites the
 /// invocation — it is advisory text on the already-typed error.
+///
+/// The predicate matches only the specific missing-task message for the attempted
+/// token (`has no '<name>' task`, the canonical intent name the scheduler emits),
+/// so unrelated `InvalidInput` failures whose text happens to contain "has no"
+/// (for example a config "... has no parent ..." error) never pick up the hint.
 fn advise_builtin_typo(task: &str, error: AppError) -> AppError {
-    if error.code() != rskit_errors::ErrorCode::InvalidInput || !error.message().contains("has no")
+    let missing_task = format!("has no '{}' task", intent_for(task).name());
+    if error.code() != rskit_errors::ErrorCode::InvalidInput
+        || !error.message().contains(&missing_task)
     {
         return error;
     }
