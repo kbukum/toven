@@ -10,6 +10,7 @@
 
 use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult};
+use toven_engine::config::{Document, ReportFormat};
 use toven_engine::plan::{TaskCatalog, TaskSummary, task_catalog};
 use toven_ports::Provider;
 
@@ -32,11 +33,22 @@ pub(crate) fn tasks(
         Some(filter) => filtered(catalog, filter)?,
         None => catalog,
     };
-    match output {
-        Some(OutputKind::Jsonl) => render_jsonl(&catalog)?,
-        _ => render_human(&catalog, name.is_some()),
+    match resolve_output(output, &project.document) {
+        OutputKind::Jsonl => render_jsonl(&catalog)?,
+        OutputKind::Human => render_human(&catalog, name.is_some()),
     }
     Ok(ExitCode::Success)
+}
+
+/// Resolve the effective output format: the explicit `--output` flag wins, else
+/// the `[toven].report` document setting — the same contract the run reporter
+/// uses ([`Report::resolve`](crate::host::Report::resolve)), so discovery honors
+/// a config-driven default too.
+fn resolve_output(flag: Option<OutputKind>, document: &Document) -> OutputKind {
+    flag.unwrap_or(match document.toven.report {
+        ReportFormat::Json => OutputKind::Jsonl,
+        _ => OutputKind::Human,
+    })
 }
 
 /// Keep only the tasks whose canonical name equals `filter`, erroring when none
@@ -72,7 +84,7 @@ fn render_human(catalog: &TaskCatalog, detail: bool) {
                     .add("origin", task.origin.as_str().to_string())
                     .add("fan-out", task.fan_out.as_str().to_string())
                     .add("persistent", task.persistent.to_string())
-                    .add("argv", task.argv.join(" "))
+                    .add("argv", format!("{:?}", task.argv))
                     .add("shared-inputs", task.shared_inputs.join(", "));
                 println!("{kv}");
             }

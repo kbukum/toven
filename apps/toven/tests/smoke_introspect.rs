@@ -115,7 +115,7 @@ fn tasks_detail_shows_a_task_argv_and_inputs() {
         .expect_stdout_contains("task:")
         .expect_stdout_contains("format")
         .expect_stdout_contains("argv:")
-        .expect_stdout_contains("cargo fmt");
+        .expect_stdout_contains("\"cargo\", \"fmt\"");
 }
 
 #[test]
