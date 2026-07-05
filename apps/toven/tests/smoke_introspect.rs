@@ -90,3 +90,46 @@ fn explain_renders_the_planned_unit_for_a_module_and_task() {
         .expect_stdout_contains("task:")
         .expect_stdout_contains("argv:");
 }
+
+#[test]
+fn tasks_lists_the_canonical_runnable_task_names_per_ecosystem() {
+    // The catalog projects the *canonical* task name (`format`, never the `fmt`
+    // shorthand), so users address tasks by the name Toven actually resolves.
+    let sample = repo("rust/multi-module");
+    let out = toven_ok(&sample, &["tasks"]);
+    out.expect_stdout_contains("rust tasks")
+        .expect_stdout_contains("format")
+        .expect_stdout_contains("build")
+        .expect_stdout_contains("test");
+    assert!(
+        !out.stdout.contains(" fmt "),
+        "the catalog must project the canonical `format`, not `fmt`, got:\n{}",
+        out.stdout
+    );
+}
+
+#[test]
+fn tasks_detail_shows_a_task_argv_and_inputs() {
+    let sample = repo("rust/multi-module");
+    toven_ok(&sample, &["tasks", "format"])
+        .expect_stdout_contains("task:")
+        .expect_stdout_contains("format")
+        .expect_stdout_contains("argv:")
+        .expect_stdout_contains("cargo fmt");
+}
+
+#[test]
+fn completions_emit_a_shell_script_for_each_supported_shell() {
+    // `completions` is a pure projection (no project load); it prints the script
+    // to stdout and exits success for every supported shell.
+    let sample = repo("rust/multi-module");
+    for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
+        let out = toven(&sample, &["completions", shell]);
+        out.expect_success();
+        assert!(
+            out.stdout.contains("toven"),
+            "the {shell} completion script should mention the binary, got:\n{}",
+            out.stdout
+        );
+    }
+}

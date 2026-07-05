@@ -17,3 +17,15 @@ pub enum FanOut {
     /// No selector; runs once per workspace (`cargo fmt --all`).
     WholeWorkspace,
 }
+
+impl FanOut {
+    /// The stable kebab-case label for reporting, matching the serialized form.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::PerModule => "per-module",
+            Self::Batchable => "batchable",
+            Self::WholeWorkspace => "whole-workspace",
+        }
+    }
+}

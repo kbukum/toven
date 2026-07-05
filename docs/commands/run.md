@@ -94,6 +94,10 @@ toven check --output jsonl
 
 `-v` adds per-phase, cache, and unit-lifecycle lines to human output; `-q` shows only the run summary. The JSONL stream always carries every event.
 
+At the default verbosity the run summary collapses the failure counters (`failed`, `blocked`, `cancelled`, `failed-readiness`, `timed-out`) to only the ones that are non-zero, so a clean run stays terse; `-v` restores the full fixed-width table. Status labels are colorized on a terminal — see [color output](README.md#color-output).
+
+If you run an unknown task, Toven suggests the nearest valid task name and points you at [`toven tasks`](inspect.md#toven-tasks). For example `toven fmt` is rejected with a "Did you mean 'format'?" hint — Toven does not silently rewrite it, since argv is never inferred.
+
 When human output goes to a real terminal, serially-run commands (serial or single-unit runs, no held persistent unit) execute attached to a pseudoterminal sized to that terminal, so their output renders exactly as it would interactively — colors, progress bars, and other tty-gated styling are preserved verbatim. When output is redirected, captured, or units run in parallel, Toven falls back to deterministic pipe capture (no tty), so tools that gate styling on a terminal emit plain text. Pseudoterminal streaming is currently Unix-only; on other platforms Toven always uses pipe capture. Selection is automatic from whether **stderr** (where live output lands) is a terminal — there is no flag to force or disable it; redirect or pipe stderr (e.g. `2>&1 | cat`, or `2>file`) to force deterministic pipe capture even from a terminal.
 
 ## Options
@@ -114,4 +118,5 @@ When human output goes to a real terminal, serially-run commands (serial or sing
 | `--watch` | Rerun the affected subgraph on every watched source change (Ctrl+C exits). |
 | `--watch-debounce-ms <n>` | Trailing-edge debounce window in ms for `--watch` (default 200). |
 | `--output human\|jsonl` | Select human or machine-readable run events. |
+| `--color auto\|always\|never` | Colorize human status labels (`auto` follows the terminal; `NO_COLOR` overrides `always`). |
 | `-v` / `-q` | Raise or lower human-output verbosity (repeatable). |

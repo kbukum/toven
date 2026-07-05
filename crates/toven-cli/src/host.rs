@@ -20,7 +20,7 @@ use toven_engine::vcs::BaselineFlags;
 use toven_model::AbsPath;
 use toven_ports::Provider;
 
-use crate::flags::{OutputKind, Verbosity};
+use crate::flags::{ColorWhen, OutputKind, Verbosity};
 use crate::report::{HumanReporter, JsonlReporter};
 
 /// The canonical `toven.toml` config filename.
@@ -138,16 +138,19 @@ enum Format {
 pub(crate) struct Report {
     format: Format,
     verbosity: Verbosity,
+    color: ColorWhen,
 }
 
 impl Report {
     /// Resolve the reporter binding: the `--output` flag wins for the format,
     /// else the `[toven].report` document setting; `verbosity` is the resolved
-    /// `-v`/`-q` level.
+    /// `-v`/`-q` level; `color` is the `--color` policy applied to the human
+    /// sink (the machine projection is never colorized).
     #[must_use]
     pub(crate) const fn resolve(
         flag: Option<OutputKind>,
         verbosity: Verbosity,
+        color: ColorWhen,
         document: &Document,
     ) -> Self {
         let format = match flag {
@@ -158,7 +161,11 @@ impl Report {
                 _ => Format::Human,
             },
         };
-        Self { format, verbosity }
+        Self {
+            format,
+            verbosity,
+            color,
+        }
     }
 
     /// Build the matching reporter sink at the resolved verbosity.
@@ -167,11 +174,16 @@ impl Report {
     /// diagnostics), while the Jsonl sink lands on stdout as the machine-readable
     /// projection. The verbosity filters the human reporter's rendering of the
     /// Event stream; the JSON-lines sink ignores it and always emits every event
-    /// so a machine consumer sees the complete record.
+    /// so a machine consumer sees the complete record. The `--color` policy is
+    /// resolved against stderr's terminal state and applied to the human sink
+    /// only — the machine projection stays byte-stable.
     #[must_use]
     pub(crate) fn reporter(self) -> Box<dyn toven_ports::Reporter> {
         match self.format {
-            Format::Human => Box::new(HumanReporter::stderr(self.verbosity)),
+            Format::Human => {
+                let palette = rskit_cli::Palette::for_stream(self.color.into(), &std::io::stderr());
+                Box::new(HumanReporter::stderr(self.verbosity).with_palette(palette))
+            }
             Format::Jsonl => Box::new(JsonlReporter::stdout()),
         }
     }

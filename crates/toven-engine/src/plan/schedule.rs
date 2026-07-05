@@ -220,15 +220,9 @@ fn effective_tasks(
     let mut resolved = BTreeMap::new();
     for (key, module) in modules {
         let adapter = adapter_for(module, adapters)?;
-        let default = select_task(adapter.default_tasks(), intent).ok_or_else(|| {
-            AppError::invalid_input(
-                "tasks",
-                format!(
-                    "ecosystem '{}' has no '{}' task",
-                    module.id.ecosystem,
-                    intent.name()
-                ),
-            )
+        let default_tasks = adapter.default_tasks();
+        let default = select_task(default_tasks.clone(), intent).ok_or_else(|| {
+            unknown_task_error(&module.id.ecosystem.to_string(), intent, &default_tasks)
         })?;
         let effective = match overrides.task(key, intent.name()) {
             Some((group, over)) => {
@@ -247,6 +241,34 @@ fn effective_tasks(
         resolved.insert(key.clone(), effective);
     }
     Ok(resolved)
+}
+
+/// Build the typed error for an intent that no task in `ecosystem` satisfies,
+/// enriched with the nearest resolvable task name and a discovery hint.
+///
+/// The candidate set is the ecosystem's resolved task names (canonical, so
+/// `format` not `fmt`); a nearest match within the default edit-distance is
+/// offered as advisory data in the message. The error stays a typed
+/// [`AppError`] — the CLI's renderer is what prints it.
+fn unknown_task_error(ecosystem: &str, intent: &TaskKind, available: &[Task]) -> AppError {
+    let names: Vec<String> = available.iter().map(task_addressable_name).collect();
+    let wanted = intent.name();
+    let suggestion = rskit_util::strings::nearest(wanted, names.iter().map(String::as_str))
+        .map_or_else(String::new, |name| format!(" Did you mean '{name}'?"));
+    AppError::invalid_input(
+        "tasks",
+        format!(
+            "ecosystem '{ecosystem}' has no '{wanted}' task.{suggestion} Run 'toven tasks' to list every runnable task."
+        ),
+    )
+}
+
+/// The user-addressable canonical name of a resolved task (the explicit name for
+/// a named extra, else the built-in kind's canonical name).
+fn task_addressable_name(task: &Task) -> String {
+    task.name
+        .clone()
+        .unwrap_or_else(|| task.kind.name().to_string())
 }
 
 /// Map every active module to the id of the unit that will carry it.
@@ -652,9 +674,43 @@ mod tests {
 
     use super::super::configure::{ConfiguredSet, MemberAdapters};
     use super::super::overrides::GroupOverrides;
-    use super::schedule;
+    use super::{schedule, unknown_task_error};
     use crate::plan::discover::Federation;
     use crate::plan::request::PlanRequest;
+
+    #[test]
+    fn unknown_task_error_suggests_the_nearest_name_and_discovery_hint() {
+        let available = vec![
+            Task::new(
+                TaskKind::Format,
+                vec!["cargo".into(), "fmt".into()],
+                FanOut::WholeWorkspace,
+            ),
+            Task::new(
+                TaskKind::Test,
+                vec!["cargo".into(), "test".into()],
+                FanOut::Batchable,
+            ),
+        ];
+        let error = unknown_task_error("rust", &TaskKind::Custom("fmt".into()), &available);
+        let message = error.to_string();
+        assert!(message.contains("has no 'fmt' task"), "{message}");
+        assert!(message.contains("Did you mean 'format'?"), "{message}");
+        assert!(message.contains("toven tasks"), "{message}");
+    }
+
+    #[test]
+    fn unknown_task_error_omits_a_suggestion_for_a_far_off_name() {
+        let available = vec![Task::new(
+            TaskKind::Test,
+            vec!["cargo".into(), "test".into()],
+            FanOut::Batchable,
+        )];
+        let error = unknown_task_error("rust", &TaskKind::Custom("zzzzzz".into()), &available);
+        let message = error.to_string();
+        assert!(!message.contains("Did you mean"), "{message}");
+        assert!(message.contains("toven tasks"), "{message}");
+    }
 
     fn eid(id: &str) -> EcosystemId {
         EcosystemId::new(id).unwrap()

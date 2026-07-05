@@ -20,6 +20,70 @@ use toven_engine::vcs::BaselineFlags;
 /// `--watch-debounce-ms` is not given.
 pub const DEFAULT_WATCH_DEBOUNCE_MS: u64 = 200;
 
+/// Top-level `--help` examples covering the most common argv-first workflows.
+const TOP_LEVEL_EXAMPLES: &str = "\
+Examples:
+  toven test                 Run the `test` task across the affected modules
+  toven build --dry-run      Show the PLAN cut without executing anything
+  toven test -- --nocapture  Splice passthrough args at each task's `{args}`
+  toven modules              List the discovered modules
+  toven tasks                List every runnable task, per ecosystem
+  toven graph --format dot   Emit the dependency graph as Graphviz DOT
+  toven completions zsh      Print a zsh completion script
+
+Any non-reserved token is an argv-first task name. Run `toven <command> --help`
+for command-specific examples.";
+
+/// `run` verb examples (the argv-first escape hatch for shadowed task names).
+const RUN_EXAMPLES: &str = "\
+Examples:
+  toven run test             Run a task whose name shadows a reserved verb
+  toven run test -- -q       Forward `-q` to the task at its `{args}` slot";
+
+/// `plan` verb examples.
+const PLAN_EXAMPLES: &str = "\
+Examples:
+  toven plan build           Show the PLAN cut (waves + units) for `build`";
+
+/// `explain` verb examples.
+const EXPLAIN_EXAMPLES: &str = "\
+Examples:
+  toven explain rust:core test   Explain why `test` runs for one module";
+
+/// `affected` verb examples.
+const AFFECTED_EXAMPLES: &str = "\
+Examples:
+  toven affected test        Project the modules a `test` run would touch";
+
+/// `modules` verb examples.
+const MODULES_EXAMPLES: &str = "\
+Examples:
+  toven modules              List every discovered module";
+
+/// `graph` verb examples.
+const GRAPH_EXAMPLES: &str = "\
+Examples:
+  toven graph                Print the dependency graph as indented text
+  toven graph --format dot   Emit Graphviz DOT for `dot -Tsvg`";
+
+/// `tasks` verb examples.
+const TASKS_EXAMPLES: &str = "\
+Examples:
+  toven tasks                List every runnable task, per ecosystem
+  toven tasks format         Show one task's argv template and inputs";
+
+/// `completions` verb examples.
+const COMPLETIONS_EXAMPLES: &str = "\
+Examples:
+  toven completions zsh > _toven      Install zsh completions
+  source <(toven completions bash)    Load bash completions for this shell";
+
+/// `generate` verb examples.
+const GENERATE_EXAMPLES: &str = "\
+Examples:
+  toven generate --write     Scaffold a `toven.toml` for the current repo
+  toven generate --force rust   Regenerate just the `[ecosystems.rust]` block";
+
 /// Parse a `--timeout` duration string (e.g. `30s`, `5m`) into a [`Duration`].
 ///
 /// A clap `value_parser`, so it also backs the trailing-token path via
@@ -59,6 +123,45 @@ pub enum GraphFormat {
     Text,
     /// Graphviz DOT.
     Dot,
+}
+
+/// When to emit ANSI color in the human reporter, selected by `--color`.
+///
+/// Maps to rskit's [`ColorChoice`](rskit_cli::ColorChoice); the `NO_COLOR`
+/// environment variable always overrides an explicit `always`, following the
+/// [`NO_COLOR` standard](https://no-color.org).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+#[value(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum ColorWhen {
+    /// Color only when stderr is a terminal and `NO_COLOR` is unset (default).
+    #[default]
+    Auto,
+    /// Force color on (still overridden by `NO_COLOR`).
+    Always,
+    /// Force color off.
+    Never,
+}
+
+impl From<ColorWhen> for rskit_cli::ColorChoice {
+    fn from(when: ColorWhen) -> Self {
+        match when {
+            ColorWhen::Auto => Self::Auto,
+            ColorWhen::Always => Self::Always,
+            ColorWhen::Never => Self::Never,
+        }
+    }
+}
+
+impl std::fmt::Display for ColorWhen {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            Self::Auto => "auto",
+            Self::Always => "always",
+            Self::Never => "never",
+        };
+        f.write_str(label)
+    }
 }
 
 /// The resolved reporter verbosity level (cli-taxonomy `-v`/`-q`).
@@ -109,6 +212,7 @@ impl Verbosity {
     name = "toven",
     version,
     about = "Toven — argv-first development and CI task planner for multi-module repositories",
+    after_help = TOP_LEVEL_EXAMPLES,
     allow_external_subcommands = true,
     subcommand_required = true,
     arg_required_else_help = true
@@ -121,6 +225,11 @@ pub struct Cli {
     /// Event-sink format (defaults to the `[toven].report` setting).
     #[arg(long, global = true, value_name = "FORMAT")]
     pub output: Option<OutputKind>,
+    /// When to colorize the human reporter: `auto` (default), `always`, or
+    /// `never`. `NO_COLOR` always wins over `always`. Only the execution verbs
+    /// build a human reporter, so an explicit `--color` is rejected elsewhere.
+    #[arg(long, global = true, value_name = "WHEN")]
+    pub color: Option<ColorWhen>,
     /// Run the PLAN cut only, without APPLY.
     #[arg(long, global = true)]
     pub dry_run: bool,
@@ -212,6 +321,7 @@ pub struct Cli {
 #[non_exhaustive]
 pub enum Command {
     /// Run a task by name (escape hatch for task names that shadow a reserved word).
+    #[command(after_long_help = RUN_EXAMPLES)]
     Run {
         /// Task name to run.
         task: String,
@@ -220,6 +330,7 @@ pub enum Command {
         passthrough: Vec<String>,
     },
     /// Render the PLAN cut for a task (`run <task> --dry-run`).
+    #[command(after_long_help = PLAN_EXAMPLES)]
     Plan {
         /// Task to plan.
         task: String,
@@ -227,6 +338,7 @@ pub enum Command {
     /// Plan and publish a release.
     Release,
     /// Explain the PLAN cut filtered to one module and task.
+    #[command(after_long_help = EXPLAIN_EXAMPLES)]
     Explain {
         /// Module ref (`ecosystem:module`).
         ///
@@ -240,18 +352,32 @@ pub enum Command {
         task: String,
     },
     /// Scaffold or regenerate `toven.toml` sections.
+    #[command(after_long_help = GENERATE_EXAMPLES)]
     Generate,
     /// Project the affected-module set for a task.
+    #[command(after_long_help = AFFECTED_EXAMPLES)]
     Affected {
         /// Task whose blast radius is projected.
         task: String,
     },
     /// List discovered modules.
-    #[command(visible_aliases = ["list", "ls"])]
+    #[command(visible_aliases = ["list", "ls"], after_long_help = MODULES_EXAMPLES)]
     Modules,
     /// Project the dependency graph (text or dot).
-    #[command(visible_alias = "deps")]
+    #[command(visible_alias = "deps", after_long_help = GRAPH_EXAMPLES)]
     Graph,
+    /// List the runnable tasks resolved for each ecosystem.
+    #[command(after_long_help = TASKS_EXAMPLES)]
+    Tasks {
+        /// Optional task name to show in detail (argv template, inputs).
+        name: Option<String>,
+    },
+    /// Print a shell completion script (`bash`/`zsh`/`fish`/`powershell`/`elvish`).
+    #[command(after_long_help = COMPLETIONS_EXAMPLES)]
+    Completions {
+        /// Target shell for the emitted completion script.
+        shell: clap_complete::Shell,
+    },
     /// Out-of-process driver management.
     Driver {
         /// Driver action.
@@ -326,6 +452,13 @@ impl Cli {
         Verbosity::for_execution(self.verbose, self.quiet, self.explain)
     }
 
+    /// The color policy applied to the human reporter, defaulting to `auto` when
+    /// `--color` is not given.
+    #[must_use]
+    pub fn color_choice(&self) -> ColorWhen {
+        self.color.unwrap_or(ColorWhen::Auto)
+    }
+
     /// The CLI-sourced baseline selection (`--base`/`--merge-base`) threaded into
     /// changed-selection. Empty when neither flag is given, so the engine falls
     /// back to the configured `base_ref`.
@@ -356,24 +489,7 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     if cli.no_push && !is_release {
         return Err(only_applies("--no-push", "toven release", verb));
     }
-    if cli.force.is_some() && !is_generate {
-        return Err(only_applies("--force", "toven generate", verb));
-    }
-    if cli.root.is_some() && !is_generate {
-        return Err(only_applies("--root", "toven generate", verb));
-    }
-    if cli.write && !is_generate {
-        return Err(only_applies("--write", "toven generate", verb));
-    }
-    if cli.stdout && !is_generate {
-        return Err(only_applies("--stdout", "toven generate", verb));
-    }
-    // `--stdout` (preview, write nothing) and `--write` (persist the file) are
-    // contradictory sinks for the rendered document; reject the combination
-    // rather than silently letting one win.
-    if cli.stdout && cli.write {
-        return Err(stdout_write_conflict());
-    }
+    gate_generate_flags(cli, verb, is_generate)?;
     if cli.format.is_some() && !is_graph {
         return Err(only_applies("--format", "toven graph", verb));
     }
@@ -392,14 +508,19 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
             verb,
         ));
     }
-    if (cli.dry_run || cli.explain || cli.output.is_some())
-        && !accepts_execution_flags(&cli.command)
-    {
+    if (cli.dry_run || cli.explain) && !accepts_execution_flags(&cli.command) {
         return Err(AppError::invalid_input(
             "flags",
-            format!(
-                "execution flags (--dry-run/--explain/--output) do not apply to `toven {verb}`"
-            ),
+            format!("execution flags (--dry-run/--explain) do not apply to `toven {verb}`"),
+        ));
+    }
+    // `--output` selects the event-sink/projection format; the execution verbs
+    // and the `tasks` discovery verb render a chooseable projection, but the
+    // other introspection/maintenance verbs print their own fixed rendering.
+    if cli.output.is_some() && !accepts_output_format(&cli.command) {
+        return Err(AppError::invalid_input(
+            "flags",
+            format!("`--output` does not apply to `toven {verb}`"),
         ));
     }
     // `-v`/`-q` only shape the human reporter, which only the execution verbs
@@ -411,6 +532,15 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
             format!(
                 "reporter verbosity (-v/--verbose, -q/--quiet) does not apply to `toven {verb}`"
             ),
+        ));
+    }
+    // `--color` shapes the same human reporter as `-v`/`-q`; only the execution
+    // verbs build it. An explicit `--color` on an introspection/maintenance verb
+    // would be a silent no-op, so reject it rather than advertise one.
+    if cli.color.is_some() && !accepts_execution_flags(&cli.command) {
+        return Err(AppError::invalid_input(
+            "flags",
+            format!("`--color` does not apply to `toven {verb}`"),
         ));
     }
     // `--fail-fast` shapes APPLY scheduling, so it is meaningful only on the
@@ -467,6 +597,31 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     // `--module`/`--workspace`/`--with-dependents` shape explicit selection —
     // both belong to the same selection verbs; other verbs would ignore them.
     gate_selection_flags(cli, verb)?;
+    Ok(())
+}
+
+/// Reject the `generate`-only scaffolding flags (`--force`/`--root`/`--write`/
+/// `--stdout`) on any other verb, and reject the contradictory `--stdout` +
+/// `--write` sink combination on `generate` itself.
+fn gate_generate_flags(cli: &Cli, verb: &str, is_generate: bool) -> AppResult<()> {
+    if cli.force.is_some() && !is_generate {
+        return Err(only_applies("--force", "toven generate", verb));
+    }
+    if cli.root.is_some() && !is_generate {
+        return Err(only_applies("--root", "toven generate", verb));
+    }
+    if cli.write && !is_generate {
+        return Err(only_applies("--write", "toven generate", verb));
+    }
+    if cli.stdout && !is_generate {
+        return Err(only_applies("--stdout", "toven generate", verb));
+    }
+    // `--stdout` (preview, write nothing) and `--write` (persist the file) are
+    // contradictory sinks for the rendered document; reject the combination
+    // rather than silently letting one win.
+    if cli.stdout && cli.write {
+        return Err(stdout_write_conflict());
+    }
     Ok(())
 }
 
@@ -579,12 +734,18 @@ const fn accepts_watch(command: &Command) -> bool {
 }
 
 /// Whether `command` is an execution verb that accepts reporter-shaping flags
-/// (`--dry-run`/`--explain`/`--output` and the `-v`/`-q` verbosity counts).
+/// (`--dry-run`/`--explain` and the `-v`/`-q` verbosity counts).
 const fn accepts_execution_flags(command: &Command) -> bool {
     matches!(
         command,
         Command::Run { .. } | Command::Plan { .. } | Command::Release | Command::External(_)
     )
+}
+
+/// Whether `command` renders a projection whose format `--output` selects: the
+/// execution verbs plus the `tasks` discovery verb.
+const fn accepts_output_format(command: &Command) -> bool {
+    accepts_execution_flags(command) || matches!(command, Command::Tasks { .. })
 }
 
 /// Whether `command` is a task-APPLY verb that consumes `--fail-fast`.
@@ -662,6 +823,8 @@ fn verb_name(command: &Command) -> &str {
         Command::Affected { .. } => "affected",
         Command::Modules => "modules",
         Command::Graph => "graph",
+        Command::Tasks { .. } => "tasks",
+        Command::Completions { .. } => "completions",
         Command::Driver { .. } => "driver",
         Command::Federation { .. } => "federation",
         Command::Cache { .. } => "cache",
@@ -736,6 +899,94 @@ mod tests {
     #[test]
     fn graph_deps_alias_resolves() {
         assert!(matches!(parse(&["deps"]).unwrap().command, Command::Graph));
+    }
+
+    #[test]
+    fn color_flag_defaults_to_none_and_parses_each_choice() {
+        use super::ColorWhen;
+        // Unset means "no explicit policy"; `color_choice()` defaults it to auto.
+        assert_eq!(parse(&["run", "test"]).unwrap().color, None);
+        assert_eq!(
+            parse(&["run", "test"]).unwrap().color_choice(),
+            ColorWhen::Auto
+        );
+        assert_eq!(
+            parse(&["--color", "always", "run", "test"]).unwrap().color,
+            Some(ColorWhen::Always)
+        );
+        assert_eq!(
+            parse(&["--color", "never", "run", "test"]).unwrap().color,
+            Some(ColorWhen::Never)
+        );
+        // An unknown policy is a clap parse error, never a silent fallback.
+        assert!(parse(&["--color", "sometimes", "run", "test"]).is_err());
+    }
+
+    #[test]
+    fn color_rejected_on_non_execution_verbs() {
+        // `--color` shapes the human reporter only the execution verbs build, so
+        // like `-v`/`-q` it is rejected on introspection/maintenance verbs.
+        for args in [
+            ["--color", "always", "modules"].as_slice(),
+            ["--color", "never", "graph"].as_slice(),
+            ["--color", "auto", "cache", "path"].as_slice(),
+            ["--color", "always", "tasks"].as_slice(),
+        ] {
+            let cli = parse(args).expect("parses");
+            assert!(super::gate(&cli).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn color_accepted_on_execution_verbs() {
+        for args in [
+            ["--color", "always", "run", "test"].as_slice(),
+            ["--color", "never", "plan", "test"].as_slice(),
+            ["--color", "auto", "release"].as_slice(),
+            ["--color", "always", "test"].as_slice(),
+        ] {
+            let cli = parse(args).expect("parses");
+            assert!(super::gate(&cli).is_ok(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn color_choice_maps_onto_the_rskit_policy() {
+        use super::ColorWhen;
+        use rskit_cli::ColorChoice;
+        assert!(matches!(
+            ColorChoice::from(ColorWhen::Auto),
+            ColorChoice::Auto
+        ));
+        assert!(matches!(
+            ColorChoice::from(ColorWhen::Always),
+            ColorChoice::Always
+        ));
+        assert!(matches!(
+            ColorChoice::from(ColorWhen::Never),
+            ColorChoice::Never
+        ));
+    }
+
+    #[test]
+    fn help_carries_worked_examples_at_the_top_level_and_per_verb() {
+        use clap::CommandFactory;
+        let mut command = Cli::command();
+        let top = command.render_long_help().to_string();
+        assert!(
+            top.contains("Examples:") && top.contains("toven tasks"),
+            "top-level help is missing its examples block: {top}"
+        );
+        let tasks = command
+            .get_subcommands_mut()
+            .find(|sub| sub.get_name() == "tasks")
+            .expect("tasks subcommand")
+            .render_long_help()
+            .to_string();
+        assert!(
+            tasks.contains("Examples:") && tasks.contains("argv template"),
+            "tasks help is missing its examples block: {tasks}"
+        );
     }
 
     #[test]

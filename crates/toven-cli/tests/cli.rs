@@ -103,6 +103,27 @@ fn watch_with_a_plan_only_cut_on_a_bare_task_is_gated_to_usage() {
 }
 
 #[test]
+fn completions_prints_a_script_and_succeeds() {
+    // `completions` is a pure projection: it needs no project load, so it is
+    // deterministic here and exits success for every supported shell.
+    for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
+        assert_eq!(run(&["completions", shell]), ExitCode::Success, "{shell}");
+    }
+}
+
+#[test]
+fn completions_with_an_unknown_shell_is_a_usage_error() {
+    assert_eq!(run(&["completions", "commodore-64"]), ExitCode::Usage);
+}
+
+#[test]
+fn color_flag_rejects_an_unknown_policy_as_a_usage_error() {
+    // The `--color` value set is closed; an unknown policy is a clap parse
+    // failure (usage), never a silent fallback to auto.
+    assert_eq!(run(&["--color", "sometimes", "modules"]), ExitCode::Usage);
+}
+
+#[test]
 fn watch_debounce_without_watch_on_a_bare_task_is_gated_to_usage() {
     assert_eq!(
         run(&["test", "--watch-debounce-ms", "500"]),

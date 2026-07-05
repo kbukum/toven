@@ -131,6 +131,17 @@ fn clap_exit(error: &clap::Error) -> ExitCode {
 }
 
 /// Gate flag applicability, then route the parsed verb to its command module.
+/// Resolve the reporter binding for an execution verb from the global flags and
+/// the loaded project document.
+fn resolve_report(cli: &Cli, project: &Project) -> Report {
+    Report::resolve(
+        cli.output,
+        cli.verbosity(),
+        cli.color_choice(),
+        &project.document,
+    )
+}
+
 fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
     flags::gate(cli)?;
 
@@ -147,7 +158,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
         Command::External(tokens) => dispatch_task(providers, cli, tokens),
         Command::Run { task, passthrough } => {
             let project = load(providers, cli, true)?;
-            let report = Report::resolve(cli.output, cli.verbosity(), &project.document);
+            let report = resolve_report(cli, &project);
             commands::run::execute(
                 providers,
                 &project,
@@ -165,7 +176,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
         }
         Command::Plan { task } => {
             let project = load(providers, cli, true)?;
-            let report = Report::resolve(cli.output, cli.verbosity(), &project.document);
+            let report = resolve_report(cli, &project);
             commands::run::execute(
                 providers,
                 &project,
@@ -186,7 +197,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
         }
         Command::Release => {
             let project = load(providers, cli, false)?;
-            let report = Report::resolve(cli.output, cli.verbosity(), &project.document);
+            let report = resolve_report(cli, &project);
             commands::run::release(
                 providers,
                 &project,
@@ -221,6 +232,11 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
                 cli.format.unwrap_or(GraphFormat::Text),
             )
         }
+        Command::Tasks { name } => {
+            let project = load(providers, cli, false)?;
+            commands::tasks::tasks(providers, &project, name.as_deref(), cli.output)
+        }
+        Command::Completions { shell } => Ok(commands::completions::completions(*shell)),
         Command::Cache { action } => {
             let project = load(providers, cli, false)?;
             commands::cache::execute(&project, action)
@@ -257,7 +273,7 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
         cli.quiet.saturating_add(flags.quiet),
         cli.explain || flags.explain,
     );
-    let report = Report::resolve(output, verbosity, &project.document);
+    let report = Report::resolve(output, verbosity, cli.color_choice(), &project.document);
     let fail_fast = cli.fail_fast || flags.fail_fast;
     let no_cache = cli.no_cache || flags.no_cache;
     let refresh = cli.refresh || flags.refresh;
@@ -305,6 +321,30 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
         plan_only,
         watch,
         &selection,
+    )
+    .map_err(|error| advise_builtin_typo(&invocation.task, error))
+}
+
+/// When a bare-task dispatch fails because the token is not a resolvable task,
+/// add an advisory hint if the token is a near-miss of a reserved built-in verb.
+///
+/// argv stays sacred: a real task named `modual` still runs, so the hint is only
+/// appended *after* the token failed to resolve as a task, and never rewrites the
+/// invocation — it is advisory text on the already-typed error.
+fn advise_builtin_typo(task: &str, error: AppError) -> AppError {
+    if error.code() != rskit_errors::ErrorCode::InvalidInput || !error.message().contains("has no")
+    {
+        return error;
+    }
+    let Some(reserved) = grammar::nearest_reserved(task) else {
+        return error;
+    };
+    AppError::new(
+        error.code(),
+        format!(
+            "{} If you meant the built-in, run 'toven {reserved}'.",
+            error.message()
+        ),
     )
 }
 

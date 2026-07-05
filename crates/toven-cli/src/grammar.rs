@@ -31,6 +31,8 @@ pub const RESERVED: &[&str] = &[
     "ls",
     "graph",
     "deps",
+    "tasks",
+    "completions",
     "driver",
     "federation",
     "cache",
@@ -41,6 +43,35 @@ pub const RESERVED: &[&str] = &[
 #[must_use]
 pub fn is_reserved(token: &str) -> bool {
     RESERVED.contains(&token)
+}
+
+/// The maximum edit distance for a token to be treated as a typo of a reserved
+/// built-in verb.
+///
+/// Looser than the default suggestion distance because the reserved set is small
+/// and closed, and the hint is only ever offered *after* the token already
+/// failed to resolve as a task — so a slightly wider net (catching `modual` →
+/// `modules`) carries little risk of a misleading suggestion.
+const RESERVED_SUGGESTION_DISTANCE: usize = 3;
+
+/// The reserved built-in nearest to `token` within
+/// [`RESERVED_SUGGESTION_DISTANCE`], or `None` when it is not a plausible typo of
+/// any built-in.
+///
+/// Advisory only: the argv-first dispatch never uses this to redirect input — it
+/// feeds the "did you mean the built-in?" hint after a token has already failed
+/// to resolve as a task. Exact reserved words are handled by dispatch and so are
+/// excluded here.
+#[must_use]
+pub fn nearest_reserved(token: &str) -> Option<&'static str> {
+    if is_reserved(token) {
+        return None;
+    }
+    rskit_util::strings::nearest_within(
+        token,
+        RESERVED.iter().copied(),
+        RESERVED_SUGGESTION_DISTANCE,
+    )
 }
 
 /// Execution flags that may trail a bare task name.
@@ -229,8 +260,21 @@ mod tests {
     fn reserved_words_are_recognized() {
         assert!(is_reserved("plan"));
         assert!(is_reserved("graph"));
+        assert!(is_reserved("tasks"));
+        assert!(is_reserved("completions"));
         assert!(!is_reserved("test"));
         assert!(!is_reserved("build"));
+    }
+
+    #[test]
+    fn nearest_reserved_suggests_a_typo_but_not_an_exact_verb() {
+        use super::nearest_reserved;
+        assert_eq!(nearest_reserved("modual"), Some("modules"));
+        assert_eq!(nearest_reserved("graf"), Some("graph"));
+        // An exact reserved word is dispatched, never suggested.
+        assert_eq!(nearest_reserved("modules"), None);
+        // A far-off token (a genuine task name) yields no built-in hint.
+        assert_eq!(nearest_reserved("integration"), None);
     }
 
     #[test]
