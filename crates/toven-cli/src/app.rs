@@ -339,7 +339,9 @@ fn advise_builtin_typo(task: &str, error: AppError) -> AppError {
     let Some(reserved) = grammar::nearest_reserved(task) else {
         return error;
     };
-    error.hint(format!("If you meant the built-in, run 'toven {reserved}'."))
+    error.hint(format!(
+        "If you meant the built-in, run 'toven {reserved}'."
+    ))
 }
 
 /// Bundle the pre-token global watch flags for the reserved execution verbs.
