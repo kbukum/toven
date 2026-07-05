@@ -20,6 +20,7 @@
 
 pub(crate) mod affected;
 mod cache;
+pub(crate) mod catalog;
 pub(crate) mod configure;
 pub(crate) mod discover;
 pub(crate) mod front;
@@ -34,6 +35,7 @@ mod source;
 mod toolchain;
 
 pub use cache::NullCache;
+pub use catalog::{EcosystemTasks, TaskCatalog, TaskSummary, task_catalog};
 pub use configure::addressable_task_names;
 pub use front::dependency_graph;
 pub use host::PlanHost;

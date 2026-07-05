@@ -53,3 +53,27 @@ Renders the dependency graph. Text prints each module and its dependencies; DOT 
 toven graph
 toven graph --format dot
 ```
+
+## `toven tasks`
+
+Lists the runnable tasks resolved for each ecosystem, so you can see every valid task name before running one. Task names are the *canonical* form (for example `format`, not the `fmt` shorthand):
+
+```bash
+toven tasks
+toven tasks format
+toven tasks --output jsonl
+```
+
+Without an argument it prints one table per ecosystem (task name, origin, fan-out, and whether the task is persistent). Pass a task name to show that task's detail — its canonical name, argv template, and cache inputs. `--output jsonl` emits the same catalog as a machine-readable stream. If you run an unknown task, Toven suggests the nearest valid name and points you back at `toven tasks`.
+
+## `toven completions <shell>`
+
+Prints a shell completion script to stdout for `bash`, `zsh`, `fish`, `powershell`, or `elvish`:
+
+```bash
+toven completions zsh > _toven          # save for your fpath
+source <(toven completions bash)        # load into the current shell
+```
+
+The script completes the reserved verbs, their flags, and the global options. It does not complete argv-first task names (those are repository-specific — use `toven tasks` to list them).
+

@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult};
 
-use crate::flags::{OutputKind, parse_duration_arg};
+use crate::flags::{ColorWhen, OutputKind, parse_duration_arg};
 
 /// The reserved built-in words. A bare top-level token equal to one of these
 /// dispatches the built-in; any other token is an argv-first task name.
@@ -31,6 +31,8 @@ pub const RESERVED: &[&str] = &[
     "ls",
     "graph",
     "deps",
+    "tasks",
+    "completions",
     "driver",
     "federation",
     "cache",
@@ -43,6 +45,35 @@ pub fn is_reserved(token: &str) -> bool {
     RESERVED.contains(&token)
 }
 
+/// The maximum edit distance for a token to be treated as a typo of a reserved
+/// built-in verb.
+///
+/// Looser than the default suggestion distance because the reserved set is small
+/// and closed, and the hint is only ever offered *after* the token already
+/// failed to resolve as a task — so a slightly wider net (catching `modual` →
+/// `modules`) carries little risk of a misleading suggestion.
+const RESERVED_SUGGESTION_DISTANCE: usize = 3;
+
+/// The reserved built-in nearest to `token` within
+/// `RESERVED_SUGGESTION_DISTANCE`, or `None` when it is not a plausible typo of
+/// any built-in.
+///
+/// Advisory only: the argv-first dispatch never uses this to redirect input — it
+/// feeds the "did you mean the built-in?" hint after a token has already failed
+/// to resolve as a task. Exact reserved words are handled by dispatch and so are
+/// excluded here.
+#[must_use]
+pub fn nearest_reserved(token: &str) -> Option<&'static str> {
+    if is_reserved(token) {
+        return None;
+    }
+    rskit_util::strings::nearest_within(
+        token,
+        RESERVED.iter().copied(),
+        RESERVED_SUGGESTION_DISTANCE,
+    )
+}
+
 /// Execution flags that may trail a bare task name.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
@@ -51,6 +82,8 @@ pub struct TaskFlags {
     pub config: Option<PathBuf>,
     /// `--output <format>` override.
     pub output: Option<OutputKind>,
+    /// `--color <when>`: how the human reporter colorizes (`auto`/`always`/`never`).
+    pub color: Option<ColorWhen>,
     /// `--dry-run`.
     pub dry_run: bool,
     /// `--explain`.
@@ -150,6 +183,7 @@ pub fn parse_task(tokens: &[String]) -> AppResult<TaskInvocation> {
             "-q" | "--quiet" => flags.quiet = flags.quiet.saturating_add(1),
             "--config" => flags.config = Some(PathBuf::from(value_for("--config", &mut iter)?)),
             "--output" => flags.output = Some(parse_output(&value_for("--output", &mut iter)?)?),
+            "--color" => flags.color = Some(parse_color(&value_for("--color", &mut iter)?)?),
             // First non-Toven token ends the prefix: it and the rest are the
             // task's own argv, spliced verbatim and never rewritten.
             _ => {
@@ -195,6 +229,21 @@ fn parse_output(value: &str) -> AppResult<OutputKind> {
     }
 }
 
+/// Parse the `--color` value, mirroring the clap global's accepted `ColorWhen`
+/// choices so a trailing `--color` on a bare task shapes the human reporter
+/// instead of leaking into the task's passthrough argv.
+fn parse_color(value: &str) -> AppResult<ColorWhen> {
+    match value {
+        "auto" => Ok(ColorWhen::Auto),
+        "always" => Ok(ColorWhen::Always),
+        "never" => Ok(ColorWhen::Never),
+        other => Err(AppError::invalid_input(
+            "--color",
+            format!("unknown color choice `{other}` (expected `auto`, `always`, or `never`)"),
+        )),
+    }
+}
+
 /// Parse the `--watch-debounce-ms` value as a non-negative millisecond count.
 fn parse_debounce(value: &str) -> AppResult<u64> {
     value.parse::<u64>().map_err(|error| {
@@ -229,8 +278,21 @@ mod tests {
     fn reserved_words_are_recognized() {
         assert!(is_reserved("plan"));
         assert!(is_reserved("graph"));
+        assert!(is_reserved("tasks"));
+        assert!(is_reserved("completions"));
         assert!(!is_reserved("test"));
         assert!(!is_reserved("build"));
+    }
+
+    #[test]
+    fn nearest_reserved_suggests_a_typo_but_not_an_exact_verb() {
+        use super::nearest_reserved;
+        assert_eq!(nearest_reserved("modual"), Some("modules"));
+        assert_eq!(nearest_reserved("graf"), Some("graph"));
+        // An exact reserved word is dispatched, never suggested.
+        assert_eq!(nearest_reserved("modules"), None);
+        // A far-off token (a genuine task name) yields no built-in hint.
+        assert_eq!(nearest_reserved("integration"), None);
     }
 
     #[test]
@@ -384,6 +446,23 @@ mod tests {
     #[test]
     fn missing_flag_value_is_rejected() {
         assert!(parse_task(&tokens(&["test", "--output"])).is_err());
+    }
+
+    #[test]
+    fn parses_color_choice_on_a_bare_task() {
+        use super::ColorWhen;
+        let invocation = parse_task(&tokens(&["test", "--color", "always"])).expect("parses");
+        assert_eq!(invocation.task, "test");
+        assert_eq!(invocation.flags.color, Some(ColorWhen::Always));
+        // `--color` is a Toven flag, so it is absorbed — never leaked into the
+        // task's own passthrough argv.
+        assert!(invocation.passthrough.is_empty());
+    }
+
+    #[test]
+    fn rejects_an_unknown_or_valueless_color_choice() {
+        assert!(parse_task(&tokens(&["test", "--color", "sometimes"])).is_err());
+        assert!(parse_task(&tokens(&["test", "--color"])).is_err());
     }
 
     #[test]

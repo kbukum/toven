@@ -90,3 +90,102 @@ fn explain_renders_the_planned_unit_for_a_module_and_task() {
         .expect_stdout_contains("task:")
         .expect_stdout_contains("argv:");
 }
+
+#[test]
+fn tasks_lists_the_canonical_runnable_task_names_per_ecosystem() {
+    // The catalog projects the *canonical* task name (`format`, never the `fmt`
+    // shorthand), so users address tasks by the name Toven actually resolves.
+    let sample = repo("rust/multi-module");
+    let out = toven_ok(&sample, &["tasks"]);
+    out.expect_stdout_contains("rust tasks")
+        .expect_stdout_contains("format")
+        .expect_stdout_contains("build")
+        .expect_stdout_contains("test");
+    assert!(
+        !out.stdout.contains(" fmt "),
+        "the catalog must project the canonical `format`, not `fmt`, got:\n{}",
+        out.stdout
+    );
+}
+
+#[test]
+fn tasks_detail_shows_a_task_argv_and_inputs() {
+    let sample = repo("rust/multi-module");
+    toven_ok(&sample, &["tasks", "format"])
+        .expect_stdout_contains("task:")
+        .expect_stdout_contains("format")
+        .expect_stdout_contains("argv:")
+        .expect_stdout_contains("\"cargo\", \"fmt\"");
+}
+
+#[test]
+fn tasks_jsonl_emits_a_stable_record_per_task() {
+    // The `--output jsonl` projection is a machine surface: one JSON object per
+    // task on stdout, carrying the stable field set scripts depend on. Lock the
+    // schema (keys + canonical values) so a regression is caught here.
+    let sample = repo("rust/multi-module");
+    let out = toven_ok(&sample, &["tasks", "--output", "jsonl"]);
+    let lines: Vec<&str> = out.stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert!(
+        !lines.is_empty(),
+        "jsonl output should emit at least one record, got:\n{}",
+        out.stdout
+    );
+    for line in &lines {
+        let record: serde_json::Value =
+            serde_json::from_str(line).expect("each jsonl line must be a JSON object");
+        for key in [
+            "ecosystem",
+            "task",
+            "kind",
+            "origin",
+            "fan_out",
+            "persistent",
+            "argv",
+            "shared_inputs",
+        ] {
+            assert!(
+                record.get(key).is_some(),
+                "jsonl record is missing `{key}`, got:\n{line}"
+            );
+        }
+        assert_eq!(record["ecosystem"], "rust");
+    }
+    // The canonical `format` name (never the `fmt` shorthand) survives into the
+    // machine schema exactly as it does in the human table.
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("\"task\":\"format\"") && l.contains("\"kind\":\"format\"")),
+        "jsonl must project the canonical `format` task, got:\n{}",
+        out.stdout
+    );
+}
+
+#[test]
+fn unknown_task_that_typos_a_reserved_verb_advises_the_builtin() {
+    // argv stays sacred: `modual` first fails to resolve as a task, and only
+    // then does the advisory point at the near-miss built-in `modules`. Lock the
+    // typo-hint wiring so the guidance keeps reaching the error surface (stderr).
+    let sample = repo("rust/multi-module");
+    let out = toven(&sample, &["modual"]);
+    out.expect_code(2)
+        .expect_stderr_contains("has no 'modual' task")
+        .expect_stderr_contains("If you meant the built-in, run 'toven modules'.");
+}
+
+#[test]
+fn completions_emit_a_shell_script_for_each_supported_shell() {
+    // `completions` is a pure projection (no project load); it prints the script
+    // to stdout and exits success for every supported shell.
+    let sample = repo("rust/multi-module");
+    for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
+        let out = toven(&sample, &["completions", shell]);
+        out.expect_success();
+        assert!(
+            out.stdout.contains("toven"),
+            "the {shell} completion script should mention the binary, got:\n{}",
+            out.stdout
+        );
+    }
+}

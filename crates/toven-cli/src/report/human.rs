@@ -1,8 +1,9 @@
 //! [`HumanReporter`] — the terminal-facing Event-stream sink.
 
+use std::borrow::Cow;
 use std::io::{self, Write};
 
-use rskit_cli::OutputKV;
+use rskit_cli::{OutputKV, Palette};
 use rskit_errors::{AppError, AppResult};
 use toven_model::{CacheVerdict, Event, Phase, RunStats, UnitStatus};
 use toven_ports::Reporter;
@@ -18,19 +19,39 @@ use crate::flags::Verbosity;
 /// it simply renders whatever subset of the stream it is given, so there is no
 /// bespoke plan-dump. A [`Verbosity`] level filters how much of the stream is
 /// shown (quiet collapses to the run summary; verbose adds the per-phase,
-/// cache-decision, and unit-lifecycle detail). Generic over the writer for
-/// testability; [`HumanReporter::stderr`] binds the process stderr (progress
-/// and status are diagnostics, so stdout stays reserved for the machine
-/// projection).
+/// cache-decision, and unit-lifecycle detail). A [`Palette`] colorizes the
+/// status labels and the summary's exit line; it defaults to disabled (verbatim
+/// text) so a piped or `--color never` run is byte-stable. Generic over the
+/// writer for testability; [`HumanReporter::stderr`] binds the process stderr
+/// (progress and status are diagnostics, so stdout stays reserved for the
+/// machine projection).
 pub struct HumanReporter<W: Write> {
     writer: W,
     level: Verbosity,
+    palette: Palette,
 }
 
 impl<W: Write> HumanReporter<W> {
     /// Create a reporter that renders events to `writer` at `level`.
+    ///
+    /// Color is disabled until a [`Palette`] is attached with
+    /// [`with_palette`](Self::with_palette), so the default rendering is
+    /// verbatim text.
+    #[must_use]
     pub const fn new(writer: W, level: Verbosity) -> Self {
-        Self { writer, level }
+        Self {
+            writer,
+            level,
+            palette: Palette::new(false),
+        }
+    }
+
+    /// Attach a resolved [`Palette`] so status labels and the summary exit line
+    /// are colorized; a disabled palette leaves the output verbatim.
+    #[must_use]
+    pub const fn with_palette(mut self, palette: Palette) -> Self {
+        self.palette = palette;
+        self
     }
 
     /// Whether an event is rendered at the given verbosity level.
@@ -68,6 +89,23 @@ impl<W: Write> HumanReporter<W> {
         self.writer
     }
 
+    /// Colorize a terminal unit-status label by its outcome semantics: green for
+    /// success, red for failure, yellow for blocked/cancelled, dim for a cache
+    /// hit. A disabled palette returns the label verbatim.
+    fn paint_status(&self, status: UnitStatus) -> Cow<'static, str> {
+        let label = status_label(status);
+        match status {
+            UnitStatus::Succeeded | UnitStatus::Ready | UnitStatus::TornDown => {
+                self.palette.success(label)
+            }
+            UnitStatus::Failed | UnitStatus::FailedReadiness | UnitStatus::TimedOut => {
+                self.palette.error(label)
+            }
+            UnitStatus::Blocked | UnitStatus::Cancelled => self.palette.warn(label),
+            UnitStatus::Cached => self.palette.dim(label),
+        }
+    }
+
     fn write_line(&mut self, line: &str) -> AppResult<()> {
         writeln!(self.writer, "{line}").map_err(AppError::internal)?;
         // Flush each progress line so redirected/piped stdout (block-buffered)
@@ -76,18 +114,25 @@ impl<W: Write> HumanReporter<W> {
     }
 
     fn write_summary(&mut self, summary: &RunStats) -> AppResult<()> {
+        // At default verbosity the failure-family counters collapse to only the
+        // non-zero ones, so a clean run reads at a glance; `-v` keeps the full,
+        // fixed-width table for a deterministic, scriptable-looking dump.
+        let full = matches!(self.level, Verbosity::Verbose);
         let mut kv = OutputKV::new();
         kv.add("planned", summary.planned_units.to_string());
         kv.add("ran", summary.ran_units.to_string());
         kv.add("cached", summary.cached_units.to_string());
-        kv.add("failed", summary.failed_units.to_string());
-        kv.add("blocked", summary.blocked_units.to_string());
-        kv.add("cancelled", summary.cancelled_units.to_string());
-        kv.add(
-            "failed-readiness",
-            summary.failed_readiness_units.to_string(),
-        );
-        kv.add("timed-out", summary.timed_out_units.to_string());
+        for (label, count) in [
+            ("failed", summary.failed_units),
+            ("blocked", summary.blocked_units),
+            ("cancelled", summary.cancelled_units),
+            ("failed-readiness", summary.failed_readiness_units),
+            ("timed-out", summary.timed_out_units),
+        ] {
+            if full || count > 0 {
+                kv.add(label, count.to_string());
+            }
+        }
         if let Some(duration_ms) = summary.duration_ms {
             kv.add("duration-ms", duration_ms.to_string());
         }
@@ -98,7 +143,16 @@ impl<W: Write> HumanReporter<W> {
         }
         // The displayed exit is derived from the summary by the single owner, so
         // it can never disagree with the actual process exit (event-report C).
-        kv.add("exit", exit_code(summary).as_i32().to_string());
+        // Colorized by outcome (green success / red failure); a disabled palette
+        // leaves it verbatim so the projection stays byte-stable.
+        let exit = exit_code(summary).as_i32();
+        let exit_text = exit.to_string();
+        let exit_value = if exit == 0 {
+            self.palette.success(&exit_text)
+        } else {
+            self.palette.error(&exit_text)
+        };
+        kv.add("exit", exit_value.into_owned());
         write!(self.writer, "summary\n{kv}").map_err(AppError::internal)?;
         // Flush the final summary so a piped/redirected consumer receives it
         // promptly and it is not lost in a buffer on an abrupt exit.
@@ -130,7 +184,10 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
                 project,
             } => self.write_line(&format!("run {run_id}: {intent} on {project}")),
             Event::RunFinished { summary } => self.write_summary(summary),
-            Event::Warning { message } => self.write_line(&format!("warning: {message}")),
+            Event::Warning { message } => {
+                let line = format!("warning: {message}");
+                self.write_line(&self.palette.warn(&line))
+            }
             Event::PhaseStarted { phase } => {
                 self.write_line(&format!("  phase {}: started", phase_label(*phase)))
             }
@@ -146,7 +203,8 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
             Event::UnitStarted { unit_id } => self.write_line(&format!("  start {unit_id}")),
             Event::UnitReady { unit_id } => self.write_line(&format!("  ready {unit_id}")),
             Event::UnitFinished { unit_id, status } => {
-                self.write_line(&format!("  {} {unit_id}", status_label(*status)))
+                let label = self.paint_status(*status);
+                self.write_line(&format!("  {label} {unit_id}"))
             }
             Event::WatchStarted { debounce_ms } => self.write_line(&format!(
                 "watch: waiting for changes ({debounce_ms}ms debounce)"
@@ -203,7 +261,7 @@ mod tests {
     use toven_model::{CacheVerdict, Event, Phase, RunStats, UnitStatus};
     use toven_ports::Reporter;
 
-    use super::HumanReporter;
+    use super::{HumanReporter, Palette};
     use crate::flags::Verbosity;
 
     fn render(events: &[Event]) -> String {
@@ -345,6 +403,71 @@ summary
     }
 
     #[test]
+    fn default_summary_collapses_zero_failure_counters() {
+        // A clean run at default verbosity keeps the core counters but drops the
+        // all-zero failure family, so the common case reads at a glance.
+        let output = render_at(
+            Verbosity::Normal,
+            &[Event::RunFinished {
+                summary: RunStats::new(2),
+            }],
+        );
+        let expected = "\
+summary
+  planned:  2
+      ran:  0
+   cached:  0
+     exit:  0
+";
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn default_summary_keeps_the_non_zero_failure_counters() {
+        // Only the failure counters that actually fired are surfaced; the rest of
+        // the family still collapses.
+        let mut summary = RunStats::new(3);
+        summary.failed_units = 1;
+        summary.blocked_units = 2;
+        let output = render_at(Verbosity::Normal, &[Event::RunFinished { summary }]);
+        let expected = "\
+summary
+  planned:  3
+      ran:  0
+   cached:  0
+   failed:  1
+  blocked:  2
+     exit:  1
+";
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn verbose_summary_keeps_the_full_fixed_table() {
+        // `-v` restores every counter (even the zero ones) for a deterministic,
+        // fixed-width dump — asserted as the golden the collapse must not touch.
+        let output = render_at(
+            Verbosity::Verbose,
+            &[Event::RunFinished {
+                summary: RunStats::new(1),
+            }],
+        );
+        let expected = "\
+summary
+           planned:  1
+               ran:  0
+            cached:  0
+            failed:  0
+           blocked:  0
+         cancelled:  0
+  failed-readiness:  0
+         timed-out:  0
+              exit:  0
+";
+        assert_eq!(output, expected);
+    }
+
+    #[test]
     fn every_unit_status_renders_its_label() {
         // Locks the label for each variant so a wrong/duplicated mapping fails;
         // pairs with the compile-time exhaustiveness of `status_label`.
@@ -365,6 +488,72 @@ summary
                 status,
             }]);
             assert_eq!(output, expected, "status {status:?}");
+        }
+    }
+
+    #[test]
+    fn palette_colorizes_status_labels_by_outcome_semantics() {
+        // An enabled palette wraps the terminal status label in the matching
+        // SGR code: green success, red failure, yellow blocked, dim cache hit.
+        let cases = [
+            (UnitStatus::Succeeded, "\u{1b}[32mok\u{1b}[0m"),
+            (UnitStatus::Failed, "\u{1b}[31mfailed\u{1b}[0m"),
+            (UnitStatus::Blocked, "\u{1b}[33mblocked\u{1b}[0m"),
+            (UnitStatus::Cached, "\u{1b}[2mcached\u{1b}[0m"),
+        ];
+        for (status, painted) in cases {
+            let mut reporter =
+                HumanReporter::new(Vec::new(), Verbosity::Verbose).with_palette(Palette::new(true));
+            reporter
+                .emit(&Event::UnitFinished {
+                    unit_id: "u".into(),
+                    status,
+                })
+                .expect("emit");
+            let output = String::from_utf8(reporter.into_inner()).expect("utf8");
+            assert_eq!(output, format!("  {painted} u\n"), "status {status:?}");
+        }
+    }
+
+    #[test]
+    fn disabled_palette_leaves_status_labels_verbatim() {
+        // The default reporter (no palette) and an explicitly disabled palette
+        // both render plain text, so a piped or `--color never` run is byte-stable.
+        for palette in [None, Some(Palette::new(false))] {
+            let mut reporter = HumanReporter::new(Vec::new(), Verbosity::Verbose);
+            if let Some(palette) = palette {
+                reporter = reporter.with_palette(palette);
+            }
+            reporter
+                .emit(&Event::UnitFinished {
+                    unit_id: "u".into(),
+                    status: UnitStatus::Succeeded,
+                })
+                .expect("emit");
+            let output = String::from_utf8(reporter.into_inner()).expect("utf8");
+            assert_eq!(output, "  ok u\n");
+            assert!(!output.contains('\u{1b}'), "no ANSI: {output:?}");
+        }
+    }
+
+    #[test]
+    fn palette_colorizes_the_summary_exit_line_by_outcome() {
+        // The summary exit value is painted green on success and red on failure;
+        // a disabled palette (covered above) leaves it verbatim for byte-stability.
+        let cases = [(0, "\u{1b}[32m0\u{1b}[0m"), (1, "\u{1b}[31m1\u{1b}[0m")];
+        for (failed, painted) in cases {
+            let mut summary = RunStats::new(1);
+            summary.failed_units = failed;
+            let mut reporter =
+                HumanReporter::new(Vec::new(), Verbosity::Verbose).with_palette(Palette::new(true));
+            reporter
+                .emit(&Event::RunFinished { summary })
+                .expect("emit");
+            let output = String::from_utf8(reporter.into_inner()).expect("utf8");
+            assert!(
+                output.contains(&format!("exit:  {painted}\n")),
+                "failed={failed} exit not colorized: {output:?}"
+            );
         }
     }
 

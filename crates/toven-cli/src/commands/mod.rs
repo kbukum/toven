@@ -10,9 +10,11 @@
 //! command implementations.
 
 pub(crate) mod cache;
+pub(crate) mod completions;
 pub(crate) mod driver;
 pub(crate) mod generate;
 pub(crate) mod introspect;
 pub(crate) mod run;
 pub(crate) mod selection;
+pub(crate) mod tasks;
 pub(crate) mod watch;
