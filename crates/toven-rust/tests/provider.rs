@@ -92,7 +92,7 @@ fn unpublished_config_has_no_release_target() {
 
 #[test]
 fn scaffold_detects_a_cargo_project() {
-    let repo = SampleRepo::materialize("single-rust").expect("materialize repo");
+    let repo = SampleRepo::materialize("rust/single").expect("materialize repo");
     let fragment = provider()
         .scaffold(repo.root())
         .expect("scaffold")

@@ -15,6 +15,8 @@
 //! - [`repo`] — [`SampleRepo`]: materialize a `repos/<name>` tree into a temp dir
 //!   and optionally `git init` it.
 //! - [`git`] — git-scenario helpers ([`GitScenario`](git::GitScenario)) over `rskit-git`.
+//! - [`smoke`] — the shared end-to-end smoke harness ([`RunResult`], [`run`],
+//!   [`run_ok`]) every app's `tests/smoke*.rs` drives the real binary through.
 //! - [`doubles`] — the shared port doubles ([`FakeProvider`],
 //!   [`FakeConfiguredAdapter`], [`FakeVcsReader`], [`FakeVcsWriter`],
 //!   [`RecordingReporter`], [`RecordingRawOutputSink`], [`CountingToolchainProber`],
@@ -34,6 +36,7 @@ pub mod doubles;
 pub mod fixtures;
 pub mod git;
 pub mod repo;
+pub mod smoke;
 pub mod workspace;
 
 pub use assertions::{
@@ -52,4 +55,5 @@ pub use fixtures::{
 };
 pub use repo::SampleRepo;
 pub use rskit_testutil::{CurrentDirGuard, TestWorkspace};
+pub use smoke::{CLOCK_EPOCH_ENV, CLOCK_EPOCH_VALUE, RunResult, program_on_path, run, run_ok};
 pub use workspace::fixtures_root;

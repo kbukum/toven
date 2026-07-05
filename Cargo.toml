@@ -7,8 +7,6 @@ exclude = [
     "crates/toven-testkit/fixtures/ecosystems/rust/workspaces/single-crate",
     "crates/toven-testkit/fixtures/ecosystems/rust/workspaces/cross",
     "crates/toven-testkit/fixtures/ecosystems/rust/workspaces/broken",
-    "crates/toven-testkit/fixtures/repos/single-rust",
-    "crates/toven-testkit/fixtures/repos/workspace-inherited-rust",
 ]
 
 [workspace.package]

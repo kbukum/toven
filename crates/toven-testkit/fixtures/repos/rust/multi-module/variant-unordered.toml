@@ -1,0 +1,11 @@
+# A `--config` variant over the same repo tree that overrides the wave ordering
+# to `unordered` (all modules collapse into one wave). Lives beside the
+# happy-path `toven.toml` at the repo root (config root resolves relative to the
+# config file, and `..` traversal is forbidden), selected explicitly via
+# `--config variant-unordered.toml`.
+[project]
+name = "multi-module-rust"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "unordered"

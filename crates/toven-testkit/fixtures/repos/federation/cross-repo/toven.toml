@@ -1,0 +1,13 @@
+# A multi-repo umbrella federating two member repos via `[[members]]`, for
+# `federation status`/`sync` and per-member baselines. Each member carries its
+# own `toven.toml`; discovery composes them into one federated graph.
+[project]
+name = "cross-repo"
+
+[[members]]
+name = "core"
+root = "repos/core"
+
+[[members]]
+name = "services"
+root = "repos/services"

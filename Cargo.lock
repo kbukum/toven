@@ -1724,6 +1724,7 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "rskit-cli",
  "rskit-errors",
+ "serde_json",
  "toven-cli",
  "toven-command",
  "toven-go",
@@ -1815,11 +1816,13 @@ dependencies = [
  "rskit-codec",
  "rskit-config",
  "rskit-errors",
+ "serde_json",
  "toven-cli",
  "toven-engine",
  "toven-go",
  "toven-model",
  "toven-ports",
+ "toven-testkit",
 ]
 
 [[package]]
@@ -1855,6 +1858,7 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "rskit-cli",
  "rskit-errors",
+ "serde_json",
  "toven-cli",
  "toven-ports",
  "toven-rust",

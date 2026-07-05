@@ -1,0 +1,8 @@
+# Sample single-ecosystem Go app repo (plan/apply happy path), mirroring
+# `single-rust` for the standalone `toven-go` binary.
+[project]
+name = "single-go"
+
+[ecosystems.go]
+modules = ["go.mod"]
+run_strategy = "leaf-to-top"
