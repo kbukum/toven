@@ -55,7 +55,7 @@ pub fn is_reserved(token: &str) -> bool {
 const RESERVED_SUGGESTION_DISTANCE: usize = 3;
 
 /// The reserved built-in nearest to `token` within
-/// [`RESERVED_SUGGESTION_DISTANCE`], or `None` when it is not a plausible typo of
+/// `RESERVED_SUGGESTION_DISTANCE`, or `None` when it is not a plausible typo of
 /// any built-in.
 ///
 /// Advisory only: the argv-first dispatch never uses this to redirect input — it
