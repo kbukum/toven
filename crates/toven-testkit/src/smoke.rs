@@ -154,7 +154,13 @@ pub fn run(binary: &Path, cwd: &Path, args: &[&str]) -> RunResult {
         // field in the Event stream) is deterministic; see `CLOCK_EPOCH_ENV`.
         .env(CLOCK_EPOCH_ENV, CLOCK_EPOCH_VALUE)
         .output()
-        .unwrap_or_else(|error| panic!("failed to spawn {}: {error}", binary.display()));
+        .unwrap_or_else(|error| {
+            panic!(
+                "failed to spawn {} in {} with args {args:?}: {error}",
+                binary.display(),
+                cwd.display(),
+            )
+        });
     RunResult {
         args: args.iter().map(|arg| (*arg).to_string()).collect(),
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
