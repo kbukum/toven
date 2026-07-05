@@ -196,9 +196,19 @@ pub(crate) const RUN_CLOCK_EPOCH_ENV: &str = "TOVEN_CLOCK_EPOCH";
 /// deterministic test/snapshot seam), else the real [`system_clock`]. Injecting
 /// the clock here keeps the wall clock out of the call sites, which reach for a
 /// resolved [`Clock`](rskit_util::time::Clock) rather than `SystemTime::now()`
-/// directly. Fails when the env var is present but not a `u64`.
+/// directly. Fails when the env var is present but not a UTF-8 `u64`.
 fn resolve_clock() -> AppResult<SharedClock> {
-    resolve_clock_from(std::env::var(RUN_CLOCK_EPOCH_ENV).ok().as_deref())
+    let raw = match std::env::var(RUN_CLOCK_EPOCH_ENV) {
+        Ok(value) => Some(value),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(AppError::invalid_input(
+                RUN_CLOCK_EPOCH_ENV,
+                "expected a u64 epoch second, got a non-UTF-8 value",
+            ));
+        }
+    };
+    resolve_clock_from(raw.as_deref())
 }
 
 /// Pure core of [`resolve_clock`]: map the raw env value to a clock.
