@@ -8,11 +8,11 @@
 //!
 //! - [`CommandProvider`] parses `[ecosystems.command]` into a typed
 //!   [`CommandConfig`] and bakes a [`CommandAdapter`]. There is no convention to
-//!   auto-detect, so its `scaffold` always returns `None`.
+//!   auto-detect, so its wizard detection returns `None`.
 //! - [`CommandAdapter`] normalizes the **declared** module/edge set (no tooling
 //!   probe, no filesystem walk) and exposes **only** the user-declared
-//!   `[tasks.*]` argv as tasks — no built-in build/test/lint defaults are
-//!   invented. Its toolchain probe is the declared `[toolchain]` if present,
+//!   `[tasks.*]` argv via `common().tasks` — no built-in build/test/lint defaults
+//!   are invented. Its toolchain probe is the declared `[toolchain]` if present,
 //!   else derived from the first declared task's program; release is out of
 //!   scope, so [`release_target`](toven_ports::ConfiguredAdapter::release_target)
 //!   is always `None`.
@@ -29,8 +29,11 @@
 
 mod adapter;
 mod config;
+mod detect;
 mod discovery;
 mod provider;
+mod questionnaire;
+mod render;
 mod tasks;
 
 pub use adapter::CommandAdapter;

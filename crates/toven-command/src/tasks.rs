@@ -1,16 +1,11 @@
-//! The command task table: **only** user-declared `[tasks.*]` argv.
+//! Per-kind default wave-ordering policy for command tasks.
 //!
-//! The escape-hatch adapter invents no defaults. Every entry in the user's
-//! `[ecosystems.command.tasks.*]` table becomes a [`Task`] verbatim — a built-in
-//! kind key (`build`, `test`, …) classifies the task by that kind, and any other
-//! key is either an ad-hoc [`TaskKind::Custom`] task or a named extra when it
-//! declares an explicit `kind`. Each entry must define `argv`: there is no
-//! default command to inherit (argv-is-sacred).
+//! The command adapter has no built-in task templates: the user's
+//! `[ecosystems.command.tasks.*]` table is the authoritative source of runnable
+//! tasks. This module owns only the ordering policy the adapter resolves at
+//! runtime.
 
-use std::collections::BTreeMap;
-
-use rskit_errors::{AppError, AppResult};
-use toven_ports::{FanOut, RunStrategy, Task, TaskKind, TaskOrigin, TaskOverride};
+use toven_ports::{RunStrategy, TaskKind};
 
 /// The per-kind default wave-ordering policy.
 ///
@@ -25,153 +20,11 @@ pub(crate) const fn default_run_strategy(kind: &TaskKind) -> RunStrategy {
     }
 }
 
-/// Resolve the declared tasks, in `overrides` key order.
-///
-/// # Errors
-/// Every declared task must define `argv` — the command adapter has no default
-/// to inherit, so an entry without `argv` is rejected.
-pub(crate) fn resolve_tasks(overrides: &BTreeMap<String, TaskOverride>) -> AppResult<Vec<Task>> {
-    overrides
-        .iter()
-        .map(|(key, over)| declared_task(key, over))
-        .collect()
-}
-
-/// Build one declared task from its config entry.
-fn declared_task(key: &str, over: &TaskOverride) -> AppResult<Task> {
-    let argv = over.argv.clone().ok_or_else(|| {
-        AppError::invalid_input(
-            format!("ecosystems.command.tasks.{key}"),
-            "a command task must define 'argv' (the adapter infers no default command)",
-        )
-    })?;
-    if argv.first().is_none_or(|program| program.trim().is_empty()) {
-        return Err(AppError::invalid_input(
-            format!("ecosystems.command.tasks.{key}.argv"),
-            "must include a program",
-        ));
-    }
-
-    // A built-in kind key and an ad-hoc custom key are both selected by kind.
-    // Only an explicitly reclassified task is a named extra within that kind.
-    let (kind, name) = TaskKind::builtin(key).map_or_else(
-        || {
-            over.kind.as_ref().map_or_else(
-                || (TaskKind::Custom(key.to_string()), None),
-                |kind| (kind.clone(), Some(key.to_string())),
-            )
-        },
-        |kind| (kind, None),
-    );
-
-    let mut task = Task::new(kind, argv, over.fan_out.unwrap_or(FanOut::PerModule));
-    task.name = name;
-    task.origin = TaskOrigin::Project;
-    task.selector = over.selector.clone().unwrap_or_default();
-    task.shared_inputs.clone_from(&over.shared_inputs);
-    task.cache_args = over.cache_args.unwrap_or(false);
-    if let Some(persistent) = over.persistent {
-        task.persistent = persistent;
-    }
-    if let Some(readiness) = &over.readiness {
-        task.readiness = readiness.clone();
-    }
-    if let Some(secs) = over.readiness_timeout_secs {
-        task.readiness_timeout = std::time::Duration::from_secs(secs);
-    }
-    Ok(task)
-}
-
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use toven_ports::{RunStrategy, TaskKind};
 
-    use toven_ports::{FanOut, RunStrategy, TaskKind, TaskOrigin, TaskOverride};
-
-    use super::{default_run_strategy, resolve_tasks};
-
-    fn over(argv: &[&str]) -> TaskOverride {
-        TaskOverride {
-            argv: Some(argv.iter().map(ToString::to_string).collect()),
-            ..TaskOverride::default()
-        }
-    }
-
-    #[test]
-    fn no_declared_tasks_yields_empty_table() {
-        let tasks = resolve_tasks(&BTreeMap::new()).expect("resolves");
-        assert!(tasks.is_empty());
-    }
-
-    #[test]
-    fn builtin_key_classifies_by_kind_without_a_name() {
-        let mut overrides = BTreeMap::new();
-        overrides.insert("build".to_string(), over(&["make", "build"]));
-        let tasks = resolve_tasks(&overrides).expect("resolves");
-        assert_eq!(tasks.len(), 1);
-        assert_eq!(tasks[0].kind, TaskKind::Build);
-        assert!(tasks[0].name.is_none());
-        assert_eq!(tasks[0].argv, ["make", "build"]);
-        assert_eq!(tasks[0].origin, TaskOrigin::Project);
-        assert_eq!(tasks[0].fan_out, FanOut::PerModule);
-    }
-
-    #[test]
-    fn custom_key_becomes_an_unnamed_custom_task() {
-        let mut overrides = BTreeMap::new();
-        overrides.insert("deploy".to_string(), over(&["./deploy.sh"]));
-        let tasks = resolve_tasks(&overrides).expect("resolves");
-        assert_eq!(tasks[0].kind, TaskKind::Custom("deploy".to_string()));
-        assert!(tasks[0].name.is_none());
-    }
-
-    #[test]
-    fn explicit_kind_on_custom_key_becomes_a_named_extra() {
-        let mut overrides = BTreeMap::new();
-        let mut task = over(&["cargo", "test", "--test", "integration"]);
-        task.kind = Some(TaskKind::Test);
-        overrides.insert("test-integration".to_string(), task);
-
-        let tasks = resolve_tasks(&overrides).expect("resolves");
-        assert_eq!(tasks[0].kind, TaskKind::Test);
-        assert_eq!(tasks[0].name.as_deref(), Some("test-integration"));
-    }
-
-    #[test]
-    fn task_without_argv_is_rejected() {
-        let mut overrides = BTreeMap::new();
-        overrides.insert("build".to_string(), TaskOverride::default());
-        let error = resolve_tasks(&overrides).expect_err("missing argv rejected");
-        assert!(error.to_string().contains("argv"), "{error}");
-    }
-
-    #[test]
-    fn task_with_empty_argv_is_rejected() {
-        let mut overrides = BTreeMap::new();
-        overrides.insert(
-            "build".to_string(),
-            TaskOverride {
-                argv: Some(Vec::new()),
-                ..TaskOverride::default()
-            },
-        );
-        let error = resolve_tasks(&overrides).expect_err("empty argv rejected");
-        assert!(
-            error.to_string().contains("must include a program"),
-            "{error}"
-        );
-    }
-
-    #[test]
-    fn task_with_blank_program_is_rejected() {
-        let mut overrides = BTreeMap::new();
-        overrides.insert("build".to_string(), over(&[""]));
-        let error = resolve_tasks(&overrides).expect_err("blank program rejected");
-        assert!(
-            error.to_string().contains("must include a program"),
-            "{error}"
-        );
-    }
+    use super::default_run_strategy;
 
     #[test]
     fn run_strategy_defaults_by_kind() {

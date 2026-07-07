@@ -1,8 +1,9 @@
-//! Behavioral tests for the provider surface: configure, default tasks,
-//! scaffolding, and release-target gating. Configs come from testkit fixtures.
+//! Behavioral tests for the provider surface: configure, the init wizard
+//! (detect → questionnaire → render), and release-target gating. Configs come
+//! from testkit fixtures.
 
 use rskit_fs::TempDir;
-use toven_ports::{Provider, RunStrategy, TaskKind};
+use toven_ports::{Answer, Answers, Provider, QuestionKind, RunStrategy};
 use toven_rust::RustProvider;
 use toven_testkit::{SampleRepo, fixtures};
 
@@ -17,42 +18,14 @@ fn configure(adapter_config: &str) -> Box<dyn toven_ports::ConfiguredAdapter> {
 }
 
 #[test]
-fn default_tasks_cover_every_builtin_kind() {
-    let adapter = configure("adapter/single-manifest.toml");
-    let kinds: Vec<TaskKind> = adapter
-        .default_tasks()
-        .into_iter()
-        .map(|t| t.kind)
-        .collect();
-
-    for expected in [
-        TaskKind::Build,
-        TaskKind::Check,
-        TaskKind::Format,
-        TaskKind::Lint,
-        TaskKind::Test,
-        TaskKind::Doc,
-        TaskKind::Run,
-    ] {
-        assert!(
-            kinds.contains(&expected),
-            "missing default task for {expected:?}"
-        );
-    }
-}
-
-#[test]
-fn test_task_renders_a_cargo_argv() {
-    let adapter = configure("adapter/single-manifest.toml");
-    let test = adapter
-        .default_tasks()
-        .into_iter()
-        .find(|t| t.kind == TaskKind::Test)
-        .expect("test task");
-    assert_eq!(test.argv.first().map(String::as_str), Some("cargo"));
-    assert!(test.argv.iter().any(|arg| arg == "test"));
-    assert_eq!(test.selector, ["-p", "{module.package}"]);
-    assert_eq!(test.shared_inputs, ["Cargo.lock"]);
+fn configure_reads_the_authoritative_task_table() {
+    // The runnable tasks now live in the config, not a compiled-in default: the
+    // adapter exposes them via `common().tasks`.
+    let adapter = configure("adapter/cargo.toml");
+    assert!(
+        adapter.common().tasks.contains_key("test"),
+        "authored task table should be parsed"
+    );
 }
 
 #[test]
@@ -65,10 +38,6 @@ fn configure_accepts_the_flattened_common_knobs() {
 
     assert_eq!(common.run_strategy, Some(RunStrategy::LeafToTop));
     assert_eq!(common.release.registry.as_deref(), Some("crates-io"));
-    assert!(
-        common.tasks.contains_key("test"),
-        "flattened task override should be parsed"
-    );
 }
 
 #[test]
@@ -76,6 +45,18 @@ fn configure_rejects_an_unknown_section_field() {
     let adapter = fixtures::ecosystem_string("rust", "adapter/single-manifest.toml").unwrap();
     let raw = toven_testkit::raw_subtree(&format!("{adapter}\nbogus = true\n")).expect("subtree");
     assert!(provider().configure(raw).is_err());
+}
+
+#[test]
+fn configure_rejects_a_task_entry_without_argv() {
+    let raw = toven_testkit::raw_subtree("[tasks.test]\nargv = []\n").expect("subtree");
+    let Err(error) = provider().configure(raw) else {
+        panic!("a task entry without argv must be rejected")
+    };
+    assert!(
+        error.to_string().contains("ecosystems.rust.tasks.test"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -91,18 +72,46 @@ fn unpublished_config_has_no_release_target() {
 }
 
 #[test]
-fn scaffold_detects_a_cargo_project() {
+fn wizard_detects_and_renders_a_cargo_project() {
     let repo = SampleRepo::materialize("rust/single").expect("materialize repo");
-    let fragment = provider()
-        .scaffold(repo.root())
-        .expect("scaffold")
+
+    let detection = provider()
+        .detect(repo.root())
+        .expect("detect")
         .expect("cargo project detected");
+    assert_eq!(detection.ecosystem.as_str(), "rust");
+
+    // The questionnaire asks the test-runner question and preselects a runner.
+    let questionnaire = provider().questionnaire(&detection).expect("questionnaire");
+    let question = &questionnaire.questions[0];
+    let QuestionKind::Select(choices) = &question.kind else {
+        panic!("expected a select question");
+    };
+    let recommended = choices
+        .iter()
+        .find(|choice| choice.is_recommended())
+        .expect("a recommended choice");
+
+    // Rendering with the recommended answer yields a complete, parseable section.
+    let answers = Answers::new().with(
+        question.id.clone(),
+        Answer::Choice(recommended.id().clone()),
+    );
+    let fragment = provider().render(&detection, &answers).expect("render");
     assert_eq!(fragment.ecosystem.as_str(), "rust");
     assert!(fragment.table.contains_key("manifests"));
+    assert!(fragment.table.contains_key("tasks"));
+
+    // The rendered fragment configures back through the provider cleanly.
+    let rendered = toml::to_string(&fragment.table).expect("serialize fragment");
+    let raw = toven_testkit::raw_subtree(&rendered).expect("raw table");
+    provider()
+        .configure(raw)
+        .expect("rendered fragment configures");
 }
 
 #[test]
-fn scaffold_skips_a_non_cargo_directory() {
+fn wizard_skips_a_non_cargo_directory() {
     let dir = TempDir::new().expect("temp dir");
-    assert!(provider().scaffold(dir.path()).expect("scaffold").is_none());
+    assert!(provider().detect(dir.path()).expect("detect").is_none());
 }

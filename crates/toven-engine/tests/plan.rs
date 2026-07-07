@@ -269,7 +269,7 @@ fn group_task_override_splits_members_into_their_own_unit() {
         .expect("default unit present");
     assert_eq!(default.argv, vec!["cargo".to_string(), "test".to_string()]);
     assert_eq!(default.members, vec![mref("rust", "errors").into()]);
-    assert_eq!(default.origin, TaskOrigin::AdapterDefault);
+    assert_eq!(default.origin, TaskOrigin::Project);
 }
 
 #[test]

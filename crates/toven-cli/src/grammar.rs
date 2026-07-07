@@ -24,7 +24,7 @@ pub const RESERVED: &[&str] = &[
     "plan",
     "release",
     "explain",
-    "generate",
+    "init",
     "affected",
     "modules",
     "list",

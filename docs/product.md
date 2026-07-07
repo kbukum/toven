@@ -13,7 +13,7 @@ Toven answers five questions about any task:
 ## A typical session
 
 ```bash
-toven generate --write                         # scaffold toven.toml
+toven init                                     # onboarding wizard writes toven.toml
 toven plan check --base origin/main --merge-base   # see what would run
 toven check                                    # run it
 toven test --nocapture                         # run with passthrough args
@@ -60,8 +60,8 @@ A `toven.toml` can describe one repository or an umbrella that federates several
 
 | Command | What it does |
 |---------|--------------|
-| `toven generate` | Scaffold a reviewable `toven.toml`. |
-| `toven <task>` | Run a configured or adapter-default task. |
+| `toven init` | Run the onboarding wizard to author a reviewable `toven.toml`. |
+| `toven <task>` | Run a task from the config task table (built-in kind or named extra). |
 | `toven <task> --watch` | Rerun the affected subgraph on every source change. |
 | `toven <task> --refresh` | Re-run every unit and refresh the cache. |
 | `toven <task> --timeout <duration>` | Bound each unit's runtime. |
@@ -76,4 +76,4 @@ See the [command reference](commands/README.md) for full flag detail.
 
 ## Status
 
-Pre-alpha, installed from source. The current surface covers strict TOML config, Rust and Go discovery, selector placeholders, readiness planning, affected detection, result caching, persistent tasks, and `toven generate`. Distributed execution, remote cache, and toolchain installation are planned but not yet available.
+Pre-alpha, installed from source. The current surface covers strict TOML config, Rust and Go discovery, selector placeholders, readiness planning, affected detection, result caching, persistent tasks, and `toven init`. Distributed execution, remote cache, and toolchain installation are planned but not yet available.

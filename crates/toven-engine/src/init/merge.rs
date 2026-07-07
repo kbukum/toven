@@ -1,6 +1,6 @@
 //! Additive, idempotent fragment merge over an existing `toven.toml`.
 //!
-//! Re-running `toven generate` against a document that already exists grows the
+//! Re-running `toven init` against a document that already exists grows the
 //! polyglot config without disturbing hand edits: a missing section is added, an
 //! existing one is **left untouched** with a warning, and
 //! `[project]`/`[toven]` are never modified. `--force <id>` regenerates exactly

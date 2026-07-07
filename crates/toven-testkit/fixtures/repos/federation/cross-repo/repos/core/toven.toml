@@ -4,3 +4,45 @@ name = "core"
 [ecosystems.rust]
 manifests = ["Cargo.toml"]
 run_strategy = "leaf-to-top"
+
+[ecosystems.rust.tasks.build]
+argv = ["cargo", "build", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.check]
+argv = ["cargo", "check", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.doc]
+argv = ["cargo", "doc", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.format]
+argv = ["cargo", "fmt", "--manifest-path", "{module.manifest}", "--all", "{args}"]
+fan_out = "whole-workspace"
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.lint]
+argv = ["cargo", "clippy", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.run]
+argv = ["cargo", "run", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "per-module"
+persistent = true
+selector = ["-p", "{module.package}"]
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.test]
+argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+shared_inputs = ["Cargo.lock"]

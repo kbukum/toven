@@ -3,7 +3,7 @@
 use rskit_errors::AppResult;
 use toven_ports::{
     CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, ReleaseTarget,
-    RunStrategy, Task, TaskKind, ToolchainProbe,
+    RunStrategy, TaskKind, ToolchainProbe,
 };
 
 use crate::config::RustConfig;
@@ -12,32 +12,27 @@ use crate::release::CratesIoTarget;
 use crate::tasks;
 use crate::toolchain;
 
-/// The configured cargo adapter: a baked [`RustConfig`] plus its resolved task
-/// table.
+/// The configured cargo adapter: a baked [`RustConfig`].
 ///
 /// Constructed by [`RustProvider::configure`](toven_ports::Provider::configure)
-/// and held by the engine as `dyn ConfiguredAdapter`.
+/// and held by the engine as `dyn ConfiguredAdapter`. The runnable task table is
+/// read from the parsed config (`common().tasks`), not from the adapter.
 #[derive(Debug, Clone)]
 pub struct RustAdapter {
     config: RustConfig,
-    tasks: Vec<Task>,
 }
 
 impl RustAdapter {
-    /// Construct an adapter from a baked config and its resolved tasks.
+    /// Construct an adapter from a baked config.
     #[must_use]
-    pub const fn new(config: RustConfig, tasks: Vec<Task>) -> Self {
-        Self { config, tasks }
+    pub const fn new(config: RustConfig) -> Self {
+        Self { config }
     }
 }
 
 impl ConfiguredAdapter for RustAdapter {
     fn discover(&self, request: &DiscoverRequest) -> AppResult<DiscoverResponse> {
         discovery::discover(&self.config, request)
-    }
-
-    fn default_tasks(&self) -> Vec<Task> {
-        self.tasks.clone()
     }
 
     fn toolchain_probe(&self) -> ToolchainProbe {

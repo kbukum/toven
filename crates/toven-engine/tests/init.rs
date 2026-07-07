@@ -1,11 +1,12 @@
-//! `toven generate` flow tests: minimal first-run emit, additive/idempotent
-//! re-run, `--force` regeneration, the bootstrap PATH-driver probe, the
-//! generated-config → loader round-trip, and a generate → PLAN smoke.
+//! `toven init` flow tests: minimal first-run emit, additive/idempotent re-run,
+//! `--force` regeneration, the bootstrap PATH-driver probe, the generated-config
+//! → loader round-trip, and an init → PLAN smoke.
 //!
 //! Discovery is faked through `toven-testkit` doubles; the PATH-probe transport
-//! is exercised through an injected [`DriverScaffolder`]/[`DriverLocator`] pair
-//! (no real subprocess), and the existing-config re-run reads
-//! a shared fixture rather than inline TOML.
+//! is exercised through an injected [`DriverWizard`]/[`DriverLocator`] pair (no
+//! real subprocess), the questionnaire seam through a [`ScriptedAnswers`]
+//! provider, and the existing-config re-run reads a shared fixture rather than
+//! inline TOML.
 
 mod common;
 
@@ -18,15 +19,15 @@ use rskit_fs::sync_io::file::{read_string, write};
 use toml::{Table, Value};
 use toven_engine::config::{CanonicalRegistry, load};
 use toven_engine::federation::MemberVcsReaders;
-use toven_engine::generate::generate_with;
+use toven_engine::init::init_with;
 use toven_engine::plan::{NullCache, PlanHost, PlanRequest, plan};
 use toven_model::{
     AbsPath, DepKind, Edge, Module, ModuleRef, RepoPath, ToolchainTag, Workspace, WorkspaceId,
 };
 use toven_ports::{DiscoverResponse, EcosystemFragment, FanOut, Provider, Task, TaskKind};
 use toven_testkit::{
-    CountingToolchainProber, FakeConfiguredAdapter, FakeDriverLocator, FakeDriverScaffolder,
-    FakeProvider, FakeSourceDigest, FakeVcsReader, RecordingReporter, fixtures,
+    CountingToolchainProber, FakeConfiguredAdapter, FakeDriverLocator, FakeDriverWizard,
+    FakeProvider, FakeSourceDigest, FakeVcsReader, RecordingReporter, ScriptedAnswers, fixtures,
 };
 
 /// Build a minimal `[ecosystems.<id>]` fragment carrying discovery `manifests`.
@@ -44,22 +45,23 @@ fn fragment(id: &str, manifests: &[&str]) -> EcosystemFragment {
     EcosystemFragment::new(eid(id), table)
 }
 
-/// A provider that scaffolds `id` with the given discovery manifests.
-fn scaffolding_provider(id: &str, manifests: &[&str]) -> FakeProvider {
-    FakeProvider::new(eid(id)).with_scaffold(Some(fragment(id, manifests)))
+/// A provider that detects `id` and renders a fragment with the given manifests.
+fn detecting_provider(id: &str, manifests: &[&str]) -> FakeProvider {
+    FakeProvider::new(eid(id)).with_fragment(fragment(id, manifests))
 }
 
 #[test]
 fn minimal_first_run_emits_project_and_ecosystem_only() {
     let dir = TempDir::new().expect("temp dir");
-    let rust = scaffolding_provider("rust", &["Cargo.toml"]);
+    let rust = detecting_provider("rust", &["Cargo.toml"]);
     let providers: Vec<&dyn Provider> = vec![&rust];
 
-    let generated = generate_with(
+    let generated = init_with(
         dir.path(),
         &providers,
-        &FakeDriverScaffolder::new(),
+        &FakeDriverWizard::new(),
         &FakeDriverLocator::new(),
+        &ScriptedAnswers::new(),
         None,
         false,
     )
@@ -89,14 +91,15 @@ fn minimal_first_run_emits_project_and_ecosystem_only() {
 #[test]
 fn generated_config_round_trips_through_the_strict_loader() {
     let dir = TempDir::new().expect("temp dir");
-    let rust = scaffolding_provider("rust", &["Cargo.toml"]);
+    let rust = detecting_provider("rust", &["Cargo.toml"]);
     let providers: Vec<&dyn Provider> = vec![&rust];
 
-    let generated = generate_with(
+    let generated = init_with(
         dir.path(),
         &providers,
-        &FakeDriverScaffolder::new(),
+        &FakeDriverWizard::new(),
         &FakeDriverLocator::new(),
+        &ScriptedAnswers::new(),
         None,
         true,
     )
@@ -125,11 +128,12 @@ fn first_run_write_with_no_detected_ecosystem_reports_a_create() {
     // No in-proc providers and no PATH drivers: a project-only document.
     let providers: Vec<&dyn Provider> = Vec::new();
 
-    let generated = generate_with(
+    let generated = init_with(
         dir.path(),
         &providers,
-        &FakeDriverScaffolder::new(),
+        &FakeDriverWizard::new(),
         &FakeDriverLocator::new(),
+        &ScriptedAnswers::new(),
         None,
         true,
     )
@@ -151,19 +155,20 @@ fn first_run_write_with_no_detected_ecosystem_reports_a_create() {
 #[test]
 fn additive_rerun_adds_missing_warns_existing_and_preserves_project() {
     let dir = TempDir::new().expect("temp dir");
-    let existing = fixtures::document_string("valid/generate-existing.toml").expect("fixture");
+    let existing = fixtures::document_string("valid/init-existing.toml").expect("fixture");
     let config = dir.path().join("toven.toml");
     write(&config, existing.as_bytes()).expect("seed existing config");
 
-    let rust = scaffolding_provider("rust", &["Cargo.toml"]);
-    let go = scaffolding_provider("go", &["go.mod"]);
+    let rust = detecting_provider("rust", &["Cargo.toml"]);
+    let go = detecting_provider("go", &["go.mod"]);
     let providers: Vec<&dyn Provider> = vec![&rust, &go];
 
-    let generated = generate_with(
+    let generated = init_with(
         dir.path(),
         &providers,
-        &FakeDriverScaffolder::new(),
+        &FakeDriverWizard::new(),
         &FakeDriverLocator::new(),
+        &ScriptedAnswers::new(),
         None,
         true,
     )
@@ -206,18 +211,19 @@ fn additive_rerun_adds_missing_warns_existing_and_preserves_project() {
 #[test]
 fn rerun_without_changes_is_idempotent() {
     let dir = TempDir::new().expect("temp dir");
-    let existing = fixtures::document_string("valid/generate-existing.toml").expect("fixture");
+    let existing = fixtures::document_string("valid/init-existing.toml").expect("fixture");
     let config = dir.path().join("toven.toml");
     write(&config, existing.as_bytes()).expect("seed existing config");
 
-    let rust = scaffolding_provider("rust", &["Cargo.toml"]);
+    let rust = detecting_provider("rust", &["Cargo.toml"]);
     let providers: Vec<&dyn Provider> = vec![&rust];
 
-    let generated = generate_with(
+    let generated = init_with(
         dir.path(),
         &providers,
-        &FakeDriverScaffolder::new(),
+        &FakeDriverWizard::new(),
         &FakeDriverLocator::new(),
+        &ScriptedAnswers::new(),
         None,
         true,
     )
@@ -239,18 +245,19 @@ fn rerun_without_changes_is_idempotent() {
 #[test]
 fn force_regenerates_exactly_one_section() {
     let dir = TempDir::new().expect("temp dir");
-    let existing = fixtures::document_string("valid/generate-existing.toml").expect("fixture");
+    let existing = fixtures::document_string("valid/init-existing.toml").expect("fixture");
     let config = dir.path().join("toven.toml");
     write(&config, existing.as_bytes()).expect("seed existing config");
 
-    let rust = scaffolding_provider("rust", &["crates/Cargo.toml"]);
+    let rust = detecting_provider("rust", &["crates/Cargo.toml"]);
     let providers: Vec<&dyn Provider> = vec![&rust];
 
-    let generated = generate_with(
+    let generated = init_with(
         dir.path(),
         &providers,
-        &FakeDriverScaffolder::new(),
+        &FakeDriverWizard::new(),
         &FakeDriverLocator::new(),
+        &ScriptedAnswers::new(),
         Some("rust"),
         true,
     )
@@ -277,16 +284,24 @@ fn force_regenerates_exactly_one_section() {
 #[test]
 fn bootstrap_probe_picks_up_a_path_driver() {
     let dir = TempDir::new().expect("temp dir");
-    let rust = scaffolding_provider("rust", &["Cargo.toml"]);
+    let rust = detecting_provider("rust", &["Cargo.toml"]);
     let providers: Vec<&dyn Provider> = vec![&rust];
 
     let go_driver = PathBuf::from("/fake/bin/toven-go");
     let locator = FakeDriverLocator::new().with_driver("toven-go", go_driver.clone());
-    let scaffolder =
-        FakeDriverScaffolder::new().with_fragments(go_driver, vec![fragment("go", &["go.mod"])]);
+    let wizard =
+        FakeDriverWizard::new().with_fragments(go_driver, vec![fragment("go", &["go.mod"])]);
 
-    let generated = generate_with(dir.path(), &providers, &scaffolder, &locator, None, false)
-        .expect("generates");
+    let generated = init_with(
+        dir.path(),
+        &providers,
+        &wizard,
+        &locator,
+        &ScriptedAnswers::new(),
+        None,
+        false,
+    )
+    .expect("generates");
 
     assert!(generated.added.contains(&eid("rust")));
     assert!(
@@ -302,8 +317,8 @@ fn bootstrap_probe_picks_up_a_path_driver() {
 }
 
 #[test]
-fn path_driver_scaffolding_a_foreign_ecosystem_is_rejected() {
-    // A `toven-go` driver may only scaffold its own `go` ecosystem. A located
+fn path_driver_rendering_a_foreign_ecosystem_is_rejected() {
+    // A `toven-go` driver may only render its own `go` ecosystem. A located
     // driver returning a fragment for a different ecosystem (here `rust`) is
     // misbehavior across the PATH-discovery trust boundary and must be a hard
     // error, never silently merged into the generated config.
@@ -312,11 +327,19 @@ fn path_driver_scaffolding_a_foreign_ecosystem_is_rejected() {
 
     let go_driver = PathBuf::from("/fake/bin/toven-go");
     let locator = FakeDriverLocator::new().with_driver("toven-go", go_driver.clone());
-    let scaffolder = FakeDriverScaffolder::new()
-        .with_fragments(go_driver, vec![fragment("rust", &["Cargo.toml"])]);
+    let wizard =
+        FakeDriverWizard::new().with_fragments(go_driver, vec![fragment("rust", &["Cargo.toml"])]);
 
-    let error = generate_with(dir.path(), &providers, &scaffolder, &locator, None, false)
-        .expect_err("a foreign-ecosystem fragment must be rejected");
+    let error = init_with(
+        dir.path(),
+        &providers,
+        &wizard,
+        &locator,
+        &ScriptedAnswers::new(),
+        None,
+        false,
+    )
+    .expect_err("a foreign-ecosystem fragment must be rejected");
 
     assert_eq!(error.code(), rskit_errors::ErrorCode::InvalidInput);
     let message = error.to_string();
@@ -329,18 +352,26 @@ fn path_driver_scaffolding_a_foreign_ecosystem_is_rejected() {
 #[test]
 fn in_proc_provider_wins_over_a_path_driver_for_the_same_ecosystem() {
     let dir = TempDir::new().expect("temp dir");
-    let go_in_proc = scaffolding_provider("go", &["go.mod"]);
+    let go_in_proc = detecting_provider("go", &["go.mod"]);
     let providers: Vec<&dyn Provider> = vec![&go_in_proc];
 
     // A PATH `toven-go` exists too, but the in-proc provider is linked, so the
     // probe must never even consult the driver for `go`.
     let go_driver = PathBuf::from("/fake/bin/toven-go");
     let locator = FakeDriverLocator::new().with_driver("toven-go", go_driver.clone());
-    let scaffolder = FakeDriverScaffolder::new()
-        .with_fragments(go_driver, vec![fragment("go", &["DRIVER/go.mod"])]);
+    let wizard =
+        FakeDriverWizard::new().with_fragments(go_driver, vec![fragment("go", &["DRIVER/go.mod"])]);
 
-    let generated = generate_with(dir.path(), &providers, &scaffolder, &locator, None, false)
-        .expect("generates");
+    let generated = init_with(
+        dir.path(),
+        &providers,
+        &wizard,
+        &locator,
+        &ScriptedAnswers::new(),
+        None,
+        false,
+    )
+    .expect("generates");
 
     assert_eq!(generated.added, vec![eid("go")]);
     assert!(
@@ -363,14 +394,15 @@ fn invalid_existing_config_is_a_typed_input_error() {
     let config = dir.path().join("toven.toml");
     write(&config, b"this is = not valid toml [[[").expect("seed broken config");
 
-    let rust = scaffolding_provider("rust", &["Cargo.toml"]);
+    let rust = detecting_provider("rust", &["Cargo.toml"]);
     let providers: Vec<&dyn Provider> = vec![&rust];
 
-    let error = generate_with(
+    let error = init_with(
         dir.path(),
         &providers,
-        &FakeDriverScaffolder::new(),
+        &FakeDriverWizard::new(),
         &FakeDriverLocator::new(),
+        &ScriptedAnswers::new(),
         None,
         true,
     )
@@ -388,14 +420,15 @@ fn invalid_existing_config_is_a_typed_input_error() {
 #[test]
 fn force_unknown_ecosystem_warns_with_no_effect_on_first_run() {
     let dir = TempDir::new().expect("temp dir");
-    let rust = scaffolding_provider("rust", &["Cargo.toml"]);
+    let rust = detecting_provider("rust", &["Cargo.toml"]);
     let providers: Vec<&dyn Provider> = vec![&rust];
 
-    let generated = generate_with(
+    let generated = init_with(
         dir.path(),
         &providers,
-        &FakeDriverScaffolder::new(),
+        &FakeDriverWizard::new(),
         &FakeDriverLocator::new(),
+        &ScriptedAnswers::new(),
         Some("python"),
         false,
     )
@@ -416,18 +449,19 @@ fn force_unknown_ecosystem_warns_with_no_effect_on_first_run() {
 #[test]
 fn force_unknown_ecosystem_warns_with_no_effect_on_rerun() {
     let dir = TempDir::new().expect("temp dir");
-    let existing = fixtures::document_string("valid/generate-existing.toml").expect("fixture");
+    let existing = fixtures::document_string("valid/init-existing.toml").expect("fixture");
     let config = dir.path().join("toven.toml");
     write(&config, existing.as_bytes()).expect("seed existing config");
 
-    let rust = scaffolding_provider("rust", &["Cargo.toml"]);
+    let rust = detecting_provider("rust", &["Cargo.toml"]);
     let providers: Vec<&dyn Provider> = vec![&rust];
 
-    let generated = generate_with(
+    let generated = init_with(
         dir.path(),
         &providers,
-        &FakeDriverScaffolder::new(),
+        &FakeDriverWizard::new(),
         &FakeDriverLocator::new(),
+        &ScriptedAnswers::new(),
         Some("python"),
         true,
     )
@@ -480,7 +514,7 @@ fn rust_plan_provider() -> FakeProvider {
         )]);
     FakeProvider::new(eid("rust"))
         .with_adapter(adapter)
-        .with_scaffold(Some(fragment("rust", &["Cargo.toml"])))
+        .with_fragment(fragment("rust", &["Cargo.toml"]))
 }
 
 #[test]
@@ -489,11 +523,12 @@ fn generated_config_feeds_the_plan_spine() {
     let rust = rust_plan_provider();
     let providers: Vec<&dyn Provider> = vec![&rust];
 
-    let generated = generate_with(
+    let generated = init_with(
         dir.path(),
         &providers,
-        &FakeDriverScaffolder::new(),
+        &FakeDriverWizard::new(),
         &FakeDriverLocator::new(),
+        &ScriptedAnswers::new(),
         None,
         true,
     )
@@ -532,6 +567,6 @@ fn generated_config_feeds_the_plan_spine() {
     assert_eq!(
         planned.units[0].members.len(),
         2,
-        "generate → plan must cover both modules"
+        "init → plan must cover both modules"
     );
 }

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{ReleaseConfig, RunStrategy, TaskOverride};
+use super::{ReleaseConfig, RunStrategy, TaskEntry};
 
 /// The engine-common `[ecosystems.<id>]` knobs shared by every adapter config.
 ///
@@ -23,9 +23,10 @@ pub struct CommonEcosystemConfig {
     /// Release sub-config (`release.strategy`, `release.registry`).
     #[serde(default, skip_serializing_if = "ReleaseConfig::is_default")]
     pub release: ReleaseConfig,
-    /// Per-name task overrides (built-in kind override, named extra, or custom).
+    /// The complete ecosystem task table: one authored [`TaskEntry`] per task
+    /// name, the authoritative source of runnable tasks (`toven init` writes it).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub tasks: BTreeMap<String, TaskOverride>,
+    pub tasks: BTreeMap<String, TaskEntry>,
 }
 
 impl ReleaseConfig {
@@ -61,12 +62,12 @@ mod tests {
         assert_eq!(parsed.common.run_strategy, Some(RunStrategy::LeafToTop));
         assert_eq!(parsed.common.release.registry.as_deref(), Some("crates-io"));
 
-        let test = parsed
-            .common
-            .tasks
-            .get("test")
-            .expect("test override present");
-        assert_eq!(test.cache_args, Some(true));
+        let test = parsed.common.tasks.get("test").expect("test entry present");
+        assert_eq!(
+            test.argv,
+            ["cargo", "nextest", "run", "{module.selector}", "{args}"]
+        );
+        assert!(test.cache_args);
         assert_eq!(test.shared_inputs, ["rust-toolchain.toml"]);
 
         let reserialized = toml::to_string(&parsed).expect("serializes");
@@ -75,11 +76,11 @@ mod tests {
     }
 
     #[test]
-    fn task_override_section_rejects_unknown_field() {
+    fn task_entry_section_rejects_unknown_field() {
         // A leaf (non-flattened) section enforces its own strictness.
         let source = include_str!("../../tests/fixtures/config/invalid/unknown-task-field.toml");
         let error = toml::from_str::<CommonEcosystemConfig>(source)
-            .expect_err("unknown TaskOverride field must be rejected");
+            .expect_err("unknown TaskEntry field must be rejected");
         assert!(error.to_string().contains("bogus"), "{error}");
     }
 }

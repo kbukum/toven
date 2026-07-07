@@ -1,28 +1,32 @@
 //! Shared Provider-side doubles: [`FakeProvider`] and [`FakeConfiguredAdapter`].
 //!
 //! Planner/discover tests configure canned discovery, tasks, and probe here
-//! instead of standing up a real adapter. Both are `Clone` so a [`FakeProvider`]
+//! instead of standing up a real adapter. Wizard tests preset a detection,
+//! questionnaire, and rendered fragment. Both are `Clone` so a [`FakeProvider`]
 //! can hand back a fresh boxed adapter from `configure` on each call. The
 //! release-target double lives beside this one in [`release`](super::release).
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toml::Table;
 use toven_model::EcosystemId;
 use toven_ports::{
-    CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, EcosystemFragment,
-    Provider, ReleaseTarget, RunStrategy, Task, TaskKind, ToolchainProbe,
+    Answers, CommonEcosystemConfig, ConfiguredAdapter, DEFAULT_READINESS_TIMEOUT, Detection,
+    DiscoverRequest, DiscoverResponse, EcosystemFragment, Provider, Questionnaire, ReleaseTarget,
+    RunStrategy, Task, TaskEntry, TaskKind, ToolchainProbe,
 };
 
 use super::release::FakeReleaseTarget;
 
-/// A [`ConfiguredAdapter`] returning canned discovery, tasks, and defaults.
+/// A [`ConfiguredAdapter`] returning canned discovery, config, and defaults.
 ///
 /// Build it with `with_*`; `discover` returns the scripted response stamped with
-/// the request's schema version.
+/// the request's schema version. The task table lives in the resolved
+/// [`CommonEcosystemConfig`] (config is authoritative), so [`with_tasks`] folds
+/// resolved [`Task`]s back into the `[ecosystems.<id>.tasks]` config projection.
+///
+/// [`with_tasks`]: Self::with_tasks
 #[derive(Debug, Clone)]
 pub struct FakeConfiguredAdapter {
     response: DiscoverResponse,
-    tasks: Vec<Task>,
     probe: ToolchainProbe,
     run_strategy: RunStrategy,
     custom_run_strategies: std::collections::HashMap<String, RunStrategy>,
@@ -37,7 +41,6 @@ impl FakeConfiguredAdapter {
     pub fn new(ecosystem: EcosystemId) -> Self {
         Self {
             response: DiscoverResponse::new(ecosystem),
-            tasks: Vec::new(),
             probe: ToolchainProbe::new("fake", "fake", vec!["--version".into()]),
             run_strategy: RunStrategy::LeafToTop,
             custom_run_strategies: std::collections::HashMap::new(),
@@ -53,10 +56,15 @@ impl FakeConfiguredAdapter {
         self
     }
 
-    /// Set the adapter's default tasks.
+    /// Fold resolved [`Task`]s into the config task table (`common().tasks`),
+    /// the authoritative source the engine reads. Each task is projected to its
+    /// [`TaskEntry`] keyed by its user-addressable name.
     #[must_use]
     pub fn with_tasks(mut self, tasks: Vec<Task>) -> Self {
-        self.tasks = tasks;
+        for task in tasks {
+            let (key, entry) = task_entry(&task);
+            self.common.tasks.insert(key, entry);
+        }
         self
     }
 
@@ -95,7 +103,7 @@ impl FakeConfiguredAdapter {
         self
     }
 
-    /// Set the resolved engine-common config.
+    /// Set the resolved engine-common config (including its task table).
     #[must_use]
     pub fn with_common(mut self, common: CommonEcosystemConfig) -> Self {
         self.common = common;
@@ -103,15 +111,37 @@ impl FakeConfiguredAdapter {
     }
 }
 
+/// Project a resolved [`Task`] into a `(key, TaskEntry)` config pair — the
+/// inverse of [`TaskEntry::materialize`](toven_ports::TaskEntry::materialize).
+fn task_entry(task: &Task) -> (String, TaskEntry) {
+    let key = task
+        .name
+        .clone()
+        .unwrap_or_else(|| task.kind.name().to_string());
+    // A named extra carries an explicit kind; a plain built-in/custom derives it
+    // from the key.
+    let kind = task.name.as_ref().map(|_| task.kind.clone());
+    let readiness_timeout_secs = (task.readiness_timeout != DEFAULT_READINESS_TIMEOUT)
+        .then_some(task.readiness_timeout.as_secs());
+    let entry = TaskEntry {
+        kind,
+        argv: task.argv.clone(),
+        selector: task.selector.clone(),
+        fan_out: task.fan_out,
+        persistent: task.persistent,
+        readiness: task.readiness.clone(),
+        readiness_timeout_secs,
+        cache_args: task.cache_args,
+        shared_inputs: task.shared_inputs.clone(),
+    };
+    (key, entry)
+}
+
 impl ConfiguredAdapter for FakeConfiguredAdapter {
     fn discover(&self, request: &DiscoverRequest) -> AppResult<DiscoverResponse> {
         let mut response = self.response.clone();
         response.schema_version = request.schema_version;
         Ok(response)
-    }
-
-    fn default_tasks(&self) -> Vec<Task> {
-        self.tasks.clone()
     }
 
     fn toolchain_probe(&self) -> ToolchainProbe {
@@ -139,30 +169,37 @@ impl ConfiguredAdapter for FakeConfiguredAdapter {
     }
 }
 
-/// A [`Provider`] that bakes a canned [`FakeConfiguredAdapter`].
+/// A [`Provider`] that bakes a canned [`FakeConfiguredAdapter`] and scripts the
+/// three-step wizard (`detect` / `questionnaire` / `render`).
 ///
 /// `configure` ignores the raw TOML and returns a clone of the template adapter;
-/// `scaffold` returns the scripted fragment (an empty one by default).
+/// `detect` returns the scripted detection (a bare one by default), `render`
+/// returns the scripted fragment (an empty one by default).
 #[derive(Debug, Clone)]
 pub struct FakeProvider {
     ecosystem: EcosystemId,
     adapter: FakeConfiguredAdapter,
-    scaffold: Option<EcosystemFragment>,
-    scaffold_error: Option<(ErrorCode, String)>,
+    detection: Option<Detection>,
+    detect_error: Option<(ErrorCode, String)>,
+    questionnaire: Questionnaire,
+    fragment: EcosystemFragment,
+    render_error: Option<(ErrorCode, String)>,
 }
 
 impl FakeProvider {
-    /// Construct a provider for `ecosystem` with a default template adapter and
-    /// an empty scaffold fragment.
+    /// Construct a provider for `ecosystem` with a default template adapter, a
+    /// bare detection, an empty questionnaire, and an empty rendered fragment.
     #[must_use]
     pub fn new(ecosystem: EcosystemId) -> Self {
         let adapter = FakeConfiguredAdapter::new(ecosystem.clone());
-        let scaffold = Some(EcosystemFragment::new(ecosystem.clone(), Table::new()));
         Self {
-            ecosystem,
+            ecosystem: ecosystem.clone(),
             adapter,
-            scaffold,
-            scaffold_error: None,
+            detection: Some(Detection::bare(ecosystem.clone())),
+            detect_error: None,
+            questionnaire: Questionnaire::empty(ecosystem.clone()),
+            fragment: EcosystemFragment::new(ecosystem, toml::Table::new()),
+            render_error: None,
         }
     }
 
@@ -173,18 +210,39 @@ impl FakeProvider {
         self
     }
 
-    /// Set the fragment returned by `scaffold` (`None` = not present).
+    /// Set the detection returned by `detect` (`None` = ecosystem not present).
     #[must_use]
-    pub fn with_scaffold(mut self, scaffold: Option<EcosystemFragment>) -> Self {
-        self.scaffold = scaffold;
+    pub fn with_detection(mut self, detection: Option<Detection>) -> Self {
+        self.detection = detection;
         self
     }
 
-    /// Make `scaffold` fail with the given typed error instead of detecting a
-    /// fragment (models a driver whose self-detection itself errors).
+    /// Make `detect` fail with the given typed error (models a driver whose
+    /// self-detection itself errors).
     #[must_use]
-    pub fn with_scaffold_error(mut self, code: ErrorCode, message: impl Into<String>) -> Self {
-        self.scaffold_error = Some((code, message.into()));
+    pub fn with_detect_error(mut self, code: ErrorCode, message: impl Into<String>) -> Self {
+        self.detect_error = Some((code, message.into()));
+        self
+    }
+
+    /// Set the questionnaire returned by `questionnaire`.
+    #[must_use]
+    pub fn with_questionnaire(mut self, questionnaire: Questionnaire) -> Self {
+        self.questionnaire = questionnaire;
+        self
+    }
+
+    /// Set the fragment returned by `render`.
+    #[must_use]
+    pub fn with_fragment(mut self, fragment: EcosystemFragment) -> Self {
+        self.fragment = fragment;
+        self
+    }
+
+    /// Make `render` fail with the given typed error.
+    #[must_use]
+    pub fn with_render_error(mut self, code: ErrorCode, message: impl Into<String>) -> Self {
+        self.render_error = Some((code, message.into()));
         self
     }
 }
@@ -198,18 +256,29 @@ impl Provider for FakeProvider {
         Ok(Box::new(self.adapter.clone()))
     }
 
-    fn scaffold(&self, _project_root: &std::path::Path) -> AppResult<Option<EcosystemFragment>> {
-        if let Some((code, message)) = &self.scaffold_error {
+    fn detect(&self, _project_root: &std::path::Path) -> AppResult<Option<Detection>> {
+        if let Some((code, message)) = &self.detect_error {
             return Err(AppError::new(*code, message.clone()));
         }
-        Ok(self.scaffold.clone())
+        Ok(self.detection.clone())
+    }
+
+    fn questionnaire(&self, _detection: &Detection) -> AppResult<Questionnaire> {
+        Ok(self.questionnaire.clone())
+    }
+
+    fn render(&self, _detection: &Detection, _answers: &Answers) -> AppResult<EcosystemFragment> {
+        if let Some((code, message)) = &self.render_error {
+            return Err(AppError::new(*code, message.clone()));
+        }
+        Ok(self.fragment.clone())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use toven_model::{AbsPath, EcosystemId};
-    use toven_ports::{DiscoverRequest, Provider};
+    use toven_ports::{ConfiguredAdapter, DiscoverRequest, FanOut, Provider, Task, TaskKind};
 
     use super::super::release::FakeReleaseTarget;
     use super::{FakeConfiguredAdapter, FakeProvider};
@@ -233,5 +302,18 @@ mod tests {
         let response = configured.discover(&request).expect("discovers");
         assert_eq!(response.schema_version, request.schema_version);
         assert!(configured.release_target().expect("ok").is_some());
+    }
+
+    #[test]
+    fn with_tasks_projects_into_the_config_table() {
+        let adapter = FakeConfiguredAdapter::new(rust()).with_tasks(vec![Task::new(
+            TaskKind::Test,
+            vec!["cargo".into(), "test".into()],
+            FanOut::Batchable,
+        )]);
+        let entry = adapter.common().tasks.get("test").expect("test entry");
+        assert_eq!(entry.argv, ["cargo", "test"]);
+        assert_eq!(entry.fan_out, FanOut::Batchable);
+        assert!(entry.kind.is_none());
     }
 }

@@ -134,8 +134,9 @@ pub fn addressable_task_names(
 ) -> AppResult<Vec<String>> {
     let configured = configure(document, providers)?;
     let mut names = Vec::new();
-    for adapter in configured.values() {
-        for task in adapter.default_tasks() {
+    for (ecosystem, adapter) in &configured {
+        for (key, entry) in &adapter.common().tasks {
+            let task = entry.materialize(ecosystem.as_str(), key)?;
             let name = match (task.name, task.kind) {
                 (Some(explicit), _) => explicit,
                 (None, TaskKind::Custom(custom)) => custom,

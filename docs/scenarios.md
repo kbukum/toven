@@ -73,11 +73,11 @@ Task-level `shared_inputs` invalidate every module using the task — `Cargo.loc
 
 ```mermaid
 flowchart TD
-    Install[Install toven binary] --> Generate[toven generate in target repo]
-    Generate --> Review[Review generated toven.toml]
+    Install[Install toven binary] --> Init[toven init in target repo]
+    Init --> Review[Review generated toven.toml]
     Review --> Plan[toven plan / affected]
     Plan --> Run[toven test / check]
     Run --> Bench[Benchmark against direct commands]
 ```
 
-Adoption uses the installed binary and a generated config. Start with `toven generate`, then add hand-written policy only where the real workflow needs it. See [benchmarking](benchmarking.md).
+Adoption uses the installed binary and a generated config. Start with `toven init`, then add hand-written policy only where the real workflow needs it. See [benchmarking](benchmarking.md).

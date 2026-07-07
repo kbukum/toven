@@ -202,7 +202,7 @@ mod tests {
         );
 
         let fault = client
-            .call(&Request::DefaultTasks)
+            .call(&Request::ToolchainProbe)
             .expect_err("an oversized frame prefix must fault");
         assert!(
             matches!(fault, DriverFault::Malformed(_)),

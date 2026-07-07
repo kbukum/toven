@@ -104,7 +104,7 @@ pub(super) fn schedule(
 ) -> AppResult<Scheduled> {
     let active_modules = active_modules(federation, active);
     let effective = effective_tasks(&active_modules, adapters, &request.intent, overrides)?;
-    let strategies = strategies(&active_modules, adapters, overrides, &request.intent)?;
+    let strategies = strategies(&active_modules, adapters, overrides, &effective)?;
     let subgraph = active_subgraph(&active_modules, federation)?;
 
     let waves = subgraph.waves(|edge| keep_edge(edge, &strategies))?;
@@ -220,10 +220,10 @@ fn effective_tasks(
     let mut resolved = BTreeMap::new();
     for (key, module) in modules {
         let adapter = adapter_for(module, adapters)?;
-        let default_tasks = adapter.default_tasks();
-        let default = select_task(&default_tasks, intent).ok_or_else(|| {
-            unknown_task_error(module.id.ecosystem.as_str(), intent, &default_tasks)
-        })?;
+        let ecosystem = module.id.ecosystem.as_str();
+        let config_tasks = config_tasks(adapter, ecosystem)?;
+        let default = select_task(&config_tasks, intent)
+            .ok_or_else(|| unknown_task_error(ecosystem, intent, &config_tasks))?;
         let effective = match overrides.task(key, intent.name()) {
             Some((group, over)) => {
                 let mut merged = merge_task(&default, over);
@@ -243,16 +243,45 @@ fn effective_tasks(
     Ok(resolved)
 }
 
-/// Build the typed error for an intent that no task in `ecosystem` satisfies,
-/// enriched with the nearest resolvable task name and a discovery hint.
+/// Materialize an ecosystem's authoritative config task table into resolved
+/// [`Task`]s (the `tasks` map exposed via
+/// [`ConfiguredAdapter::common`](toven_ports::ConfiguredAdapter::common)).
 ///
-/// The candidate set is the ecosystem's resolved task names (canonical, so
+/// The config is the single source of runnable tasks: an entry with an empty
+/// `argv` fails here with a typed error citing its `ecosystems.<id>.tasks.<name>`
+/// path (the same completeness check `configure` runs).
+fn config_tasks(
+    adapter: &dyn toven_ports::ConfiguredAdapter,
+    ecosystem: &str,
+) -> AppResult<Vec<Task>> {
+    adapter
+        .common()
+        .tasks
+        .iter()
+        .map(|(key, entry)| entry.materialize(ecosystem, key))
+        .collect()
+}
+
+/// Build the typed error for an intent that no config task in `ecosystem`
+/// satisfies. When the ecosystem has no task table at all, point the user at
+/// `toven init` to author one; otherwise enrich the error with the nearest
+/// resolvable task name and the `toven tasks` discovery hint.
+///
+/// The candidate set is the ecosystem's config task names (canonical, so
 /// `format` not `fmt`); a nearest match within the default edit-distance is
 /// offered as advisory data in the message. The error stays a typed
 /// [`AppError`] — the CLI's renderer is what prints it.
 fn unknown_task_error(ecosystem: &str, intent: &TaskKind, available: &[Task]) -> AppError {
-    let names: Vec<String> = available.iter().map(task_addressable_name).collect();
     let wanted = intent.name();
+    if available.is_empty() {
+        return AppError::invalid_input(
+            "tasks",
+            format!(
+                "ecosystem '{ecosystem}' defines no tasks. Run 'toven init' to author its task table in toven.toml."
+            ),
+        );
+    }
+    let names: Vec<String> = available.iter().map(task_addressable_name).collect();
     let suggestion = rskit_util::strings::nearest(wanted, names.iter().map(String::as_str))
         .map_or_else(String::new, |name| format!(" Did you mean '{name}'?"));
     AppError::invalid_input(
@@ -343,19 +372,24 @@ fn active_modules(federation: &Federation, active: &[ModuleKey]) -> BTreeMap<Mod
 
 /// Resolve each active module's `RunStrategy`: a group override wins, else the
 /// ecosystem override, else the per-kind adapter default.
+///
+/// The per-kind default is keyed on the module's **resolved effective task
+/// kind** (a named extra's true kind, e.g. `Test` for `test-integration`), not
+/// the raw user token, so a named extra inherits its kind's ordering policy.
 fn strategies(
     modules: &BTreeMap<ModuleKey, Module>,
     adapters: &MemberAdapters,
     overrides: &GroupOverrides,
-    intent: &TaskKind,
+    effective: &BTreeMap<ModuleKey, EffectiveTask>,
 ) -> AppResult<BTreeMap<ModuleKey, RunStrategy>> {
     let mut strategies = BTreeMap::new();
     for (key, module) in modules {
         let adapter = adapter_for(module, adapters)?;
+        let kind = &effective_for(key, effective)?.task.kind;
         let strategy = overrides
             .run_strategy(key)
             .or_else(|| adapter.common().run_strategy)
-            .unwrap_or_else(|| adapter.run_strategy_default(intent));
+            .unwrap_or_else(|| adapter.run_strategy_default(kind));
         strategies.insert(key.clone(), strategy);
     }
     Ok(strategies)
@@ -577,11 +611,19 @@ fn readiness(readiness: &Readiness) -> ExecutionReadiness {
     }
 }
 
-/// Select the adapter default task matching the intent kind (no named extra).
+/// Select the config task a user token resolves to by its user-addressable name.
+///
+/// The addressable identity of a task is its explicit `name` for a named extra,
+/// else its built-in/custom kind's canonical name (the same string discovery
+/// lists and suggestions offer). `intent.name()` is the canonical token the user
+/// typed (alias-folded: `fmt` → `format`), so an exact addressable-name match
+/// resolves both a plain built-in (`test` → the unnamed `Test` task) and a named
+/// extra (`test-integration` → the `kind = "test"` entry) without collision.
 fn select_task(tasks: &[Task], intent: &TaskKind) -> Option<Task> {
+    let wanted = intent.name();
     tasks
         .iter()
-        .find(|task| &task.kind == intent && task.name.is_none())
+        .find(|task| task_addressable_name(task) == wanted)
         .cloned()
 }
 
@@ -670,7 +712,9 @@ mod tests {
         AbsPath, DepKind, EcosystemId, Edge, Module, ModuleRef, RepoPath, ToolchainTag, Workspace,
         WorkspaceId,
     };
-    use toven_ports::{ConfiguredAdapter, DiscoverResponse, FanOut, RunStrategy, Task, TaskKind};
+    use toven_ports::{
+        ConfiguredAdapter, DiscoverResponse, FanOut, RunStrategy, Task, TaskKind, TaskOrigin,
+    };
     use toven_testkit::FakeConfiguredAdapter;
 
     use super::super::configure::{ConfiguredSet, MemberAdapters};
@@ -754,7 +798,34 @@ mod tests {
     }
 
     fn request() -> PlanRequest {
-        PlanRequest::new("r", "t", TaskKind::Test, AbsPath::new("/repo").unwrap())
+        request_for(TaskKind::Test)
+    }
+
+    fn request_for(intent: TaskKind) -> PlanRequest {
+        PlanRequest::new("r", "t", intent, AbsPath::new("/repo").unwrap())
+    }
+
+    /// An adapter exposing both a plain `test` task and a `test-integration`
+    /// named extra (`kind = "test"`) with distinct argv, so a test can prove
+    /// each resolves by its own user-addressable name.
+    fn named_extra_adapter(ecosystem: &str) -> Box<dyn ConfiguredAdapter> {
+        let plain = Task::new(
+            TaskKind::Test,
+            vec!["plain".to_string(), "test".to_string()],
+            FanOut::PerModule,
+        );
+        let mut extra = Task::new(
+            TaskKind::Test,
+            vec!["integration".to_string(), "test".to_string()],
+            FanOut::PerModule,
+        );
+        extra.name = Some("test-integration".to_string());
+        Box::new(
+            FakeConfiguredAdapter::new(eid(ecosystem))
+                .with_response(DiscoverResponse::new(eid(ecosystem)))
+                .with_tasks(vec![plain, extra])
+                .with_run_strategy(RunStrategy::Unordered),
+        )
     }
 
     fn toolchains(federation: &Federation) -> BTreeMap<WorkspaceId, ToolchainTag> {
@@ -999,6 +1070,90 @@ mod tests {
             .find(|unit| unit.id == "rust@rust#test")
             .unwrap();
         assert_eq!(rust.members.len(), 2);
+    }
+
+    #[test]
+    fn named_extra_task_is_selected_by_its_addressable_name() {
+        // A named extra (`test-integration`, kind = "test") is advertised by
+        // discovery and suggestions; selection must resolve the user token to it
+        // by its addressable name — the plain `test` token must still resolve the
+        // unnamed Test task independently, with no collision either way.
+        let federation = Federation {
+            workspaces: vec![workspace("rust")],
+            modules: vec![module("rust", "app", "rust")],
+            edges: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let mut adapters = ConfiguredSet::new();
+        adapters.insert(eid("rust"), named_extra_adapter("rust"));
+        let adapters = single_member(adapters);
+        let active = vec![toven_model::ModuleKey::bare(mref("rust", "app"))];
+        let toolchains = toolchains(&federation);
+
+        // The user token `test-integration` resolves the named extra's argv.
+        let extra = schedule(
+            &request_for(TaskKind::Custom("test-integration".to_string())),
+            &federation,
+            &active,
+            &adapters,
+            &GroupOverrides::default(),
+            &toolchains,
+        )
+        .expect("named extra schedules");
+        assert_eq!(extra.units.len(), 1);
+        assert_eq!(extra.units[0].argv, ["integration", "test"]);
+
+        // The plain `test` token still resolves the unnamed Test task.
+        let plain = schedule(
+            &request_for(TaskKind::Test),
+            &federation,
+            &active,
+            &adapters,
+            &GroupOverrides::default(),
+            &toolchains,
+        )
+        .expect("plain test schedules");
+        assert_eq!(plain.units.len(), 1);
+        assert_eq!(plain.units[0].argv, ["plain", "test"]);
+    }
+
+    #[test]
+    fn group_override_applies_to_a_named_extra_by_its_addressable_name() {
+        // A `[groups.*].tasks.test-integration` override is keyed by the extra's
+        // addressable name; it must field-merge onto the resolved named extra.
+        let federation = Federation {
+            workspaces: vec![workspace("rust")],
+            modules: vec![module("rust", "app", "rust")],
+            edges: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let mut adapters = ConfiguredSet::new();
+        adapters.insert(eid("rust"), named_extra_adapter("rust"));
+        let group = crate::config::GroupConfig {
+            tasks: BTreeMap::from([(
+                "test-integration".to_string(),
+                task_override(&["nextest", "run", "--test", "it"]),
+            )]),
+            ..crate::config::GroupConfig::default()
+        };
+        let overrides = group_overrides(
+            "integration",
+            &group,
+            &[toven_model::ModuleKey::bare(mref("rust", "app"))],
+        );
+        let active = vec![toven_model::ModuleKey::bare(mref("rust", "app"))];
+        let scheduled = schedule(
+            &request_for(TaskKind::Custom("test-integration".to_string())),
+            &federation,
+            &active,
+            &single_member(adapters),
+            &overrides,
+            &toolchains(&federation),
+        )
+        .expect("named extra with group override schedules");
+        assert_eq!(scheduled.units.len(), 1);
+        assert_eq!(scheduled.units[0].argv, ["nextest", "run", "--test", "it"]);
+        assert_eq!(scheduled.units[0].origin, TaskOrigin::Group);
     }
 
     fn task_override(argv: &[&str]) -> toven_ports::TaskOverride {

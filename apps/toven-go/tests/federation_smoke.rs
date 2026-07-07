@@ -32,11 +32,7 @@ fn umbrella_drives_the_real_go_driver_over_stdio() {
     let remote = RemoteAdapter::spawn(&driver_binary(), ecosystem, config)
         .expect("real toven-go __serve handshake + prefetch succeed");
 
-    // The driver advertises its built-in Go tasks and a real toolchain probe.
-    assert!(
-        !remote.default_tasks().is_empty(),
-        "the go driver should expose built-in default tasks"
-    );
+    // The driver advertises a real toolchain probe from the prefetch handshake.
     let probe = remote.toolchain_probe();
     assert_eq!(probe.program, "go", "the go driver probes the go toolchain");
 

@@ -1,38 +1,44 @@
-//! The `generate` verb: detect ecosystems under a root and emit/merge a
-//! reviewable `toven.toml`.
+//! The `init` dispatch: build the prompt seam, drive the engine init flow, and
+//! route the outcome to stdout/stderr.
 //!
 //! Channel discipline (cli-taxonomy): the rendered config is the **product** —
-//! it goes to the file (with `--write`) or to **stdout** (otherwise). Every
+//! with `--print` it goes to **stdout** (writing nothing); otherwise it is
+//! written atomically to `toven.toml` and only a summary is emitted. Every
 //! diagnostic (an additive re-run skipping an existing section, an ineffective
-//! `--force`, a write confirmation) goes to **stderr**, so a piped
-//! `toven generate > toven.toml` captures only the document.
+//! `--force`, a write confirmation) goes to **stderr**, so `toven init --print >
+//! toven.toml` captures only the document.
 
 use std::path::{Path, PathBuf};
 
 use rskit_cli::ExitCode;
 use rskit_errors::AppResult;
-use toven_engine::generate::GeneratedDocument;
+use toven_engine::init::InitOutcome;
 use toven_model::EcosystemId;
 use toven_ports::Provider;
 
+use super::prompt::PromptAnswers;
 use crate::flags::Cli;
 
-/// Run `toven generate [--force <id>] [--root <path>] [--write]`.
+/// Run `toven init [--force <id>] [--root <path>] [--non-interactive] [--print]`.
 ///
-/// Probes the in-proc providers (plus any `toven-<eco>` driver on `PATH`) for
-/// the ecosystems present under the root, then renders a minimal first-run
-/// document or additively merges into an existing one. Returns the process exit
-/// code.
+/// Detects the ecosystems present under the root, runs each provider's wizard
+/// (answered interactively, or from defaults with `--non-interactive`), then
+/// renders a minimal first-run document or additively merges into an existing
+/// one. Writes `toven.toml` unless `--print` previews it on stdout. Returns the
+/// process exit code.
 ///
 /// # Errors
-/// Propagates a scaffold-probe failure, an unreadable/invalid existing config,
-/// or a failed atomic write from the engine flow.
+/// Propagates a wizard-probe failure, an answering failure, an unreadable or
+/// invalid existing config, or a failed atomic write from the engine flow.
 pub(crate) fn execute(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
     let root = cli.root.clone().unwrap_or_else(|| PathBuf::from("."));
-    let generated =
-        toven_engine::generate::generate(&root, providers, cli.force.as_deref(), cli.write)?;
+    let color = cli.color_choice().into();
+    let answers = PromptAnswers::new(color, cli.non_interactive);
+    let write = !cli.print;
+    let outcome =
+        toven_engine::init::init(&root, providers, &answers, cli.force.as_deref(), write)?;
 
-    let report = Report::from_generated(&generated);
+    let report = Report::from_init_outcome(&outcome);
     for line in &report.diagnostics {
         eprintln!("{line}");
     }
@@ -44,7 +50,7 @@ pub(crate) fn execute(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitC
     Ok(ExitCode::Success)
 }
 
-/// The channel-routed output of a generate run.
+/// The channel-routed output of an init run.
 ///
 /// Encodes the cli-taxonomy contract as plain data so it is unit-testable: the
 /// rendered document goes to **stdout** (only when it was not written to disk),
@@ -58,15 +64,15 @@ struct Report {
 }
 
 impl Report {
-    /// Route a finished [`GeneratedDocument`] into its stdout/stderr channels.
-    fn from_generated(generated: &GeneratedDocument) -> Self {
-        let mut diagnostics = generated.warnings.clone();
-        let document = if generated.written {
-            let touched = touched_sections(&generated.added, &generated.regenerated);
-            diagnostics.push(write_summary(&generated.path, generated.created, &touched));
+    /// Route a finished [`InitOutcome`] into its stdout/stderr channels.
+    fn from_init_outcome(outcome: &InitOutcome) -> Self {
+        let mut diagnostics = outcome.warnings.clone();
+        let document = if outcome.written {
+            let touched = touched_sections(&outcome.added, &outcome.regenerated);
+            diagnostics.push(write_summary(&outcome.path, outcome.created, &touched));
             None
         } else {
-            Some(generated.rendered.clone())
+            Some(outcome.rendered.clone())
         };
         Self {
             document,
@@ -75,7 +81,7 @@ impl Report {
     }
 }
 
-/// The sections touched by a `--write` run, sorted for a stable summary line.
+/// The sections touched by a write run, sorted for a stable summary line.
 fn touched_sections(added: &[EcosystemId], regenerated: &[EcosystemId]) -> Vec<String> {
     let mut touched: Vec<String> = added
         .iter()
@@ -86,7 +92,7 @@ fn touched_sections(added: &[EcosystemId], regenerated: &[EcosystemId]) -> Vec<S
     touched
 }
 
-/// The stderr confirmation summarizing a `--write` run.
+/// The stderr confirmation summarizing a write run.
 fn write_summary(path: &Path, created: bool, touched: &[String]) -> String {
     let path = path.display();
     if touched.is_empty() {

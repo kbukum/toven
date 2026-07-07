@@ -57,7 +57,7 @@ pub mod apply;
 pub mod cache;
 pub mod config;
 pub mod federation;
-pub mod generate;
+pub mod init;
 pub mod output;
 pub mod plan;
 pub mod release;

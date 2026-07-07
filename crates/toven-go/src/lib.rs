@@ -5,11 +5,12 @@
 //! `"go"`:
 //!
 //! - [`GoProvider`] parses `[ecosystems.go]` into a typed [`GoConfig`] and bakes
-//!   a [`GoAdapter`]; it also self-detects a Go module for `toven generate`
-//!   scaffolding.
+//!   a [`GoAdapter`]; it also drives the config-less init wizard for root
+//!   `go.mod` projects.
 //! - [`GoAdapter`] implements discovery (via `go mod edit -json` /
-//!   `go work edit -json`), the default `go` task table, the toolchain probe,
-//!   and run-strategy defaults. Go module release is out of scope, so
+//!   `go work edit -json`), the toolchain probe, and run-strategy defaults. The
+//!   runnable task table lives in `common().tasks`, authored by init or explicit
+//!   config. Go module release is out of scope, so
 //!   [`release_target`](toven_ports::ConfiguredAdapter::release_target) is
 //!   always `None`.
 //!
@@ -28,9 +29,11 @@
 
 mod adapter;
 mod config;
+mod detect;
 mod discovery;
 mod provider;
-mod scaffold;
+mod questionnaire;
+mod render;
 mod tasks;
 mod toolchain;
 

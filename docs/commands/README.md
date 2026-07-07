@@ -2,7 +2,7 @@
 
 | Topic | Commands |
 |-------|----------|
-| [Generating config](generate.md) | `toven generate` |
+| [Onboarding a repository](init.md) | `toven init` |
 | [Running tasks](run.md) | `toven <task>`, `toven run <task>` |
 | [Inspecting work](inspect.md) | `plan`, `affected`, `explain`, `modules` (`list`, `ls`), `graph` (`deps`), `tasks`, `completions` |
 | [Managing cache](cache.md) | `cache path`, `cache stats`, `cache clean` |

@@ -14,7 +14,7 @@
 //!
 //! ## Stream routing (why [`RunResult`] carries both streams)
 //! The CLI splits its output by purpose: introspection tables (`modules`,
-//! `graph`, `affected`, `explain`), `cache path`/`cache stats`, the `generate`
+//! `graph`, `affected`, `explain`), `cache path`/`cache stats`, the `init`
 //! document, and the `jsonl` event stream go to **stdout**; the human run
 //! reporter (`plan`/run summaries, per-unit status), `driver`/`federation`
 //! status lines, and `cache clean` diagnostics go to **stderr**. Assertions must

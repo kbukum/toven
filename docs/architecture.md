@@ -99,11 +99,39 @@ flowchart TD
 
 A wave is everything safe to start now. A module joins a later wave when a dependency must finish first. A `batchable` task keeps ready modules together when the command can handle them, splitting by Cargo manifest so selectors reach the right workspace.
 
-### Group-scoped task and strategy overrides
+### Ecosystem task entries vs. group task overrides
 
-A `[groups.<name>]` can carry a group-scoped `run_strategy` and `[groups.<name>.tasks.<task>]` map, reusing the same `TaskOverride` shape as `[ecosystems.<id>.tasks.<task>]`. They apply to the group's members only, so a subset of a repo runs a task differently without a new ecosystem. For example, an `integration` group can run `test` with `cargo nextest run --profile ci` and `run_strategy = "unordered"` while the rest of the workspace keeps the defaults.
+An ecosystem's `[ecosystems.<id>.tasks.<task>]` entries and a group's `[groups.<name>.tasks.<task>]` overrides look similar but play different roles and use different shapes.
 
-The task merge order is `adapter default → ecosystem [tasks] → group [tasks]`, and the resolved origin (`adapter-default`, `project`, or `group`) shows per unit in `toven explain`. A module reached by two groups that both override the same task or `run_strategy` is a hard error, so overrides stay explicit. Group `tasks` overrides may add `shared_inputs`, which union into the member's cache-key footprint.
+An `[ecosystems.<id>.tasks.<task>]` entry is an **authoritative, complete task** (`TaskEntry`): it is the source of a runnable task, so `argv` is required and the entry carries the full scheduling attributes (`selector`, `fan_out`, `persistent`, `readiness`, `cache_args`, `shared_inputs`). `toven init` writes this table into `toven.toml`, and the planner runs exactly what it declares. An explicit `kind` marks a named extra within a built-in kind — for example `[ecosystems.rust.tasks.test-integration]` with `kind = "test"` is addressed as `toven test-integration`, distinct from the plain `test` task.
+
+```toml
+[ecosystems.rust.tasks.test]
+argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.test-integration]
+kind = "test"
+argv = ["cargo", "nextest", "run", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "per-module"
+selector = ["-p", "{module.package}"]
+```
+
+A `[groups.<name>.tasks.<task>]` override is a **sparse diff** (`TaskOverride`) that field-merges over the ecosystem task of the same addressable name, for the group's members only. Every field is optional: an unset field inherits the ecosystem base, scalars and lists **replace**, and `shared_inputs` is the one **additive** list (it unions into the member's cache-key footprint). It does not need `argv`, because it refines an already-complete task rather than defining one.
+
+```toml
+[groups.integration]
+run_strategy = "unordered"
+
+[groups.integration.tasks.test]
+argv = ["cargo", "nextest", "run", "--profile", "ci"]
+```
+
+So an `integration` group can run `test` with `cargo nextest run --profile ci` and `run_strategy = "unordered"` while the rest of the workspace keeps the defaults.
+
+The task merge order is `ecosystem [tasks] entry → group [tasks] override`, and the resolved origin (`project` or `group`) shows per unit in `toven explain`. A group override is keyed by the task's addressable name, so `[groups.<name>.tasks.test-integration]` refines the named extra, while `[groups.<name>.tasks.test]` refines the plain task. A module reached by two groups that both override the same task or `run_strategy` is a hard error, so overrides stay explicit.
 
 ## Sharing task configuration
 
@@ -177,23 +205,24 @@ A bare `ecosystem:name` reference is allowed when it is unambiguous across the u
 
 Affected planning and release both operate over the one graph. Each member resolves its own change baseline (its `base_ref`, or `--base <ref>` applied per repo), so affected closure spans members through cross-member overlay edges. Release planning stays federated over one topological publish order, while commits and tags shard per member repo.
 
-## Config generation flow
+## Config onboarding flow
 
 ```mermaid
 flowchart TD
-    Generate[toven generate] --> Workflow[Generic generate workflow]
-    Workflow --> Contributors[Provider::scaffold contributors]
-    Contributors --> Fragments[Structured config fragments]
-    Fragments --> RenderToml[Deterministic TOML renderer]
+    Init[toven init] --> Workflow[Generic init wizard]
+    Workflow --> Detect[Provider::detect contributors]
+    Detect --> Ask[Provider::questionnaire -> wizard prompts]
+    Ask --> Render[Provider::render fragments]
+    Render --> RenderToml[Deterministic TOML renderer]
     RenderToml --> Preview[stdout preview]
     RenderToml --> Write[Safe root/toven.toml write]
 ```
 
-Adapters contribute language-specific fragments behind the generic workflow. Re-runs add missing `[ecosystems.<id>]` sections and preserve existing ones. See [generating config](commands/generate.md).
+Each adapter detects whether it applies, contributes a questionnaire the wizard prompts through, and renders a language-specific fragment — including the complete task table — from the answers. Re-runs add missing `[ecosystems.<id>]` sections and preserve existing ones. See [onboarding a repository](commands/init.md).
 
 ## Extension points
 
 - A new language adapter is a `crates/toven-<name>` crate implementing the `toven-ports` traits. It never reaches into the engine, CLI, or apps.
-- Adapter-specific config generation is contributed through `Provider::scaffold`.
+- Adapter-specific config onboarding is contributed through `Provider::detect`, `Provider::questionnaire`, and `Provider::render`.
 - Out-of-process command drivers are mediated by the umbrella `toven` app and `toven-command` over a stdio `toven-model` envelope.
 - Shared foundational capabilities are improved in rskit generically when Toven exposes a reusable gap.

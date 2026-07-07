@@ -3,10 +3,12 @@
 //! Discovery (`toven tasks`) and self-correcting suggestions both need the same
 //! answer to "what can I run?" — the fully resolved task set, keyed by ecosystem,
 //! carrying the canonical name a user must type. This module derives that
-//! projection from the already-configured adapters (the same
-//! [`default_tasks`](toven_ports::ConfiguredAdapter::default_tasks) the planner
-//! consumes), returning data only: the CLI renders it, and the scheduler reuses
-//! the candidate names for "did you mean?" enrichment. Nothing here prints.
+//! projection from the already-configured adapters (materializing the same
+//! authoritative config task table that the planner consumes, exposed via
+//! [`ConfiguredAdapter::common`](toven_ports::ConfiguredAdapter::common)),
+//! returning data only: the CLI renders it, and the
+//! scheduler reuses the candidate names for "did you mean?" enrichment. Nothing
+//! here prints.
 
 use std::collections::HashSet;
 
@@ -88,7 +90,12 @@ pub fn task_catalog(document: &Document, providers: &[&dyn Provider]) -> AppResu
     let configured = configure(document, providers)?;
     let mut ecosystems = Vec::with_capacity(configured.len());
     for (ecosystem, adapter) in &configured {
-        let tasks = adapter.default_tasks().into_iter().map(summarize).collect();
+        let tasks = adapter
+            .common()
+            .tasks
+            .iter()
+            .map(|(key, entry)| entry.materialize(ecosystem.as_str(), key).map(summarize))
+            .collect::<AppResult<Vec<_>>>()?;
         ecosystems.push(EcosystemTasks {
             ecosystem: ecosystem.to_string(),
             tasks,
@@ -185,11 +192,15 @@ mod tests {
         let rust = &catalog.ecosystems[0];
         assert_eq!(rust.ecosystem, "rust");
         let names: Vec<&str> = rust.tasks.iter().map(|t| t.name.as_str()).collect();
-        assert_eq!(names, ["format", "lint", "bench"]);
-        assert_eq!(rust.tasks[0].fan_out, FanOut::WholeWorkspace);
-        assert_eq!(rust.tasks[0].origin, TaskOrigin::AdapterDefault);
+        // Tasks now materialize from the config task table, so they surface in
+        // the table's canonical (sorted) key order, not adapter insertion order.
+        assert_eq!(names, ["bench", "format", "lint"]);
+        // `bench` (a custom task) fans per module.
+        assert_eq!(rust.tasks[0].fan_out, FanOut::PerModule);
+        // Every task materialized from the config table is Project-origin.
+        assert_eq!(rust.tasks[0].origin, TaskOrigin::Project);
         assert_eq!(rust.tasks[1].origin, TaskOrigin::Project);
-        assert_eq!(catalog.names(), ["format", "lint", "bench"]);
+        assert_eq!(catalog.names(), ["bench", "format", "lint"]);
     }
 
     #[test]

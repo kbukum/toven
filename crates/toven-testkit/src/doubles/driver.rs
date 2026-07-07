@@ -1,16 +1,16 @@
-//! Shared driver-port doubles: [`FakeDriverLocator`] and [`FakeDriverScaffolder`].
+//! Shared driver-port doubles: [`FakeDriverLocator`] and [`FakeDriverWizard`].
 //!
-//! These substitute the out-of-process driver seams so federation/generation
-//! tests stay deterministic without touching the real `PATH` or spawning a
-//! subprocess. The locator resolves only the names it was seeded with (and can
-//! be told to fail a lookup, modeling a filesystem error); the scaffolder
-//! returns canned fragments keyed by the probed program path.
+//! These substitute the out-of-process driver seams so federation/init tests
+//! stay deterministic without touching the real `PATH` or spawning a subprocess.
+//! The locator resolves only the names it was seeded with (and can be told to
+//! fail a lookup, modeling a filesystem error); the wizard returns canned
+//! fragments keyed by the probed program path, ignoring the injected answers.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_ports::{DriverLocator, DriverScaffolder, EcosystemFragment};
+use toven_ports::{AnswerProvider, DriverLocator, DriverWizard, EcosystemFragment};
 
 /// A [`DriverLocator`] that resolves only the names it was seeded with.
 #[derive(Debug, Default, Clone)]
@@ -61,20 +61,20 @@ impl DriverLocator for FakeDriverLocator {
     }
 }
 
-/// A [`DriverScaffolder`] that returns canned fragments keyed by program path.
+/// A [`DriverWizard`] that returns canned fragments keyed by program path.
 #[derive(Debug, Default, Clone)]
-pub struct FakeDriverScaffolder {
+pub struct FakeDriverWizard {
     fragments: BTreeMap<PathBuf, Vec<EcosystemFragment>>,
 }
 
-impl FakeDriverScaffolder {
-    /// Construct a scaffolder that returns nothing for any program.
+impl FakeDriverWizard {
+    /// Construct a wizard that returns nothing for any program.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Make probing `program` return `fragments`.
+    /// Make driving `program` return `fragments`.
     #[must_use]
     pub fn with_fragments(
         mut self,
@@ -86,8 +86,13 @@ impl FakeDriverScaffolder {
     }
 }
 
-impl DriverScaffolder for FakeDriverScaffolder {
-    fn scaffold(&self, program: &Path, _project_root: &Path) -> AppResult<Vec<EcosystemFragment>> {
+impl DriverWizard for FakeDriverWizard {
+    fn run(
+        &self,
+        program: &Path,
+        _project_root: &Path,
+        _answers: &dyn AnswerProvider,
+    ) -> AppResult<Vec<EcosystemFragment>> {
         Ok(self.fragments.get(program).cloned().unwrap_or_default())
     }
 }
