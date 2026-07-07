@@ -48,7 +48,8 @@ Examples:
 /// `explain` verb examples.
 const EXPLAIN_EXAMPLES: &str = "\
 Examples:
-  toven explain rust:core test   Explain why `test` runs for one module";
+  toven explain test                Explain every module's unit for `test`
+  toven explain test --module core  Explain the unit(s) for one module + task";
 
 /// `affected` verb examples.
 const AFFECTED_EXAMPLES: &str = "\
@@ -233,55 +234,79 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "WHEN")]
     pub color: Option<ColorWhen>,
     /// Run the PLAN cut only, without APPLY.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = "Execution")]
     pub dry_run: bool,
     /// Run the PLAN cut only, with reasoning detail.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = "Execution")]
     pub explain: bool,
     /// Stop scheduling after the first failure (task-APPLY verbs only).
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = "Execution")]
     pub fail_fast: bool,
     /// Execution verbs only: bypass the task cache (every unit re-runs; records
     /// are neither read nor written).
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = "Execution")]
     pub no_cache: bool,
     /// Execution verbs only: ignore cached results and re-run every unit, but
     /// still write the fresh results back (distinct from `--no-cache`, which
     /// neither reads nor writes). Mutually exclusive with `--no-cache`.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = "Execution")]
     pub refresh: bool,
     /// Task-APPLY verbs only: bound how long any single execution unit may run
     /// before it is cooperatively cancelled and reported as a timeout failure
     /// (duration string, e.g. `30s`, `5m`).
-    #[arg(long, global = true, value_name = "DURATION", value_parser = parse_duration_arg)]
+    #[arg(long, global = true, value_name = "DURATION", value_parser = parse_duration_arg, help_heading = "Execution")]
     pub timeout: Option<Duration>,
     /// Changed-selection verbs only: override the diff baseline reference
     /// (per-member under a federation; falls back to `[[members]].base_ref` /
     /// `[project].base_ref`).
-    #[arg(long, global = true, value_name = "REF")]
+    #[arg(long, global = true, value_name = "REF", help_heading = "Selection")]
     pub base: Option<String>,
     /// Changed-selection verbs only: diff against `merge-base(reference, HEAD)`.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = "Selection")]
     pub merge_base: bool,
-    /// Execution/affected verbs only: activate a module explicitly by
-    /// `ecosystem:name`, bypassing changed-selection (repeatable).
-    #[arg(long = "module", global = true, value_name = "ECOSYSTEM:NAME")]
+    /// Execution/affected/explain verbs and bare tasks: activate modules by
+    /// selector — a bare name (`core`), `ecosystem:name` (`rust:core`),
+    /// `workspace/name` (`backend/api`), or a glob (`rust:*`, `rskit-*`) —
+    /// bypassing changed-selection (repeatable).
+    #[arg(
+        long = "module",
+        global = true,
+        value_name = "SELECTOR",
+        help_heading = "Selection"
+    )]
     pub module: Vec<String>,
-    /// Execution/affected verbs only: activate every module owned by a
-    /// workspace, bypassing changed-selection (repeatable).
-    #[arg(long = "workspace", global = true, value_name = "ID")]
+    /// Execution/affected/explain verbs and bare tasks: activate every module
+    /// owned by a workspace, by id or glob (`backend`, `rust:contrib`,
+    /// `backend*`), bypassing changed-selection (repeatable).
+    #[arg(
+        long = "workspace",
+        global = true,
+        value_name = "SELECTOR",
+        help_heading = "Selection"
+    )]
     pub workspace: Vec<String>,
-    /// Execution/affected verbs only: with `--module`/`--workspace`, also
-    /// activate the reverse-dependents closure of the selected modules.
-    #[arg(long, global = true)]
+    /// Execution/affected/explain verbs and bare tasks: with `--module`/
+    /// `--workspace`, also activate the reverse-dependents closure (everything
+    /// that depends on the selection).
+    #[arg(
+        long = "dependents",
+        alias = "with-dependents",
+        global = true,
+        help_heading = "Selection"
+    )]
     pub with_dependents: bool,
+    /// Execution/affected/explain verbs and bare tasks: with `--module`/
+    /// `--workspace`, also activate the forward-dependencies closure (everything
+    /// the selection needs).
+    #[arg(long = "dependencies", global = true, help_heading = "Selection")]
+    pub with_dependencies: bool,
     /// Task-APPLY verbs only: keep running, re-executing the affected subgraph
     /// each time a watched source file changes (Ctrl+C exits).
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = "Execution")]
     pub watch: bool,
     /// Watch only: trailing-edge debounce window, in milliseconds, for
     /// coalescing a burst of filesystem events into one rerun (default 200).
-    #[arg(long, global = true, value_name = "MS")]
+    #[arg(long, global = true, value_name = "MS", help_heading = "Execution")]
     pub watch_debounce_ms: Option<u64>,
     /// Increase reporter verbosity (repeatable; execution verbs only).
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
@@ -290,29 +315,34 @@ pub struct Cli {
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub quiet: u8,
     /// Release only: commit/tag a dirty working tree.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = "Release")]
     pub allow_dirty: bool,
     /// Release only: skip pushing the release commit and tags.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = "Release")]
     pub no_push: bool,
     /// Init only: regenerate one `[ecosystems.<id>]` section.
-    #[arg(long, global = true, value_name = "ID")]
+    #[arg(long, global = true, value_name = "ID", help_heading = "Init")]
     pub force: Option<String>,
     /// Init only: project root to onboard against.
-    #[arg(long, global = true, value_name = "PATH")]
+    #[arg(long, global = true, value_name = "PATH", help_heading = "Init")]
     pub root: Option<PathBuf>,
     /// Init only: answer the wizard non-interactively (take questionnaire
     /// defaults, never prompt).
-    #[arg(long = "non-interactive", visible_alias = "yes", global = true)]
+    #[arg(
+        long = "non-interactive",
+        visible_alias = "yes",
+        global = true,
+        help_heading = "Init"
+    )]
     pub non_interactive: bool,
     /// Init only: render the `toven.toml` to stdout and write nothing.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = "Init")]
     pub print: bool,
     /// Graph only: dependency-graph rendering format.
-    #[arg(long, global = true, value_name = "FORMAT")]
+    #[arg(long, global = true, value_name = "FORMAT", help_heading = "Graph")]
     pub format: Option<GraphFormat>,
     /// Driver/federation only: provision missing drivers automatically.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = "Driver")]
     pub auto_install: bool,
     /// The dispatched verb (a reserved built-in or a bare task name).
     #[command(subcommand)]
@@ -340,17 +370,10 @@ pub enum Command {
     },
     /// Plan and publish a release.
     Release,
-    /// Explain the PLAN cut filtered to one module and task.
+    /// Explain the PLAN cut for a task, optionally filtered to a `--module`
+    /// selection.
     #[command(after_long_help = EXPLAIN_EXAMPLES)]
     Explain {
-        /// Module ref (`ecosystem:module`).
-        ///
-        /// A distinct clap `id` keeps this positional from colliding with the
-        /// global `--module` selection flag (which shares the `module` field
-        /// name); without it the positional value would be absorbed into the
-        /// global `Vec<String>` and trip the selection-flag gate.
-        #[arg(id = "explain-module")]
-        module: String,
         /// Task to explain.
         task: String,
     },
@@ -622,13 +645,10 @@ fn gate_init_flags(cli: &Cli, verb: &str, is_init: bool) -> AppResult<()> {
 }
 
 /// Reject the selection flags (`--base`/`--merge-base`,
-/// `--module`/`--workspace`/`--with-dependents`) on a verb that performs no
-/// selection.
+/// `--module`/`--workspace`/`--dependents`/`--dependencies`) on a verb that
+/// performs no selection.
 fn gate_selection_flags(cli: &Cli, verb: &str) -> AppResult<()> {
-    if accepts_baseline(&cli.command) {
-        return Ok(());
-    }
-    if cli.base.is_some() || cli.merge_base {
+    if !accepts_baseline(&cli.command) && (cli.base.is_some() || cli.merge_base) {
         let flag = if cli.base.is_some() {
             "--base"
         } else {
@@ -641,18 +661,25 @@ fn gate_selection_flags(cli: &Cli, verb: &str) -> AppResult<()> {
             ),
         ));
     }
-    if !cli.module.is_empty() || !cli.workspace.is_empty() || cli.with_dependents {
+    if !accepts_selection(&cli.command)
+        && (!cli.module.is_empty()
+            || !cli.workspace.is_empty()
+            || cli.with_dependents
+            || cli.with_dependencies)
+    {
         let flag = if !cli.module.is_empty() {
             "--module"
         } else if !cli.workspace.is_empty() {
             "--workspace"
+        } else if cli.with_dependents {
+            "--dependents"
         } else {
-            "--with-dependents"
+            "--dependencies"
         };
         return Err(AppError::invalid_input(
             "flags",
             format!(
-                "`{flag}` only applies to selection verbs (`toven run`/`toven plan`/`toven affected`/`toven <task>`); it has no effect on `toven {verb}`"
+                "`{flag}` only applies to selection verbs (`toven run`/`toven plan`/`toven affected`/`toven explain`/`toven <task>`); it has no effect on `toven {verb}`"
             ),
         ));
     }
@@ -777,6 +804,19 @@ const fn accepts_baseline(command: &Command) -> bool {
     )
 }
 
+/// Whether `command` resolves an explicit graph selection and thus consumes the
+/// selection flags (`--module`/`--workspace`/`--dependents`/`--dependencies`).
+const fn accepts_selection(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Run { .. }
+            | Command::Plan { .. }
+            | Command::Affected { .. }
+            | Command::Explain { .. }
+            | Command::External(_)
+    )
+}
+
 fn only_applies(flag: &str, owner: &str, verb: &str) -> AppError {
     AppError::invalid_input(
         "flags",
@@ -853,23 +893,13 @@ mod tests {
     }
 
     #[test]
-    fn explain_positional_module_does_not_collide_with_global_module_flag() {
-        // Regression: the positional `<module>` once shared the `module` field id
-        // with the global `--module` selection flag, so `ecosystem:name` was
-        // absorbed into the selection `Vec` and tripped the selection gate. The
-        // distinct `id = "explain-module"` keeps them separate.
-        let cli = parse(&["explain", "rust:app", "build"]).expect("parses");
+    fn explain_takes_a_task_positional_and_reuses_the_module_flag() {
+        let cli = parse(&["explain", "build", "--module", "rust:app"]).expect("parses");
         match &cli.command {
-            Command::Explain { module, task } => {
-                assert_eq!(module, "rust:app");
-                assert_eq!(task, "build");
-            }
+            Command::Explain { task } => assert_eq!(task, "build"),
             other => panic!("expected explain, got {other:?}"),
         }
-        assert!(
-            cli.module.is_empty(),
-            "the positional must not populate the global --module selection"
-        );
+        assert_eq!(cli.module, vec!["rust:app".to_string()]);
     }
 
     #[test]
@@ -1156,7 +1186,7 @@ mod tests {
     #[test]
     fn execution_flags_rejected_on_introspection_verbs() {
         for args in [
-            ["--dry-run", "explain", "rust:app", "test"].as_slice(),
+            ["--dry-run", "explain", "test"].as_slice(),
             ["--explain", "affected", "test"].as_slice(),
             ["--fail-fast", "modules"].as_slice(),
             ["--output", "jsonl", "graph"].as_slice(),
@@ -1211,7 +1241,7 @@ mod tests {
             ["-v", "modules"].as_slice(),
             ["--verbose", "graph"].as_slice(),
             ["-q", "cache", "path"].as_slice(),
-            ["--quiet", "explain", "rust:app", "test"].as_slice(),
+            ["--quiet", "explain", "test"].as_slice(),
         ] {
             let cli = parse(args).expect("parses");
             assert!(super::gate(&cli).is_err(), "{args:?}");
@@ -1250,7 +1280,7 @@ mod tests {
             ["--base", "origin/main", "release"].as_slice(),
             ["--merge-base", "modules"].as_slice(),
             ["--base", "origin/main", "graph"].as_slice(),
-            ["--merge-base", "explain", "rust:app", "test"].as_slice(),
+            ["--merge-base", "explain", "test"].as_slice(),
         ] {
             let cli = parse(args).expect("parses");
             assert!(super::gate(&cli).is_err(), "{args:?}");

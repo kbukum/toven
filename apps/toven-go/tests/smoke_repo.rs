@@ -36,9 +36,8 @@ fn graph_renders_the_go_dependency_edge() {
 #[test]
 fn explain_renders_the_planned_go_unit() {
     require_go!();
-    // Regression lock for the flags.rs id-collision fix on the Go binary too.
     let sample = repo("go/multi-module");
-    toven_go(&sample, &["explain", "go:core", "build"])
+    toven_go(&sample, &["explain", "build", "--module", "go:core"])
         .expect_success()
         .expect_stdout_contains("go:core")
         .expect_stdout_contains("task:")

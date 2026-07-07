@@ -80,12 +80,10 @@ fn affected_narrows_to_a_touched_module_and_its_dependents() {
 
 #[test]
 fn explain_renders_the_planned_unit_for_a_module_and_task() {
-    // Regression lock for the flags.rs id-collision fix: the positional
-    // `<module>` must not be swallowed by the global `--module` selection flag.
     let sample = repo("rust/multi-module");
-    let out = toven(&sample, &["explain", "rust:corelib", "build"]);
+    let out = toven(&sample, &["explain", "build", "--module", "rust:corelib"]);
     out.expect_success()
-        .expect_stdout_contains("module:")
+        .expect_stdout_contains("modules:")
         .expect_stdout_contains("rust:corelib")
         .expect_stdout_contains("task:")
         .expect_stdout_contains("argv:");

@@ -13,6 +13,7 @@ publish = false
 rskit-errors.workspace = true
 rskit-validation.workspace = true
 rskit-fs.workspace = true
+rskit-util.workspace = true
 serde.workspace = true
 
 [dev-dependencies]

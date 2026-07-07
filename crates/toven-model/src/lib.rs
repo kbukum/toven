@@ -16,6 +16,7 @@
 //!   [`Workspace`]/[`ToolchainTag`].
 //! - [`graph`] — [`Graph`] build/validate + wave-leveling + reverse closure.
 //! - [`plan`] — [`Plan`], [`ExecutionUnit`], [`CacheVerdict`], [`ExecutionReadiness`], [`TaskOrigin`].
+//! - [`selector`] — [`ModuleSelector`], [`NamePattern`] (the lenient selection grammar).
 //! - [`event`] — [`Event`], [`UnitStatus`], [`RunStats`].
 //! - [`ecosystems`] — the canonical ecosystem registry.
 
@@ -26,6 +27,7 @@ pub mod graph;
 pub mod identity;
 pub mod module;
 pub mod plan;
+pub mod selector;
 pub mod workspace;
 
 pub use ecosystems::{CanonicalEcosystem, canonical_ecosystems};
@@ -35,4 +37,5 @@ pub use graph::Graph;
 pub use identity::{AbsPath, EcosystemId, MemberId, ModuleKey, ModuleRef, RepoPath, WorkspaceId};
 pub use module::Module;
 pub use plan::{CacheVerdict, ExecutionReadiness, ExecutionUnit, Plan, TaskOrigin};
+pub use selector::{ModuleSelector, NamePattern};
 pub use workspace::{ToolchainTag, Workspace};

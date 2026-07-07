@@ -163,7 +163,7 @@ flowchart TD
     Disabled --> Miss
 ```
 
-Explicit selection (`--module`/`--workspace`, optionally `--with-dependents`) short-circuits the changed-file diff: the named targets become the active set directly, then feed the same cache and execution stages. It is mutually exclusive with the baseline flags. See [what invalidates cache](commands/cache.md#what-invalidates-cache) for the full list of cache inputs.
+Explicit selection (`--module`/`--workspace`, optionally `--dependents` and/or `--dependencies`) short-circuits the changed-file diff: the named targets become the active set directly, then feed the same cache and execution stages. Selectors are lenient input — bare name, `ecosystem:name`, `workspace/name`, or glob, resolved against the graph — while every listing stays the canonical `ecosystem:name` form. It is mutually exclusive with the baseline flags. See [what invalidates cache](commands/cache.md#what-invalidates-cache) for the full list of cache inputs.
 
 ## Watch mode
 

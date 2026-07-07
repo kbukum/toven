@@ -104,8 +104,10 @@ pub struct TaskFlags {
     pub modules: Vec<String>,
     /// `--workspace <id>`: explicit graph target, repeatable.
     pub workspaces: Vec<String>,
-    /// `--with-dependents`: also activate the reverse-dependents closure.
+    /// `--dependents`: also activate the reverse-dependents closure.
     pub with_dependents: bool,
+    /// `--dependencies`: also activate the forward-dependencies closure.
+    pub with_dependencies: bool,
     /// `--watch`: rerun the affected subgraph on filesystem changes.
     pub watch: bool,
     /// `--watch-debounce-ms <n>`: debounce window for coalescing changes.
@@ -168,7 +170,8 @@ pub fn parse_task(tokens: &[String]) -> AppResult<TaskInvocation> {
                 flags.timeout = Some(parse_timeout(&value_for("--timeout", &mut iter)?)?);
             }
             "--merge-base" => flags.merge_base = true,
-            "--with-dependents" => flags.with_dependents = true,
+            "--dependents" | "--with-dependents" => flags.with_dependents = true,
+            "--dependencies" => flags.with_dependencies = true,
             "--watch" => flags.watch = true,
             "--watch-debounce-ms" => {
                 flags.watch_debounce_ms = Some(parse_debounce(&value_for(
@@ -370,11 +373,19 @@ mod tests {
             "rust:core",
             "--workspace",
             "rust",
-            "--with-dependents",
+            "--dependents",
+            "--dependencies",
         ]))
         .expect("parses");
         assert_eq!(invocation.flags.modules, vec!["rust:core"]);
         assert_eq!(invocation.flags.workspaces, vec!["rust"]);
+        assert!(invocation.flags.with_dependents);
+        assert!(invocation.flags.with_dependencies);
+    }
+
+    #[test]
+    fn accepts_the_with_dependents_alias_on_a_bare_task() {
+        let invocation = parse_task(&tokens(&["test", "--with-dependents"])).expect("parses");
         assert!(invocation.flags.with_dependents);
     }
 

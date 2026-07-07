@@ -9,23 +9,25 @@
 use rskit_errors::{AppError, AppResult};
 use toven_engine::plan::{ModuleSelector, Selection};
 use toven_engine::vcs::{BaselineFlags, BaselineStrategy};
-use toven_model::{ModuleRef, WorkspaceId};
 
 /// The CLI-sourced inputs that determine the engine [`Selection`].
 ///
 /// Bundles the changed-selection baseline (`--base`/`--merge-base`) with the
-/// explicit graph targets (`--module`/`--workspace`, `--with-dependents`) so the
-/// selection verbs thread one value instead of a widening argument list.
+/// explicit graph targets (`--module`/`--workspace` plus the `--dependencies`/
+/// `--dependents` closures) so the selection verbs thread one value instead of a
+/// widening argument list.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct TaskSelection {
     /// The changed-selection baseline flags.
     pub(crate) baseline: BaselineFlags,
-    /// `--module <ref>` targets (`ecosystem:name`), repeatable.
+    /// `--module <sel>` targets (the selector grammar), repeatable.
     pub(crate) modules: Vec<String>,
-    /// `--workspace <id>` targets, repeatable.
+    /// `--workspace <sel>` targets, repeatable.
     pub(crate) workspaces: Vec<String>,
-    /// `--with-dependents`: also activate the reverse-dependents closure.
+    /// `--dependents`: also activate the reverse-dependents closure.
     pub(crate) with_dependents: bool,
+    /// `--dependencies`: also activate the forward-dependencies closure.
+    pub(crate) with_dependencies: bool,
 }
 
 impl TaskSelection {
@@ -40,8 +42,8 @@ impl TaskSelection {
     ///
     /// # Errors
     /// Returns a typed usage error when explicit targets are combined with a
-    /// baseline, when `--with-dependents` is used without an explicit target, or
-    /// when a `--module`/`--workspace` value fails to parse.
+    /// baseline, when `--dependencies`/`--dependents` is used without an explicit
+    /// target, or when a `--module`/`--workspace` value fails to parse.
     pub(crate) fn resolve(&self, base_ref: Option<&str>) -> AppResult<Selection> {
         let baseline = &self.baseline;
         let has_explicit = !self.modules.is_empty() || !self.workspaces.is_empty();
@@ -56,21 +58,22 @@ impl TaskSelection {
             }
             let mut targets = Vec::with_capacity(self.modules.len() + self.workspaces.len());
             for reference in &self.modules {
-                targets.push(ModuleSelector::Module(ModuleRef::parse(reference)?));
+                targets.push(ModuleSelector::parse(reference)?);
             }
             for workspace in &self.workspaces {
-                targets.push(ModuleSelector::Workspace(WorkspaceId::new(workspace)?));
+                targets.push(ModuleSelector::whole_workspace(workspace)?);
             }
             return Ok(Selection::Explicit {
                 targets,
                 include_dependents: self.with_dependents,
+                include_dependencies: self.with_dependencies,
             });
         }
 
-        if self.with_dependents {
+        if self.with_dependents || self.with_dependencies {
             return Err(AppError::invalid_input(
                 "flags",
-                "`--with-dependents` only applies together with `--module`/`--workspace`",
+                "`--dependencies`/`--dependents` only apply together with `--module`/`--workspace`",
             ));
         }
 
@@ -88,7 +91,6 @@ mod tests {
     use super::TaskSelection;
     use toven_engine::plan::{ModuleSelector, Selection};
     use toven_engine::vcs::BaselineFlags;
-    use toven_model::{ModuleRef, WorkspaceId};
 
     fn selection() -> TaskSelection {
         TaskSelection::default()
@@ -117,6 +119,7 @@ mod tests {
             modules: vec!["rust:core".into()],
             workspaces: vec!["rust".into()],
             with_dependents: true,
+            with_dependencies: true,
             ..selection()
         }
         .resolve(None)
@@ -126,10 +129,30 @@ mod tests {
             resolved,
             Selection::Explicit {
                 targets: vec![
-                    ModuleSelector::Module(ModuleRef::parse("rust:core").unwrap()),
-                    ModuleSelector::Workspace(WorkspaceId::new("rust").unwrap()),
+                    ModuleSelector::parse("rust:core").unwrap(),
+                    ModuleSelector::whole_workspace("rust").unwrap(),
                 ],
                 include_dependents: true,
+                include_dependencies: true,
+            }
+        );
+    }
+
+    #[test]
+    fn a_bare_name_selector_is_accepted() {
+        let resolved = TaskSelection {
+            modules: vec!["core".into()],
+            ..selection()
+        }
+        .resolve(None)
+        .unwrap();
+
+        assert_eq!(
+            resolved,
+            Selection::Explicit {
+                targets: vec![ModuleSelector::parse("core").unwrap()],
+                include_dependents: false,
+                include_dependencies: false,
             }
         );
     }
@@ -150,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn with_dependents_without_an_explicit_target_is_a_usage_error() {
+    fn dependents_without_an_explicit_target_is_a_usage_error() {
         let error = TaskSelection {
             with_dependents: true,
             ..selection()
@@ -158,13 +181,25 @@ mod tests {
         .resolve(None)
         .unwrap_err();
 
-        assert!(error.to_string().contains("--with-dependents"), "{error}");
+        assert!(error.to_string().contains("--dependents"), "{error}");
     }
 
     #[test]
-    fn a_malformed_module_ref_is_a_typed_error() {
+    fn dependencies_without_an_explicit_target_is_a_usage_error() {
         let error = TaskSelection {
-            modules: vec!["not a ref".into()],
+            with_dependencies: true,
+            ..selection()
+        }
+        .resolve(None)
+        .unwrap_err();
+
+        assert!(error.to_string().contains("--dependencies"), "{error}");
+    }
+
+    #[test]
+    fn a_malformed_module_selector_is_a_typed_error() {
+        let error = TaskSelection {
+            modules: vec![":core".into()],
             ..selection()
         }
         .resolve(None)

@@ -31,7 +31,7 @@ flowchart TD
     Plan --> Explain["inspect plan and per-unit cache verdicts"]
 ```
 
-Affected mode starts with changed files, maps them to owning modules, and adds dependent modules so downstream breakage is caught. `toven affected <task>` lists the module set; `toven plan <task> -v` shows the units and cache verdicts; `toven explain <module> <task>` shows one unit's argv, dependencies, and persistence.
+Affected mode starts with changed files, maps them to owning modules, and adds dependent modules so downstream breakage is caught. `toven affected <task>` lists the module set; `toven plan <task> -v` shows the units and cache verdicts; `toven explain <task> --module <sel>` shows one unit's argv, dependencies, and persistence.
 
 ## Wave bundling
 

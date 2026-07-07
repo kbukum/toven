@@ -48,6 +48,43 @@ impl Graph {
         Ok(affected)
     }
 
+    /// Forward-dependencies closure over the seed set.
+    ///
+    /// Starting from `seeds`, walk forward edges (`from` → `to`) whose [`DepKind`]
+    /// satisfies `include`, returning the seeds plus everything they transitively
+    /// depend on. The mirror of [`closure`](Graph::closure): where that expands to
+    /// what would be *affected* by a seed, this expands to what a seed *needs*.
+    ///
+    /// Errors if a seed is not a known module.
+    pub fn dependencies_closure(
+        &self,
+        seeds: &BTreeSet<ModuleKey>,
+        include: impl Fn(DepKind) -> bool,
+    ) -> AppResult<BTreeSet<ModuleKey>> {
+        for seed in seeds {
+            if !self.contains(seed) {
+                return Err(AppError::invalid_input(
+                    "dependencies",
+                    format!("seed references unknown module '{seed}'"),
+                ));
+            }
+        }
+
+        let mut reached = seeds.clone();
+        let mut pending: Vec<ModuleKey> = seeds.iter().cloned().collect();
+        while let Some(current) = pending.pop() {
+            for (dependency, kind) in self.dependencies_of(&current) {
+                if !include(*kind) {
+                    continue;
+                }
+                if reached.insert(dependency.clone()) {
+                    pending.push(dependency.clone());
+                }
+            }
+        }
+        Ok(reached)
+    }
+
     /// Topologically level the graph into dependency-ordered ready waves.
     ///
     /// Each wave contains modules whose kept dependencies all appear in earlier
@@ -294,6 +331,61 @@ mod tests {
     fn closure_rejects_unknown_seed() {
         let graph = Graph::build(vec![module("rust", "a")], vec![]).unwrap();
         let result = graph.closure(&BTreeSet::from([key("rust", "ghost")]), |_| true);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn dependencies_closure_reaches_what_a_seed_needs() {
+        // app --Normal--> lib --Normal--> base
+        let (app, lib, base) = (key("rust", "app"), key("rust", "lib"), key("rust", "base"));
+        let graph = Graph::build(
+            vec![
+                module("rust", "app"),
+                module("rust", "lib"),
+                module("rust", "base"),
+            ],
+            vec![
+                edge(app.clone(), lib.clone(), DepKind::Normal),
+                edge(lib.clone(), base.clone(), DepKind::Normal),
+            ],
+        )
+        .unwrap();
+
+        let needs = graph
+            .dependencies_closure(&BTreeSet::from([app.clone()]), |_| true)
+            .unwrap();
+        assert_eq!(needs, BTreeSet::from([app, lib, base]));
+    }
+
+    #[test]
+    fn dependencies_closure_honors_the_edge_filter() {
+        // app --Dev--> tool, app --Normal--> lib
+        let (app, tool, lib) = (key("rust", "app"), key("rust", "tool"), key("rust", "lib"));
+        let graph = Graph::build(
+            vec![
+                module("rust", "app"),
+                module("rust", "tool"),
+                module("rust", "lib"),
+            ],
+            vec![
+                edge(app.clone(), tool, DepKind::Dev),
+                edge(app.clone(), lib.clone(), DepKind::Normal),
+            ],
+        )
+        .unwrap();
+
+        let normal = graph
+            .dependencies_closure(&BTreeSet::from([app.clone()]), |kind| {
+                matches!(kind, DepKind::Normal)
+            })
+            .unwrap();
+        assert_eq!(normal, BTreeSet::from([app, lib]));
+    }
+
+    #[test]
+    fn dependencies_closure_rejects_unknown_seed() {
+        let graph = Graph::build(vec![module("rust", "a")], vec![]).unwrap();
+        let result = graph.dependencies_closure(&BTreeSet::from([key("rust", "ghost")]), |_| true);
         assert!(result.is_err());
     }
 }

@@ -133,35 +133,31 @@ pub(crate) fn graph(
     Ok(ExitCode::Success)
 }
 
-/// `toven explain <module> <task>`: the planned units for one module and task.
+/// `toven explain <task>`: the planned units for `task`, optionally filtered to
+/// a `--module`/`--workspace` selection.
 ///
 /// # Errors
-/// Returns a not-found error when no unit matches the module, else propagates
-/// [`build_plan`] failures.
+/// Returns a not-found error when the (optionally filtered) plan schedules no
+/// unit for the task, else propagates [`build_plan`] failures.
 pub(crate) fn explain(
     providers: &[&dyn Provider],
     project: &Project,
-    module: &str,
     intent: TaskKind,
+    selection: &TaskSelection,
 ) -> AppResult<ExitCode> {
-    let plan = build_plan(
-        providers,
-        project,
-        intent,
-        &BaselineFlags::new(),
-        Selection::All,
-    )?;
-    let mut matched = 0_usize;
-    for unit in plan
-        .units
-        .iter()
-        .filter(|unit| unit.members.iter().any(|m| m.to_string() == module))
-    {
-        matched += 1;
+    let resolved = selection.resolve(project.document.project.base_ref.as_deref())?;
+    let task_name = intent.name().to_string();
+    let plan = build_plan(providers, project, intent, &selection.baseline, resolved)?;
+    if plan.units.is_empty() {
+        return Err(AppError::not_found(
+            &task_name,
+            Some("no planned unit for that task and selection"),
+        ));
+    }
+    for unit in &plan.units {
         let mut detail = OutputKV::new();
         detail
             .add("unit", unit.id.clone())
-            .add("module", module.to_string())
             .add("representative", unit.module.to_string())
             .add(
                 "modules",
@@ -177,12 +173,6 @@ pub(crate) fn explain(
             .add("persistent", unit.persistent.to_string())
             .add("depends_on", unit.depends_on.join(", "));
         println!("{detail}");
-    }
-    if matched == 0 {
-        return Err(AppError::not_found(
-            module,
-            Some("no planned unit for that module and task"),
-        ));
     }
     Ok(ExitCode::Success)
 }
