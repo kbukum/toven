@@ -2,7 +2,7 @@
 //! **only** from the shared [`toven_model`]/[`toven_ports`] vocabulary.
 //!
 //! There are no bespoke DTOs: every payload field is an existing model or port
-//! value type ([`DiscoverRequest`], [`DiscoverResponse`], [`Task`],
+//! value type ([`DiscoverRequest`], [`DiscoverResponse`],
 //! [`ToolchainProbe`], [`TaskKind`], [`RunStrategy`], [`CommonEcosystemConfig`]),
 //! so a model change cascades straight to the wire. The umbrella sends a
 //! [`Hello`] and a stream of [`Request`]s; the driven server answers with a
@@ -12,8 +12,7 @@ use rskit_config::RawValue;
 use serde::{Deserialize, Serialize};
 use toven_model::EcosystemId;
 use toven_ports::{
-    CommonEcosystemConfig, DiscoverRequest, DiscoverResponse, RunStrategy, Task, TaskKind,
-    ToolchainProbe,
+    CommonEcosystemConfig, DiscoverRequest, DiscoverResponse, RunStrategy, TaskKind, ToolchainProbe,
 };
 
 /// Envelope schema version, bumped on any breaking wire-shape change.
@@ -67,7 +66,7 @@ pub struct Welcome {
 
 /// Which port methods a driver advertises after configure.
 ///
-/// The PLAN-side surface — `discover`, `default_tasks`, `toolchain`, and
+/// The PLAN-side surface — `discover`, `toolchain`, and
 /// `run_strategy` — is **required**: the [`RemoteAdapter`](super::super::remote)
 /// proxy cannot function without it, so the umbrella treats any driver that
 /// reports a required capability as `false` as an incompatible driver and fails
@@ -80,8 +79,6 @@ pub struct Welcome {
 pub struct Capabilities {
     /// Server answers [`Request::Discover`].
     pub discover: bool,
-    /// Server answers [`Request::DefaultTasks`].
-    pub default_tasks: bool,
     /// Server answers [`Request::ToolchainProbe`].
     pub toolchain: bool,
     /// Server answers [`Request::RunStrategy`].
@@ -97,7 +94,6 @@ impl Capabilities {
     pub const fn plan_surface() -> Self {
         Self {
             discover: true,
-            default_tasks: true,
             toolchain: true,
             run_strategy: true,
             release: false,
@@ -107,18 +103,16 @@ impl Capabilities {
     /// The names of the **required** PLAN-side capabilities this driver fails to
     /// advertise, in declaration order.
     ///
-    /// The proxy cannot answer port calls without `discover`, `default_tasks`,
-    /// `toolchain`, and `run_strategy`, so any of these reported as `false`
-    /// marks the driver incompatible. An empty result means the required surface
-    /// is satisfied; `release` is optional and never reported here.
+    /// The proxy cannot answer port calls without `discover`, `toolchain`, and
+    /// `run_strategy`, so any of these reported as `false` marks the driver
+    /// incompatible. An empty result means the required surface is satisfied;
+    /// `release` is optional and never reported here. The runnable task table is
+    /// no longer an RPC — it travels in the [`Welcome`]'s resolved common config.
     #[must_use]
     pub fn missing_required(&self) -> Vec<&'static str> {
         let mut missing = Vec::new();
         if !self.discover {
             missing.push("discover");
-        }
-        if !self.default_tasks {
-            missing.push("default_tasks");
         }
         if !self.toolchain {
             missing.push("toolchain");
@@ -137,8 +131,6 @@ impl Capabilities {
 pub enum Request {
     /// Mirror of `discover`.
     Discover(DiscoverRequest),
-    /// Mirror of `default_tasks`.
-    DefaultTasks,
     /// Mirror of `toolchain_probe`.
     ToolchainProbe,
     /// Mirror of `run_strategy_default`.
@@ -156,8 +148,6 @@ pub enum Request {
 pub enum Response {
     /// Result of `discover`.
     Discover(DiscoverResponse),
-    /// Result of `default_tasks`.
-    DefaultTasks(Vec<Task>),
     /// Result of `toolchain_probe`.
     ToolchainProbe(ToolchainProbe),
     /// Result of `run_strategy_default`.
@@ -238,7 +228,7 @@ mod tests {
     #[test]
     fn plan_surface_omits_release() {
         let caps = Capabilities::plan_surface();
-        assert!(caps.discover && caps.default_tasks && caps.toolchain && caps.run_strategy);
+        assert!(caps.discover && caps.toolchain && caps.run_strategy);
         assert!(!caps.release);
     }
 
@@ -252,7 +242,7 @@ mod tests {
         let caps = Capabilities::default();
         assert_eq!(
             caps.missing_required(),
-            vec!["discover", "default_tasks", "toolchain", "run_strategy"],
+            vec!["discover", "toolchain", "run_strategy"],
         );
     }
 }

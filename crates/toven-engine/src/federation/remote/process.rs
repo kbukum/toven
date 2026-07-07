@@ -41,7 +41,7 @@ pub(crate) struct SpawnedDriver {
 /// Spawn `program <subcommand>`, wiring piped stdin/stdout and inherited stderr.
 ///
 /// `subcommand` is the hidden driver entry to launch — `__serve` for the
-/// port-call protocol or `__scaffold` for the config-less scaffold exchange.
+/// port-call protocol or `__init` for the config-less wizard exchange.
 ///
 /// # Errors
 /// Returns [`DriverFault::Spawn`] if the process cannot be launched or its
@@ -88,8 +88,16 @@ impl ChildHandle {
     }
 
     /// Arm a watchdog that kills the child if it is not disarmed within `timeout`.
+    ///
+    /// The watchdog's deadline action is a child kill: killing the driver closes
+    /// its stdout, so a blocked umbrella read unblocks and the caller classifies
+    /// the fired timer as a [`DriverFault::Timeout`](super::super::protocol::handshake::DriverFault).
     pub(crate) fn arm_watchdog(&self, timeout: Duration) -> Watchdog {
-        Watchdog::arm(Arc::clone(&self.child), timeout)
+        let child = Arc::clone(&self.child);
+        Watchdog::arm(timeout, move || {
+            let mut child = lock_child(&child);
+            let _ = child.kill();
+        })
     }
 }
 
@@ -103,12 +111,17 @@ impl Drop for ChildHandle {
     }
 }
 
-/// A single-shot timer thread that kills the driver child on deadline.
+/// A single-shot timer thread that runs a deadline action if not disarmed.
 ///
-/// Armed before a blocking RPC read and disarmed once the read completes. If the
-/// deadline elapses first, the child is killed so the blocked read unblocks with
-/// a transport error; [`Watchdog::disarm`] then reports that the timeout fired so
-/// the caller can classify it as [`DriverFault::Timeout`].
+/// Armed around one blocking driver RPC and disarmed once it completes. If the
+/// deadline elapses first, the injected `on_timeout` action runs (in the driver
+/// transport, a child kill that unblocks the stalled read); [`Watchdog::disarm`]
+/// then reports that the timeout fired so the caller can classify it as
+/// [`DriverFault::Timeout`](super::super::protocol::handshake::DriverFault).
+///
+/// The deadline action is injected so the same arm/disarm/classify machinery
+/// guards both a real subprocess (killing the child) and any other interruptible
+/// blocking read (a test transport unblocked by a signal).
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) struct Watchdog {
     disarm: mpsc::Sender<()>,
@@ -117,18 +130,17 @@ pub(crate) struct Watchdog {
 }
 
 impl Watchdog {
-    /// Spawn the watchdog timer for `timeout`.
-    fn arm(child: Arc<Mutex<Child>>, timeout: Duration) -> Self {
+    /// Spawn the watchdog timer for `timeout`, running `on_timeout` if it fires.
+    pub(crate) fn arm(timeout: Duration, on_timeout: impl FnOnce() + Send + 'static) -> Self {
         let (disarm, rx) = mpsc::channel();
         let fired = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let fired_timer = Arc::clone(&fired);
         let handle = thread::spawn(move || {
-            // Only a true timeout fires the kill; an explicit disarm (Ok) or a
+            // Only a true timeout fires the action; an explicit disarm (Ok) or a
             // dropped sender after disarm (Disconnected) must not.
             if rx.recv_timeout(timeout) == Err(RecvTimeoutError::Timeout) {
                 fired_timer.store(true, std::sync::atomic::Ordering::SeqCst);
-                let mut child = lock_child(&child);
-                let _ = child.kill();
+                on_timeout();
             }
         });
         Self {

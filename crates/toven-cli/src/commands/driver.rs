@@ -41,17 +41,17 @@ pub(crate) fn serve(providers: &[&dyn Provider]) -> ExitCode {
     }
 }
 
-/// Run the hidden `toven-<eco> __scaffold` config-less scaffold exchange.
+/// Run the hidden `toven-<eco> __init` config-less wizard exchange.
 ///
 /// Drives the engine's framed
-/// [`serve_scaffold`](toven_engine::federation::serve_scaffold) loop with the
-/// in-proc `providers`: stdin carries the umbrella's scaffold request, stdout the
-/// reply frame, and any failure is rendered to stderr. Never panics.
+/// [`serve_wizard`](toven_engine::federation::serve_wizard) loop with the
+/// in-proc `providers`: stdin carries the umbrella's wizard probe/answers, stdout
+/// the reply frames, and any failure is rendered to stderr. Never panics.
 #[must_use]
-pub(crate) fn scaffold(providers: &[&dyn Provider]) -> ExitCode {
+pub(crate) fn init_wizard(providers: &[&dyn Provider]) -> ExitCode {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
-    match toven_engine::federation::serve_scaffold(providers, stdin.lock(), stdout.lock()) {
+    match toven_engine::federation::serve_wizard(providers, stdin.lock(), stdout.lock()) {
         Ok(()) => ExitCode::Success,
         Err(error) => {
             let (rendered, code) = ErrorRenderer::default().render(&error);

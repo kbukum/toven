@@ -62,6 +62,27 @@ fn explain_renders_the_planned_unit_for_a_module_and_task() {
 }
 
 #[test]
+fn explain_resolves_a_named_extra_task_by_its_addressable_name() {
+    // Regression: a named extra (`test-integration`, kind = "test") advertised by
+    // discovery must be schedulable by the exact token the user types, and must
+    // not collide with the plain `test` task.
+    let sample = repo("rust/single");
+    // The `test-integration` token resolves the named extra's argv (`nextest`).
+    toven_rs(&sample, &["explain", "rust:app", "test-integration"])
+        .expect_success()
+        .expect_stdout_contains("nextest");
+    // The plain `test` token still resolves the unnamed Test task (`cargo test`),
+    // independently of the named extra.
+    let plain = toven_rs(&sample, &["explain", "rust:app", "test"]);
+    plain.expect_success().expect_stdout_contains("cargo");
+    assert!(
+        !plain.stdout.contains("nextest"),
+        "the plain `test` token must not resolve the `test-integration` extra: {}",
+        plain.stdout
+    );
+}
+
+#[test]
 fn multiple_workspaces_are_discovered_under_one_project() {
     let sample = repo("rust/multi-workspace");
     toven_rs_ok(&sample, &["modules"])

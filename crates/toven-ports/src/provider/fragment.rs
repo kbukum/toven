@@ -1,22 +1,22 @@
-//! The `[ecosystems.<id>]` fragment a config-less scaffold emits.
+//! The `[ecosystems.<id>]` fragment the wizard's `render` step emits.
 
 use serde::{Deserialize, Serialize};
 use toml::Table;
 use toven_model::EcosystemId;
 
 /// A single `[ecosystems.<id>]` config fragment produced by
-/// [`Provider::scaffold`](super::Provider::scaffold).
+/// [`Provider::render`](super::Provider::render).
 ///
-/// Generation runs **before** config exists, so the provider self-detects its
-/// ecosystem by convention and emits the minimal discovery hints as a raw TOML
-/// table; `toven generate` merges every provider's fragment into one
-/// polyglot `toven.toml`. Keeping it raw [`Table`] means generate owns rendering
-/// and comment preservation, not this port.
+/// The wizard runs **before** config exists, so the provider self-detects its
+/// ecosystem and, from the user's [`Answers`](crate::wizard::Answers), renders
+/// the complete section body as a raw TOML table; `toven init` merges every
+/// provider's fragment into one polyglot `toven.toml`. Keeping it raw [`Table`]
+/// means init owns rendering and comment preservation, not this port.
 ///
-/// It is (de)serializable so a config-less scaffold can also cross the federated
-/// driver transport: `toven generate` probes any out-of-process `toven-<eco>`
-/// driver, which returns its fragment over the same framed protocol the PLAN
-/// spine uses.
+/// It is (de)serializable so a fragment can also cross the federated driver
+/// transport: `toven init` prompts against any out-of-process `toven-<eco>`
+/// driver, which returns its rendered fragment over the same framed protocol the
+/// PLAN spine uses.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EcosystemFragment {
     /// The ecosystem the fragment configures (the `[ecosystems.<id>]` key).

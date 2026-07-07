@@ -1,14 +1,14 @@
-//! The generate flow: assemble → probe → merge → render → (optional) write.
+//! The init flow: assemble → probe → merge → render → (optional) write.
 
 use std::path::{Path, PathBuf};
 
 use rskit_errors::AppResult;
 use rskit_fs::sync_io::file::{read_string_bounded, write_atomic_replace};
 use toven_model::EcosystemId;
-use toven_ports::{DriverLocator, DriverScaffolder, Provider};
+use toven_ports::{AnswerProvider, DriverLocator, DriverWizard, Provider};
 
 use super::merge::{self, MergeResult};
-use super::probe::{self, ProcessDriverScaffolder};
+use super::probe::{self, ProcessDriverWizard};
 use super::render;
 use crate::federation::PathDriverLocator;
 
@@ -16,9 +16,9 @@ use crate::federation::PathDriverLocator;
 const MAX_CONFIG_BYTES: u64 = 8 * 1024 * 1024;
 
 /// The temp-file prefix for the atomic config write.
-const WRITE_PREFIX: &str = "toven-generate";
+const WRITE_PREFIX: &str = "toven-init";
 
-/// The result of one `toven generate` run.
+/// The result of one `toven init` run.
 ///
 /// The rendered document is always returned; whether it was written to disk
 /// depends on the `write` flag. Diagnostics (skipped/ineffective sections) are
@@ -26,7 +26,7 @@ const WRITE_PREFIX: &str = "toven-generate";
 /// goes to the file or stdout.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct GeneratedDocument {
+pub struct InitOutcome {
     /// The resolved `<root>/toven.toml` path.
     pub path: PathBuf,
     /// The rendered, format-preserving document text.
@@ -47,45 +47,50 @@ pub struct GeneratedDocument {
     pub warnings: Vec<String>,
 }
 
-/// Detect ecosystems under `root` and produce (and optionally write) a
-/// `toven.toml`, using the production driver-scaffolder and `PATH` locator.
+/// Detect ecosystems under `root`, run each provider's wizard (answered through
+/// `answers`), and produce (and optionally write) a `toven.toml`, using the
+/// production driver-wizard and `PATH` locator.
 ///
 /// `providers` is the in-proc bootstrap set; `force` regenerates one section;
 /// `write` persists the document atomically (otherwise the caller prints it).
 ///
 /// # Errors
-/// Propagates a provider/driver scaffold failure, an unreadable/invalid existing
-/// config, or a failed atomic write.
-pub fn generate(
+/// Propagates a provider/driver wizard failure, an answering failure, an
+/// unreadable/invalid existing config, or a failed atomic write.
+pub fn init(
     root: &Path,
     providers: &[&dyn Provider],
+    answers: &dyn AnswerProvider,
     force: Option<&str>,
     write: bool,
-) -> AppResult<GeneratedDocument> {
-    generate_with(
+) -> AppResult<InitOutcome> {
+    init_with(
         root,
         providers,
-        &ProcessDriverScaffolder::new(),
+        &ProcessDriverWizard::new(),
         &PathDriverLocator::new(),
+        answers,
         force,
         write,
     )
 }
 
-/// The injectable core of [`generate`]: the driver-scaffolder and locator are
-/// parameters so tests drive the bootstrap probe without spawning subprocesses.
+/// The injectable core of [`init`]: the driver-wizard and locator are parameters
+/// so tests drive the bootstrap probe without spawning subprocesses.
 ///
 /// # Errors
-/// See [`generate`].
-pub fn generate_with(
+/// See [`init`].
+#[allow(clippy::too_many_arguments)]
+pub fn init_with(
     root: &Path,
     providers: &[&dyn Provider],
-    scaffolder: &dyn DriverScaffolder,
+    wizard: &dyn DriverWizard,
     locator: &dyn DriverLocator,
+    answers: &dyn AnswerProvider,
     force: Option<&str>,
     write: bool,
-) -> AppResult<GeneratedDocument> {
-    let fragments = probe::probe(providers, scaffolder, locator, root)?;
+) -> AppResult<InitOutcome> {
+    let fragments = probe::probe(providers, wizard, locator, answers, root)?;
     let config_path = root.join("toven.toml");
     let pre_existed = config_path.is_file();
 
@@ -107,7 +112,7 @@ pub fn generate_with(
         write_atomic_replace(&config_path, result.text.as_bytes(), WRITE_PREFIX)?;
     }
 
-    Ok(GeneratedDocument {
+    Ok(InitOutcome {
         path: config_path,
         rendered: result.text,
         written: write,

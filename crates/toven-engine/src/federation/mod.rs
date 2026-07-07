@@ -43,10 +43,10 @@ pub mod sync;
 pub use baseline::{MemberVcsReaders, OpenMemberVcsReaders};
 pub use project::open_project_vcs;
 pub use remote::RemoteAdapter;
-pub use remote::scaffold::{probe_driver, probe_io};
+pub use remote::wizard::{run_driver_wizard, wizard_io};
 pub(crate) use resolve::driver_binary_name;
 pub use resolve::{
     DriverBinary, PathDriverLocator, RemoteResolution, Resolution, resolve_adapters,
     resolve_ecosystem,
 };
-pub use serve::{serve, serve_scaffold};
+pub use serve::{serve, serve_wizard};

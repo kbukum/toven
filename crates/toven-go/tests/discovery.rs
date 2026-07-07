@@ -2,15 +2,32 @@
 //! against fixture workspaces. Configs come from testkit fixtures — no inline
 //! TOML.
 
+use rskit_config::RawValue;
 use toven_go::GoProvider;
 use toven_model::{AbsPath, DepKind, EcosystemId, ModuleRef};
 use toven_ports::{ConfiguredAdapter, DiscoverRequest, Provider};
-use toven_testkit::fixtures;
+
+/// Parse an adapter TOML subtree into a canonical raw config.
+fn raw_subtree(toml: &str) -> RawValue {
+    rskit_codec::decode(&rskit_codec::TomlCodec, toml).expect("raw subtree")
+}
+
+/// Resolve a Go fixture path.
+fn fixture(rel: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../toven-testkit/fixtures/ecosystems/go")
+        .join(rel)
+}
+
+/// Read a Go fixture file.
+fn fixture_string(rel: &str) -> String {
+    std::fs::read_to_string(fixture(rel)).expect("fixture")
+}
 
 /// Build a configured Go adapter from a fixture adapter config.
 fn configure(adapter_config: &str) -> Box<dyn ConfiguredAdapter> {
-    let raw_text = fixtures::ecosystem_string("go", adapter_config).expect("adapter fixture");
-    let raw = toven_testkit::raw_subtree(&raw_text).expect("valid adapter toml");
+    let raw_text = fixture_string(adapter_config);
+    let raw = raw_subtree(&raw_text);
     GoProvider::new()
         .expect("provider")
         .configure(raw)
@@ -28,7 +45,7 @@ fn discover_result(
     workspace: &str,
 ) -> rskit_errors::AppResult<toven_ports::DiscoverResponse> {
     let adapter = configure(adapter_config);
-    let root = fixtures::ecosystem("go", workspace).expect("workspace fixture");
+    let root = fixture(workspace);
     let request = DiscoverRequest::new(AbsPath::new(root).expect("absolute root"));
     adapter.discover(&request)
 }

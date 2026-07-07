@@ -1,10 +1,10 @@
 //! Provider port — the two-level `Provider → ConfiguredAdapter` seam plus the
-//! config-less scaffold fragment.
+//! wizard `render` fragment.
 
 mod configured;
 mod entry;
-mod scaffold;
+mod fragment;
 
 pub use configured::ConfiguredAdapter;
 pub use entry::Provider;
-pub use scaffold::EcosystemFragment;
+pub use fragment::EcosystemFragment;

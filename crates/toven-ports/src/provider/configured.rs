@@ -6,7 +6,7 @@ use crate::{
     config::{CommonEcosystemConfig, RunStrategy},
     discover::{DiscoverRequest, DiscoverResponse},
     release::ReleaseTarget,
-    task::{Task, TaskKind, ToolchainProbe},
+    task::{TaskKind, ToolchainProbe},
 };
 
 /// A configured ecosystem adapter — the baked config plus its resolved defaults.
@@ -18,10 +18,6 @@ use crate::{
 pub trait ConfiguredAdapter {
     /// Discover this ecosystem's modules, edges, and workspaces.
     fn discover(&self, request: &DiscoverRequest) -> AppResult<DiscoverResponse>;
-
-    /// The adapter's default tasks (one per built-in kind, plus named extras),
-    /// already field-merged with any user overrides.
-    fn default_tasks(&self) -> Vec<Task>;
 
     /// The probe spec the planner runs once per active workspace to compose the
     /// toolchain version identity.

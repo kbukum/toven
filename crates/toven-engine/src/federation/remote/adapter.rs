@@ -2,11 +2,12 @@
 //! driven `toven-<eco> __serve` subprocess (or, in tests, an in-process server).
 //!
 //! Construction performs the handshake and **prefetches** every infallible query
-//! the planner later asks for (`default_tasks`, `toolchain_probe`, the per-kind
-//! `run_strategy` defaults, and the common config). Those trait methods cannot
-//! return errors, so they are resolved once up front where a transport failure
-//! *can* be surfaced; only the fallible [`discover`](ConfiguredAdapter::discover)
-//! stays a live RPC.
+//! the planner later asks for (`toolchain_probe`, the per-kind `run_strategy`
+//! defaults, and the common config). Those trait methods cannot return errors,
+//! so they are resolved once up front where a transport failure *can* be
+//! surfaced; only the fallible [`discover`](ConfiguredAdapter::discover) stays a
+//! live RPC. The runnable task table is not an RPC — it is the driver's resolved
+//! config, carried in the [`Welcome`]'s common config.
 //!
 //! Release is capability-gated off for driven ecosystems:
 //! [`release_target`](ConfiguredAdapter::release_target) returns `None`. The
@@ -21,7 +22,7 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use toven_model::EcosystemId;
 use toven_ports::{
     CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, ReleaseTarget,
-    RunStrategy, Task, TaskKind, ToolchainProbe,
+    RunStrategy, TaskKind, ToolchainProbe,
 };
 
 use super::super::protocol::envelope::{ENVELOPE_SCHEMA_VERSION, Hello, Request, Response};
@@ -47,16 +48,15 @@ pub struct RemoteAdapter {
     ecosystem: EcosystemId,
     client: Mutex<RpcClient>,
     common: CommonEcosystemConfig,
-    default_tasks: Vec<Task>,
     probe: ToolchainProbe,
     /// Prefetched run strategy per built-in kind name.
     run_strategies: std::collections::HashMap<String, RunStrategy>,
     /// Prefetched run strategy per **declared** custom task name (those present in
-    /// [`default_tasks`](ConfiguredAdapter::default_tasks)). A driver may vary its
-    /// default ordering by custom name, so each declared name is resolved up front.
+    /// the driver's resolved config task table). A driver may vary its default
+    /// ordering by custom name, so each declared name is resolved up front.
     custom_run_strategies: std::collections::HashMap<String, RunStrategy>,
     /// Fallback run strategy for a [`TaskKind::Custom`] the driver did not declare
-    /// in `default_tasks` (resolved once via a sentinel probe).
+    /// in its config task table (resolved once via a sentinel probe).
     custom_run_strategy: RunStrategy,
 }
 
@@ -142,10 +142,6 @@ impl RemoteAdapter {
             ));
         }
 
-        let default_tasks = match call(&mut client, &Request::DefaultTasks)? {
-            Response::DefaultTasks(tasks) => tasks,
-            other => return Err(unexpected(ecosystem.as_str(), "default_tasks", &other)),
-        };
         let probe = match call(&mut client, &Request::ToolchainProbe)? {
             Response::ToolchainProbe(probe) => probe,
             other => return Err(unexpected(ecosystem.as_str(), "toolchain_probe", &other)),
@@ -159,9 +155,10 @@ impl RemoteAdapter {
 
         // A driver's `run_strategy_default` may branch on the custom task name, so
         // prefetch the real default for every distinct custom task it declared in
-        // `default_tasks` rather than collapsing them onto one sentinel value.
+        // its resolved config task table rather than collapsing them onto one
+        // sentinel value.
         let mut custom_run_strategies = std::collections::HashMap::new();
-        for name in distinct_custom_names(&default_tasks) {
+        for name in distinct_custom_names(&welcome.common) {
             let kind = TaskKind::Custom(name.clone());
             let strategy = fetch_run_strategy(&mut client, ecosystem.as_str(), &kind)?;
             custom_run_strategies.insert(name, strategy);
@@ -178,7 +175,6 @@ impl RemoteAdapter {
             ecosystem,
             client: Mutex::new(client),
             common: welcome.common,
-            default_tasks,
             probe,
             run_strategies,
             custom_run_strategies,
@@ -202,10 +198,6 @@ impl ConfiguredAdapter for RemoteAdapter {
             Response::Discover(response) => Ok(response),
             other => Err(unexpected(self.ecosystem.as_str(), "discover", &other)),
         }
-    }
-
-    fn default_tasks(&self) -> Vec<Task> {
-        self.default_tasks.clone()
     }
 
     fn toolchain_probe(&self) -> ToolchainProbe {
@@ -248,18 +240,20 @@ fn call(client: &mut RpcClient, request: &Request) -> AppResult<Response> {
         .map_err(|fault| fault.into_app_error(&ecosystem))
 }
 
-/// The distinct custom task names declared in `tasks`, in first-seen order.
+/// The distinct custom task names declared in the driver's resolved config task
+/// table, in table (sorted) order.
 ///
 /// Used to prefetch each declared custom task's real run-strategy default rather
-/// than collapsing every custom kind onto a single sentinel value.
-fn distinct_custom_names(tasks: &[Task]) -> Vec<String> {
+/// than collapsing every custom kind onto a single sentinel value. A custom task
+/// is a config entry whose derived kind is [`TaskKind::Custom`].
+fn distinct_custom_names(common: &CommonEcosystemConfig) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     let mut names = Vec::new();
-    for task in tasks {
-        if let TaskKind::Custom(name) = &task.kind
+    for (key, entry) in &common.tasks {
+        if let (TaskKind::Custom(name), _) = entry.kind_and_name(key)
             && seen.insert(name.clone())
         {
-            names.push(name.clone());
+            names.push(name);
         }
     }
     names

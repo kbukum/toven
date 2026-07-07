@@ -78,11 +78,13 @@ Examples:
   toven completions zsh > _toven      Install zsh completions
   source <(toven completions bash)    Load bash completions for this shell";
 
-/// `generate` verb examples.
-const GENERATE_EXAMPLES: &str = "\
+/// `init` verb examples.
+const INIT_EXAMPLES: &str = "\
 Examples:
-  toven generate --write     Scaffold a `toven.toml` for the current repo
-  toven generate --force rust   Regenerate just the `[ecosystems.rust]` block";
+  toven init                 Detect ecosystems and write a `toven.toml` for the current repo
+  toven init --non-interactive   Take questionnaire defaults with no prompts (CI)
+  toven init --print         Preview the rendered `toven.toml` on stdout without writing
+  toven init --force rust    Regenerate just the `[ecosystems.rust]` block";
 
 /// Parse a `--timeout` duration string (e.g. `30s`, `5m`) into a [`Duration`].
 ///
@@ -293,18 +295,19 @@ pub struct Cli {
     /// Release only: skip pushing the release commit and tags.
     #[arg(long, global = true)]
     pub no_push: bool,
-    /// Generate only: regenerate one `[ecosystems.<id>]` section.
+    /// Init only: regenerate one `[ecosystems.<id>]` section.
     #[arg(long, global = true, value_name = "ID")]
     pub force: Option<String>,
-    /// Generate only: project root to scaffold against.
+    /// Init only: project root to onboard against.
     #[arg(long, global = true, value_name = "PATH")]
     pub root: Option<PathBuf>,
-    /// Generate only: write the rendered `toven.toml` instead of printing it.
+    /// Init only: answer the wizard non-interactively (take questionnaire
+    /// defaults, never prompt).
+    #[arg(long = "non-interactive", visible_alias = "yes", global = true)]
+    pub non_interactive: bool,
+    /// Init only: render the `toven.toml` to stdout and write nothing.
     #[arg(long, global = true)]
-    pub write: bool,
-    /// Generate only: render the `toven.toml` to stdout and write nothing.
-    #[arg(long, global = true)]
-    pub stdout: bool,
+    pub print: bool,
     /// Graph only: dependency-graph rendering format.
     #[arg(long, global = true, value_name = "FORMAT")]
     pub format: Option<GraphFormat>,
@@ -351,9 +354,9 @@ pub enum Command {
         /// Task to explain.
         task: String,
     },
-    /// Scaffold or regenerate `toven.toml` sections.
-    #[command(after_long_help = GENERATE_EXAMPLES)]
-    Generate,
+    /// Detect ecosystems and write (or preview) a `toven.toml` via the wizard.
+    #[command(after_long_help = INIT_EXAMPLES)]
+    Init,
     /// Project the affected-module set for a task.
     #[command(after_long_help = AFFECTED_EXAMPLES)]
     Affected {
@@ -480,7 +483,7 @@ impl Cli {
 pub fn gate(cli: &Cli) -> AppResult<()> {
     let verb = verb_name(&cli.command);
     let is_release = matches!(cli.command, Command::Release);
-    let is_generate = matches!(cli.command, Command::Generate);
+    let is_init = matches!(cli.command, Command::Init);
     let is_graph = matches!(cli.command, Command::Graph);
 
     if cli.allow_dirty && !is_release {
@@ -489,7 +492,7 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     if cli.no_push && !is_release {
         return Err(only_applies("--no-push", "toven release", verb));
     }
-    gate_generate_flags(cli, verb, is_generate)?;
+    gate_init_flags(cli, verb, is_init)?;
     if cli.format.is_some() && !is_graph {
         return Err(only_applies("--format", "toven graph", verb));
     }
@@ -600,27 +603,20 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     Ok(())
 }
 
-/// Reject the `generate`-only scaffolding flags (`--force`/`--root`/`--write`/
-/// `--stdout`) on any other verb, and reject the contradictory `--stdout` +
-/// `--write` sink combination on `generate` itself.
-fn gate_generate_flags(cli: &Cli, verb: &str, is_generate: bool) -> AppResult<()> {
-    if cli.force.is_some() && !is_generate {
-        return Err(only_applies("--force", "toven generate", verb));
+/// Reject the `init`-only wizard flags (`--force`/`--root`/`--non-interactive`/
+/// `--print`) on any other verb.
+fn gate_init_flags(cli: &Cli, verb: &str, is_init: bool) -> AppResult<()> {
+    if cli.force.is_some() && !is_init {
+        return Err(only_applies("--force", "toven init", verb));
     }
-    if cli.root.is_some() && !is_generate {
-        return Err(only_applies("--root", "toven generate", verb));
+    if cli.root.is_some() && !is_init {
+        return Err(only_applies("--root", "toven init", verb));
     }
-    if cli.write && !is_generate {
-        return Err(only_applies("--write", "toven generate", verb));
+    if cli.non_interactive && !is_init {
+        return Err(only_applies("--non-interactive", "toven init", verb));
     }
-    if cli.stdout && !is_generate {
-        return Err(only_applies("--stdout", "toven generate", verb));
-    }
-    // `--stdout` (preview, write nothing) and `--write` (persist the file) are
-    // contradictory sinks for the rendered document; reject the combination
-    // rather than silently letting one win.
-    if cli.stdout && cli.write {
-        return Err(stdout_write_conflict());
+    if cli.print && !is_init {
+        return Err(only_applies("--print", "toven init", verb));
     }
     Ok(())
 }
@@ -800,18 +796,6 @@ pub(crate) fn refresh_no_cache_conflict() -> AppError {
     )
 }
 
-/// The shared typed error for combining `--stdout` and `--write` on `generate`.
-///
-/// The two flags name contradictory sinks for the rendered document — preview
-/// on stdout versus an atomic file write — so the combination is rejected rather
-/// than letting one silently win.
-fn stdout_write_conflict() -> AppError {
-    AppError::invalid_input(
-        "flags",
-        "`--stdout` and `--write` are mutually exclusive (`--stdout` previews the config on stdout and writes nothing; `--write` persists `toven.toml`)",
-    )
-}
-
 /// The user-facing name of the dispatched verb (for error messages).
 fn verb_name(command: &Command) -> &str {
     match command {
@@ -819,7 +803,7 @@ fn verb_name(command: &Command) -> &str {
         Command::Plan { .. } => "plan",
         Command::Release => "release",
         Command::Explain { .. } => "explain",
-        Command::Generate => "generate",
+        Command::Init => "init",
         Command::Affected { .. } => "affected",
         Command::Modules => "modules",
         Command::Graph => "graph",
@@ -1008,18 +992,18 @@ mod tests {
     }
 
     #[test]
-    fn generate_flags_only_on_generate() {
+    fn init_flags_only_on_init() {
         for args in [
-            ["--write", "generate"].as_slice(),
-            ["--stdout", "generate"].as_slice(),
-            ["--root", "/tmp", "generate"].as_slice(),
-            ["--force", "rust", "generate"].as_slice(),
+            ["--non-interactive", "init"].as_slice(),
+            ["--print", "init"].as_slice(),
+            ["--root", "/tmp", "init"].as_slice(),
+            ["--force", "rust", "init"].as_slice(),
         ] {
             assert!(super::gate(&parse(args).unwrap()).is_ok(), "{args:?}");
         }
         for args in [
-            ["--write", "plan", "test"].as_slice(),
-            ["--stdout", "plan", "test"].as_slice(),
+            ["--non-interactive", "plan", "test"].as_slice(),
+            ["--print", "plan", "test"].as_slice(),
             ["--root", "/tmp", "modules"].as_slice(),
             ["--force", "rust", "graph"].as_slice(),
         ] {
@@ -1028,9 +1012,10 @@ mod tests {
     }
 
     #[test]
-    fn generate_stdout_and_write_are_mutually_exclusive() {
-        let cli = parse(&["--stdout", "--write", "generate"]).expect("parses");
-        assert!(super::gate(&cli).is_err());
+    fn init_accepts_the_yes_alias() {
+        let cli = parse(&["--yes", "init"]).expect("parses");
+        assert!(cli.non_interactive);
+        assert!(super::gate(&cli).is_ok());
     }
 
     #[test]

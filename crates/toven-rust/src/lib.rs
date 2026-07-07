@@ -5,11 +5,11 @@
 //! `"rust"`:
 //!
 //! - [`RustProvider`] parses `[ecosystems.rust]` into a typed [`RustConfig`] and
-//!   bakes a [`RustAdapter`]; it also self-detects a Cargo project for
-//!   `toven generate` scaffolding.
-//! - [`RustAdapter`] implements discovery (via `cargo metadata`), the default
-//!   cargo task table, the toolchain probe, run-strategy defaults, and the
-//!   crates.io release target.
+//!   bakes a [`RustAdapter`]; it also self-detects a Cargo project and drives
+//!   the `toven init` onboarding wizard (detect → questionnaire → render).
+//! - [`RustAdapter`] implements discovery (via `cargo metadata`), the toolchain
+//!   probe, run-strategy defaults, and the crates.io release target. The
+//!   runnable task table is read from the authoritative config, not the adapter.
 //!
 //! All work returns typed data + typed errors; no user-facing printing, no
 //! panics on runtime paths.
@@ -24,10 +24,12 @@
 
 mod adapter;
 mod config;
+mod detect;
 mod discovery;
 mod provider;
+mod questionnaire;
 mod release;
-mod scaffold;
+mod render;
 mod tasks;
 mod toolchain;
 

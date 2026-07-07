@@ -1,13 +1,15 @@
 # Running tasks
 
-Run a configured or adapter-provided task directly:
+Run a task from the config task table directly:
 
 ```bash
 toven check
 toven test
 ```
 
-Use `toven run <task>` when the task name shadows a reserved verb (`run`, `plan`, `generate`, `graph`, `cache`, …):
+The task token is the task's addressable name: a built-in kind (`build`, `check`, `format`, `lint`, `test`, `doc`, `run`) or a named extra authored under `[ecosystems.<id>.tasks.<name>]` with an explicit `kind` (for example `toven test-integration`). Run `toven tasks` to list every runnable task.
+
+Use `toven run <task>` when the task name shadows a reserved verb (`run`, `plan`, `init`, `graph`, `cache`, …):
 
 ```bash
 toven run check

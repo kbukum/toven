@@ -2,27 +2,27 @@
 
 This guide adopts Toven in a Rust repository. Toven discovers modules and plans execution; the actual tool argv stays reviewable in `toven.toml`.
 
-## 1. Generate a starter config
+## 1. Onboard with the wizard
 
 From the repository you want Toven to manage:
 
 ```bash
-toven generate
+toven init
 ```
 
-When there is no root `Cargo.toml`, Toven also discovers first-level nested Cargo manifests, skipping any ignored by Git. Scaffold a different directory with `--root`:
+The wizard detects each ecosystem, asks a short questionnaire, and writes `toven.toml`. When there is no root `Cargo.toml`, Toven also discovers first-level nested Cargo manifests, skipping any ignored by Git. Onboard a different directory with `--root`:
 
 ```bash
-toven generate --root ../other-repo
+toven init --root ../other-repo
 ```
 
-Review the TOML, then write it:
+Preview without writing using `--print`, or take every default without prompting with `--non-interactive`:
 
 ```bash
-toven generate --write
+toven init --print
 ```
 
-Re-running is additive: it adds missing `[ecosystems.<id>]` sections and leaves existing sections, `[project]`, and `[toven]` alone. Regenerate one section with `--force rust`. See [generating config](commands/generate.md).
+Re-running is additive: it adds missing `[ecosystems.<id>]` sections and leaves existing sections, `[project]`, and `[toven]` alone. Regenerate one section with `--force rust`. See [onboarding a repository](commands/init.md).
 
 ## 2. Review `toven.toml`
 

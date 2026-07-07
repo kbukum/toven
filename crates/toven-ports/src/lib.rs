@@ -15,7 +15,7 @@
 //!
 //! ## Ports
 //! - [`provider`] — [`Provider`]/[`ConfiguredAdapter`]: the raw-TOML → configured
-//!   adapter seam.
+//!   adapter seam, plus the [`wizard`] onboarding steps.
 //! - [`release`] — [`ReleaseTarget`] and friends: the thin ecosystem release sliver.
 //! - [`reporter`] — [`Reporter`]: the observability output port.
 //! - [`raw_output`] — [`RawOutputSink`]: the raw child-output sink port (sibling
@@ -32,12 +32,14 @@
 //! - [`exec`] — [`CommandRunner`]: the injected process-execution seam consumed
 //!   by the APPLY wave walk (concrete `rskit-process` runner lives in the engine).
 //! - [`discover`] — the discovery request/response vocabulary.
-//! - [`driver`] — [`DriverLocator`]/[`DriverScaffolder`]: the out-of-process
+//! - [`driver`] — [`DriverLocator`]/[`DriverWizard`]: the out-of-process
 //!   `toven-<eco>` driver seams (concrete adapters live in the engine).
 //!
 //! ## Shared surface
 //! - [`task`] — the tasks vocabulary ([`Task`], [`TaskKind`], [`FanOut`], …).
 //! - [`config`] — [`CommonEcosystemConfig`] (the `#[serde(flatten)]` target) + knobs.
+//! - [`wizard`] — the data-only onboarding vocabulary ([`Detection`],
+//!   [`Questionnaire`], [`Answers`]).
 //! - [`template`] — [`CommandTemplate`] argv rendering over rskit-util.
 //! - [`merge`] — the [`merge_task`] field-merge helper.
 
@@ -57,11 +59,12 @@ pub mod template;
 pub mod toolchain;
 pub mod vcs;
 pub mod watch;
+pub mod wizard;
 
 pub use cache::{CacheStore, CacheWriter};
-pub use config::{CommonEcosystemConfig, ReleaseConfig, RunStrategy, TaskOverride};
+pub use config::{CommonEcosystemConfig, ReleaseConfig, RunStrategy, TaskEntry, TaskOverride};
 pub use discover::{DISCOVERY_SCHEMA_VERSION, DiscoverContext, DiscoverRequest, DiscoverResponse};
-pub use driver::{DriverLocator, DriverScaffolder};
+pub use driver::{DriverLocator, DriverWizard};
 pub use exec::{
     CommandRunner, HeldProcess, Invocation, InvocationEnvPolicy, InvocationEnvironment,
     OutputObserver, RunOutcome, StartOutcome,
@@ -81,6 +84,10 @@ pub use vcs::{
     BaselineMode, BaselineSpec, ChangeRecord, ChangeStatus, Oid, TagRef, VcsReader, VcsWriter,
 };
 pub use watch::{ChangeBatch, ChangeBatchStream, WatchSource};
+pub use wizard::{
+    Answer, AnswerProvider, Answers, Detection, Question, QuestionId, QuestionKind, Questionnaire,
+    TextRule,
+};
 
 #[cfg(test)]
 mod object_safety {
@@ -150,9 +157,6 @@ mod object_safety {
                 response
             })
         }
-        fn default_tasks(&self) -> Vec<Task> {
-            Vec::new()
-        }
         fn toolchain_probe(&self) -> ToolchainProbe {
             ToolchainProbe::new("cargo", "cargo", vec!["--version".into()])
         }
@@ -175,8 +179,21 @@ mod object_safety {
         fn configure(&self, _raw: rskit_config::RawValue) -> AppResult<Box<dyn ConfiguredAdapter>> {
             Ok(Box::new(FakeConfigured(CommonEcosystemConfig::default())))
         }
-        fn scaffold(&self, _project_root: &Path) -> AppResult<Option<EcosystemFragment>> {
-            Ok(Some(EcosystemFragment::new(self.0.clone(), Table::new())))
+        fn detect(&self, _project_root: &Path) -> AppResult<Option<wizard::Detection>> {
+            Ok(Some(wizard::Detection::bare(self.0.clone())))
+        }
+        fn questionnaire(&self, detection: &wizard::Detection) -> AppResult<wizard::Questionnaire> {
+            Ok(wizard::Questionnaire::empty(detection.ecosystem.clone()))
+        }
+        fn render(
+            &self,
+            detection: &wizard::Detection,
+            _answers: &wizard::Answers,
+        ) -> AppResult<EcosystemFragment> {
+            Ok(EcosystemFragment::new(
+                detection.ecosystem.clone(),
+                Table::new(),
+            ))
         }
     }
 
@@ -299,6 +316,7 @@ mod object_safety {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn port_traits_are_object_safe() {
         let mut reporter: Box<dyn Reporter> = Box::new(FakeReporter);
         let mut raw_sink: Box<dyn RawOutputSink> =
@@ -317,12 +335,17 @@ mod object_safety {
 
         // Exercise every Provider method.
         assert_eq!(provider.ecosystem_id().as_str(), "rust");
-        assert!(
-            provider
-                .scaffold(Path::new("."))
-                .expect("scaffolds")
-                .is_some()
-        );
+        let detection = provider
+            .detect(Path::new("."))
+            .expect("detects")
+            .expect("present");
+        assert_eq!(detection.ecosystem.as_str(), "rust");
+        let questionnaire = provider.questionnaire(&detection).expect("questionnaire");
+        assert!(questionnaire.is_empty());
+        let fragment = provider
+            .render(&detection, &wizard::Answers::new())
+            .expect("renders");
+        assert_eq!(fragment.ecosystem.as_str(), "rust");
         let configured = provider
             .configure(rskit_config::RawValue::Null)
             .expect("configures");
@@ -335,7 +358,6 @@ mod object_safety {
         let request = DiscoverRequest::new(AbsPath::new("/repo").expect("valid path"));
         let response = configured.discover(&request).expect("discovers");
         assert_eq!(response.schema_version, request.schema_version);
-        assert!(configured.default_tasks().is_empty());
         assert_eq!(configured.toolchain_probe().label, "cargo");
         assert_eq!(
             configured.run_strategy_default(&TaskKind::Build),

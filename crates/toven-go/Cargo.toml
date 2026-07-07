@@ -18,11 +18,7 @@ rskit-codec.workspace = true
 rskit-process.workspace = true
 rskit-fs.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 toml.workspace = true
-
-[dev-dependencies]
-toven-testkit.workspace = true
 
 [lints]
 workspace = true

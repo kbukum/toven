@@ -5,6 +5,7 @@
 //! IO ports each own a file. Use these instead of redeclaring bespoke fakes
 //! inside a crate.
 
+mod answers;
 mod cache;
 mod driver;
 mod exec;
@@ -17,8 +18,9 @@ mod toolchain;
 mod vcs;
 mod watch;
 
+pub use answers::ScriptedAnswers;
 pub use cache::{FakeCacheStore, RecordingCacheStore, RecordingCacheWriter};
-pub use driver::{FakeDriverLocator, FakeDriverScaffolder};
+pub use driver::{FakeDriverLocator, FakeDriverWizard};
 pub use exec::FakeCommandRunner;
 pub use provider::{FakeConfiguredAdapter, FakeProvider};
 pub use raw_output::RecordingRawOutputSink;

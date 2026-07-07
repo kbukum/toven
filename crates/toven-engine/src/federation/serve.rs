@@ -20,7 +20,9 @@ use toven_ports::{ConfiguredAdapter, Provider};
 use super::protocol::codec::{self, MAX_FRAME_BYTES};
 use super::protocol::envelope::{Capabilities, Hello, Request, Response, Welcome, WireError};
 use super::protocol::handshake::{PROTOCOL_VERSION, negotiate, protocol_version};
-use super::protocol::scaffold::{ScaffoldOutcome, ScaffoldRequest};
+use super::protocol::wizard::{
+    WizardAnswers, WizardOffer, WizardOffering, WizardProbe, WizardResult,
+};
 
 /// Run the port-server loop over `reader`/`writer` using the in-proc `providers`.
 ///
@@ -126,60 +128,123 @@ fn serve_requests<R: Read, W: Write>(
     Ok(())
 }
 
-/// Run the config-less scaffold exchange over `reader`/`writer`.
+/// Run the config-less wizard exchange over `reader`/`writer` — the driven half
+/// of federated `toven init`.
 ///
-/// Reads one [`ScaffoldRequest`], asks every in-proc provider to self-detect its
-/// ecosystem under the named root, and replies with a single [`ScaffoldOutcome`]
-/// carrying the detected fragments (or a typed error). This is the driven half
-/// of federated `toven generate`; a peer that closes before sending a request is
-/// a clean no-op.
+/// This is a **two-round-trip** exchange. First, read one [`WizardProbe`], ask
+/// every in-proc provider to self-detect under the named root and build its
+/// [`Questionnaire`](toven_ports::Questionnaire), and reply with a [`WizardOffer`]. The driver then stays
+/// alive holding its detections; it reads one [`WizardAnswers`], re-associates
+/// each answer set with the matching stored detection, renders, and replies with
+/// a [`WizardResult`]. A peer that closes before the probe (or before the
+/// answers) is a clean no-op.
 ///
 /// # Errors
-/// Returns an error only on a transport failure; a provider's own scaffold
-/// failure is reported to the umbrella as a typed [`ScaffoldOutcome::Error`].
-pub fn serve_scaffold<R: Read, W: Write>(
+/// Returns an error only on a transport failure; a provider's own detect /
+/// questionnaire / render failure is reported to the umbrella as a typed
+/// [`WizardOffer::Error`] or [`WizardResult::Error`].
+pub fn serve_wizard<R: Read, W: Write>(
     providers: &[&dyn Provider],
     mut reader: R,
     mut writer: W,
 ) -> AppResult<()> {
-    let Some(request) = codec::read_value::<_, ScaffoldRequest>(&mut reader, MAX_FRAME_BYTES)?
-    else {
-        // Peer closed before sending a request: nothing to scaffold.
+    let Some(probe) = codec::read_value::<_, WizardProbe>(&mut reader, MAX_FRAME_BYTES)? else {
+        // Peer closed before sending a probe: nothing to onboard.
         return Ok(());
     };
 
-    if request.schema_version != super::protocol::envelope::ENVELOPE_SCHEMA_VERSION {
-        let outcome = ScaffoldOutcome::Error(WireError::new(
-            rskit_errors::ErrorCode::Conflict.as_str(),
-            format!(
-                "umbrella speaks envelope schema v{}, but this driver requires v{}",
-                request.schema_version,
-                super::protocol::envelope::ENVELOPE_SCHEMA_VERSION
-            ),
-        ));
-        return codec::write_value(&mut writer, &outcome);
+    if probe.schema_version != super::protocol::envelope::ENVELOPE_SCHEMA_VERSION {
+        let offer = WizardOffer::Error(schema_mismatch(probe.schema_version));
+        return codec::write_value(&mut writer, &offer);
     }
 
-    let outcome = match detect_fragments(providers, &request) {
-        Ok(fragments) => ScaffoldOutcome::Fragments(fragments),
-        Err(error) => ScaffoldOutcome::Error(WireError::new(
+    let offerings = match probe_offerings(providers, &probe) {
+        Ok(offerings) => offerings,
+        Err(error) => {
+            let offer = WizardOffer::Error(WireError::new(
+                error.code().as_str(),
+                error.message().to_string(),
+            ));
+            return codec::write_value(&mut writer, &offer);
+        }
+    };
+    codec::write_value(&mut writer, &WizardOffer::Detected(offerings.clone()))?;
+
+    let Some(answers) = codec::read_value::<_, WizardAnswers>(&mut reader, MAX_FRAME_BYTES)? else {
+        // Peer closed after the offer without answering: a clean no-op.
+        return Ok(());
+    };
+
+    let result = match render_fragments(providers, &offerings, &answers) {
+        Ok(fragments) => WizardResult::Fragments(fragments),
+        Err(error) => WizardResult::Error(WireError::new(
             error.code().as_str(),
             error.message().to_string(),
         )),
     };
-    codec::write_value(&mut writer, &outcome)
+    codec::write_value(&mut writer, &result)
 }
 
-/// Run every provider's config-less detection under the request's root.
-fn detect_fragments(
+/// The schema-mismatch wire error shared by the wizard's two reply points.
+fn schema_mismatch(umbrella: u16) -> WireError {
+    WireError::new(
+        rskit_errors::ErrorCode::Conflict.as_str(),
+        format!(
+            "umbrella speaks envelope schema v{umbrella}, but this driver requires v{}",
+            super::protocol::envelope::ENVELOPE_SCHEMA_VERSION
+        ),
+    )
+}
+
+/// Detect + build a questionnaire for every provider that applies under the root.
+fn probe_offerings(
     providers: &[&dyn Provider],
-    request: &ScaffoldRequest,
+    probe: &WizardProbe,
+) -> AppResult<Vec<WizardOffering>> {
+    let mut offerings = Vec::new();
+    for provider in providers {
+        if let Some(detection) = provider.detect(&probe.project_root)? {
+            let questionnaire = provider.questionnaire(&detection)?;
+            offerings.push(WizardOffering {
+                detection,
+                questionnaire,
+            });
+        }
+    }
+    Ok(offerings)
+}
+
+/// Render each answered ecosystem, re-associating answers with the stored
+/// detection and dispatching to the provider that serves that ecosystem.
+fn render_fragments(
+    providers: &[&dyn Provider],
+    offerings: &[WizardOffering],
+    answers: &WizardAnswers,
 ) -> AppResult<Vec<toven_ports::EcosystemFragment>> {
     let mut fragments = Vec::new();
-    for provider in providers {
-        if let Some(fragment) = provider.scaffold(&request.project_root)? {
-            fragments.push(fragment);
-        }
+    for entry in &answers.entries {
+        let offering = offerings
+            .iter()
+            .find(|offering| offering.detection.ecosystem == entry.ecosystem)
+            .ok_or_else(|| {
+                rskit_errors::AppError::invalid_input(
+                    "wizard.answers",
+                    format!(
+                        "umbrella answered ecosystem '{}', which this driver did not offer",
+                        entry.ecosystem
+                    ),
+                )
+            })?;
+        let provider = providers
+            .iter()
+            .find(|provider| provider.ecosystem_id() == &entry.ecosystem)
+            .ok_or_else(|| {
+                rskit_errors::AppError::invalid_input(
+                    "wizard.answers",
+                    format!("this driver does not serve ecosystem '{}'", entry.ecosystem),
+                )
+            })?;
+        fragments.push(provider.render(&offering.detection, &entry.answers)?);
     }
     Ok(fragments)
 }
@@ -195,7 +260,6 @@ fn answer(adapter: &dyn ConfiguredAdapter, request: Request) -> Response {
                 error.message().to_string(),
             )),
         },
-        Request::DefaultTasks => Response::DefaultTasks(adapter.default_tasks()),
         Request::ToolchainProbe => Response::ToolchainProbe(adapter.toolchain_probe()),
         Request::RunStrategy { kind } => Response::RunStrategy(adapter.run_strategy_default(&kind)),
         // Handled by the caller before reaching here.

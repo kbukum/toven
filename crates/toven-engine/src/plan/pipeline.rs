@@ -17,7 +17,7 @@ use super::host::PlanHost;
 use super::request::PlanRequest;
 use super::{affected, discover, front, schedule, toolchain};
 
-/// Run the pure PLAN pipeline, producing one immutable [`Plan`](toven_model::Plan).
+/// Run the pure PLAN pipeline, producing one immutable [`Plan`].
 ///
 /// `providers` are the ecosystem adapters compiled into this binary; `host`
 /// bundles the injected git/digest/probe/cache effects; `reporter` receives the

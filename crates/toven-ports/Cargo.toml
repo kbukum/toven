@@ -13,6 +13,7 @@ publish = false
 toven-model.workspace = true
 rskit-errors.workspace = true
 rskit-config.workspace = true
+rskit-cli.workspace = true
 rskit-util.workspace = true
 rskit-version.workspace = true
 serde.workspace = true
@@ -23,3 +24,6 @@ futures.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

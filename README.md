@@ -13,7 +13,7 @@ git submodule update --init --recursive
 cargo install --path apps/toven --locked --force
 
 cd your-repo
-toven generate --write        # scaffold toven.toml
+toven init                    # onboarding wizard writes toven.toml
 toven plan check              # see what would run
 toven check                   # run it
 ```

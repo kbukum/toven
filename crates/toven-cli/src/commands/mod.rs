@@ -6,13 +6,13 @@
 //! lets the reporter render. Execution verbs live in [`run`]; the PLAN-cut
 //! projections in [`introspect`]; the cache-maintenance verbs in [`cache`]; the
 //! federation provisioning verbs plus the hidden `__serve` port-server entry in
-//! [`driver`]; and generation verbs in [`generate`] are wired here as typed
+//! [`driver`]; and the onboarding wizard in [`init`] are wired here as typed
 //! command implementations.
 
 pub(crate) mod cache;
 pub(crate) mod completions;
 pub(crate) mod driver;
-pub(crate) mod generate;
+pub(crate) mod init;
 pub(crate) mod introspect;
 pub(crate) mod run;
 pub(crate) mod selection;

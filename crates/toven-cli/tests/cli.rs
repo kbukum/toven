@@ -52,8 +52,11 @@ fn graph_format_flag_on_a_non_graph_verb_is_gated_to_usage() {
 }
 
 #[test]
-fn generate_stdout_and_write_together_are_gated_to_usage() {
-    assert_eq!(run(&["--stdout", "--write", "generate"]), ExitCode::Usage);
+fn init_only_flags_on_a_non_init_verb_are_gated_to_usage() {
+    // `--print`/`--non-interactive` only apply to `toven init`; using them on
+    // another verb is a typed InvalidInput error, mapped to the usage exit code.
+    assert_eq!(run(&["--print", "plan", "test"]), ExitCode::Usage);
+    assert_eq!(run(&["--non-interactive", "plan", "test"]), ExitCode::Usage);
 }
 
 #[test]

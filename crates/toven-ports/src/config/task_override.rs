@@ -4,9 +4,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::task::{FanOut, Readiness, TaskKind};
 
-/// A user override for a single task.
+/// A user override for a single **group** task (`[groups.<name>].tasks`).
 ///
-/// Every field is optional: an unset field inherits the adapter default during
+/// This is the sparse group-layer diff only: the ecosystem-level task table is
+/// the complete [`TaskEntry`](crate::config::TaskEntry) shape, not this. Every
+/// field is optional: an unset field inherits the config base task during
 /// field-merge ([`merge_task`](crate::merge::merge_task)). Scalars and lists
 /// **replace**; `shared_inputs` is the one **additive** list (it extends the
 /// cache-key footprint).

@@ -1,17 +1,34 @@
 //! Behavioral discovery tests for the command adapter. The escape hatch shells
 //! out to nothing — discovery just normalizes the declared module/edge set — so
 //! these run against a synthetic project root. Configs come from testkit
-//! fixtures (no inline TOML).
+//! fixture files.
 
+use rskit_config::RawValue;
 use toven_command::CommandProvider;
 use toven_model::{AbsPath, DepKind, EcosystemId, ModuleRef};
 use toven_ports::{ConfiguredAdapter, DiscoverRequest, DiscoverResponse, Provider};
-use toven_testkit::fixtures;
+
+/// Parse an adapter TOML subtree into a canonical raw config.
+fn raw_subtree(toml: &str) -> RawValue {
+    rskit_codec::decode(&rskit_codec::TomlCodec, toml).expect("raw subtree")
+}
+
+/// Resolve a command fixture path.
+fn fixture(rel: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../toven-testkit/fixtures/ecosystems/command")
+        .join(rel)
+}
+
+/// Read a command fixture file.
+fn fixture_string(rel: &str) -> String {
+    std::fs::read_to_string(fixture(rel)).expect("fixture")
+}
 
 /// Build a configured command adapter from a fixture adapter config.
 fn configure(adapter_config: &str) -> Box<dyn ConfiguredAdapter> {
-    let raw_text = fixtures::ecosystem_string("command", adapter_config).expect("adapter fixture");
-    let raw = toven_testkit::raw_subtree(&raw_text).expect("valid adapter toml");
+    let raw_text = fixture_string(adapter_config);
+    let raw = raw_subtree(&raw_text);
     CommandProvider::new()
         .expect("provider")
         .configure(raw)

@@ -51,10 +51,10 @@ where
     if is_serve_invocation(&args) {
         return commands::driver::serve(providers);
     }
-    // The sibling `__scaffold` entry runs the config-less scaffold exchange so
-    // `toven generate` can probe an out-of-process `toven-<eco>` driver.
-    if is_scaffold_invocation(&args) {
-        return commands::driver::scaffold(providers);
+    // The sibling `__init` entry runs the config-less wizard exchange so
+    // `toven init` can probe an out-of-process `toven-<eco>` driver.
+    if is_init_invocation(&args) {
+        return commands::driver::init_wizard(providers);
     }
 
     let cli = match Cli::try_parse_from(args) {
@@ -75,8 +75,8 @@ where
 /// The reserved hidden subcommand that puts a driver into port-server mode.
 const SERVE_SUBCOMMAND: &str = "__serve";
 
-/// The reserved hidden subcommand that runs the config-less scaffold exchange.
-const SCAFFOLD_SUBCOMMAND: &str = "__scaffold";
+/// The reserved hidden subcommand that runs the config-less wizard exchange.
+const INIT_SUBCOMMAND: &str = "__init";
 
 /// Whether the argv selects the hidden `__serve` port-server entry.
 ///
@@ -89,10 +89,10 @@ fn is_serve_invocation(args: &[std::ffi::OsString]) -> bool {
     is_sole_subcommand(args, SERVE_SUBCOMMAND)
 }
 
-/// Whether the argv selects the hidden `__scaffold` entry (same sole-argument
+/// Whether the argv selects the hidden `__init` entry (same sole-argument
 /// discipline as [`is_serve_invocation`]).
-fn is_scaffold_invocation(args: &[std::ffi::OsString]) -> bool {
-    is_sole_subcommand(args, SCAFFOLD_SUBCOMMAND)
+fn is_init_invocation(args: &[std::ffi::OsString]) -> bool {
+    is_sole_subcommand(args, INIT_SUBCOMMAND)
 }
 
 /// Whether `args` is exactly `<program> <subcommand>` (the hidden-entry shape).
@@ -146,7 +146,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
     flags::gate(cli)?;
 
     match &cli.command {
-        Command::Generate => commands::generate::execute(providers, cli),
+        Command::Init => commands::init::execute(providers, cli),
         Command::Driver { action } => {
             let project = load(providers, cli, false)?;
             commands::driver::driver(providers, &project, action, cli.auto_install)
@@ -424,9 +424,7 @@ fn intent_for(task: &str) -> TaskKind {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        SCAFFOLD_SUBCOMMAND, SERVE_SUBCOMMAND, is_scaffold_invocation, is_serve_invocation,
-    };
+    use super::{INIT_SUBCOMMAND, SERVE_SUBCOMMAND, is_init_invocation, is_serve_invocation};
     use std::ffi::OsString;
 
     fn argv(tokens: &[&str]) -> Vec<OsString> {
@@ -471,42 +469,33 @@ mod tests {
     }
 
     #[test]
-    fn bare_scaffold_token_selects_the_scaffold_exchange() {
-        assert!(is_scaffold_invocation(&argv(&[
-            "toven-go",
-            SCAFFOLD_SUBCOMMAND
-        ])));
+    fn bare_init_token_selects_the_wizard_exchange() {
+        assert!(is_init_invocation(&argv(&["toven-go", INIT_SUBCOMMAND])));
     }
 
     #[test]
-    fn scaffold_with_trailing_arguments_falls_through_to_clap() {
-        assert!(!is_scaffold_invocation(&argv(&[
+    fn init_with_trailing_arguments_falls_through_to_clap() {
+        assert!(!is_init_invocation(&argv(&[
             "toven-go",
-            SCAFFOLD_SUBCOMMAND,
+            INIT_SUBCOMMAND,
             "--help"
         ])));
-        assert!(!is_scaffold_invocation(&argv(&[
+        assert!(!is_init_invocation(&argv(&[
             "toven-go",
-            SCAFFOLD_SUBCOMMAND,
+            INIT_SUBCOMMAND,
             "extra"
         ])));
     }
 
     #[test]
-    fn scaffold_and_serve_tokens_do_not_cross_match() {
-        assert!(!is_scaffold_invocation(&argv(&[
-            "toven-go",
-            SERVE_SUBCOMMAND
-        ])));
-        assert!(!is_serve_invocation(&argv(&[
-            "toven-go",
-            SCAFFOLD_SUBCOMMAND
-        ])));
+    fn init_and_serve_tokens_do_not_cross_match() {
+        assert!(!is_init_invocation(&argv(&["toven-go", SERVE_SUBCOMMAND])));
+        assert!(!is_serve_invocation(&argv(&["toven-go", INIT_SUBCOMMAND])));
     }
 
     #[test]
-    fn empty_or_program_only_argv_is_not_a_scaffold_exchange() {
-        assert!(!is_scaffold_invocation(&argv(&[])));
-        assert!(!is_scaffold_invocation(&argv(&["toven-go"])));
+    fn empty_or_program_only_argv_is_not_a_wizard_exchange() {
+        assert!(!is_init_invocation(&argv(&[])));
+        assert!(!is_init_invocation(&argv(&["toven-go"])));
     }
 }

@@ -31,7 +31,13 @@ impl ProcessCommandRunner {
     /// Create a process runner rooted at `project_root`.
     #[must_use]
     pub fn new(project_root: impl Into<PathBuf>) -> Self {
+        // `ProcessConfig::default()` carries rskit-process's own 30s process
+        // timeout, but Toven owns the per-unit bound: it defaults to *unbounded*
+        // and is applied cooperatively in the APPLY pool only when the caller
+        // passes `--timeout`. Clear the inherited default so a long build/test
+        // unit is never silently killed at 30s behind Toven's back.
         let process_config = ProcessConfig::default()
+            .with_timeout(None)
             .with_io(ProcessIo::captured(CapturedIo::new()))
             .with_signal_policy(SignalPolicy::default());
         Self {
@@ -285,4 +291,23 @@ fn streaming_observer(unit_id: String, observer: OutputObserver) -> ProcessOutpu
                 bytes: bytes.to_vec(),
             });
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProcessCommandRunner;
+
+    #[test]
+    fn runner_does_not_inherit_the_rskit_process_default_timeout() {
+        // Regression: `ProcessConfig::default()` carries a 30s process timeout.
+        // Toven owns the per-unit bound (unbounded unless `--timeout` is passed
+        // and enforced cooperatively in the APPLY pool), so the runner must clear
+        // the inherited default — otherwise any build/test unit longer than 30s is
+        // silently killed mid-run.
+        let runner = ProcessCommandRunner::new(".");
+        assert!(
+            runner.process_config.timeout.is_none(),
+            "ProcessCommandRunner must not inherit rskit-process's default 30s timeout"
+        );
+    }
 }
