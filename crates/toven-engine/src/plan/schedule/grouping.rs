@@ -105,14 +105,24 @@ pub(super) fn group_id_map(
 /// invocation covering the entire workspace, so its members stay collapsed into a
 /// single unit (scheduled at their latest wave). A genuine facade cycle between
 /// whole-workspace units is therefore irreducible and surfaces from
-/// [`ensure_condensed_acyclic`] as a typed error.
+/// [`level_units_into_waves`] as a typed error.
 pub(super) fn layered_group_ids(
     base_ids: &BTreeMap<ModuleKey, String>,
     layer_of: &BTreeMap<ModuleKey, usize>,
     effective: &BTreeMap<ModuleKey, EffectiveTask>,
     kept_deps: &BTreeMap<ModuleKey, Vec<ModuleKey>>,
 ) -> AppResult<BTreeMap<ModuleKey, String>> {
-    let cyclic = cyclic_bases(base_ids, kept_deps);
+    let any_splittable = effective
+        .values()
+        .any(|eff| eff.task.fan_out == FanOut::Batchable);
+    // Cross-group cycles can only be broken by splitting a `Batchable` base, so
+    // skip the reachability walk entirely when nothing is splittable; the layer
+    // presence check below still runs to fail closed on an unlayered module.
+    let cyclic = if any_splittable {
+        cyclic_bases(base_ids, kept_deps)
+    } else {
+        BTreeSet::new()
+    };
 
     let mut layers_per_base: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
     for (key, base) in base_ids {
