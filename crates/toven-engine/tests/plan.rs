@@ -628,3 +628,78 @@ fn plain_task_does_not_propagate_dev_edges() {
         "a plain task does not cross the dev-only edge: {modules:?}"
     );
 }
+
+/// Two ecosystems that tag the **same** task name with conflicting recognized
+/// kinds: `rust` calls `verify` a `test`, `go` calls it a `build`.
+fn conflicting_kind_providers() -> (FakeProvider, FakeProvider) {
+    let mut rust = DiscoverResponse::new(eid("rust"));
+    rust.workspaces.push(Workspace::new(
+        wsid("rust"),
+        RepoPath::new(".").expect("root"),
+        ToolchainTag::new("cargo"),
+    ));
+    rust.modules
+        .push(module("rust", "app", "crates/app", "rust"));
+    let rust_verify = Task::new(
+        "verify",
+        vec!["cargo".to_string(), "test".to_string()],
+        FanOut::PerModule,
+    )
+    .with_kind(TaskKind::Test);
+    let rust_adapter = FakeConfiguredAdapter::new(eid("rust"))
+        .with_response(rust)
+        .with_tasks(vec![rust_verify]);
+
+    let mut go = DiscoverResponse::new(eid("go"));
+    go.workspaces.push(Workspace::new(
+        wsid("go"),
+        RepoPath::new(".").expect("root"),
+        ToolchainTag::new("go"),
+    ));
+    go.modules.push(module("go", "svc", "services/svc", "go"));
+    let go_verify = Task::new(
+        "verify",
+        vec!["go".to_string(), "build".to_string()],
+        FanOut::PerModule,
+    )
+    .with_kind(TaskKind::Build);
+    let go_adapter = FakeConfiguredAdapter::new(eid("go"))
+        .with_response(go)
+        .with_tasks(vec![go_verify]);
+
+    (
+        FakeProvider::new(eid("rust")).with_adapter(rust_adapter),
+        FakeProvider::new(eid("go")).with_adapter(go_adapter),
+    )
+}
+
+/// Recognition is order-independent: when two ecosystems configure the same task
+/// name with different kinds the plan fails closed with an actionable error,
+/// rather than resolving the kind by arbitrary adapter iteration order.
+#[test]
+fn conflicting_task_kinds_across_ecosystems_are_rejected() {
+    let (rust, go) = conflicting_kind_providers();
+    let providers: Vec<&dyn Provider> = vec![&rust, &go];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
+    let cache = NullCache;
+    let mut reporter = RecordingReporter::new();
+
+    let mut document = document();
+    document.ecosystems.insert(eid("go"), serde_json::json!({}));
+
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let error = plan(
+        &request(TaskIntent::resolve("verify")),
+        &document,
+        &providers,
+        host,
+        &mut reporter,
+    )
+    .expect_err("conflicting cross-ecosystem kinds rejected");
+    let message = error.to_string();
+    assert!(message.contains("conflicting kinds"), "{message}");
+    assert!(message.contains("verify"), "{message}");
+}
