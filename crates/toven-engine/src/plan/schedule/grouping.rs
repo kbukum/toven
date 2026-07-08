@@ -3,11 +3,13 @@
 //!
 //! A `PerModule` task keys one unit per module. A `Batchable`/`WholeWorkspace`
 //! task collapses same-ecosystem-and-workspace modules into a shared **base** id
-//! ([`group_id`]); the scheduler then partitions each base by dependency layer
-//! ([`layered_group_ids`]) so a group only ever holds modules that share a layer
-//! and therefore cannot depend on one another. Two guards
-//! ([`ensure_distinct_ids`], [`ensure_condensed_acyclic`]) fail closed on any
-//! residual collision or cycle.
+//! ([`group_id`]). The scheduler then splits a base by dependency layer
+//! ([`layered_group_ids`]) **only** when that base participates in a cross-group
+//! cycle of the condensed base-group graph ([`cyclic_bases`]) — the facade
+//! back-dependency shape. A clean single-workspace batch (even one with an
+//! internal dependency chain) has no cross-group cycle, so it stays one collapsed
+//! unit. Two guards ([`ensure_distinct_ids`], [`ensure_condensed_acyclic`]) fail
+//! closed on any residual collision or cycle.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -27,8 +29,8 @@ fn unit_id(module: &ModuleKey, task: &str) -> String {
 
 /// The id of the unit a module belongs to: its own per-module id for a
 /// `PerModule` task, or a shared **base** group id for `Batchable`/`WholeWorkspace`
-/// tasks that the scheduler then partitions by dependency layer (see
-/// [`layered_group_ids`]).
+/// tasks that the scheduler splits by dependency layer only when the base is in a
+/// cross-group cycle (see [`layered_group_ids`]).
 ///
 /// A base group id is keyed by `member`, `ecosystem`, **and owning workspace**
 /// (`[member/]ecosystem@workspace#task`, or `[member/]ecosystem#task` for a
@@ -37,8 +39,9 @@ fn unit_id(module: &ModuleKey, task: &str) -> String {
 /// resolved toolchain identity are valid for every member it carries. When a group
 /// task override applies, its scope-qualified identity is folded into the key
 /// (`…~identity…`) so members carrying overrides from different declarations — or
-/// none — never collapse into one argv. The scheduler folds the module's
-/// dependency layer on top of this base to keep the condensed unit graph acyclic.
+/// none — never collapse into one argv. When the base participates in a cross-group
+/// cycle, the scheduler folds each module's dependency layer on top of this base to
+/// break it.
 fn group_id(
     key: &ModuleKey,
     module: &Module,
@@ -84,14 +87,18 @@ pub(super) fn group_id_map(
     Ok(ids)
 }
 
-/// Fold each module's dependency layer into its base group id, so a batch group
-/// only ever holds modules that share a layer (and therefore cannot depend on one
-/// another). A base scope that spans several layers — the facade back-dependency
-/// case, where a workspace's suite crate depends on another workspace that in turn
-/// depends on the workspace's base crates — is split one unit per layer, each
-/// tagged `~L{layer}`. A base confined to a single layer (the common case, and
-/// every `PerModule` id) is returned byte-for-byte unchanged, so ordinary plans
-/// render exactly as before.
+/// Fold each module's dependency layer into its base group id **only** for bases
+/// that participate in a cross-group cycle of the condensed base-group graph (the
+/// facade back-dependency case, where a workspace's suite crate depends on another
+/// workspace that in turn depends on the workspace's base crates). Such a base is
+/// split one unit per layer, each tagged `~L{layer}`, so the layer-homogeneous
+/// pieces order strictly low-to-high and break the cycle.
+///
+/// A base that is **not** in a cross-group cycle — including a clean single
+/// workspace whose modules form an internal dependency chain — is returned
+/// byte-for-byte unchanged and stays one collapsed unit, preserving the
+/// `cargo check -p a -p b …` batching. Every `PerModule` id is likewise
+/// unchanged.
 ///
 /// `WholeWorkspace` bases are **never** split: a whole-workspace task is one
 /// invocation covering the entire workspace, so its members stay collapsed into a
@@ -102,7 +109,10 @@ pub(super) fn layered_group_ids(
     base_ids: &BTreeMap<ModuleKey, String>,
     layer_of: &BTreeMap<ModuleKey, usize>,
     effective: &BTreeMap<ModuleKey, EffectiveTask>,
+    kept_deps: &BTreeMap<ModuleKey, Vec<ModuleKey>>,
 ) -> AppResult<BTreeMap<ModuleKey, String>> {
+    let cyclic = cyclic_bases(base_ids, kept_deps);
+
     let mut layers_per_base: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
     for (key, base) in base_ids {
         let layer = *layer_of
@@ -120,7 +130,8 @@ pub(super) fn layered_group_ids(
             .get(key)
             .ok_or_else(|| unlayered_module_error(key))?;
         let splittable = effective_for(key, effective)?.task.fan_out == FanOut::Batchable;
-        let multi_layer = splittable && layers_per_base[base.as_str()].len() > 1;
+        let multi_layer =
+            splittable && cyclic.contains(base) && layers_per_base[base.as_str()].len() > 1;
         ids.insert(key.clone(), layered_id(base, layer, multi_layer));
     }
     ensure_distinct_ids(base_ids, &ids)?;
@@ -133,6 +144,63 @@ fn unlayered_module_error(key: &ModuleKey) -> AppError {
         rskit_errors::ErrorCode::Internal,
         format!("module '{key}' has no dependency layer in the scheduled waves"),
     )
+}
+
+/// The base group ids that participate in a cross-group cycle of the condensed
+/// base-group graph. Kept edges are condensed onto distinct base ids (intra-group
+/// self-loops dropped); a base is cyclic iff it reaches itself in that self-loop-
+/// free graph — any such cycle spans at least two distinct bases. Only these bases
+/// are split by layer; a clean single-workspace batch (even one with an internal
+/// dependency chain) yields only self-loops and so stays one collapsed unit.
+fn cyclic_bases(
+    base_ids: &BTreeMap<ModuleKey, String>,
+    kept_deps: &BTreeMap<ModuleKey, Vec<ModuleKey>>,
+) -> BTreeSet<String> {
+    let mut adjacency: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for (from, deps) in kept_deps {
+        let Some(from_base) = base_ids.get(from) else {
+            continue;
+        };
+        for to in deps {
+            if let Some(to_base) = base_ids.get(to)
+                && from_base != to_base
+            {
+                adjacency
+                    .entry(from_base.as_str())
+                    .or_default()
+                    .insert(to_base.as_str());
+            }
+        }
+    }
+    adjacency
+        .keys()
+        .copied()
+        .filter(|base| reaches_self(base, &adjacency))
+        .map(str::to_string)
+        .collect()
+}
+
+/// Whether `start` reaches itself along one or more edges of the self-loop-free
+/// condensed graph — i.e. it lies on a cross-group cycle.
+fn reaches_self(start: &str, adjacency: &BTreeMap<&str, BTreeSet<&str>>) -> bool {
+    let mut stack: Vec<&str> = adjacency
+        .get(start)
+        .into_iter()
+        .flatten()
+        .copied()
+        .collect();
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    while let Some(node) = stack.pop() {
+        if node == start {
+            return true;
+        }
+        if seen.insert(node)
+            && let Some(next) = adjacency.get(node)
+        {
+            stack.extend(next.iter().copied());
+        }
+    }
+    false
 }
 
 /// A base group id, tagged with its layer only when the base spans several layers.

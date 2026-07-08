@@ -59,7 +59,7 @@ pub(in crate::plan) fn schedule(
     let workspaces = workspace_index(federation);
     let base_ids = group_id_map(&active_modules, &effective)?;
     let layer_of = layer_index(&waves);
-    let group_ids = layered_group_ids(&base_ids, &layer_of, &effective)?;
+    let group_ids = layered_group_ids(&base_ids, &layer_of, &effective, &kept_deps)?;
 
     let mut units = Vec::new();
     let mut group_members: BTreeMap<String, Vec<ModuleKey>> = BTreeMap::new();
@@ -80,10 +80,11 @@ pub(in crate::plan) fn schedule(
                 .entry(id.clone())
                 .or_default()
                 .push(reference.clone());
-            // A `Batchable`/`PerModule` group is layer-homogeneous, so its members
-            // all share one wave; a `WholeWorkspace` group cannot split and takes
-            // the latest wave any member occupies, after which its dependencies
-            // have all run. `ensure_condensed_acyclic` guards the result.
+            // A layer-split group (a cyclic base broken per layer) is layer-
+            // homogeneous and occupies one wave; a whole-workspace group and any
+            // un-split batch spanning layers take the latest wave any member
+            // occupies, after which their dependencies have all run.
+            // `ensure_condensed_acyclic` guards the result.
             group_wave
                 .entry(id.clone())
                 .and_modify(|w| *w = (*w).max(index))

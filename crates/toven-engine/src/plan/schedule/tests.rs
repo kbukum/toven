@@ -374,6 +374,57 @@ fn batchable_groups_members_and_keeps_distinct_ecosystems_apart() {
 }
 
 #[test]
+fn batchable_single_workspace_chain_stays_one_batched_unit() {
+    // A clean single Cargo workspace with an internal dependency chain
+    // (app → corelib → util) under a batchable task. The modules span three
+    // dependency layers, but they form no cross-group cycle — every edge is
+    // intra-group — so the base must stay a single `cargo check -p …` unit
+    // rather than fragmenting into one unit per layer.
+    let federation = Federation {
+        workspaces: vec![workspace("rust")],
+        modules: vec![
+            module("rust", "app", "rust"),
+            module("rust", "corelib", "rust"),
+            module("rust", "util", "rust"),
+        ],
+        edges: vec![
+            Edge::new(
+                mref("rust", "app"),
+                mref("rust", "corelib"),
+                DepKind::Normal,
+            ),
+            Edge::new(
+                mref("rust", "corelib"),
+                mref("rust", "util"),
+                DepKind::Normal,
+            ),
+        ],
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with("rust", RunStrategy::LeafToTop, FanOut::Batchable),
+    );
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+    let scheduled = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &GroupOverrides::default(),
+        &toolchains(&federation),
+    )
+    .unwrap();
+
+    assert_eq!(ids(&scheduled), vec!["rust@rust#test".to_string()]);
+    let unit = &scheduled.units[0];
+    assert_eq!(unit.members.len(), 3);
+    assert!(unit.depends_on.is_empty());
+    assert_eq!(scheduled.waves, vec![vec!["rust@rust#test".to_string()]]);
+}
+
+#[test]
 fn facade_back_dependency_splits_a_workspace_across_layers_into_a_dag() {
     // `rskit`-shaped facade back-dependency: the `core` workspace holds a base
     // crate and a suite/facade crate; a `contrib` module depends on core's base,

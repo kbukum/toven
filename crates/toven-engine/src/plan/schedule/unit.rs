@@ -24,7 +24,7 @@ pub(in crate::plan) struct PlannedUnit {
     /// Stable unit id (`ecosystem:name#task`, member-prefixed under a federation;
     /// batched/whole-workspace units drop the module name and key by workspace:
     /// `ecosystem@workspace#task`, or `ecosystem#task` when workspace-less). A
-    /// batch base that spans dependency layers is split per layer, each tagged
+    /// batch base in a cross-group cycle is split per layer, each tagged
     /// `~L{layer}`.
     pub(in crate::plan) id: String,
     /// Representative module the unit operates on.
@@ -62,11 +62,11 @@ pub(in crate::plan) struct PlannedUnit {
 /// Render a group of modules collapsed into one [`PlannedUnit`].
 ///
 /// `members` is the set of modules sharing the group `id` in first-seen wave order
-/// (a single module for `PerModule`, all same-ecosystem-and-workspace-and-layer
-/// modules for `Batchable`/`WholeWorkspace`). Because a group is layer-homogeneous,
-/// it occupies exactly one wave. Argv is rendered once from the representative
-/// member: `Batchable` repeats each member's selector fragment, `WholeWorkspace`
-/// omits the selector.
+/// (a single module for `PerModule`, all same-ecosystem-and-workspace modules for
+/// `Batchable`/`WholeWorkspace`, further split by layer only when the base is in a
+/// cross-group cycle). Argv is rendered once from the representative member:
+/// `Batchable` repeats each member's selector fragment, `WholeWorkspace` omits the
+/// selector.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn plan_unit(
     request: &PlanRequest,
