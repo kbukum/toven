@@ -1,0 +1,800 @@
+//! Behavioral tests for the schedule phase: ordering, task resolution,
+//! batch grouping with dependency-layer folding, and unit rendering.
+
+use std::collections::BTreeMap;
+
+use toven_model::{
+    AbsPath, DepKind, EcosystemId, Edge, Module, ModuleRef, RepoPath, ToolchainTag, Workspace,
+    WorkspaceId,
+};
+use toven_ports::{
+    ConfiguredAdapter, DiscoverResponse, FanOut, RunStrategy, Task, TaskIntent, TaskKind,
+    TaskOrigin,
+};
+use toven_testkit::FakeConfiguredAdapter;
+
+use super::super::configure::{ConfiguredSet, MemberAdapters};
+use super::super::overrides::GroupOverrides;
+use super::entry::{Scheduled, schedule};
+use super::task::unknown_task_error;
+use crate::plan::discover::Federation;
+use crate::plan::request::PlanRequest;
+
+#[test]
+fn unknown_task_error_suggests_the_nearest_name_and_discovery_hint() {
+    let available = vec![
+        Task::new(
+            "format",
+            vec!["cargo".into(), "fmt".into()],
+            FanOut::WholeWorkspace,
+        ),
+        Task::new(
+            "test",
+            vec!["cargo".into(), "test".into()],
+            FanOut::Batchable,
+        ),
+    ];
+    let error = unknown_task_error("rust", &TaskIntent::resolve("fmt"), &available);
+    let message = error.to_string();
+    assert!(message.contains("has no 'fmt' task"), "{message}");
+    assert!(message.contains("Did you mean 'format'?"), "{message}");
+    assert!(message.contains("toven tasks"), "{message}");
+}
+
+#[test]
+fn unknown_task_error_omits_a_suggestion_for_a_far_off_name() {
+    let available = vec![Task::new(
+        "test",
+        vec!["cargo".into(), "test".into()],
+        FanOut::Batchable,
+    )];
+    let error = unknown_task_error("rust", &TaskIntent::resolve("zzzzzz"), &available);
+    let message = error.to_string();
+    assert!(!message.contains("Did you mean"), "{message}");
+    assert!(message.contains("toven tasks"), "{message}");
+}
+
+fn eid(id: &str) -> EcosystemId {
+    EcosystemId::new(id).unwrap()
+}
+
+fn mref(ecosystem: &str, name: &str) -> ModuleRef {
+    ModuleRef::new(eid(ecosystem), name).unwrap()
+}
+
+fn module(ecosystem: &str, name: &str, workspace: &str) -> Module {
+    let mut module = Module::new(mref(ecosystem, name), RepoPath::new(name).unwrap());
+    module.workspace = Some(WorkspaceId::new(workspace).unwrap());
+    module
+}
+
+fn workspace(id: &str) -> Workspace {
+    Workspace::new(
+        WorkspaceId::new(id).unwrap(),
+        RepoPath::new(".").unwrap(),
+        ToolchainTag::new("cargo"),
+    )
+}
+
+fn adapter(ecosystem: &str, strategy: RunStrategy) -> Box<dyn ConfiguredAdapter> {
+    adapter_with(ecosystem, strategy, FanOut::PerModule)
+}
+
+fn adapter_with(
+    ecosystem: &str,
+    strategy: RunStrategy,
+    fan_out: FanOut,
+) -> Box<dyn ConfiguredAdapter> {
+    let task = Task::new("test", vec!["x".to_string()], fan_out);
+    Box::new(
+        FakeConfiguredAdapter::new(eid(ecosystem))
+            .with_response(DiscoverResponse::new(eid(ecosystem)))
+            .with_tasks(vec![task])
+            .with_run_strategy(strategy),
+    )
+}
+
+fn request() -> PlanRequest {
+    request_for(TaskIntent::resolve("test"))
+}
+
+fn request_for(intent: TaskIntent) -> PlanRequest {
+    PlanRequest::new("r", "t", intent, AbsPath::new("/repo").unwrap())
+}
+
+/// An adapter exposing both a plain `test` task and a `test-integration`
+/// named extra (`kind = "test"`) with distinct argv, so a test can prove
+/// each resolves by its own user-addressable name.
+fn named_extra_adapter(ecosystem: &str) -> Box<dyn ConfiguredAdapter> {
+    let plain = Task::new(
+        "test",
+        vec!["plain".to_string(), "test".to_string()],
+        FanOut::PerModule,
+    );
+    let extra = Task::new(
+        "test-integration",
+        vec!["integration".to_string(), "test".to_string()],
+        FanOut::PerModule,
+    )
+    .with_kind(TaskKind::Test);
+    Box::new(
+        FakeConfiguredAdapter::new(eid(ecosystem))
+            .with_response(DiscoverResponse::new(eid(ecosystem)))
+            .with_tasks(vec![plain, extra])
+            .with_run_strategy(RunStrategy::Unordered),
+    )
+}
+
+fn toolchains(federation: &Federation) -> BTreeMap<WorkspaceId, ToolchainTag> {
+    federation
+        .workspaces
+        .iter()
+        .map(|workspace| {
+            (
+                workspace.id.clone(),
+                workspace.toolchain.clone().with_version("v1"),
+            )
+        })
+        .collect()
+}
+
+fn single_member(set: ConfiguredSet) -> MemberAdapters {
+    let mut adapters = MemberAdapters::default();
+    adapters.insert(None, set);
+    adapters
+}
+
+fn waves_for(federation: &Federation, adapters: &MemberAdapters) -> Vec<Vec<String>> {
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+    schedule(
+        &request(),
+        federation,
+        &active,
+        adapters,
+        &GroupOverrides::default(),
+        &toolchains(federation),
+    )
+    .unwrap()
+    .waves
+}
+
+/// The sorted unit ids of a scheduled result.
+fn ids(scheduled: &Scheduled) -> Vec<String> {
+    let mut ids: Vec<String> = scheduled.units.iter().map(|unit| unit.id.clone()).collect();
+    ids.sort_unstable();
+    ids
+}
+
+#[test]
+fn workspace_module_without_resolved_toolchain_is_rejected() {
+    let federation = Federation {
+        workspaces: vec![workspace("rust")],
+        modules: vec![module("rust", "app", "rust")],
+        edges: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(eid("rust"), adapter("rust", RunStrategy::Unordered));
+    let adapters = single_member(adapters);
+
+    let active = vec![toven_model::ModuleKey::bare(mref("rust", "app"))];
+    // Empty toolchain map: the workspace-owning module has no resolved
+    // identity, which must fail closed rather than key against an empty one.
+    let result = schedule(
+        &request(),
+        &federation,
+        &active,
+        &adapters,
+        &GroupOverrides::default(),
+        &BTreeMap::new(),
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+fn leaf_to_top_orders_dependencies_before_dependents() {
+    let federation = Federation {
+        workspaces: vec![workspace("rust")],
+        modules: vec![
+            module("rust", "app", "rust"),
+            module("rust", "errors", "rust"),
+        ],
+        edges: vec![Edge::new(
+            mref("rust", "app"),
+            mref("rust", "errors"),
+            DepKind::Normal,
+        )],
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(eid("rust"), adapter("rust", RunStrategy::LeafToTop));
+
+    assert_eq!(
+        waves_for(&federation, &single_member(adapters)),
+        vec![
+            vec!["rust:errors#test".to_string()],
+            vec!["rust:app#test".to_string()],
+        ]
+    );
+}
+
+#[test]
+fn unordered_collapses_intra_ecosystem_edges_into_one_wave() {
+    let federation = Federation {
+        workspaces: vec![workspace("rust")],
+        modules: vec![
+            module("rust", "app", "rust"),
+            module("rust", "errors", "rust"),
+        ],
+        edges: vec![Edge::new(
+            mref("rust", "app"),
+            mref("rust", "errors"),
+            DepKind::Normal,
+        )],
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(eid("rust"), adapter("rust", RunStrategy::Unordered));
+
+    assert_eq!(
+        waves_for(&federation, &single_member(adapters)),
+        vec![vec![
+            "rust:app#test".to_string(),
+            "rust:errors#test".to_string()
+        ]]
+    );
+}
+
+#[test]
+fn overlay_edges_are_never_dropped_even_under_unordered() {
+    let federation = Federation {
+        workspaces: vec![workspace("go"), workspace("rust")],
+        modules: vec![module("go", "api", "go"), module("rust", "shared", "rust")],
+        edges: vec![Edge::new(
+            mref("go", "api"),
+            mref("rust", "shared"),
+            DepKind::Overlay,
+        )],
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(eid("go"), adapter("go", RunStrategy::Unordered));
+    adapters.insert(eid("rust"), adapter("rust", RunStrategy::Unordered));
+
+    // The overlay still orders shared before api despite both being unordered.
+    assert_eq!(
+        waves_for(&federation, &single_member(adapters)),
+        vec![
+            vec!["rust:shared#test".to_string()],
+            vec!["go:api#test".to_string()],
+        ]
+    );
+}
+
+#[test]
+fn whole_workspace_collapses_modules_into_one_unit() {
+    let federation = Federation {
+        workspaces: vec![workspace("rust")],
+        modules: vec![
+            module("rust", "app", "rust"),
+            module("rust", "errors", "rust"),
+        ],
+        edges: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with("rust", RunStrategy::Unordered, FanOut::WholeWorkspace),
+    );
+    assert_eq!(
+        waves_for(&federation, &single_member(adapters)),
+        vec![vec!["rust@rust#test".to_string()]]
+    );
+}
+
+#[test]
+fn batchable_splits_distinct_workspaces_in_one_ecosystem() {
+    // Two Cargo workspaces under the same ecosystem must not collapse into one
+    // batched unit: each unit's {workspace.root}/toolchain comes from its
+    // representative, so a cross-workspace collapse would mis-render the others.
+    let federation = Federation {
+        workspaces: vec![workspace("core"), workspace("contrib")],
+        modules: vec![
+            module("rust", "errors", "core"),
+            module("rust", "plugin", "contrib"),
+        ],
+        edges: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with("rust", RunStrategy::Unordered, FanOut::Batchable),
+    );
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+    let scheduled = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &GroupOverrides::default(),
+        &toolchains(&federation),
+    )
+    .unwrap();
+    assert_eq!(scheduled.units.len(), 2);
+    let mut ids: Vec<&str> = scheduled
+        .units
+        .iter()
+        .map(|unit| unit.id.as_str())
+        .collect();
+    ids.sort_unstable();
+    assert_eq!(ids, vec!["rust@contrib#test", "rust@core#test"]);
+    assert!(scheduled.units.iter().all(|unit| unit.members.len() == 1));
+}
+
+#[test]
+fn batchable_groups_members_and_keeps_distinct_ecosystems_apart() {
+    let federation = Federation {
+        workspaces: vec![workspace("go"), workspace("rust")],
+        modules: vec![
+            module("rust", "app", "rust"),
+            module("rust", "errors", "rust"),
+            module("go", "api", "go"),
+        ],
+        edges: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with("rust", RunStrategy::Unordered, FanOut::Batchable),
+    );
+    adapters.insert(
+        eid("go"),
+        adapter_with("go", RunStrategy::Unordered, FanOut::Batchable),
+    );
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+    let scheduled = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &GroupOverrides::default(),
+        &toolchains(&federation),
+    )
+    .unwrap();
+    assert_eq!(scheduled.units.len(), 2);
+    let rust = scheduled
+        .units
+        .iter()
+        .find(|unit| unit.id == "rust@rust#test")
+        .unwrap();
+    assert_eq!(rust.members.len(), 2);
+}
+
+#[test]
+fn facade_back_dependency_splits_a_workspace_across_layers_into_a_dag() {
+    // `rskit`-shaped facade back-dependency: the `core` workspace holds a base
+    // crate and a suite/facade crate; a `contrib` module depends on core's base,
+    // while core's suite depends back on that contrib module. Per-workspace-only
+    // batching would collapse core into one super-node and make the core⇄contrib
+    // unit graph cyclic. Layer-aware grouping splits core across its two layers,
+    // yielding an acyclic DAG: base → contrib → suite. An independent `examples`
+    // module shares base's leading wave.
+    let federation = Federation {
+        workspaces: vec![
+            workspace("core"),
+            workspace("contrib"),
+            workspace("examples"),
+        ],
+        modules: vec![
+            module("rust", "base", "core"),
+            module("rust", "suite", "core"),
+            module("rust", "plugin", "contrib"),
+            module("rust", "sample", "examples"),
+        ],
+        edges: vec![
+            Edge::new(
+                mref("rust", "plugin"),
+                mref("rust", "base"),
+                DepKind::Normal,
+            ),
+            Edge::new(
+                mref("rust", "suite"),
+                mref("rust", "plugin"),
+                DepKind::Normal,
+            ),
+        ],
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with("rust", RunStrategy::LeafToTop, FanOut::Batchable),
+    );
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+    let scheduled = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &GroupOverrides::default(),
+        &toolchains(&federation),
+    )
+    .unwrap();
+
+    let unit = |id: &str| {
+        scheduled
+            .units
+            .iter()
+            .find(|unit| unit.id == id)
+            .unwrap_or_else(|| panic!("missing unit '{id}': {:?}", ids(&scheduled)))
+    };
+
+    // core is split into a base layer (L0) and a suite layer (L2); contrib and
+    // the independent examples workspace stay single-layer.
+    assert_eq!(
+        ids(&scheduled),
+        vec![
+            "rust@contrib#test".to_string(),
+            "rust@core~L0#test".to_string(),
+            "rust@core~L2#test".to_string(),
+            "rust@examples#test".to_string(),
+        ]
+    );
+
+    // Acyclic depends_on: base has none, contrib gates on base, suite gates on
+    // contrib — and nothing gates back onto suite (no core⇄contrib cycle).
+    assert!(unit("rust@core~L0#test").depends_on.is_empty());
+    assert_eq!(
+        unit("rust@contrib#test").depends_on,
+        vec!["rust@core~L0#test".to_string()]
+    );
+    assert_eq!(
+        unit("rust@core~L2#test").depends_on,
+        vec!["rust@contrib#test".to_string()]
+    );
+
+    // Three waves, base layer first; the independent examples workspace shares
+    // that leading wave.
+    assert_eq!(scheduled.waves.len(), 3);
+    let mut first = scheduled.waves[0].clone();
+    first.sort_unstable();
+    assert_eq!(
+        first,
+        vec![
+            "rust@core~L0#test".to_string(),
+            "rust@examples#test".to_string(),
+        ]
+    );
+    assert_eq!(scheduled.waves[1], vec!["rust@contrib#test".to_string()]);
+    assert_eq!(scheduled.waves[2], vec!["rust@core~L2#test".to_string()]);
+}
+
+#[test]
+fn whole_workspace_facade_cycle_is_an_irreducible_typed_error() {
+    // The same facade back-dependency shape under `WholeWorkspace` fan-out: `core`
+    // collapses into one indivisible unit covering both `base` and `suite`. With
+    // `suite` → `plugin` → `base`, the core and contrib units mutually depend, a
+    // cycle no layer split can break (a whole-workspace invocation cannot run half
+    // a workspace). The acyclicity guard must surface a typed internal error rather
+    // than silently serialize or mutually block.
+    let federation = Federation {
+        workspaces: vec![workspace("core"), workspace("contrib")],
+        modules: vec![
+            module("rust", "base", "core"),
+            module("rust", "suite", "core"),
+            module("rust", "plugin", "contrib"),
+        ],
+        edges: vec![
+            Edge::new(
+                mref("rust", "plugin"),
+                mref("rust", "base"),
+                DepKind::Normal,
+            ),
+            Edge::new(
+                mref("rust", "suite"),
+                mref("rust", "plugin"),
+                DepKind::Normal,
+            ),
+        ],
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with("rust", RunStrategy::LeafToTop, FanOut::WholeWorkspace),
+    );
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+    let error = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &GroupOverrides::default(),
+        &toolchains(&federation),
+    )
+    .expect_err("an irreducible whole-workspace cycle must fail");
+    assert!(
+        error.to_string().contains("cyclic after layering"),
+        "{error}"
+    );
+}
+
+#[test]
+fn named_extra_task_is_selected_by_its_addressable_name() {
+    // A named extra (`test-integration`, kind = "test") is advertised by
+    // discovery and suggestions; selection must resolve the user token to it
+    // by its addressable name — the plain `test` token must still resolve the
+    // unnamed Test task independently, with no collision either way.
+    let federation = Federation {
+        workspaces: vec![workspace("rust")],
+        modules: vec![module("rust", "app", "rust")],
+        edges: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(eid("rust"), named_extra_adapter("rust"));
+    let adapters = single_member(adapters);
+    let active = vec![toven_model::ModuleKey::bare(mref("rust", "app"))];
+    let toolchains = toolchains(&federation);
+
+    // The user token `test-integration` resolves the named extra's argv.
+    let extra = schedule(
+        &request_for(TaskIntent::resolve("test-integration")),
+        &federation,
+        &active,
+        &adapters,
+        &GroupOverrides::default(),
+        &toolchains,
+    )
+    .expect("named extra schedules");
+    assert_eq!(extra.units.len(), 1);
+    assert_eq!(extra.units[0].argv, ["integration", "test"]);
+
+    // The plain `test` token still resolves the unnamed Test task.
+    let plain = schedule(
+        &request_for(TaskIntent::resolve("test")),
+        &federation,
+        &active,
+        &adapters,
+        &GroupOverrides::default(),
+        &toolchains,
+    )
+    .expect("plain test schedules");
+    assert_eq!(plain.units.len(), 1);
+    assert_eq!(plain.units[0].argv, ["plain", "test"]);
+}
+
+#[test]
+fn group_override_applies_to_a_named_extra_by_its_addressable_name() {
+    // A `[groups.*].tasks.test-integration` override is keyed by the extra's
+    // addressable name; it must field-merge onto the resolved named extra.
+    let federation = Federation {
+        workspaces: vec![workspace("rust")],
+        modules: vec![module("rust", "app", "rust")],
+        edges: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(eid("rust"), named_extra_adapter("rust"));
+    let group = crate::config::GroupConfig {
+        tasks: BTreeMap::from([(
+            "test-integration".to_string(),
+            task_override(&["nextest", "run", "--test", "it"]),
+        )]),
+        ..crate::config::GroupConfig::default()
+    };
+    let overrides = group_overrides(
+        "integration",
+        &group,
+        &[toven_model::ModuleKey::bare(mref("rust", "app"))],
+    );
+    let active = vec![toven_model::ModuleKey::bare(mref("rust", "app"))];
+    let scheduled = schedule(
+        &request_for(TaskIntent::resolve("test-integration")),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &overrides,
+        &toolchains(&federation),
+    )
+    .expect("named extra with group override schedules");
+    assert_eq!(scheduled.units.len(), 1);
+    assert_eq!(scheduled.units[0].argv, ["nextest", "run", "--test", "it"]);
+    assert_eq!(scheduled.units[0].origin, TaskOrigin::Group);
+}
+
+fn task_override(argv: &[&str]) -> toven_ports::TaskOverride {
+    toven_ports::TaskOverride {
+        argv: Some(argv.iter().map(ToString::to_string).collect()),
+        ..toven_ports::TaskOverride::default()
+    }
+}
+
+fn group_overrides(
+    name: &str,
+    group: &crate::config::GroupConfig,
+    members: &[toven_model::ModuleKey],
+) -> GroupOverrides {
+    let mut overrides = GroupOverrides::default();
+    overrides
+        .record(name, group, &members.iter().cloned().collect())
+        .expect("group overrides record");
+    overrides
+}
+
+#[test]
+fn group_task_override_applies_to_members_only() {
+    let federation = Federation {
+        workspaces: vec![workspace("rust")],
+        modules: vec![
+            module("rust", "app", "rust"),
+            module("rust", "errors", "rust"),
+        ],
+        edges: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with("rust", RunStrategy::Unordered, FanOut::Batchable),
+    );
+    let group = crate::config::GroupConfig {
+        tasks: BTreeMap::from([("test".to_string(), task_override(&["nextest", "run"]))]),
+        ..crate::config::GroupConfig::default()
+    };
+    let overrides = group_overrides(
+        "integration",
+        &group,
+        &[toven_model::ModuleKey::bare(mref("rust", "app"))],
+    );
+
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+    let scheduled = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &overrides,
+        &toolchains(&federation),
+    )
+    .unwrap();
+
+    // The overridden member splits into its own group-tagged unit; the
+    // non-member keeps the ecosystem default in the plain batch unit.
+    let overridden = scheduled
+        .units
+        .iter()
+        .find(|unit| unit.id == "rust@rust~integration#test")
+        .expect("group-tagged unit present");
+    assert_eq!(overridden.argv, ["nextest", "run"]);
+    assert_eq!(overridden.members, [mref("rust", "app").into()]);
+    let default = scheduled
+        .units
+        .iter()
+        .find(|unit| unit.id == "rust@rust#test")
+        .expect("default unit present");
+    assert_eq!(default.argv, ["x"]);
+    assert_eq!(default.members, [mref("rust", "errors").into()]);
+}
+
+#[test]
+fn same_name_group_overrides_from_distinct_scopes_do_not_collapse() {
+    // Two modules in the same batch base, overridden by a member-local group
+    // and an umbrella group that share the plain name `integration` but carry
+    // different argv. Folding the plain name would collapse them into one
+    // `…~integration#test` unit and render argv from the representative only;
+    // the scope-qualified identity must keep them in distinct units.
+    let federation = Federation {
+        workspaces: vec![workspace("rust")],
+        modules: vec![
+            module("rust", "app", "rust"),
+            module("rust", "errors", "rust"),
+        ],
+        edges: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with("rust", RunStrategy::Unordered, FanOut::Batchable),
+    );
+
+    let mut overrides = GroupOverrides::default();
+    let local = crate::config::GroupConfig {
+        tasks: BTreeMap::from([("test".to_string(), task_override(&["local", "run"]))]),
+        ..crate::config::GroupConfig::default()
+    };
+    overrides
+        .record(
+            "member.billing.integration",
+            &local,
+            &std::iter::once(toven_model::ModuleKey::bare(mref("rust", "app"))).collect(),
+        )
+        .expect("member-local records");
+    let umbrella = crate::config::GroupConfig {
+        tasks: BTreeMap::from([("test".to_string(), task_override(&["umbrella", "run"]))]),
+        ..crate::config::GroupConfig::default()
+    };
+    overrides
+        .record(
+            "umbrella.integration",
+            &umbrella,
+            &std::iter::once(toven_model::ModuleKey::bare(mref("rust", "errors"))).collect(),
+        )
+        .expect("umbrella records");
+
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+    let scheduled = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &overrides,
+        &toolchains(&federation),
+    )
+    .unwrap();
+
+    let member_local = scheduled
+        .units
+        .iter()
+        .find(|unit| unit.id == "rust@rust~member.billing.integration#test")
+        .expect("member-local unit present");
+    assert_eq!(member_local.argv, ["local", "run"]);
+    assert_eq!(member_local.members, [mref("rust", "app").into()]);
+    let umbrella_unit = scheduled
+        .units
+        .iter()
+        .find(|unit| unit.id == "rust@rust~umbrella.integration#test")
+        .expect("umbrella unit present");
+    assert_eq!(umbrella_unit.argv, ["umbrella", "run"]);
+    assert_eq!(umbrella_unit.members, [mref("rust", "errors").into()]);
+}
+
+#[test]
+fn group_run_strategy_override_relaxes_members_only() {
+    let federation = Federation {
+        workspaces: vec![workspace("rust")],
+        modules: vec![
+            module("rust", "app", "rust"),
+            module("rust", "errors", "rust"),
+        ],
+        edges: vec![Edge::new(
+            mref("rust", "app"),
+            mref("rust", "errors"),
+            DepKind::Normal,
+        )],
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    // Adapter default is dependency-respecting, so without an override the
+    // edge orders `errors` before `app` across two waves.
+    adapters.insert(eid("rust"), adapter("rust", RunStrategy::LeafToTop));
+    let group = crate::config::GroupConfig {
+        run_strategy: Some(RunStrategy::Unordered),
+        ..crate::config::GroupConfig::default()
+    };
+    let overrides = group_overrides(
+        "flat",
+        &group,
+        &[toven_model::ModuleKey::bare(mref("rust", "app"))],
+    );
+
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+    let waves = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &overrides,
+        &toolchains(&federation),
+    )
+    .unwrap()
+    .waves;
+
+    // The dependent's `unordered` override drops its intra-ecosystem edge, so
+    // both modules collapse into a single wave.
+    assert_eq!(waves.len(), 1);
+}
