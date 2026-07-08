@@ -79,13 +79,19 @@ pub(super) fn plan_unit(
     kept_deps: &BTreeMap<ModuleKey, Vec<ModuleKey>>,
     group_ids: &BTreeMap<ModuleKey, String>,
 ) -> AppResult<PlannedUnit> {
-    let representative = active_modules.get(&members[0]).ok_or_else(|| {
+    let first = members.first().ok_or_else(|| {
         AppError::new(
             rskit_errors::ErrorCode::Internal,
-            format!("scheduled unknown module '{}'", members[0]),
+            format!("scheduled group '{id}' has no members"),
         )
     })?;
-    let task = &effective_for(&members[0], effective)?.task;
+    let representative = active_modules.get(first).ok_or_else(|| {
+        AppError::new(
+            rskit_errors::ErrorCode::Internal,
+            format!("scheduled unknown module '{first}'"),
+        )
+    })?;
+    let task = &effective_for(first, effective)?.task;
 
     let template = CommandTemplate::parse(&task.argv, &task.selector)?;
     let modules = member_modules(members, active_modules)?;
@@ -107,7 +113,7 @@ pub(super) fn plan_unit(
 
     Ok(PlannedUnit {
         id: id.to_string(),
-        module: members[0].clone(),
+        module: first.clone(),
         members: members.to_vec(),
         task: task_name,
         origin: task.origin,
