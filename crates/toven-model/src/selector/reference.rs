@@ -21,7 +21,8 @@ use super::pattern::NamePattern;
 /// # Grammar
 /// [`parse`](ModuleSelector::parse) applies one rule to a `--module` token:
 /// - a `/` splits on the **rightmost** `/` into `workspace/name` (workspace ids
-///   may themselves contain `:`, e.g. `rust:contrib/api`);
+///   are opaque non-empty strings that may themselves contain `:` or `/`, e.g.
+///   `rust:contrib/api` or `core/rust/api`, so only the final `/` bounds the name);
 /// - otherwise a `:` splits on the **first** `:` into `ecosystem:name`;
 /// - otherwise the whole token is a bare name.
 ///
