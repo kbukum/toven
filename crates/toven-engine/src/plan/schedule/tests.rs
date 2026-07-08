@@ -557,21 +557,21 @@ fn facade_back_dependency_splits_a_workspace_across_layers_into_a_dag() {
         ids(&scheduled),
         vec![
             "rust@contrib#test".to_string(),
-            "rust@core~L0#test".to_string(),
-            "rust@core~L2#test".to_string(),
+            "rust@core~~L0#test".to_string(),
+            "rust@core~~L2#test".to_string(),
             "rust@examples#test".to_string(),
         ]
     );
 
     // Acyclic depends_on: base has none, contrib gates on base, suite gates on
     // contrib — and nothing gates back onto suite (no core⇄contrib cycle).
-    assert!(unit("rust@core~L0#test").depends_on.is_empty());
+    assert!(unit("rust@core~~L0#test").depends_on.is_empty());
     assert_eq!(
         unit("rust@contrib#test").depends_on,
-        vec!["rust@core~L0#test".to_string()]
+        vec!["rust@core~~L0#test".to_string()]
     );
     assert_eq!(
-        unit("rust@core~L2#test").depends_on,
+        unit("rust@core~~L2#test").depends_on,
         vec!["rust@contrib#test".to_string()]
     );
 
@@ -583,12 +583,12 @@ fn facade_back_dependency_splits_a_workspace_across_layers_into_a_dag() {
     assert_eq!(
         first,
         vec![
-            "rust@core~L0#test".to_string(),
+            "rust@core~~L0#test".to_string(),
             "rust@examples#test".to_string(),
         ]
     );
     assert_eq!(scheduled.waves[1], vec!["rust@contrib#test".to_string()]);
-    assert_eq!(scheduled.waves[2], vec!["rust@core~L2#test".to_string()]);
+    assert_eq!(scheduled.waves[2], vec!["rust@core~~L2#test".to_string()]);
 }
 
 #[test]

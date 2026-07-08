@@ -25,7 +25,7 @@ pub(in crate::plan) struct PlannedUnit {
     /// batched/whole-workspace units drop the module name and key by workspace:
     /// `ecosystem@workspace#task`, or `ecosystem#task` when workspace-less). A
     /// batch base in a cross-group cycle is split per layer, each tagged
-    /// `~L{layer}`.
+    /// `~~L{layer}`.
     pub(in crate::plan) id: String,
     /// Representative module the unit operates on.
     pub(in crate::plan) module: ModuleKey,

@@ -1,0 +1,9 @@
+# Rejected: a group name may not contain the reserved `~` unit-id separator, which
+# Toven folds group override identities and dependency layers behind. Allowing it
+# would let a group named e.g. `~L0` shadow the scheduler's `~~L{layer}` marker.
+[project]
+name = "reserved-group-name"
+
+[groups."ws~L0"]
+ecosystem = "rust"
+modules = ["rust:app"]

@@ -128,24 +128,24 @@ mod tests {
         // `core ⇄ contrib` mutual blocking is gone.
         let plan = Plan::new(
             vec![
-                unit("rust@core~L0#check", &[]),
-                unit("rust@contrib#check", &["rust@core~L0#check"]),
-                unit("rust@core~L2#check", &["rust@contrib#check"]),
+                unit("rust@core~~L0#check", &[]),
+                unit("rust@contrib#check", &["rust@core~~L0#check"]),
+                unit("rust@core~~L2#check", &["rust@contrib#check"]),
             ],
             vec![
-                vec!["rust@core~L0#check".to_string()],
+                vec!["rust@core~~L0#check".to_string()],
                 vec!["rust@contrib#check".to_string()],
-                vec!["rust@core~L2#check".to_string()],
+                vec!["rust@core~~L2#check".to_string()],
             ],
         );
         let mut gate = Gate::new(&plan);
 
         let blocked = gate.fail_and_block_dependents("rust@contrib#check");
-        assert_eq!(blocked, vec!["rust@core~L2#check".to_string()]);
+        assert_eq!(blocked, vec!["rust@core~~L2#check".to_string()]);
         assert_eq!(gate.state("rust@contrib#check"), UnitState::Failed);
-        assert_eq!(gate.state("rust@core~L2#check"), UnitState::Blocked);
+        assert_eq!(gate.state("rust@core~~L2#check"), UnitState::Blocked);
         // The base layer is a dependency of contrib, never a dependent: it stays
         // pending, proving no mutual blocking survives the DAG.
-        assert_eq!(gate.state("rust@core~L0#check"), UnitState::Pending);
+        assert_eq!(gate.state("rust@core~~L0#check"), UnitState::Pending);
     }
 }

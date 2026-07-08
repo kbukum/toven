@@ -67,6 +67,7 @@ fn validate_settings(settings: &TovenConfig) -> AppResult<()> {
 
 fn validate_member(index: usize, member: &MemberConfig) -> AppResult<()> {
     validate_path_safe_identifier(&format!("members[{index}].name"), &member.name)?;
+    reject_unit_id_separator(&format!("members[{index}].name"), &member.name)?;
     validate_relative_root(&format!("members[{index}].root"), &member.root)?;
     if let Some(base_ref) = &member.base_ref {
         reject_unicode_controls(&format!("members[{index}].base_ref"), base_ref)?;
@@ -74,8 +75,28 @@ fn validate_member(index: usize, member: &MemberConfig) -> AppResult<()> {
     Ok(())
 }
 
+/// The reserved unit-id separator Toven folds group override identities and
+/// dependency layers behind (`base~identity`, `base~~L{layer}`). It must never
+/// appear in a user identifier that reaches a unit id, or a group/member name
+/// could shadow the scheduler's layer marker and trip the distinct-id guard on
+/// otherwise valid config.
+const UNIT_ID_SEPARATOR: char = '~';
+
+/// Reject the reserved [`UNIT_ID_SEPARATOR`] in a user identifier that is folded
+/// into a unit id (group and member names).
+fn reject_unit_id_separator(field: &str, value: &str) -> AppResult<()> {
+    if value.contains(UNIT_ID_SEPARATOR) {
+        return Err(AppError::invalid_input(
+            field,
+            format!("cannot contain the reserved '{UNIT_ID_SEPARATOR}' character"),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_group(name: &str, group: &GroupConfig, canonical: &CanonicalRegistry) -> AppResult<()> {
     validate_path_safe_identifier(&format!("groups.{name}"), name)?;
+    reject_unit_id_separator(&format!("groups.{name}"), name)?;
     if let Some(ecosystem) = &group.ecosystem {
         require_canonical(&format!("groups.{name}.ecosystem"), ecosystem, canonical)?;
     }

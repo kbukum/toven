@@ -67,3 +67,10 @@ fn malformed_overlay_ref_is_rejected() {
 fn malformed_group_ref_is_rejected() {
     assert_rejected("invalid/malformed-group-ref.toml", &["rust"]);
 }
+
+#[test]
+fn group_name_with_reserved_separator_is_rejected() {
+    // A `~` in a group name would shadow the scheduler's `~~L{layer}` unit-id
+    // marker, so it is rejected at the config boundary.
+    assert_rejected("invalid/group-name-reserved-separator.toml", &["rust"]);
+}

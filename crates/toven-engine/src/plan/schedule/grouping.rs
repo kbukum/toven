@@ -92,7 +92,7 @@ pub(super) fn group_id_map(
 /// that participate in a cross-group cycle of the condensed base-group graph (the
 /// facade back-dependency case, where a workspace's suite crate depends on another
 /// workspace that in turn depends on the workspace's base crates). Such a base is
-/// split one unit per layer, each tagged `~L{layer}`, so the layer-homogeneous
+/// split one unit per layer, each tagged `~~L{layer}`, so the layer-homogeneous
 /// pieces order strictly low-to-high and break the cycle.
 ///
 /// A base that is **not** in a cross-group cycle — including a clean single
@@ -216,15 +216,19 @@ fn reaches_self(start: &str, adjacency: &BTreeMap<&str, BTreeSet<&str>>) -> bool
 
 /// A base group id, tagged with its layer only when the base spans several layers.
 ///
-/// The tag is inserted before the `#task` suffix so the task name stays the final
-/// segment; a single-layer base is returned unchanged.
+/// The layer tag uses the reserved double-`~` marker (`~~L{layer}`) so it can
+/// never collide with a `~`-folded group override identity: `~` is rejected in
+/// group and member names at the config boundary, so no user identity contains
+/// `~`, and a `~~` sequence is therefore unique to this marker. The tag is
+/// inserted before the `#task` suffix so the task name stays the final segment; a
+/// single-layer base is returned unchanged.
 fn layered_id(base: &str, layer: usize, multi_layer: bool) -> String {
     if !multi_layer {
         return base.to_string();
     }
     base.rsplit_once('#').map_or_else(
-        || format!("{base}~L{layer}"),
-        |(prefix, task)| format!("{prefix}~L{layer}#{task}"),
+        || format!("{base}~~L{layer}"),
+        |(prefix, task)| format!("{prefix}~~L{layer}#{task}"),
     )
 }
 
