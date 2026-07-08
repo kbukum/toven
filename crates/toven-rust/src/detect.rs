@@ -11,7 +11,6 @@ use std::path::Path;
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir;
-use rskit_git::IgnoreReader;
 use rskit_git::cli::GitCli;
 use serde::{Deserialize, Serialize};
 use toml::Table;
