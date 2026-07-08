@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use rskit_errors::{AppError, AppResult};
 use toven_model::{ModuleKey, ToolchainTag, WorkspaceId};
 
-use super::grouping::{ensure_condensed_acyclic, group_id_map, layered_group_ids};
+use super::grouping::{group_id_map, layered_group_ids, level_units_into_waves};
 use super::ordering::{
     active_modules, active_subgraph, keep_edge, kept_dependencies, layer_index, strategies,
     workspace_index,
@@ -63,9 +63,8 @@ pub(in crate::plan) fn schedule(
 
     let mut units = Vec::new();
     let mut group_members: BTreeMap<String, Vec<ModuleKey>> = BTreeMap::new();
-    let mut group_wave: BTreeMap<String, usize> = BTreeMap::new();
-    let mut wave_order: Vec<String> = Vec::new();
-    for (index, wave) in waves.iter().enumerate() {
+    let mut group_order: Vec<String> = Vec::new();
+    for wave in &waves {
         for reference in wave {
             let id = group_ids.get(reference).ok_or_else(|| {
                 AppError::new(
@@ -74,30 +73,19 @@ pub(in crate::plan) fn schedule(
                 )
             })?;
             if !group_members.contains_key(id) {
-                wave_order.push(id.clone());
+                group_order.push(id.clone());
             }
             group_members
                 .entry(id.clone())
                 .or_default()
                 .push(reference.clone());
-            // A layer-split group (a cyclic base broken per layer) is layer-
-            // homogeneous and occupies one wave; a whole-workspace group and any
-            // un-split batch spanning layers take the latest wave any member
-            // occupies, after which their dependencies have all run.
-            // `ensure_condensed_acyclic` guards the result.
-            group_wave
-                .entry(id.clone())
-                .and_modify(|w| *w = (*w).max(index))
-                .or_insert(index);
         }
     }
-    let last_wave = group_wave.values().copied().max().map_or(0, |w| w + 1);
-    let mut wave_ids: Vec<Vec<String>> = vec![Vec::new(); last_wave];
-    for id in wave_order {
-        let members = &group_members[&id];
+    for id in &group_order {
+        let members = &group_members[id];
         let unit = plan_unit(
             request,
-            &id,
+            id,
             members,
             &active_modules,
             &effective,
@@ -106,12 +94,13 @@ pub(in crate::plan) fn schedule(
             &kept_deps,
             &group_ids,
         )?;
-        wave_ids[group_wave[&id]].push(unit.id.clone());
         units.push(unit);
     }
-    wave_ids.retain(|wave| !wave.is_empty());
 
-    ensure_condensed_acyclic(&units)?;
+    // Level waves from the condensed unit graph (`depends_on`), not from member
+    // module wave-indices: an un-split multi-layer batch is pulled to the wave
+    // after its latest dependency, so APPLY never runs a dependent before it.
+    let wave_ids = level_units_into_waves(&units)?;
 
     Ok(Scheduled {
         units,

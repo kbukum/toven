@@ -8,8 +8,9 @@
 //! cycle of the condensed base-group graph ([`cyclic_bases`]) — the facade
 //! back-dependency shape. A clean single-workspace batch (even one with an
 //! internal dependency chain) has no cross-group cycle, so it stays one collapsed
-//! unit. Two guards ([`ensure_distinct_ids`], [`ensure_condensed_acyclic`]) fail
-//! closed on any residual collision or cycle.
+//! unit. [`level_units_into_waves`] then levels the condensed unit graph into
+//! dependency-respecting waves, failing closed ([`ensure_distinct_ids`], and the
+//! leveler's own cycle check) on any residual collision or cycle.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -274,10 +275,19 @@ pub(super) fn group_dependencies(
     depends_on
 }
 
-/// Fail closed if the condensed unit graph still contains a cycle after layering,
-/// so a future regression surfaces a typed internal error instead of silently
+/// Level the condensed unit graph into dependency-respecting waves.
+///
+/// Each unit is placed exactly one wave after its latest `depends_on` dependency
+/// (longest-path leveling over the unit edges), so APPLY's strict wave-by-wave
+/// execution never submits a unit before a unit it gates on. Deriving waves from
+/// the collapsed **unit** graph — rather than from member module wave-indices —
+/// is what keeps an un-split multi-layer batch (pulled to a later wave than any
+/// single member's module layer) from inverting an external dependent.
+///
+/// Fails closed with a typed internal error if the graph still contains a cycle
+/// (e.g. an irreducible whole-workspace facade cycle), rather than silently
 /// serializing or mutually blocking distinct units.
-pub(super) fn ensure_condensed_acyclic(units: &[PlannedUnit]) -> AppResult<()> {
+pub(super) fn level_units_into_waves(units: &[PlannedUnit]) -> AppResult<Vec<Vec<String>>> {
     let mut indegree: BTreeMap<&str, usize> =
         units.iter().map(|unit| (unit.id.as_str(), 0)).collect();
     let mut dependents: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
@@ -290,6 +300,7 @@ pub(super) fn ensure_condensed_acyclic(units: &[PlannedUnit]) -> AppResult<()> {
                 .push(unit.id.as_str());
         }
     }
+    let mut level: BTreeMap<&str, usize> = units.iter().map(|unit| (unit.id.as_str(), 0)).collect();
     let mut ready: Vec<&str> = indegree
         .iter()
         .filter(|(_, degree)| **degree == 0)
@@ -298,7 +309,11 @@ pub(super) fn ensure_condensed_acyclic(units: &[PlannedUnit]) -> AppResult<()> {
     let mut resolved = 0usize;
     while let Some(id) = ready.pop() {
         resolved += 1;
+        let current = level.get(id).copied().unwrap_or(0);
         for dependent in dependents.get(id).map_or(&[][..], Vec::as_slice) {
+            level
+                .entry(dependent)
+                .and_modify(|lvl| *lvl = (*lvl).max(current + 1));
             if let Some(degree) = indegree.get_mut(dependent) {
                 *degree -= 1;
                 if *degree == 0 {
@@ -321,5 +336,11 @@ pub(super) fn ensure_condensed_acyclic(units: &[PlannedUnit]) -> AppResult<()> {
             ),
         ));
     }
-    Ok(())
+    let depth = level.values().copied().max().map_or(0, |lvl| lvl + 1);
+    let mut waves: Vec<Vec<String>> = vec![Vec::new(); depth];
+    for unit in units {
+        waves[level.get(unit.id.as_str()).copied().unwrap_or(0)].push(unit.id.clone());
+    }
+    waves.retain(|wave| !wave.is_empty());
+    Ok(waves)
 }

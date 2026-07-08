@@ -17,7 +17,8 @@
 //! - [`task`] — resolve each active module's effective [`Task`](toven_ports::Task)
 //!   for the intent (adapter default field-merged with any group override).
 //! - [`grouping`] — batch-group identity, the cross-group-cycle detection and the
-//!   dependency-layer fold that breaks such cycles, and the two acyclicity guards.
+//!   dependency-layer fold that breaks such cycles, plus leveling the condensed
+//!   unit graph into dependency-respecting waves.
 //! - [`unit`] — render one [`PlannedUnit`] (argv, cache-keying facts, gating edges).
 //! - [`entry`] — the [`schedule`] driver that assembles the waves of units.
 
