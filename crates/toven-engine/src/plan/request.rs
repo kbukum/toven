@@ -1,24 +1,7 @@
 //! The PLAN inputs: what to plan, where, against which change baseline.
 
-use toven_model::{AbsPath, ModuleRef, WorkspaceId};
+use toven_model::{AbsPath, ModuleSelector};
 use toven_ports::{BaselineSpec, TaskKind};
-
-/// A user-named target for [`Selection::Explicit`].
-///
-/// A [`Module`](ModuleSelector::Module) names one module identity
-/// (`ecosystem:name`); it activates every graph node with that identity (one node
-/// in a single repo, or every member exposing it under an umbrella). A
-/// [`Workspace`](ModuleSelector::Workspace) activates every module owned by a
-/// discovered workspace. Toven resolves these against the discovered graph and
-/// errors on a name that matches nothing — it never silently plans an empty run.
-#[derive(Debug, Clone, Eq, PartialEq)]
-#[non_exhaustive]
-pub enum ModuleSelector {
-    /// One module identity (`ecosystem:name`), member-unscoped.
-    Module(ModuleRef),
-    /// Every module owned by a discovered workspace.
-    Workspace(WorkspaceId),
-}
 
 /// How the active module set is selected before scheduling.
 ///
@@ -27,7 +10,8 @@ pub enum ModuleSelector {
 /// baselines resolved by the VCS reader set, falling back to the optional request
 /// spec for members without their own configured baseline;
 /// [`Selection::Explicit`] activates exactly the user-named modules/workspaces
-/// (`--module`/`--workspace`), optionally expanded to their reverse dependents.
+/// (`--module`/`--workspace`), optionally expanded to their reverse dependents
+/// (`--dependents`) and/or forward dependencies (`--dependencies`).
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Selection {
@@ -49,6 +33,8 @@ pub enum Selection {
         targets: Vec<ModuleSelector>,
         /// Whether to also activate the reverse-dependents closure of the targets.
         include_dependents: bool,
+        /// Whether to also activate the forward-dependencies closure of the targets.
+        include_dependencies: bool,
     },
 }
 

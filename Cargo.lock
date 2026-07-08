@@ -1943,6 +1943,7 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "rskit-errors",
  "rskit-fs",
+ "rskit-util",
  "rskit-validation",
  "serde",
  "serde_json",

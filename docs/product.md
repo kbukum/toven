@@ -17,7 +17,7 @@ toven init                                     # onboarding wizard writes toven.
 toven plan check --base origin/main --merge-base   # see what would run
 toven check                                    # run it
 toven test --nocapture                         # run with passthrough args
-toven explain rust:core test                   # see the exact planned argv
+toven explain test --module rust:core          # see the exact planned argv
 ```
 
 See the [getting started guide](getting-started.md) for a full walkthrough.
@@ -67,7 +67,7 @@ A `toven.toml` can describe one repository or an umbrella that federates several
 | `toven <task> --timeout <duration>` | Bound each unit's runtime. |
 | `toven plan <task>` | Show what would run (unit and wave counts). |
 | `toven affected <task>` | List affected modules for a baseline. |
-| `toven explain <module> <task>` | Show the planned unit(s): argv, dependencies, persistence. |
+| `toven explain <task>` | Show the planned unit(s): argv, dependencies, persistence (filter with `--module`). |
 | `toven modules` | List discovered modules. |
 | `toven graph` | Show the dependency graph. |
 | `toven cache stats` / `clean` / `path` | Inspect and manage the local cache. |

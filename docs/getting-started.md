@@ -81,10 +81,10 @@ toven test --watch
 
 ## 5. Inspect and manage cache
 
-Show the planned unit(s) — argv, dependencies, persistence — for one module and task:
+Show the planned unit(s) — argv, dependencies, persistence — for a task, optionally filtered to one module:
 
 ```bash
-toven explain rust:rskit-config check
+toven explain check --module rust:rskit-config
 ```
 
 Inspect and clean the cache:

@@ -9,12 +9,12 @@ Renders the execution plan without running anything:
 ```bash
 toven plan check
 toven plan check --base origin/main --merge-base
-toven plan check --module rust:core --with-dependents
+toven plan check --module rust:core --dependents
 ```
 
 Output is an event stream: a `plan: N units in M waves` line plus the run summary. Add `-v` for per-phase markers and a `cache <unit>: <verdict>` line per unit.
 
-With `--base`/`--merge-base` it plans directly affected modules plus dependents; with `--module`/`--workspace` it plans the named targets (the two are mutually exclusive). It does not print argv — use [`toven explain`](#toven-explain-module-task) — and takes no passthrough args.
+With `--base`/`--merge-base` it plans directly affected modules plus dependents; with `--module`/`--workspace` it plans the named targets (the two are mutually exclusive). It does not print argv — use [`toven explain`](#toven-explain-task) — and takes no passthrough args.
 
 ## `toven affected`
 
@@ -22,20 +22,21 @@ Lists the modules with a scheduled unit for a task:
 
 ```bash
 toven affected check --base origin/main --merge-base
-toven affected check --module rust:core --with-dependents
+toven affected check --module rust:core --dependents
 ```
 
 Output is a table of `ecosystem:module` refs: the changed modules plus dependents (with a baseline), or the explicitly selected targets (with `--module`/`--workspace`).
 
-## `toven explain <module> <task>`
+## `toven explain <task>`
 
-Shows the planned unit(s) for one module and task:
+Shows the planned unit(s) for a task, optionally filtered to a `--module`/`--workspace` selection:
 
 ```bash
-toven explain rust:rskit-config check
+toven explain check                        # every module's unit for the task
+toven explain check --module rust:core     # one module's unit(s)
 ```
 
-For each matching unit it prints a key/value block: `unit`, `module`, `task`, `argv`, `persistent`, and `depends_on`. The module argument is an `ecosystem:module` ref. `explain` plans every module and does not use `--base`/`--merge-base`.
+For each planned unit it prints a key/value block: `unit`, `representative`, `modules`, `task`, `origin`, `argv`, `persistent`, and `depends_on`. The `--module` value uses the shared selector grammar (bare name, `ecosystem:name`, `workspace/name`, or a glob); output stays the canonical `ecosystem:module` form. Omitting `--module` explains the whole active set for the task. `explain` does not use `--base`/`--merge-base`.
 
 ## `toven modules` (`list`, `ls`)
 

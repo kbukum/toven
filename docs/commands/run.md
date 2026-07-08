@@ -34,21 +34,24 @@ toven test -- --dry-run          # --dry-run goes to the command
 toven test integration --dry-run  # positional ends Toven's prefix; --dry-run goes to the command
 ```
 
-A misspelled Toven flag passes through to the command rather than erroring: `toven test --moduel rust:core` sends `--moduel rust:core` to your command. Use [`toven explain`](inspect.md#toven-explain-module-task) to see the exact argv Toven planned.
+A misspelled Toven flag passes through to the command rather than erroring: `toven test --moduel rust:core` sends `--moduel rust:core` to your command. Use [`toven explain`](inspect.md#toven-explain-task) to see the exact argv Toven planned.
 
 `toven run <task>` is a reserved subcommand, so its passthrough is collected only after an explicit `--`. Write `toven run test -- integration --nocapture`. Prefer the bare `toven test …` form for friction-free passthrough.
 
 ## Selecting which modules run
 
-By default a task plans every module, or — with a baseline — only changed modules and their dependents. Select the graph explicitly instead:
+By default a task plans every module, or — with a baseline — only changed modules and their dependents. Select the graph explicitly instead. A `--module` value is lenient: a bare name (`core`), an `ecosystem:name` ref (`rust:core`), a `workspace/name` ref (`backend/api`), or a glob (`rust:*`, `rskit-*`). A bare name that matches modules in more than one ecosystem is a typed ambiguity error listing the qualified candidates; a glob is an explicit set. Output always stays the canonical `ecosystem:module` form.
 
 ```bash
-toven test --module rust:core                    # only rust:core
-toven test --workspace rust                       # every module in the rust workspace
-toven test --module rust:core --with-dependents   # rust:core and everything that depends on it
+toven test --module core                          # the module named core (any ecosystem, if unambiguous)
+toven test --module rust:core                     # only rust:core
+toven test --module 'rust:*'                       # every rust module (glob)
+toven test --workspace rust                        # every module in the rust workspace
+toven test --module rust:core --dependents         # rust:core and everything that depends on it
+toven test --module rust:core --dependencies       # rust:core and everything it needs, in order
 ```
 
-`--module` and `--workspace` are repeatable and mutually exclusive with the baseline flags (`--base`/`--merge-base`). See [selecting a baseline](README.md#selecting-a-baseline).
+`--module` and `--workspace` are repeatable and mutually exclusive with the baseline flags (`--base`/`--merge-base`). `--dependents` and `--dependencies` are only valid alongside an explicit selection and may be combined. See [selecting a baseline](README.md#selecting-a-baseline).
 
 ## Watch mode
 
@@ -114,9 +117,10 @@ When human output goes to a real terminal, serially-run commands (serial or sing
 | `--timeout <duration>` | Bound each unit's runtime (`30s`, `5m`); overrun is reported as a timeout failure. |
 | `--base <ref>` | Diff against `<ref>` for changed selection (overrides `[project].base_ref`). |
 | `--merge-base` | Diff against `merge-base(<ref>, HEAD)`. |
-| `--module <ecosystem:name>` | Activate this module explicitly (repeatable). |
-| `--workspace <id>` | Activate every module owned by the workspace (repeatable). |
-| `--with-dependents` | With `--module`/`--workspace`, also activate the reverse-dependents closure. |
+| `--module <selector>` | Activate modules by selector — bare name, `ecosystem:name`, `workspace/name`, or glob (repeatable). |
+| `--workspace <selector>` | Activate every module owned by a workspace, by id or glob (repeatable). |
+| `--dependents` | With `--module`/`--workspace`, also activate the reverse-dependents closure. |
+| `--dependencies` | With `--module`/`--workspace`, also activate the forward-dependencies closure. |
 | `--watch` | Rerun the affected subgraph on every watched source change (Ctrl+C exits). |
 | `--watch-debounce-ms <n>` | Trailing-edge debounce window in ms for `--watch` (default 200). |
 | `--output human\|jsonl` | Select human or machine-readable run events. |

@@ -27,6 +27,8 @@ use crate::{
 pub struct Graph {
     modules: BTreeMap<ModuleKey, Module>,
     edges: Vec<Edge>,
+    /// Forward adjacency: `from` → its dependencies `(to, kind)`.
+    dependencies: BTreeMap<ModuleKey, Vec<(ModuleKey, DepKind)>>,
     /// Reverse adjacency: `to` → its dependents `(from, kind)`.
     dependents: BTreeMap<ModuleKey, Vec<(ModuleKey, DepKind)>>,
 }
@@ -48,6 +50,7 @@ impl Graph {
             }
         }
 
+        let mut dependencies: BTreeMap<ModuleKey, Vec<(ModuleKey, DepKind)>> = BTreeMap::new();
         let mut dependents: BTreeMap<ModuleKey, Vec<(ModuleKey, DepKind)>> = BTreeMap::new();
         for edge in &edges {
             for (role, reference) in [("from", &edge.from), ("to", &edge.to)] {
@@ -64,6 +67,10 @@ impl Graph {
                     format!("module '{}' cannot depend on itself", edge.from),
                 ));
             }
+            dependencies
+                .entry(edge.from.clone())
+                .or_default()
+                .push((edge.to.clone(), edge.kind));
             dependents
                 .entry(edge.to.clone())
                 .or_default()
@@ -73,6 +80,7 @@ impl Graph {
         let graph = Self {
             modules: indexed,
             edges,
+            dependencies,
             dependents,
         };
         graph.ensure_acyclic()?;
@@ -112,6 +120,10 @@ impl Graph {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.modules.is_empty()
+    }
+
+    pub(crate) fn dependencies_of(&self, key: &ModuleKey) -> &[(ModuleKey, DepKind)] {
+        self.dependencies.get(key).map_or(&[], Vec::as_slice)
     }
 
     pub(crate) fn dependents_of(&self, key: &ModuleKey) -> &[(ModuleKey, DepKind)] {

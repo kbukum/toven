@@ -207,9 +207,10 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
                 cli.is_plan_only(),
             )
         }
-        Command::Explain { module, task } => {
+        Command::Explain { task } => {
             let project = load(providers, cli, false)?;
-            commands::introspect::explain(providers, &project, module, intent_for(task))
+            let selection = global_selection(cli);
+            commands::introspect::explain(providers, &project, intent_for(task), &selection)
         }
         Command::Affected { task } => {
             let project = load(providers, cli, false)?;
@@ -299,6 +300,7 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
         modules,
         workspaces,
         with_dependents: cli.with_dependents || flags.with_dependents,
+        with_dependencies: cli.with_dependencies || flags.with_dependencies,
     };
 
     let watch = commands::run::WatchFlags {
@@ -369,6 +371,7 @@ fn global_selection(cli: &Cli) -> commands::selection::TaskSelection {
         modules: cli.module.clone(),
         workspaces: cli.workspace.clone(),
         with_dependents: cli.with_dependents,
+        with_dependencies: cli.with_dependencies,
     }
 }
 

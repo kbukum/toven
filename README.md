@@ -60,7 +60,7 @@ See [what Toven does](docs/product.md) for the full config surface, [architectur
 toven test --nocapture                 # run with passthrough args
 toven test --watch                     # rerun affected tests on every change
 toven affected test --base origin/main --merge-base
-toven explain rust:core test           # show the exact planned argv
+toven explain test --module rust:core  # show the exact planned argv
 toven modules                          # list discovered modules
 toven graph --format dot               # dependency graph as Graphviz
 toven cache stats                      # inspect the local cache
