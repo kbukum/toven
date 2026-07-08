@@ -11,6 +11,7 @@ use std::path::Path;
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir;
+use rskit_git::IgnoreReader;
 use rskit_git::cli::GitCli;
 use serde::{Deserialize, Serialize};
 use toml::Table;
@@ -137,18 +138,17 @@ fn ignore_checker(project_root: &Path) -> Option<GitCli> {
 /// Whether `manifest` is ignored by Git. With no checker (not a Git repo) every
 /// path is included; a genuine check-ignore failure inside a repo propagates.
 fn is_git_ignored(checker: Option<&GitCli>, manifest: &str) -> AppResult<bool> {
-    match checker {
-        Some(git) => git.is_ignored(manifest),
-        None => Ok(false),
-    }
+    checker.map_or(Ok(false), |git| git.is_ignored(manifest))
 }
 
 /// Whether any discovered workspace carries a `.config/nextest.toml`, marking the
 /// repository as configured for `cargo-nextest`.
 fn detect_nextest(project_root: &Path, manifests: &[String]) -> bool {
     manifests.iter().any(|manifest| {
-        let dir = Path::new(manifest).parent().unwrap_or(Path::new(""));
-        safe_join(project_root, &dir.join(NEXTEST_CONFIG)).is_ok_and(|path| path.is_file())
+        let dir = Path::new(manifest)
+            .parent()
+            .unwrap_or_else(|| Path::new(""));
+        safe_join(project_root, dir.join(NEXTEST_CONFIG)).is_ok_and(|path| path.is_file())
     })
 }
 
