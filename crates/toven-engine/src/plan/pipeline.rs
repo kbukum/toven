@@ -224,7 +224,7 @@ fn decide_cache(
             id: planned.id.clone(),
             module: planned.module.clone(),
             members: planned.members.clone(),
-            kind: planned.kind.clone(),
+            task: planned.task.clone(),
             origin: planned.origin,
             workspace: planned.workspace.clone(),
             argv: planned.argv.clone(),

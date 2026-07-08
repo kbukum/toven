@@ -242,7 +242,7 @@ mod tests {
             members: vec![ModuleKey::bare(
                 ModuleRef::new(EcosystemId::new("rust").unwrap(), "core").unwrap(),
             )],
-            kind: "build".to_string(),
+            task: "build".to_string(),
             origin: toven_model::TaskOrigin::AdapterDefault,
             workspace: None,
             argv: vec!["cargo".to_string(), "build".to_string()],

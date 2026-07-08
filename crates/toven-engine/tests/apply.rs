@@ -24,7 +24,7 @@ fn unit(id: &str) -> ExecutionUnit {
         id: id.to_string(),
         module: ModuleKey::bare(mref(id)),
         members: vec![ModuleKey::bare(mref(id))],
-        kind: "test".to_string(),
+        task: "test".to_string(),
         origin: toven_model::TaskOrigin::AdapterDefault,
         workspace: None,
         argv: vec!["fake".to_string(), id.to_string()],

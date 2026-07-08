@@ -167,7 +167,7 @@ pub(crate) fn explain(
                     .collect::<Vec<_>>()
                     .join(", "),
             )
-            .add("task", unit.kind.clone())
+            .add("task", unit.task.clone())
             .add("origin", unit.origin.as_str().to_string())
             .add("argv", format!("{:?}", unit.argv))
             .add("persistent", unit.persistent.to_string())
@@ -341,7 +341,7 @@ mod tests {
             id: "rust#test".to_string(),
             module: ModuleKey::bare(mref("app")),
             members: vec![ModuleKey::bare(mref("app")), ModuleKey::bare(mref("core"))],
-            kind: "test".to_string(),
+            task: "test".to_string(),
             origin: toven_model::TaskOrigin::AdapterDefault,
             workspace: None,
             argv: vec!["cargo".to_string(), "test".to_string()],

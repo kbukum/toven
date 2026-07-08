@@ -38,16 +38,16 @@ use super::request::PlanRequest;
 /// the Cache-decision phase folds into the content key.
 #[derive(Debug, Clone)]
 pub(super) struct PlannedUnit {
-    /// Stable unit id (`ecosystem:name#kind`, member-prefixed under a federation;
+    /// Stable unit id (`ecosystem:name#task`, member-prefixed under a federation;
     /// batched/whole-workspace units drop the module name and key by workspace:
-    /// `ecosystem@workspace#kind`, or `ecosystem#kind` when workspace-less).
+    /// `ecosystem@workspace#task`, or `ecosystem#task` when workspace-less).
     pub(super) id: String,
     /// Representative module the unit operates on.
     pub(super) module: ModuleKey,
     /// Every module collapsed into this unit (always non-empty, contains `module`).
     pub(super) members: Vec<ModuleKey>,
-    /// Task kind name.
-    pub(super) kind: String,
+    /// Name of the task this unit runs (its identity, the config table key).
+    pub(super) task: String,
     /// Provenance of the resolved task (which config layer won).
     pub(super) origin: TaskOrigin,
     /// Owning workspace (keys the toolchain identity).
@@ -160,18 +160,18 @@ pub(super) fn schedule(
     })
 }
 
-/// The unit id for `module` under `kind` (`ecosystem:name#kind`, member-prefixed
+/// The unit id for `module` under `task` (`ecosystem:name#task`, member-prefixed
 /// whenever the module belongs to a federation member via [`ModuleKey`]'s
 /// `Display`).
-fn unit_id(module: &ModuleKey, kind: &str) -> String {
-    format!("{module}#{kind}")
+fn unit_id(module: &ModuleKey, task: &str) -> String {
+    format!("{module}#{task}")
 }
 
 /// The id of the unit a module belongs to: its own per-module id for a
 /// `PerModule` task, or a shared group id for `Batchable`/`WholeWorkspace` tasks.
 ///
 /// A batch group id is keyed by `member`, `ecosystem`, **and owning workspace**
-/// (`[member/]ecosystem@workspace#kind`, or `[member/]ecosystem#kind` for a
+/// (`[member/]ecosystem@workspace#task`, or `[member/]ecosystem#task` for a
 /// workspace-less module). Keeping the workspace in the key guarantees a collapsed
 /// unit never spans workspaces, so the representative's `{workspace.root}` and
 /// resolved toolchain identity are valid for every member it carries. When a group
@@ -181,12 +181,12 @@ fn unit_id(module: &ModuleKey, kind: &str) -> String {
 fn group_id(
     key: &ModuleKey,
     module: &Module,
-    kind: &str,
+    task: &str,
     fan_out: FanOut,
     override_group: Option<&str>,
 ) -> String {
     if fan_out == FanOut::PerModule {
-        return unit_id(key, kind);
+        return unit_id(key, task);
     }
     let ecosystem = &key.module().ecosystem;
     let base = module
@@ -195,8 +195,8 @@ fn group_id(
         .map_or_else(|| ecosystem.to_string(), |ws| format!("{ecosystem}@{ws}"));
     let scope = override_group.map_or_else(|| base.clone(), |group| format!("{base}~{group}"));
     key.member().map_or_else(
-        || format!("{scope}#{kind}"),
-        |member| format!("{member}/{scope}#{kind}"),
+        || format!("{scope}#{task}"),
+        |member| format!("{member}/{scope}#{task}"),
     )
 }
 
@@ -477,7 +477,7 @@ fn plan_unit(
         id: id.to_string(),
         module: members[0].clone(),
         members: members.to_vec(),
-        kind: task_name,
+        task: task_name,
         origin: task.origin,
         workspace: representative.workspace.clone(),
         argv,
@@ -611,9 +611,9 @@ fn readiness(readiness: &Readiness) -> ExecutionReadiness {
 /// Select the config task a user token resolves to by its addressable name.
 ///
 /// A task's addressable identity is its name (the table key). `intent.name()` is
-/// the canonical token the user typed (alias-folded: `fmt` → `format`), so an
-/// exact name match resolves both a plain built-in (`test` → the `test` task) and
-/// a renamed/extra task (`my-test` → the `kind = "test"` entry) without collision.
+/// the exact token the user typed, so a direct name match resolves both a plain
+/// built-in (`test` → the `test` task) and a renamed/extra task (`my-test` → the
+/// `kind = "test"` entry) without collision.
 fn select_task(tasks: &[Task], intent: &TaskIntent) -> Option<Task> {
     let wanted = intent.name();
     tasks

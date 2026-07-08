@@ -90,8 +90,9 @@ pub struct ExecutionUnit {
     /// into the single invocation. Always non-empty and contains `module`.
     #[serde(default)]
     pub members: Vec<ModuleKey>,
-    /// Task kind (e.g. `build`, `test`, `fmt`).
-    pub kind: String,
+    /// Name of the task this unit runs — its identity (the config table key,
+    /// e.g. `build`, `test`, `my-test`), not its recognized kind.
+    pub task: String,
     /// Provenance of the task this unit runs (which config layer won).
     #[serde(default)]
     pub origin: TaskOrigin,
@@ -174,7 +175,7 @@ mod tests {
             members: vec![ModuleKey::bare(
                 ModuleRef::new(EcosystemId::new("rust").unwrap(), "errors").unwrap(),
             )],
-            kind: "build".to_string(),
+            task: "build".to_string(),
             origin: super::TaskOrigin::Group,
             workspace: None,
             argv: vec!["cargo".to_string(), "build".to_string()],

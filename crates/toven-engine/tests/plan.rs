@@ -201,7 +201,7 @@ fn plans_full_federation_into_leaf_first_waves() {
     assert_eq!(app.members.len(), 2);
     assert_eq!(app.argv, vec!["cargo".to_string(), "test".to_string()]);
     assert_eq!(app.workspace, Some(wsid("rust")));
-    assert_eq!(app.kind, "test");
+    assert_eq!(app.task, "test");
 
     // One probe for the single active workspace; every unit a miss under NullCache.
     assert_eq!(prober.calls(), 1);
