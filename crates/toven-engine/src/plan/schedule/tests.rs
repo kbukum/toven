@@ -425,6 +425,74 @@ fn batchable_single_workspace_chain_stays_one_batched_unit() {
 }
 
 #[test]
+fn external_dependent_waves_after_an_unsplit_multi_layer_batch() {
+    // An un-split multi-layer batch (`rust` workspace `core0 ← core1`, one batched
+    // unit spanning layers 0 and 1) that an external unit depends on. `go:api`
+    // overlays onto `core0`, the batch's *leading* layer, so at the module level
+    // `api` shares `core1`'s wave. Deriving unit waves from the collapsed unit
+    // graph — not member module wave-indices — must still place the whole batch
+    // before `api`, since `api` gates on the single unit that builds `core0`.
+    let federation = Federation {
+        workspaces: vec![workspace("rust"), workspace("go")],
+        modules: vec![
+            module("rust", "core0", "rust"),
+            module("rust", "core1", "rust"),
+            module("go", "api", "go"),
+        ],
+        edges: vec![
+            Edge::new(
+                mref("rust", "core1"),
+                mref("rust", "core0"),
+                DepKind::Normal,
+            ),
+            Edge::new(mref("go", "api"), mref("rust", "core0"), DepKind::Overlay),
+        ],
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with("rust", RunStrategy::LeafToTop, FanOut::Batchable),
+    );
+    adapters.insert(
+        eid("go"),
+        adapter_with("go", RunStrategy::Unordered, FanOut::Batchable),
+    );
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+    let scheduled = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &GroupOverrides::default(),
+        &toolchains(&federation),
+    )
+    .unwrap();
+
+    // The rust batch stays one unit (no cross-group cycle) spanning both layers;
+    // `api` gates on it and lands strictly after — no inversion.
+    let rust = scheduled
+        .units
+        .iter()
+        .find(|unit| unit.id == "rust@rust#test")
+        .unwrap();
+    assert_eq!(rust.members.len(), 2);
+    let api = scheduled
+        .units
+        .iter()
+        .find(|unit| unit.id == "go@go#test")
+        .unwrap();
+    assert_eq!(api.depends_on, vec!["rust@rust#test".to_string()]);
+    assert_eq!(
+        scheduled.waves,
+        vec![
+            vec!["rust@rust#test".to_string()],
+            vec!["go@go#test".to_string()],
+        ]
+    );
+}
+
+#[test]
 fn facade_back_dependency_splits_a_workspace_across_layers_into_a_dag() {
     // `rskit`-shaped facade back-dependency: the `core` workspace holds a base
     // crate and a suite/facade crate; a `contrib` module depends on core's base,
