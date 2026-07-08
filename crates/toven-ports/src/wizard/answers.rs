@@ -73,6 +73,17 @@ impl Answers {
         }
     }
 
+    /// The chosen [`ChoiceId`]s for a
+    /// [`MultiSelect`](super::QuestionKind::MultiSelect) answer at `id`, if
+    /// present and of the matching kind.
+    #[must_use]
+    pub fn multi_choice(&self, id: &QuestionId) -> Option<&[ChoiceId]> {
+        match self.map.get(id) {
+            Some(Answer::MultiChoice(choices)) => Some(choices),
+            _ => None,
+        }
+    }
+
     /// The text of a [`Text`](super::QuestionKind::Text) answer at `id`, if
     /// present and of the matching kind.
     #[must_use]
@@ -121,6 +132,20 @@ mod tests {
         // Wrong-kind lookups yield None rather than a panic.
         assert!(answers.text(&"runner".into()).is_none());
         assert!(answers.choice(&"publish".into()).is_none());
+    }
+
+    #[test]
+    fn multi_choice_matches_only_its_kind() {
+        let answers = Answers::new().with(
+            "manifests",
+            Answer::MultiChoice(vec![ChoiceId::new("core/Cargo.toml")]),
+        );
+        assert_eq!(
+            answers.multi_choice(&"manifests".into()),
+            Some([ChoiceId::new("core/Cargo.toml")].as_slice())
+        );
+        assert!(answers.multi_choice(&"missing".into()).is_none());
+        assert!(answers.choice(&"manifests".into()).is_none());
     }
 
     #[test]

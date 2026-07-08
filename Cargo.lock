@@ -1990,6 +1990,7 @@ dependencies = [
  "rskit-config",
  "rskit-errors",
  "rskit-fs",
+ "rskit-git",
  "rskit-process",
  "rskit-version",
  "serde",

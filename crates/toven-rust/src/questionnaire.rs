@@ -15,9 +15,16 @@ pub(crate) const RUNNER_NEXTEST: &str = "nextest";
 /// The choice id for the built-in `cargo test` runner.
 pub(crate) const RUNNER_CARGO_TEST: &str = "cargo-test";
 
-/// Build the Rust questionnaire from a [`Detection`], preselecting the runner
-/// the probe recommends: `cargo-nextest` when a `.config/nextest.toml` was
-/// detected, else the built-in `cargo test`.
+/// The question id for the discovered-manifests confirmation.
+pub(crate) const MANIFESTS: &str = "manifests";
+
+/// Build the Rust questionnaire from a [`Detection`].
+///
+/// The test-runner question preselects the runner the probe recommends
+/// (`cargo-nextest` when a `.config/nextest.toml` was detected, else the built-in
+/// `cargo test`). When the probe discovered more than one Cargo workspace, a
+/// multi-select confirms which discovered manifests Toven should manage, every
+/// one preselected so accepting the defaults keeps them all.
 ///
 /// # Errors
 /// Propagates a malformed detection-facts decode.
@@ -39,15 +46,26 @@ pub(crate) fn questionnaire(detection: &Detection) -> AppResult<Questionnaire> {
         cargo_test.recommended()
     };
 
-    let question = Question::new(
+    let mut questions = vec![Question::new(
         TEST_RUNNER,
         "Which test runner should the `test` task use?",
         QuestionKind::Select(vec![nextest, cargo_test]),
-    );
-    Ok(Questionnaire::new(
-        detection.ecosystem.clone(),
-        vec![question],
-    ))
+    )];
+
+    if facts.manifests.len() > 1 {
+        let choices = facts
+            .manifests
+            .iter()
+            .map(|manifest| Choice::new(manifest.clone(), manifest.clone()).recommended())
+            .collect();
+        questions.push(Question::new(
+            MANIFESTS,
+            "Which Cargo workspaces should Toven manage?",
+            QuestionKind::MultiSelect(choices),
+        ));
+    }
+
+    Ok(Questionnaire::new(detection.ecosystem.clone(), questions))
 }
 
 #[cfg(test)]
@@ -55,13 +73,27 @@ mod tests {
     use toml::Table;
     use toven_ports::{Detection, QuestionKind};
 
-    use super::{RUNNER_CARGO_TEST, RUNNER_NEXTEST, TEST_RUNNER, questionnaire};
+    use super::{MANIFESTS, RUNNER_CARGO_TEST, RUNNER_NEXTEST, TEST_RUNNER, questionnaire};
     use crate::detect::RustFacts;
 
     fn detection(nextest: bool) -> Detection {
         let facts = RustFacts {
-            manifest: "Cargo.toml".to_string(),
+            manifests: vec!["Cargo.toml".to_string()],
             nextest,
+        };
+        Detection::new(
+            toven_model::EcosystemId::new("rust").unwrap(),
+            Table::try_from(&facts).unwrap(),
+        )
+    }
+
+    fn multi_detection() -> Detection {
+        let facts = RustFacts {
+            manifests: vec![
+                "core/Cargo.toml".to_string(),
+                "contrib/Cargo.toml".to_string(),
+            ],
+            nextest: true,
         };
         Detection::new(
             toven_model::EcosystemId::new("rust").unwrap(),
@@ -93,5 +125,26 @@ mod tests {
     #[test]
     fn nextest_absent_recommends_cargo_test() {
         assert_eq!(recommended_id(&detection(false)), RUNNER_CARGO_TEST);
+    }
+
+    #[test]
+    fn single_manifest_asks_only_the_runner() {
+        let questionnaire = questionnaire(&detection(true)).expect("questionnaire");
+        assert_eq!(questionnaire.questions.len(), 1);
+        assert_eq!(questionnaire.questions[0].id.as_str(), TEST_RUNNER);
+    }
+
+    #[test]
+    fn multiple_manifests_add_a_preselected_multiselect() {
+        let questionnaire = questionnaire(&multi_detection()).expect("questionnaire");
+        assert_eq!(questionnaire.questions.len(), 2);
+        let question = &questionnaire.questions[1];
+        assert_eq!(question.id.as_str(), MANIFESTS);
+        let QuestionKind::MultiSelect(choices) = &question.kind else {
+            panic!("expected a multi-select question");
+        };
+        let ids: Vec<&str> = choices.iter().map(|choice| choice.id().as_str()).collect();
+        assert_eq!(ids, ["core/Cargo.toml", "contrib/Cargo.toml"]);
+        assert!(choices.iter().all(rskit_cli::Choice::is_recommended));
     }
 }
