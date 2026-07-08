@@ -84,7 +84,10 @@ impl ModuleSelector {
     /// # Errors
     /// Returns [`AppError::invalid_input`] when the token is empty.
     pub fn whole_workspace(token: &str) -> AppResult<Self> {
-        Ok(Self::WholeWorkspace(name_pattern(token)?))
+        Ok(Self::WholeWorkspace(NamePattern::parse(non_empty(
+            token,
+            "workspace",
+        )?)))
     }
 }
 
@@ -224,6 +227,12 @@ mod tests {
         assert!(ModuleSelector::parse("/api").is_err());
         assert!(ModuleSelector::parse("backend/").is_err());
         assert!(ModuleSelector::whole_workspace("").is_err());
+    }
+
+    #[test]
+    fn empty_workspace_token_is_attributed_to_the_workspace_field() {
+        let error = ModuleSelector::whole_workspace("").unwrap_err();
+        assert!(error.to_string().contains("workspace"), "{error}");
     }
 
     #[test]

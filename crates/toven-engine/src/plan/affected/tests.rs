@@ -343,17 +343,45 @@ fn explicit_request(
     include_dependents: bool,
     include_dependencies: bool,
 ) -> PlanRequest {
-    PlanRequest::new(
-        "r",
-        "t",
-        toven_ports::TaskKind::Test,
-        AbsPath::new("/repo").unwrap(),
-    )
-    .with_selection(Selection::Explicit {
+    explicit_request_with_intent(
         targets,
         include_dependents,
         include_dependencies,
-    })
+        toven_ports::TaskKind::Test,
+    )
+}
+
+fn explicit_request_with_intent(
+    targets: Vec<ModuleSelector>,
+    include_dependents: bool,
+    include_dependencies: bool,
+    intent: toven_ports::TaskKind,
+) -> PlanRequest {
+    PlanRequest::new("r", "t", intent, AbsPath::new("/repo").unwrap()).with_selection(
+        Selection::Explicit {
+            targets,
+            include_dependents,
+            include_dependencies,
+        },
+    )
+}
+
+fn app_dev_dep_errors_federation() -> (Federation, Graph) {
+    let federation = Federation {
+        workspaces: vec![rust_workspace_with_blast()],
+        modules: vec![
+            module("rust", "app", "crates/app", Some("rust")),
+            module("rust", "errors", "crates/errors", Some("rust")),
+        ],
+        edges: vec![Edge::new(
+            mref("rust", "app"),
+            mref("rust", "errors"),
+            DepKind::Dev,
+        )],
+        warnings: Vec::new(),
+    };
+    let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
+    (federation, graph)
 }
 
 fn sel(token: &str) -> ModuleSelector {
@@ -463,6 +491,44 @@ fn explicit_module_with_dependencies_activates_the_forward_closure() {
     let vcs = FakeVcsReader::new();
     // app depends on errors; `--dependencies` pulls in the prerequisite.
     let request = explicit_request(vec![sel("rust:app")], false, true);
+
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+
+    assert!(active.contains(&mkey("rust", "app")));
+    assert!(active.contains(&mkey("rust", "errors")));
+}
+
+#[test]
+fn dev_only_dependency_is_excluded_from_the_forward_closure_of_a_build() {
+    let (federation, graph) = app_dev_dep_errors_federation();
+    let vcs = FakeVcsReader::new();
+    // app dev-depends on errors; `--dependencies` on a build must not pull it in.
+    let request = explicit_request_with_intent(
+        vec![sel("rust:app")],
+        false,
+        true,
+        toven_ports::TaskKind::Build,
+    );
+
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+
+    assert_eq!(
+        active,
+        std::collections::BTreeSet::from([mkey("rust", "app")])
+    );
+}
+
+#[test]
+fn dev_only_dependency_is_included_in_the_forward_closure_of_a_test() {
+    let (federation, graph) = app_dev_dep_errors_federation();
+    let vcs = FakeVcsReader::new();
+    // app dev-depends on errors; `--dependencies` on a test needs the prerequisite.
+    let request = explicit_request_with_intent(
+        vec![sel("rust:app")],
+        false,
+        true,
+        toven_ports::TaskKind::Test,
+    );
 
     let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
 

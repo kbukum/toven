@@ -44,7 +44,9 @@ pub(crate) fn active_modules(
             let seeds = explicit_seeds(targets, graph, federation)?;
             let mut active = seeds.clone();
             if *include_dependencies {
-                active.extend(graph.dependencies_closure(&seeds, dependencies_filter())?);
+                active.extend(
+                    graph.dependencies_closure(&seeds, dependencies_filter(&request.intent))?,
+                );
             }
             if *include_dependents {
                 active.extend(graph.closure(&seeds, dependents_filter(&request.intent))?);
@@ -85,12 +87,16 @@ fn dependents_filter(intent: &TaskKind) -> impl Fn(DepKind) -> bool {
     }
 }
 
-/// The forward-dependencies edge filter.
+/// The forward-dependencies edge filter for `intent`.
 ///
-/// `--dependencies` expands a selection to everything it needs to build, so every
-/// ordering edge (`Normal`/`Build`/`Overlay`/`Dev`) is a real prerequisite and
-/// propagates — a dev-only dependency is still something the selected module
-/// requires present.
-fn dependencies_filter() -> impl Fn(DepKind) -> bool {
-    |_| true
+/// `--dependencies` expands a selection to everything it needs to build.
+/// Build/normal/overlay edges always propagate; `Dev` edges propagate only for a
+/// [`TaskKind::Test`] run, mirroring [`dependents_filter`] — a dev-only
+/// prerequisite is required to test a module but not to build it.
+fn dependencies_filter(intent: &TaskKind) -> impl Fn(DepKind) -> bool {
+    let is_test = matches!(intent, TaskKind::Test);
+    move |kind: DepKind| {
+        matches!(kind, DepKind::Normal | DepKind::Build | DepKind::Overlay)
+            || (is_test && kind == DepKind::Dev)
+    }
 }
