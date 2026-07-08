@@ -35,9 +35,6 @@ mod tests {
             default_run_strategy(TaskKind::Format),
             RunStrategy::Unordered
         );
-        assert_eq!(
-            default_run_strategy(TaskKind::Lint),
-            RunStrategy::Unordered
-        );
+        assert_eq!(default_run_strategy(TaskKind::Lint), RunStrategy::Unordered);
     }
 }

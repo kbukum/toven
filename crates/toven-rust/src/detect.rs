@@ -203,7 +203,11 @@ mod tests {
         let facts = RustFacts::from_detection(&detection).expect("facts");
         assert_eq!(
             facts.manifests,
-            ["contrib/Cargo.toml", "core/Cargo.toml", "examples/Cargo.toml"]
+            [
+                "contrib/Cargo.toml",
+                "core/Cargo.toml",
+                "examples/Cargo.toml"
+            ]
         );
     }
 

@@ -68,7 +68,11 @@ fn selected_manifests(facts: &RustFacts, answers: &Answers) -> Vec<String> {
     let chosen: Vec<String> = facts
         .manifests
         .iter()
-        .filter(|manifest| selected.iter().any(|choice| choice.as_str() == manifest.as_str()))
+        .filter(|manifest| {
+            selected
+                .iter()
+                .any(|choice| choice.as_str() == manifest.as_str())
+        })
         .cloned()
         .collect();
     if chosen.is_empty() {
@@ -297,7 +301,11 @@ mod tests {
         let config = parse(&fragment);
         assert_eq!(
             config.manifests,
-            ["core/Cargo.toml", "contrib/Cargo.toml", "examples/Cargo.toml"]
+            [
+                "core/Cargo.toml",
+                "contrib/Cargo.toml",
+                "examples/Cargo.toml"
+            ]
         );
     }
 
@@ -325,7 +333,11 @@ mod tests {
         let config = parse(&fragment);
         assert_eq!(
             config.manifests,
-            ["core/Cargo.toml", "contrib/Cargo.toml", "examples/Cargo.toml"]
+            [
+                "core/Cargo.toml",
+                "contrib/Cargo.toml",
+                "examples/Cargo.toml"
+            ]
         );
     }
 }

@@ -36,9 +36,9 @@ fn umbrella_drives_the_real_go_driver_over_stdio() {
     let probe = remote.toolchain_probe();
     assert_eq!(probe.program, "go", "the go driver probes the go toolchain");
 
-    // A run-strategy query is answered for both a built-in and a custom kind.
-    let _ = remote.run_strategy_default(&TaskKind::Build);
-    let _ = remote.run_strategy_default(&TaskKind::Custom("e2e".to_string()));
+    // A run-strategy query is answered across recognized task kinds.
+    let _ = remote.run_strategy_default(TaskKind::Build);
+    let _ = remote.run_strategy_default(TaskKind::Test);
 
     // Dropping the adapter sends a graceful Shutdown and reaps the child.
     drop(remote);
