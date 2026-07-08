@@ -100,9 +100,12 @@ pub struct TaskFlags {
     pub base: Option<String>,
     /// `--merge-base`: diff against `merge-base(reference, HEAD)`.
     pub merge_base: bool,
-    /// `--module <ref>`: explicit graph target (`ecosystem:name`), repeatable.
+    /// `--module <sel>`: explicit graph target in the lenient selector grammar
+    /// (bare name, `ecosystem:name`, `workspace/name`, or a `*`/`?` glob),
+    /// repeatable.
     pub modules: Vec<String>,
-    /// `--workspace <id>`: explicit graph target, repeatable.
+    /// `--workspace <sel>`: whole-workspace target by id pattern (exact or
+    /// `*`/`?` glob), repeatable.
     pub workspaces: Vec<String>,
     /// `--dependents`: also activate the reverse-dependents closure.
     pub with_dependents: bool,
