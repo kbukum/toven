@@ -49,7 +49,7 @@ fn request_for(changes: Vec<ChangeRecord>) -> (PlanRequest, FakeVcsReader) {
     let request = PlanRequest::new(
         "r",
         "t",
-        toven_ports::TaskKind::Test,
+        toven_ports::TaskIntent::resolve("test"),
         AbsPath::new("/repo").unwrap(),
     )
     .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
@@ -215,7 +215,7 @@ fn member_readers_prefix_repo_changes_before_classification() {
     let request = PlanRequest::new(
         "r",
         "t",
-        toven_ports::TaskKind::Test,
+        toven_ports::TaskIntent::resolve("test"),
         AbsPath::new("/repo").unwrap(),
     )
     .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
@@ -251,7 +251,7 @@ fn member_without_a_baseline_falls_back_to_the_request_spec() {
     let request = PlanRequest::new(
         "r",
         "t",
-        toven_ports::TaskKind::Test,
+        toven_ports::TaskIntent::resolve("test"),
         AbsPath::new("/repo").unwrap(),
     )
     .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
@@ -281,7 +281,7 @@ fn member_without_a_baseline_and_no_request_fallback_is_rejected() {
     let request = PlanRequest::new(
         "r",
         "t",
-        toven_ports::TaskKind::Test,
+        toven_ports::TaskIntent::resolve("test"),
         AbsPath::new("/repo").unwrap(),
     )
     .with_selection(Selection::Changed(None));
@@ -347,7 +347,7 @@ fn explicit_request(
         targets,
         include_dependents,
         include_dependencies,
-        toven_ports::TaskKind::Test,
+        toven_ports::TaskIntent::resolve("test"),
     )
 }
 
@@ -355,7 +355,7 @@ fn explicit_request_with_intent(
     targets: Vec<ModuleSelector>,
     include_dependents: bool,
     include_dependencies: bool,
-    intent: toven_ports::TaskKind,
+    intent: toven_ports::TaskIntent,
 ) -> PlanRequest {
     PlanRequest::new("r", "t", intent, AbsPath::new("/repo").unwrap()).with_selection(
         Selection::Explicit {
@@ -507,7 +507,7 @@ fn dev_only_dependency_is_excluded_from_the_forward_closure_of_a_build() {
         vec![sel("rust:app")],
         false,
         true,
-        toven_ports::TaskKind::Build,
+        toven_ports::TaskIntent::resolve("build"),
     );
 
     let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
@@ -527,7 +527,7 @@ fn dev_only_dependency_is_included_in_the_forward_closure_of_a_test() {
         vec![sel("rust:app")],
         false,
         true,
-        toven_ports::TaskKind::Test,
+        toven_ports::TaskIntent::resolve("test"),
     );
 
     let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();

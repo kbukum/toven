@@ -22,7 +22,7 @@ use toven_model::{
     WorkspaceId,
 };
 use toven_ports::{
-    CommandTemplate, FanOut, Readiness, RunStrategy, Task, TaskKind, TaskOrigin, TaskVar,
+    CommandTemplate, FanOut, Readiness, RunStrategy, Task, TaskIntent, TaskOrigin, TaskVar,
     merge_task,
 };
 
@@ -38,16 +38,16 @@ use super::request::PlanRequest;
 /// the Cache-decision phase folds into the content key.
 #[derive(Debug, Clone)]
 pub(super) struct PlannedUnit {
-    /// Stable unit id (`ecosystem:name#kind`, member-prefixed under a federation;
+    /// Stable unit id (`ecosystem:name#task`, member-prefixed under a federation;
     /// batched/whole-workspace units drop the module name and key by workspace:
-    /// `ecosystem@workspace#kind`, or `ecosystem#kind` when workspace-less).
+    /// `ecosystem@workspace#task`, or `ecosystem#task` when workspace-less).
     pub(super) id: String,
     /// Representative module the unit operates on.
     pub(super) module: ModuleKey,
     /// Every module collapsed into this unit (always non-empty, contains `module`).
     pub(super) members: Vec<ModuleKey>,
-    /// Task kind name.
-    pub(super) kind: String,
+    /// Name of the task this unit runs (its identity, the config table key).
+    pub(super) task: String,
     /// Provenance of the resolved task (which config layer won).
     pub(super) origin: TaskOrigin,
     /// Owning workspace (keys the toolchain identity).
@@ -160,18 +160,18 @@ pub(super) fn schedule(
     })
 }
 
-/// The unit id for `module` under `kind` (`ecosystem:name#kind`, member-prefixed
+/// The unit id for `module` under `task` (`ecosystem:name#task`, member-prefixed
 /// whenever the module belongs to a federation member via [`ModuleKey`]'s
 /// `Display`).
-fn unit_id(module: &ModuleKey, kind: &str) -> String {
-    format!("{module}#{kind}")
+fn unit_id(module: &ModuleKey, task: &str) -> String {
+    format!("{module}#{task}")
 }
 
 /// The id of the unit a module belongs to: its own per-module id for a
 /// `PerModule` task, or a shared group id for `Batchable`/`WholeWorkspace` tasks.
 ///
 /// A batch group id is keyed by `member`, `ecosystem`, **and owning workspace**
-/// (`[member/]ecosystem@workspace#kind`, or `[member/]ecosystem#kind` for a
+/// (`[member/]ecosystem@workspace#task`, or `[member/]ecosystem#task` for a
 /// workspace-less module). Keeping the workspace in the key guarantees a collapsed
 /// unit never spans workspaces, so the representative's `{workspace.root}` and
 /// resolved toolchain identity are valid for every member it carries. When a group
@@ -181,12 +181,12 @@ fn unit_id(module: &ModuleKey, kind: &str) -> String {
 fn group_id(
     key: &ModuleKey,
     module: &Module,
-    kind: &str,
+    task: &str,
     fan_out: FanOut,
     override_group: Option<&str>,
 ) -> String {
     if fan_out == FanOut::PerModule {
-        return unit_id(key, kind);
+        return unit_id(key, task);
     }
     let ecosystem = &key.module().ecosystem;
     let base = module
@@ -195,8 +195,8 @@ fn group_id(
         .map_or_else(|| ecosystem.to_string(), |ws| format!("{ecosystem}@{ws}"));
     let scope = override_group.map_or_else(|| base.clone(), |group| format!("{base}~{group}"));
     key.member().map_or_else(
-        || format!("{scope}#{kind}"),
-        |member| format!("{member}/{scope}#{kind}"),
+        || format!("{scope}#{task}"),
+        |member| format!("{member}/{scope}#{task}"),
     )
 }
 
@@ -214,7 +214,7 @@ struct EffectiveTask {
 fn effective_tasks(
     modules: &BTreeMap<ModuleKey, Module>,
     adapters: &MemberAdapters,
-    intent: &TaskKind,
+    intent: &TaskIntent,
     overrides: &GroupOverrides,
 ) -> AppResult<BTreeMap<ModuleKey, EffectiveTask>> {
     let mut resolved = BTreeMap::new();
@@ -271,7 +271,7 @@ fn config_tasks(
 /// `format` not `fmt`); a nearest match within the default edit-distance is
 /// offered as advisory data in the message. The error stays a typed
 /// [`AppError`] — the CLI's renderer is what prints it.
-fn unknown_task_error(ecosystem: &str, intent: &TaskKind, available: &[Task]) -> AppError {
+fn unknown_task_error(ecosystem: &str, intent: &TaskIntent, available: &[Task]) -> AppError {
     let wanted = intent.name();
     if available.is_empty() {
         return AppError::invalid_input(
@@ -292,12 +292,9 @@ fn unknown_task_error(ecosystem: &str, intent: &TaskKind, available: &[Task]) ->
     )
 }
 
-/// The user-addressable canonical name of a resolved task (the explicit name for
-/// a named extra, else the built-in kind's canonical name).
+/// The user-addressable canonical name of a resolved task — its identity.
 fn task_addressable_name(task: &Task) -> String {
-    task.name
-        .clone()
-        .unwrap_or_else(|| task.kind.name().to_string())
+    task.name.clone()
 }
 
 /// Map every active module to the id of the unit that will carry it.
@@ -313,7 +310,7 @@ fn group_id_map(
             group_id(
                 key,
                 module,
-                eff.task.kind.name(),
+                eff.task.name.as_str(),
                 eff.task.fan_out,
                 eff.group.as_deref(),
             ),
@@ -385,7 +382,7 @@ fn strategies(
     let mut strategies = BTreeMap::new();
     for (key, module) in modules {
         let adapter = adapter_for(module, adapters)?;
-        let kind = &effective_for(key, effective)?.task.kind;
+        let kind = effective_for(key, effective)?.task.kind;
         let strategy = overrides
             .run_strategy(key)
             .or_else(|| adapter.common().run_strategy)
@@ -471,7 +468,7 @@ fn plan_unit(
     let base_argv = render_argv(&template, &[], &modules, &workspaces_for, request)?;
 
     let toolchain_identity = resolve_toolchain_identity(representative, toolchain)?;
-    let kind_name = task.kind.name().to_string();
+    let task_name = task.name.clone();
     super::shared_inputs::validate_shared_inputs(id, &task.shared_inputs)?;
     let depends_on = group_dependencies(id, members, kept_deps, group_ids);
     let resource_group = representative.resource_group.clone();
@@ -480,7 +477,7 @@ fn plan_unit(
         id: id.to_string(),
         module: members[0].clone(),
         members: members.to_vec(),
-        kind: kind_name,
+        task: task_name,
         origin: task.origin,
         workspace: representative.workspace.clone(),
         argv,
@@ -611,15 +608,13 @@ fn readiness(readiness: &Readiness) -> ExecutionReadiness {
     }
 }
 
-/// Select the config task a user token resolves to by its user-addressable name.
+/// Select the config task a user token resolves to by its addressable name.
 ///
-/// The addressable identity of a task is its explicit `name` for a named extra,
-/// else its built-in/custom kind's canonical name (the same string discovery
-/// lists and suggestions offer). `intent.name()` is the canonical token the user
-/// typed (alias-folded: `fmt` → `format`), so an exact addressable-name match
-/// resolves both a plain built-in (`test` → the unnamed `Test` task) and a named
-/// extra (`test-integration` → the `kind = "test"` entry) without collision.
-fn select_task(tasks: &[Task], intent: &TaskKind) -> Option<Task> {
+/// A task's addressable identity is its name (the table key). `intent.name()` is
+/// the exact token the user typed, so a direct name match resolves both a plain
+/// built-in (`test` → the `test` task) and a renamed/extra task (`my-test` → the
+/// `kind = "test"` entry) without collision.
+fn select_task(tasks: &[Task], intent: &TaskIntent) -> Option<Task> {
     let wanted = intent.name();
     tasks
         .iter()
@@ -713,7 +708,8 @@ mod tests {
         WorkspaceId,
     };
     use toven_ports::{
-        ConfiguredAdapter, DiscoverResponse, FanOut, RunStrategy, Task, TaskKind, TaskOrigin,
+        ConfiguredAdapter, DiscoverResponse, FanOut, RunStrategy, Task, TaskIntent, TaskKind,
+        TaskOrigin,
     };
     use toven_testkit::FakeConfiguredAdapter;
 
@@ -727,17 +723,17 @@ mod tests {
     fn unknown_task_error_suggests_the_nearest_name_and_discovery_hint() {
         let available = vec![
             Task::new(
-                TaskKind::Format,
+                "format",
                 vec!["cargo".into(), "fmt".into()],
                 FanOut::WholeWorkspace,
             ),
             Task::new(
-                TaskKind::Test,
+                "test",
                 vec!["cargo".into(), "test".into()],
                 FanOut::Batchable,
             ),
         ];
-        let error = unknown_task_error("rust", &TaskKind::Custom("fmt".into()), &available);
+        let error = unknown_task_error("rust", &TaskIntent::resolve("fmt"), &available);
         let message = error.to_string();
         assert!(message.contains("has no 'fmt' task"), "{message}");
         assert!(message.contains("Did you mean 'format'?"), "{message}");
@@ -747,11 +743,11 @@ mod tests {
     #[test]
     fn unknown_task_error_omits_a_suggestion_for_a_far_off_name() {
         let available = vec![Task::new(
-            TaskKind::Test,
+            "test",
             vec!["cargo".into(), "test".into()],
             FanOut::Batchable,
         )];
-        let error = unknown_task_error("rust", &TaskKind::Custom("zzzzzz".into()), &available);
+        let error = unknown_task_error("rust", &TaskIntent::resolve("zzzzzz"), &available);
         let message = error.to_string();
         assert!(!message.contains("Did you mean"), "{message}");
         assert!(message.contains("toven tasks"), "{message}");
@@ -788,7 +784,7 @@ mod tests {
         strategy: RunStrategy,
         fan_out: FanOut,
     ) -> Box<dyn ConfiguredAdapter> {
-        let task = Task::new(TaskKind::Test, vec!["x".to_string()], fan_out);
+        let task = Task::new("test", vec!["x".to_string()], fan_out);
         Box::new(
             FakeConfiguredAdapter::new(eid(ecosystem))
                 .with_response(DiscoverResponse::new(eid(ecosystem)))
@@ -798,10 +794,10 @@ mod tests {
     }
 
     fn request() -> PlanRequest {
-        request_for(TaskKind::Test)
+        request_for(TaskIntent::resolve("test"))
     }
 
-    fn request_for(intent: TaskKind) -> PlanRequest {
+    fn request_for(intent: TaskIntent) -> PlanRequest {
         PlanRequest::new("r", "t", intent, AbsPath::new("/repo").unwrap())
     }
 
@@ -810,16 +806,16 @@ mod tests {
     /// each resolves by its own user-addressable name.
     fn named_extra_adapter(ecosystem: &str) -> Box<dyn ConfiguredAdapter> {
         let plain = Task::new(
-            TaskKind::Test,
+            "test",
             vec!["plain".to_string(), "test".to_string()],
             FanOut::PerModule,
         );
-        let mut extra = Task::new(
-            TaskKind::Test,
+        let extra = Task::new(
+            "test-integration",
             vec!["integration".to_string(), "test".to_string()],
             FanOut::PerModule,
-        );
-        extra.name = Some("test-integration".to_string());
+        )
+        .with_kind(TaskKind::Test);
         Box::new(
             FakeConfiguredAdapter::new(eid(ecosystem))
                 .with_response(DiscoverResponse::new(eid(ecosystem)))
@@ -1092,7 +1088,7 @@ mod tests {
 
         // The user token `test-integration` resolves the named extra's argv.
         let extra = schedule(
-            &request_for(TaskKind::Custom("test-integration".to_string())),
+            &request_for(TaskIntent::resolve("test-integration")),
             &federation,
             &active,
             &adapters,
@@ -1105,7 +1101,7 @@ mod tests {
 
         // The plain `test` token still resolves the unnamed Test task.
         let plain = schedule(
-            &request_for(TaskKind::Test),
+            &request_for(TaskIntent::resolve("test")),
             &federation,
             &active,
             &adapters,
@@ -1143,7 +1139,7 @@ mod tests {
         );
         let active = vec![toven_model::ModuleKey::bare(mref("rust", "app"))];
         let scheduled = schedule(
-            &request_for(TaskKind::Custom("test-integration".to_string())),
+            &request_for(TaskIntent::resolve("test-integration")),
             &federation,
             &active,
             &single_member(adapters),

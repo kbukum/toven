@@ -18,7 +18,7 @@ use toven_model::{
     AbsPath, EcosystemId, MemberId, Module, ModuleRef, RepoPath, ToolchainTag, Workspace,
     WorkspaceId,
 };
-use toven_ports::{DiscoverResponse, Provider, TaskKind};
+use toven_ports::{DiscoverResponse, Provider, TaskIntent};
 use toven_testkit::workspace::workspace;
 use toven_testkit::{
     FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, FakeVcsWriter, VcsWrite,
@@ -114,7 +114,7 @@ fn release_shards_history_mutations_per_member_repo() {
         MemberReleaseRepo::new(Some(gateway_id), &gateway_vcs, &gateway_writer),
     ]);
 
-    let request = PlanRequest::new("rel-1", "umbrella", TaskKind::Build, root);
+    let request = PlanRequest::new("rel-1", "umbrella", TaskIntent::resolve("build"), root);
     let options = ReleaseApplyOptions::default();
     let mut reporter = toven_testkit::RecordingReporter::new();
 

@@ -12,8 +12,8 @@ use serde::Serialize;
 use toml::Table;
 use toven_ports::{Answers, Detection, EcosystemFragment, FanOut, TaskEntry};
 
-use crate::detect::{ROOT_MANIFEST, RustFacts};
-use crate::questionnaire::{RUNNER_NEXTEST, TEST_RUNNER};
+use crate::detect::RustFacts;
+use crate::questionnaire::{MANIFESTS, RUNNER_NEXTEST, TEST_RUNNER};
 
 /// The workspace-level cache input every cargo task shares: the lockfile pins the
 /// resolved dependency versions, so a change invalidates every task.
@@ -45,7 +45,7 @@ pub(crate) fn render(detection: &Detection, answers: &Answers) -> AppResult<Ecos
     };
 
     let body = RustFragmentBody {
-        manifests: vec![ROOT_MANIFEST.to_string()],
+        manifests: selected_manifests(&facts, answers),
         tasks: task_table(use_nextest),
     };
     let table = Table::try_from(&body).map_err(|error| {
@@ -53,6 +53,33 @@ pub(crate) fn render(detection: &Detection, answers: &Answers) -> AppResult<Ecos
     })?;
 
     Ok(EcosystemFragment::new(detection.ecosystem.clone(), table))
+}
+
+/// The manifests to author into the fragment.
+///
+/// When the wizard asked which workspaces to manage, the user's selection is
+/// honored in discovered order; deselecting everything falls back to the full
+/// discovered set so onboarding never yields a manifest-less config. With no
+/// such question (a single discovered manifest), the discovered set is used.
+fn selected_manifests(facts: &RustFacts, answers: &Answers) -> Vec<String> {
+    let Some(selected) = answers.multi_choice(&MANIFESTS.into()) else {
+        return facts.manifests.clone();
+    };
+    let chosen: Vec<String> = facts
+        .manifests
+        .iter()
+        .filter(|manifest| {
+            selected
+                .iter()
+                .any(|choice| choice.as_str() == manifest.as_str())
+        })
+        .cloned()
+        .collect();
+    if chosen.is_empty() {
+        facts.manifests.clone()
+    } else {
+        chosen
+    }
 }
 
 /// Build the complete cargo task table, honoring the chosen test runner.
@@ -178,8 +205,23 @@ mod tests {
 
     fn detection(nextest: bool) -> Detection {
         let facts = RustFacts {
-            manifest: "Cargo.toml".to_string(),
+            manifests: vec!["Cargo.toml".to_string()],
             nextest,
+        };
+        Detection::new(
+            toven_model::EcosystemId::new("rust").unwrap(),
+            Table::try_from(&facts).unwrap(),
+        )
+    }
+
+    fn multi_detection() -> Detection {
+        let facts = RustFacts {
+            manifests: vec![
+                "core/Cargo.toml".to_string(),
+                "contrib/Cargo.toml".to_string(),
+                "examples/Cargo.toml".to_string(),
+            ],
+            nextest: true,
         };
         Detection::new(
             toven_model::EcosystemId::new("rust").unwrap(),
@@ -251,5 +293,51 @@ mod tests {
                 .materialize("rust", key)
                 .expect("every authored entry materializes");
         }
+    }
+
+    #[test]
+    fn discovered_manifests_are_authored_when_no_selection() {
+        let fragment = render(&multi_detection(), &Answers::new()).expect("render");
+        let config = parse(&fragment);
+        assert_eq!(
+            config.manifests,
+            [
+                "core/Cargo.toml",
+                "contrib/Cargo.toml",
+                "examples/Cargo.toml"
+            ]
+        );
+    }
+
+    #[test]
+    fn manifest_selection_is_honored_in_discovered_order() {
+        let answers = Answers::new().with(
+            crate::questionnaire::MANIFESTS,
+            Answer::MultiChoice(vec![
+                ChoiceId::new("examples/Cargo.toml"),
+                ChoiceId::new("core/Cargo.toml"),
+            ]),
+        );
+        let fragment = render(&multi_detection(), &answers).expect("render");
+        let config = parse(&fragment);
+        assert_eq!(config.manifests, ["core/Cargo.toml", "examples/Cargo.toml"]);
+    }
+
+    #[test]
+    fn deselecting_every_manifest_falls_back_to_all_discovered() {
+        let answers = Answers::new().with(
+            crate::questionnaire::MANIFESTS,
+            Answer::MultiChoice(Vec::new()),
+        );
+        let fragment = render(&multi_detection(), &answers).expect("render");
+        let config = parse(&fragment);
+        assert_eq!(
+            config.manifests,
+            [
+                "core/Cargo.toml",
+                "contrib/Cargo.toml",
+                "examples/Cargo.toml"
+            ]
+        );
     }
 }

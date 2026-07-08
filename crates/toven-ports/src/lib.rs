@@ -76,7 +76,8 @@ pub use release::{Artifact, PublishOutcome, RegistryCadence, ReleaseMutation, Re
 pub use reporter::Reporter;
 pub use source::SourceDigest;
 pub use task::{
-    DEFAULT_READINESS_TIMEOUT, FanOut, Readiness, Task, TaskKind, TaskOrigin, ToolchainProbe,
+    DEFAULT_READINESS_TIMEOUT, FanOut, Readiness, Task, TaskIntent, TaskKind, TaskOrigin,
+    ToolchainProbe,
 };
 pub use template::{CommandTemplate, TaskVar};
 pub use toolchain::ToolchainProber;
@@ -160,7 +161,7 @@ mod object_safety {
         fn toolchain_probe(&self) -> ToolchainProbe {
             ToolchainProbe::new("cargo", "cargo", vec!["--version".into()])
         }
-        fn run_strategy_default(&self, _kind: &TaskKind) -> RunStrategy {
+        fn run_strategy_default(&self, _kind: TaskKind) -> RunStrategy {
             RunStrategy::LeafToTop
         }
         fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseTarget>>> {
@@ -360,7 +361,7 @@ mod object_safety {
         assert_eq!(response.schema_version, request.schema_version);
         assert_eq!(configured.toolchain_probe().label, "cargo");
         assert_eq!(
-            configured.run_strategy_default(&TaskKind::Build),
+            configured.run_strategy_default(TaskKind::Build),
             RunStrategy::LeafToTop
         );
         assert_eq!(configured.common(), &CommonEcosystemConfig::default());

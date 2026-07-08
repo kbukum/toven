@@ -24,7 +24,7 @@ use toven_engine::plan::{NullCache, PlanHost, PlanRequest, plan};
 use toven_model::{
     AbsPath, DepKind, Edge, Module, ModuleRef, RepoPath, ToolchainTag, Workspace, WorkspaceId,
 };
-use toven_ports::{DiscoverResponse, EcosystemFragment, FanOut, Provider, Task, TaskKind};
+use toven_ports::{DiscoverResponse, EcosystemFragment, FanOut, Provider, Task, TaskIntent};
 use toven_testkit::{
     CountingToolchainProber, FakeConfiguredAdapter, FakeDriverLocator, FakeDriverWizard,
     FakeProvider, FakeSourceDigest, FakeVcsReader, RecordingReporter, ScriptedAnswers, fixtures,
@@ -508,7 +508,7 @@ fn rust_plan_provider() -> FakeProvider {
     let adapter = FakeConfiguredAdapter::new(eid("rust"))
         .with_response(response)
         .with_tasks(vec![Task::new(
-            TaskKind::Test,
+            "test",
             vec!["cargo".to_string(), "test".to_string()],
             FanOut::WholeWorkspace,
         )]);
@@ -553,7 +553,7 @@ fn generated_config_feeds_the_plan_spine() {
     let request = PlanRequest::new(
         "run-1",
         "toven",
-        TaskKind::Test,
+        TaskIntent::resolve("test"),
         AbsPath::new("/repo").expect("absolute"),
     );
     let planned = plan(&request, &document, &providers, host, &mut reporter)

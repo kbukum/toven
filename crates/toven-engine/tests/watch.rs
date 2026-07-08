@@ -20,7 +20,7 @@ use toven_model::{
     AbsPath, DepKind, Edge, Event, MemberId, Module, ModuleRef, RepoPath, ToolchainTag, Workspace,
     WorkspaceId,
 };
-use toven_ports::{CommandRunner, DiscoverResponse, FanOut, Provider, Task, TaskKind};
+use toven_ports::{CommandRunner, DiscoverResponse, FanOut, Provider, Task, TaskIntent};
 use toven_testkit::{
     CountingToolchainProber, FakeCacheStore, FakeCommandRunner, FakeConfiguredAdapter,
     FakeProvider, FakeSourceDigest, FakeVcsReader, RecordingCacheWriter, RecordingRawOutputSink,
@@ -58,7 +58,7 @@ fn rust_provider() -> FakeProvider {
     ));
 
     let task = Task::new(
-        TaskKind::Test,
+        "test",
         vec!["cargo".to_string(), "test".to_string()],
         FanOut::PerModule,
     );
@@ -87,7 +87,7 @@ fn request() -> PlanRequest {
     PlanRequest::new(
         "run-watch",
         "toven",
-        TaskKind::Test,
+        TaskIntent::resolve("test"),
         AbsPath::new("/repo").expect("absolute"),
     )
     .with_selection(Selection::All)

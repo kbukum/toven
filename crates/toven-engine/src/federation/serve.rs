@@ -261,7 +261,7 @@ fn answer(adapter: &dyn ConfiguredAdapter, request: Request) -> Response {
             )),
         },
         Request::ToolchainProbe => Response::ToolchainProbe(adapter.toolchain_probe()),
-        Request::RunStrategy { kind } => Response::RunStrategy(adapter.run_strategy_default(&kind)),
+        Request::RunStrategy { kind } => Response::RunStrategy(adapter.run_strategy_default(kind)),
         // Handled by the caller before reaching here.
         Request::Shutdown => Response::Bye,
     }

@@ -116,14 +116,14 @@ pub(crate) fn configure(
     Ok(configured)
 }
 
-/// The user-addressable task names declared across every configured ecosystem.
+/// The user-addressable task names declared across every configured ecosystem
+/// that can collide with a reserved verb.
 ///
-/// A name is "user-addressable" when it can be typed as `toven <name>`: either an
-/// explicit per-task `name` override or a [`TaskKind::Custom`] task's name. The
-/// canonical built-in kinds (`build`/`test`/… and the by-design `run` overlap)
-/// are excluded — only these names can genuinely collide with a reserved verb.
-/// The CLI uses this for load-time collision warnings without re-deriving the
-/// configuration itself.
+/// A name is reported when it can be typed as `toven <name>` *and* is not itself
+/// a recognized-kind canonical name (`build`/`test`/…). Recognized-kind names map
+/// by design to their verb, so only non-recognized names (a renamed or custom
+/// task) can genuinely shadow a reserved verb. The CLI uses this for load-time
+/// collision warnings without re-deriving the configuration itself.
 ///
 /// # Errors
 /// Propagates `configure` failures (provider conflicts, subtree conversion, or
@@ -137,12 +137,9 @@ pub fn addressable_task_names(
     for (ecosystem, adapter) in &configured {
         for (key, entry) in &adapter.common().tasks {
             let task = entry.materialize(ecosystem.as_str(), key)?;
-            let name = match (task.name, task.kind) {
-                (Some(explicit), _) => explicit,
-                (None, TaskKind::Custom(custom)) => custom,
-                (None, _) => continue,
-            };
-            names.push(name);
+            if TaskKind::from_name(&task.name).is_none() {
+                names.push(task.name);
+            }
         }
     }
     Ok(names)

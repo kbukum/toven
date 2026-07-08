@@ -14,7 +14,7 @@ use rskit_cli::{ErrorRenderer, ExitCode};
 use rskit_errors::{AppError, AppResult};
 use toven_engine::plan::addressable_task_names;
 use toven_engine::vcs::BaselineFlags;
-use toven_ports::{Provider, TaskKind};
+use toven_ports::{Provider, TaskIntent};
 
 use crate::flags::{Cli, Command, GraphFormat};
 use crate::host::{Project, Report};
@@ -420,9 +420,9 @@ fn warn_collisions(project: &Project, providers: &[&dyn Provider]) {
     }
 }
 
-/// Resolve a task token to a built-in [`TaskKind`] or a [`TaskKind::Custom`].
-fn intent_for(task: &str) -> TaskKind {
-    TaskKind::builtin(task).unwrap_or_else(|| TaskKind::Custom(task.to_string()))
+/// Resolve a task token to its [`TaskIntent`] (name + recognized kind).
+fn intent_for(task: &str) -> TaskIntent {
+    TaskIntent::resolve(task)
 }
 
 #[cfg(test)]

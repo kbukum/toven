@@ -12,7 +12,7 @@ use toven_ports::{RunStrategy, TaskKind};
 /// Compilation-bearing kinds (`build`/`check`/`test`/`doc`/`run`) respect the
 /// dependency graph; `format`/`lint` are independent and collapse into one wave.
 #[must_use]
-pub(crate) const fn default_run_strategy(kind: &TaskKind) -> RunStrategy {
+pub(crate) const fn default_run_strategy(kind: TaskKind) -> RunStrategy {
     match kind {
         TaskKind::Format | TaskKind::Lint => RunStrategy::Unordered,
         _ => RunStrategy::LeafToTop,
@@ -28,16 +28,13 @@ mod tests {
     #[test]
     fn run_strategy_defaults_by_kind() {
         assert_eq!(
-            default_run_strategy(&TaskKind::Build),
+            default_run_strategy(TaskKind::Build),
             RunStrategy::LeafToTop
         );
         assert_eq!(
-            default_run_strategy(&TaskKind::Format),
+            default_run_strategy(TaskKind::Format),
             RunStrategy::Unordered
         );
-        assert_eq!(
-            default_run_strategy(&TaskKind::Lint),
-            RunStrategy::Unordered
-        );
+        assert_eq!(default_run_strategy(TaskKind::Lint), RunStrategy::Unordered);
     }
 }

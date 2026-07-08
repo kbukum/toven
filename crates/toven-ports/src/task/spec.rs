@@ -12,16 +12,18 @@ use super::{FanOut, Readiness, TaskKind, TaskOrigin, readiness::DEFAULT_READINES
 /// Carries the **two-template** command (`argv` base + per-module `selector`,
 /// spliced at the `{module.selector}` point — see
 /// [`CommandTemplate`](crate::template::CommandTemplate)) plus the attributes the
-/// engine needs to schedule, cache, and run it. Per-task `run_strategy` /
-/// `resource_group` overrides are engine-schedule config resolved later, by the
-/// strict config `Document`, not carried on the port `Task`.
+/// engine needs to schedule, cache, and run it. Its [`name`](Self::name) is the
+/// identity a user types (`toven <name>`); [`kind`](Self::kind) is the optional
+/// recognition attribute. Per-task `run_strategy` / `resource_group` overrides
+/// are engine-schedule config resolved later, by the strict config `Document`,
+/// not carried on the port `Task`.
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub struct Task {
-    /// Identity slot; `Custom(name)` for ad-hoc tasks.
+    /// The task's identity: the name a user types (`toven <name>`).
+    pub name: String,
+    /// The recognized kind of this task, or [`TaskKind::Default`] when the name
+    /// matches no recognized kind.
     pub kind: TaskKind,
-    /// `Some` only for named extras within a kind (e.g. `test-integration`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
     /// Base argv template, rendered once (adapter default, user-overridable).
     pub argv: Vec<String>,
     /// Per-module fan-out fragment, spliced at `{module.selector}`.
@@ -38,7 +40,7 @@ pub struct Task {
     /// Task-level extra cache inputs (workspace-level lives on the adapter default).
     #[serde(default)]
     pub shared_inputs: Vec<String>,
-    /// Orthogonal persistence flag; the `Run` kind defaults this true.
+    /// Orthogonal persistence flag; the `Run` kind seeds this true at init.
     #[serde(default)]
     pub persistent: bool,
     /// Readiness signal for persistent tasks.
@@ -54,14 +56,17 @@ const fn default_readiness_timeout() -> Duration {
 }
 
 impl Task {
-    /// Construct a task with the required identity + base argv and sensible
-    /// defaults (non-persistent, [`TaskOrigin::AdapterDefault`], empty selector).
-    /// Adapters set the remaining fields directly.
+    /// Construct a task with the required `name` identity + base argv and sensible
+    /// defaults (recognized kind derived from the name, non-persistent,
+    /// [`TaskOrigin::AdapterDefault`], empty selector). Adapters set the remaining
+    /// fields directly.
     #[must_use]
-    pub const fn new(kind: TaskKind, argv: Vec<String>, fan_out: FanOut) -> Self {
+    pub fn new(name: impl Into<String>, argv: Vec<String>, fan_out: FanOut) -> Self {
+        let name = name.into();
+        let kind = TaskKind::from_name(&name).unwrap_or(TaskKind::Default);
         Self {
+            name,
             kind,
-            name: None,
             argv,
             selector: Vec::new(),
             fan_out,
@@ -73,6 +78,14 @@ impl Task {
             readiness_timeout: DEFAULT_READINESS_TIMEOUT,
         }
     }
+
+    /// Override the recognized [`kind`](Self::kind) (e.g. tag a renamed task so it
+    /// keeps its kind-aware behavior).
+    #[must_use]
+    pub const fn with_kind(mut self, kind: TaskKind) -> Self {
+        self.kind = kind;
+        self
+    }
 }
 
 #[cfg(test)]
@@ -82,17 +95,17 @@ mod tests {
     #[test]
     fn new_applies_sensible_defaults() {
         let task = Task::new(
-            TaskKind::Build,
+            "build",
             vec!["cargo".into(), "build".into()],
             FanOut::WholeWorkspace,
         );
+        assert_eq!(task.name, "build");
         assert_eq!(task.kind, TaskKind::Build);
         assert_eq!(task.argv, vec!["cargo".to_string(), "build".to_string()]);
         assert_eq!(task.fan_out, FanOut::WholeWorkspace);
         assert_eq!(task.origin, TaskOrigin::AdapterDefault);
         assert_eq!(task.readiness, Readiness::Started);
         assert_eq!(task.readiness_timeout, DEFAULT_READINESS_TIMEOUT);
-        assert!(task.name.is_none());
         assert!(task.selector.is_empty());
         assert!(!task.cache_args);
         assert!(task.shared_inputs.is_empty());
@@ -100,9 +113,31 @@ mod tests {
     }
 
     #[test]
+    fn unrecognized_name_defaults_kind() {
+        let task = Task::new(
+            "bench",
+            vec!["cargo".into(), "bench".into()],
+            FanOut::PerModule,
+        );
+        assert_eq!(task.kind, TaskKind::Default);
+    }
+
+    #[test]
+    fn with_kind_overrides_recognition() {
+        let task = Task::new(
+            "test-integration",
+            vec!["cargo".into(), "test".into()],
+            FanOut::PerModule,
+        )
+        .with_kind(TaskKind::Test);
+        assert_eq!(task.name, "test-integration");
+        assert_eq!(task.kind, TaskKind::Test);
+    }
+
+    #[test]
     fn round_trips_through_toml() {
         let task = Task::new(
-            TaskKind::Test,
+            "test",
             vec!["cargo".into(), "test".into()],
             FanOut::PerModule,
         );

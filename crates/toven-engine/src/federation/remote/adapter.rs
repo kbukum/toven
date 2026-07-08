@@ -32,8 +32,8 @@ use super::super::protocol::handshake::{
 use super::client::{DEFAULT_RPC_TIMEOUT, RpcClient};
 use super::process::{self, ChildHandle};
 
-/// Every built-in [`TaskKind`] whose default run strategy is prefetched.
-const BUILTIN_KINDS: [TaskKind; 7] = [
+/// Every recognized [`TaskKind`] whose default run strategy is prefetched.
+const RECOGNIZED_KINDS: [TaskKind; 8] = [
     TaskKind::Build,
     TaskKind::Check,
     TaskKind::Format,
@@ -41,6 +41,7 @@ const BUILTIN_KINDS: [TaskKind; 7] = [
     TaskKind::Test,
     TaskKind::Doc,
     TaskKind::Run,
+    TaskKind::Default,
 ];
 
 /// A driven ecosystem adapter that mirrors the port surface over the transport.
@@ -49,15 +50,9 @@ pub struct RemoteAdapter {
     client: Mutex<RpcClient>,
     common: CommonEcosystemConfig,
     probe: ToolchainProbe,
-    /// Prefetched run strategy per built-in kind name.
+    /// Prefetched run strategy per recognized kind name (the closed
+    /// [`RECOGNIZED_KINDS`] set, including [`TaskKind::Default`]).
     run_strategies: std::collections::HashMap<String, RunStrategy>,
-    /// Prefetched run strategy per **declared** custom task name (those present in
-    /// the driver's resolved config task table). A driver may vary its default
-    /// ordering by custom name, so each declared name is resolved up front.
-    custom_run_strategies: std::collections::HashMap<String, RunStrategy>,
-    /// Fallback run strategy for a [`TaskKind::Custom`] the driver did not declare
-    /// in its config task table (resolved once via a sentinel probe).
-    custom_run_strategy: RunStrategy,
 }
 
 impl RemoteAdapter {
@@ -148,28 +143,10 @@ impl RemoteAdapter {
         };
 
         let mut run_strategies = std::collections::HashMap::new();
-        for kind in BUILTIN_KINDS {
-            let strategy = fetch_run_strategy(&mut client, ecosystem.as_str(), &kind)?;
-            run_strategies.insert(kind.name().to_string(), strategy);
+        for kind in RECOGNIZED_KINDS {
+            let strategy = fetch_run_strategy(&mut client, ecosystem.as_str(), kind)?;
+            run_strategies.insert(kind.as_str().to_string(), strategy);
         }
-
-        // A driver's `run_strategy_default` may branch on the custom task name, so
-        // prefetch the real default for every distinct custom task it declared in
-        // its resolved config task table rather than collapsing them onto one
-        // sentinel value.
-        let mut custom_run_strategies = std::collections::HashMap::new();
-        for name in distinct_custom_names(&welcome.common) {
-            let kind = TaskKind::Custom(name.clone());
-            let strategy = fetch_run_strategy(&mut client, ecosystem.as_str(), &kind)?;
-            custom_run_strategies.insert(name, strategy);
-        }
-        // The fallback for an *undeclared* custom task must reflect how the driver
-        // answers for a name it does not know, so probe with a sentinel guaranteed
-        // not to collide with any declared custom task (otherwise a real task named
-        // like the sentinel would leak its per-name strategy onto every unknown one).
-        let sentinel = unique_probe_name(&custom_run_strategies);
-        let custom_run_strategy =
-            fetch_run_strategy(&mut client, ecosystem.as_str(), &TaskKind::Custom(sentinel))?;
 
         Ok(Self {
             ecosystem,
@@ -177,8 +154,6 @@ impl RemoteAdapter {
             common: welcome.common,
             probe,
             run_strategies,
-            custom_run_strategies,
-            custom_run_strategy,
         })
     }
 }
@@ -204,21 +179,11 @@ impl ConfiguredAdapter for RemoteAdapter {
         self.probe.clone()
     }
 
-    fn run_strategy_default(&self, kind: &TaskKind) -> RunStrategy {
-        match kind {
-            // A declared custom task uses its driver's prefetched default; an
-            // undeclared one falls back to the generic custom default.
-            TaskKind::Custom(name) => self
-                .custom_run_strategies
-                .get(name)
-                .copied()
-                .unwrap_or(self.custom_run_strategy),
-            builtin => self
-                .run_strategies
-                .get(builtin.name())
-                .copied()
-                .unwrap_or(self.custom_run_strategy),
-        }
+    fn run_strategy_default(&self, kind: TaskKind) -> RunStrategy {
+        self.run_strategies
+            .get(kind.as_str())
+            .copied()
+            .unwrap_or(RunStrategy::LeafToTop)
     }
 
     fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseTarget>>> {
@@ -240,45 +205,13 @@ fn call(client: &mut RpcClient, request: &Request) -> AppResult<Response> {
         .map_err(|fault| fault.into_app_error(&ecosystem))
 }
 
-/// The distinct custom task names declared in the driver's resolved config task
-/// table, in table (sorted) order.
-///
-/// Used to prefetch each declared custom task's real run-strategy default rather
-/// than collapsing every custom kind onto a single sentinel value. A custom task
-/// is a config entry whose derived kind is [`TaskKind::Custom`].
-fn distinct_custom_names(common: &CommonEcosystemConfig) -> Vec<String> {
-    let mut seen = std::collections::HashSet::new();
-    let mut names = Vec::new();
-    for (key, entry) in &common.tasks {
-        if let (TaskKind::Custom(name), _) = entry.kind_and_name(key)
-            && seen.insert(name.clone())
-        {
-            names.push(name);
-        }
-    }
-    names
-}
-
-/// A custom-task name guaranteed not to be one of the `declared` custom tasks.
-///
-/// The fallback run strategy is meant to capture how a driver answers for a
-/// custom task it never declared, so the probe name must not collide with any
-/// declared name. Starts from a fixed sentinel and extends it until unique.
-fn unique_probe_name(declared: &std::collections::HashMap<String, RunStrategy>) -> String {
-    let mut name = "__toven_unknown_custom_probe__".to_string();
-    while declared.contains_key(&name) {
-        name.push('_');
-    }
-    name
-}
-
 /// Prefetch the run strategy for one kind.
 fn fetch_run_strategy(
     client: &mut RpcClient,
     ecosystem: &str,
-    kind: &TaskKind,
+    kind: TaskKind,
 ) -> AppResult<RunStrategy> {
-    match call(client, &Request::RunStrategy { kind: kind.clone() })? {
+    match call(client, &Request::RunStrategy { kind })? {
         Response::RunStrategy(strategy) => Ok(strategy),
         other => Err(unexpected(ecosystem, "run_strategy", &other)),
     }

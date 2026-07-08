@@ -169,7 +169,7 @@ mod tests {
     use serde_json::json;
     use toven_model::{AbsPath, DepKind, EcosystemId, Edge, Module, ModuleRef, RepoPath};
     use toven_ports::{
-        BaselineSpec, ChangeRecord, ChangeStatus, DiscoverResponse, Provider, TaskKind,
+        BaselineSpec, ChangeRecord, ChangeStatus, DiscoverResponse, Provider, TaskIntent,
     };
     use toven_testkit::{
         FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, RecordingReporter,
@@ -223,8 +223,13 @@ mod tests {
             .with_release_target(FakeReleaseTarget::new());
         let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
         let providers: Vec<&dyn Provider> = vec![&provider];
-        let request = PlanRequest::new("r1", "t", TaskKind::Test, AbsPath::new("/repo").unwrap())
-            .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+        let request = PlanRequest::new(
+            "r1",
+            "t",
+            TaskIntent::resolve("test"),
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
         let vcs = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
             "crates/core/src/lib.rs",
             ChangeStatus::Modified,
@@ -260,8 +265,13 @@ mod tests {
             .with_release_target(FakeReleaseTarget::new());
         let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
         let providers: Vec<&dyn Provider> = vec![&provider];
-        let request = PlanRequest::new("r1", "t", TaskKind::Test, AbsPath::new("/repo").unwrap())
-            .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+        let request = PlanRequest::new(
+            "r1",
+            "t",
+            TaskIntent::resolve("test"),
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
         let vcs = FakeVcsReader::new()
             .with_changed_since(vec![
                 ChangeRecord::new("crates/core/src/lib.rs", ChangeStatus::Modified),

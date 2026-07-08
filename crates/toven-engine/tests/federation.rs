@@ -43,7 +43,7 @@ fn scripted_go_adapter() -> FakeConfiguredAdapter {
     FakeConfiguredAdapter::new(eid("go"))
         .with_run_strategy(RunStrategy::Unordered)
         .with_tasks(vec![Task::new(
-            TaskKind::Build,
+            "build",
             vec!["go".into(), "build".into()],
             FanOut::WholeWorkspace,
         )])
@@ -91,11 +91,11 @@ fn remote_adapter_round_trips_the_port_surface_over_the_serve_double() {
     );
     assert_eq!(remote.toolchain_probe().program, "go");
     assert_eq!(
-        remote.run_strategy_default(&TaskKind::Build),
+        remote.run_strategy_default(TaskKind::Build),
         RunStrategy::Unordered
     );
     assert_eq!(
-        remote.run_strategy_default(&TaskKind::Custom("e2e".into())),
+        remote.run_strategy_default(TaskKind::Default),
         RunStrategy::Unordered
     );
 
@@ -106,100 +106,6 @@ fn remote_adapter_round_trips_the_port_surface_over_the_serve_double() {
     assert_eq!(response.schema_version, request.schema_version);
 
     // Dropping the adapter sends a graceful Shutdown; the server loop ends Ok.
-    drop(remote);
-    join.wait().expect("serve loop exits cleanly");
-}
-
-#[test]
-fn remote_adapter_mirrors_per_custom_name_run_strategies() {
-    // A driver whose `run_strategy_default` varies by custom task name must be
-    // mirrored faithfully: the umbrella prefetches each custom name declared in
-    // the config task table, so a declared name keeps its own strategy while an
-    // undeclared one falls back to the generic custom default.
-    let ServeDouble {
-        reader,
-        writer,
-        join,
-    } = ServeDouble::spawn(|| {
-        let adapter = FakeConfiguredAdapter::new(eid("go"))
-            .with_run_strategy(RunStrategy::LeafToTop)
-            .with_tasks(vec![Task::new(
-                TaskKind::Custom("e2e".into()),
-                vec!["go".into(), "test".into()],
-                FanOut::WholeWorkspace,
-            )])
-            .with_custom_run_strategy("e2e", RunStrategy::Unordered);
-        vec![Box::new(FakeProvider::new(eid("go")).with_adapter(adapter))]
-    })
-    .expect("serve double spawns");
-
-    let remote = RemoteAdapter::connect_io(
-        reader,
-        writer,
-        eid("go"),
-        serde_json::json!({ "modules": [] }),
-    )
-    .expect("handshake + prefetch succeed");
-
-    // The declared custom task keeps the driver's per-name strategy...
-    assert_eq!(
-        remote.run_strategy_default(&TaskKind::Custom("e2e".into())),
-        RunStrategy::Unordered
-    );
-    // ...while an undeclared custom name falls back to the generic default.
-    assert_eq!(
-        remote.run_strategy_default(&TaskKind::Custom("undeclared".into())),
-        RunStrategy::LeafToTop
-    );
-
-    drop(remote);
-    join.wait().expect("serve loop exits cleanly");
-}
-
-#[test]
-fn fallback_custom_strategy_is_isolated_from_a_sentinel_named_task() {
-    // The fallback for an *undeclared* custom task is prefetched with an internal
-    // sentinel name. A driver that happens to declare a real custom task must not
-    // poison that fallback even if its name resembles a probe sentinel: the
-    // declared task keeps its own strategy while undeclared names fall back to the
-    // driver's generic default, never the declared task's strategy.
-    let ServeDouble {
-        reader,
-        writer,
-        join,
-    } = ServeDouble::spawn(|| {
-        let adapter = FakeConfiguredAdapter::new(eid("go"))
-            .with_run_strategy(RunStrategy::LeafToTop)
-            .with_tasks(vec![Task::new(
-                TaskKind::Custom("__probe__".into()),
-                vec!["go".into(), "test".into()],
-                FanOut::WholeWorkspace,
-            )])
-            .with_custom_run_strategy("__probe__", RunStrategy::Unordered);
-        vec![Box::new(FakeProvider::new(eid("go")).with_adapter(adapter))]
-    })
-    .expect("serve double spawns");
-
-    let remote = RemoteAdapter::connect_io(
-        reader,
-        writer,
-        eid("go"),
-        serde_json::json!({ "modules": [] }),
-    )
-    .expect("handshake + prefetch succeed");
-
-    // The declared "__probe__" task keeps its own per-name strategy...
-    assert_eq!(
-        remote.run_strategy_default(&TaskKind::Custom("__probe__".into())),
-        RunStrategy::Unordered
-    );
-    // ...and an undeclared custom name falls back to the generic default, NOT the
-    // declared "__probe__" task's strategy (which a colliding sentinel would leak).
-    assert_eq!(
-        remote.run_strategy_default(&TaskKind::Custom("undeclared".into())),
-        RunStrategy::LeafToTop
-    );
-
     drop(remote);
     join.wait().expect("serve loop exits cleanly");
 }

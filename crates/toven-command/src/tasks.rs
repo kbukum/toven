@@ -13,7 +13,7 @@ use toven_ports::{RunStrategy, TaskKind};
 /// `format`/`lint` are independent and collapse into one wave. The user
 /// overrides via `run_strategy`.
 #[must_use]
-pub(crate) const fn default_run_strategy(kind: &TaskKind) -> RunStrategy {
+pub(crate) const fn default_run_strategy(kind: TaskKind) -> RunStrategy {
     match kind {
         TaskKind::Format | TaskKind::Lint => RunStrategy::Unordered,
         _ => RunStrategy::LeafToTop,
@@ -29,11 +29,11 @@ mod tests {
     #[test]
     fn run_strategy_defaults_by_kind() {
         assert_eq!(
-            default_run_strategy(&TaskKind::Build),
+            default_run_strategy(TaskKind::Build),
             RunStrategy::LeafToTop
         );
         assert_eq!(
-            default_run_strategy(&TaskKind::Format),
+            default_run_strategy(TaskKind::Format),
             RunStrategy::Unordered
         );
     }

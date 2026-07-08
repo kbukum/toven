@@ -5,14 +5,15 @@
 //! validates the graph, resolves the active set and per-workspace toolchains, then
 //! schedules the federated waves and bakes a static cache verdict into every unit.
 
-use rskit_errors::AppResult;
-use toven_model::{Event, ExecutionUnit, ModuleKey, Phase, Plan};
+use rskit_errors::{AppError, AppResult};
+use toven_model::{EcosystemId, Event, ExecutionUnit, ModuleKey, Phase, Plan};
 use toven_ports::{Provider, Reporter};
 
 use crate::config::Document;
 use crate::federation::resolve::PathDriverLocator;
 
 use super::cache::{self, KeyInputs};
+use super::configure::MemberAdapters;
 use super::host::PlanHost;
 use super::request::PlanRequest;
 use super::{affected, discover, front, schedule, toolchain};
@@ -41,6 +42,12 @@ pub fn plan(
         &locator,
         reporter,
     )?;
+
+    // Recognition is config-authoritative: the addressed task's `kind` attribute
+    // supersedes the name-derived default so a renamed task (`my-test` with
+    // `kind = "test"`) drives the kind-aware dev-edge rule below.
+    let recognized = recognize_intent(request, &context.adapters)?;
+    let request = recognized.as_ref().unwrap_or(request);
 
     reporter.emit(&Event::PhaseStarted {
         phase: Phase::Affected,
@@ -94,6 +101,67 @@ pub fn plan(
     })?;
 
     Ok(Plan::new(units, scheduled.waves))
+}
+
+/// Resolve the run's recognized kind from the configured task tables.
+///
+/// Returns a request with the addressed task's configured `kind` when it differs
+/// from the name-derived default (so `my-test` with `kind = "test"` is recognized
+/// as a Test run), or `None` when the token-derived kind already stands.
+///
+/// The recognized kind is the single non-[`Default`](toven_ports::TaskKind::Default)
+/// kind configured for the addressed name across every ecosystem. It is
+/// order-independent: all declaring ecosystems must agree. A cross-ecosystem
+/// conflict (one tags the name `test`, another `build`) is rejected with an
+/// actionable error rather than resolved by arbitrary iteration order.
+///
+/// # Errors
+/// Returns [`AppError::invalid_input`] when two ecosystems configure the same task
+/// name with different recognized kinds.
+fn recognize_intent(
+    request: &PlanRequest,
+    adapters: &MemberAdapters,
+) -> AppResult<Option<PlanRequest>> {
+    use toven_ports::TaskKind;
+
+    let name = request.intent.name();
+    let mut recognized: Option<(TaskKind, &EcosystemId)> = None;
+    for (_, ecosystem, adapter) in adapters.iter() {
+        let Some(kind) = adapter
+            .common()
+            .tasks
+            .get(name)
+            .map(|entry| entry.resolved_kind(name))
+            .filter(|kind| *kind != TaskKind::Default)
+        else {
+            continue;
+        };
+        match recognized {
+            Some((existing, first)) if existing != kind => {
+                return Err(AppError::invalid_input(
+                    format!("tasks.{name}.kind"),
+                    format!(
+                        "task '{name}' is configured with conflicting kinds across ecosystems \
+                         ('{first}' tags it '{}', '{ecosystem}' tags it '{}'); give the task a \
+                         single consistent kind",
+                        existing.as_str(),
+                        kind.as_str(),
+                    ),
+                ));
+            }
+            Some(_) => {}
+            None => recognized = Some((kind, ecosystem)),
+        }
+    }
+
+    let Some((recognized, _)) = recognized else {
+        return Ok(None);
+    };
+    Ok((recognized != request.intent.kind()).then(|| {
+        let mut request = request.clone();
+        request.intent = request.intent.clone().with_kind(recognized);
+        request
+    }))
 }
 
 /// Compute each unit's static cache verdict and emit `CacheDecided`.
@@ -156,7 +224,7 @@ fn decide_cache(
             id: planned.id.clone(),
             module: planned.module.clone(),
             members: planned.members.clone(),
-            kind: planned.kind.clone(),
+            task: planned.task.clone(),
             origin: planned.origin,
             workspace: planned.workspace.clone(),
             argv: planned.argv.clone(),

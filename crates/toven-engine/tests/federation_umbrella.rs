@@ -19,7 +19,7 @@ use toven_model::{
     WorkspaceId,
 };
 use toven_ports::{
-    BaselineSpec, ChangeRecord, ChangeStatus, DiscoverResponse, FanOut, Provider, Task, TaskKind,
+    BaselineSpec, ChangeRecord, ChangeStatus, DiscoverResponse, FanOut, Provider, Task, TaskIntent,
 };
 use toven_testkit::workspace::workspace;
 use toven_testkit::{
@@ -50,7 +50,7 @@ fn rust_core_provider() -> FakeProvider {
     module.workspace = Some(wsid("rust"));
     response.modules.push(module);
     let task = Task::new(
-        TaskKind::Test,
+        "test",
         vec!["cargo".to_string(), "test".to_string()],
         FanOut::WholeWorkspace,
     );
@@ -308,7 +308,7 @@ fn changed_selection_attributes_changes_to_the_owning_member() {
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let mut reporter = RecordingReporter::new();
 
-    let request = PlanRequest::new("run-1", "umbrella", TaskKind::Test, root)
+    let request = PlanRequest::new("run-1", "umbrella", TaskIntent::resolve("test"), root)
         .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
     let plan = plan(&request, &document, &providers, host, &mut reporter).expect("plan succeeds");
 

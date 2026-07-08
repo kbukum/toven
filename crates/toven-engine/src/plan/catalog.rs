@@ -58,12 +58,11 @@ pub struct EcosystemTasks {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct TaskSummary {
-    /// The canonical name a user types after `toven`/`toven run` — the explicit
-    /// per-task name for a named extra, else the built-in kind's canonical name
-    /// (e.g. `format`, never the underlying `fmt` subcommand).
+    /// The canonical name a user types after `toven`/`toven run` — the task's
+    /// identity (the config table key).
     pub name: String,
-    /// The task's canonical kind name (`build`, `test`, `format`, or a custom
-    /// name); equals [`name`](Self::name) except for named extras within a kind.
+    /// The task's recognized kind name (`build`, `test`, …, or `default` for a
+    /// task with no recognized kind).
     pub kind: String,
     /// Where this resolved task came from (adapter default / project / group).
     pub origin: TaskOrigin,
@@ -104,16 +103,11 @@ pub fn task_catalog(document: &Document, providers: &[&dyn Provider]) -> AppResu
     Ok(TaskCatalog { ecosystems })
 }
 
-/// Project one resolved [`Task`](toven_ports::Task) into a [`TaskSummary`],
-/// resolving its user-addressable canonical name.
+/// Project one resolved [`Task`](toven_ports::Task) into a [`TaskSummary`].
 fn summarize(task: toven_ports::Task) -> TaskSummary {
-    let name = task
-        .name
-        .clone()
-        .unwrap_or_else(|| task.kind.name().to_string());
     TaskSummary {
-        name,
-        kind: task.kind.name().to_string(),
+        name: task.name,
+        kind: task.kind.as_str().to_string(),
         origin: task.origin,
         fan_out: task.fan_out,
         persistent: task.persistent,
@@ -127,7 +121,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use toven_model::EcosystemId;
-    use toven_ports::{FanOut, Provider, Task, TaskKind, TaskOrigin};
+    use toven_ports::{FanOut, Provider, Task, TaskOrigin};
     use toven_testkit::{FakeConfiguredAdapter, FakeProvider};
 
     use super::task_catalog;
@@ -166,22 +160,21 @@ mod tests {
         // A whole-workspace format default (canonical `format`, not `fmt`), a
         // project override, and a custom task exercise the name/origin mapping.
         let format = Task::new(
-            TaskKind::Format,
+            "format",
             vec!["cargo".into(), "fmt".into()],
             FanOut::WholeWorkspace,
         );
         let mut lint = Task::new(
-            TaskKind::Lint,
+            "lint",
             vec!["cargo".into(), "clippy".into()],
             FanOut::Batchable,
         );
         lint.origin = TaskOrigin::Project;
         let mut custom = Task::new(
-            TaskKind::Custom("bench".into()),
+            "bench",
             vec!["cargo".into(), "bench".into()],
             FanOut::PerModule,
         );
-        custom.name = Some("bench".into());
         custom.origin = TaskOrigin::Project;
 
         let provider = provider_with_tasks("rust", vec![format, lint, custom]);
@@ -208,7 +201,7 @@ mod tests {
         let go = provider_with_tasks(
             "go",
             vec![Task::new(
-                TaskKind::Test,
+                "test",
                 vec!["go".into(), "test".into()],
                 FanOut::PerModule,
             )],
@@ -216,7 +209,7 @@ mod tests {
         let rust = provider_with_tasks(
             "rust",
             vec![Task::new(
-                TaskKind::Build,
+                "build",
                 vec!["cargo".into(), "build".into()],
                 FanOut::Batchable,
             )],

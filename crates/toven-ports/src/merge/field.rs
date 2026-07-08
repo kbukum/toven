@@ -16,9 +16,9 @@ use crate::{
 /// flips exactly one field while `selector`, `fan_out`, and the rest carry over.
 /// The result's [`origin`](Task::origin) becomes [`TaskOrigin::Project`].
 ///
-/// The default's `kind`/`name` (its slot identity) carry over unchanged:
-/// [`TaskOverride::kind`](crate::config::TaskOverride::kind) is a classifier the
-/// `Document` loader consumes when building named/custom extras that have no
+/// The default's `name` (its identity) and `kind` carry over unchanged:
+/// [`TaskOverride::kind`](crate::config::TaskOverride::kind) is a recognition
+/// attribute the `Document` loader consumes when building a task that has no
 /// matching default, not a field merged here.
 #[must_use]
 pub fn merge_task(default: &Task, over: &TaskOverride) -> Task {
@@ -75,12 +75,12 @@ mod tests {
     use super::merge_task;
     use crate::{
         config::TaskOverride,
-        task::{FanOut, Task, TaskKind, TaskOrigin},
+        task::{FanOut, Task, TaskOrigin},
     };
 
     fn default_test_task() -> Task {
         let mut task = Task::new(
-            TaskKind::Test,
+            "test",
             vec!["cargo".into(), "test".into(), "{module.selector}".into()],
             FanOut::Batchable,
         );

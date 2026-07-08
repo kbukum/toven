@@ -12,10 +12,10 @@ use toven_engine::plan::{
     CacheMode, NullCache, PlanHost, PlanRequest, Selection, dependency_graph, plan,
 };
 use toven_model::{
-    AbsPath, CacheVerdict, DepKind, Edge, Event, Module, ModuleRef, Phase, Plan, RepoPath,
-    TaskOrigin, ToolchainTag, Workspace, WorkspaceId,
+    AbsPath, CacheVerdict, DepKind, Edge, Event, Module, ModuleRef, ModuleSelector, Phase, Plan,
+    RepoPath, TaskOrigin, ToolchainTag, Workspace, WorkspaceId,
 };
-use toven_ports::{DiscoverResponse, FanOut, Provider, Task, TaskKind, TaskOverride};
+use toven_ports::{DiscoverResponse, FanOut, Provider, Task, TaskIntent, TaskKind, TaskOverride};
 use toven_testkit::{
     CountingToolchainProber, FakeCacheStore, FakeConfiguredAdapter, FakeProvider, FakeSourceDigest,
     FakeVcsReader, RecordingCacheStore, RecordingReporter,
@@ -56,7 +56,7 @@ fn rust_provider() -> FakeProvider {
     ));
 
     let task = Task::new(
-        TaskKind::Test,
+        "test",
         vec!["cargo".to_string(), "test".to_string()],
         FanOut::WholeWorkspace,
     );
@@ -112,7 +112,7 @@ fn rust_provider_with_shared_input(path: &str) -> FakeProvider {
     ));
 
     let mut task = Task::new(
-        TaskKind::Test,
+        "test",
         vec!["cargo".to_string(), "test".to_string()],
         FanOut::WholeWorkspace,
     );
@@ -138,7 +138,7 @@ fn document() -> Document {
     }
 }
 
-fn request(intent: TaskKind) -> PlanRequest {
+fn request(intent: TaskIntent) -> PlanRequest {
     PlanRequest::new(
         "run-1",
         "toven",
@@ -181,7 +181,7 @@ fn plans_full_federation_into_leaf_first_waves() {
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let plan = plan(
-        &request(TaskKind::Test),
+        &request(TaskIntent::resolve("test")),
         &document(),
         &providers,
         host,
@@ -201,7 +201,7 @@ fn plans_full_federation_into_leaf_first_waves() {
     assert_eq!(app.members.len(), 2);
     assert_eq!(app.argv, vec!["cargo".to_string(), "test".to_string()]);
     assert_eq!(app.workspace, Some(wsid("rust")));
-    assert_eq!(app.kind, "test");
+    assert_eq!(app.task, "test");
 
     // One probe for the single active workspace; every unit a miss under NullCache.
     assert_eq!(prober.calls(), 1);
@@ -241,7 +241,7 @@ fn group_task_override_splits_members_into_their_own_unit() {
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let plan = plan(
-        &request(TaskKind::Test),
+        &request(TaskIntent::resolve("test")),
         &document,
         &providers,
         host,
@@ -309,7 +309,7 @@ fn conflicting_group_task_overrides_are_rejected() {
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let error = plan(
-        &request(TaskKind::Test),
+        &request(TaskIntent::resolve("test")),
         &document,
         &providers,
         host,
@@ -332,7 +332,7 @@ fn emits_phase_and_plan_events_in_order() {
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
     plan(
-        &request(TaskKind::Test),
+        &request(TaskIntent::resolve("test")),
         &document(),
         &providers,
         host,
@@ -387,7 +387,7 @@ fn immutable_plan_round_trips_through_serde() {
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let plan = plan(
-        &request(TaskKind::Test),
+        &request(TaskIntent::resolve("test")),
         &document(),
         &providers,
         host,
@@ -416,7 +416,7 @@ fn disabled_cache_skips_unit_key_so_unreadable_shared_input_never_aborts_plan() 
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
-    let request = request(TaskKind::Test).with_cache_mode(CacheMode::Disabled);
+    let request = request(TaskIntent::resolve("test")).with_cache_mode(CacheMode::Disabled);
     let plan = plan(&request, &document(), &providers, host, &mut reporter).expect("plan succeeds");
 
     assert!(
@@ -438,7 +438,7 @@ fn force_mode_marks_every_unit_forced() {
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
-    let request = request(TaskKind::Test).with_cache_mode(CacheMode::Force);
+    let request = request(TaskIntent::resolve("test")).with_cache_mode(CacheMode::Force);
     let plan = plan(&request, &document(), &providers, host, &mut reporter).expect("plan succeeds");
 
     assert!(
@@ -464,7 +464,7 @@ fn changed_selection_restricts_active_units() {
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
-    let request = request(TaskKind::Test).with_selection(Selection::Changed(Some(
+    let request = request(TaskIntent::resolve("test")).with_selection(Selection::Changed(Some(
         toven_ports::BaselineSpec::explicit("main"),
     )));
     let plan = plan(&request, &document(), &providers, host, &mut reporter).expect("plan succeeds");
@@ -488,7 +488,7 @@ fn cache_keys_are_deterministic_and_drive_hits() {
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
     let host = PlanHost::new(&readers, &digest, &prober, &recording);
     plan(
-        &request(TaskKind::Test),
+        &request(TaskIntent::resolve("test")),
         &document(),
         &providers,
         host,
@@ -505,7 +505,7 @@ fn cache_keys_are_deterministic_and_drive_hits() {
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let plan = plan(
-        &request(TaskKind::Test),
+        &request(TaskIntent::resolve("test")),
         &document(),
         &providers,
         host,
@@ -519,4 +519,187 @@ fn cache_keys_are_deterministic_and_drive_hits() {
         .filter(|unit| unit.cache == CacheVerdict::Hit)
         .count();
     assert_eq!(hits, 1, "exactly one unit hits the seeded key");
+}
+
+/// A two-module rust workspace where `app` **dev**-depends on `errors`, exposing
+/// a renamed test task (`my-test`, `kind = "test"`) and a plain custom task
+/// (`deploy`, no recognized kind), each fanning per module.
+fn dev_dep_provider() -> FakeProvider {
+    let mut response = DiscoverResponse::new(eid("rust"));
+    response.workspaces.push(Workspace::new(
+        wsid("rust"),
+        RepoPath::new(".").expect("root"),
+        ToolchainTag::new("cargo"),
+    ));
+    response
+        .modules
+        .push(module("rust", "errors", "crates/errors", "rust"));
+    response
+        .modules
+        .push(module("rust", "app", "crates/app", "rust"));
+    response.edges.push(Edge::new(
+        mref("rust", "app"),
+        mref("rust", "errors"),
+        DepKind::Dev,
+    ));
+
+    let my_test = Task::new(
+        "my-test",
+        vec!["cargo".to_string(), "nextest".to_string()],
+        FanOut::PerModule,
+    )
+    .with_kind(TaskKind::Test);
+    let deploy = Task::new("deploy", vec!["./deploy.sh".to_string()], FanOut::PerModule);
+    let adapter = FakeConfiguredAdapter::new(eid("rust"))
+        .with_response(response)
+        .with_tasks(vec![my_test, deploy]);
+    FakeProvider::new(eid("rust")).with_adapter(adapter)
+}
+
+/// `--dependencies` on the renamed test task must pull the dev-only prerequisite
+/// into the plan: recognition reads the task's configured `kind = "test"`, not
+/// the typed token, so a renamed test still propagates dev edges.
+#[test]
+fn renamed_test_task_propagates_dev_edges_by_its_configured_kind() {
+    let provider = dev_dep_provider();
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
+    let cache = NullCache;
+    let mut reporter = RecordingReporter::new();
+
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let request = request(TaskIntent::resolve("my-test")).with_selection(Selection::Explicit {
+        targets: vec![ModuleSelector::parse("rust:app").expect("selector")],
+        include_dependents: false,
+        include_dependencies: true,
+    });
+    let plan = plan(&request, &document(), &providers, host, &mut reporter).expect("plan succeeds");
+
+    let modules: std::collections::BTreeSet<&str> = plan
+        .units
+        .iter()
+        .flat_map(|unit| unit.members.iter().map(|key| key.module.name.as_str()))
+        .collect();
+    assert!(
+        modules.contains("errors"),
+        "the dev-only prerequisite is pulled in: {modules:?}"
+    );
+    // The task is addressable by its renamed name: its own argv is rendered.
+    assert!(
+        plan.units
+            .iter()
+            .any(|unit| unit.argv == ["cargo".to_string(), "nextest".to_string()]),
+        "the renamed task's argv is scheduled"
+    );
+}
+
+/// A plain named task with no recognized kind gets default (non-Test) edge
+/// semantics: `--dependencies` does not cross the dev-only edge.
+#[test]
+fn plain_task_does_not_propagate_dev_edges() {
+    let provider = dev_dep_provider();
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
+    let cache = NullCache;
+    let mut reporter = RecordingReporter::new();
+
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let request = request(TaskIntent::resolve("deploy")).with_selection(Selection::Explicit {
+        targets: vec![ModuleSelector::parse("rust:app").expect("selector")],
+        include_dependents: false,
+        include_dependencies: true,
+    });
+    let plan = plan(&request, &document(), &providers, host, &mut reporter).expect("plan succeeds");
+
+    let modules: std::collections::BTreeSet<&str> = plan
+        .units
+        .iter()
+        .flat_map(|unit| unit.members.iter().map(|key| key.module.name.as_str()))
+        .collect();
+    assert_eq!(
+        modules,
+        std::collections::BTreeSet::from(["app"]),
+        "a plain task does not cross the dev-only edge: {modules:?}"
+    );
+}
+
+/// Two ecosystems that tag the **same** task name with conflicting recognized
+/// kinds: `rust` calls `verify` a `test`, `go` calls it a `build`.
+fn conflicting_kind_providers() -> (FakeProvider, FakeProvider) {
+    let mut rust = DiscoverResponse::new(eid("rust"));
+    rust.workspaces.push(Workspace::new(
+        wsid("rust"),
+        RepoPath::new(".").expect("root"),
+        ToolchainTag::new("cargo"),
+    ));
+    rust.modules
+        .push(module("rust", "app", "crates/app", "rust"));
+    let rust_verify = Task::new(
+        "verify",
+        vec!["cargo".to_string(), "test".to_string()],
+        FanOut::PerModule,
+    )
+    .with_kind(TaskKind::Test);
+    let rust_adapter = FakeConfiguredAdapter::new(eid("rust"))
+        .with_response(rust)
+        .with_tasks(vec![rust_verify]);
+
+    let mut go = DiscoverResponse::new(eid("go"));
+    go.workspaces.push(Workspace::new(
+        wsid("go"),
+        RepoPath::new(".").expect("root"),
+        ToolchainTag::new("go"),
+    ));
+    go.modules.push(module("go", "svc", "services/svc", "go"));
+    let go_verify = Task::new(
+        "verify",
+        vec!["go".to_string(), "build".to_string()],
+        FanOut::PerModule,
+    )
+    .with_kind(TaskKind::Build);
+    let go_adapter = FakeConfiguredAdapter::new(eid("go"))
+        .with_response(go)
+        .with_tasks(vec![go_verify]);
+
+    (
+        FakeProvider::new(eid("rust")).with_adapter(rust_adapter),
+        FakeProvider::new(eid("go")).with_adapter(go_adapter),
+    )
+}
+
+/// Recognition is order-independent: when two ecosystems configure the same task
+/// name with different kinds the plan fails closed with an actionable error,
+/// rather than resolving the kind by arbitrary adapter iteration order.
+#[test]
+fn conflicting_task_kinds_across_ecosystems_are_rejected() {
+    let (rust, go) = conflicting_kind_providers();
+    let providers: Vec<&dyn Provider> = vec![&rust, &go];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
+    let cache = NullCache;
+    let mut reporter = RecordingReporter::new();
+
+    let mut document = document();
+    document.ecosystems.insert(eid("go"), serde_json::json!({}));
+
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let error = plan(
+        &request(TaskIntent::resolve("verify")),
+        &document,
+        &providers,
+        host,
+        &mut reporter,
+    )
+    .expect_err("conflicting cross-ecosystem kinds rejected");
+    let message = error.to_string();
+    assert!(message.contains("conflicting kinds"), "{message}");
+    assert!(message.contains("verify"), "{message}");
 }

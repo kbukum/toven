@@ -79,7 +79,7 @@ impl ConfiguredAdapter for CommandAdapter {
         ToolchainProbe::new(DEFAULT_TOOL, DEFAULT_TOOL, vec!["--version".to_string()])
     }
 
-    fn run_strategy_default(&self, kind: &TaskKind) -> RunStrategy {
+    fn run_strategy_default(&self, kind: TaskKind) -> RunStrategy {
         self.config
             .common
             .run_strategy

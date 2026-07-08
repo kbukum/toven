@@ -1,7 +1,7 @@
 //! The PLAN inputs: what to plan, where, against which change baseline.
 
 use toven_model::{AbsPath, ModuleSelector};
-use toven_ports::{BaselineSpec, TaskKind};
+use toven_ports::{BaselineSpec, TaskIntent};
 
 /// How the active module set is selected before scheduling.
 ///
@@ -62,8 +62,8 @@ pub struct PlanRequest {
     pub run_id: String,
     /// Human-facing project name (from `[project].name`), echoed into events.
     pub project: String,
-    /// The task kind to plan across the federation (e.g. [`TaskKind::Test`]).
-    pub intent: TaskKind,
+    /// The task to plan across the federation: its name plus recognized kind.
+    pub intent: TaskIntent,
     /// Absolute project root discovery and source hashing resolve against.
     pub project_root: AbsPath,
     /// User passthrough args, spliced verbatim at each task's `{args}` point.
@@ -81,7 +81,7 @@ impl PlanRequest {
     pub fn new(
         run_id: impl Into<String>,
         project: impl Into<String>,
-        intent: TaskKind,
+        intent: TaskIntent,
         project_root: AbsPath,
     ) -> Self {
         Self {

@@ -19,7 +19,7 @@ use toven_engine::plan::{
 };
 use toven_engine::vcs::BaselineFlags;
 use toven_model::{Event, Graph, Plan};
-use toven_ports::{Provider, Reporter, TaskKind};
+use toven_ports::{Provider, Reporter, TaskIntent};
 
 use crate::commands::selection::TaskSelection;
 use crate::flags::GraphFormat;
@@ -49,7 +49,7 @@ impl Reporter for QuietReporter {
 fn build_plan(
     providers: &[&dyn Provider],
     project: &Project,
-    intent: TaskKind,
+    intent: TaskIntent,
     baseline: &BaselineFlags,
     selection: Selection,
 ) -> AppResult<Plan> {
@@ -106,7 +106,7 @@ pub(crate) fn modules(providers: &[&dyn Provider], project: &Project) -> AppResu
 pub(crate) fn affected(
     providers: &[&dyn Provider],
     project: &Project,
-    intent: TaskKind,
+    intent: TaskIntent,
     selection: &TaskSelection,
 ) -> AppResult<ExitCode> {
     let resolved = selection.resolve(project.document.project.base_ref.as_deref())?;
@@ -142,7 +142,7 @@ pub(crate) fn graph(
 pub(crate) fn explain(
     providers: &[&dyn Provider],
     project: &Project,
-    intent: TaskKind,
+    intent: TaskIntent,
     selection: &TaskSelection,
 ) -> AppResult<ExitCode> {
     let resolved = selection.resolve(project.document.project.base_ref.as_deref())?;
@@ -167,7 +167,7 @@ pub(crate) fn explain(
                     .collect::<Vec<_>>()
                     .join(", "),
             )
-            .add("task", unit.kind.clone())
+            .add("task", unit.task.clone())
             .add("origin", unit.origin.as_str().to_string())
             .add("argv", format!("{:?}", unit.argv))
             .add("persistent", unit.persistent.to_string())
@@ -341,7 +341,7 @@ mod tests {
             id: "rust#test".to_string(),
             module: ModuleKey::bare(mref("app")),
             members: vec![ModuleKey::bare(mref("app")), ModuleKey::bare(mref("core"))],
-            kind: "test".to_string(),
+            task: "test".to_string(),
             origin: toven_model::TaskOrigin::AdapterDefault,
             workspace: None,
             argv: vec!["cargo".to_string(), "test".to_string()],
