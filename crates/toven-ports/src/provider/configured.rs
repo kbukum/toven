@@ -24,7 +24,7 @@ pub trait ConfiguredAdapter {
     fn toolchain_probe(&self) -> ToolchainProbe;
 
     /// The default wave-ordering policy for `kind` (ecosystem override applied).
-    fn run_strategy_default(&self, kind: &TaskKind) -> RunStrategy;
+    fn run_strategy_default(&self, kind: TaskKind) -> RunStrategy;
 
     /// The release target for this ecosystem, or `None` when not publishable
     /// (`publish = false` / no registry).

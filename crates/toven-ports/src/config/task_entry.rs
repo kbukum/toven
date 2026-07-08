@@ -12,17 +12,18 @@ use crate::task::{FanOut, Readiness, Task, TaskKind, TaskOrigin};
 ///
 /// Since [`toven init`](crate::provider::Provider::render) writes the full task
 /// table into `toven.toml`, the config — not a compiled-in adapter default — is
-/// the authoritative source of tasks. Each entry carries the two-template
-/// command (`argv` + `selector`) plus the scheduling attributes the engine needs.
-/// Its [`kind`](Self::kind) is derived from the table key for built-in names
-/// (`test`, `build`, …) and treated as [`Custom`](TaskKind::Custom) otherwise; an
-/// explicit `kind` marks a named extra within a built-in kind (e.g. a
-/// `test-integration` entry with `kind = "test"`).
+/// the authoritative source of tasks. The table key is the task's identity (the
+/// name a user types); each entry carries the two-template command (`argv` +
+/// `selector`) plus the scheduling attributes the engine needs. Its
+/// [`kind`](Self::kind) is an optional recognition attribute: when omitted it
+/// defaults to the recognized kind matching the key (`test` → `Test`), and it can
+/// be set explicitly to preserve recognition across a rename (e.g. a `my-test`
+/// entry with `kind = "test"`).
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TaskEntry {
-    /// Explicit classifier for a named extra; omitted for a plain built-in or
-    /// custom task, where the kind is derived from the table key.
+    /// Optional recognition attribute; when omitted it defaults to the recognized
+    /// kind matching the table key, else [`TaskKind::Default`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<TaskKind>,
     /// The base argv template, rendered once per unit. Must be non-empty.
@@ -62,25 +63,19 @@ const fn is_false(value: &bool) -> bool {
 }
 
 impl TaskEntry {
-    /// The [`TaskKind`] and user-addressable name this entry resolves to under
-    /// `key`: an explicit [`kind`](Self::kind) marks a named extra (name = `key`),
-    /// otherwise the kind is derived from `key` (built-in or
-    /// [`Custom`](TaskKind::Custom)) with no separate name.
+    /// The recognized [`TaskKind`] this entry resolves to under `key`: the
+    /// explicit [`kind`](Self::kind) when set, else the recognized kind matching
+    /// `key`, else [`TaskKind::Default`].
     #[must_use]
-    pub fn kind_and_name(&self, key: &str) -> (TaskKind, Option<String>) {
-        self.kind.as_ref().map_or_else(
-            || {
-                (
-                    TaskKind::builtin(key).unwrap_or_else(|| TaskKind::Custom(key.to_string())),
-                    None,
-                )
-            },
-            |kind| (kind.clone(), Some(key.to_string())),
-        )
+    pub fn resolved_kind(&self, key: &str) -> TaskKind {
+        self.kind
+            .or_else(|| TaskKind::from_name(key))
+            .unwrap_or(TaskKind::Default)
     }
 
     /// Materialize this config entry (under table key `key`) into a resolved
-    /// [`Task`] with [`TaskOrigin::Project`].
+    /// [`Task`] with [`TaskOrigin::Project`]. The `key` becomes the task's name
+    /// identity; its recognized kind is [`resolved_kind`](Self::resolved_kind).
     ///
     /// # Errors
     /// Returns a typed error citing `ecosystems.<ecosystem>.tasks.<key>` when
@@ -94,9 +89,8 @@ impl TaskEntry {
             ));
         }
 
-        let (kind, name) = self.kind_and_name(key);
-        let mut task = Task::new(kind, self.argv.clone(), self.fan_out);
-        task.name = name;
+        let mut task =
+            Task::new(key, self.argv.clone(), self.fan_out).with_kind(self.resolved_kind(key));
         task.origin = TaskOrigin::Project;
         task.selector.clone_from(&self.selector);
         task.cache_args = self.cache_args;
@@ -138,33 +132,31 @@ mod tests {
     }
 
     #[test]
-    fn builtin_key_derives_kind_without_name() {
+    fn builtin_key_derives_kind_and_name() {
         let task = entry(&["cargo", "test"])
             .materialize("rust", "test")
             .expect("materializes");
+        assert_eq!(task.name, "test");
         assert_eq!(task.kind, TaskKind::Test);
-        assert!(task.name.is_none());
         assert_eq!(task.origin, TaskOrigin::Project);
     }
 
     #[test]
-    fn unknown_key_derives_custom_kind() {
+    fn unrecognized_key_defaults_kind() {
         let task = entry(&["cargo", "bench"])
             .materialize("rust", "bench")
             .expect("materializes");
-        assert_eq!(task.kind, TaskKind::Custom("bench".into()));
-        assert!(task.name.is_none());
+        assert_eq!(task.name, "bench");
+        assert_eq!(task.kind, TaskKind::Default);
     }
 
     #[test]
-    fn explicit_kind_marks_a_named_extra() {
+    fn explicit_kind_preserves_recognition_across_rename() {
         let mut entry = entry(&["cargo", "test", "--test", "it"]);
         entry.kind = Some(TaskKind::Test);
-        let task = entry
-            .materialize("rust", "test-integration")
-            .expect("materializes");
+        let task = entry.materialize("rust", "my-test").expect("materializes");
+        assert_eq!(task.name, "my-test");
         assert_eq!(task.kind, TaskKind::Test);
-        assert_eq!(task.name.as_deref(), Some("test-integration"));
     }
 
     #[test]

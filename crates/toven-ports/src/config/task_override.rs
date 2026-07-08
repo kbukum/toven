@@ -19,8 +19,8 @@ use crate::task::{FanOut, Readiness, TaskKind};
 #[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TaskOverride {
-    /// Classifier for named extras / custom tasks; ignored when the table key is
-    /// already a built-in kind.
+    /// Recognition attribute for the task; ignored when the table key already
+    /// matches a recognized kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<TaskKind>,
     /// Replacement base argv template.

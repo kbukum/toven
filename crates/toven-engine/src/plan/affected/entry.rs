@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use rskit_errors::AppResult;
 use toven_model::{DepKind, Graph, Module, ModuleKey};
-use toven_ports::{ChangeRecord, ChangeStatus, TaskKind};
+use toven_ports::{ChangeRecord, ChangeStatus, TaskIntent, TaskKind};
 
 use crate::federation::baseline::MemberVcsReaders;
 
@@ -79,8 +79,8 @@ pub(super) fn all_modules(graph: &Graph) -> BTreeSet<ModuleKey> {
 /// Build/normal/overlay edges always propagate; `Dev` edges propagate only for a
 /// [`TaskKind::Test`] run (a dev-only change affects tests but not downstream
 /// builds).
-fn dependents_filter(intent: &TaskKind) -> impl Fn(DepKind) -> bool {
-    let is_test = matches!(intent, TaskKind::Test);
+fn dependents_filter(intent: &TaskIntent) -> impl Fn(DepKind) -> bool {
+    let is_test = intent.kind() == TaskKind::Test;
     move |kind: DepKind| {
         matches!(kind, DepKind::Normal | DepKind::Build | DepKind::Overlay)
             || (is_test && kind == DepKind::Dev)
@@ -93,8 +93,8 @@ fn dependents_filter(intent: &TaskKind) -> impl Fn(DepKind) -> bool {
 /// Build/normal/overlay edges always propagate; `Dev` edges propagate only for a
 /// [`TaskKind::Test`] run, mirroring [`dependents_filter`] — a dev-only
 /// prerequisite is required to test a module but not to build it.
-fn dependencies_filter(intent: &TaskKind) -> impl Fn(DepKind) -> bool {
-    let is_test = matches!(intent, TaskKind::Test);
+fn dependencies_filter(intent: &TaskIntent) -> impl Fn(DepKind) -> bool {
+    let is_test = intent.kind() == TaskKind::Test;
     move |kind: DepKind| {
         matches!(kind, DepKind::Normal | DepKind::Build | DepKind::Overlay)
             || (is_test && kind == DepKind::Dev)

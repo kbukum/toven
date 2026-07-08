@@ -29,7 +29,6 @@ pub struct FakeConfiguredAdapter {
     response: DiscoverResponse,
     probe: ToolchainProbe,
     run_strategy: RunStrategy,
-    custom_run_strategies: std::collections::HashMap<String, RunStrategy>,
     release_target: Option<FakeReleaseTarget>,
     common: CommonEcosystemConfig,
 }
@@ -43,7 +42,6 @@ impl FakeConfiguredAdapter {
             response: DiscoverResponse::new(ecosystem),
             probe: ToolchainProbe::new("fake", "fake", vec!["--version".into()]),
             run_strategy: RunStrategy::LeafToTop,
-            custom_run_strategies: std::collections::HashMap::new(),
             release_target: None,
             common: CommonEcosystemConfig::default(),
         }
@@ -82,20 +80,6 @@ impl FakeConfiguredAdapter {
         self
     }
 
-    /// Script the run strategy returned for a specific [`TaskKind::Custom`] name.
-    ///
-    /// Lets a test prove a driver whose default ordering varies by custom task
-    /// name is mirrored faithfully (rather than collapsed onto one value).
-    #[must_use]
-    pub fn with_custom_run_strategy(
-        mut self,
-        name: impl Into<String>,
-        run_strategy: RunStrategy,
-    ) -> Self {
-        self.custom_run_strategies.insert(name.into(), run_strategy);
-        self
-    }
-
     /// Make this ecosystem publishable via the given [`FakeReleaseTarget`].
     #[must_use]
     pub fn with_release_target(mut self, target: FakeReleaseTarget) -> Self {
@@ -114,13 +98,11 @@ impl FakeConfiguredAdapter {
 /// Project a resolved [`Task`] into a `(key, TaskEntry)` config pair — the
 /// inverse of [`TaskEntry::materialize`](toven_ports::TaskEntry::materialize).
 fn task_entry(task: &Task) -> (String, TaskEntry) {
-    let key = task
-        .name
-        .clone()
-        .unwrap_or_else(|| task.kind.name().to_string());
-    // A named extra carries an explicit kind; a plain built-in/custom derives it
-    // from the key.
-    let kind = task.name.as_ref().map(|_| task.kind.clone());
+    let key = task.name.clone();
+    // Persist an explicit kind only when it is not the one derived from the name,
+    // so a renamed/tagged task round-trips its recognition attribute.
+    let derived = TaskKind::from_name(&task.name).unwrap_or(TaskKind::Default);
+    let kind = (derived != task.kind).then_some(task.kind);
     let readiness_timeout_secs = (task.readiness_timeout != DEFAULT_READINESS_TIMEOUT)
         .then_some(task.readiness_timeout.as_secs());
     let entry = TaskEntry {
@@ -148,12 +130,7 @@ impl ConfiguredAdapter for FakeConfiguredAdapter {
         self.probe.clone()
     }
 
-    fn run_strategy_default(&self, kind: &TaskKind) -> RunStrategy {
-        if let TaskKind::Custom(name) = kind
-            && let Some(strategy) = self.custom_run_strategies.get(name)
-        {
-            return *strategy;
-        }
+    fn run_strategy_default(&self, _kind: TaskKind) -> RunStrategy {
         self.run_strategy
     }
 
@@ -278,7 +255,7 @@ impl Provider for FakeProvider {
 #[cfg(test)]
 mod tests {
     use toven_model::{AbsPath, EcosystemId};
-    use toven_ports::{ConfiguredAdapter, DiscoverRequest, FanOut, Provider, Task, TaskKind};
+    use toven_ports::{ConfiguredAdapter, DiscoverRequest, FanOut, Provider, Task};
 
     use super::super::release::FakeReleaseTarget;
     use super::{FakeConfiguredAdapter, FakeProvider};
@@ -307,7 +284,7 @@ mod tests {
     #[test]
     fn with_tasks_projects_into_the_config_table() {
         let adapter = FakeConfiguredAdapter::new(rust()).with_tasks(vec![Task::new(
-            TaskKind::Test,
+            "test",
             vec!["cargo".into(), "test".into()],
             FanOut::Batchable,
         )]);

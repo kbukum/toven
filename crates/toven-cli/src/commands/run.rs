@@ -22,7 +22,7 @@ use toven_engine::plan::{
 use toven_engine::release::{ReleaseApplyOptions, release_run};
 use toven_engine::vcs::BaselineFlags;
 use toven_model::{CacheVerdict, Event, Plan, RunStats};
-use toven_ports::{CommandRunner, Provider, Reporter, TaskKind};
+use toven_ports::{CommandRunner, Provider, Reporter, TaskIntent};
 
 use crate::commands::selection::TaskSelection;
 use crate::host::{Project, Report, new_run_id};
@@ -53,7 +53,7 @@ pub(crate) fn execute(
     providers: &[&dyn Provider],
     project: &Project,
     report: Report,
-    intent: TaskKind,
+    intent: TaskIntent,
     passthrough: Vec<String>,
     fail_fast: bool,
     no_cache: bool,
@@ -172,7 +172,7 @@ pub(crate) fn release(
     let request = PlanRequest::new(
         new_run_id()?,
         project.document.project.name.clone(),
-        TaskKind::Custom("release".to_string()),
+        TaskIntent::resolve("release"),
         project.project_root.clone(),
     );
 

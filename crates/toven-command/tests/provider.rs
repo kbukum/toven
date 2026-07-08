@@ -49,13 +49,11 @@ fn only_user_declared_tasks_are_exposed_via_common_config() {
     let deploy = tasks.get("deploy").expect("deploy task");
     assert!(deploy.kind.is_none());
     assert_eq!(deploy.argv, ["./scripts/deploy.sh", "{module.name}"]);
-    assert_eq!(
-        deploy
-            .materialize("command", "deploy")
-            .expect("materialize")
-            .kind,
-        TaskKind::Custom("deploy".to_string())
-    );
+    let materialized = deploy
+        .materialize("command", "deploy")
+        .expect("materialize");
+    assert_eq!(materialized.name, "deploy");
+    assert_eq!(materialized.kind, TaskKind::Default);
 }
 
 #[test]

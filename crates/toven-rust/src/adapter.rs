@@ -39,7 +39,7 @@ impl ConfiguredAdapter for RustAdapter {
         toolchain::cargo_probe()
     }
 
-    fn run_strategy_default(&self, kind: &TaskKind) -> RunStrategy {
+    fn run_strategy_default(&self, kind: TaskKind) -> RunStrategy {
         self.config
             .common
             .run_strategy

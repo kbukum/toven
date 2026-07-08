@@ -13,6 +13,7 @@ use crate::config::Document;
 use crate::federation::resolve::PathDriverLocator;
 
 use super::cache::{self, KeyInputs};
+use super::configure::MemberAdapters;
 use super::host::PlanHost;
 use super::request::PlanRequest;
 use super::{affected, discover, front, schedule, toolchain};
@@ -41,6 +42,12 @@ pub fn plan(
         &locator,
         reporter,
     )?;
+
+    // Recognition is config-authoritative: the addressed task's `kind` attribute
+    // supersedes the name-derived default so a renamed task (`my-test` with
+    // `kind = "test"`) drives the kind-aware dev-edge rule below.
+    let recognized = recognize_intent(request, &context.adapters);
+    let request = recognized.as_ref().unwrap_or(request);
 
     reporter.emit(&Event::PhaseStarted {
         phase: Phase::Affected,
@@ -94,6 +101,30 @@ pub fn plan(
     })?;
 
     Ok(Plan::new(units, scheduled.waves))
+}
+
+/// Resolve the run's recognized kind from the configured task tables.
+///
+/// Returns a request with the addressed task's configured `kind` when it differs
+/// from the name-derived default (so `my-test` with `kind = "test"` is recognized
+/// as a Test run), or `None` when the token-derived kind already stands. The
+/// first configured task whose addressable name equals the intent, resolving to a
+/// non-[`Default`](toven_ports::TaskKind::Default) kind, wins.
+fn recognize_intent(request: &PlanRequest, adapters: &MemberAdapters) -> Option<PlanRequest> {
+    let name = request.intent.name();
+    let recognized = adapters.iter().find_map(|(_, _, adapter)| {
+        adapter
+            .common()
+            .tasks
+            .get(name)
+            .map(|entry| entry.resolved_kind(name))
+            .filter(|kind| *kind != toven_ports::TaskKind::Default)
+    })?;
+    (recognized != request.intent.kind()).then(|| {
+        let mut request = request.clone();
+        request.intent = request.intent.clone().with_kind(recognized);
+        request
+    })
 }
 
 /// Compute each unit's static cache verdict and emit `CacheDecided`.

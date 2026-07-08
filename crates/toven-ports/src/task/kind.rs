@@ -1,15 +1,20 @@
-//! Canonical task kind — the identity that drives CLI verbs and lifecycle order.
+//! Task kind — an optional recognition attribute, not a task's identity.
 
 use serde::{Deserialize, Serialize};
 
-/// Canonical, closed task vocabulary.
+/// A recognized task kind: an optional attribute that grants a named task a few
+/// kind-aware behaviors.
 ///
-/// The **kind** is a task's identity: it drives CLI verbs
-/// (`toven test`), lifecycle ordering (fmt → lint, build before test), and
-/// cross-ecosystem semantics ("run `test` everywhere"). [`Custom`](TaskKind::Custom)
-/// is the escape hatch for genuinely ad-hoc tasks.
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]
+/// A task's **identity** is its name (`[ecosystems.<id>.tasks.<name>]`), not its
+/// kind — `toven <name>` runs whatever the config defines, npm-scripts style.
+/// `kind` is a recognition tag that survives a rename: tag a task `kind = "test"`
+/// and it keeps the [`Test`](TaskKind::Test) dev-edge rule, cross-ecosystem
+/// fan-out matching, and the kind-aware run-strategy default even if the user
+/// renames it. A task with no recognized kind is [`Default`](TaskKind::Default) —
+/// a plain named task with none of those behaviors.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum TaskKind {
     /// Compile the project.
     Build,
@@ -19,23 +24,23 @@ pub enum TaskKind {
     Format,
     /// Lint sources.
     Lint,
-    /// Run the test suite.
+    /// Run the test suite (the one kind with a runtime rule: dev-edge propagation).
     Test,
     /// Build documentation.
     Doc,
-    /// Persistent / dev run (servers, watchers); adapter defaults are persistent.
+    /// Persistent / dev run (servers, watchers); seeds a persistent default at init.
     Run,
-    /// Genuinely ad-hoc task addressed by name.
-    Custom(String),
+    /// No recognized kind: a plain named task with no kind-aware behavior.
+    Default,
 }
 
 impl TaskKind {
-    /// Resolve a built-in kind from its canonical lowercase name.
+    /// Resolve a recognized kind from its canonical lowercase name.
     ///
-    /// Returns `None` for names that are not built-in kinds; the caller treats
-    /// those as [`Custom`](TaskKind::Custom).
+    /// Returns `None` for names outside the recognized set (including
+    /// `"default"`); the caller treats those as [`Default`](TaskKind::Default).
     #[must_use]
-    pub fn builtin(name: &str) -> Option<Self> {
+    pub fn from_name(name: &str) -> Option<Self> {
         Some(match name {
             "build" => Self::Build,
             "check" => Self::Check,
@@ -48,9 +53,9 @@ impl TaskKind {
         })
     }
 
-    /// Canonical lowercase name of this kind (the `Custom` payload for custom tasks).
+    /// The canonical lowercase name of this kind.
     #[must_use]
-    pub fn name(&self) -> &str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Build => "build",
             Self::Check => "check",
@@ -59,7 +64,7 @@ impl TaskKind {
             Self::Test => "test",
             Self::Doc => "doc",
             Self::Run => "run",
-            Self::Custom(name) => name,
+            Self::Default => "default",
         }
     }
 }
@@ -69,7 +74,7 @@ mod tests {
     use super::TaskKind;
 
     #[test]
-    fn builtin_round_trips_by_name() {
+    fn recognized_round_trips_by_name() {
         for kind in [
             TaskKind::Build,
             TaskKind::Check,
@@ -79,12 +84,13 @@ mod tests {
             TaskKind::Doc,
             TaskKind::Run,
         ] {
-            assert_eq!(TaskKind::builtin(kind.name()), Some(kind));
+            assert_eq!(TaskKind::from_name(kind.as_str()), Some(kind));
         }
     }
 
     #[test]
-    fn unknown_name_is_not_builtin() {
-        assert_eq!(TaskKind::builtin("bench"), None);
+    fn unrecognized_name_is_not_a_kind() {
+        assert_eq!(TaskKind::from_name("bench"), None);
+        assert_eq!(TaskKind::from_name("default"), None);
     }
 }
