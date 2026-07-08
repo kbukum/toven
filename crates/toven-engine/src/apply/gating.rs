@@ -100,12 +100,12 @@ mod tests {
     use super::{Gate, UnitState};
 
     fn unit(id: &str, depends_on: &[&str]) -> ExecutionUnit {
+        let module =
+            ModuleKey::bare(ModuleRef::new(EcosystemId::new("rust").unwrap(), "m").unwrap());
         ExecutionUnit {
             id: id.to_string(),
-            module: ModuleKey::bare(
-                ModuleRef::new(EcosystemId::new("rust").unwrap(), "m").unwrap(),
-            ),
-            members: Vec::new(),
+            module: module.clone(),
+            members: vec![module],
             task: "check".to_string(),
             origin: TaskOrigin::AdapterDefault,
             workspace: None,
