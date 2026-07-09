@@ -99,7 +99,7 @@ fn render_human(catalog: &TaskCatalog, detail: bool) {
 fn render_jsonl(catalog: &TaskCatalog) -> AppResult<()> {
     for eco in &catalog.ecosystems {
         for task in &eco.tasks {
-            let line = serde_json::to_string(&task_record(&eco.ecosystem, task))
+            let line = serde_json::to_string(&TaskRecord::project(&eco.ecosystem, task))
                 .map_err(AppError::internal)?;
             println!("{line}");
         }
@@ -108,17 +108,31 @@ fn render_jsonl(catalog: &TaskCatalog) -> AppResult<()> {
 }
 
 /// The stable JSON record for one task in the `jsonl` projection.
-fn task_record(ecosystem: &str, task: &TaskSummary) -> serde_json::Value {
-    serde_json::json!({
-        "ecosystem": ecosystem,
-        "task": &task.name,
-        "kind": &task.kind,
-        "origin": task.origin.as_str(),
-        "fan_out": task.fan_out.as_str(),
-        "persistent": task.persistent,
-        "argv": &task.argv,
-        "shared_inputs": &task.shared_inputs,
-    })
+#[derive(serde::Serialize)]
+struct TaskRecord<'a> {
+    ecosystem: &'a str,
+    task: &'a str,
+    kind: &'a str,
+    origin: &'a str,
+    fan_out: &'a str,
+    persistent: bool,
+    argv: &'a [String],
+    shared_inputs: &'a [String],
+}
+
+impl<'a> TaskRecord<'a> {
+    fn project(ecosystem: &'a str, task: &'a TaskSummary) -> Self {
+        Self {
+            ecosystem,
+            task: &task.name,
+            kind: &task.kind,
+            origin: task.origin.as_str(),
+            fan_out: task.fan_out.as_str(),
+            persistent: task.persistent,
+            argv: &task.argv,
+            shared_inputs: &task.shared_inputs,
+        }
+    }
 }
 
 const fn yes_no(value: bool) -> &'static str {

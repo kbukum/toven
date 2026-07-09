@@ -13,7 +13,6 @@
 use std::collections::BTreeSet;
 
 use rskit_cli::{ExitCode, OutputKV, OutputTable};
-use rskit_codec::{JsonCodec, encode};
 use rskit_errors::{AppError, AppResult};
 use toven_engine::federation::resolve::PathDriverLocator;
 use toven_engine::plan::{
@@ -287,7 +286,8 @@ fn print_module_table(title: &str, modules: Vec<String>) {
 }
 
 /// A discovered module paired with its owning workspace, for the `modules`
-/// projection.
+/// projection. Serializes directly as the stable `jsonl` record schema.
+#[derive(serde::Serialize)]
 struct ModuleRow {
     module: String,
     workspace: Option<String>,
@@ -321,12 +321,8 @@ fn render_modules_human(rows: &[ModuleRow]) {
 /// # Errors
 /// Propagates a serialization failure (never expected for these plain fields).
 fn render_modules_jsonl(rows: &[ModuleRow]) -> AppResult<()> {
-    const CODEC: JsonCodec = JsonCodec::compact();
     for row in rows {
-        let line = encode(
-            &CODEC,
-            &serde_json::json!({ "module": row.module, "workspace": row.workspace }),
-        )?;
+        let line = serde_json::to_string(row).map_err(AppError::internal)?;
         println!("{line}");
     }
     Ok(())
