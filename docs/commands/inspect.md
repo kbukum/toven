@@ -27,16 +27,20 @@ toven affected check --module rust:core --dependents
 
 Output is a table of `ecosystem:module` refs: the changed modules plus dependents (with a baseline), or the explicitly selected targets (with `--module`/`--workspace`).
 
+When a changed path cannot be attributed to any module — a config edit (`toven.toml`), a root-level file (`README`, CI, `LICENSE`, `.gitignore`), or the untracked `toven.toml` right after `init` — Toven forces **full activation** (every module) and emits a diagnostic naming the path(s): `full activation: toven.toml (affects all modules)`. This is correct: the config defines every module's tasks, argv, run strategy, and selectors, so an unattributable change can alter any module's plan. A precisely attributable source edit prints no such line. The diagnostic rides the `affected` projection's stdout stream; during a `toven <task>` run it goes to the human reporter on stderr.
+
 ## `toven explain <task>`
 
-Shows the planned unit(s) for a task, optionally filtered to a `--module`/`--workspace` selection:
+Shows the planned unit(s) for a task, optionally focused to a `--module`/`--workspace` selection:
 
 ```bash
-toven explain check                        # every module's unit for the task
-toven explain check --module rust:core     # one module's unit(s)
+toven explain check                        # every planned unit for the task
+toven explain check --module rust:core     # the real unit(s) rust:core runs in
 ```
 
-For each planned unit it prints a key/value block: `unit`, `representative`, `modules`, `task`, `origin`, `argv`, `persistent`, and `depends_on`. The `--module` value uses the shared selector grammar (bare name, `ecosystem:name`, `workspace/name`, or a glob); output stays the canonical `ecosystem:module` form. Omitting `--module` explains the whole active set for the task. `explain` does not use `--base`/`--merge-base`.
+With `--module`/`--workspace`, `explain` *focuses* the projection: it builds the full task plan and shows only the real batched unit(s) containing the selected module(s) — those members marked in a `target` field, their co-batched siblings still listed in `modules` — never a synthetic single-module cut. Without a focus it shows every planned unit for the scope, honoring `--base`/`--merge-base` changed selections. Selectors use the shared grammar (bare name, `ecosystem:name`, `workspace/name`, or a glob); output stays the canonical `ecosystem:module` form.
+
+Each unit prints: `unit`, `representative`, `modules`, `task`, `origin`, `argv`, `persistent`, `depends_on`, and `target` when focused.
 
 ## `toven modules` (`list`, `ls`)
 
@@ -44,7 +48,10 @@ Lists discovered modules as scope-qualified `ecosystem:module` refs. Takes no ta
 
 ```bash
 toven modules
+toven modules --output jsonl
 ```
+
+The human table carries a `Module` and a `Workspace` column, so modules that share a name across workspaces stay distinguishable in a large polyrepo. `--output jsonl` emits one object per module — its `module` (`ecosystem:module`) key and owning `workspace` (`null` when the module is not in a named workspace) — as a machine-readable stream on stdout.
 
 ## `toven graph` (`deps`)
 
@@ -57,7 +64,7 @@ toven graph --format dot
 
 ## `toven tasks`
 
-Lists the runnable tasks resolved for each ecosystem, so you can see every valid task name before running one. Task names are the *canonical* form (for example `format`, not the `fmt` shorthand):
+Lists the runnable tasks resolved for each ecosystem, so you can see every valid task name before running one. Task names are the identities defined in the config — the Rust format task is named `format`, even though the command it runs is `cargo fmt`:
 
 ```bash
 toven tasks

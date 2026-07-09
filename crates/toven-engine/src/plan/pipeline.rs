@@ -5,6 +5,8 @@
 //! validates the graph, resolves the active set and per-workspace toolchains, then
 //! schedules the federated waves and bakes a static cache verdict into every unit.
 
+use std::collections::BTreeSet;
+
 use rskit_errors::{AppError, AppResult};
 use toven_model::{EcosystemId, Event, ExecutionUnit, ModuleKey, Phase, Plan};
 use toven_ports::{Provider, Reporter};
@@ -15,8 +17,21 @@ use crate::federation::resolve::PathDriverLocator;
 use super::cache::{self, KeyInputs};
 use super::configure::MemberAdapters;
 use super::host::PlanHost;
-use super::request::PlanRequest;
+use super::request::{PlanRequest, Selection};
 use super::{affected, discover, front, schedule, toolchain};
+
+/// A plan projected for `explain`, paired with the resolved display focus.
+///
+/// [`plan_focused`] builds `plan` over the request's scope selection and, when a
+/// `focus` selection is given, resolves it to the concrete module keys the CLI
+/// narrows the shown units to. `focus` is `None` for an unfocused projection.
+#[derive(Debug)]
+pub struct FocusedPlan {
+    /// The immutable plan over the request's scope selection.
+    pub plan: Plan,
+    /// The module keys an explicit display focus resolved to, when given.
+    pub focus: Option<BTreeSet<ModuleKey>>,
+}
 
 /// Run the pure PLAN pipeline, producing one immutable [`Plan`].
 ///
@@ -34,6 +49,31 @@ pub fn plan(
     host: PlanHost<'_>,
     reporter: &mut dyn Reporter,
 ) -> AppResult<Plan> {
+    plan_focused(request, None, document, providers, host, reporter).map(|focused| focused.plan)
+}
+
+/// Run the PLAN pipeline and, when `focus` is given, additionally resolve it to
+/// the module keys an `explain --module`/`--workspace` projection filters to.
+///
+/// The `plan` is always built over `request.selection` (the scope); the `focus`
+/// selection never changes what is planned or how units batch — it only resolves,
+/// against the same discovered graph, which modules the caller wants to inspect.
+/// This keeps `explain --module X` showing the *real* batched unit `X` belongs to
+/// rather than a synthetic single-module cut. Focus resolution reuses the recognized
+/// intent, so its dependency/dependents closures honor the same kind-aware edge rules.
+///
+/// # Errors
+/// Propagates any phase failure (configure/discover/graph/affected/toolchain/
+/// schedule/cache) and any focus selector-resolution failure (unknown or ambiguous
+/// target).
+pub fn plan_focused(
+    request: &PlanRequest,
+    focus: Option<&Selection>,
+    document: &Document,
+    providers: &[&dyn Provider],
+    host: PlanHost<'_>,
+    reporter: &mut dyn Reporter,
+) -> AppResult<FocusedPlan> {
     let locator = PathDriverLocator::new();
     let context = front::prepare(
         &request.project_root,
@@ -53,6 +93,11 @@ pub fn plan(
         phase: Phase::Affected,
     })?;
     let active = affected::active_modules(request, &context.graph, &context.federation, host.vcs)?;
+    if !active.full_activation.is_empty() {
+        reporter.emit(&Event::FullActivation {
+            paths: active.full_activation.clone(),
+        })?;
+    }
     reporter.emit(&Event::PhaseFinished {
         phase: Phase::Affected,
     })?;
@@ -63,7 +108,7 @@ pub fn plan(
     let toolchains = toolchain::resolve(
         &request.project_root,
         &context.federation,
-        &active,
+        &active.modules,
         &context.adapters,
         host.prober,
     )?;
@@ -74,7 +119,7 @@ pub fn plan(
     reporter.emit(&Event::PhaseStarted {
         phase: Phase::Schedule,
     })?;
-    let active_list: Vec<ModuleKey> = active.iter().cloned().collect();
+    let active_list: Vec<ModuleKey> = active.modules.iter().cloned().collect();
     let scheduled = schedule::schedule(
         request,
         &context.federation,
@@ -100,7 +145,37 @@ pub fn plan(
         units: units.len(),
     })?;
 
-    Ok(Plan::new(units, scheduled.waves))
+    let focus = focus
+        .map(|selection| resolve_focus(request, selection, &context, host))
+        .transpose()?;
+
+    Ok(FocusedPlan {
+        plan: Plan::new(units, scheduled.waves),
+        focus,
+    })
+}
+
+/// Resolve an `explain` display focus to concrete module keys.
+///
+/// Reuses the same [`affected::active_modules`] resolution the scope uses, so an
+/// explicit focus selector (and its optional dependency/dependents closures) maps
+/// to modules exactly as a real selection would, including the typed unknown/
+/// ambiguous-target errors.
+fn resolve_focus(
+    request: &PlanRequest,
+    selection: &Selection,
+    context: &front::PlanContext,
+    host: PlanHost<'_>,
+) -> AppResult<BTreeSet<ModuleKey>> {
+    let mut focus_request = request.clone();
+    focus_request.selection = selection.clone();
+    affected::active_modules(
+        &focus_request,
+        &context.graph,
+        &context.federation,
+        host.vcs,
+    )
+    .map(|active| active.modules)
 }
 
 /// Resolve the run's recognized kind from the configured task tables.

@@ -25,6 +25,7 @@ use toven_model::{
     AbsPath, DepKind, Edge, Module, ModuleRef, RepoPath, ToolchainTag, Workspace, WorkspaceId,
 };
 use toven_ports::{DiscoverResponse, EcosystemFragment, FanOut, Provider, Task, TaskIntent};
+use toven_testkit::git::GitScenario;
 use toven_testkit::{
     CountingToolchainProber, FakeConfiguredAdapter, FakeDriverLocator, FakeDriverWizard,
     FakeProvider, FakeSourceDigest, FakeVcsReader, RecordingReporter, ScriptedAnswers, fixtures,
@@ -147,8 +148,54 @@ fn first_run_write_with_no_detected_ecosystem_reports_a_create() {
     assert!(generated.added.is_empty());
     assert!(generated.regenerated.is_empty());
     assert!(
+        generated
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("no ecosystem detected") && warning.contains("--root")),
+        "a no-ecosystem run surfaces actionable guidance: {:?}",
+        generated.warnings
+    );
+    assert!(
         dir.path().join("toven.toml").is_file(),
         "the file was written to disk"
+    );
+}
+
+#[test]
+fn first_run_defaults_the_project_name_to_the_git_top_level() {
+    let repo = TempDir::new().expect("temp dir");
+    let scenario = GitScenario::init(repo.path()).expect("init git repo");
+    let top_level = scenario
+        .root()
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("repo top-level has a name")
+        .to_string();
+
+    let nested = scenario.root().join("services").join("api");
+    scenario
+        .write_file("services/api/.keep", "")
+        .expect("create nested workspace");
+    let providers: Vec<&dyn Provider> = Vec::new();
+
+    let generated = init_with(
+        &nested,
+        &providers,
+        &FakeDriverWizard::new(),
+        &FakeDriverLocator::new(),
+        &ScriptedAnswers::new(),
+        None,
+        false,
+    )
+    .expect("generates");
+
+    assert!(
+        generated
+            .rendered
+            .contains(&format!("name = \"{top_level}\"")),
+        "the project name defaults to the git top-level `{top_level}`, not the \
+         nested dir name `api`: {}",
+        generated.rendered
     );
 }
 

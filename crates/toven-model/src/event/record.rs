@@ -53,6 +53,14 @@ pub enum Event {
         /// Human-readable, actionable warning text.
         message: String,
     },
+    /// The changed-path selection could not attribute one or more paths to a
+    /// module, so every module was activated (fail-closed). Advisory: it explains
+    /// *why* a full run was planned and never changes the outcome. Empty `paths`
+    /// is never emitted — the event fires only when a full activation was forced.
+    FullActivation {
+        /// The changed paths that no module or workspace could claim.
+        paths: Vec<String>,
+    },
 
     // ---- PLAN level ----
     /// The immutable plan was prepared (the PLAN→APPLY boundary).
@@ -134,6 +142,9 @@ mod tests {
         });
         round_trip(&Event::Warning {
             message: "ecosystem 'go' skipped: no driver installed".into(),
+        });
+        round_trip(&Event::FullActivation {
+            paths: vec!["toven.toml".into(), "README.md".into()],
         });
         round_trip(&Event::CacheDecided {
             unit_id: "u1".into(),

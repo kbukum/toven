@@ -65,6 +65,7 @@ impl<W: Write> HumanReporter<W> {
             Event::RunStarted { .. }
             | Event::RunFinished { .. }
             | Event::Warning { .. }
+            | Event::FullActivation { .. }
             | Event::WatchStarted { .. }
             | Event::WatchTriggered { .. }
             | Event::WatchRescan
@@ -186,6 +187,13 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
             Event::RunFinished { summary } => self.write_summary(summary),
             Event::Warning { message } => {
                 let line = format!("warning: {message}");
+                self.write_line(&self.palette.warn(&line))
+            }
+            Event::FullActivation { paths } => {
+                let line = format!(
+                    "full activation: {} (affects all modules)",
+                    paths.join(", ")
+                );
                 self.write_line(&self.palette.warn(&line))
             }
             Event::PhaseStarted { phase } => {

@@ -82,7 +82,9 @@ fn longest_prefix_seeds_the_changed_module_and_its_dependents() {
         "crates/errors/lib.rs",
         ChangeStatus::Modified,
     )]);
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
     assert!(active.contains(&mkey("rust", "errors")));
     assert!(active.contains(&mkey("rust", "app")));
 
@@ -91,7 +93,9 @@ fn longest_prefix_seeds_the_changed_module_and_its_dependents() {
         "crates/app/lib.rs",
         ChangeStatus::Modified,
     )]);
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
     assert_eq!(
         active,
         std::collections::BTreeSet::from([mkey("rust", "app")])
@@ -115,7 +119,9 @@ fn blast_radius_glob_activates_the_whole_workspace() {
         "Cargo.lock",
         ChangeStatus::Modified,
     )]);
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
     assert!(active.contains(&mkey("rust", "app")));
     assert!(active.contains(&mkey("rust", "errors")));
 }
@@ -141,7 +147,9 @@ fn closure_spans_ecosystems_via_overlay() {
         "crates/shared/lib.rs",
         ChangeStatus::Modified,
     )]);
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
     assert!(active.contains(&mkey("rust", "shared")));
     assert!(active.contains(&mkey("go", "api")));
 }
@@ -161,7 +169,40 @@ fn unclassifiable_path_fails_closed_to_all_modules() {
 
     let (request, vcs) = request_for(vec![ChangeRecord::new("README.md", ChangeStatus::Modified)]);
     let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
-    assert_eq!(active.len(), 2);
+    assert_eq!(active.modules.len(), 2);
+    assert_eq!(
+        active.full_activation,
+        vec!["README.md".to_string()],
+        "an unattributable root path must be reported as the full-activation reason"
+    );
+}
+
+#[test]
+fn an_attributable_change_reports_no_full_activation() {
+    let federation = Federation {
+        workspaces: vec![rust_workspace_with_blast()],
+        modules: vec![
+            module("rust", "app", "crates/app", Some("rust")),
+            module("rust", "errors", "crates/errors", Some("rust")),
+        ],
+        edges: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
+
+    let (request, vcs) = request_for(vec![ChangeRecord::new(
+        "crates/app/lib.rs",
+        ChangeStatus::Modified,
+    )]);
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    assert_eq!(
+        active.modules,
+        std::collections::BTreeSet::from([mkey("rust", "app")])
+    );
+    assert!(
+        active.full_activation.is_empty(),
+        "a precisely attributed change must not force full activation"
+    );
 }
 
 #[test]
@@ -220,7 +261,9 @@ fn member_readers_prefix_repo_changes_before_classification() {
     )
     .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
 
-    let active = active_modules(&request, &graph, &federation, &readers).unwrap();
+    let active = active_modules(&request, &graph, &federation, &readers)
+        .unwrap()
+        .modules;
 
     assert!(active.contains(&member_key("core", "rust", "shared")));
     assert!(active.contains(&member_key("gateway", "rust", "api")));
@@ -256,7 +299,9 @@ fn member_without_a_baseline_falls_back_to_the_request_spec() {
     )
     .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
 
-    let active = active_modules(&request, &graph, &federation, &readers).unwrap();
+    let active = active_modules(&request, &graph, &federation, &readers)
+        .unwrap()
+        .modules;
 
     assert!(active.contains(&ModuleKey::new(None, mref("rust", "shared"))));
 }
@@ -398,7 +443,9 @@ fn explicit_module_activates_exactly_that_module() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![sel("rust:errors")], false, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
 
     // Without dependents, the reverse-closure dependent (app) is not activated.
     assert_eq!(
@@ -413,7 +460,9 @@ fn bare_name_resolves_when_unique_across_ecosystems() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![sel("errors")], false, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
 
     assert_eq!(
         active,
@@ -441,7 +490,9 @@ fn bare_glob_matching_two_ecosystems_is_the_intended_set() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![sel("cor*")], false, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
 
     assert!(active.contains(&mkey("rust", "core")));
     assert!(active.contains(&mkey("go", "core")));
@@ -453,7 +504,9 @@ fn ecosystem_qualified_glob_scopes_to_its_ecosystem() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![sel("rust:*")], false, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
 
     assert!(active.contains(&mkey("rust", "core")));
     assert!(!active.contains(&mkey("go", "core")));
@@ -465,7 +518,9 @@ fn workspace_qualified_name_scopes_to_its_workspace() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![sel("rust/app")], false, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
 
     assert_eq!(
         active,
@@ -479,7 +534,9 @@ fn explicit_module_with_dependents_activates_the_closure() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![sel("rust:errors")], true, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
 
     assert!(active.contains(&mkey("rust", "errors")));
     assert!(active.contains(&mkey("rust", "app")));
@@ -492,7 +549,9 @@ fn explicit_module_with_dependencies_activates_the_forward_closure() {
     // app depends on errors; `--dependencies` pulls in the prerequisite.
     let request = explicit_request(vec![sel("rust:app")], false, true);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
 
     assert!(active.contains(&mkey("rust", "app")));
     assert!(active.contains(&mkey("rust", "errors")));
@@ -510,7 +569,9 @@ fn dev_only_dependency_is_excluded_from_the_forward_closure_of_a_build() {
         toven_ports::TaskIntent::resolve("build"),
     );
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
 
     assert_eq!(
         active,
@@ -530,7 +591,9 @@ fn dev_only_dependency_is_included_in_the_forward_closure_of_a_test() {
         toven_ports::TaskIntent::resolve("test"),
     );
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
 
     assert!(active.contains(&mkey("rust", "app")));
     assert!(active.contains(&mkey("rust", "errors")));
@@ -542,7 +605,9 @@ fn explicit_workspace_activates_every_owned_module() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![whole_ws("rust")], false, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
 
     assert!(active.contains(&mkey("rust", "app")));
     assert!(active.contains(&mkey("rust", "errors")));
@@ -589,7 +654,9 @@ fn explicit_overlapping_targets_do_not_false_error_as_unknown() {
     // adds no new seed.
     let request = explicit_request(vec![whole_ws("rust"), sel("rust:app")], false, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
 
     assert!(active.contains(&mkey("rust", "app")));
     assert!(active.contains(&mkey("rust", "errors")));
@@ -603,7 +670,9 @@ fn explicit_duplicate_module_targets_are_idempotent() {
     // the second (already-present) occurrence.
     let request = explicit_request(vec![sel("rust:errors"), sel("rust:errors")], false, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
 
     assert_eq!(
         active,
@@ -640,7 +709,9 @@ fn dependencies_and_dependents_union_excludes_prerequisite_siblings() {
     // but `other` — a mere co-dependent of base — must not leak in.
     let request = explicit_request(vec![sel("rust:lib")], true, true);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
 
     assert_eq!(
         active,

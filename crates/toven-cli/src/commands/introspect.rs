@@ -10,20 +10,23 @@
 //! `modules` and `graph` project the validated discovered [`Graph`] directly, so
 //! they do not depend on any particular task kind being configured or schedulable.
 
+use std::collections::BTreeSet;
+
 use rskit_cli::{ExitCode, OutputKV, OutputTable};
+use rskit_codec::{JsonCodec, encode};
 use rskit_errors::{AppError, AppResult};
 use toven_engine::federation::resolve::PathDriverLocator;
 use toven_engine::plan::{
-    CacheMode, FsSourceDigest, NullCache, PlanHost, PlanRequest, ProcessToolchainProber, Selection,
-    dependency_graph, plan,
+    CacheMode, FocusedPlan, FsSourceDigest, NullCache, PlanHost, PlanRequest,
+    ProcessToolchainProber, Selection, dependency_graph, plan_focused,
 };
 use toven_engine::vcs::BaselineFlags;
-use toven_model::{Event, Graph, Plan};
+use toven_model::{Event, ExecutionUnit, Graph, ModuleKey, Plan};
 use toven_ports::{Provider, Reporter, TaskIntent};
 
 use crate::commands::selection::TaskSelection;
-use crate::flags::GraphFormat;
-use crate::host::{Project, new_run_id};
+use crate::flags::{GraphFormat, OutputKind};
+use crate::host::{Project, new_run_id, resolve_output};
 
 /// A quiet [`Reporter`]: introspection prints its projection on stdout, while
 /// warnings still go to stderr so warn-and-skip diagnostics are visible.
@@ -31,8 +34,18 @@ struct QuietReporter;
 
 impl Reporter for QuietReporter {
     fn emit(&mut self, event: &Event) -> AppResult<()> {
-        if let Event::Warning { message } = event {
-            eprintln!("warning: {message}");
+        match event {
+            Event::Warning { message } => eprintln!("warning: {message}"),
+            // An introspection projection is machine-readable stdout, so the
+            // full-activation reason rides the same stream as the projection it
+            // explains (the `affected` table), never mixed onto stderr.
+            Event::FullActivation { paths } => {
+                println!(
+                    "full activation: {} (affects all modules)",
+                    paths.join(", ")
+                );
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -53,6 +66,27 @@ fn build_plan(
     baseline: &BaselineFlags,
     selection: Selection,
 ) -> AppResult<Plan> {
+    build_focused_plan(providers, project, intent, baseline, selection, None)
+        .map(|focused| focused.plan)
+}
+
+/// Build the plan for the scope `selection` and, when `focus` is given, resolve
+/// it to the module keys `explain` narrows its shown units to.
+///
+/// Caching is disabled and the reporter is quiet except for warnings, matching
+/// [`build_plan`]. The `focus` selection never changes what is planned — the plan
+/// is always built over `selection`, so a focused unit is the real batched unit.
+///
+/// # Errors
+/// Propagates PLAN-spine failures and any focus selector-resolution failure.
+fn build_focused_plan(
+    providers: &[&dyn Provider],
+    project: &Project,
+    intent: TaskIntent,
+    baseline: &BaselineFlags,
+    selection: Selection,
+    focus: Option<&Selection>,
+) -> AppResult<FocusedPlan> {
     let request = PlanRequest::new(
         new_run_id()?,
         project.document.project.name.clone(),
@@ -70,7 +104,14 @@ fn build_plan(
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
 
     let mut reporter = QuietReporter;
-    plan(&request, &project.document, providers, host, &mut reporter)
+    plan_focused(
+        &request,
+        focus,
+        &project.document,
+        providers,
+        host,
+        &mut reporter,
+    )
 }
 
 /// Build the validated discovered module graph for topology introspection verbs.
@@ -89,13 +130,26 @@ fn build_graph(providers: &[&dyn Provider], project: &Project) -> AppResult<Grap
     )
 }
 
-/// `toven modules` / `list` / `ls`: the discovered module set.
+/// `toven modules` / `list` / `ls`: the discovered module set with its workspace.
+///
+/// Renders a human table (Module, Workspace) by default, or a stable JSON-lines
+/// projection under `--output jsonl` so tooling can consume the module set. Both
+/// projections land on stdout per the introspection stream convention.
 ///
 /// # Errors
-/// Propagates [`build_graph`] failures.
-pub(crate) fn modules(providers: &[&dyn Provider], project: &Project) -> AppResult<ExitCode> {
+/// Propagates [`build_graph`] failures, or a serialization failure in the jsonl
+/// projection (never expected for these plain fields).
+pub(crate) fn modules(
+    providers: &[&dyn Provider],
+    project: &Project,
+    output: Option<OutputKind>,
+) -> AppResult<ExitCode> {
     let graph = build_graph(providers, project)?;
-    print_module_table("Modules", graph_module_names(&graph));
+    let rows = module_rows(&graph);
+    match resolve_output(output, &project.document) {
+        OutputKind::Jsonl => render_modules_jsonl(&rows)?,
+        OutputKind::Human => render_modules_human(&rows),
+    }
     Ok(ExitCode::Success)
 }
 
@@ -133,28 +187,60 @@ pub(crate) fn graph(
     Ok(ExitCode::Success)
 }
 
-/// `toven explain <task>`: the planned units for `task`, optionally filtered to
-/// a `--module`/`--workspace` selection.
+/// `toven explain <task>`: the planned units for `task`, optionally focused to a
+/// `--module`/`--workspace` selection.
+///
+/// An explicit selection focuses the projection: the plan is built over the full
+/// active set (so each shown unit is the *real* batched unit) and only the units
+/// whose members include a focus target are rendered, with the target members
+/// marked and their co-batched siblings shown in full. Without an explicit
+/// selection every planned unit is shown.
 ///
 /// # Errors
-/// Returns a not-found error when the (optionally filtered) plan schedules no
-/// unit for the task, else propagates [`build_plan`] failures.
+/// Returns a not-found error when the plan schedules no unit for the task, or a
+/// distinct not-found error when a focus target participates in no scheduled unit;
+/// else propagates [`build_focused_plan`] failures.
 pub(crate) fn explain(
     providers: &[&dyn Provider],
     project: &Project,
     intent: TaskIntent,
     selection: &TaskSelection,
 ) -> AppResult<ExitCode> {
-    let resolved = selection.resolve(project.document.project.base_ref.as_deref())?;
+    let (scope, focus) = selection.resolve_explain(project.document.project.base_ref.as_deref())?;
     let task_name = intent.name().to_string();
-    let plan = build_plan(providers, project, intent, &selection.baseline, resolved)?;
+    let FocusedPlan { plan, focus } = build_focused_plan(
+        providers,
+        project,
+        intent,
+        &selection.baseline,
+        scope,
+        focus.as_ref(),
+    )?;
+
     if plan.units.is_empty() {
         return Err(AppError::not_found(
             &task_name,
             Some("no planned unit for that task and selection"),
         ));
     }
-    for unit in &plan.units {
+
+    let shown: Vec<&ExecutionUnit> = match &focus {
+        Some(targets) => plan
+            .units
+            .iter()
+            .filter(|unit| unit.members.iter().any(|member| targets.contains(member)))
+            .collect(),
+        None => plan.units.iter().collect(),
+    };
+
+    if shown.is_empty() {
+        return Err(AppError::not_found(
+            &task_name,
+            Some("the selected module is not in any planned unit for that task"),
+        ));
+    }
+
+    for unit in shown {
         let mut detail = OutputKV::new();
         detail
             .add("unit", unit.id.clone())
@@ -166,7 +252,11 @@ pub(crate) fn explain(
                     .map(ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", "),
-            )
+            );
+        if let Some(targets) = &focus {
+            detail.add("target", focused_members(unit, targets));
+        }
+        detail
             .add("task", unit.task.clone())
             .add("origin", unit.origin.as_str().to_string())
             .add("argv", format!("{:?}", unit.argv))
@@ -175,6 +265,16 @@ pub(crate) fn explain(
         println!("{detail}");
     }
     Ok(ExitCode::Success)
+}
+
+/// The unit's members that matched the display focus, in member order.
+fn focused_members(unit: &ExecutionUnit, targets: &BTreeSet<ModuleKey>) -> String {
+    unit.members
+        .iter()
+        .filter(|member| targets.contains(member))
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Print a module-name list as a titled table.
@@ -186,12 +286,50 @@ fn print_module_table(title: &str, modules: Vec<String>) {
     println!("{table}");
 }
 
-/// The sorted module set referenced by a graph.
-fn graph_module_names(graph: &Graph) -> Vec<String> {
+/// A discovered module paired with its owning workspace, for the `modules`
+/// projection.
+struct ModuleRow {
+    module: String,
+    workspace: Option<String>,
+}
+
+/// The sorted module set with each module's owning workspace.
+fn module_rows(graph: &Graph) -> Vec<ModuleRow> {
     graph
         .modules()
-        .map(|module| module.key().to_string())
+        .map(|module| ModuleRow {
+            module: module.key().to_string(),
+            workspace: module.workspace.as_ref().map(ToString::to_string),
+        })
         .collect()
+}
+
+/// Render the module set as a titled table with a Workspace column.
+fn render_modules_human(rows: &[ModuleRow]) {
+    let mut table = OutputTable::new(vec!["Module", "Workspace"]).with_title("Modules");
+    for row in rows {
+        table.add_row(vec![
+            row.module.clone(),
+            row.workspace.clone().unwrap_or_default(),
+        ]);
+    }
+    println!("{table}");
+}
+
+/// Render the module set as one JSON object per module line (a stable schema).
+///
+/// # Errors
+/// Propagates a serialization failure (never expected for these plain fields).
+fn render_modules_jsonl(rows: &[ModuleRow]) -> AppResult<()> {
+    const CODEC: JsonCodec = JsonCodec::compact();
+    for row in rows {
+        let line = encode(
+            &CODEC,
+            &serde_json::json!({ "module": row.module, "workspace": row.workspace }),
+        )?;
+        println!("{line}");
+    }
+    Ok(())
 }
 
 /// The sorted, de-duplicated module set referenced by a plan's units.
@@ -261,10 +399,14 @@ fn dot_id(value: &str) -> String {
 mod tests {
     use toven_model::{DepKind, EcosystemId, Edge, Graph, MemberId, Module, ModuleRef, RepoPath};
 
-    use super::{dot_id, graph_module_names, render_graph_dot, render_graph_text};
+    use super::{ModuleRow, dot_id, module_rows, render_graph_dot, render_graph_text};
 
     fn module(name: &str) -> Module {
         Module::new(mref(name), RepoPath::new(format!("crates/{name}")).unwrap())
+    }
+
+    fn module_keys(rows: &[ModuleRow]) -> Vec<&str> {
+        rows.iter().map(|row| row.module.as_str()).collect()
     }
 
     fn mref(name: &str) -> ModuleRef {
@@ -290,15 +432,32 @@ mod tests {
 
     #[test]
     fn module_names_are_sorted_and_deduplicated() {
-        assert_eq!(graph_module_names(&graph()), vec!["rust:app", "rust:core"]);
+        assert_eq!(
+            module_keys(&module_rows(&graph())),
+            vec!["rust:app", "rust:core"]
+        );
     }
 
     #[test]
     fn module_names_include_member_scope_when_present() {
         assert_eq!(
-            graph_module_names(&federated_graph()),
+            module_keys(&module_rows(&federated_graph())),
             vec!["core/rust:core", "gateway/rust:app"]
         );
+    }
+
+    #[test]
+    fn module_rows_carry_the_owning_workspace() {
+        use toven_model::WorkspaceId;
+        let mut core = module("core");
+        core.workspace = Some(WorkspaceId::new("core").unwrap());
+        let app = module("app");
+        let graph = Graph::build(vec![core, app], Vec::new()).expect("valid graph");
+        let rows = module_rows(&graph);
+        assert_eq!(rows[0].module, "rust:app");
+        assert_eq!(rows[0].workspace, None);
+        assert_eq!(rows[1].module, "rust:core");
+        assert_eq!(rows[1].workspace.as_deref(), Some("core"));
     }
 
     #[test]

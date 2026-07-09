@@ -7,7 +7,7 @@ toven check
 toven test
 ```
 
-The task token is the task's addressable name: a built-in kind (`build`, `check`, `format`, `lint`, `test`, `doc`, `run`) or a named extra authored under `[ecosystems.<id>.tasks.<name>]` with an explicit `kind` (for example `toven test-integration`). Run `toven tasks` to list every runnable task.
+The task token is the task's addressable name — any entry in the config task table. `init` seeds a starter set (`build`, `check`, `format`, `lint`, `test`, `doc`, `run`), and you add, rename, or remove entries under `[ecosystems.<id>.tasks.<name>]` (for example `toven test-integration`). A task's optional `kind` is a recognition hint, not a fixed catalog. Run `toven tasks` to list every runnable task.
 
 Use `toven run <task>` when the task name shadows a reserved verb (`run`, `plan`, `init`, `graph`, `cache`, …):
 
@@ -65,6 +65,8 @@ toven test --watch --watch-debounce-ms 500   # coalesce bursts over a 500ms wind
 Each change batch is relativized against the workspace root and filtered to drop paths inside `.git` and paths the repo ignores. If the watcher drops events under a large burst, Toven reruns the whole watched scope rather than trusting a partial list. `--watch-debounce-ms` sets the trailing-edge debounce window (default 200).
 
 Watch is a task-APPLY loop: it works on `toven <task>` and `toven run <task>`, not on inspection or `release` verbs, and cannot combine with `--dry-run`/`--explain`.
+
+Reruns follow the detected changes, not the initial selection. When you start watch with an explicit scope (`--module`/`--workspace`), the first run honors that scope, but each rerun plans the affected subgraph of what changed — the changed module plus every module that depends on it. Editing a foundational module therefore reruns every dependent, which can be broader than the module you selected. This matches `affected` semantics.
 
 ## Cache control: `--refresh` vs `--no-cache`
 

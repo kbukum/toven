@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use rskit_errors::AppResult;
 use rskit_fs::sync_io::file::{read_string_bounded, write_atomic_replace};
+use rskit_git::Repository;
 use toven_model::EcosystemId;
 use toven_ports::{AnswerProvider, DriverLocator, DriverWizard, Provider};
 
@@ -94,7 +95,7 @@ pub fn init_with(
     let config_path = root.join("toven.toml");
     let pre_existed = config_path.is_file();
 
-    let result = if pre_existed {
+    let mut result = if pre_existed {
         let existing = read_string_bounded(&config_path, MAX_CONFIG_BYTES)?;
         merge::merge(&existing, &fragments, force)?
     } else {
@@ -107,6 +108,10 @@ pub fn init_with(
             warnings,
         }
     };
+
+    if fragments.is_empty() {
+        result.warnings.insert(0, no_ecosystem_hint(root));
+    }
 
     if write {
         write_atomic_replace(&config_path, result.text.as_bytes(), WRITE_PREFIX)?;
@@ -123,16 +128,48 @@ pub fn init_with(
     })
 }
 
-/// Derive the `[project]` name from the root directory's file name, falling back
-/// to a stable placeholder when the root has no nameable component (e.g. `/`).
+/// Derive the `[project]` name, preferring the enclosing git repository's
+/// top-level directory name so a nested workspace keeps the meaningful repo
+/// identity, and falling back to the root directory's own name (then a stable
+/// placeholder when neither yields a nameable component, e.g. `/`).
 fn project_name(root: &Path) -> String {
-    root.canonicalize()
+    git_top_level_name(root)
+        .or_else(|| dir_name(root))
+        .unwrap_or_else(|| "workspace".to_string())
+}
+
+/// The enclosing git work-tree's top-level directory name, or `None` when `root`
+/// is not inside a git repository (or the top level has no nameable component).
+fn git_top_level_name(root: &Path) -> Option<String> {
+    let repo = rskit_git::discover(root).ok()?;
+    repo.root()
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(ToString::to_string)
+}
+
+/// The `root` directory's own name, canonicalizing first so `.` resolves to the
+/// real directory rather than the literal `.`.
+fn dir_name(root: &Path) -> Option<String> {
+    rskit_fs::canonicalize(root)
         .ok()
         .as_deref()
         .and_then(Path::file_name)
         .or_else(|| root.file_name())
         .and_then(|name| name.to_str())
-        .map_or_else(|| "workspace".to_string(), ToString::to_string)
+        .map(ToString::to_string)
+}
+
+/// Guidance shown when detection found no ecosystem: name the scanned root and
+/// point at the two ways forward (a nested `--root`, or a manual section).
+fn no_ecosystem_hint(root: &Path) -> String {
+    format!(
+        "no ecosystem detected under {}; the generated config has only a \
+         `[project]` section. If your workspace is nested, re-run with `--root \
+         <dir>`; otherwise add an `[ecosystems.<id>]` section for the toolchain \
+         you use.",
+        root.display()
+    )
 }
 
 /// Warn when `--force <id>` was given on a first run but nothing detected that id.

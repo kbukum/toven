@@ -766,9 +766,9 @@ const fn accepts_execution_flags(command: &Command) -> bool {
 }
 
 /// Whether `command` renders a projection whose format `--output` selects: the
-/// execution verbs plus the `tasks` discovery verb.
+/// execution verbs, the `tasks` discovery verb, and the `modules` listing.
 const fn accepts_output_format(command: &Command) -> bool {
-    accepts_execution_flags(command) || matches!(command, Command::Tasks { .. })
+    accepts_execution_flags(command) || matches!(command, Command::Tasks { .. } | Command::Modules)
 }
 
 /// Whether `command` is a task-APPLY verb that consumes `--fail-fast`.
@@ -1207,6 +1207,12 @@ mod tests {
             let cli = parse(args).expect("parses");
             assert!(super::gate(&cli).is_ok(), "{args:?}");
         }
+    }
+
+    #[test]
+    fn output_format_accepted_on_the_modules_projection() {
+        let cli = parse(["--output", "jsonl", "modules"].as_slice()).expect("parses");
+        assert!(super::gate(&cli).is_ok());
     }
 
     #[test]

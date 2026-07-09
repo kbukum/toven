@@ -42,7 +42,7 @@ base_ref = "origin/main"
 manifests = ["Cargo.toml"]
 ```
 
-Smart defaults fill in the standard tasks, run strategy, and toolchain probes. Override a task under `[ecosystems.<id>.tasks.<name>]`:
+`init` seeds starter tasks for each ecosystem (`build`, `check`, `test`, `lint`, `format`, `doc`, `run`). They work like npm scripts: `toven <name>` runs the matching entry, and you add, rename, or remove them freely. Edit or add one under `[ecosystems.<id>.tasks.<name>]`:
 
 ```toml
 [ecosystems.rust.tasks.test]

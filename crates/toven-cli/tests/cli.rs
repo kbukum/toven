@@ -66,7 +66,7 @@ fn execution_flags_on_a_cache_verb_are_gated_to_usage() {
 
 #[test]
 fn execution_flags_on_introspection_verbs_are_gated_to_usage() {
-    assert_eq!(run(&["--output", "jsonl", "modules"]), ExitCode::Usage);
+    assert_eq!(run(&["--output", "jsonl", "graph"]), ExitCode::Usage);
     assert_eq!(run(&["--fail-fast", "affected", "test"]), ExitCode::Usage);
 }
 

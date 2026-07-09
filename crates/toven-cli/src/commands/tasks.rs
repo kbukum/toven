@@ -10,12 +10,11 @@
 
 use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult};
-use toven_engine::config::{Document, ReportFormat};
 use toven_engine::plan::{TaskCatalog, TaskSummary, task_catalog};
 use toven_ports::Provider;
 
 use crate::flags::OutputKind;
-use crate::host::Project;
+use crate::host::{Project, resolve_output};
 
 /// `toven tasks [name] [--output human|jsonl]`.
 ///
@@ -38,17 +37,6 @@ pub(crate) fn tasks(
         OutputKind::Human => render_human(&catalog, name.is_some()),
     }
     Ok(ExitCode::Success)
-}
-
-/// Resolve the effective output format: the explicit `--output` flag wins, else
-/// the `[toven].report` document setting — the same contract the run reporter
-/// uses ([`Report::resolve`](crate::host::Report::resolve)), so discovery honors
-/// a config-driven default too.
-fn resolve_output(flag: Option<OutputKind>, document: &Document) -> OutputKind {
-    flag.unwrap_or(match document.toven.report {
-        ReportFormat::Json => OutputKind::Jsonl,
-        _ => OutputKind::Human,
-    })
 }
 
 /// Keep only the tasks whose canonical name equals `filter`, erroring when none
