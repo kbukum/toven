@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use rskit_fs::sync_io::tree::{IgnoreWalkOptions, walk_tree_ignoring};
+use rskit_fs::sync_io::tree::{IgnoreWalkOptions, WalkControl, walk_tree_ignoring};
 use rskit_fs::{safe_join, sync_io::file};
 use rskit_util::hash::ContentHasher;
 use toven_model::{AbsPath, Module};
@@ -147,7 +147,7 @@ fn collect_files(root: &Path) -> AppResult<BTreeMap<PathBuf, PathBuf>> {
             ));
         }
         files.insert(entry.relative_path.clone(), entry.path.clone());
-        Ok(())
+        Ok(WalkControl::Continue)
     })?;
     Ok(files)
 }

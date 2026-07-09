@@ -533,8 +533,9 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
     /// Open a sink region for an executed unit when the sink renders one region
     /// per unit, recording it so the matching `end_unit` is emitted exactly once.
     fn begin_region(&mut self, unit_id: &str) -> AppResult<()> {
-        if self.concurrent_live && self.regioned.insert(unit_id.to_string()) {
+        if self.concurrent_live && !self.regioned.contains(unit_id) {
             self.output.begin_unit(unit_id, unit_id)?;
+            self.regioned.insert(unit_id.to_string());
         }
         Ok(())
     }

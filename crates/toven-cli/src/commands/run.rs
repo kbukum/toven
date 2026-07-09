@@ -68,7 +68,8 @@ pub(crate) fn execute(
     let run_id = new_run_id()?;
     let intent_name = intent.name().to_string();
     let effective_view = view.unwrap_or(project.document.toven.view);
-    let pane_dir = std::env::temp_dir().join(format!("toven-panes-{run_id}"));
+    let pane_dir =
+        std::env::temp_dir().join(format!("toven-panes-{run_id}-{}", std::process::id()));
     let mut request = PlanRequest::new(
         run_id.clone(),
         project.document.project.name.clone(),

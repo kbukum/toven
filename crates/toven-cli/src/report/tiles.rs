@@ -85,7 +85,7 @@ impl TilesRawSink {
 
 impl RawOutputSink for TilesRawSink {
     fn live(&mut self, chunk: &UnitOutput) -> AppResult<()> {
-        self.console.feed(&chunk.unit_id, &chunk.bytes);
+        self.console.feed(&chunk.unit_id, &chunk.bytes)?;
         Ok(())
     }
 
@@ -94,10 +94,10 @@ impl RawOutputSink for TilesRawSink {
         // this path is only reached defensively (e.g. a spilled buffered block
         // from a unit that was never live-tailed). Flush it to scrollback rather
         // than dropping the output.
-        self.console.note(format!("==> {unit_id}"));
+        self.console.note(format!("==> {unit_id}"))?;
         for chunk in chunks {
             let text = String::from_utf8_lossy(&chunk.bytes);
-            self.console.note(text.trim_end_matches('\n'));
+            self.console.note(text.trim_end_matches('\n'))?;
         }
         Ok(())
     }
@@ -107,7 +107,7 @@ impl RawOutputSink for TilesRawSink {
     }
 
     fn begin_unit(&mut self, unit_id: &str, label: &str) -> AppResult<()> {
-        self.console.begin(unit_id, label);
+        self.console.begin(unit_id, label)?;
         self.counts.running += 1;
         self.refresh_header();
         Ok(())
@@ -115,7 +115,7 @@ impl RawOutputSink for TilesRawSink {
 
     fn end_unit(&mut self, unit_id: &str, status: UnitStatus) -> AppResult<()> {
         self.console
-            .finish(unit_id, verdict_line(self.palette, unit_id, status));
+            .finish(unit_id, verdict_line(self.palette, unit_id, status))?;
         self.counts.running = self.counts.running.saturating_sub(1);
         if status.is_failure() {
             self.counts.failed += 1;
