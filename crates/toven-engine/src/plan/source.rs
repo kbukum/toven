@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use rskit_fs::sync_io::tree::{WalkControl, WalkEntryFilter, WalkOptions, walk_tree};
+use rskit_fs::sync_io::tree::{IgnoreWalkOptions, walk_tree_ignoring};
 use rskit_fs::{safe_join, sync_io::file};
 use rskit_util::hash::ContentHasher;
 use toven_model::{AbsPath, Module};
@@ -23,12 +23,14 @@ const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 /// walk against a runaway tree.
 const MAX_FILES: usize = 100_000;
 
-/// Content-hashing walk policy: visit regular files only and never follow
-/// symlinks, so a symlinked file or directory cannot leak content from outside
-/// the tree or cause an unbounded traversal.
-const HASH_WALK: WalkOptions = WalkOptions {
+/// Content-hashing walk policy: honour `.gitignore`/`.ignore` rules so build
+/// output (`target/`, generated dirs) never enters the digest, but keep hidden
+/// configuration (`.cargo/config.toml`, `.gitignore`) because it is source that
+/// affects builds. `.git` and gitignored artifacts are always excluded.
+const HASH_WALK: IgnoreWalkOptions = IgnoreWalkOptions {
+    respect_gitignore: true,
+    skip_hidden: false,
     follow_symlinks: false,
-    entry_filter: WalkEntryFilter::FILES,
 };
 
 /// The production [`SourceDigest`]: a BLAKE3 content hash (via
@@ -53,7 +55,18 @@ impl FsSourceDigest {
     /// Read one file's bounded contents and fold it into `hasher` as a framed
     /// `content` field.
     fn hash_file_into(absolute: &Path, hasher: &mut ContentHasher) -> AppResult<()> {
-        let bytes = file::read_bounded(absolute, MAX_FILE_BYTES)?;
+        let bytes = file::read_bounded(absolute, MAX_FILE_BYTES).map_err(|error| {
+            AppError::invalid_input(
+                "source_file",
+                format!(
+                    "file '{}' exceeds the {MAX_FILE_BYTES}-byte source-digest cap; \
+                     this is usually a build artifact that should be git-ignored \
+                     (e.g. under 'target/') rather than tracked source",
+                    absolute.display()
+                ),
+            )
+            .with_cause(error)
+        })?;
         hasher.update_framed(b"content", &bytes);
         Ok(())
     }
@@ -115,15 +128,15 @@ fn empty_digest() -> String {
     ContentHasher::new().finalize_hex()
 }
 
-/// Collect every regular file under `root`, keyed by its path relative to
-/// `root`, by walking the tree with rskit-fs.
+/// Collect every source file under `root` (ignoring `.git` and gitignored build
+/// output), keyed by its path relative to `root`.
 ///
 /// Symlinks are skipped and the walk is bounded at [`MAX_FILES`]. The returned
 /// [`BTreeMap`] is ordered by relative path, giving a stable identity that is
 /// independent of directory-iteration order.
 fn collect_files(root: &Path) -> AppResult<BTreeMap<PathBuf, PathBuf>> {
     let mut files = BTreeMap::new();
-    walk_tree(root, HASH_WALK, |entry| {
+    walk_tree_ignoring(root, HASH_WALK, |entry| {
         if files.len() >= MAX_FILES {
             return Err(AppError::new(
                 ErrorCode::Internal,
@@ -134,7 +147,7 @@ fn collect_files(root: &Path) -> AppResult<BTreeMap<PathBuf, PathBuf>> {
             ));
         }
         files.insert(entry.relative_path.clone(), entry.path.clone());
-        Ok(WalkControl::Continue)
+        Ok(())
     })?;
     Ok(files)
 }
@@ -174,6 +187,39 @@ mod tests {
         let digest = FsSourceDigest::new(&root);
         let error = digest.module(&module("absent")).unwrap_err();
         assert_eq!(error.code(), rskit_errors::ErrorCode::NotFound);
+    }
+
+    #[test]
+    fn ignored_build_output_is_excluded_from_digest() {
+        // A large, git-ignored build artifact under `target/` must neither abort
+        // planning (16 MiB cap) nor perturb the cache key when it changes.
+        let workspace = TestWorkspace::new("source-digest-ignored");
+        workspace
+            .write_file("core/.gitignore", b"target/\n")
+            .unwrap();
+        workspace.write_file("core/lib.rs", b"fn a() {}").unwrap();
+        let big = vec![b'x'; 18 * 1024 * 1024];
+        workspace
+            .write_file("core/target/release/deps/lib.rlib", &big)
+            .unwrap();
+        let root = AbsPath::new(workspace.path()).unwrap();
+
+        let digest = FsSourceDigest::new(&root);
+        let before = digest.module(&module("core")).unwrap();
+
+        // Mutating the ignored artifact must not move the digest.
+        let mut bigger = big;
+        bigger.extend_from_slice(b"more");
+        workspace
+            .write_file("core/target/release/deps/lib.rlib", &bigger)
+            .unwrap();
+        let after = digest.module(&module("core")).unwrap();
+        assert_eq!(before, after, "ignored artifact churn must not move digest");
+
+        // But a real source change still moves it.
+        workspace.write_file("core/lib.rs", b"fn b() {}").unwrap();
+        let changed = digest.module(&module("core")).unwrap();
+        assert_ne!(before, changed);
     }
 
     #[test]

@@ -32,8 +32,16 @@ pub(super) struct Walker<'a, S: RawOutputSink> {
     stats: RunStats,
     dropped_output: Arc<AtomicUsize>,
     /// Stream normal-unit output live instead of buffering a per-unit block.
-    /// Set when no two units can run concurrently (see [`super::entry::apply`]).
+    /// Set when the sink de-interleaves concurrent output, or when no two units
+    /// can run concurrently (see [`super::entry::apply`]).
     stream_normal_live: bool,
+    /// Whether the sink renders one live region per unit, so each executed unit
+    /// is wrapped in a `begin_unit`/`end_unit` lifecycle.
+    concurrent_live: bool,
+    /// Executed units that opened a sink region and still owe an `end_unit`, so
+    /// the lifecycle is perfectly paired regardless of which terminal path a
+    /// unit takes.
+    regioned: std::collections::HashSet<String>,
     /// Cooperative external cancellation (Ctrl+C); fires the fail-fast teardown.
     external_cancel: CancellationToken,
 }
@@ -48,7 +56,9 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         dropped_output: Arc<AtomicUsize>,
         external_cancel: CancellationToken,
     ) -> Self {
-        let stream_normal_live = super::options::stream_normal_live(&options, plan);
+        let concurrent_live = output.supports_concurrent_live();
+        let stream_normal_live =
+            super::options::stream_normal_live(&options, plan, concurrent_live);
         let mut stats = RunStats::new(plan.units.len());
         for unit in &plan.units {
             match unit.cache {
@@ -70,6 +80,8 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             stats,
             dropped_output,
             stream_normal_live,
+            concurrent_live,
+            regioned: std::collections::HashSet::new(),
             external_cancel,
         }
     }
@@ -112,10 +124,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             // flush; calling `finish` would only clear the unit's Live mode and
             // risk dropping late chunks. The live channel is fully drained above
             // (and again on drop), so emit the terminal event without finishing.
-            self.reporter.emit(&Event::UnitFinished {
-                unit_id,
-                status: UnitStatus::TornDown,
-            })?;
+            self.finish_unit_event(&unit_id, UnitStatus::TornDown)?;
         }
         self.cancel_unscheduled()?;
         self.stats.duration_ms = Some(start.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
@@ -170,10 +179,8 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 self.output.finish(&unit.id)?;
             }
             self.stats.cancelled_units += 1;
-            self.reporter.emit(&Event::UnitFinished {
-                unit_id: unit.id.clone(),
-                status: UnitStatus::Cancelled,
-            })?;
+            let unit_id = unit.id.clone();
+            self.finish_unit_event(&unit_id, UnitStatus::Cancelled)?;
         }
         Ok(())
     }
@@ -333,6 +340,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         self.reporter.emit(&Event::UnitStarted {
             unit_id: unit_id.clone(),
         })?;
+        self.begin_region(&unit_id)?;
         cancels.push(handle.cancel_token());
         joins.spawn(async move {
             let result = handle.result().await;
@@ -419,10 +427,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         // channel mode at run start; finish it so its per-unit channel state is
         // released now rather than lingering until the channel is dropped.
         self.output.finish(unit_id)?;
-        self.reporter.emit(&Event::UnitFinished {
-            unit_id: unit_id.to_string(),
-            status: UnitStatus::Cached,
-        })?;
+        self.finish_unit_event(unit_id, UnitStatus::Cached)?;
         self.drain_dependents(unit_id, live_output).await
     }
 
@@ -435,10 +440,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         record_success(unit, self.cache)?;
         self.stats.ran_units += 1;
         self.gate.satisfy(unit_id);
-        self.reporter.emit(&Event::UnitFinished {
-            unit_id: unit_id.to_string(),
-            status: UnitStatus::Succeeded,
-        })?;
+        self.finish_unit_event(unit_id, UnitStatus::Succeeded)?;
         self.drain_dependents(unit_id, live_output).await
     }
 
@@ -454,17 +456,11 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             UnitStatus::TimedOut => self.stats.timed_out_units += 1,
             _ => {}
         }
-        self.reporter.emit(&Event::UnitFinished {
-            unit_id: unit_id.to_string(),
-            status,
-        })?;
+        self.finish_unit_event(unit_id, status)?;
         self.drain_dependents(unit_id, live_output).await?;
         for blocked in self.gate.fail_and_block_dependents(unit_id) {
             self.stats.blocked_units += 1;
-            self.reporter.emit(&Event::UnitFinished {
-                unit_id: blocked.clone(),
-                status: UnitStatus::Blocked,
-            })?;
+            self.finish_unit_event(&blocked, UnitStatus::Blocked)?;
             self.drain_dependents(&blocked, live_output).await?;
         }
         Ok(())
@@ -484,10 +480,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 // flush, and finishing would clear their mode and risk dropping
                 // late chunks. Leave the unit live so any final output drains
                 // through `drain_live_output`; only emit the terminal event.
-                self.reporter.emit(&Event::UnitFinished {
-                    unit_id: held_id,
-                    status: UnitStatus::TornDown,
-                })?;
+                self.finish_unit_event(&held_id, UnitStatus::TornDown)?;
             }
         }
         Ok(())
@@ -535,6 +528,28 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 }
             }
         }
+    }
+
+    /// Open a sink region for an executed unit when the sink renders one region
+    /// per unit, recording it so the matching `end_unit` is emitted exactly once.
+    fn begin_region(&mut self, unit_id: &str) -> AppResult<()> {
+        if self.concurrent_live && self.regioned.insert(unit_id.to_string()) {
+            self.output.begin_unit(unit_id, unit_id)?;
+        }
+        Ok(())
+    }
+
+    /// Emit a unit's terminal event, first collapsing its sink region (if it
+    /// opened one) so `begin_unit`/`end_unit` stay perfectly paired across every
+    /// terminal path (success, failure, timeout, blocked, cancelled, torn down).
+    fn finish_unit_event(&mut self, unit_id: &str, status: UnitStatus) -> AppResult<()> {
+        if self.regioned.remove(unit_id) {
+            self.output.end_unit(unit_id, status)?;
+        }
+        self.reporter.emit(&Event::UnitFinished {
+            unit_id: unit_id.to_string(),
+            status,
+        })
     }
 
     fn route_output(

@@ -15,6 +15,7 @@ use rskit_cli::{ExitCode, on_ctrl_c};
 use rskit_errors::{AppError, AppResult};
 use toven_engine::apply::{ApplyOptions, ProcessCommandRunner, apply};
 use toven_engine::cache::FsContentCache;
+use toven_engine::config::ViewMode;
 use toven_engine::output::UnitOutputChannel;
 use toven_engine::plan::{
     CacheMode, FsSourceDigest, PlanHost, PlanRequest, ProcessToolchainProber, plan,
@@ -26,7 +27,7 @@ use toven_ports::{CommandRunner, Provider, Reporter, TaskIntent};
 
 use crate::commands::selection::TaskSelection;
 use crate::host::{Project, Report, new_run_id};
-use crate::report::{WriterRawSink, exit_code};
+use crate::report::{configure_live_output, exit_code};
 
 /// Whether a task run should enter watch mode, and its debounce window.
 ///
@@ -61,10 +62,13 @@ pub(crate) fn execute(
     unit_timeout: Option<std::time::Duration>,
     plan_only: bool,
     watch: WatchFlags,
+    view: Option<ViewMode>,
     selection: &TaskSelection,
 ) -> AppResult<ExitCode> {
     let run_id = new_run_id()?;
     let intent_name = intent.name().to_string();
+    let effective_view = view.unwrap_or(project.document.toven.view);
+    let pane_dir = std::env::temp_dir().join(format!("toven-panes-{run_id}"));
     let mut request = PlanRequest::new(
         run_id.clone(),
         project.document.project.name.clone(),
@@ -103,6 +107,12 @@ pub(crate) fn execute(
             fail_fast,
             unit_timeout,
             watch.debounce_ms,
+            &crate::commands::watch::LiveOutput {
+                view: effective_view,
+                force_stream: report.forces_stream_output(),
+                palette: report.stderr_palette(),
+                pane_dir,
+            },
             sink,
         );
     }
@@ -122,15 +132,19 @@ pub(crate) fn execute(
         return Ok(exit_code(&summary));
     }
 
-    // Live output lands on stderr (see `WriterRawSink::stderr`). When that is a
-    // real terminal, run live-streamed units on a PTY sized to it so their
-    // output renders exactly as it would interactively (colors, progress bars);
-    // when it is redirected or captured, fall back to deterministic pipes. PTY
-    // streaming is Unix-only; elsewhere this is a no-op.
-    let runner: Arc<dyn CommandRunner> = Arc::new(
-        ProcessCommandRunner::new(project.project_root.as_path())
-            .with_pty_matching_terminal(&std::io::stderr()),
-    );
+    // Bind the resolved live view (tiles/panes/stream) to a raw-output sink and
+    // the PTY sizing live units run under. The machine JSON projection, a
+    // non-terminal stderr, and `--view stream` all pin the byte-stable stream
+    // shape; tiles/panes require a Unix PTY (a no-op elsewhere).
+    let (configured_runner, raw_sink) = configure_live_output(
+        ProcessCommandRunner::new(project.project_root.as_path()),
+        effective_view,
+        report.forces_stream_output(),
+        report.stderr_palette(),
+        plan.units.len(),
+        &pane_dir,
+    )?;
+    let runner: Arc<dyn CommandRunner> = Arc::new(configured_runner);
     let mut options = ApplyOptions {
         fail_fast,
         unit_timeout,
@@ -139,7 +153,7 @@ pub(crate) fn execute(
     if let Some(max_parallel) = project.max_parallel() {
         options.max_parallel = max_parallel.max(1);
     }
-    let mut output = UnitOutputChannel::new(WriterRawSink::stderr());
+    let mut output = UnitOutputChannel::new(raw_sink);
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

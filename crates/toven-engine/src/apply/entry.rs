@@ -59,11 +59,13 @@ pub async fn apply<S: RawOutputSink>(
             }
         })
     };
-    // Stream normal-unit output live only when no two units can run
-    // concurrently (a single-unit plan, or strictly serial execution): otherwise
+    // Stream normal-unit output live when the sink de-interleaves concurrent
+    // output by unit (one region per unit), or when no two units can run
+    // concurrently (a single-unit plan or strictly serial execution). Otherwise
     // chunks from parallel units would interleave, so they stay buffered into
     // deterministic per-unit blocks.
-    let stream_normal_live = super::options::stream_normal_live(&options, plan);
+    let stream_normal_live =
+        super::options::stream_normal_live(&options, plan, output.supports_concurrent_live());
     let pool = ApplyPool::new(
         runner,
         options.max_parallel,

@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult};
 
-use crate::flags::{ColorWhen, OutputKind, parse_duration_arg};
+use crate::flags::{ColorWhen, OutputKind, ViewMode, parse_duration_arg};
 
 /// The reserved built-in words. A bare top-level token equal to one of these
 /// dispatches the built-in; any other token is an argv-first task name.
@@ -84,6 +84,8 @@ pub struct TaskFlags {
     pub output: Option<OutputKind>,
     /// `--color <when>`: how the human reporter colorizes (`auto`/`always`/`never`).
     pub color: Option<ColorWhen>,
+    /// `--view <mode>`: live output rendering (`auto`/`tiles`/`panes`/`stream`).
+    pub view: Option<ViewMode>,
     /// `--dry-run`.
     pub dry_run: bool,
     /// `--explain`.
@@ -190,6 +192,7 @@ pub fn parse_task(tokens: &[String]) -> AppResult<TaskInvocation> {
             "--config" => flags.config = Some(PathBuf::from(value_for("--config", &mut iter)?)),
             "--output" => flags.output = Some(parse_output(&value_for("--output", &mut iter)?)?),
             "--color" => flags.color = Some(parse_color(&value_for("--color", &mut iter)?)?),
+            "--view" => flags.view = Some(parse_view(&value_for("--view", &mut iter)?)?),
             // First non-Toven token ends the prefix: it and the rest are the
             // task's own argv, spliced verbatim and never rewritten.
             _ => {
@@ -246,6 +249,22 @@ fn parse_color(value: &str) -> AppResult<ColorWhen> {
         other => Err(AppError::invalid_input(
             "--color",
             format!("unknown color choice `{other}` (expected `auto`, `always`, or `never`)"),
+        )),
+    }
+}
+
+/// Parse the `--view` value, mirroring the clap global's accepted [`ViewMode`]
+/// choices so a trailing `--view` on a bare task shapes the live renderer
+/// instead of leaking into the task's passthrough argv.
+fn parse_view(value: &str) -> AppResult<ViewMode> {
+    match value {
+        "auto" => Ok(ViewMode::Auto),
+        "tiles" => Ok(ViewMode::Tiles),
+        "panes" => Ok(ViewMode::Panes),
+        "stream" => Ok(ViewMode::Stream),
+        other => Err(AppError::invalid_input(
+            "--view",
+            format!("unknown view mode `{other}` (expected `auto`, `tiles`, `panes`, or `stream`)"),
         )),
     }
 }
@@ -477,6 +496,23 @@ mod tests {
     fn rejects_an_unknown_or_valueless_color_choice() {
         assert!(parse_task(&tokens(&["test", "--color", "sometimes"])).is_err());
         assert!(parse_task(&tokens(&["test", "--color"])).is_err());
+    }
+
+    #[test]
+    fn parses_view_mode_on_a_bare_task() {
+        use super::ViewMode;
+        let invocation = parse_task(&tokens(&["test", "--view", "tiles"])).expect("parses");
+        assert_eq!(invocation.task, "test");
+        assert_eq!(invocation.flags.view, Some(ViewMode::Tiles));
+        // `--view` is a Toven flag, so it is absorbed — never leaked into the
+        // task's own passthrough argv.
+        assert!(invocation.passthrough.is_empty());
+    }
+
+    #[test]
+    fn rejects_an_unknown_or_valueless_view_mode() {
+        assert!(parse_task(&tokens(&["test", "--view", "grid"])).is_err());
+        assert!(parse_task(&tokens(&["test", "--view"])).is_err());
     }
 
     #[test]

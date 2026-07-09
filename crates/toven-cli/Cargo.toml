@@ -16,6 +16,7 @@ toven-engine.workspace = true
 rskit-errors.workspace = true
 rskit-cli = { workspace = true, features = ["interactive"] }
 rskit-fs.workspace = true
+rskit-process.workspace = true
 rskit-util.workspace = true
 clap.workspace = true
 clap_complete.workspace = true

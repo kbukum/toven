@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use rskit_cli::ExitCode;
+use rskit_cli::{ExitCode, PromptMode};
 use rskit_errors::AppResult;
 use toven_engine::init::InitOutcome;
 use toven_model::EcosystemId;
@@ -38,7 +38,7 @@ pub(crate) fn execute(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitC
     let outcome =
         toven_engine::init::init(&root, providers, &answers, cli.force.as_deref(), write)?;
 
-    let report = Report::from_init_outcome(&outcome);
+    let report = Report::from_init_outcome(&outcome, used_defaults(cli));
     for line in &report.diagnostics {
         eprintln!("{line}");
     }
@@ -48,6 +48,14 @@ pub(crate) fn execute(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitC
     }
 
     Ok(ExitCode::Success)
+}
+
+/// Whether the wizard resolved every question to its default rather than
+/// prompting: the explicit `--non-interactive`/`--yes` flag, or a non-interactive
+/// stdio environment (a pipe/CI, or a redirected prompt sink) as
+/// [`PromptAnswers::new`] resolves via [`PromptMode::from_env`].
+fn used_defaults(cli: &Cli) -> bool {
+    cli.non_interactive || !PromptMode::from_env().is_interactive()
 }
 
 /// The channel-routed output of an init run.
@@ -65,20 +73,46 @@ struct Report {
 
 impl Report {
     /// Route a finished [`InitOutcome`] into its stdout/stderr channels.
-    fn from_init_outcome(outcome: &InitOutcome) -> Self {
-        let mut diagnostics = outcome.warnings.clone();
-        let document = if outcome.written {
+    ///
+    /// When `used_defaults` is set and the run wrote a config, a one-line note is
+    /// prepended to the write summary telling the user prompts were skipped and
+    /// how to preview (`--print`) or regenerate (`--force <id>`) — so a
+    /// pipe/CI run never silently accepts every default without a signal.
+    fn from_init_outcome(outcome: &InitOutcome, used_defaults: bool) -> Self {
+        if outcome.written {
             let touched = touched_sections(&outcome.added, &outcome.regenerated);
-            diagnostics.push(write_summary(&outcome.path, outcome.created, &touched));
-            None
+            let summary = write_summary(&outcome.path, outcome.created, &touched);
+            Self {
+                document: None,
+                diagnostics: write_diagnostics(&outcome.warnings, used_defaults, summary),
+            }
         } else {
-            Some(outcome.rendered.clone())
-        };
-        Self {
-            document,
-            diagnostics,
+            Self {
+                document: Some(outcome.rendered.clone()),
+                diagnostics: outcome.warnings.clone(),
+            }
         }
     }
+}
+
+/// Assemble the stderr diagnostics for a write run: existing `warnings`, then the
+/// "used defaults" note (only when `used_defaults`), then the write `summary`
+/// last as the closing confirmation.
+fn write_diagnostics(warnings: &[String], used_defaults: bool, summary: String) -> Vec<String> {
+    let mut diagnostics = warnings.to_vec();
+    if used_defaults {
+        diagnostics.push(defaults_note());
+    }
+    diagnostics.push(summary);
+    diagnostics
+}
+
+/// The stderr note shown when a write run resolved every prompt to its default.
+fn defaults_note() -> String {
+    "no terminal detected; used the default answer for every prompt. \
+     Preview with `toven init --print`; regenerate a section with \
+     `toven init --force <ecosystem>`."
+        .to_string()
 }
 
 /// The sections touched by a write run, sorted for a stable summary line.
@@ -112,7 +146,7 @@ mod tests {
 
     use toven_model::EcosystemId;
 
-    use super::{touched_sections, write_summary};
+    use super::{touched_sections, write_diagnostics, write_summary};
 
     fn eco(id: &str) -> EcosystemId {
         EcosystemId::new(id).expect("valid ecosystem id")
@@ -141,5 +175,29 @@ mod tests {
         let touched = vec!["go".to_string(), "rust".to_string()];
         let summary = write_summary(&PathBuf::from("/repo/toven.toml"), true, &touched);
         assert_eq!(summary, "wrote /repo/toven.toml (go, rust)");
+    }
+
+    #[test]
+    fn write_diagnostics_appends_the_defaults_note_before_the_summary() {
+        let diagnostics = write_diagnostics(&[], true, "wrote /repo/toven.toml".to_string());
+        assert_eq!(diagnostics.len(), 2);
+        assert!(diagnostics[0].contains("used the default answer"));
+        assert!(diagnostics[0].contains("--print"));
+        assert!(diagnostics[0].contains("--force"));
+        // The write confirmation always closes the diagnostics.
+        assert_eq!(diagnostics[1], "wrote /repo/toven.toml");
+    }
+
+    #[test]
+    fn write_diagnostics_omits_the_note_when_prompts_were_answered() {
+        let warnings = vec!["skipped [ecosystems.rust]".to_string()];
+        let diagnostics = write_diagnostics(&warnings, false, "wrote /repo/toven.toml".to_string());
+        assert_eq!(
+            diagnostics,
+            vec![
+                "skipped [ecosystems.rust]".to_string(),
+                "wrote /repo/toven.toml".to_string()
+            ]
+        );
     }
 }

@@ -107,7 +107,8 @@ fn task_table(use_nextest: bool) -> BTreeMap<String, TaskEntry> {
         "check".to_string(),
         fan_out_entry("check", FanOut::Batchable),
     );
-    tasks.insert("format".to_string(), whole_workspace_entry("fmt"));
+    tasks.insert("format".to_string(), whole_workspace_entry("fmt", &[]));
+    tasks.insert("format-check".to_string(), format_check_entry());
     tasks.insert(
         "lint".to_string(),
         fan_out_entry("clippy", FanOut::Batchable),
@@ -163,18 +164,21 @@ fn fan_out_entry(subcommand: &str, fan_out: FanOut) -> TaskEntry {
     }
 }
 
-/// The whole-workspace `cargo fmt --all` entry (no per-module selector).
-fn whole_workspace_entry(subcommand: &str) -> TaskEntry {
+/// The whole-workspace `cargo fmt --all` entry (no per-module selector). `extra`
+/// flags are inserted after `--all`, before the `{args}` passthrough.
+fn whole_workspace_entry(subcommand: &str, extra: &[&str]) -> TaskEntry {
+    let mut argv = vec![
+        "cargo".to_string(),
+        subcommand.to_string(),
+        "--manifest-path".to_string(),
+        "{module.manifest}".to_string(),
+        "--all".to_string(),
+    ];
+    argv.extend(extra.iter().map(|flag| (*flag).to_string()));
+    argv.push("{args}".to_string());
     TaskEntry {
         kind: None,
-        argv: vec![
-            "cargo".to_string(),
-            subcommand.to_string(),
-            "--manifest-path".to_string(),
-            "{module.manifest}".to_string(),
-            "--all".to_string(),
-            "{args}".to_string(),
-        ],
+        argv,
         selector: Vec::new(),
         fan_out: FanOut::WholeWorkspace,
         persistent: false,
@@ -183,6 +187,16 @@ fn whole_workspace_entry(subcommand: &str) -> TaskEntry {
         cache_args: false,
         shared_inputs: vec![SHARED_LOCKFILE.to_string()],
     }
+}
+
+/// The CI-friendly `cargo fmt --all --check` entry: verifies formatting without
+/// rewriting the tree. Tagged [`TaskKind::Format`](toven_ports::TaskKind::Format)
+/// so it keeps the format run-strategy and cross-ecosystem recognition despite
+/// its distinct `format-check` name.
+fn format_check_entry() -> TaskEntry {
+    let mut entry = whole_workspace_entry("fmt", &["--check"]);
+    entry.kind = Some(toven_ports::TaskKind::Format);
+    entry
 }
 
 /// The persistent `cargo run` entry (per-module, long-lived).
@@ -273,7 +287,16 @@ mod tests {
         names.sort_unstable();
         assert_eq!(
             names,
-            ["build", "check", "doc", "format", "lint", "run", "test"]
+            [
+                "build",
+                "check",
+                "doc",
+                "format",
+                "format-check",
+                "lint",
+                "run",
+                "test"
+            ]
         );
         assert_eq!(config.manifests, ["Cargo.toml"]);
         let run = config.common.tasks.get("run").expect("run task");
@@ -282,6 +305,19 @@ mod tests {
         let format = config.common.tasks.get("format").expect("format task");
         assert_eq!(format.fan_out, FanOut::WholeWorkspace);
         assert!(format.selector.is_empty());
+        assert!(!format.argv.contains(&"--check".to_string()));
+        let format_check = config
+            .common
+            .tasks
+            .get("format-check")
+            .expect("format-check task");
+        assert_eq!(format_check.fan_out, FanOut::WholeWorkspace);
+        assert!(format_check.selector.is_empty());
+        assert!(format_check.argv.contains(&"--check".to_string()));
+        assert_eq!(
+            format_check.resolved_kind("format-check"),
+            toven_ports::TaskKind::Format
+        );
     }
 
     #[test]

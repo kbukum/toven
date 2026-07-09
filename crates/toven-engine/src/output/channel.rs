@@ -79,6 +79,33 @@ impl<S: RawOutputSink> UnitOutputChannel<S> {
         }
     }
 
+    /// Whether the underlying sink de-interleaves concurrent live output by
+    /// `unit_id`. When `true`, the APPLY spine may stream normal units live
+    /// under parallelism, wrapping each in [`begin_unit`](Self::begin_unit) /
+    /// [`end_unit`](Self::end_unit).
+    #[must_use]
+    pub fn supports_concurrent_live(&self) -> bool {
+        self.sink.supports_concurrent_live()
+    }
+
+    /// Announce a live unit's start to the sink so a concurrent-live renderer can
+    /// allocate its region.
+    ///
+    /// # Errors
+    /// Propagates any [`RawOutputSink`] write failure.
+    pub fn begin_unit(&mut self, unit_id: &str, label: &str) -> AppResult<()> {
+        self.sink.begin_unit(unit_id, label)
+    }
+
+    /// Announce a live unit's terminal status to the sink so a concurrent-live
+    /// renderer can collapse its region.
+    ///
+    /// # Errors
+    /// Propagates any [`RawOutputSink`] write failure.
+    pub fn end_unit(&mut self, unit_id: &str, status: toven_model::UnitStatus) -> AppResult<()> {
+        self.sink.end_unit(unit_id, status)
+    }
+
     /// Declare how `unit_id`'s output should be surfaced.
     pub fn register(&mut self, unit_id: impl Into<String>, mode: OutputMode) {
         self.modes.insert(unit_id.into(), mode);

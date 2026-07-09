@@ -171,29 +171,13 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
                 cli.timeout,
                 cli.is_plan_only(),
                 global_watch(cli),
+                cli.view.map(Into::into),
                 &global_selection(cli),
             )
         }
         Command::Plan { task } => {
             let project = load(providers, cli, true)?;
-            let report = resolve_report(cli, &project);
-            commands::run::execute(
-                providers,
-                &project,
-                report,
-                intent_for(task),
-                Vec::new(),
-                cli.fail_fast,
-                cli.no_cache,
-                cli.refresh,
-                cli.timeout,
-                true,
-                commands::run::WatchFlags {
-                    enabled: false,
-                    debounce_ms: flags::DEFAULT_WATCH_DEBOUNCE_MS,
-                },
-                &global_selection(cli),
-            )
+            plan_command(providers, cli, &project, task)
         }
         Command::Release => {
             let project = load(providers, cli, false)?;
@@ -243,6 +227,35 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
             commands::cache::execute(&project, action)
         }
     }
+}
+
+/// Plan-only dispatch for `toven plan`: build the report and delegate to the
+/// shared run pipeline with watch disabled and no live view.
+fn plan_command(
+    providers: &[&dyn Provider],
+    cli: &Cli,
+    project: &Project,
+    task: &str,
+) -> AppResult<ExitCode> {
+    let report = resolve_report(cli, project);
+    commands::run::execute(
+        providers,
+        project,
+        report,
+        intent_for(task),
+        Vec::new(),
+        cli.fail_fast,
+        cli.no_cache,
+        cli.refresh,
+        cli.timeout,
+        true,
+        commands::run::WatchFlags {
+            enabled: false,
+            debounce_ms: flags::DEFAULT_WATCH_DEBOUNCE_MS,
+        },
+        None,
+        &global_selection(cli),
+    )
 }
 
 /// Dispatch a bare argv-first task: re-parse its trailing flags + passthrough,
@@ -310,6 +323,7 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
             .or(cli.watch_debounce_ms)
             .unwrap_or(flags::DEFAULT_WATCH_DEBOUNCE_MS),
     };
+    let view = flags.view.or(cli.view).map(Into::into);
 
     commands::run::execute(
         providers,
@@ -323,6 +337,7 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
         unit_timeout,
         plan_only,
         watch,
+        view,
         &selection,
     )
     .map_err(|error| advise_builtin_typo(&invocation.task, error))

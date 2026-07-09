@@ -181,6 +181,7 @@ fn fold_metadata(
         module.package = Some(name.clone());
         module.manifest = Some(manifest);
         module.workspace = Some(workspace_id.clone());
+        module.runnable = has_runnable_target(package);
         blast::annotate_module(&mut module, &workspace_root);
         modules.insert(id, module);
 
@@ -214,6 +215,16 @@ fn build_edges(
         }
     }
     Ok(edges.into_iter().collect())
+}
+
+/// Whether a package exposes an executable target `cargo run` can launch: a
+/// `bin` or `example` target. Library-only crates have none, so a persistent
+/// `run` unit against them is invalid and the scheduler drops it.
+fn has_runnable_target(package: &cargo_metadata::Package) -> bool {
+    package
+        .targets
+        .iter()
+        .any(|target| target.is_bin() || target.is_example())
 }
 
 /// Map a cargo dependency kind onto the model's [`DepKind`].
