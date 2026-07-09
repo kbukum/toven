@@ -10,12 +10,11 @@
 
 use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult};
-use toven_engine::config::{Document, ReportFormat};
 use toven_engine::plan::{TaskCatalog, TaskSummary, task_catalog};
 use toven_ports::Provider;
 
 use crate::flags::OutputKind;
-use crate::host::Project;
+use crate::host::{Project, resolve_output};
 
 /// `toven tasks [name] [--output human|jsonl]`.
 ///
@@ -38,17 +37,6 @@ pub(crate) fn tasks(
         OutputKind::Human => render_human(&catalog, name.is_some()),
     }
     Ok(ExitCode::Success)
-}
-
-/// Resolve the effective output format: the explicit `--output` flag wins, else
-/// the `[toven].report` document setting — the same contract the run reporter
-/// uses ([`Report::resolve`](crate::host::Report::resolve)), so discovery honors
-/// a config-driven default too.
-fn resolve_output(flag: Option<OutputKind>, document: &Document) -> OutputKind {
-    flag.unwrap_or(match document.toven.report {
-        ReportFormat::Json => OutputKind::Jsonl,
-        _ => OutputKind::Human,
-    })
 }
 
 /// Keep only the tasks whose canonical name equals `filter`, erroring when none
@@ -111,7 +99,7 @@ fn render_human(catalog: &TaskCatalog, detail: bool) {
 fn render_jsonl(catalog: &TaskCatalog) -> AppResult<()> {
     for eco in &catalog.ecosystems {
         for task in &eco.tasks {
-            let line = serde_json::to_string(&task_record(&eco.ecosystem, task))
+            let line = serde_json::to_string(&TaskRecord::project(&eco.ecosystem, task))
                 .map_err(AppError::internal)?;
             println!("{line}");
         }
@@ -120,17 +108,31 @@ fn render_jsonl(catalog: &TaskCatalog) -> AppResult<()> {
 }
 
 /// The stable JSON record for one task in the `jsonl` projection.
-fn task_record(ecosystem: &str, task: &TaskSummary) -> serde_json::Value {
-    serde_json::json!({
-        "ecosystem": ecosystem,
-        "task": &task.name,
-        "kind": &task.kind,
-        "origin": task.origin.as_str(),
-        "fan_out": task.fan_out.as_str(),
-        "persistent": task.persistent,
-        "argv": &task.argv,
-        "shared_inputs": &task.shared_inputs,
-    })
+#[derive(serde::Serialize)]
+struct TaskRecord<'a> {
+    ecosystem: &'a str,
+    task: &'a str,
+    kind: &'a str,
+    origin: &'a str,
+    fan_out: &'a str,
+    persistent: bool,
+    argv: &'a [String],
+    shared_inputs: &'a [String],
+}
+
+impl<'a> TaskRecord<'a> {
+    fn project(ecosystem: &'a str, task: &'a TaskSummary) -> Self {
+        Self {
+            ecosystem,
+            task: &task.name,
+            kind: &task.kind,
+            origin: task.origin.as_str(),
+            fan_out: task.fan_out.as_str(),
+            persistent: task.persistent,
+            argv: &task.argv,
+            shared_inputs: &task.shared_inputs,
+        }
+    }
 }
 
 const fn yes_no(value: bool) -> &'static str {

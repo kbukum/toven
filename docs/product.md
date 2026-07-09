@@ -61,12 +61,12 @@ A `toven.toml` can describe one repository or an umbrella that federates several
 | Command | What it does |
 |---------|--------------|
 | `toven init` | Run the onboarding wizard to author a reviewable `toven.toml`. |
-| `toven <task>` | Run a task from the config task table (built-in kind or named extra). |
+| `toven <task>` | Run any task defined in the config task table. |
 | `toven <task> --watch` | Rerun the affected subgraph on every source change. |
 | `toven <task> --refresh` | Re-run every unit and refresh the cache. |
 | `toven <task> --timeout <duration>` | Bound each unit's runtime. |
 | `toven plan <task>` | Show what would run (unit and wave counts). |
-| `toven affected <task>` | List affected modules for a baseline. |
+| `toven affected <task>` | List affected modules for a baseline (an unattributable change forces full activation with a diagnostic). |
 | `toven explain <task>` | Show the planned unit(s): argv, dependencies, persistence (filter with `--module`). |
 | `toven modules` | List discovered modules. |
 | `toven graph` | Show the dependency graph. |

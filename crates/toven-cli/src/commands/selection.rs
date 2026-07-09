@@ -84,6 +84,29 @@ impl TaskSelection {
             baseline, base_ref,
         )))
     }
+
+    /// Split the CLI selection into an `explain` plan scope and an optional
+    /// display focus.
+    ///
+    /// An explicit `--module`/`--workspace` selection becomes the display *focus*
+    /// (which units to show) while the plan is built over the full set
+    /// ([`Selection::All`]), so each shown unit is the real batched unit the
+    /// target belongs to rather than a synthetic single-module cut. A
+    /// changed/no-baseline selection has no focus: the plan is built over that
+    /// selection and every scheduled unit is shown.
+    ///
+    /// # Errors
+    /// Propagates the same usage/parse errors as [`resolve`](Self::resolve).
+    pub(crate) fn resolve_explain(
+        &self,
+        base_ref: Option<&str>,
+    ) -> AppResult<(Selection, Option<Selection>)> {
+        let selection = self.resolve(base_ref)?;
+        Ok(match selection {
+            explicit @ Selection::Explicit { .. } => (Selection::All, Some(explicit)),
+            scope => (scope, None),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -206,5 +229,43 @@ mod tests {
         .unwrap_err();
 
         assert!(!error.to_string().is_empty());
+    }
+
+    #[test]
+    fn explain_split_promotes_an_explicit_selection_to_a_focus_over_the_full_plan() {
+        let (scope, focus) = TaskSelection {
+            modules: vec!["rust:core".into()],
+            with_dependents: true,
+            ..selection()
+        }
+        .resolve_explain(None)
+        .unwrap();
+
+        assert_eq!(scope, Selection::All);
+        assert_eq!(
+            focus,
+            Some(Selection::Explicit {
+                targets: vec![ModuleSelector::parse("rust:core").unwrap()],
+                include_dependents: true,
+                include_dependencies: false,
+            })
+        );
+    }
+
+    #[test]
+    fn explain_split_has_no_focus_without_an_explicit_selection() {
+        assert_eq!(
+            selection().resolve_explain(None).unwrap(),
+            (Selection::All, None)
+        );
+
+        let (scope, focus) = TaskSelection {
+            baseline: BaselineFlags::new().with_merge_base(true),
+            ..selection()
+        }
+        .resolve_explain(Some("origin/main"))
+        .unwrap();
+        assert!(matches!(scope, Selection::Changed(_)));
+        assert_eq!(focus, None);
     }
 }

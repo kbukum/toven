@@ -189,6 +189,21 @@ impl Report {
     }
 }
 
+/// Resolve the effective projection format for an introspection verb: the
+/// explicit `--output` flag wins, else the `[toven].report` document setting, so
+/// a discovery verb honors a config-driven default the same way the run reporter
+/// does via [`Report::resolve`].
+#[must_use]
+pub(crate) const fn resolve_output(flag: Option<OutputKind>, document: &Document) -> OutputKind {
+    match flag {
+        Some(kind) => kind,
+        None => match document.toven.report {
+            ReportFormat::Json => OutputKind::Jsonl,
+            _ => OutputKind::Human,
+        },
+    }
+}
+
 /// Environment variable that pins the CLI wall clock to a fixed Unix epoch
 /// second.
 ///

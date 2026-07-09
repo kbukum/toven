@@ -33,3 +33,18 @@ fn init_writes_then_is_idempotent() {
     // A second run adds nothing and reports the existing sections.
     toven_ok(&sample, &["init"]).expect_stderr_contains("already exists; skipping");
 }
+
+#[test]
+fn init_without_a_detectable_ecosystem_warns_and_writes_a_project_only_config() {
+    let sample = repo("misc/no-ecosystem");
+    let out = toven_ok(&sample, &["init", "--print"]);
+
+    out.expect_stdout_contains("[project]")
+        .expect_stderr_contains("no ecosystem detected")
+        .expect_stderr_contains("--root");
+    assert!(
+        !out.stdout.contains("[ecosystems."),
+        "a no-ecosystem init renders no ecosystem section: {}",
+        out.stdout
+    );
+}

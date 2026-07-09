@@ -223,7 +223,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
         }
         Command::Modules => {
             let project = load(providers, cli, false)?;
-            commands::introspect::modules(providers, &project)
+            commands::introspect::modules(providers, &project, cli.output)
         }
         Command::Graph => {
             let project = load(providers, cli, false)?;

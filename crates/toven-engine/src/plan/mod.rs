@@ -39,7 +39,7 @@ pub use catalog::{EcosystemTasks, TaskCatalog, TaskSummary, task_catalog};
 pub use configure::addressable_task_names;
 pub use front::dependency_graph;
 pub use host::PlanHost;
-pub use pipeline::plan;
+pub use pipeline::{FocusedPlan, plan, plan_focused};
 pub use request::{CacheMode, PlanRequest, Selection};
 pub use source::FsSourceDigest;
 pub use toolchain::ProcessToolchainProber;

@@ -78,6 +78,25 @@ pub(crate) fn changed_seeds(
     seeds
 }
 
+/// The changed paths that no module root or workspace blast-radius glob could
+/// claim.
+///
+/// A non-empty result is exactly the condition under which [`changed_seeds`]
+/// fails closed to [`all_modules`]: the CLI reports these paths as the reason
+/// every module was activated, so a full run is never silent. Paths are sorted
+/// and de-duplicated for a stable diagnostic.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn unclassified_paths(changed: &[ChangeRecord], federation: &Federation) -> Vec<String> {
+    let mut paths: Vec<String> = changed
+        .iter()
+        .filter(|record| matches!(classify(record, federation), Classification::Unclassified))
+        .map(|record| record.path.display().to_string())
+        .collect();
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
 /// Return only records directly attributable to `module`.
 ///
 /// Module-root matches belong to that one module; workspace blast-radius matches

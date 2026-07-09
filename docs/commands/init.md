@@ -1,6 +1,6 @@
 # Onboarding a repository
 
-`toven init` runs an interactive wizard that writes a reviewable `toven.toml` for a repository. It detects each ecosystem present (Rust by `Cargo.toml`, Go by `go.mod`), asks a short questionnaire per ecosystem, and authors a complete config — including the full task table — from your answers plus smart defaults.
+`toven init` runs an interactive wizard that writes a reviewable `toven.toml` for a repository. It derives the project name from the enclosing git repository, detects each ecosystem present (Rust by `Cargo.toml`, Go by `go.mod`), and authors a config from your answers — adding a starter task table you own for each detected ecosystem. If none is detected it writes a `[project]`-only config and warns with the next steps.
 
 ```bash
 toven init [--root PATH] [--force ID] [--non-interactive | --yes] [--print]

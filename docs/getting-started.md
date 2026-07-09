@@ -10,7 +10,7 @@ From the repository you want Toven to manage:
 toven init
 ```
 
-The wizard detects each ecosystem, asks a short questionnaire, and writes `toven.toml`. When there is no root `Cargo.toml`, Toven also discovers first-level nested Cargo manifests, skipping any ignored by Git. Onboard a different directory with `--root`:
+The wizard detects each ecosystem, asks a short questionnaire, and writes `toven.toml`. When there is no root `Cargo.toml`, Toven also discovers first-level nested Cargo manifests, skipping hidden and Git-ignored directories. Onboard a different directory with `--root`:
 
 ```bash
 toven init --root ../other-repo
@@ -32,7 +32,7 @@ The generated config describes:
 - one or more `[ecosystems.*]` sections, such as `[ecosystems.rust]`
 - discovery settings, such as Cargo manifest paths
 
-Smart defaults fill in the standard tasks (`check`, `build`, `clippy`, `fmt-check`, `test`), their run strategy, and toolchain probes. Override a task by adding `[ecosystems.rust.tasks.<name>]`.
+`init` seeds starter tasks such as `check`, `build`, `test`, `lint`, and `format`. Treat them like npm scripts: edit `[ecosystems.rust.tasks.<name>]` to change what `toven <name>` runs. See [running tasks](commands/run.md) for the full task model.
 
 Generated Rust task argv uses the selector model: `{module.selector}` marks the splice point in `argv`, and the task's `selector` fragment renders the concrete package selection (`-p {module.package}`). Keep workflow policy visible — if a task needs a flag, put it in the argv.
 

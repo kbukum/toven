@@ -103,7 +103,7 @@ A wave is everything safe to start now. A module joins a later wave when a depen
 
 An ecosystem's `[ecosystems.<id>.tasks.<task>]` entries and a group's `[groups.<name>.tasks.<task>]` overrides look similar but play different roles and use different shapes.
 
-An `[ecosystems.<id>.tasks.<task>]` entry is an **authoritative, complete task** (`TaskEntry`): it is the source of a runnable task, so `argv` is required and the entry carries the full scheduling attributes (`selector`, `fan_out`, `persistent`, `readiness`, `cache_args`, `shared_inputs`). `toven init` writes this table into `toven.toml`, and the planner runs exactly what it declares. An explicit `kind` marks a named extra within a built-in kind — for example `[ecosystems.rust.tasks.test-integration]` with `kind = "test"` is addressed as `toven test-integration`, distinct from the plain `test` task.
+An `[ecosystems.<id>.tasks.<task>]` entry is an **authoritative, complete task** (`TaskEntry`): the entry's name is the task's identity, so `argv` is required and the entry carries the full scheduling attributes (`selector`, `fan_out`, `persistent`, `readiness`, `cache_args`, `shared_inputs`). `toven init` writes a starter table into `toven.toml`, and the planner runs exactly what each entry declares — add, rename, or remove entries freely. An explicit `kind` is an optional recognition attribute that tags what a task *is* — for example `[ecosystems.rust.tasks.test-integration]` with `kind = "test"` is recognized as a test task (so it shares test-kind behavior such as dev-dependency edge propagation) while still being addressed by its own name, `toven test-integration`.
 
 ```toml
 [ecosystems.rust.tasks.test]
@@ -131,7 +131,7 @@ argv = ["cargo", "nextest", "run", "--profile", "ci"]
 
 So an `integration` group can run `test` with `cargo nextest run --profile ci` and `run_strategy = "unordered"` while the rest of the workspace keeps the defaults.
 
-The task merge order is `ecosystem [tasks] entry → group [tasks] override`, and the resolved origin (`project` or `group`) shows per unit in `toven explain`. A group override is keyed by the task's addressable name, so `[groups.<name>.tasks.test-integration]` refines the named extra, while `[groups.<name>.tasks.test]` refines the plain task. A module reached by two groups that both override the same task or `run_strategy` is a hard error, so overrides stay explicit.
+The task merge order is `ecosystem [tasks] entry → group [tasks] override`, and the resolved origin (`project` or `group`) shows per unit in `toven explain`. A group override is keyed by the task's addressable name, so `[groups.<name>.tasks.test-integration]` refines the `test-integration` task, while `[groups.<name>.tasks.test]` refines the `test` task. A module reached by two groups that both override the same task or `run_strategy` is a hard error, so overrides stay explicit.
 
 ## Sharing task configuration
 
@@ -164,6 +164,8 @@ flowchart TD
 ```
 
 Explicit selection (`--module`/`--workspace`, optionally `--dependents` and/or `--dependencies`) short-circuits the changed-file diff: the named targets become the active set directly, then feed the same cache and execution stages. Selectors are lenient input — bare name, `ecosystem:name`, `workspace/name`, or glob, resolved against the graph — while every listing stays the canonical `ecosystem:name` form. It is mutually exclusive with the baseline flags. See [what invalidates cache](commands/cache.md#what-invalidates-cache) for the full list of cache inputs.
+
+A changed path that owns no module — a `toven.toml` edit, a root-level file, or the untracked `toven.toml` right after `init` — fails closed to full activation (every module), because the config can alter any module's plan. The engine returns the unattributable path(s) as typed data on the affected result; the CLI renders a `full activation: <path> (affects all modules)` diagnostic (on the `affected` projection's stdout, or the human reporter's stderr during a run), so the widening is never silent.
 
 ## Watch mode
 

@@ -11,8 +11,24 @@ use crate::federation::baseline::MemberVcsReaders;
 use crate::plan::discover::Federation;
 use crate::plan::request::{PlanRequest, Selection};
 
-use super::changed::{changed_for_members, changed_seeds};
+use super::changed::{changed_for_members, changed_seeds, unclassified_paths};
 use super::select::explicit_seeds;
+
+/// The resolved active module set plus any forced-full-activation diagnostic.
+///
+/// `modules` is the input to scheduling. `full_activation` is empty for an
+/// explicit or all-modules selection; for a changed selection it names the
+/// changed paths that no module or workspace could claim, which is exactly why
+/// every module was activated (fail-closed). The CLI renders it so a full run is
+/// never silent; the engine only returns the typed data.
+#[derive(Debug, Default)]
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) struct ActiveModules {
+    /// The active module keys scheduling operates over.
+    pub(crate) modules: BTreeSet<ModuleKey>,
+    /// Changed paths that forced full activation (empty when not forced).
+    pub(crate) full_activation: Vec<String>,
+}
 
 /// Resolve the active module set for this request.
 ///
@@ -33,9 +49,9 @@ pub(crate) fn active_modules(
     graph: &Graph,
     federation: &Federation,
     vcs: &MemberVcsReaders<'_>,
-) -> AppResult<BTreeSet<ModuleKey>> {
+) -> AppResult<ActiveModules> {
     match &request.selection {
-        Selection::All => Ok(all_modules(graph)),
+        Selection::All => Ok(ActiveModules::from_set(all_modules(graph))),
         Selection::Explicit {
             targets,
             include_dependents,
@@ -51,22 +67,51 @@ pub(crate) fn active_modules(
             if *include_dependents {
                 active.extend(graph.closure(&seeds, dependents_filter(&request.intent))?);
             }
-            Ok(active)
+            Ok(ActiveModules::from_set(active))
         }
         Selection::Changed(spec) => {
             let changed = changed_for_members(vcs, spec.as_ref())?;
-            let seeds = changed_seeds(&changed, graph, federation);
-            graph.closure(&seeds, dependents_filter(&request.intent))
+            resolve_changed(request, graph, federation, &changed)
         }
         Selection::ChangedPaths(paths) => {
             let changed: Vec<ChangeRecord> = paths
                 .iter()
                 .map(|path| ChangeRecord::new(path, ChangeStatus::Modified))
                 .collect();
-            let seeds = changed_seeds(&changed, graph, federation);
-            graph.closure(&seeds, dependents_filter(&request.intent))
+            resolve_changed(request, graph, federation, &changed)
         }
     }
+}
+
+impl ActiveModules {
+    /// Wrap a resolved set with no forced-activation diagnostic.
+    const fn from_set(modules: BTreeSet<ModuleKey>) -> Self {
+        Self {
+            modules,
+            full_activation: Vec::new(),
+        }
+    }
+}
+
+/// Resolve a changed-path selection to the active set and its full-activation
+/// diagnostic.
+///
+/// When every changed path is attributable the active set is the reverse-dependents
+/// closure of the seeds; an unattributable path fails closed to every module and
+/// names the offending path(s) so the CLI can explain the full run.
+fn resolve_changed(
+    request: &PlanRequest,
+    graph: &Graph,
+    federation: &Federation,
+    changed: &[ChangeRecord],
+) -> AppResult<ActiveModules> {
+    let full_activation = unclassified_paths(changed, federation);
+    let seeds = changed_seeds(changed, graph, federation);
+    let modules = graph.closure(&seeds, dependents_filter(&request.intent))?;
+    Ok(ActiveModules {
+        modules,
+        full_activation,
+    })
 }
 
 /// Every module key in the graph.
