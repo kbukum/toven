@@ -56,11 +56,14 @@ pub fn resolve_view(
     };
     let tile_pty = PtySize::new(TILE_TAIL_LINES, term.cols.max(1));
     match view {
-        ViewMode::Tiles => ResolvedView::Tiles { pty: tile_pty },
-        ViewMode::Panes => ResolvedView::Panes {
+        // Panes need a multiplexer host; inside one render real panes, otherwise
+        // (like plain tiles) render tiles rather than spawning a doomed
+        // `tmux split-window` once per unit.
+        ViewMode::Panes if in_multiplexer => ResolvedView::Panes {
             cap: PANE_CAP,
             pty: term,
         },
+        ViewMode::Tiles | ViewMode::Panes => ResolvedView::Tiles { pty: tile_pty },
         ViewMode::Auto => {
             if in_multiplexer && units <= PANE_CAP {
                 ResolvedView::Panes {
@@ -147,11 +150,19 @@ mod tests {
     }
 
     #[test]
-    fn explicit_panes_requested_outside_a_multiplexer_still_resolves_panes() {
-        // `--view panes` is an explicit opt-in; honoring it on a terminal lets a
-        // user force panes. The pane launcher degrades per-unit if tmux is absent.
+    fn explicit_panes_outside_a_multiplexer_falls_back_to_tiles() {
+        // `--view panes` needs a multiplexer host; without one it degrades to
+        // tiles up front instead of spawning a doomed `tmux split-window` per unit.
+        match resolve_view(ViewMode::Panes, Some(TERM), false, 3) {
+            ResolvedView::Tiles { .. } => {}
+            other => panic!("expected tiles, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn explicit_panes_in_a_multiplexer_resolves_panes() {
         assert!(matches!(
-            resolve_view(ViewMode::Panes, Some(TERM), false, 3),
+            resolve_view(ViewMode::Panes, Some(TERM), true, 3),
             ResolvedView::Panes { .. }
         ));
     }

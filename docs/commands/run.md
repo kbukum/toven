@@ -9,7 +9,7 @@ toven test
 
 The task token is the task's addressable name — any entry in the config task table. `init` seeds a starter set (`build`, `check`, `format`, `format-check`, `lint`, `test`, `doc`, `run`), and you add, rename, or remove entries under `[ecosystems.<id>.tasks.<name>]` (for example `toven test-integration`). A task's optional `kind` is a recognition hint, not a fixed catalog. Run `toven tasks` to list every runnable task.
 
-`format` rewrites the tree in place (`cargo fmt --all`); `format-check` is its CI-friendly companion that only verifies formatting (`cargo fmt --all --check`) and, unlike `format`, is cacheable. Use `format` locally and `format-check` in CI.
+`format` rewrites the tree in place (`cargo fmt --all`); `format-check` is its CI-friendly companion that only verifies formatting without touching files (`cargo fmt --all --check`). Use `format` locally and `format-check` in CI.
 
 `run` is a persistent task that launches a module's executable, so it is only offered for modules that have a runnable target (a `bin` or `example`). Library-only crates have no binary, so they are skipped when you run `run` across a workspace and are never planned for it — `toven run --module rust:<lib>` simply plans nothing rather than failing at exec.
 

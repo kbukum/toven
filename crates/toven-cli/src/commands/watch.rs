@@ -113,6 +113,9 @@ pub(crate) fn run_watch(
         }
         .run()
         .await
-    })?;
-    Ok(exit_code(&summary))
+    });
+    // Reclaim the per-session pane scratch dir (created only under `--view
+    // panes`) once the watch loop exits, however it ended.
+    let _ = rskit_fs::sync_io::dir::remove_all_if_exists(&live.pane_dir);
+    Ok(exit_code(&summary?))
 }

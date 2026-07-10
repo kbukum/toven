@@ -167,8 +167,11 @@ pub(crate) fn execute(
         // `RunStats` instead of leaking child processes by dropping the future.
         let cancel = on_ctrl_c();
         apply(&plan, runner, &cache, sink, &mut output, options, cancel).await
-    })?;
-    Ok(exit_code(&summary))
+    });
+    // Reclaim the per-run pane scratch dir (created only under `--view panes`),
+    // regardless of how the run exited.
+    let _ = rskit_fs::sync_io::dir::remove_all_if_exists(&pane_dir);
+    Ok(exit_code(&summary?))
 }
 
 /// Plan and publish a release (`toven release`).
