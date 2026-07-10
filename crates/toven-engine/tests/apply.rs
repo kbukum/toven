@@ -561,7 +561,8 @@ fn concurrent_live_sink_streams_parallel_normal_units_live_with_lifecycle() {
             ("second".to_string(), UnitStatus::Succeeded),
         ],
         "every begin_unit is matched by exactly one end_unit with its final status",
-    );}
+    );
+}
 
 /// Drive `apply` over `plan` with an explicit `max_parallel`, recording raw
 /// output into `sink`.
