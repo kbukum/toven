@@ -119,7 +119,7 @@ On a real terminal Toven renders each in-flight unit's output live, even when un
 |------|----------|
 | `auto` (default) | Panes in a supported multiplexer (tmux) for a small run, else tiles on a terminal, else stream. |
 | `tiles` | In-terminal live tiles: one region per in-flight unit, collapsing to a verdict on completion. |
-| `panes` | One real multiplexer pane per unit (tmux), capped to the first few units with the rest as tiles. Best for a handful of long-lived units. |
+| `panes` | One real multiplexer pane per unit (tmux), capped to the first few units with the rest as tiles. Falls back to tiles entirely when not running under tmux (or if tmux can't open panes). Best for a handful of long-lived units. |
 | `stream` | The deterministic single linear stream: each unit's output is buffered and flushed as one block. Log-friendly and unchanged run-to-run. |
 
 ```toml

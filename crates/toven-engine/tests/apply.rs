@@ -552,15 +552,16 @@ fn concurrent_live_sink_streams_parallel_normal_units_live_with_lifecycle() {
     for (id, label) in &begins {
         assert_eq!(id, label, "region label defaults to the unit id");
     }
+    let mut ends_sorted = ends;
+    ends_sorted.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(
-        ends,
+        ends_sorted,
         vec![
             ("first".to_string(), UnitStatus::Succeeded),
             ("second".to_string(), UnitStatus::Succeeded),
         ],
         "every begin_unit is matched by exactly one end_unit with its final status",
-    );
-}
+    );}
 
 /// Drive `apply` over `plan` with an explicit `max_parallel`, recording raw
 /// output into `sink`.
