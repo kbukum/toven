@@ -120,7 +120,7 @@ pub(crate) fn sibling_lockfile(manifest: &str) -> String {
 /// The repo-relative lockfiles that should enter `shared_inputs` for
 /// `manifests`, sorted and de-duplicated.
 ///
-/// A lockfile is included only when it exists on disk and is tracked by Git.
+/// A lockfile is included only when it exists on disk and is not git-ignored.
 /// An absent path would hash to an empty digest and silently drop invalidation;
 /// a git-ignored lockfile (e.g. a cargo-fuzz `Cargo.lock`) is regenerable and
 /// may be missing in a fresh CI checkout, so it is skipped too.
