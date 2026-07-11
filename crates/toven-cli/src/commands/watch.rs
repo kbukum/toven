@@ -64,8 +64,9 @@ pub(crate) fn run_watch(
     sink: &mut dyn Reporter,
 ) -> AppResult<ExitCode> {
     // Bind the resolved live view for the whole watch session. The affected-set
-    // size varies per rerun, so `auto` cannot weigh the unit count here; the
-    // pane view self-caps regardless, keeping a large rerun bounded.
+    // size varies per rerun, so the unit count is unknown here (passed as `0`):
+    // `auto` therefore resolves to tiles rather than panes, while an explicit
+    // `--view panes` still self-caps, keeping a large rerun bounded.
     let (configured_runner, raw_sink) = configure_live_output(
         ProcessCommandRunner::new(project.project_root.as_path()),
         live.view,

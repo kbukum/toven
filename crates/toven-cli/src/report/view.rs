@@ -44,7 +44,8 @@ pub enum ResolvedView {
 ///
 /// `terminal` is the stderr terminal size when stderr is a real terminal (else
 /// `None`); `in_multiplexer` is whether a supported multiplexer (tmux) is
-/// active; `units` is the planned unit count.
+/// active; `units` is the planned unit count, or `0` when it is unknown (watch
+/// mode) or the plan is empty — in `auto` a `0` count never selects panes.
 #[must_use]
 pub fn resolve_view(
     view: ViewMode,
@@ -68,7 +69,11 @@ pub fn resolve_view(
         },
         ViewMode::Tiles | ViewMode::Panes => ResolvedView::Tiles { pty: tile_pty },
         ViewMode::Auto => {
-            if in_multiplexer && units <= PANE_CAP {
+            // `auto` picks panes only for a known small run: a positive unit
+            // count within the cap. `units == 0` means the count is unknown
+            // (watch mode) or the plan is empty, which is not a "small run", so
+            // it uses tiles rather than defaulting to panes under tmux.
+            if in_multiplexer && (1..=PANE_CAP).contains(&units) {
                 ResolvedView::Panes {
                     cap: PANE_CAP,
                     pty: term,
@@ -134,6 +139,16 @@ mod tests {
                 pty: TERM
             }
         );
+    }
+
+    #[test]
+    fn auto_uses_tiles_when_unit_count_is_unknown_or_empty_under_a_multiplexer() {
+        // `units == 0` (watch mode's unknown count, or an empty plan) must not
+        // satisfy the small-run pane rule; it resolves to tiles under tmux.
+        match resolve_view(ViewMode::Auto, Some(TERM), true, 0) {
+            ResolvedView::Tiles { .. } => {}
+            other => panic!("expected tiles for a 0 unit count, got {other:?}"),
+        }
     }
 
     #[test]
