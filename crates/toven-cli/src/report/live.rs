@@ -50,14 +50,19 @@ pub(crate) fn configure_live_output(
     };
 
     Ok(match resolved {
-        // The stream fallback keeps today's shape exactly: buffered per-unit
-        // blocks, with live units still attached to a PTY matching the terminal
-        // (a no-op when stderr is redirected) so a `--view stream` / JSON run on
-        // a real terminal preserves child colors byte-for-byte.
-        ResolvedView::Stream => (
-            runner.with_pty_matching_terminal(&std::io::stderr()),
-            Box::new(WriterRawSink::stderr()),
-        ),
+        // The stream fallback keeps today's shape. `force_stream` (the machine
+        // JSON projection) must stay byte-stable, so it keeps deterministic pipe
+        // capture with no PTY; an interactive `--view stream` still attaches a
+        // PTY matching the terminal (a no-op when stderr is redirected) so child
+        // colors are preserved.
+        ResolvedView::Stream => {
+            let runner = if force_stream {
+                runner
+            } else {
+                runner.with_pty_matching_terminal(&std::io::stderr())
+            };
+            (runner, Box::new(WriterRawSink::stderr()))
+        }
         ResolvedView::Tiles { pty } => (
             runner.with_pty(pty),
             Box::new(TilesRawSink::stderr(pty.cols as usize, palette)),

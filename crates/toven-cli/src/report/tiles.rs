@@ -28,7 +28,7 @@ pub(super) const TILE_TAIL_LINES: u16 = 6;
 #[derive(Debug, Default, Clone, Copy)]
 struct Counts {
     running: usize,
-    ok: usize,
+    done: usize,
     failed: usize,
 }
 
@@ -77,8 +77,8 @@ impl TilesRawSink {
     fn refresh_header(&self) {
         let counts = self.counts;
         self.console.set_header(format!(
-            "running {} · ok {} · failed {}",
-            counts.running, counts.ok, counts.failed
+            "running {} · done {} · failed {}",
+            counts.running, counts.done, counts.failed
         ));
     }
 }
@@ -120,7 +120,7 @@ impl RawOutputSink for TilesRawSink {
         if status.is_failure() {
             self.counts.failed += 1;
         } else {
-            self.counts.ok += 1;
+            self.counts.done += 1;
         }
         self.refresh_header();
         Ok(())

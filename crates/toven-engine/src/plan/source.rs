@@ -56,16 +56,23 @@ impl FsSourceDigest {
     /// `content` field.
     fn hash_file_into(absolute: &Path, hasher: &mut ContentHasher) -> AppResult<()> {
         let bytes = file::read_bounded(absolute, MAX_FILE_BYTES).map_err(|error| {
-            AppError::invalid_input(
-                "source_file",
-                format!(
-                    "file '{}' exceeds the {MAX_FILE_BYTES}-byte source-digest cap; \
-                     this is usually a build artifact that should be git-ignored \
-                     (e.g. under 'target/') rather than tracked source",
-                    absolute.display()
-                ),
-            )
-            .with_cause(error)
+            // Only the size-cap breach gets the "likely a build artifact" hint;
+            // any other IO failure (missing file, permission denied, …) keeps its
+            // own accurate message and cause.
+            if file::is_file_too_large_error(&error) {
+                AppError::invalid_input(
+                    "source_file",
+                    format!(
+                        "file '{}' exceeds the {MAX_FILE_BYTES}-byte source-digest cap; \
+                         this is usually a build artifact that should be git-ignored \
+                         (e.g. under 'target/') rather than tracked source",
+                        absolute.display()
+                    ),
+                )
+                .with_cause(error)
+            } else {
+                error
+            }
         })?;
         hasher.update_framed(b"content", &bytes);
         Ok(())
@@ -220,6 +227,46 @@ mod tests {
         workspace.write_file("core/lib.rs", b"fn b() {}").unwrap();
         let changed = digest.module(&module("core")).unwrap();
         assert_ne!(before, changed);
+    }
+
+    #[test]
+    fn oversize_tracked_file_reports_the_source_digest_cap() {
+        // A large *tracked* file (not git-ignored) still trips the cap, and the
+        // error must carry the build-artifact hint so the fix is actionable.
+        let workspace = TestWorkspace::new("source-digest-oversize");
+        workspace.write_file("core/lib.rs", b"fn a() {}").unwrap();
+        workspace
+            .write_file("core/huge.bin", &vec![b'x'; 18 * 1024 * 1024])
+            .unwrap();
+        let root = AbsPath::new(workspace.path()).unwrap();
+
+        let error = FsSourceDigest::new(&root)
+            .module(&module("core"))
+            .unwrap_err();
+        assert_eq!(error.code(), rskit_errors::ErrorCode::InvalidInput);
+        assert!(
+            error.to_string().contains("source-digest cap"),
+            "oversize tracked file keeps the cap hint, got: {error}"
+        );
+    }
+
+    #[test]
+    fn non_oversize_read_failure_is_not_mislabeled_as_oversize() {
+        // A directory is not a regular file, so the bounded read fails with a
+        // distinct error that must surface as-is, never disguised as a size-cap
+        // breach.
+        use rskit_util::hash::ContentHasher;
+
+        let workspace = TestWorkspace::new("source-digest-nonregular");
+        workspace.write_file("pkg/keep.rs", b"fn a() {}").unwrap();
+        let dir = workspace.path().join("pkg");
+
+        let mut hasher = ContentHasher::new();
+        let error = FsSourceDigest::hash_file_into(&dir, &mut hasher).unwrap_err();
+        assert!(
+            !error.to_string().contains("source-digest cap"),
+            "a non-oversize failure must not claim the size cap, got: {error}"
+        );
     }
 
     #[test]
