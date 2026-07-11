@@ -19,8 +19,11 @@ pub(super) const PANE_CAP: usize = 6;
 /// The concrete rendering chosen for a run, plus the PTY size live units get.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolvedView {
-    /// Single linear stream: buffered per-unit blocks, no PTY (deterministic
-    /// pipes). The fallback whenever the target is not an interactive terminal.
+    /// Single linear stream with no live area. Normal-unit output that could
+    /// interleave under parallelism is buffered into a deterministic per-unit
+    /// block; live-safe runs (serial/single-unit, no held persistent unit) still
+    /// stream inline. On a terminal live units attach a PTY so child colors are
+    /// preserved; a redirected or piped target keeps the byte-stable pipe shape.
     Stream,
     /// Live in-terminal tiles; each unit's PTY is sized to `pty`.
     Tiles {

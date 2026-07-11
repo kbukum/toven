@@ -120,7 +120,7 @@ On a real terminal Toven renders each in-flight unit's output live, even when un
 | `auto` (default) | Panes in a supported multiplexer (tmux) for a small run, else tiles on a terminal, else stream. |
 | `tiles` | In-terminal live tiles: one region per in-flight unit, collapsing to a verdict on completion. |
 | `panes` | One real multiplexer pane per unit (tmux), capped to the first few units with the rest as tiles. Falls back to tiles entirely when not running under tmux (or if tmux can't open panes). Best for a handful of long-lived units. |
-| `stream` | The deterministic single linear stream: each unit's output is buffered and flushed as one block. Log-friendly and unchanged run-to-run. |
+| `stream` | A single linear stream with no live area. Output that could interleave under parallelism is buffered per unit and flushed as one block; live-safe runs (serial/single-unit) still stream inline. Log-friendly and deterministic run-to-run. |
 
 ```toml
 [toven]
@@ -132,7 +132,7 @@ toven test --view stream   # force the deterministic single-stream output
 toven test --view panes    # one tmux pane per unit (under $TMUX)
 ```
 
-Selection degrades safely and never depends on a terminal for correctness. Whenever output is redirected, piped, or `--output jsonl` is active — or the target is not a terminal (CI) — Toven always uses `stream`, byte-for-byte identical to redirecting today: `toven test 2>&1 | cat` and non-tty runs are unaffected by the live renderer. `--view stream` forces that same shape on a terminal. Live tiles/panes are Unix-only (they need a pseudoterminal); on other platforms Toven always uses `stream`.
+Selection degrades safely and never depends on a terminal for correctness. Whenever output is redirected, piped, or `--output jsonl` is active — or the target is not a terminal (CI) — Toven always uses `stream`, byte-for-byte identical to redirecting today: `toven test 2>&1 | cat` and non-tty runs are unaffected by the live renderer. `--view stream` disables the live tiles/panes area on a terminal too; live-safe units may still stream inline through a PTY, so its output is the linear stream shape but not necessarily byte-for-byte identical to a redirected run. Live tiles/panes are Unix-only (they need a pseudoterminal); on other platforms Toven always uses `stream`.
 
 `max_parallel = 1` still works but is no longer required for live output — full parallelism and live per-unit output are no longer a trade-off.
 

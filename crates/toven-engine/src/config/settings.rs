@@ -63,8 +63,9 @@ pub enum ViewMode {
     Tiles,
     /// One multiplexer pane per unit (opt-in; requires a supported multiplexer).
     Panes,
-    /// A single linear stream: each normal unit's output flushed as one labeled
-    /// block on completion (the log-friendly fallback).
+    /// A single linear stream with no live area: normal-unit output is buffered
+    /// into one labeled block when concurrency could interleave it, and streamed
+    /// inline for live-safe runs (the log-friendly fallback).
     Stream,
 }
 
