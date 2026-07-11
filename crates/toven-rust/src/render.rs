@@ -89,6 +89,10 @@ fn task_table(use_nextest: bool) -> BTreeMap<String, TaskEntry> {
             "cargo".to_string(),
             "nextest".to_string(),
             "run".to_string(),
+            // A crate with no test targets is not a failure; nextest otherwise
+            // exits non-zero with "no tests to run". This flag is on a generated
+            // command, not user argv.
+            "--no-tests=pass".to_string(),
             "--manifest-path".to_string(),
             "{module.manifest}".to_string(),
             "{module.selector}".to_string(),
@@ -257,7 +261,10 @@ mod tests {
         let fragment = render(&detection(true), &answers).expect("render");
         let config = parse(&fragment);
         let test = config.common.tasks.get("test").expect("test task");
-        assert_eq!(test.argv[..3], ["cargo", "nextest", "run"]);
+        assert_eq!(
+            test.argv[..4],
+            ["cargo", "nextest", "run", "--no-tests=pass"]
+        );
         assert_eq!(test.fan_out, FanOut::Batchable);
         assert_eq!(test.shared_inputs, ["Cargo.lock"]);
     }
@@ -276,7 +283,20 @@ mod tests {
         let fragment = render(&detection(true), &Answers::new()).expect("render");
         let config = parse(&fragment);
         let test = config.common.tasks.get("test").expect("test task");
-        assert_eq!(test.argv[..3], ["cargo", "nextest", "run"]);
+        assert_eq!(
+            test.argv[..4],
+            ["cargo", "nextest", "run", "--no-tests=pass"]
+        );
+    }
+
+    #[test]
+    fn nextest_test_task_passes_empty_crates_instead_of_failing() {
+        // A crate with no test targets must not be a failure; the generated
+        // nextest command carries `--no-tests=pass` so an empty crate is `ok`.
+        let fragment = render(&detection(true), &Answers::new()).expect("render");
+        let config = parse(&fragment);
+        let test = config.common.tasks.get("test").expect("test task");
+        assert!(test.argv.iter().any(|arg| arg == "--no-tests=pass"));
     }
 
     #[test]

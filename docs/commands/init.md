@@ -46,6 +46,8 @@ shared_inputs = ["Cargo.lock"]
 
 The task table is authoritative: the config is the single source of runnable tasks, so what `init` writes is exactly what `toven run` executes. Edit any argv to change what a task does.
 
+When you choose the `cargo-nextest` runner, the generated `test` task carries `--no-tests=pass`, so a crate with no test targets is reported as a passing unit rather than a failure (nextest otherwise exits non-zero with "no tests to run").
+
 ## Re-running
 
 Re-running against an existing config adds only `[ecosystems.<id>]` sections that are missing. It warns on sections that already exist, leaves `[project]` and `[toven]` untouched, and preserves your formatting and comments. A re-run that adds nothing leaves the file byte-identical.
