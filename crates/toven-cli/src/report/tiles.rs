@@ -76,6 +76,15 @@ impl TilesRawSink {
         }
     }
 
+    /// The grid width a live child's PTY must be sized to so its own line
+    /// wrapping matches the tile: the tile width minus the content indent. A
+    /// child told it is `cols` wide would wrap a full-width progress redraw at
+    /// the narrower grid edge, scrolling the short grid and leaking a stale
+    /// frame to scrollback each tick.
+    pub(super) fn content_cols(&self) -> usize {
+        self.console.content_cols()
+    }
+
     fn refresh_header(&self) {
         let counts = self.counts;
         self.console.set_header(format!(
@@ -181,6 +190,16 @@ mod tests {
     fn advertises_concurrent_live_support() {
         let sink = TilesRawSink::hidden();
         assert!(sink.supports_concurrent_live());
+    }
+
+    #[test]
+    fn content_cols_reserves_the_tile_indent() {
+        // Children are sized to this, not the full tile width, so a full-width
+        // in-place progress redraw does not wrap into a grid scroll.
+        assert_eq!(
+            TilesRawSink::stderr(120, Palette::new(false)).content_cols(),
+            118
+        );
     }
 
     #[test]

@@ -63,10 +63,15 @@ pub(crate) fn configure_live_output(
             };
             (runner, Box::new(WriterRawSink::stderr()))
         }
-        ResolvedView::Tiles { pty } => (
-            runner.with_pty(pty),
-            Box::new(TilesRawSink::stderr(pty.cols as usize, palette)),
-        ),
+        ResolvedView::Tiles { pty } => {
+            let tiles = TilesRawSink::stderr(pty.cols as usize, palette);
+            // Size the child to the tile's inner grid, not the full tile width:
+            // a child told it is `pty.cols` wide wraps a full-width in-place
+            // progress redraw at the narrower grid edge, scrolling the short
+            // grid and leaking a stale frame to scrollback on every tick.
+            let child = grid_pty(pty, tiles.content_cols());
+            (runner.with_pty(child), Box::new(tiles))
+        }
         ResolvedView::Panes { cap, pty } => {
             rskit_fs::sync_io::dir::create_all(pane_dir)?;
             let tiles = TilesRawSink::stderr(pty.cols as usize, palette);
@@ -77,6 +82,13 @@ pub(crate) fn configure_live_output(
             )
         }
     })
+}
+
+/// Narrow a full-width tile PTY to the tile's inner grid width, keeping its row
+/// count. Used so a live child's own line wrapping matches the visible grid.
+#[cfg(unix)]
+fn grid_pty(tile: rskit_process::PtySize, content_cols: usize) -> rskit_process::PtySize {
+    rskit_process::PtySize::new(tile.rows, u16::try_from(content_cols).unwrap_or(tile.cols))
 }
 
 /// Non-Unix fallback: PTY-backed live views are unavailable, so every run uses
@@ -107,6 +119,18 @@ mod tests {
     use toven_ports::RawOutputSink;
 
     use super::configure_live_output;
+    use super::grid_pty;
+    use rskit_process::PtySize;
+
+    #[test]
+    fn grid_pty_narrows_cols_to_the_content_width_keeping_rows() {
+        // A live child is sized to the tile's inner grid, not the full tile
+        // width, so its wrapping matches the grid and progress redraws don't
+        // scroll the short grid into scrollback.
+        let child = grid_pty(PtySize::new(6, 120), 118);
+        assert_eq!(child.rows, 6);
+        assert_eq!(child.cols, 118);
+    }
 
     #[test]
     fn force_stream_pins_the_stream_sink_even_when_tiles_is_requested() {
