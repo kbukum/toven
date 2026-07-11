@@ -105,10 +105,14 @@ impl TilesRawSink {
 impl RawOutputSink for TilesRawSink {
     fn live(&mut self, chunk: &UnitOutput) -> AppResult<()> {
         self.console.feed(&chunk.unit_id, &chunk.bytes);
-        self.summaries
-            .entry(chunk.unit_id.clone())
-            .or_default()
-            .observe(&chunk.bytes);
+        if let Some(scanner) = self.summaries.get_mut(&chunk.unit_id) {
+            scanner.observe(&chunk.bytes);
+        } else {
+            self.summaries
+                .entry(chunk.unit_id.clone())
+                .or_default()
+                .observe(&chunk.bytes);
+        }
         Ok(())
     }
 
