@@ -40,27 +40,29 @@ pub struct TilesRawSink {
 }
 
 impl TilesRawSink {
-    /// Create a tiles sink rendering to stderr, truncating tile lines to `width`
-    /// columns (`0` disables truncation) and colorizing verdicts per `palette`.
+    /// Create a tiles sink rendering to stderr, laying each tile out as a
+    /// `TILE_TAIL_LINES`-row by `width`-column virtual terminal and colorizing
+    /// verdicts per `palette`.
     #[must_use]
     pub fn stderr(width: usize, palette: Palette) -> Self {
         Self::with_console(
             LiveConsole::to_stderr(LiveConfig {
-                tail_lines: TILE_TAIL_LINES as usize,
-                width,
+                rows: TILE_TAIL_LINES as usize,
+                cols: width,
             }),
             palette,
         )
     }
 
     /// Create a tiles sink whose rendering is discarded — for tests and
-    /// non-terminal runs where the live area must not draw.
+    /// non-terminal runs where the live area must not draw. The grid still needs
+    /// a finite width, so a conventional 80-column terminal is assumed.
     #[must_use]
     pub fn hidden() -> Self {
         Self::with_console(
             LiveConsole::hidden(LiveConfig {
-                tail_lines: TILE_TAIL_LINES as usize,
-                width: 0,
+                rows: TILE_TAIL_LINES as usize,
+                cols: 80,
             }),
             Palette::new(false),
         )
