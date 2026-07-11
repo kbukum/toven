@@ -22,6 +22,7 @@ use toven_ports::{DiscoverRequest, DiscoverResponse};
 
 use crate::config::RustConfig;
 use crate::discovery::blast;
+use crate::manifests;
 
 /// Hard bound on retained `cargo metadata` output (16 MiB). Large enough for big
 /// polyglot workspaces, bounded so a runaway process cannot exhaust memory.
@@ -45,8 +46,8 @@ pub(crate) fn discover(
     let mut modules: BTreeMap<ModuleRef, Module> = BTreeMap::new();
     let mut path_deps: Vec<(String, String, DepKind)> = Vec::new();
 
-    for manifest in &config.manifests {
-        let metadata = run_metadata(project_root, manifest)?;
+    for manifest in manifests::resolve(config, project_root)? {
+        let metadata = run_metadata(project_root, &manifest)?;
         fold_metadata(
             &ecosystem,
             project_root,

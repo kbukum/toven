@@ -172,6 +172,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
                 cli.is_plan_only(),
                 global_watch(cli),
                 cli.view.map(Into::into),
+                cli.jobs,
                 &global_selection(cli),
             )
         }
@@ -254,6 +255,7 @@ fn plan_command(
             debounce_ms: flags::DEFAULT_WATCH_DEBOUNCE_MS,
         },
         None,
+        cli.jobs,
         &global_selection(cli),
     )
 }
@@ -324,6 +326,7 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
             .unwrap_or(flags::DEFAULT_WATCH_DEBOUNCE_MS),
     };
     let view = flags.view.or(cli.view).map(Into::into);
+    let jobs = flags.jobs.or(cli.jobs);
 
     commands::run::execute(
         providers,
@@ -338,6 +341,7 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
         plan_only,
         watch,
         view,
+        jobs,
         &selection,
     )
     .map_err(|error| advise_builtin_typo(&invocation.task, error))

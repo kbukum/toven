@@ -79,6 +79,7 @@ mod tests {
     fn detection(nextest: bool) -> Detection {
         let facts = RustFacts {
             manifests: vec!["Cargo.toml".to_string()],
+            lockfiles: vec!["Cargo.lock".to_string()],
             nextest,
         };
         Detection::new(
@@ -93,6 +94,7 @@ mod tests {
                 "core/Cargo.toml".to_string(),
                 "contrib/Cargo.toml".to_string(),
             ],
+            lockfiles: Vec::new(),
             nextest: true,
         };
         Detection::new(

@@ -106,6 +106,20 @@ pub(crate) fn parse_duration_arg(value: &str) -> Result<Duration, String> {
     }
 }
 
+/// Parse `--jobs`/`-j`: a positive concurrency ceiling.
+///
+/// Rejects zero — a ceiling of zero would schedule nothing, which is never what
+/// the user means; `--jobs 1` is the way to force strictly serial execution.
+pub(crate) fn parse_jobs_arg(value: &str) -> Result<usize, String> {
+    match value.parse::<usize>() {
+        Ok(0) => Err("`--jobs` must be at least 1 (use `--jobs 1` for serial)".to_owned()),
+        Ok(jobs) => Ok(jobs),
+        Err(error) => Err(format!(
+            "`--jobs` requires a positive integer (got `{value}`): {error}"
+        )),
+    }
+}
+
 /// Event-sink output format selected by `--output`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "lowercase")]
@@ -293,6 +307,12 @@ pub struct Cli {
     /// (duration string, e.g. `30s`, `5m`).
     #[arg(long, global = true, value_name = "DURATION", value_parser = parse_duration_arg, help_heading = "Execution")]
     pub timeout: Option<Duration>,
+    /// Task-APPLY verbs only: cap how many units run concurrently, overriding the
+    /// `[toven].max_parallel` setting. `--jobs 1` forces strictly serial
+    /// execution (one unit at a time), which streams each unit's output inline
+    /// as a single continuous log instead of buffered per-unit blocks.
+    #[arg(long, short = 'j', global = true, value_name = "N", value_parser = parse_jobs_arg, help_heading = "Execution")]
+    pub jobs: Option<usize>,
     /// Changed-selection verbs only: override the diff baseline reference
     /// (per-member under a federation; falls back to `[[members]].base_ref` /
     /// `[project].base_ref`).
@@ -614,14 +634,7 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     // `--fail-fast` shapes APPLY scheduling, so it is meaningful only on the
     // task-APPLY verbs. `plan` stops at PLAN and `release` never multiplexes
     // independent units, so the flag is a no-op there and is rejected.
-    if cli.fail_fast && !accepts_fail_fast(&cli.command) {
-        return Err(AppError::invalid_input(
-            "flags",
-            format!(
-                "`--fail-fast` only applies to task-APPLY verbs (`toven run`/`toven <task>`); it has no effect on `toven {verb}`"
-            ),
-        ));
-    }
+    reject_apply_only_flag(cli.fail_fast, "--fail-fast", &cli.command, verb)?;
     // `--no-cache` shapes the PLAN cache verdict, so it is meaningful only on the
     // execution verbs that build a cache-aware `PlanRequest` (`run`/`plan`/a bare
     // task). `release` runs its own pipeline without the task cache, so the flag
@@ -650,21 +663,35 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     if cli.refresh && cli.no_cache {
         return Err(refresh_no_cache_conflict());
     }
-    // `--timeout` bounds APPLY execution, so — like `--fail-fast`/`--watch` — it
-    // is meaningful only on the task-APPLY verbs that actually run units.
-    if cli.timeout.is_some() && !accepts_fail_fast(&cli.command) {
-        return Err(AppError::invalid_input(
-            "flags",
-            format!(
-                "`--timeout` only applies to task-APPLY verbs (`toven run`/`toven <task>`); it has no effect on `toven {verb}`"
-            ),
-        ));
-    }
+    // `--timeout` bounds APPLY execution and `--jobs` caps its concurrency, so —
+    // like `--fail-fast`/`--watch` — both are meaningful only on the task-APPLY
+    // verbs that actually run units.
+    reject_apply_only_flag(cli.timeout.is_some(), "--timeout", &cli.command, verb)?;
+    reject_apply_only_flag(cli.jobs.is_some(), "--jobs", &cli.command, verb)?;
     gate_watch_flags(cli, verb)?;
     // `--base`/`--merge-base` only shape changed selection, and
     // `--module`/`--workspace`/`--with-dependents` shape explicit selection —
     // both belong to the same selection verbs; other verbs would ignore them.
     gate_selection_flags(cli, verb)?;
+    Ok(())
+}
+
+/// Reject an APPLY-only flag (`--fail-fast`/`--timeout`/`--jobs`) on any verb
+/// that never runs units; elsewhere the flag would be a silent no-op.
+fn reject_apply_only_flag(
+    present: bool,
+    flag: &str,
+    command: &Command,
+    verb: &str,
+) -> AppResult<()> {
+    if present && !accepts_fail_fast(command) {
+        return Err(AppError::invalid_input(
+            "flags",
+            format!(
+                "`{flag}` only applies to task-APPLY verbs (`toven run`/`toven <task>`); it has no effect on `toven {verb}`"
+            ),
+        ));
+    }
     Ok(())
 }
 

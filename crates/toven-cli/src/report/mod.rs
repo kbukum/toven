@@ -17,6 +17,7 @@ mod live;
 mod output;
 #[cfg(unix)]
 mod panes;
+mod summary;
 mod tiles;
 #[cfg(unix)]
 mod view;

@@ -33,7 +33,7 @@ root = "."
 base_ref = "origin/main"
 
 [ecosystems.rust]
-manifests = ["Cargo.toml"]
+manifests = "auto"
 
 [ecosystems.rust.tasks.build]
 argv = ["cargo", "build", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
@@ -44,7 +44,11 @@ shared_inputs = ["Cargo.lock"]
 # ... check, doc, format, format-check, lint, run, test ...
 ```
 
+`manifests = "auto"` re-discovers the Cargo workspace roots on every plan (a root `Cargo.toml`, or each first-level `<dir>/Cargo.toml` for a multi-workspace repo), so a workspace added later is picked up without editing the config. Narrow the wizard's workspace selection to freeze an explicit list instead (`manifests = ["core/Cargo.toml", ...]`); with `auto`, add `exclude = ["fuzz"]` to skip a workspace by directory. Each task's `shared_inputs` lists the tracked `Cargo.lock` beside every managed workspace, so a lockfile change invalidates the cache.
+
 The task table is authoritative: the config is the single source of runnable tasks, so what `init` writes is exactly what `toven run` executes. Edit any argv to change what a task does.
+
+When you choose the `cargo-nextest` runner, the generated `test` task carries `--no-tests=pass`, so a crate with no test targets is reported as a passing unit rather than a failure (nextest otherwise exits non-zero with "no tests to run").
 
 ## Re-running
 

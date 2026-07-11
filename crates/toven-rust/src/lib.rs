@@ -26,6 +26,7 @@ mod adapter;
 mod config;
 mod detect;
 mod discovery;
+mod manifests;
 mod provider;
 mod questionnaire;
 mod release;
@@ -34,6 +35,6 @@ mod tasks;
 mod toolchain;
 
 pub use adapter::RustAdapter;
-pub use config::RustConfig;
+pub use config::{Manifests, RustConfig};
 pub use provider::RustProvider;
 pub use release::CratesIoTarget;

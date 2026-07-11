@@ -235,7 +235,7 @@ impl RawOutputSink for PaneRawSink {
         // Keep the pane open (and mapped) so a subsequent watch rerun reuses it;
         // the pane's temp file is reclaimed when the sink is dropped.
         if let Some(pane) = self.panes.get_mut(unit_id) {
-            return pane.finish(&verdict_line(self.palette, unit_id, status));
+            return pane.finish(&verdict_line(self.palette, unit_id, status, None));
         }
         self.tiles.end_unit(unit_id, status)
     }

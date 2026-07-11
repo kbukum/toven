@@ -89,6 +89,20 @@ The two are mutually exclusive. See [what invalidates cache](cache.md#what-inval
 toven test --timeout 90s
 ```
 
+## Concurrency (`--jobs`)
+
+By default Toven runs each wave with as many units in parallel as there are CPUs. `--jobs <n>` (short `-j`) caps that, overriding the `[toven].max_parallel` setting for a single invocation — no config edit required.
+
+`--jobs 1` forces strictly serial execution (one unit at a time). Because nothing else can emit concurrently, a serial run streams each unit's output **inline as one continuous log** instead of buffering it into per-unit blocks — the cleanest shape for reading a full run top-to-bottom (e.g. a CI log or a focused debugging pass). Under the default `auto` view this happens automatically: a serial or single-unit run has no concurrent output to de-interleave, so `auto` skips the live tiles/panes area and streams inline (no need to also pass `--view stream`).
+
+```bash
+toven test --jobs 1              # serial: continuous inline stream (auto)
+toven test --jobs 4              # cap at 4 concurrent units
+toven test -j 1 --view tiles     # explicit tiles are still honored serially
+```
+
+`--jobs` applies only to the task-APPLY verbs; it is rejected on verbs that never run units. It takes precedence over `[toven].max_parallel`, and `max_parallel` still applies when `--jobs` is absent.
+
 ## Output modes
 
 Human output is the default. It streams child process bytes and reports lifecycle lines (`run:`, `done:`, `ready:`, cache states, final timing):
@@ -117,7 +131,7 @@ On a real terminal Toven renders each in-flight unit's output live, even when un
 
 | Mode | Behavior |
 |------|----------|
-| `auto` (default) | Panes in a supported multiplexer (tmux) for a small run, else tiles on a terminal, else stream. |
+| `auto` (default) | Panes in a supported multiplexer (tmux) for a small parallel run, else tiles on a terminal; a serial (`--jobs 1`/`max_parallel = 1`) or single-unit run streams inline, and a non-terminal target always streams. |
 | `tiles` | In-terminal live tiles: one region per in-flight unit, collapsing to a verdict on completion. |
 | `panes` | One real multiplexer pane per unit (tmux), capped to the first few units with the rest as tiles. Falls back to tiles entirely when not running under tmux (or if tmux can't open panes). Best for a handful of long-lived units. |
 | `stream` | A single linear stream with no live area. Output that could interleave under parallelism is buffered per unit and flushed as one block; live-safe runs (serial/single-unit) still stream inline. Log-friendly and deterministic run-to-run. |
@@ -134,7 +148,7 @@ toven test --view panes    # one tmux pane per unit (under $TMUX)
 
 Selection degrades safely and never depends on a terminal for correctness. Whenever output is redirected, piped, or `--output jsonl` is active — or the target is not a terminal (CI) — Toven always uses `stream`, byte-for-byte identical to redirecting today: `toven test 2>&1 | cat` and non-tty runs are unaffected by the live renderer. `--view stream` disables the live tiles/panes area on a terminal too; live-safe units may still stream inline through a PTY, so its output is the linear stream shape but not necessarily byte-for-byte identical to a redirected run. Live tiles/panes are Unix-only (they need a pseudoterminal); on other platforms Toven always uses `stream`.
 
-`max_parallel = 1` still works but is no longer required for live output — full parallelism and live per-unit output are no longer a trade-off.
+`max_parallel = 1` (or `--jobs 1` for a single run) still works but is no longer required for live output — full parallelism and live per-unit output are no longer a trade-off.
 
 ## Options
 
@@ -146,6 +160,7 @@ Selection degrades safely and never depends on a terminal for correctness. Whene
 | `--no-cache` | Bypass the cache: every unit re-runs; nothing is read or written. |
 | `--refresh` | Re-run every unit and write fresh records back (mutually exclusive with `--no-cache`). |
 | `--timeout <duration>` | Bound each unit's runtime (`30s`, `5m`); overrun is reported as a timeout failure. |
+| `--jobs <n>` / `-j` | Cap concurrent units, overriding `[toven].max_parallel`. `--jobs 1` runs serially and streams output inline. |
 | `--base <ref>` | Diff against `<ref>` for changed selection (overrides `[project].base_ref`). |
 | `--merge-base` | Diff against `merge-base(<ref>, HEAD)`. |
 | `--module <selector>` | Activate modules by selector — bare name, `ecosystem:name`, `workspace/name`, or glob (repeatable). |
