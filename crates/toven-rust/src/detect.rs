@@ -10,29 +10,30 @@ use std::path::Path;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
-use rskit_fs::sync_io::dir;
-use rskit_git::IgnoreReader;
-use rskit_git::cli::GitCli;
 use serde::{Deserialize, Serialize};
 use toml::Table;
 use toven_model::EcosystemId;
 use toven_ports::Detection;
 
-/// The manifest filename that marks a Cargo project or workspace root.
-pub(crate) const ROOT_MANIFEST: &str = "Cargo.toml";
+use crate::manifests::{discover_manifests, existing_lockfiles};
 
 /// The nextest config that marks a workspace configured for `cargo-nextest`.
 const NEXTEST_CONFIG: &str = ".config/nextest.toml";
 
 /// The adapter-owned facts a Rust [`Detection`] carries to
-/// [`render`](crate::render): the discovered manifests and whether any workspace
-/// is configured for `cargo-nextest`.
+/// [`render`](crate::render): the discovered manifests, their existing
+/// lockfiles, and whether any workspace is configured for `cargo-nextest`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct RustFacts {
     /// The repo-relative Cargo manifests discovered under the root, in stable
     /// order. A root `Cargo.toml` yields a single entry; otherwise every
     /// non-ignored first-level `<dir>/Cargo.toml`.
     pub(crate) manifests: Vec<String>,
+    /// The repo-relative `Cargo.lock` files that exist beside the discovered
+    /// manifests. Authored into each task's `shared_inputs` so a lockfile change
+    /// invalidates the cache; a workspace without a lockfile contributes none.
+    #[serde(default)]
+    pub(crate) lockfiles: Vec<String>,
     /// Whether any discovered workspace carries a `.config/nextest.toml`.
     pub(crate) nextest: bool,
 }
@@ -72,73 +73,15 @@ pub(crate) fn detect(project_root: &Path) -> AppResult<Option<Detection>> {
         return Ok(None);
     }
 
+    let lockfiles = existing_lockfiles(project_root, &manifests)?;
     let nextest = detect_nextest(project_root, &manifests);
-    let facts = RustFacts { manifests, nextest };
+    let facts = RustFacts {
+        manifests,
+        lockfiles,
+        nextest,
+    };
     let ecosystem = EcosystemId::new("rust")?;
     Ok(Some(Detection::new(ecosystem, facts.to_table()?)))
-}
-
-/// Discover the repo-relative Cargo manifests under `project_root`.
-///
-/// A root `Cargo.toml` wins outright and is returned alone. Otherwise every
-/// first-level subdirectory is scanned for a `<dir>/Cargo.toml`, skipping hidden
-/// directories and any path ignored by Git, so a repository that groups several
-/// workspaces under subdirectories is onboarded as one Rust ecosystem.
-fn discover_manifests(project_root: &Path) -> AppResult<Vec<String>> {
-    if manifest_exists(project_root, ROOT_MANIFEST)? {
-        return Ok(vec![ROOT_MANIFEST.to_string()]);
-    }
-
-    let ignore = ignore_checker(project_root);
-    let mut entries = dir::list(project_root)?;
-    entries.sort_by(|a, b| a.file_name.cmp(&b.file_name));
-
-    let mut manifests = Vec::new();
-    for entry in entries {
-        if !entry.is_dir {
-            continue;
-        }
-        let name = entry.file_name.to_string_lossy();
-        if name.starts_with('.') {
-            continue;
-        }
-        let manifest = format!("{name}/{ROOT_MANIFEST}");
-        if !manifest_exists(project_root, &manifest)? {
-            continue;
-        }
-        if is_git_ignored(ignore.as_ref(), &manifest)? {
-            continue;
-        }
-        manifests.push(manifest);
-    }
-    Ok(manifests)
-}
-
-/// Whether the repo-relative `manifest` resolves to a regular file under `root`.
-fn manifest_exists(root: &Path, manifest: &str) -> AppResult<bool> {
-    match safe_join(root, Path::new(manifest)) {
-        Ok(path) => Ok(path.is_file()),
-        Err(error) => Err(AppError::new(
-            ErrorCode::Internal,
-            format!("failed to resolve manifest path '{manifest}'"),
-        )
-        .with_cause(error)),
-    }
-}
-
-/// A Git ignore checker rooted at `project_root`, or `None` when the root is not
-/// inside a Git work tree (no ignore information is available, so nothing is
-/// filtered).
-fn ignore_checker(project_root: &Path) -> Option<GitCli> {
-    rskit_git::discover(project_root)
-        .ok()
-        .map(|_| GitCli::new(project_root.to_path_buf()))
-}
-
-/// Whether `manifest` is ignored by Git. With no checker (not a Git repo) every
-/// path is included; a genuine check-ignore failure inside a repo propagates.
-fn is_git_ignored(checker: Option<&GitCli>, manifest: &str) -> AppResult<bool> {
-    checker.map_or(Ok(false), |git| git.is_ignored(manifest))
 }
 
 /// Whether any discovered workspace carries a `.config/nextest.toml`, marking the
@@ -208,6 +151,19 @@ mod tests {
                 "examples/Cargo.toml"
             ]
         );
+    }
+
+    #[test]
+    fn existing_lockfiles_are_recorded_per_workspace() {
+        let dir = TempDir::new().unwrap();
+        write_manifest(dir.path(), "core/Cargo.toml");
+        fs::write(dir.path().join("core/Cargo.lock"), "# lock\n").unwrap();
+        // A workspace without a lockfile contributes none.
+        write_manifest(dir.path(), "contrib/Cargo.toml");
+
+        let detection = detect(dir.path()).unwrap().expect("detection");
+        let facts = RustFacts::from_detection(&detection).expect("facts");
+        assert_eq!(facts.lockfiles, ["core/Cargo.lock"]);
     }
 
     #[test]

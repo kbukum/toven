@@ -76,7 +76,7 @@ flowchart LR
     Render --> Output["Run or report"]
 ```
 
-Rust discovery is backed by `cargo metadata`. `[ecosystems.rust].manifests` lists the manifests for a multi-workspace repo, and Cargo path dependencies are inferred across them. Adapters contribute their default task set, so a hand-written config stays minimal. `[[overlays]]` add cross-ecosystem edges native metadata cannot prove.
+Rust discovery is backed by `cargo metadata`. `[ecosystems.rust].manifests` selects the Cargo workspace roots for a multi-workspace repo — either `"auto"` (re-discover first-level workspace roots every plan, minus `exclude`) or an explicit list — and Cargo path dependencies are inferred across them. Adapters contribute their default task set, so a hand-written config stays minimal. `[[overlays]]` add cross-ecosystem edges native metadata cannot prove.
 
 ## Planning, waves, and bundling
 

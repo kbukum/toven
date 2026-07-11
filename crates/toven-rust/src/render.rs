@@ -12,18 +12,16 @@ use serde::Serialize;
 use toml::Table;
 use toven_ports::{Answers, Detection, EcosystemFragment, FanOut, TaskEntry};
 
+use crate::config::Manifests;
 use crate::detect::RustFacts;
+use crate::manifests::sibling_lockfile;
 use crate::questionnaire::{MANIFESTS, RUNNER_NEXTEST, TEST_RUNNER};
 
-/// The workspace-level cache input every cargo task shares: the lockfile pins the
-/// resolved dependency versions, so a change invalidates every task.
-const SHARED_LOCKFILE: &str = "Cargo.lock";
-
-/// The serializable `[ecosystems.rust]` body: the discovered manifests plus the
-/// complete task table.
+/// The serializable `[ecosystems.rust]` body: the managed workspace roots plus
+/// the complete task table.
 #[derive(Debug, Serialize)]
 struct RustFragmentBody {
-    manifests: Vec<String>,
+    manifests: Manifests,
     tasks: BTreeMap<String, TaskEntry>,
 }
 
@@ -44,9 +42,11 @@ pub(crate) fn render(detection: &Detection, answers: &Answers) -> AppResult<Ecos
         None => facts.nextest,
     };
 
+    let selected = selected_manifests(&facts, answers);
+    let shared_inputs = shared_lockfiles(&selected, &facts);
     let body = RustFragmentBody {
-        manifests: selected_manifests(&facts, answers),
-        tasks: task_table(use_nextest),
+        manifests: manifests_for(&selected, &facts),
+        tasks: task_table(use_nextest, &shared_inputs),
     };
     let table = Table::try_from(&body).map_err(|error| {
         AppError::new(ErrorCode::Internal, "failed to encode rust fragment").with_cause(error)
@@ -55,7 +55,34 @@ pub(crate) fn render(detection: &Detection, answers: &Answers) -> AppResult<Ecos
     Ok(EcosystemFragment::new(detection.ecosystem.clone(), table))
 }
 
-/// The manifests to author into the fragment.
+/// Choose how to author the managed manifests.
+///
+/// Managing every discovered workspace is authored as `auto` so a workspace
+/// added later is picked up without editing config. A narrowed selection is
+/// frozen as an explicit list.
+fn manifests_for(selected: &[String], facts: &RustFacts) -> Manifests {
+    if selected == facts.manifests.as_slice() {
+        Manifests::Auto
+    } else {
+        Manifests::Explicit(selected.to_vec())
+    }
+}
+
+/// The existing sibling lockfiles of the selected workspaces, authored into
+/// every task's `shared_inputs`. Only lockfiles the probe found on disk are
+/// included, so an absent path never silently hashes to an empty digest.
+fn shared_lockfiles(selected: &[String], facts: &RustFacts) -> Vec<String> {
+    let mut locks: Vec<String> = selected
+        .iter()
+        .map(|manifest| sibling_lockfile(manifest))
+        .filter(|lock| facts.lockfiles.contains(lock))
+        .collect();
+    locks.sort_unstable();
+    locks.dedup();
+    locks
+}
+
+/// The manifests to manage, resolved from the wizard answers.
 ///
 /// When the wizard asked which workspaces to manage, the user's selection is
 /// honored in discovered order; deselecting everything falls back to the full
@@ -83,7 +110,7 @@ fn selected_manifests(facts: &RustFacts, answers: &Answers) -> Vec<String> {
 }
 
 /// Build the complete cargo task table, honoring the chosen test runner.
-fn task_table(use_nextest: bool) -> BTreeMap<String, TaskEntry> {
+fn task_table(use_nextest: bool, shared_inputs: &[String]) -> BTreeMap<String, TaskEntry> {
     let test_argv = if use_nextest {
         vec![
             "cargo".to_string(),
@@ -105,17 +132,23 @@ fn task_table(use_nextest: bool) -> BTreeMap<String, TaskEntry> {
     let mut tasks = BTreeMap::new();
     tasks.insert(
         "build".to_string(),
-        fan_out_entry("build", FanOut::Batchable),
+        fan_out_entry("build", FanOut::Batchable, shared_inputs),
     );
     tasks.insert(
         "check".to_string(),
-        fan_out_entry("check", FanOut::Batchable),
+        fan_out_entry("check", FanOut::Batchable, shared_inputs),
     );
-    tasks.insert("format".to_string(), whole_workspace_entry("fmt", &[]));
-    tasks.insert("format-check".to_string(), format_check_entry());
+    tasks.insert(
+        "format".to_string(),
+        whole_workspace_entry("fmt", &[], shared_inputs),
+    );
+    tasks.insert(
+        "format-check".to_string(),
+        format_check_entry(shared_inputs),
+    );
     tasks.insert(
         "lint".to_string(),
-        fan_out_entry("clippy", FanOut::Batchable),
+        fan_out_entry("clippy", FanOut::Batchable, shared_inputs),
     );
     tasks.insert(
         "test".to_string(),
@@ -128,11 +161,14 @@ fn task_table(use_nextest: bool) -> BTreeMap<String, TaskEntry> {
             readiness: toven_ports::Readiness::Started,
             readiness_timeout_secs: None,
             cache_args: false,
-            shared_inputs: vec![SHARED_LOCKFILE.to_string()],
+            shared_inputs: shared_inputs.to_vec(),
         },
     );
-    tasks.insert("doc".to_string(), fan_out_entry("doc", FanOut::Batchable));
-    tasks.insert("run".to_string(), run_entry());
+    tasks.insert(
+        "doc".to_string(),
+        fan_out_entry("doc", FanOut::Batchable, shared_inputs),
+    );
+    tasks.insert("run".to_string(), run_entry(shared_inputs));
     tasks
 }
 
@@ -153,8 +189,8 @@ fn fan_out_argv(subcommand: &str) -> Vec<String> {
     ]
 }
 
-/// A fan-out cargo task entry (`-p {module.package}` selector, lockfile input).
-fn fan_out_entry(subcommand: &str, fan_out: FanOut) -> TaskEntry {
+/// A fan-out cargo task entry (`-p {module.package}` selector, lockfile inputs).
+fn fan_out_entry(subcommand: &str, fan_out: FanOut, shared_inputs: &[String]) -> TaskEntry {
     TaskEntry {
         kind: None,
         argv: fan_out_argv(subcommand),
@@ -164,13 +200,13 @@ fn fan_out_entry(subcommand: &str, fan_out: FanOut) -> TaskEntry {
         readiness: toven_ports::Readiness::Started,
         readiness_timeout_secs: None,
         cache_args: false,
-        shared_inputs: vec![SHARED_LOCKFILE.to_string()],
+        shared_inputs: shared_inputs.to_vec(),
     }
 }
 
 /// The whole-workspace `cargo fmt --all` entry (no per-module selector). `extra`
 /// flags are inserted after `--all`, before the `{args}` passthrough.
-fn whole_workspace_entry(subcommand: &str, extra: &[&str]) -> TaskEntry {
+fn whole_workspace_entry(subcommand: &str, extra: &[&str], shared_inputs: &[String]) -> TaskEntry {
     let mut argv = vec![
         "cargo".to_string(),
         subcommand.to_string(),
@@ -189,7 +225,7 @@ fn whole_workspace_entry(subcommand: &str, extra: &[&str]) -> TaskEntry {
         readiness: toven_ports::Readiness::Started,
         readiness_timeout_secs: None,
         cache_args: false,
-        shared_inputs: vec![SHARED_LOCKFILE.to_string()],
+        shared_inputs: shared_inputs.to_vec(),
     }
 }
 
@@ -197,15 +233,15 @@ fn whole_workspace_entry(subcommand: &str, extra: &[&str]) -> TaskEntry {
 /// rewriting the tree. Tagged [`TaskKind::Format`](toven_ports::TaskKind::Format)
 /// so it keeps the format run-strategy and cross-ecosystem recognition despite
 /// its distinct `format-check` name.
-fn format_check_entry() -> TaskEntry {
-    let mut entry = whole_workspace_entry("fmt", &["--check"]);
+fn format_check_entry(shared_inputs: &[String]) -> TaskEntry {
+    let mut entry = whole_workspace_entry("fmt", &["--check"], shared_inputs);
     entry.kind = Some(toven_ports::TaskKind::Format);
     entry
 }
 
 /// The persistent `cargo run` entry (per-module, long-lived).
-fn run_entry() -> TaskEntry {
-    let mut entry = fan_out_entry("run", FanOut::PerModule);
+fn run_entry(shared_inputs: &[String]) -> TaskEntry {
+    let mut entry = fan_out_entry("run", FanOut::PerModule, shared_inputs);
     entry.persistent = true;
     entry
 }
@@ -217,13 +253,14 @@ mod tests {
     use toven_ports::{Answer, Answers, Detection, FanOut};
 
     use super::render;
-    use crate::config::RustConfig;
+    use crate::config::{Manifests, RustConfig};
     use crate::detect::RustFacts;
     use crate::questionnaire::TEST_RUNNER;
 
     fn detection(nextest: bool) -> Detection {
         let facts = RustFacts {
             manifests: vec!["Cargo.toml".to_string()],
+            lockfiles: vec!["Cargo.lock".to_string()],
             nextest,
         };
         Detection::new(
@@ -238,6 +275,11 @@ mod tests {
                 "core/Cargo.toml".to_string(),
                 "contrib/Cargo.toml".to_string(),
                 "examples/Cargo.toml".to_string(),
+            ],
+            lockfiles: vec![
+                "contrib/Cargo.lock".to_string(),
+                "core/Cargo.lock".to_string(),
+                "examples/Cargo.lock".to_string(),
             ],
             nextest: true,
         };
@@ -318,7 +360,7 @@ mod tests {
                 "test"
             ]
         );
-        assert_eq!(config.manifests, ["Cargo.toml"]);
+        assert_eq!(config.manifests, Manifests::Auto);
         let run = config.common.tasks.get("run").expect("run task");
         assert!(run.persistent);
         assert_eq!(run.fan_out, FanOut::PerModule);
@@ -352,21 +394,31 @@ mod tests {
     }
 
     #[test]
-    fn discovered_manifests_are_authored_when_no_selection() {
+    fn managing_every_discovered_workspace_is_authored_as_auto() {
         let fragment = render(&multi_detection(), &Answers::new()).expect("render");
         let config = parse(&fragment);
-        assert_eq!(
-            config.manifests,
-            [
-                "core/Cargo.toml",
-                "contrib/Cargo.toml",
-                "examples/Cargo.toml"
-            ]
-        );
+        assert_eq!(config.manifests, Manifests::Auto);
     }
 
     #[test]
-    fn manifest_selection_is_honored_in_discovered_order() {
+    fn every_task_shares_the_existing_lockfiles() {
+        let fragment = render(&multi_detection(), &Answers::new()).expect("render");
+        let config = parse(&fragment);
+        for (name, entry) in &config.common.tasks {
+            assert_eq!(
+                entry.shared_inputs,
+                [
+                    "contrib/Cargo.lock",
+                    "core/Cargo.lock",
+                    "examples/Cargo.lock"
+                ],
+                "task '{name}' shares the per-workspace lockfiles",
+            );
+        }
+    }
+
+    #[test]
+    fn manifest_selection_is_frozen_as_an_explicit_list() {
         let answers = Answers::new().with(
             crate::questionnaire::MANIFESTS,
             Answer::MultiChoice(vec![
@@ -376,24 +428,29 @@ mod tests {
         );
         let fragment = render(&multi_detection(), &answers).expect("render");
         let config = parse(&fragment);
-        assert_eq!(config.manifests, ["core/Cargo.toml", "examples/Cargo.toml"]);
+        assert_eq!(
+            config.manifests,
+            Manifests::Explicit(vec![
+                "core/Cargo.toml".to_string(),
+                "examples/Cargo.toml".to_string()
+            ])
+        );
+        // shared_inputs narrow to the selected workspaces' lockfiles.
+        let build = config.common.tasks.get("build").expect("build task");
+        assert_eq!(
+            build.shared_inputs,
+            ["core/Cargo.lock", "examples/Cargo.lock"]
+        );
     }
 
     #[test]
-    fn deselecting_every_manifest_falls_back_to_all_discovered() {
+    fn deselecting_every_manifest_falls_back_to_auto() {
         let answers = Answers::new().with(
             crate::questionnaire::MANIFESTS,
             Answer::MultiChoice(Vec::new()),
         );
         let fragment = render(&multi_detection(), &answers).expect("render");
         let config = parse(&fragment);
-        assert_eq!(
-            config.manifests,
-            [
-                "core/Cargo.toml",
-                "contrib/Cargo.toml",
-                "examples/Cargo.toml"
-            ]
-        );
+        assert_eq!(config.manifests, Manifests::Auto);
     }
 }
