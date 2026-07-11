@@ -14,6 +14,13 @@
 
 use std::fmt;
 
+/// Upper bound on the buffered unterminated-line tail in [`SummaryScanner`].
+///
+/// Recognized runner count lines are well under a kilobyte, so an overlong
+/// tail is never a summary; capping it keeps a chatty or `\r`-only stream from
+/// growing the per-unit scanner without bound.
+const MAX_PENDING: usize = 64 * 1024;
+
 /// A parsed test-count summary for a unit's verdict tail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct RunSummary {
@@ -45,17 +52,37 @@ pub(crate) struct SummaryScanner {
 
 impl SummaryScanner {
     /// Feed a raw output chunk, updating the running tally line by line.
+    ///
+    /// Complete lines are drained and scanned as they arrive, so only the
+    /// current unterminated line is buffered. That tail is bounded to
+    /// [`MAX_PENDING`] bytes — a child emitting a very long newline-less line
+    /// (binary or a `\r`-only progress redraw) cannot grow memory without
+    /// bound; recognized count lines are far shorter, so dropping the oldest
+    /// bytes of an overlong tail never loses a summary.
     pub(crate) fn observe(&mut self, bytes: &[u8]) {
         self.pending.push_str(&String::from_utf8_lossy(bytes));
         while let Some(newline) = self.pending.find('\n') {
             let line: String = self.pending.drain(..=newline).collect();
             self.scan_line(line.trim_end_matches(['\n', '\r']));
         }
+        if self.pending.len() > MAX_PENDING {
+            let mut cut = self.pending.len() - MAX_PENDING;
+            while !self.pending.is_char_boundary(cut) {
+                cut += 1;
+            }
+            self.pending.drain(..cut);
+        }
     }
 
     /// The folded summary, if any count line was seen.
     pub(crate) const fn summary(&self) -> Option<RunSummary> {
         self.summary
+    }
+
+    /// The buffered unterminated-line tail length, for bound assertions.
+    #[cfg(test)]
+    pub(crate) const fn pending_len(&self) -> usize {
+        self.pending.len()
     }
 
     fn scan_line(&mut self, line: &str) {
@@ -191,5 +218,16 @@ mod tests {
         assert!(scanner.summary().is_none());
         scanner.observe(b"\n");
         assert_eq!(scanner.summary().unwrap().to_string(), "9 passed");
+    }
+
+    #[test]
+    fn bounds_a_newline_less_line_and_still_parses_later_summary() {
+        let mut scanner = SummaryScanner::default();
+        for _ in 0..8 {
+            scanner.observe(&vec![b'x'; 64 * 1024]);
+            assert!(scanner.pending_len() <= 64 * 1024);
+        }
+        scanner.observe(b"\n   Summary [0.1s] 4 tests run: 4 passed, 0 skipped\n");
+        assert_eq!(scanner.summary().unwrap().to_string(), "4 passed");
     }
 }
