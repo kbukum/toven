@@ -26,7 +26,7 @@ use super::summary::{RunSummary, SummaryScanner};
 
 /// Content lines shown per unit tile. Also the PTY row count the CLI sizes live
 /// units to, so a child's own cursor math matches the visible tile height.
-pub(super) const TILE_TAIL_LINES: u16 = 6;
+pub(super) const TILE_TAIL_LINES: u16 = 12;
 
 /// Running lifecycle tallies rendered into the status header.
 #[derive(Debug, Default, Clone, Copy)]
