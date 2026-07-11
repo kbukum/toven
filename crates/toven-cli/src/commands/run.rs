@@ -40,6 +40,13 @@ pub(crate) struct WatchFlags {
     pub(crate) debounce_ms: u64,
 }
 
+/// Resolve the effective concurrency ceiling: the `--jobs`/`-j` override wins
+/// over the `[toven].max_parallel` document setting, and `None` leaves the
+/// engine default (available parallelism).
+pub(crate) fn resolve_max_parallel(jobs: Option<usize>, project: &Project) -> Option<usize> {
+    jobs.or_else(|| project.max_parallel())
+}
+
 /// Run a task (`toven <task>` / `toven run <task>`), optionally PLAN-only.
 ///
 /// Builds the request, emits [`Event::RunStarted`], runs the PLAN spine, and —
@@ -63,6 +70,7 @@ pub(crate) fn execute(
     plan_only: bool,
     watch: WatchFlags,
     view: Option<ViewMode>,
+    jobs: Option<usize>,
     selection: &TaskSelection,
 ) -> AppResult<ExitCode> {
     let run_id = new_run_id()?;
@@ -107,6 +115,7 @@ pub(crate) fn execute(
             &cache,
             fail_fast,
             unit_timeout,
+            jobs,
             watch.debounce_ms,
             &crate::commands::watch::LiveOutput {
                 view: effective_view,
@@ -133,6 +142,18 @@ pub(crate) fn execute(
         return Ok(exit_code(&summary));
     }
 
+    // Resolve the effective concurrency ceiling before binding the live view:
+    // `auto` streams inline for a serial (`--jobs 1`) or single-unit run, so the
+    // renderer must know the ceiling the units will actually run under.
+    let mut options = ApplyOptions {
+        fail_fast,
+        unit_timeout,
+        ..ApplyOptions::default()
+    };
+    if let Some(max_parallel) = resolve_max_parallel(jobs, project) {
+        options.max_parallel = max_parallel.max(1);
+    }
+
     // Bind the resolved live view (tiles/panes/stream) to a raw-output sink and
     // the PTY sizing live units run under. The machine JSON projection, a
     // non-terminal stderr, and `--view stream` all pin the byte-stable stream
@@ -143,17 +164,10 @@ pub(crate) fn execute(
         report.forces_stream_output(),
         report.stderr_palette(),
         plan.units.len(),
+        options.max_parallel,
         &pane_dir,
     )?;
     let runner: Arc<dyn CommandRunner> = Arc::new(configured_runner);
-    let mut options = ApplyOptions {
-        fail_fast,
-        unit_timeout,
-        ..ApplyOptions::default()
-    };
-    if let Some(max_parallel) = project.max_parallel() {
-        options.max_parallel = max_parallel.max(1);
-    }
     let mut output = UnitOutputChannel::new(raw_sink);
 
     let runtime = tokio::runtime::Builder::new_current_thread()

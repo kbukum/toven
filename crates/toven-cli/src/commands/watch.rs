@@ -59,10 +59,21 @@ pub(crate) fn run_watch(
     cache: &FsContentCache,
     fail_fast: bool,
     unit_timeout: Option<Duration>,
+    jobs: Option<usize>,
     debounce_ms: u64,
     live: &LiveOutput,
     sink: &mut dyn Reporter,
 ) -> AppResult<ExitCode> {
+    // Resolve the concurrency ceiling first: `auto` streams inline for a serial
+    // (`--jobs 1`) watch session, so the renderer must know the ceiling.
+    let mut apply_options = ApplyOptions {
+        fail_fast,
+        unit_timeout,
+        ..ApplyOptions::default()
+    };
+    if let Some(max_parallel) = super::run::resolve_max_parallel(jobs, project) {
+        apply_options.max_parallel = max_parallel.max(1);
+    }
     // Bind the resolved live view for the whole watch session. The affected-set
     // size varies per rerun, so the unit count is unknown here (passed as `0`):
     // `auto` therefore resolves to tiles rather than panes, while an explicit
@@ -73,17 +84,10 @@ pub(crate) fn run_watch(
         live.force_stream,
         live.palette,
         0,
+        apply_options.max_parallel,
         &live.pane_dir,
     )?;
     let runner: Arc<dyn CommandRunner> = Arc::new(configured_runner);
-    let mut apply_options = ApplyOptions {
-        fail_fast,
-        unit_timeout,
-        ..ApplyOptions::default()
-    };
-    if let Some(max_parallel) = project.max_parallel() {
-        apply_options.max_parallel = max_parallel.max(1);
-    }
     let mut output = UnitOutputChannel::new(raw_sink);
     let watch = RskitFsWatch::new();
 

@@ -36,6 +36,7 @@ pub(crate) fn configure_live_output(
     force_stream: bool,
     palette: Palette,
     unit_count: usize,
+    max_parallel: usize,
     pane_dir: &Path,
 ) -> AppResult<(ProcessCommandRunner, Box<dyn RawOutputSink>)> {
     use super::view::{ResolvedView, resolve_view};
@@ -46,7 +47,7 @@ pub(crate) fn configure_live_output(
     } else {
         let terminal = rskit_process::terminal_size(&std::io::stderr());
         let in_multiplexer = std::env::var_os("TMUX").is_some();
-        resolve_view(view, terminal, in_multiplexer, unit_count)
+        resolve_view(view, terminal, in_multiplexer, unit_count, max_parallel)
     };
 
     Ok(match resolved {
@@ -100,9 +101,17 @@ pub(crate) fn configure_live_output(
     force_stream: bool,
     palette: Palette,
     unit_count: usize,
+    max_parallel: usize,
     pane_dir: &Path,
 ) -> AppResult<(ProcessCommandRunner, Box<dyn RawOutputSink>)> {
-    let _ = (view, force_stream, palette, unit_count, pane_dir);
+    let _ = (
+        view,
+        force_stream,
+        palette,
+        unit_count,
+        max_parallel,
+        pane_dir,
+    );
     Ok((
         runner.with_pty_matching_terminal(&std::io::stderr()),
         Box::new(WriterRawSink::stderr()),
@@ -144,6 +153,7 @@ mod tests {
             true,
             Palette::new(false),
             8,
+            4,
             Path::new("/tmp/toven-live-test-panes"),
         )
         .expect("configures");

@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult};
 
-use crate::flags::{ColorWhen, OutputKind, ViewMode, parse_duration_arg};
+use crate::flags::{ColorWhen, OutputKind, ViewMode, parse_duration_arg, parse_jobs_arg};
 
 /// The reserved built-in words. A bare top-level token equal to one of these
 /// dispatches the built-in; any other token is an argv-first task name.
@@ -98,6 +98,8 @@ pub struct TaskFlags {
     pub refresh: bool,
     /// `--timeout <dur>`: per-unit execution bound (e.g. `30s`, `5m`).
     pub timeout: Option<Duration>,
+    /// `--jobs`/`-j <n>`: concurrency ceiling override (`1` forces serial).
+    pub jobs: Option<usize>,
     /// `--base <ref>`: override the changed-selection baseline reference.
     pub base: Option<String>,
     /// `--merge-base`: diff against `merge-base(reference, HEAD)`.
@@ -173,6 +175,9 @@ pub fn parse_task(tokens: &[String]) -> AppResult<TaskInvocation> {
             "--refresh" => flags.refresh = true,
             "--timeout" => {
                 flags.timeout = Some(parse_timeout(&value_for("--timeout", &mut iter)?)?);
+            }
+            "--jobs" | "-j" => {
+                flags.jobs = Some(parse_jobs(&value_for("--jobs", &mut iter)?)?);
             }
             "--merge-base" => flags.merge_base = true,
             "--dependents" | "--with-dependents" => flags.with_dependents = true,
@@ -288,6 +293,10 @@ fn parse_debounce(value: &str) -> AppResult<u64> {
 /// lifting its `String` message into a typed usage error.
 fn parse_timeout(value: &str) -> AppResult<Duration> {
     parse_duration_arg(value).map_err(|message| AppError::invalid_input("--timeout", message))
+}
+
+fn parse_jobs(value: &str) -> AppResult<usize> {
+    parse_jobs_arg(value).map_err(|message| AppError::invalid_input("--jobs", message))
 }
 
 #[cfg(test)]
@@ -454,6 +463,21 @@ mod tests {
     #[test]
     fn a_missing_timeout_value_is_rejected() {
         assert!(parse_task(&tokens(&["test", "--timeout"])).is_err());
+    }
+
+    #[test]
+    fn parses_jobs_ceiling_on_a_bare_task() {
+        let invocation = parse_task(&tokens(&["test", "--jobs", "4"])).expect("parses");
+        assert_eq!(invocation.flags.jobs, Some(4));
+        let short = parse_task(&tokens(&["test", "-j", "1"])).expect("parses");
+        assert_eq!(short.flags.jobs, Some(1));
+    }
+
+    #[test]
+    fn rejects_a_zero_or_malformed_jobs_value() {
+        assert!(parse_task(&tokens(&["test", "--jobs", "0"])).is_err());
+        assert!(parse_task(&tokens(&["test", "--jobs", "many"])).is_err());
+        assert!(parse_task(&tokens(&["test", "--jobs"])).is_err());
     }
 
     #[test]
