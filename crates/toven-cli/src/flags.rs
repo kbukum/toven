@@ -117,6 +117,36 @@ pub enum OutputKind {
     Jsonl,
 }
 
+/// How live per-unit output is rendered on a terminal, selected by `--view`.
+///
+/// Mirrors the engine's [`ViewMode`](toven_engine::config::ViewMode) so a flag
+/// and the `[toven].view` document setting resolve to the same rendering; the
+/// flag wins when both are present.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[value(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum ViewMode {
+    /// Pick the richest shape the environment supports (default).
+    Auto,
+    /// One live, fixed-height tile per in-flight unit in a single terminal.
+    Tiles,
+    /// One multiplexer pane per unit (opt-in; requires a supported multiplexer).
+    Panes,
+    /// A single linear stream, log-friendly (each unit flushed as one block).
+    Stream,
+}
+
+impl From<ViewMode> for toven_engine::config::ViewMode {
+    fn from(view: ViewMode) -> Self {
+        match view {
+            ViewMode::Auto => Self::Auto,
+            ViewMode::Tiles => Self::Tiles,
+            ViewMode::Panes => Self::Panes,
+            ViewMode::Stream => Self::Stream,
+        }
+    }
+}
+
 /// Dependency-graph rendering format selected by `--format`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "lowercase")]
@@ -233,6 +263,13 @@ pub struct Cli {
     /// build a human reporter, so an explicit `--color` is rejected elsewhere.
     #[arg(long, global = true, value_name = "WHEN")]
     pub color: Option<ColorWhen>,
+    /// How live per-unit output renders while a task runs: `auto` (default),
+    /// `tiles`, `panes`, or `stream`. Applies only to the task-APPLY verbs
+    /// (`toven run` / `toven <task>`); overrides the `[toven].view` setting.
+    /// Redirected, piped, `--output jsonl`, and non-interactive runs always use
+    /// the linear `stream` shape regardless of this flag.
+    #[arg(long, global = true, value_name = "MODE", help_heading = "Execution")]
+    pub view: Option<ViewMode>,
     /// Run the PLAN cut only, without APPLY.
     #[arg(long, global = true, help_heading = "Execution")]
     pub dry_run: bool,
@@ -569,6 +606,11 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
             format!("`--color` does not apply to `toven {verb}`"),
         ));
     }
+    // `--view` shapes only the live APPLY output rendering, so it is meaningful
+    // only on the task-APPLY verbs that stream child output. On `plan`
+    // (PLAN-only), `release`, and every introspection/maintenance verb it would
+    // be a silent no-op, so reject it rather than advertise one.
+    gate_view_flag(cli, verb)?;
     // `--fail-fast` shapes APPLY scheduling, so it is meaningful only on the
     // task-APPLY verbs. `plan` stops at PLAN and `release` never multiplexes
     // independent units, so the flag is a no-op there and is rejected.
@@ -623,6 +665,20 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     // `--module`/`--workspace`/`--with-dependents` shape explicit selection —
     // both belong to the same selection verbs; other verbs would ignore them.
     gate_selection_flags(cli, verb)?;
+    Ok(())
+}
+
+/// Reject `--view` on any verb other than the task-APPLY verbs that stream
+/// live child output; elsewhere it is a silent no-op.
+fn gate_view_flag(cli: &Cli, verb: &str) -> AppResult<()> {
+    if cli.view.is_some() && !accepts_fail_fast(&cli.command) {
+        return Err(AppError::invalid_input(
+            "flags",
+            format!(
+                "`--view` only applies to task-APPLY verbs (`toven run`/`toven <task>`); it has no effect on `toven {verb}`"
+            ),
+        ));
+    }
     Ok(())
 }
 

@@ -10,7 +10,7 @@ toven init [--root PATH] [--force ID] [--non-interactive | --yes] [--print]
 
 By default `init` prompts interactively on a terminal: it shows what it detected, asks each ecosystem's questions (for example, which Rust test runner to wire up), previews the result, and writes `<root>/toven.toml` atomically, confirming on stderr.
 
-On a non-terminal (a pipe, CI, or a redirected prompt sink) the wizard never blocks: it resolves every question to its declared default. Force that explicitly with `--non-interactive` (alias `--yes`):
+On a non-terminal (a pipe, CI, or a redirected prompt sink) the wizard never blocks: it resolves every question to its declared default. When it writes a config that way it also notes on stderr that prompts were skipped and points at `--print` (preview) and `--force <id>` (regenerate a section). Force non-interactive resolution explicitly with `--non-interactive` (alias `--yes`):
 
 ```bash
 toven init --non-interactive   # take every default, no prompts
@@ -41,7 +41,7 @@ fan_out = "batchable"
 selector = ["-p", "{module.package}"]
 shared_inputs = ["Cargo.lock"]
 
-# ... check, doc, format, lint, run, test ...
+# ... check, doc, format, format-check, lint, run, test ...
 ```
 
 The task table is authoritative: the config is the single source of runnable tasks, so what `init` writes is exactly what `toven run` executes. Edit any argv to change what a task does.

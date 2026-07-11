@@ -505,6 +505,65 @@ fn raw_output_routes_normal_as_block_and_persistent_as_live() {
     assert!(live.contains(&chunk("readiness", OutputStream::Stderr, b"not-ready\n")));
 }
 
+#[test]
+fn concurrent_live_sink_streams_parallel_normal_units_live_with_lifecycle() {
+    // A sink that de-interleaves concurrent output by unit (one region each)
+    // lets normal units stream live even under real parallelism, and wraps each
+    // executed unit in a paired begin_unit/end_unit lifecycle.
+    let plan = Plan::new(
+        vec![unit("first"), unit("second")],
+        vec![vec!["first".into(), "second".into()]],
+    );
+    let runner = Arc::new(
+        FakeCommandRunner::new()
+            .with_output(
+                "first",
+                vec![chunk("first", OutputStream::Stdout, b"one\n")],
+            )
+            .with_output(
+                "second",
+                vec![chunk("second", OutputStream::Stdout, b"two\n")],
+            ),
+    );
+    let sink = RecordingRawOutputSink::new();
+    sink.set_concurrent_live(true);
+
+    run_with_parallelism(&plan, runner, sink.clone(), 4);
+
+    let live = sink.live_chunks();
+    assert!(live.contains(&chunk("first", OutputStream::Stdout, b"one\n")));
+    assert!(live.contains(&chunk("second", OutputStream::Stdout, b"two\n")));
+    assert!(
+        sink.blocks().is_empty(),
+        "concurrent-live normal units stream live, emitting no blocks, got {:?}",
+        sink.blocks(),
+    );
+
+    let begins = sink.begins();
+    let ends = sink.ends();
+    let begun: std::collections::HashSet<_> = begins.iter().map(|(id, _)| id.clone()).collect();
+    assert_eq!(
+        begun,
+        ["first".to_string(), "second".to_string()]
+            .into_iter()
+            .collect(),
+        "each executed unit opens a region, got {begins:?}",
+    );
+    for (id, label) in &begins {
+        assert_eq!(id, label, "region label defaults to the unit id");
+    }
+    let mut ends_sorted = ends;
+    ends_sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(
+        ends_sorted,
+        vec![
+            ("first".to_string(), UnitStatus::Succeeded),
+            ("second".to_string(), UnitStatus::Succeeded),
+        ],
+        "every begin_unit is matched by exactly one end_unit with its final status",
+    );
+}
+
 /// Drive `apply` over `plan` with an explicit `max_parallel`, recording raw
 /// output into `sink`.
 fn run_with_parallelism(

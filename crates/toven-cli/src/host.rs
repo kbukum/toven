@@ -187,6 +187,21 @@ impl Report {
             Format::Jsonl => Box::new(JsonlReporter::stdout()),
         }
     }
+
+    /// Whether the machine-readable JSON-lines projection is active, in which
+    /// case live child output must keep the byte-stable `stream` shape (never a
+    /// tiles/panes live area) so a piped consumer is unaffected.
+    #[must_use]
+    pub(crate) const fn forces_stream_output(self) -> bool {
+        matches!(self.format, Format::Jsonl)
+    }
+
+    /// The stderr palette for the live raw-output renderer, folding `--color`
+    /// with stderr's terminal state exactly as the human reporter does.
+    #[must_use]
+    pub(crate) fn stderr_palette(self) -> rskit_cli::Palette {
+        rskit_cli::Palette::for_stream(self.color.into(), &std::io::stderr())
+    }
 }
 
 /// Resolve the effective projection format for an introspection verb: the

@@ -35,6 +35,24 @@ pub struct Module {
     /// directory). Adapter-set during discovery; `None` leaves the unit unguarded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resource_group: Option<String>,
+    /// Whether this module has an executable target a `run`-kind task can launch.
+    /// Adapter-set during discovery; defaults `true` (assume runnable) so only an
+    /// adapter that can prove a module is library-only (no binary) excludes it
+    /// from persistent `run` units. Consumed by the scheduler, not identity.
+    #[serde(default = "default_runnable", skip_serializing_if = "is_runnable")]
+    pub runnable: bool,
+}
+
+/// Serde default for [`Module::runnable`]: assume a module is runnable unless the
+/// discovering adapter proves otherwise.
+const fn default_runnable() -> bool {
+    true
+}
+
+/// Serde skip helper: omit `runnable` from output when it holds its default.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn is_runnable(value: &bool) -> bool {
+    *value
 }
 
 impl Module {
@@ -51,6 +69,7 @@ impl Module {
             member: None,
             source_patterns: Vec::new(),
             resource_group: None,
+            runnable: true,
         }
     }
 
@@ -78,7 +97,24 @@ mod tests {
         );
         let json = serde_json::to_string(&module).unwrap();
         assert!(!json.contains("package"));
+        // `runnable` defaults true and is skipped when it holds that default.
+        assert!(!json.contains("runnable"));
         let back: Module = serde_json::from_str(&json).unwrap();
+        assert_eq!(module, back);
+        assert!(back.runnable);
+    }
+
+    #[test]
+    fn a_non_runnable_module_round_trips_the_flag() {
+        let mut module = Module::new(
+            ModuleRef::new(EcosystemId::new("rust").unwrap(), "errors").unwrap(),
+            RepoPath::new("core/errors").unwrap(),
+        );
+        module.runnable = false;
+        let json = serde_json::to_string(&module).unwrap();
+        assert!(json.contains("runnable"));
+        let back: Module = serde_json::from_str(&json).unwrap();
+        assert!(!back.runnable);
         assert_eq!(module, back);
     }
 }

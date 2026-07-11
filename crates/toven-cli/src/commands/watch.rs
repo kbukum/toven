@@ -7,13 +7,15 @@
 //! [`RskitFsWatch`](toven_engine::watch::RskitFsWatch) adapter, then hands them to
 //! the engine loop on a Tokio runtime.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rskit_cli::{ExitCode, on_ctrl_c};
+use rskit_cli::{ExitCode, Palette, on_ctrl_c};
 use rskit_errors::{AppError, AppResult};
 use toven_engine::apply::{ApplyOptions, ProcessCommandRunner};
 use toven_engine::cache::FsContentCache;
+use toven_engine::config::ViewMode;
 use toven_engine::federation::MemberVcsReaders;
 use toven_engine::output::UnitOutputChannel;
 use toven_engine::plan::PlanRequest;
@@ -21,7 +23,21 @@ use toven_engine::watch::{RskitFsWatch, WatchSession};
 use toven_ports::{CommandRunner, Provider, Reporter, SourceDigest, ToolchainProber};
 
 use crate::host::Project;
-use crate::report::{WriterRawSink, exit_code};
+use crate::report::{configure_live_output, exit_code};
+
+/// The resolved live-output binding for a watched run: which view to render and
+/// the color/PTY inputs the sink needs, carried as one value so the watch host
+/// mirrors [`run`](super::run)'s sink selection.
+pub(crate) struct LiveOutput {
+    /// The resolved view preference (`--view` over `[toven].view`).
+    pub(crate) view: ViewMode,
+    /// Pin the byte-stable stream shape (set for the JSON projection).
+    pub(crate) force_stream: bool,
+    /// The stderr palette for verdict coloring.
+    pub(crate) palette: Palette,
+    /// Where the tmux pane launcher keeps per-unit temp files.
+    pub(crate) pane_dir: PathBuf,
+}
 
 /// Run a task under watch mode until Ctrl+C or the watcher stops.
 ///
@@ -44,16 +60,22 @@ pub(crate) fn run_watch(
     fail_fast: bool,
     unit_timeout: Option<Duration>,
     debounce_ms: u64,
+    live: &LiveOutput,
     sink: &mut dyn Reporter,
 ) -> AppResult<ExitCode> {
-    // Mirror the invoking terminal on stderr (where live output lands) so
-    // watched task runs render exactly as an interactive invocation would;
-    // fall back to pipes when stderr is not a tty. PTY streaming is Unix-only;
-    // elsewhere this is a no-op.
-    let runner: Arc<dyn CommandRunner> = Arc::new(
-        ProcessCommandRunner::new(project.project_root.as_path())
-            .with_pty_matching_terminal(&std::io::stderr()),
-    );
+    // Bind the resolved live view for the whole watch session. The affected-set
+    // size varies per rerun, so the unit count is unknown here (passed as `0`):
+    // `auto` therefore resolves to tiles rather than panes, while an explicit
+    // `--view panes` still self-caps, keeping a large rerun bounded.
+    let (configured_runner, raw_sink) = configure_live_output(
+        ProcessCommandRunner::new(project.project_root.as_path()),
+        live.view,
+        live.force_stream,
+        live.palette,
+        0,
+        &live.pane_dir,
+    )?;
+    let runner: Arc<dyn CommandRunner> = Arc::new(configured_runner);
     let mut apply_options = ApplyOptions {
         fail_fast,
         unit_timeout,
@@ -62,7 +84,7 @@ pub(crate) fn run_watch(
     if let Some(max_parallel) = project.max_parallel() {
         apply_options.max_parallel = max_parallel.max(1);
     }
-    let mut output = UnitOutputChannel::new(WriterRawSink::stderr());
+    let mut output = UnitOutputChannel::new(raw_sink);
     let watch = RskitFsWatch::new();
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -92,6 +114,9 @@ pub(crate) fn run_watch(
         }
         .run()
         .await
-    })?;
-    Ok(exit_code(&summary))
+    });
+    // Reclaim the per-session pane scratch dir (created only under `--view
+    // panes`) once the watch loop exits, however it ended.
+    let _ = rskit_fs::sync_io::dir::remove_all_if_exists(&live.pane_dir);
+    Ok(exit_code(&summary?))
 }

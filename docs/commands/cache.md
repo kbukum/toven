@@ -12,6 +12,8 @@ The default path is workspace-specific and versioned:
 
 The `v3` segment is the cache-record format version; a new format starts a new directory.
 
+Because the default location is the shared per-user cache namespaced by workspace identity, records persist across sessions and are reused by every checkout of the same workspace. A first run in a fresh clone can therefore report hits produced by an earlier run. Run `toven cache clean` for a clean baseline when you want to measure cold-cache behavior.
+
 Resolution precedence, highest first:
 
 1. `TOVEN_CACHE_DIR` — an absolute base, for CI or benchmark isolation.
@@ -41,7 +43,7 @@ Records then live under `.toven/cache/v3`; do not commit them.
 
 A module re-runs when any of these change since its last success:
 
-- module source files
+- module source files (git-ignored build output such as `target/` and the `.git` directory are excluded, so rebuilds do not churn the cache)
 - dependency results
 - task argv and task configuration
 - `shared_inputs` declared by the task

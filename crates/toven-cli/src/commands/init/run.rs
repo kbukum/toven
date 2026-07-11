@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use rskit_cli::ExitCode;
+use rskit_cli::{ExitCode, PromptMode};
 use rskit_errors::AppResult;
 use toven_engine::init::InitOutcome;
 use toven_model::EcosystemId;
@@ -38,7 +38,7 @@ pub(crate) fn execute(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitC
     let outcome =
         toven_engine::init::init(&root, providers, &answers, cli.force.as_deref(), write)?;
 
-    let report = Report::from_init_outcome(&outcome);
+    let report = Report::from_init_outcome(&outcome, defaults_reason(cli));
     for line in &report.diagnostics {
         eprintln!("{line}");
     }
@@ -48,6 +48,40 @@ pub(crate) fn execute(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitC
     }
 
     Ok(ExitCode::Success)
+}
+
+/// Why the wizard resolved every question to its default instead of prompting,
+/// or `None` when it prompted interactively.
+#[derive(Clone, Copy)]
+enum DefaultsReason {
+    /// The user passed `--non-interactive`/`--yes`.
+    Explicit,
+    /// Stdio is not an interactive terminal (a pipe/CI, or a redirected prompt
+    /// sink), as resolved by [`PromptMode::from_env`].
+    NonInteractiveEnv,
+}
+
+impl DefaultsReason {
+    /// The lead-in clause naming the cause, for the "used defaults" note.
+    const fn lead_in(self) -> &'static str {
+        match self {
+            Self::Explicit => "ran with `--non-interactive`",
+            Self::NonInteractiveEnv => "no terminal detected",
+        }
+    }
+}
+
+/// Classify why the wizard skipped prompting. The explicit
+/// `--non-interactive`/`--yes` flag takes precedence over an inferred
+/// non-interactive stdio environment; an interactive run yields `None`.
+fn defaults_reason(cli: &Cli) -> Option<DefaultsReason> {
+    if cli.non_interactive {
+        Some(DefaultsReason::Explicit)
+    } else if PromptMode::from_env().is_interactive() {
+        None
+    } else {
+        Some(DefaultsReason::NonInteractiveEnv)
+    }
 }
 
 /// The channel-routed output of an init run.
@@ -65,20 +99,54 @@ struct Report {
 
 impl Report {
     /// Route a finished [`InitOutcome`] into its stdout/stderr channels.
-    fn from_init_outcome(outcome: &InitOutcome) -> Self {
-        let mut diagnostics = outcome.warnings.clone();
-        let document = if outcome.written {
+    ///
+    /// When `defaults` is set and the run wrote a config, a one-line note is
+    /// prepended to the write summary telling the user prompts were skipped (and
+    /// why) and how to preview (`--print`) or regenerate (`--force <id>`) — so a
+    /// flagged or pipe/CI run never silently accepts every default without a
+    /// signal.
+    fn from_init_outcome(outcome: &InitOutcome, defaults: Option<DefaultsReason>) -> Self {
+        if outcome.written {
             let touched = touched_sections(&outcome.added, &outcome.regenerated);
-            diagnostics.push(write_summary(&outcome.path, outcome.created, &touched));
-            None
+            let summary = write_summary(&outcome.path, outcome.created, &touched);
+            Self {
+                document: None,
+                diagnostics: write_diagnostics(&outcome.warnings, defaults, summary),
+            }
         } else {
-            Some(outcome.rendered.clone())
-        };
-        Self {
-            document,
-            diagnostics,
+            Self {
+                document: Some(outcome.rendered.clone()),
+                diagnostics: outcome.warnings.clone(),
+            }
         }
     }
+}
+
+/// Assemble the stderr diagnostics for a write run: existing `warnings`, then the
+/// "used defaults" note (only when `defaults` is set), then the write `summary`
+/// last as the closing confirmation.
+fn write_diagnostics(
+    warnings: &[String],
+    defaults: Option<DefaultsReason>,
+    summary: String,
+) -> Vec<String> {
+    let mut diagnostics = warnings.to_vec();
+    if let Some(reason) = defaults {
+        diagnostics.push(defaults_note(reason));
+    }
+    diagnostics.push(summary);
+    diagnostics
+}
+
+/// The stderr note shown when a write run resolved every prompt to its default,
+/// led by the clause naming why prompting was skipped.
+fn defaults_note(reason: DefaultsReason) -> String {
+    format!(
+        "{}; used the default answer for every prompt. \
+         Preview with `toven init --print`; regenerate a section with \
+         `toven init --force <ecosystem>`.",
+        reason.lead_in()
+    )
 }
 
 /// The sections touched by a write run, sorted for a stable summary line.
@@ -112,7 +180,7 @@ mod tests {
 
     use toven_model::EcosystemId;
 
-    use super::{touched_sections, write_summary};
+    use super::{DefaultsReason, touched_sections, write_diagnostics, write_summary};
 
     fn eco(id: &str) -> EcosystemId {
         EcosystemId::new(id).expect("valid ecosystem id")
@@ -141,5 +209,49 @@ mod tests {
         let touched = vec!["go".to_string(), "rust".to_string()];
         let summary = write_summary(&PathBuf::from("/repo/toven.toml"), true, &touched);
         assert_eq!(summary, "wrote /repo/toven.toml (go, rust)");
+    }
+
+    #[test]
+    fn write_diagnostics_appends_the_defaults_note_before_the_summary() {
+        let diagnostics = write_diagnostics(
+            &[],
+            Some(DefaultsReason::NonInteractiveEnv),
+            "wrote /repo/toven.toml".to_string(),
+        );
+        assert_eq!(diagnostics.len(), 2);
+        assert!(diagnostics[0].starts_with("no terminal detected"));
+        assert!(diagnostics[0].contains("used the default answer"));
+        assert!(diagnostics[0].contains("--print"));
+        assert!(diagnostics[0].contains("--force"));
+        // The write confirmation always closes the diagnostics.
+        assert_eq!(diagnostics[1], "wrote /repo/toven.toml");
+    }
+
+    #[test]
+    fn write_diagnostics_note_names_the_explicit_flag_cause() {
+        let diagnostics = write_diagnostics(
+            &[],
+            Some(DefaultsReason::Explicit),
+            "wrote /repo/toven.toml".to_string(),
+        );
+        assert!(
+            diagnostics[0].starts_with("ran with `--non-interactive`"),
+            "explicit flag must not claim a missing terminal, got: {}",
+            diagnostics[0]
+        );
+        assert!(diagnostics[0].contains("used the default answer"));
+    }
+
+    #[test]
+    fn write_diagnostics_omits_the_note_when_prompts_were_answered() {
+        let warnings = vec!["skipped [ecosystems.rust]".to_string()];
+        let diagnostics = write_diagnostics(&warnings, None, "wrote /repo/toven.toml".to_string());
+        assert_eq!(
+            diagnostics,
+            vec![
+                "skipped [ecosystems.rust]".to_string(),
+                "wrote /repo/toven.toml".to_string()
+            ]
+        );
     }
 }

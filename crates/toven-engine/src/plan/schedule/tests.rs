@@ -917,3 +917,73 @@ fn group_run_strategy_override_relaxes_members_only() {
     // both modules collapse into a single wave.
     assert_eq!(waves.len(), 1);
 }
+
+/// An adapter whose sole task is a persistent `run` (`kind = "run"`), so a
+/// schedule over a `run` intent proves the runnable filter.
+fn run_adapter(ecosystem: &str) -> Box<dyn ConfiguredAdapter> {
+    let mut task = Task::new("run", vec!["run".to_string()], FanOut::PerModule);
+    task.persistent = true;
+    Box::new(
+        FakeConfiguredAdapter::new(eid(ecosystem))
+            .with_response(DiscoverResponse::new(eid(ecosystem)))
+            .with_tasks(vec![task])
+            .with_run_strategy(RunStrategy::Unordered),
+    )
+}
+
+#[test]
+fn run_task_skips_library_only_modules() {
+    let mut app = module("rust", "app", "rust");
+    app.runnable = true;
+    let mut lib = module("rust", "lib", "rust");
+    lib.runnable = false;
+    let federation = Federation {
+        workspaces: vec![workspace("rust")],
+        modules: vec![app, lib],
+        edges: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(eid("rust"), run_adapter("rust"));
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+
+    let scheduled = schedule(
+        &request_for(TaskIntent::resolve("run")),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &GroupOverrides::default(),
+        &toolchains(&federation),
+    )
+    .unwrap();
+
+    // Only the module with an executable target gets a `run` unit; the
+    // library-only crate is dropped rather than scheduled to fail at exec.
+    assert_eq!(ids(&scheduled), vec!["rust:app#run".to_string()]);
+}
+
+#[test]
+fn non_run_tasks_never_filter_library_only_modules() {
+    let mut app = module("rust", "app", "rust");
+    app.runnable = true;
+    let mut lib = module("rust", "lib", "rust");
+    lib.runnable = false;
+    let federation = Federation {
+        workspaces: vec![workspace("rust")],
+        modules: vec![app, lib],
+        edges: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(eid("rust"), adapter("rust", RunStrategy::Unordered));
+
+    // The default `test` task is not `run`-kind, so both modules keep a unit
+    // regardless of `runnable`.
+    assert_eq!(
+        waves_for(&federation, &single_member(adapters)),
+        vec![vec![
+            "rust:app#test".to_string(),
+            "rust:lib#test".to_string()
+        ]]
+    );
+}

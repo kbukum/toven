@@ -7,7 +7,11 @@ toven check
 toven test
 ```
 
-The task token is the task's addressable name — any entry in the config task table. `init` seeds a starter set (`build`, `check`, `format`, `lint`, `test`, `doc`, `run`), and you add, rename, or remove entries under `[ecosystems.<id>.tasks.<name>]` (for example `toven test-integration`). A task's optional `kind` is a recognition hint, not a fixed catalog. Run `toven tasks` to list every runnable task.
+The task token is the task's addressable name — any entry in the config task table. `init` seeds a starter set (`build`, `check`, `format`, `format-check`, `lint`, `test`, `doc`, `run`), and you add, rename, or remove entries under `[ecosystems.<id>.tasks.<name>]` (for example `toven test-integration`). A task's optional `kind` is a recognition hint, not a fixed catalog. Run `toven tasks` to list every runnable task.
+
+`format` rewrites the tree in place (`cargo fmt --all`); `format-check` is its CI-friendly companion that only verifies formatting without touching files (`cargo fmt --all --check`). Use `format` locally and `format-check` in CI.
+
+`run` is a persistent task that launches a module's executable, so it is only offered for modules that have a runnable `bin` target. The default `run` argv is `cargo run … -p {module.package}` (no `--example`), so example- and library-only crates have nothing to launch: they are skipped when you run `run` across a workspace and are never planned for it — `toven run --module rust:<lib>` simply plans nothing rather than failing at exec.
 
 Use `toven run <task>` when the task name shadows a reserved verb (`run`, `plan`, `init`, `graph`, `cache`, …):
 
@@ -105,7 +109,32 @@ At the default verbosity the run summary collapses the failure counters (`failed
 
 If you run an unknown task, Toven suggests the nearest valid task name and points you at [`toven tasks`](inspect.md#toven-tasks). For example `toven fmt` is rejected with a "Did you mean 'format'?" hint — Toven does not silently rewrite it, since argv is never inferred.
 
-When human output goes to a real terminal, serially-run commands (serial or single-unit runs, no held persistent unit) execute attached to a pseudoterminal sized to that terminal, so their output renders exactly as it would interactively — colors, progress bars, and other tty-gated styling are preserved verbatim. When output is redirected, captured, or units run in parallel, Toven falls back to deterministic pipe capture (no tty), so tools that gate styling on a terminal emit plain text. Pseudoterminal streaming is currently Unix-only; on other platforms Toven always uses pipe capture. Selection is automatic from whether **stderr** (where live output lands) is a terminal — there is no flag to force or disable it; redirect or pipe stderr (e.g. `2>&1 | cat`, or `2>file`) to force deterministic pipe capture even from a terminal.
+## Live output and `--view`
+
+On a real terminal Toven renders each in-flight unit's output live, even when units run in parallel. Instead of forcing units to run one at a time so their bytes never interleave, Toven gives each running unit its own visual region, so a whole-workspace `toven test` streams every unit's colorized output at once with no intermixing. Each live unit runs attached to a pseudoterminal, so colors, progress bars, and other tty-gated styling are preserved verbatim; when a unit finishes, its region collapses to a one-line verdict and its full output is flushed into scrollback above the live area (nothing is lost).
+
+`--view` selects the renderer; `[toven].view` in `toven.toml` sets the default:
+
+| Mode | Behavior |
+|------|----------|
+| `auto` (default) | Panes in a supported multiplexer (tmux) for a small run, else tiles on a terminal, else stream. |
+| `tiles` | In-terminal live tiles: one region per in-flight unit, collapsing to a verdict on completion. |
+| `panes` | One real multiplexer pane per unit (tmux), capped to the first few units with the rest as tiles. Falls back to tiles entirely when not running under tmux (or if tmux can't open panes). Best for a handful of long-lived units. |
+| `stream` | A single linear stream with no live area. Output that could interleave under parallelism is buffered per unit and flushed as one block; live-safe runs (serial/single-unit) still stream inline. Log-friendly and deterministic run-to-run. |
+
+```toml
+[toven]
+view = "auto"   # auto | tiles | panes | stream
+```
+
+```bash
+toven test --view stream   # force the deterministic single-stream output
+toven test --view panes    # one tmux pane per unit (under $TMUX)
+```
+
+Selection degrades safely and never depends on a terminal for correctness. Whenever output is redirected, piped, or `--output jsonl` is active — or the target is not a terminal (CI) — Toven always uses `stream`, byte-for-byte identical to redirecting today: `toven test 2>&1 | cat` and non-tty runs are unaffected by the live renderer. `--view stream` disables the live tiles/panes area on a terminal too; live-safe units may still stream inline through a PTY, so its output is the linear stream shape but not necessarily byte-for-byte identical to a redirected run. Live tiles/panes are Unix-only (they need a pseudoterminal); on other platforms Toven always uses `stream`.
+
+`max_parallel = 1` still works but is no longer required for live output — full parallelism and live per-unit output are no longer a trade-off.
 
 ## Options
 
@@ -126,5 +155,6 @@ When human output goes to a real terminal, serially-run commands (serial or sing
 | `--watch` | Rerun the affected subgraph on every watched source change (Ctrl+C exits). |
 | `--watch-debounce-ms <n>` | Trailing-edge debounce window in ms for `--watch` (default 200). |
 | `--output human\|jsonl` | Select human or machine-readable run events. |
+| `--view auto\|tiles\|panes\|stream` | Select the live-output renderer (`auto` follows the terminal/multiplexer; `stream` forces the deterministic single stream). |
 | `--color auto\|always\|never` | Colorize human status labels (`auto` follows the terminal; `NO_COLOR` overrides `always`). |
 | `-v` / `-q` | Raise or lower human-output verbosity (repeatable). |
