@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rskit_cli::Palette;
 use rskit_errors::{AppError, AppResult};
@@ -84,11 +84,22 @@ impl PaneLauncher for TmuxLauncher {
     fn open(&mut self, id: &str, label: &str) -> AppResult<Box<dyn PaneHandle>> {
         let path = self.dir.join(format!("pane-{}.log", self.seq));
         self.seq += 1;
-        let mut file = fs_file::create(&path)?;
+        // Any failure before the pane is live must not strand the temp file:
+        // `PaneRawSink` keeps retrying `open` (it never reaches the cap on a
+        // degrade), which would otherwise accumulate `pane-*.log` files.
+        self.open_pane(&path, id, label).inspect_err(|_| {
+            let _ = fs_file::remove_if_exists(&path);
+        })
+    }
+}
+
+impl TmuxLauncher {
+    fn open_pane(&self, path: &Path, id: &str, label: &str) -> AppResult<Box<dyn PaneHandle>> {
+        let mut file = fs_file::create(path)?;
         writeln!(file, "• {label}").map_err(AppError::internal)?;
         file.flush().map_err(AppError::internal)?;
         let result = rskit_process::run(
-            &ProcessSpec::new("tmux").args(split_window_args(&path, self.size)),
+            &ProcessSpec::new("tmux").args(split_window_args(path, self.size)),
             &ProcessConfig::default(),
         )?;
         if !result.success() {
@@ -96,7 +107,10 @@ impl PaneLauncher for TmuxLauncher {
                 "tmux split-window failed for unit `{id}`"
             ))));
         }
-        Ok(Box::new(TmuxPane { file, path }))
+        Ok(Box::new(TmuxPane {
+            file,
+            path: path.to_path_buf(),
+        }))
     }
 }
 
@@ -237,7 +251,7 @@ mod tests {
     use toven_model::{OutputStream, UnitOutput, UnitStatus};
     use toven_ports::RawOutputSink;
 
-    use super::{PaneHandle, PaneLauncher, PaneRawSink, split_window_args};
+    use super::{PaneHandle, PaneLauncher, PaneRawSink, TmuxLauncher, split_window_args};
     use crate::report::tiles::TilesRawSink;
 
     #[derive(Default)]
@@ -317,6 +331,43 @@ mod tests {
         assert!(args.contains(&"--".to_string()));
         assert_eq!(args.last().unwrap(), "/tmp/pane-0.log");
         assert!(args.contains(&"tail".to_string()));
+    }
+
+    #[test]
+    fn failed_pane_open_removes_the_temp_file() {
+        // Skip inside a live tmux client: there `split-window` could succeed and
+        // spawn a pane in the developer's own session. The degrade path this
+        // guards against (tmux absent or the split failing) is exercised
+        // everywhere else, including CI.
+        if std::env::var_os("TMUX").is_some() {
+            return;
+        }
+        // Outside a live tmux client (or with tmux absent) `open` must fail —
+        // and it must not strand the backing `pane-*.log`, since a degrade keeps
+        // retrying `open` and would otherwise pile up temp files.
+        let dir = std::env::temp_dir().join(format!(
+            "toven-panes-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos())
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut launcher = TmuxLauncher::new(dir.clone(), PtySize::new(10, 80));
+        assert!(
+            launcher.open("rust:demo#run", "demo").is_err(),
+            "open must fail without a live tmux client"
+        );
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|e| e.file_name())
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "failed open must leave no temp file, found: {leftovers:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

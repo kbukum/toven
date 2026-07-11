@@ -217,14 +217,13 @@ fn build_edges(
     Ok(edges.into_iter().collect())
 }
 
-/// Whether a package exposes an executable target `cargo run` can launch: a
-/// `bin` or `example` target. Library-only crates have none, so a persistent
-/// `run` unit against them is invalid and the scheduler drops it.
+/// Whether a package exposes a `bin` target `cargo run` can launch by default.
+/// The `run` task argv is `cargo run … -p {package}` with no `--example`, so an
+/// example target is not launchable this way; library- and example-only crates
+/// have no default runnable, and the scheduler drops a persistent `run` unit
+/// against them.
 fn has_runnable_target(package: &cargo_metadata::Package) -> bool {
-    package
-        .targets
-        .iter()
-        .any(|target| target.is_bin() || target.is_example())
+    package.targets.iter().any(cargo_metadata::Target::is_bin)
 }
 
 /// Map a cargo dependency kind onto the model's [`DepKind`].

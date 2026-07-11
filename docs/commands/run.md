@@ -11,7 +11,7 @@ The task token is the task's addressable name — any entry in the config task t
 
 `format` rewrites the tree in place (`cargo fmt --all`); `format-check` is its CI-friendly companion that only verifies formatting without touching files (`cargo fmt --all --check`). Use `format` locally and `format-check` in CI.
 
-`run` is a persistent task that launches a module's executable, so it is only offered for modules that have a runnable target (a `bin` or `example`). Library-only crates have no binary, so they are skipped when you run `run` across a workspace and are never planned for it — `toven run --module rust:<lib>` simply plans nothing rather than failing at exec.
+`run` is a persistent task that launches a module's executable, so it is only offered for modules that have a runnable `bin` target. The default `run` argv is `cargo run … -p {module.package}` (no `--example`), so example- and library-only crates have nothing to launch: they are skipped when you run `run` across a workspace and are never planned for it — `toven run --module rust:<lib>` simply plans nothing rather than failing at exec.
 
 Use `toven run <task>` when the task name shadows a reserved verb (`run`, `plan`, `init`, `graph`, `cache`, …):
 
