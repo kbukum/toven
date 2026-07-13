@@ -285,6 +285,37 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_unit_is_retained_for_the_end_of_run_epilogue() {
+        // A failure both replays inline (at end_unit) and is retained so
+        // finish_run can re-surface it above the summary; a success is not.
+        let mut sink = TilesRawSink::hidden();
+        sink.begin_unit("go:auth#test", "go:auth#test").unwrap();
+        sink.live(&chunk("go:auth#test", b"--- FAIL: TestParse\nFAIL\n"))
+            .unwrap();
+        sink.end_unit("go:auth#test", UnitStatus::Failed).unwrap();
+        sink.begin_unit("go:ok#test", "go:ok#test").unwrap();
+        sink.end_unit("go:ok#test", UnitStatus::Succeeded).unwrap();
+
+        assert_eq!(sink.failures.len(), 1);
+        assert!(sink.failures[0].verdict.contains("go:auth#test"));
+        assert_eq!(
+            sink.failures[0].body,
+            vec!["--- FAIL: TestParse".to_string(), "FAIL".to_string()]
+        );
+        // The consolidated epilogue renders without panicking (hidden console).
+        sink.finish_run().unwrap();
+    }
+
+    #[test]
+    fn finish_run_is_a_no_op_when_nothing_failed() {
+        let mut sink = TilesRawSink::hidden();
+        sink.begin_unit("u", "u").unwrap();
+        sink.end_unit("u", UnitStatus::Succeeded).unwrap();
+        assert!(sink.failures.is_empty());
+        sink.finish_run().unwrap();
+    }
+
+    #[test]
     fn a_finished_unit_summary_is_consumed_once() {
         // The per-unit summary scanner is dropped at end_unit, so a re-used id
         // does not carry a stale tally.
