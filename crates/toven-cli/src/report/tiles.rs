@@ -3,8 +3,9 @@
 //!
 //! Where [`WriterRawSink`](super::WriterRawSink) renders one linear stream (the
 //! `stream` view), this sink de-interleaves concurrent output *spatially*: each
-//! in-flight unit gets its own fixed-height tile showing its last few lines, so
-//! units can all stream live under full parallelism without their bytes
+//! in-flight unit gets its own tile that grows with its output — from a single
+//! header line for a silent or instantly-finishing unit up to a bounded tail —
+//! so units can all stream live under full parallelism without their bytes
 //! intermixing. It reports
 //! [`supports_concurrent_live`](toven_ports::RawOutputSink::supports_concurrent_live),
 //! so the engine drives every unit through the
@@ -24,9 +25,12 @@ use toven_ports::RawOutputSink;
 
 use super::summary::{RunSummary, SummaryScanner};
 
-/// Content lines shown per unit tile. Also the PTY row count the CLI sizes live
-/// units to, so a child's own cursor math matches the visible tile height.
-pub(super) const TILE_TAIL_LINES: u16 = 12;
+/// Maximum content lines a unit tile grows to before its tail is capped. The
+/// tile starts at just its header and grows with the unit's output up to this
+/// height (a quiet or instantly-finishing unit stays a single line), so this is
+/// a ceiling rather than a reserved block. Also the PTY row count the CLI sizes
+/// live units to, so a child's own cursor math matches the tile's grid height.
+pub(super) const TILE_TAIL_LINES: u16 = 20;
 
 /// Running lifecycle tallies rendered into the status header.
 #[derive(Debug, Default, Clone, Copy)]

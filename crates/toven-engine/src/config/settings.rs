@@ -59,7 +59,7 @@ pub enum ViewMode {
     /// multiplexer, `tiles` on a plain terminal, `stream` otherwise (the default).
     #[default]
     Auto,
-    /// One live, fixed-height tile per in-flight unit in a single terminal.
+    /// One live, content-sized tile per in-flight unit in a single terminal.
     Tiles,
     /// One multiplexer pane per unit (opt-in; requires a supported multiplexer).
     Panes,

@@ -132,7 +132,7 @@ On a real terminal Toven renders each in-flight unit's output live, even when un
 | Mode | Behavior |
 |------|----------|
 | `auto` (default) | Panes in a supported multiplexer (tmux) for a small parallel run, else tiles on a terminal; a serial (`--jobs 1`/`max_parallel = 1`) or single-unit run streams inline, and a non-terminal target always streams. |
-| `tiles` | In-terminal live tiles: one region per in-flight unit, collapsing to a verdict on completion. |
+| `tiles` | In-terminal live tiles: one region per in-flight unit that grows with its output — a single header line for a silent or fast unit up to a bounded tail — collapsing to a verdict on completion. |
 | `panes` | One real multiplexer pane per unit (tmux), capped to the first few units with the rest as tiles. Falls back to tiles entirely when not running under tmux (or if tmux can't open panes). Best for a handful of long-lived units. |
 | `stream` | A single linear stream with no live area. Output that could interleave under parallelism is buffered per unit and flushed as one block; live-safe runs (serial/single-unit) still stream inline. Log-friendly and deterministic run-to-run. |
 

@@ -142,7 +142,7 @@ pub enum OutputKind {
 pub enum ViewMode {
     /// Pick the richest shape the environment supports (default).
     Auto,
-    /// One live, fixed-height tile per in-flight unit in a single terminal.
+    /// One live, content-sized tile per in-flight unit in a single terminal.
     Tiles,
     /// One multiplexer pane per unit (opt-in; requires a supported multiplexer).
     Panes,
