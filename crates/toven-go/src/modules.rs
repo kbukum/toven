@@ -121,7 +121,8 @@ fn nested_modules(project_root: &Path) -> AppResult<Vec<String>> {
 ///
 /// # Errors
 /// Propagates a path-resolution failure or a `go work edit -json`
-/// invocation/parse failure.
+/// invocation/parse failure, and fails when the workspace file declares no
+/// `use` modules (an empty set would silently discover zero modules).
 pub(crate) fn go_work_members(project_root: &Path) -> AppResult<Option<BTreeSet<RepoPath>>> {
     let work_abs = safe_join(project_root, Path::new(WORK_MANIFEST)).map_err(|error| {
         AppError::new(ErrorCode::Internal, "failed to resolve go.work path").with_cause(error)
@@ -151,6 +152,14 @@ pub(crate) fn go_work_members(project_root: &Path) -> AppResult<Option<BTreeSet<
         for entry in uses {
             members.insert(RepoPath::new(Path::new(&entry.disk_path))?);
         }
+    }
+    if members.is_empty() {
+        return Err(AppError::new(
+            ErrorCode::InvalidInput,
+            format!(
+                "`{WORK_MANIFEST}` declares no `use` modules; add a `use` directive or remove the workspace file"
+            ),
+        ));
     }
     Ok(Some(members))
 }
@@ -194,6 +203,7 @@ fn is_git_ignored(checker: Option<&GitCli>, manifest: &str) -> AppResult<bool> {
 
 #[cfg(test)]
 mod tests {
+    use rskit_errors::ErrorCode;
     use toven_model::RepoPath;
 
     use super::{discover_modules, manifest_in};
@@ -245,5 +255,15 @@ mod tests {
 
         let manifests = discover_modules(workspace.path()).expect("discover");
         assert_eq!(manifests, ["auth/go.mod", "authz/go.mod", "go.mod"]);
+    }
+
+    #[test]
+    fn go_work_without_use_entries_fails_fast() {
+        let workspace = toven_testkit::TestWorkspace::new("go-work-empty");
+        workspace.write_file("go.work", b"go 1.26\n").unwrap();
+        workspace.write_file("go.mod", b"module ex\n").unwrap();
+
+        let error = discover_modules(workspace.path()).expect_err("empty go.work is rejected");
+        assert_eq!(error.code(), ErrorCode::InvalidInput);
     }
 }

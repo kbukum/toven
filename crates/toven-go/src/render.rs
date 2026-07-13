@@ -174,7 +174,7 @@ fn go_module_entry(subcommand: &str) -> TaskEntry {
 }
 
 /// The `lint` task for the chosen external backend. Both run from the repo root
-/// and scope to the module via a repo-relative package pattern (`{module.root}/…`),
+/// and scope to the module via a repo-relative package pattern (`./{module.root}/…`),
 /// since neither `golangci-lint` nor `staticcheck` accepts a `-C` chdir flag.
 fn lint_entry(backend: &LintBackend) -> TaskEntry {
     let argv = match backend {
@@ -193,9 +193,11 @@ fn lint_entry(backend: &LintBackend) -> TaskEntry {
             "{module.selector}".to_string(),
         ],
     };
+    // The `./` prefix keeps this a filesystem-relative package pattern: Go tooling
+    // reads a bare `svc/api/...` as an import path and matches no packages.
     base_entry(
         argv,
-        vec![format!("{{module.root}}/...")],
+        vec![format!("./{{module.root}}/...")],
         FanOut::PerModule,
     )
 }
@@ -396,6 +398,7 @@ mod tests {
         let config = render_with(&answers);
         let lint = config.common.tasks.get("lint").expect("lint task");
         assert_eq!(lint.argv[..2], ["golangci-lint", "run"]);
+        assert_eq!(lint.selector, ["./{module.root}/..."]);
         // check and lint no longer collide: distinct programs → distinct keys.
         let check = config.common.tasks.get("check").expect("check task");
         assert_ne!(check.argv, lint.argv);
