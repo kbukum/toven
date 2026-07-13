@@ -78,6 +78,8 @@ flowchart LR
 
 Rust discovery is backed by `cargo metadata`. `[ecosystems.rust].manifests` selects the Cargo workspace roots for a multi-workspace repo — either `"auto"` (re-discover first-level workspace roots every plan, minus `exclude`) or an explicit list — and Cargo path dependencies are inferred across them. Adapters contribute their default task set, so a hand-written config stays minimal. `[[overlays]]` add cross-ecosystem edges native metadata cannot prove.
 
+Go discovery is backed by offline `go mod edit -json` / `go work edit -json` (no network, no module-graph resolution). `[ecosystems.go].modules` selects the managed `go.mod` modules — either `"auto"` (enumerate a root `go.work`'s members at any depth on every plan, or the root plus first-level nested `go.mod` when there is no workspace file) or an explicit list. In-repo `require`s become intra-ecosystem edges, and a root `go.work` groups its members into one workspace whose `go.work`/`go.work.sum` form the shared blast radius. Each module's identity is its repo-relative directory, so sibling modules sharing a leaf name (`connect/testutil`, `git/testutil`) stay distinct.
+
 ## Planning, waves, and bundling
 
 ```mermaid
@@ -103,7 +105,7 @@ A wave is everything safe to start now. A module joins a later wave when a depen
 
 An ecosystem's `[ecosystems.<id>.tasks.<task>]` entries and a group's `[groups.<name>.tasks.<task>]` overrides look similar but play different roles and use different shapes.
 
-An `[ecosystems.<id>.tasks.<task>]` entry is an **authoritative, complete task** (`TaskEntry`): the entry's name is the task's identity, so `argv` is required and the entry carries the full scheduling attributes (`selector`, `fan_out`, `persistent`, `readiness`, `cache_args`, `shared_inputs`). `toven init` writes a starter table into `toven.toml`, and the planner runs exactly what each entry declares — add, rename, or remove entries freely. An explicit `kind` is an optional recognition attribute that tags what a task *is* — for example `[ecosystems.rust.tasks.test-integration]` with `kind = "test"` is recognized as a test task (so it shares test-kind behavior such as dev-dependency edge propagation) while still being addressed by its own name, `toven test-integration`.
+An `[ecosystems.<id>.tasks.<task>]` entry is an **authoritative, complete task** (`TaskEntry`): the entry's name is the task's identity, so `argv` is required and the entry carries the full scheduling attributes (`selector`, `fan_out`, `persistent`, `readiness`, `cache_args`, `cacheable`, `shared_inputs`). `toven init` writes a starter table into `toven.toml`, and the planner runs exactly what each entry declares — add, rename, or remove entries freely. An explicit `kind` is an optional recognition attribute that tags what a task *is* — for example `[ecosystems.rust.tasks.test-integration]` with `kind = "test"` is recognized as a test task (so it shares test-kind behavior such as dev-dependency edge propagation) while still being addressed by its own name, `toven test-integration`.
 
 ```toml
 [ecosystems.rust.tasks.test]
@@ -155,13 +157,17 @@ flowchart TD
     Closure --> Plan["affected execution plan"]
 
     Plan --> Inputs["module + dependency + task + shared inputs + toolchain"]
-    Inputs --> Args{"passthrough args?"}
-    Args -->|"yes, cache_args=false"| Disabled["cache disabled"]
+    Inputs --> Cacheable{"persistent or cacheable=false?"}
+    Cacheable -->|"yes"| Disabled["cache disabled"]
+    Cacheable -->|"no"| Args{"passthrough args?"}
+    Args -->|"yes, cache_args=false"| Disabled
     Args -->|"no, or cache_args=true"| Lookup["cache lookup"]
     Lookup -->|"record matches"| Hit["skip"]
     Lookup -->|"missing or changed"| Miss["run"]
     Disabled --> Miss
 ```
+
+A task authored `cacheable = false` is statically excluded from the cache, exactly as a `persistent` task is. This is the correctness rule for **mutating** tasks (a `*-fix` twin such as Go's `format` / `tidy-fix`): a mutation must run on every invocation, so a stale content-key hit can never suppress it — for example manually un-formatting a file yields the same source digest as the pre-`format` state, which would otherwise register as a cache hit and skip the re-format.
 
 Explicit selection (`--module`/`--workspace`, optionally `--dependents` and/or `--dependencies`) short-circuits the changed-file diff: the named targets become the active set directly, then feed the same cache and execution stages. Selectors are lenient input — bare name, `ecosystem:name`, `workspace/name`, or glob, resolved against the graph — while every listing stays the canonical `ecosystem:name` form. It is mutually exclusive with the baseline flags. See [what invalidates cache](commands/cache.md#what-invalidates-cache) for the full list of cache inputs.
 

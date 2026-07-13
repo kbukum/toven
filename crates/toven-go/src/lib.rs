@@ -14,10 +14,11 @@
 //!   [`release_target`](toven_ports::ConfiguredAdapter::release_target) is
 //!   always `None`.
 //!
-//! Discovery reads each configured `go.mod` offline (no module graph resolution,
-//! no network) and auto-detects a root `go.work` purely to group its member
-//! modules into one workspace. All work returns typed data + typed errors; no
-//! user-facing printing, no panics on runtime paths.
+//! Discovery reads each managed `go.mod` offline (no module graph resolution,
+//! no network). A root `go.work` is auto-detected both to enumerate the managed
+//! modules under `modules = "auto"` and to group its members into one
+//! workspace. All work returns typed data + typed errors; no user-facing
+//! printing, no panics on runtime paths.
 
 // The adapter's internal helpers live in private modules but are shared across
 // sibling modules as `pub(crate)`. The `redundant_pub_crate` (nursery) lint would
@@ -31,6 +32,8 @@ mod adapter;
 mod config;
 mod detect;
 mod discovery;
+mod exec;
+mod modules;
 mod provider;
 mod questionnaire;
 mod render;
@@ -38,5 +41,5 @@ mod tasks;
 mod toolchain;
 
 pub use adapter::GoAdapter;
-pub use config::GoConfig;
+pub use config::{GoConfig, Modules};
 pub use provider::GoProvider;

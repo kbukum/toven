@@ -1,0 +1,3 @@
+# Go adapter config using `modules = "auto"`: discovery enumerates the root
+# go.work's member modules (at any depth) instead of a hand-listed set.
+modules = "auto"

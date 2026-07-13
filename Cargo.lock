@@ -1977,15 +1977,18 @@ dependencies = [
 name = "toven-go"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "rskit-cli",
  "rskit-codec",
  "rskit-config",
  "rskit-errors",
  "rskit-fs",
+ "rskit-git",
  "rskit-process",
  "serde",
  "toml",
  "toven-model",
  "toven-ports",
+ "toven-testkit",
 ]
 
 [[package]]

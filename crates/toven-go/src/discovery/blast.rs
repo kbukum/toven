@@ -1,15 +1,18 @@
-//! Blast-radius and resource-group annotations layered onto discovered units.
+//! Blast-radius annotations layered onto discovered workspaces.
 //!
-//! These are go-specific defaults the planner reads back through the typed
-//! [`Module::resource_group`] and [`Workspace::blast_radius`] fields: every
-//! module grouped under one workspace shares the workspace's checksum file (a
-//! blast-radius input) and contends on one build cache (a serialization
-//! resource), so they are grouped by workspace root. The workspace-level checksum
-//! differs by grouping: a `go.work` workspace pins resolved versions in
-//! `go.work.sum` (and the `go.work` manifest itself selects its members), whereas
-//! a lone module pins them in its own `go.sum`.
+//! Go modules carry no serialization `resource_group`: `go` reads and writes its
+//! build cache (`GOCACHE`) and module cache (`GOMODCACHE`) under file locks, so
+//! `go build`/`vet`/`test` run safely in parallel across modules. Leaving the
+//! group unset lets the executor give each module its own lane and run the
+//! workspace's modules concurrently within their dependency waves.
+//!
+//! Only the workspace-level blast radius is go-specific: the planner reads it
+//! back through [`Workspace::blast_radius`]. The checksum differs by grouping: a
+//! `go.work` workspace pins resolved versions in `go.work.sum` (and the `go.work`
+//! manifest itself selects its members), whereas a lone module pins them in its
+//! own `go.sum`.
 
-use toven_model::{Module, RepoPath, Workspace};
+use toven_model::{RepoPath, Workspace};
 
 /// The checksum file a lone (non-`go.work`) module shares.
 const MODULE_SUM_FILE: &str = "go.sum";
@@ -19,12 +22,6 @@ const WORK_FILE: &str = "go.work";
 
 /// The workspace-level checksum file a `go.work` grouping shares.
 const WORK_SUM_FILE: &str = "go.work.sum";
-
-/// Stamp the default resource group (`go:<workspace-root>`) on a module so the
-/// executor serializes `go` invocations that contend on one build cache.
-pub(crate) fn annotate_module(module: &mut Module, workspace_root: &RepoPath) {
-    module.resource_group = Some(resource_group(workspace_root));
-}
 
 /// Stamp the workspace-wide blast-radius globs so a checksum change invalidates
 /// every member of the workspace. A `go.work` grouping (`is_work`) keys off the
@@ -46,11 +43,6 @@ pub(crate) fn annotate_workspace(
         .collect();
 }
 
-/// The `go:<workspace-root>` resource-group label.
-fn resource_group(workspace_root: &RepoPath) -> String {
-    format!("go:{}", workspace_root.as_path().display())
-}
-
 /// A workspace-root-relative glob for `file` (bare at the repo root).
 fn root_relative(workspace_root: &RepoPath, file: &str) -> String {
     let label = workspace_root.as_path().display().to_string();
@@ -63,23 +55,9 @@ fn root_relative(workspace_root: &RepoPath, file: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use toven_model::{
-        EcosystemId, Module, ModuleRef, RepoPath, ToolchainTag, Workspace, WorkspaceId,
-    };
+    use toven_model::{RepoPath, ToolchainTag, Workspace, WorkspaceId};
 
-    use super::{annotate_module, annotate_workspace};
-
-    fn module() -> Module {
-        let id = ModuleRef::new(EcosystemId::new("go").unwrap(), "app").unwrap();
-        Module::new(id, RepoPath::new("app").unwrap())
-    }
-
-    #[test]
-    fn module_gets_workspace_scoped_resource_group() {
-        let mut m = module();
-        annotate_module(&mut m, &RepoPath::new(".").unwrap());
-        assert_eq!(m.resource_group.as_deref(), Some("go:."));
-    }
+    use super::annotate_workspace;
 
     #[test]
     fn workspace_gets_sum_blast_radius() {

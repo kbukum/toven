@@ -114,7 +114,7 @@ fn go_work_groups_members_into_one_workspace_with_an_edge() {
 }
 
 #[test]
-fn versioned_modules_keep_distinct_names_instead_of_collapsing_onto_v_major() {
+fn nested_versioned_modules_are_named_by_directory_and_edges_resolve() {
     let response = discover("adapter/versioned-modules.toml", "workspaces/versioned");
 
     let mut names: Vec<&str> = response
@@ -123,8 +123,8 @@ fn versioned_modules_keep_distinct_names_instead_of_collapsing_onto_v_major() {
         .map(|m| m.id.name.as_str())
         .collect();
     names.sort_unstable();
-    // Without stripping the `/v2` suffix both modules would be named `v2` and
-    // discovery would abort with a false duplicate-module conflict.
+    // Nested modules take their identity from the repo-relative directory, so
+    // two `/v2` modules stay distinct (`alpha`, `beta`) with no false collision.
     assert_eq!(names, ["alpha", "beta"]);
 
     let mut packages: Vec<&str> = response
@@ -144,9 +144,29 @@ fn versioned_modules_keep_distinct_names_instead_of_collapsing_onto_v_major() {
 }
 
 #[test]
-fn discovery_rejects_two_modules_resolving_to_the_same_name() {
+fn auto_enumerates_go_work_members_without_a_hand_listed_set() {
+    let response = discover("adapter/auto-modules.toml", "workspaces/work");
+
+    let mut names: Vec<&str> = response
+        .modules
+        .iter()
+        .map(|m| m.id.name.as_str())
+        .collect();
+    names.sort_unstable();
+    // `modules = "auto"` derives the same members the explicit list names.
+    assert_eq!(names, ["app", "core"]);
+
+    assert_eq!(response.workspaces.len(), 1);
+    assert_eq!(response.workspaces[0].id.as_str(), "go");
+    assert_eq!(response.edges.len(), 1);
+    assert_eq!(response.edges[0].from.module, module_ref("app"));
+    assert_eq!(response.edges[0].to.module, module_ref("core"));
+}
+
+#[test]
+fn discovery_rejects_two_modules_whose_directories_fold_to_the_same_name() {
     let error = discover_result("adapter/duplicate-name.toml", "workspaces/duplicate")
-        .expect_err("two modules with the same final segment conflict");
+        .expect_err("directories `svc/api` and `svc-api` fold to the same name");
     assert!(error.to_string().contains("duplicate module"), "{error}");
 }
 
@@ -168,11 +188,11 @@ fn discovery_surfaces_a_go_mod_edit_failure() {
 }
 
 #[test]
-fn modules_carry_resource_group_and_workspaces_carry_blast_radius() {
+fn modules_run_in_parallel_and_workspaces_carry_blast_radius() {
     let response = discover("adapter/single-module.toml", "workspaces/single-module");
 
     let module = &response.modules[0];
-    assert_eq!(module.resource_group.as_deref(), Some("go:."));
+    assert_eq!(module.resource_group, None);
 
     let workspace = &response.workspaces[0];
     assert_eq!(workspace.blast_radius, ["go.sum"]);

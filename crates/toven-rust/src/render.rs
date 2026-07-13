@@ -138,10 +138,7 @@ fn task_table(use_nextest: bool, shared_inputs: &[String]) -> BTreeMap<String, T
         "check".to_string(),
         fan_out_entry("check", FanOut::Batchable, shared_inputs),
     );
-    tasks.insert(
-        "format".to_string(),
-        whole_workspace_entry("fmt", &[], shared_inputs),
-    );
+    tasks.insert("format".to_string(), format_entry(shared_inputs));
     tasks.insert(
         "format-check".to_string(),
         format_check_entry(shared_inputs),
@@ -150,6 +147,7 @@ fn task_table(use_nextest: bool, shared_inputs: &[String]) -> BTreeMap<String, T
         "lint".to_string(),
         fan_out_entry("clippy", FanOut::Batchable, shared_inputs),
     );
+    tasks.insert("vuln".to_string(), vuln_entry(shared_inputs));
     tasks.insert(
         "test".to_string(),
         TaskEntry {
@@ -161,6 +159,7 @@ fn task_table(use_nextest: bool, shared_inputs: &[String]) -> BTreeMap<String, T
             readiness: toven_ports::Readiness::Started,
             readiness_timeout_secs: None,
             cache_args: false,
+            cacheable: true,
             shared_inputs: shared_inputs.to_vec(),
         },
     );
@@ -200,6 +199,7 @@ fn fan_out_entry(subcommand: &str, fan_out: FanOut, shared_inputs: &[String]) ->
         readiness: toven_ports::Readiness::Started,
         readiness_timeout_secs: None,
         cache_args: false,
+        cacheable: true,
         shared_inputs: shared_inputs.to_vec(),
     }
 }
@@ -225,6 +225,7 @@ fn whole_workspace_entry(subcommand: &str, extra: &[&str], shared_inputs: &[Stri
         readiness: toven_ports::Readiness::Started,
         readiness_timeout_secs: None,
         cache_args: false,
+        cacheable: true,
         shared_inputs: shared_inputs.to_vec(),
     }
 }
@@ -239,7 +240,42 @@ fn format_check_entry(shared_inputs: &[String]) -> TaskEntry {
     entry
 }
 
-/// The persistent `cargo run` entry (per-module, long-lived).
+/// The mutating `cargo fmt --all` entry. Authored `cacheable = false`: a
+/// formatter rewrites the tree, so a stale content-key hit must never suppress a
+/// reformat (the `format-check` twin keeps caching its non-mutating verify).
+fn format_entry(shared_inputs: &[String]) -> TaskEntry {
+    let mut entry = whole_workspace_entry("fmt", &[], shared_inputs);
+    entry.cacheable = false;
+    entry
+}
+
+/// The `vuln` supply-chain entry: `cargo audit --file {lockfile}` once per
+/// workspace lockfile. Fanning out whole-workspace hits each `Cargo.lock` exactly
+/// once (the resolved graph an audit needs), the direct analog of Go's per-module
+/// `govulncheck`. `cargo audit` reads the `RustSec` advisory DB with no project
+/// config, so it stays generic where `cargo deny` needs a per-repo policy file.
+/// The `vuln` name resolves to [`toven_ports::TaskKind::Vuln`], so it inherits the
+/// unordered run strategy without an explicit `kind` (matching `build`/`check`).
+fn vuln_entry(shared_inputs: &[String]) -> TaskEntry {
+    TaskEntry {
+        kind: None,
+        argv: vec![
+            "cargo".to_string(),
+            "audit".to_string(),
+            "--file".to_string(),
+            "{workspace.root}/Cargo.lock".to_string(),
+            "{args}".to_string(),
+        ],
+        selector: Vec::new(),
+        fan_out: FanOut::WholeWorkspace,
+        persistent: false,
+        readiness: toven_ports::Readiness::Started,
+        readiness_timeout_secs: None,
+        cache_args: false,
+        cacheable: true,
+        shared_inputs: shared_inputs.to_vec(),
+    }
+}
 fn run_entry(shared_inputs: &[String]) -> TaskEntry {
     let mut entry = fan_out_entry("run", FanOut::PerModule, shared_inputs);
     entry.persistent = true;
@@ -357,7 +393,8 @@ mod tests {
                 "format-check",
                 "lint",
                 "run",
-                "test"
+                "test",
+                "vuln"
             ]
         );
         assert_eq!(config.manifests, Manifests::Auto);
@@ -368,6 +405,7 @@ mod tests {
         assert_eq!(format.fan_out, FanOut::WholeWorkspace);
         assert!(format.selector.is_empty());
         assert!(!format.argv.contains(&"--check".to_string()));
+        assert!(!format.cacheable, "the mutating format twin must not cache");
         let format_check = config
             .common
             .tasks
@@ -376,10 +414,20 @@ mod tests {
         assert_eq!(format_check.fan_out, FanOut::WholeWorkspace);
         assert!(format_check.selector.is_empty());
         assert!(format_check.argv.contains(&"--check".to_string()));
+        assert!(
+            format_check.cacheable,
+            "the non-mutating format-check twin caches"
+        );
         assert_eq!(
             format_check.resolved_kind("format-check"),
             toven_ports::TaskKind::Format
         );
+        let vuln = config.common.tasks.get("vuln").expect("vuln task");
+        assert_eq!(vuln.argv[..2], ["cargo", "audit"]);
+        assert_eq!(vuln.fan_out, FanOut::WholeWorkspace);
+        assert!(vuln.selector.is_empty());
+        assert!(vuln.cacheable);
+        assert_eq!(vuln.resolved_kind("vuln"), toven_ports::TaskKind::Vuln);
     }
 
     #[test]

@@ -28,6 +28,10 @@ pub enum TaskKind {
     Test,
     /// Build documentation.
     Doc,
+    /// Scan dependencies for known security advisories (e.g. `govulncheck`,
+    /// `cargo audit`). Reads the resolved dependency set, so it carries no
+    /// build-order dependency and defaults to an unordered run strategy.
+    Vuln,
     /// Persistent / dev run (servers, watchers); seeds a persistent default at init.
     Run,
     /// No recognized kind: a plain named task with no kind-aware behavior.
@@ -48,6 +52,7 @@ impl TaskKind {
             "lint" => Self::Lint,
             "test" => Self::Test,
             "doc" => Self::Doc,
+            "vuln" => Self::Vuln,
             "run" => Self::Run,
             _ => return None,
         })
@@ -63,6 +68,7 @@ impl TaskKind {
             Self::Lint => "lint",
             Self::Test => "test",
             Self::Doc => "doc",
+            Self::Vuln => "vuln",
             Self::Run => "run",
             Self::Default => "default",
         }
@@ -82,6 +88,7 @@ mod tests {
             TaskKind::Lint,
             TaskKind::Test,
             TaskKind::Doc,
+            TaskKind::Vuln,
             TaskKind::Run,
         ] {
             assert_eq!(TaskKind::from_name(kind.as_str()), Some(kind));
