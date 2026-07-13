@@ -54,6 +54,9 @@ pub(in crate::plan) struct PlannedUnit {
     /// Whether this unit's result may be cached (a mutating `*-fix` task authors
     /// `false`, forcing a [`Disabled`](toven_model::CacheVerdict::Disabled) verdict).
     pub(in crate::plan) cacheable: bool,
+    /// Whether any stdout output turns a zero-exit run into a gate failure (a
+    /// list-mode verification such as `gofmt -l` authors `true`).
+    pub(in crate::plan) fail_if_output: bool,
     /// Opaque `tool@version` identity for the owning workspace.
     pub(in crate::plan) toolchain_identity: String,
     /// Unit ids this unit depends on (scheduled dependency edges) for gating.
@@ -129,6 +132,7 @@ pub(super) fn plan_unit(
         shared_inputs: task.shared_inputs.clone(),
         cache_args: task.cache_args,
         cacheable: task.cacheable,
+        fail_if_output: task.fail_if_output,
         toolchain_identity,
         depends_on,
         resource_group,

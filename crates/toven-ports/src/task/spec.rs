@@ -42,6 +42,11 @@ pub struct Task {
     /// mutation on a later run.
     #[serde(default = "default_cacheable")]
     pub cacheable: bool,
+    /// Whether any stdout output turns a zero-exit run into a failure (default
+    /// off). A list-mode verification that reports offenders on stdout but exits
+    /// `0` (e.g. `gofmt -l`) authors `true` so it gates instead of silently passing.
+    #[serde(default)]
+    pub fail_if_output: bool,
     /// Task-level extra cache inputs (workspace-level lives on the adapter default).
     #[serde(default)]
     pub shared_inputs: Vec<String>,
@@ -83,6 +88,7 @@ impl Task {
             origin: TaskOrigin::AdapterDefault,
             cache_args: false,
             cacheable: true,
+            fail_if_output: false,
             shared_inputs: Vec::new(),
             persistent: false,
             readiness: Readiness::Started,
@@ -120,6 +126,7 @@ mod tests {
         assert!(task.selector.is_empty());
         assert!(!task.cache_args);
         assert!(task.cacheable);
+        assert!(!task.fail_if_output);
         assert!(task.shared_inputs.is_empty());
         assert!(!task.persistent);
     }

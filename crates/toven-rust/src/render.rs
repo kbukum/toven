@@ -160,6 +160,7 @@ fn task_table(use_nextest: bool, shared_inputs: &[String]) -> BTreeMap<String, T
             readiness_timeout_secs: None,
             cache_args: false,
             cacheable: true,
+            fail_if_output: false,
             shared_inputs: shared_inputs.to_vec(),
         },
     );
@@ -200,6 +201,7 @@ fn fan_out_entry(subcommand: &str, fan_out: FanOut, shared_inputs: &[String]) ->
         readiness_timeout_secs: None,
         cache_args: false,
         cacheable: true,
+        fail_if_output: false,
         shared_inputs: shared_inputs.to_vec(),
     }
 }
@@ -226,6 +228,7 @@ fn whole_workspace_entry(subcommand: &str, extra: &[&str], shared_inputs: &[Stri
         readiness_timeout_secs: None,
         cache_args: false,
         cacheable: true,
+        fail_if_output: false,
         shared_inputs: shared_inputs.to_vec(),
     }
 }
@@ -273,6 +276,7 @@ fn vuln_entry(shared_inputs: &[String]) -> TaskEntry {
         readiness_timeout_secs: None,
         cache_args: false,
         cacheable: true,
+        fail_if_output: false,
         shared_inputs: shared_inputs.to_vec(),
     }
 }

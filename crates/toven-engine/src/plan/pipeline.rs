@@ -308,6 +308,7 @@ fn decide_cache(
             persistent: planned.persistent,
             readiness: planned.readiness.clone(),
             readiness_timeout: planned.readiness_timeout,
+            fail_if_output: planned.fail_if_output,
             cache: verdict,
             cache_key: cacheable_key(verdict, key),
             depends_on: planned.depends_on.clone(),

@@ -49,6 +49,9 @@ pub fn merge_task(default: &Task, over: &TaskOverride) -> Task {
     if let Some(cacheable) = over.cacheable {
         merged.cacheable = cacheable;
     }
+    if let Some(fail_if_output) = over.fail_if_output {
+        merged.fail_if_output = fail_if_output;
+    }
     union_in_place(&mut merged.shared_inputs, &over.shared_inputs);
 
     merged

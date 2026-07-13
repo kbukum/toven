@@ -52,6 +52,12 @@ pub struct TaskEntry {
     /// the mutation on a later run.
     #[serde(default = "default_cacheable", skip_serializing_if = "is_true")]
     pub cacheable: bool,
+    /// Whether any stdout output turns a zero-exit run into a failure. Defaults to
+    /// `false`. A list-mode verification whose tool reports offenders on stdout but
+    /// still exits `0` (e.g. `gofmt -l`) authors `fail_if_output = true` so it
+    /// becomes a real CI gate instead of a silent pass.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fail_if_output: bool,
     /// Task-level extra cache inputs (workspace-relative plain paths).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shared_inputs: Vec<String>,
@@ -112,6 +118,7 @@ impl TaskEntry {
         task.selector.clone_from(&self.selector);
         task.cache_args = self.cache_args;
         task.cacheable = self.cacheable;
+        task.fail_if_output = self.fail_if_output;
         task.shared_inputs.clone_from(&self.shared_inputs);
         task.persistent = self.persistent;
         task.readiness = self.readiness.clone();
@@ -146,6 +153,7 @@ mod tests {
             readiness_timeout_secs: None,
             cache_args: false,
             cacheable: true,
+            fail_if_output: false,
             shared_inputs: Vec::new(),
         }
     }
@@ -220,5 +228,28 @@ mod tests {
         assert!(!back.cacheable);
         let task = back.materialize("go", "format-fix").expect("materializes");
         assert!(!task.cacheable);
+    }
+
+    #[test]
+    fn fail_if_output_defaults_false_and_is_omitted_when_off() {
+        let entry = entry(&["gofmt", "-l", "."]);
+        assert!(!entry.fail_if_output);
+        let serialized = toml::to_string(&entry).expect("serialize");
+        assert!(
+            !serialized.contains("fail_if_output"),
+            "the off-by-default flag is omitted: {serialized}"
+        );
+    }
+
+    #[test]
+    fn fail_if_output_true_survives_a_round_trip_and_materializes() {
+        let mut entry = entry(&["gofmt", "-l", "."]);
+        entry.fail_if_output = true;
+        let serialized = toml::to_string(&entry).expect("serialize");
+        assert!(serialized.contains("fail_if_output = true"), "{serialized}");
+        let back: TaskEntry = toml::from_str(&serialized).expect("deserialize");
+        assert!(back.fail_if_output);
+        let task = back.materialize("go", "format-check").expect("materializes");
+        assert!(task.fail_if_output);
     }
 }

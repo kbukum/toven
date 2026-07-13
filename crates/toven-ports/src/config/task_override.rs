@@ -47,6 +47,9 @@ pub struct TaskOverride {
     /// Replacement `cacheable` flag.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cacheable: Option<bool>,
+    /// Replacement `fail_if_output` flag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fail_if_output: Option<bool>,
     /// Extra task-level cache inputs, **unioned** with the adapter default set.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shared_inputs: Vec<String>,

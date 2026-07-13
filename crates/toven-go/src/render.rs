@@ -152,6 +152,7 @@ fn base_entry(argv: Vec<String>, selector: Vec<String>, fan_out: FanOut) -> Task
         readiness_timeout_secs: None,
         cache_args: false,
         cacheable: true,
+        fail_if_output: false,
         shared_inputs: shared_inputs(),
     }
 }
@@ -205,7 +206,10 @@ fn lint_entry(backend: &LintBackend) -> TaskEntry {
 /// (`gofmt` has no failing check mode and no per-module chdir, so a
 /// whole-workspace pass — like `cargo fmt --all` — is the clean shape). `format`
 /// rewrites files (`-w`) and is `cacheable = false` (a mutating task cannot cache
-/// correctly); `format-check` lists offenders (`-l`) non-mutatingly and caches.
+/// correctly). `format-check` lists offenders (`-l`); list-mode formatters print
+/// the files that would change but still exit `0`, so it is authored
+/// `fail_if_output = true` — the executor turns any stdout into a failure, making
+/// the check a real CI gate while staying non-mutating and cacheable.
 fn format_entry(formatter: &Formatter, fix: bool) -> TaskEntry {
     let flag = if fix { "-w" } else { "-l" };
     let mut entry = base_entry(
@@ -222,6 +226,9 @@ fn format_entry(formatter: &Formatter, fix: bool) -> TaskEntry {
     // fan-out matching) despite the `format-check` name.
     entry.kind = Some(TaskKind::Format);
     entry.cacheable = !fix;
+    // The check twin gates on the offender list `-l` prints; the mutating twin
+    // rewrites in place and produces no gating output.
+    entry.fail_if_output = !fix;
     entry
 }
 
@@ -430,6 +437,14 @@ mod tests {
             .expect("format-check task");
         assert_eq!(check.argv[..2], ["gofmt", "-l"]);
         assert!(check.cacheable, "the non-mutating check caches");
+        assert!(
+            check.fail_if_output,
+            "the check gates on the offender list gofmt -l prints"
+        );
+        assert!(
+            !format.fail_if_output,
+            "the mutating twin rewrites in place and never gates on output"
+        );
         assert_eq!(check.resolved_kind("format-check"), TaskKind::Format);
     }
 

@@ -24,6 +24,9 @@ pub struct Invocation {
     pub readiness: ExecutionReadiness,
     /// Readiness timeout for persistent invocations.
     pub readiness_timeout: Duration,
+    /// Whether any stdout output turns a zero-exit run into a failure (a list-mode
+    /// verification such as `gofmt -l` sets this so it gates instead of passing).
+    pub fail_if_output: bool,
     /// Explicit environment policy for the invocation.
     pub environment: InvocationEnvironment,
 }
@@ -38,6 +41,7 @@ impl Invocation {
             persistent: false,
             readiness: ExecutionReadiness::Started,
             readiness_timeout: Duration::from_secs(30),
+            fail_if_output: false,
             environment: InvocationEnvironment::default(),
         }
     }
@@ -52,6 +56,7 @@ impl Invocation {
             persistent: unit.persistent,
             readiness: unit.readiness.clone(),
             readiness_timeout: unit.readiness_timeout,
+            fail_if_output: unit.fail_if_output,
             environment,
         }
     }
@@ -74,6 +79,13 @@ impl Invocation {
     #[must_use]
     pub const fn with_readiness_timeout(mut self, timeout: Duration) -> Self {
         self.readiness_timeout = timeout;
+        self
+    }
+
+    /// Set whether stdout output turns a zero-exit run into a failure.
+    #[must_use]
+    pub const fn with_fail_if_output(mut self, fail_if_output: bool) -> Self {
+        self.fail_if_output = fail_if_output;
         self
     }
 
