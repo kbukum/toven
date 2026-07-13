@@ -188,10 +188,13 @@ impl RawOutputSink for TilesRawSink {
         // Re-surface every failure as one contiguous section once the live area
         // has drained, so failing units are not buried above a flood of later
         // per-unit output — the section lands directly above the run summary.
+        // Drain the failures so a reused sink (a `--watch` rerun) starts each
+        // run clean and never re-surfaces a prior run's failures.
+        let failures = std::mem::take(&mut self.failures);
         self.console.note("")?;
-        let heading = format!("failures ({}):", self.failures.len());
+        let heading = format!("failures ({}):", failures.len());
         self.console.note(self.palette.error(&heading).as_ref())?;
-        for record in &self.failures {
+        for record in &failures {
             self.console.note(&record.verdict)?;
             for line in &record.body {
                 self.console.note(format!("  {line}"))?;
@@ -315,6 +318,26 @@ mod tests {
         let mut sink = TilesRawSink::hidden();
         sink.begin_unit("u", "u").unwrap();
         sink.end_unit("u", UnitStatus::Succeeded).unwrap();
+        assert!(sink.failures.is_empty());
+        sink.finish_run().unwrap();
+    }
+
+    #[test]
+    fn finish_run_drains_failures_so_a_reused_sink_starts_each_run_clean() {
+        // A `--watch` rerun reuses the sink instance, so finish_run must drain
+        // the retained failures and never re-surface a prior run's failures.
+        let mut sink = TilesRawSink::hidden();
+        sink.begin_unit("go:auth#test", "go:auth#test").unwrap();
+        sink.live(&chunk("go:auth#test", b"--- FAIL: TestParse\nFAIL\n"))
+            .unwrap();
+        sink.end_unit("go:auth#test", UnitStatus::Failed).unwrap();
+        assert_eq!(sink.failures.len(), 1);
+        sink.finish_run().unwrap();
+        assert!(sink.failures.is_empty());
+
+        // A second, all-passing run leaves nothing to re-surface.
+        sink.begin_unit("go:ok#test", "go:ok#test").unwrap();
+        sink.end_unit("go:ok#test", UnitStatus::Succeeded).unwrap();
         assert!(sink.failures.is_empty());
         sink.finish_run().unwrap();
     }
