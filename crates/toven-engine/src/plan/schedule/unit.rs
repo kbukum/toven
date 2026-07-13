@@ -20,6 +20,7 @@ use crate::plan::request::PlanRequest;
 /// keying facts (`base_argv`, `shared_inputs`, `cache_args`, `toolchain_identity`)
 /// the Cache-decision phase folds into the content key.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)] // schedule facts are a set of independent flags
 pub(in crate::plan) struct PlannedUnit {
     /// Stable unit id (`ecosystem:name#task`, member-prefixed under a federation;
     /// batched/whole-workspace units drop the module name and key by workspace:

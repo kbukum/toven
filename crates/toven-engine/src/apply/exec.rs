@@ -292,7 +292,7 @@ fn output(unit_id: &str, stdout: &[u8], stderr: &[u8]) -> Vec<UnitOutput> {
 /// `fail_if_output` (a list-mode verification such as `gofmt -l`, which reports
 /// offenders on stdout yet always exits `0`). Every other case maps straight
 /// from the process exit status.
-fn gate_outcome(
+const fn gate_outcome(
     fail_if_output: bool,
     success: bool,
     exit_code: Option<i32>,
@@ -344,7 +344,7 @@ fn streaming_observer(
 
 #[cfg(test)]
 mod tests {
-    use super::ProcessCommandRunner;
+    use super::{ProcessCommandRunner, gate_outcome};
 
     #[test]
     fn runner_does_not_inherit_the_rskit_process_default_timeout() {
@@ -358,5 +358,35 @@ mod tests {
             runner.process_config.timeout.is_none(),
             "ProcessCommandRunner must not inherit rskit-process's default 30s timeout"
         );
+    }
+
+    #[test]
+    fn gate_fails_a_zero_exit_that_emitted_output() {
+        // `gofmt -l` lists offenders on stdout yet exits 0; with the gate on, that
+        // stdout must turn the unit into a failure so CI catches unformatted code.
+        let outcome = gate_outcome(true, true, Some(0), true, Vec::new());
+        assert!(!outcome.success);
+        assert_eq!(outcome.exit_code, Some(0));
+    }
+
+    #[test]
+    fn gate_passes_a_zero_exit_with_no_output() {
+        // Nothing to list means everything is formatted — a clean pass.
+        let outcome = gate_outcome(true, true, Some(0), false, Vec::new());
+        assert!(outcome.success);
+    }
+
+    #[test]
+    fn gate_is_inert_without_the_flag() {
+        // A normal unit that prints to stdout and exits 0 still succeeds.
+        let outcome = gate_outcome(false, true, Some(0), true, Vec::new());
+        assert!(outcome.success);
+    }
+
+    #[test]
+    fn gate_preserves_a_genuine_nonzero_failure() {
+        let outcome = gate_outcome(true, false, Some(2), true, Vec::new());
+        assert!(!outcome.success);
+        assert_eq!(outcome.exit_code, Some(2));
     }
 }

@@ -21,6 +21,7 @@ use crate::task::{FanOut, Readiness, Task, TaskKind, TaskOrigin};
 /// entry with `kind = "test"`).
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[allow(clippy::struct_excessive_bools)] // a task schema is a set of independent flags
 pub struct TaskEntry {
     /// Optional recognition attribute; when omitted it defaults to the recognized
     /// kind matching the table key, else [`TaskKind::Default`].
@@ -249,7 +250,9 @@ mod tests {
         assert!(serialized.contains("fail_if_output = true"), "{serialized}");
         let back: TaskEntry = toml::from_str(&serialized).expect("deserialize");
         assert!(back.fail_if_output);
-        let task = back.materialize("go", "format-check").expect("materializes");
+        let task = back
+            .materialize("go", "format-check")
+            .expect("materializes");
         assert!(task.fail_if_output);
     }
 }

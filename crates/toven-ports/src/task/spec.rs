@@ -18,6 +18,7 @@ use super::{FanOut, Readiness, TaskKind, TaskOrigin, readiness::DEFAULT_READINES
 /// are engine-schedule config resolved later, by the strict config `Document`,
 /// not carried on the port `Task`.
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+#[allow(clippy::struct_excessive_bools)] // a task schema is a set of independent flags
 pub struct Task {
     /// The task's identity: the name a user types (`toven <name>`).
     pub name: String,
