@@ -239,6 +239,12 @@ impl RawOutputSink for PaneRawSink {
         }
         self.tiles.end_unit(unit_id, status)
     }
+
+    fn finish_run(&mut self) -> AppResult<()> {
+        // Failures that fell back to a tile are re-surfaced by the inner tiles
+        // sink; a failure shown in its own persistent pane stays visible there.
+        self.tiles.finish_run()
+    }
 }
 
 #[cfg(test)]

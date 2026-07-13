@@ -129,6 +129,10 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         self.cancel_unscheduled()?;
         self.stats.duration_ms = Some(start.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
         self.stats.dropped_output_chunks = self.dropped_output.load(Ordering::Relaxed);
+        // Let the output sink emit any end-of-run epilogue (e.g. a consolidated
+        // failure section) after the live area has drained but before the run
+        // summary, so failing units land directly above the summary.
+        self.output.finish_run()?;
         self.reporter.emit(&Event::RunFinished {
             summary: self.stats,
         })?;

@@ -46,6 +46,15 @@ pub struct TilesRawSink {
     palette: Palette,
     counts: Counts,
     summaries: HashMap<String, SummaryScanner>,
+    failures: Vec<FailureRecord>,
+}
+
+/// A finished failed unit retained for the end-of-run failure epilogue: its
+/// colorized verdict line and the replayed failure transcript (un-prefixed, in
+/// order), so all failures can be re-surfaced together above the run summary.
+struct FailureRecord {
+    verdict: String,
+    body: Vec<String>,
 }
 
 impl TilesRawSink {
@@ -85,6 +94,7 @@ impl TilesRawSink {
             palette,
             counts: Counts::default(),
             summaries: HashMap::new(),
+            failures: Vec::new(),
         }
     }
 
@@ -149,8 +159,10 @@ impl RawOutputSink for TilesRawSink {
         let verdict = verdict_line(self.palette, unit_id, status, summary);
         if status.is_failure() {
             // A failure is the one case detail matters: replay the retained tail
-            // contiguously under the red verdict.
-            self.console.finish_with_replay(unit_id, verdict)?;
+            // contiguously under the red verdict, and retain it so `finish_run`
+            // can re-surface every failure together above the run summary.
+            let body = self.console.finish_with_replay(unit_id, &verdict)?;
+            self.failures.push(FailureRecord { verdict, body });
         } else {
             // Success collapses to a single verdict line — no PASS flood.
             self.console.finish(unit_id, verdict)?;
@@ -162,6 +174,25 @@ impl RawOutputSink for TilesRawSink {
             self.counts.done += 1;
         }
         self.refresh_header();
+        Ok(())
+    }
+
+    fn finish_run(&mut self) -> AppResult<()> {
+        if self.failures.is_empty() {
+            return Ok(());
+        }
+        // Re-surface every failure as one contiguous section once the live area
+        // has drained, so failing units are not buried above a flood of later
+        // per-unit output — the section lands directly above the run summary.
+        self.console.note("")?;
+        let heading = format!("failures ({}):", self.failures.len());
+        self.console.note(self.palette.error(&heading).as_ref())?;
+        for record in &self.failures {
+            self.console.note(&record.verdict)?;
+            for line in &record.body {
+                self.console.note(format!("  {line}"))?;
+            }
+        }
         Ok(())
     }
 }
