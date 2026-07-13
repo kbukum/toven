@@ -12,9 +12,13 @@
 //! [`begin_unit`](toven_ports::RawOutputSink::begin_unit) /
 //! [`live`](toven_ports::RawOutputSink::live) /
 //! [`end_unit`](toven_ports::RawOutputSink::end_unit) lifecycle instead of
-//! buffering normal units into blocks. All rendering is delegated to rskit's
-//! generic [`LiveConsole`]; this adapter only maps the port calls and owns the
-//! status header and verdict styling.
+//! buffering normal units into blocks. On a failure it both replays the unit's
+//! retained tail inline (immediate feedback) and retains it so
+//! [`finish_run`](toven_ports::RawOutputSink::finish_run) can re-surface every
+//! failure as one consolidated section above the run summary, un-buried by later
+//! output. All rendering is delegated to rskit's generic [`LiveConsole`]; this
+//! adapter only maps the port calls and owns the status header and verdict
+//! styling.
 
 use std::collections::HashMap;
 
