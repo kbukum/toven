@@ -106,6 +106,15 @@ impl<S: RawOutputSink> UnitOutputChannel<S> {
         self.sink.end_unit(unit_id, status)
     }
 
+    /// Announce that the run has finished so the sink can emit an end-of-run
+    /// epilogue (e.g. a consolidated failure section).
+    ///
+    /// # Errors
+    /// Propagates any [`RawOutputSink`] write failure.
+    pub fn finish_run(&mut self) -> AppResult<()> {
+        self.sink.finish_run()
+    }
+
     /// Declare how `unit_id`'s output should be surfaced.
     pub fn register(&mut self, unit_id: impl Into<String>, mode: OutputMode) {
         self.modes.insert(unit_id.into(), mode);

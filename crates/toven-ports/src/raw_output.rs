@@ -80,6 +80,20 @@ pub trait RawOutputSink: Send {
         let _ = (unit_id, status);
         Ok(())
     }
+
+    /// Announce that the whole run has finished, so a sink may emit any
+    /// end-of-run epilogue — e.g. a concurrent-live sink re-surfacing a
+    /// consolidated failure section after the live area has drained, so failing
+    /// units are not buried above a flood of later per-unit output.
+    ///
+    /// Called once, after the last unit's [`end_unit`](Self::end_unit) and
+    /// before the run summary is reported. The default is a no-op.
+    ///
+    /// # Errors
+    /// Propagates any sink write failure.
+    fn finish_run(&mut self) -> AppResult<()> {
+        Ok(())
+    }
 }
 
 impl RawOutputSink for Box<dyn RawOutputSink> {
@@ -101,5 +115,9 @@ impl RawOutputSink for Box<dyn RawOutputSink> {
 
     fn end_unit(&mut self, unit_id: &str, status: UnitStatus) -> AppResult<()> {
         (**self).end_unit(unit_id, status)
+    }
+
+    fn finish_run(&mut self) -> AppResult<()> {
+        (**self).finish_run()
     }
 }
