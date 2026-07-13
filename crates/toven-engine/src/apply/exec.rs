@@ -1,6 +1,8 @@
 //! Concrete rskit-process-backed [`CommandRunner`](toven_ports::CommandRunner).
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
 use rskit_errors::{AppError, AppResult};
@@ -129,11 +131,13 @@ impl ProcessCommandRunner {
             &result.stdout_bytes,
             &result.stderr_bytes,
         );
-        if result.success() {
-            Ok(RunOutcome::succeeded(output))
-        } else {
-            Ok(RunOutcome::failed(result.exit_code, output))
-        }
+        Ok(gate_outcome(
+            invocation.fail_if_output,
+            result.success(),
+            result.exit_code,
+            !result.stdout_bytes.is_empty(),
+            output,
+        ))
     }
 
     /// Stream stdout/stderr through `observer` as the process runs (no capture),
@@ -146,15 +150,22 @@ impl ProcessCommandRunner {
         cancel: CancellationToken,
         observer: OutputObserver,
     ) -> AppResult<RunOutcome> {
-        let io = ObservedIo::new(streaming_observer(invocation.unit_id.clone(), observer))
-            .with_output(OutputPolicy::observe_only());
+        let stdout_seen = Arc::new(AtomicBool::new(false));
+        let io = ObservedIo::new(streaming_observer(
+            invocation.unit_id.clone(),
+            observer,
+            Arc::clone(&stdout_seen),
+        ))
+        .with_output(OutputPolicy::observe_only());
         let config = self.process_config.clone().with_io(ProcessIo::observed(io));
         let result = run_with_cancel(&spec, &config, cancel).await?;
-        if result.success() {
-            Ok(RunOutcome::succeeded(Vec::new()))
-        } else {
-            Ok(RunOutcome::failed(result.exit_code, Vec::new()))
-        }
+        Ok(gate_outcome(
+            invocation.fail_if_output,
+            result.success(),
+            result.exit_code,
+            stdout_seen.load(Ordering::Relaxed),
+            Vec::new(),
+        ))
     }
 
     /// Stream stdout/stderr through a pseudoterminal so the child renders as it
@@ -170,16 +181,23 @@ impl ProcessCommandRunner {
         observer: OutputObserver,
         size: PtySize,
     ) -> AppResult<RunOutcome> {
-        let io = PtyIo::new(streaming_observer(invocation.unit_id.clone(), observer))
-            .with_size(size)
-            .with_output(OutputPolicy::observe_only());
+        let stdout_seen = Arc::new(AtomicBool::new(false));
+        let io = PtyIo::new(streaming_observer(
+            invocation.unit_id.clone(),
+            observer,
+            Arc::clone(&stdout_seen),
+        ))
+        .with_size(size)
+        .with_output(OutputPolicy::observe_only());
         let config = self.process_config.clone().with_io(ProcessIo::pty(io));
         let result = run_with_cancel(&spec, &config, cancel).await?;
-        if result.success() {
-            Ok(RunOutcome::succeeded(Vec::new()))
-        } else {
-            Ok(RunOutcome::failed(result.exit_code, Vec::new()))
-        }
+        Ok(gate_outcome(
+            invocation.fail_if_output,
+            result.success(),
+            result.exit_code,
+            stdout_seen.load(Ordering::Relaxed),
+            Vec::new(),
+        ))
     }
 
     /// Dispatch a live-streamed unit to the PTY renderer when one is configured
@@ -268,16 +286,47 @@ fn output(unit_id: &str, stdout: &[u8], stderr: &[u8]) -> Vec<UnitOutput> {
     output
 }
 
+/// Resolve a run's final outcome, applying the `fail_if_output` gate.
+///
+/// A process that exited `0` but produced stdout is a failure when the unit set
+/// `fail_if_output` (a list-mode verification such as `gofmt -l`, which reports
+/// offenders on stdout yet always exits `0`). Every other case maps straight
+/// from the process exit status.
+const fn gate_outcome(
+    fail_if_output: bool,
+    success: bool,
+    exit_code: Option<i32>,
+    stdout_seen: bool,
+    output: Vec<UnitOutput>,
+) -> RunOutcome {
+    if success && fail_if_output && stdout_seen {
+        RunOutcome::failed(exit_code, output)
+    } else if success {
+        RunOutcome::succeeded(output)
+    } else {
+        RunOutcome::failed(exit_code, output)
+    }
+}
+
 /// Build an `rskit-process` observer that forwards each raw stdout/stderr chunk
 /// to `observer` as a [`UnitOutput`] tagged with `unit_id`, so the live bridge
-/// streams it while the process is still running.
-fn streaming_observer(unit_id: String, observer: OutputObserver) -> ProcessOutputObserver {
+/// streams it while the process is still running. Setting `stdout_seen` on the
+/// first stdout chunk lets the `fail_if_output` gate observe output that was
+/// streamed rather than captured.
+fn streaming_observer(
+    unit_id: String,
+    observer: OutputObserver,
+    stdout_seen: Arc<AtomicBool>,
+) -> ProcessOutputObserver {
     let stdout_id = unit_id.clone();
     let stdout_sink = observer.clone();
     let stderr_id = unit_id;
     let stderr_sink = observer;
     ProcessOutputObserver::new()
         .with_stdout_bytes(move |bytes| {
+            if !bytes.is_empty() {
+                stdout_seen.store(true, Ordering::Relaxed);
+            }
             stdout_sink.emit(UnitOutput {
                 unit_id: stdout_id.clone(),
                 stream: OutputStream::Stdout,
@@ -295,7 +344,7 @@ fn streaming_observer(unit_id: String, observer: OutputObserver) -> ProcessOutpu
 
 #[cfg(test)]
 mod tests {
-    use super::ProcessCommandRunner;
+    use super::{ProcessCommandRunner, gate_outcome};
 
     #[test]
     fn runner_does_not_inherit_the_rskit_process_default_timeout() {
@@ -309,5 +358,35 @@ mod tests {
             runner.process_config.timeout.is_none(),
             "ProcessCommandRunner must not inherit rskit-process's default 30s timeout"
         );
+    }
+
+    #[test]
+    fn gate_fails_a_zero_exit_that_emitted_output() {
+        // `gofmt -l` lists offenders on stdout yet exits 0; with the gate on, that
+        // stdout must turn the unit into a failure so CI catches unformatted code.
+        let outcome = gate_outcome(true, true, Some(0), true, Vec::new());
+        assert!(!outcome.success);
+        assert_eq!(outcome.exit_code, Some(0));
+    }
+
+    #[test]
+    fn gate_passes_a_zero_exit_with_no_output() {
+        // Nothing to list means everything is formatted — a clean pass.
+        let outcome = gate_outcome(true, true, Some(0), false, Vec::new());
+        assert!(outcome.success);
+    }
+
+    #[test]
+    fn gate_is_inert_without_the_flag() {
+        // A normal unit that prints to stdout and exits 0 still succeeds.
+        let outcome = gate_outcome(false, true, Some(0), true, Vec::new());
+        assert!(outcome.success);
+    }
+
+    #[test]
+    fn gate_preserves_a_genuine_nonzero_failure() {
+        let outcome = gate_outcome(true, false, Some(2), true, Vec::new());
+        assert!(!outcome.success);
+        assert_eq!(outcome.exit_code, Some(2));
     }
 }

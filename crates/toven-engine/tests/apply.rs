@@ -31,6 +31,7 @@ fn unit(id: &str) -> ExecutionUnit {
         persistent: false,
         readiness: ExecutionReadiness::Started,
         readiness_timeout: Duration::from_secs(30),
+        fail_if_output: false,
         cache: CacheVerdict::Miss,
         cache_key: Some(format!("key-{id}")),
         depends_on: Vec::new(),

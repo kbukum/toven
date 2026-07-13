@@ -266,11 +266,13 @@ fn decide_cache(
 
     let mut units = Vec::with_capacity(scheduled.units.len());
     for planned in &scheduled.units {
-        // Persistent units never cache; for the rest, `cache::verdict` derives
-        // the content key only when the verdict needs it (Force / ReadWrite),
-        // skipping wasted digest work and avoidable I/O errors for Disabled
-        // units.
-        let (verdict, key) = if planned.persistent {
+        // Persistent units never cache; neither do units whose task opted out
+        // (`cacheable = false`) — a mutating `*-fix` task, where a stale
+        // content-key hit would wrongly suppress the mutation. For the rest,
+        // `cache::verdict` derives the content key only when the verdict needs it
+        // (Force / ReadWrite), skipping wasted digest work and avoidable I/O
+        // errors for Disabled units.
+        let (verdict, key) = if planned.persistent || !planned.cacheable {
             (toven_model::CacheVerdict::Disabled, None)
         } else {
             cache::verdict(
@@ -306,6 +308,7 @@ fn decide_cache(
             persistent: planned.persistent,
             readiness: planned.readiness.clone(),
             readiness_timeout: planned.readiness_timeout,
+            fail_if_output: planned.fail_if_output,
             cache: verdict,
             cache_key: cacheable_key(verdict, key),
             depends_on: planned.depends_on.clone(),

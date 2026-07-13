@@ -12,11 +12,23 @@ use toven_ports::Detection;
 /// The manifest filename that marks a Go module root.
 pub(crate) const ROOT_MANIFEST: &str = "go.mod";
 
+/// The golangci-lint config filenames that mark a repo configured for it.
+const GOLANGCI_CONFIGS: [&str; 4] = [
+    ".golangci.yml",
+    ".golangci.yaml",
+    ".golangci.toml",
+    ".golangci.json",
+];
+
 /// The adapter-owned facts a Go [`Detection`] carries to [`render`](crate::render).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct GoFacts {
     /// The repo-relative root manifest (always `go.mod` today).
     pub(crate) manifest: String,
+    /// Whether a root `.golangci.{yml,yaml,toml,json}` was found, marking the
+    /// repo as configured for `golangci-lint` (drives the lint-backend default).
+    #[serde(default)]
+    pub(crate) golangci: bool,
 }
 
 impl GoFacts {
@@ -57,9 +69,18 @@ pub(crate) fn detect(project_root: &Path) -> AppResult<Option<Detection>> {
 
     let facts = GoFacts {
         manifest: ROOT_MANIFEST.to_string(),
+        golangci: detect_golangci(project_root),
     };
     let ecosystem = EcosystemId::new("go")?;
     Ok(Some(Detection::new(ecosystem, facts.to_table()?)))
+}
+
+/// Whether the repo root carries a `golangci-lint` config, marking it configured
+/// for `golangci-lint` (used to preselect the lint backend).
+fn detect_golangci(project_root: &Path) -> bool {
+    GOLANGCI_CONFIGS
+        .iter()
+        .any(|name| safe_join(project_root, Path::new(name)).is_ok_and(|path| path.is_file()))
 }
 
 #[cfg(test)]
@@ -89,5 +110,17 @@ mod tests {
         assert_eq!(detection.ecosystem.as_str(), "go");
         let facts = GoFacts::from_detection(&detection).expect("facts");
         assert_eq!(facts.manifest, "go.mod");
+        assert!(!facts.golangci);
+    }
+
+    #[test]
+    fn golangci_config_is_detected() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("go.mod"), "module example.com/x\n").unwrap();
+        fs::write(dir.path().join(".golangci.yml"), "version: \"2\"\n").unwrap();
+
+        let detection = detect(dir.path()).unwrap().expect("detection");
+        let facts = GoFacts::from_detection(&detection).expect("facts");
+        assert!(facts.golangci);
     }
 }

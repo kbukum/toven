@@ -88,7 +88,10 @@ fn wizard_detects_and_renders_a_go_project() {
     assert_eq!(detection.ecosystem.as_str(), "go");
 
     let questionnaire = provider().questionnaire(&detection).expect("questionnaire");
-    assert!(questionnaire.is_empty());
+    assert!(
+        !questionnaire.is_empty(),
+        "the wizard now offers linter/formatter/runner/hardening selections"
+    );
 
     let fragment = provider()
         .render(&detection, &toven_ports::Answers::new())

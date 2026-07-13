@@ -10,7 +10,7 @@ use common::{repo, toven, toven_ok};
 fn modules_lists_every_ecosystem_of_a_multi_eco_project() {
     let sample = repo("cross-ecosystem/umbrella");
     let out = toven_ok(&sample, &["modules"]);
-    for module in ["rust:app", "go:api", "command:tools"] {
+    for module in ["rust:app", "go:services-api", "command:tools"] {
         assert!(
             out.stdout.contains(module),
             "`modules` should list {module}, got:\n{}",

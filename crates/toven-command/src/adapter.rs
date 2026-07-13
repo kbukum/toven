@@ -112,6 +112,8 @@ mod tests {
             readiness: Readiness::Started,
             readiness_timeout_secs: None,
             cache_args: false,
+            cacheable: true,
+            fail_if_output: false,
             shared_inputs: Vec::new(),
         }
     }

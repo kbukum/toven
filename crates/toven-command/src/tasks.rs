@@ -10,12 +10,12 @@ use toven_ports::{RunStrategy, TaskKind};
 /// The per-kind default wave-ordering policy.
 ///
 /// Declared `depends_on` edges are honored by default (`LeafToTop`);
-/// `format`/`lint` are independent and collapse into one wave. The user
+/// `format`/`lint`/`vuln` are independent and collapse into one wave. The user
 /// overrides via `run_strategy`.
 #[must_use]
 pub(crate) const fn default_run_strategy(kind: TaskKind) -> RunStrategy {
     match kind {
-        TaskKind::Format | TaskKind::Lint => RunStrategy::Unordered,
+        TaskKind::Format | TaskKind::Lint | TaskKind::Vuln => RunStrategy::Unordered,
         _ => RunStrategy::LeafToTop,
     }
 }
@@ -36,5 +36,7 @@ mod tests {
             default_run_strategy(TaskKind::Format),
             RunStrategy::Unordered
         );
+        assert_eq!(default_run_strategy(TaskKind::Lint), RunStrategy::Unordered);
+        assert_eq!(default_run_strategy(TaskKind::Vuln), RunStrategy::Unordered);
     }
 }

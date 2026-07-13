@@ -1,4 +1,4 @@
-# Two Go modules whose paths share a final `svc` segment (`.../first/svc`,
-# `.../second/svc`). Both resolve to the name `svc`, so discovery must abort
-# with a duplicate-module conflict.
-modules = ["first/go.mod", "second/go.mod"]
+# Two Go modules whose repo-relative directories fold to the same identity:
+# `svc/api` (path separator → `-`) and `svc-api` both resolve to the name
+# `svc-api`, so discovery must abort with a duplicate-module conflict.
+modules = ["svc/api/go.mod", "svc-api/go.mod"]

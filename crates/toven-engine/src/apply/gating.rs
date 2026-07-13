@@ -113,6 +113,7 @@ mod tests {
             persistent: false,
             readiness: ExecutionReadiness::Started,
             readiness_timeout: Duration::from_secs(30),
+            fail_if_output: false,
             cache: CacheVerdict::Miss,
             cache_key: None,
             depends_on: depends_on.iter().map(|d| (*d).to_string()).collect(),

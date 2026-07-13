@@ -33,13 +33,14 @@ use super::client::{DEFAULT_RPC_TIMEOUT, RpcClient};
 use super::process::{self, ChildHandle};
 
 /// Every recognized [`TaskKind`] whose default run strategy is prefetched.
-const RECOGNIZED_KINDS: [TaskKind; 8] = [
+const RECOGNIZED_KINDS: [TaskKind; 9] = [
     TaskKind::Build,
     TaskKind::Check,
     TaskKind::Format,
     TaskKind::Lint,
     TaskKind::Test,
     TaskKind::Doc,
+    TaskKind::Vuln,
     TaskKind::Run,
     TaskKind::Default,
 ];

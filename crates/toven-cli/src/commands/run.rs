@@ -281,6 +281,7 @@ mod tests {
             persistent: false,
             readiness: ExecutionReadiness::Started,
             readiness_timeout: Duration::from_secs(30),
+            fail_if_output: false,
             cache,
             cache_key: None,
             depends_on: Vec::new(),

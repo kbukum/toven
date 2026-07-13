@@ -66,7 +66,7 @@ fn multi_ecosystem_apply_runs_every_linked_adapter() {
     let sample = repo("cross-ecosystem/umbrella");
     toven_ok(&sample, &["build"])
         .expect_stderr_contains("ok rust")
-        .expect_stderr_contains("ok go:api#build")
+        .expect_stderr_contains("ok go:services-api#build")
         .expect_stderr_contains("ok command:tools#build")
         .expect_stderr_contains("ran:  3");
 }

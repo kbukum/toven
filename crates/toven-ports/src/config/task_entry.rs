@@ -21,6 +21,7 @@ use crate::task::{FanOut, Readiness, Task, TaskKind, TaskOrigin};
 /// entry with `kind = "test"`).
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[allow(clippy::struct_excessive_bools)] // a task schema is a set of independent flags
 pub struct TaskEntry {
     /// Optional recognition attribute; when omitted it defaults to the recognized
     /// kind matching the table key, else [`TaskKind::Default`].
@@ -46,6 +47,18 @@ pub struct TaskEntry {
     /// Whether rendered passthrough args enter the cache key.
     #[serde(default, skip_serializing_if = "is_false")]
     pub cache_args: bool,
+    /// Whether this task's result may be cached. Defaults to `true`; a
+    /// tree-mutating task (a `*-fix` twin, e.g. `gofmt -w` or `go mod tidy`)
+    /// authors `cacheable = false` so a stale content-key hit never suppresses
+    /// the mutation on a later run.
+    #[serde(default = "default_cacheable", skip_serializing_if = "is_true")]
+    pub cacheable: bool,
+    /// Whether any stdout output turns a zero-exit run into a failure. Defaults to
+    /// `false`. A list-mode verification whose tool reports offenders on stdout but
+    /// still exits `0` (e.g. `gofmt -l`) authors `fail_if_output = true` so it
+    /// becomes a real CI gate instead of a silent pass.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fail_if_output: bool,
     /// Task-level extra cache inputs (workspace-relative plain paths).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shared_inputs: Vec<String>,
@@ -56,10 +69,21 @@ const fn default_fan_out() -> FanOut {
     FanOut::PerModule
 }
 
+/// The default `cacheable` for a task entry when the field is omitted.
+const fn default_cacheable() -> bool {
+    true
+}
+
 /// Serde skip helper for a `false`-valued boolean.
 #[allow(clippy::trivially_copy_pass_by_ref)]
 const fn is_false(value: &bool) -> bool {
     !*value
+}
+
+/// Serde skip helper for a `true`-valued boolean (omit the on-by-default flag).
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn is_true(value: &bool) -> bool {
+    *value
 }
 
 impl TaskEntry {
@@ -94,6 +118,8 @@ impl TaskEntry {
         task.origin = TaskOrigin::Project;
         task.selector.clone_from(&self.selector);
         task.cache_args = self.cache_args;
+        task.cacheable = self.cacheable;
+        task.fail_if_output = self.fail_if_output;
         task.shared_inputs.clone_from(&self.shared_inputs);
         task.persistent = self.persistent;
         task.readiness = self.readiness.clone();
@@ -127,6 +153,8 @@ mod tests {
             readiness: super::Readiness::Started,
             readiness_timeout_secs: None,
             cache_args: false,
+            cacheable: true,
+            fail_if_output: false,
             shared_inputs: Vec::new(),
         }
     }
@@ -178,5 +206,53 @@ mod tests {
         let serialized = toml::to_string(&entry).expect("serialize");
         let back: TaskEntry = toml::from_str(&serialized).expect("deserialize");
         assert_eq!(entry, back);
+    }
+
+    #[test]
+    fn cacheable_defaults_true_and_is_omitted_when_on() {
+        let entry = entry(&["gofmt", "-l", "."]);
+        assert!(entry.cacheable);
+        let serialized = toml::to_string(&entry).expect("serialize");
+        assert!(
+            !serialized.contains("cacheable"),
+            "the on-by-default flag is omitted: {serialized}"
+        );
+    }
+
+    #[test]
+    fn cacheable_false_survives_a_round_trip_and_materializes() {
+        let mut entry = entry(&["gofmt", "-w", "."]);
+        entry.cacheable = false;
+        let serialized = toml::to_string(&entry).expect("serialize");
+        assert!(serialized.contains("cacheable = false"), "{serialized}");
+        let back: TaskEntry = toml::from_str(&serialized).expect("deserialize");
+        assert!(!back.cacheable);
+        let task = back.materialize("go", "format-fix").expect("materializes");
+        assert!(!task.cacheable);
+    }
+
+    #[test]
+    fn fail_if_output_defaults_false_and_is_omitted_when_off() {
+        let entry = entry(&["gofmt", "-l", "."]);
+        assert!(!entry.fail_if_output);
+        let serialized = toml::to_string(&entry).expect("serialize");
+        assert!(
+            !serialized.contains("fail_if_output"),
+            "the off-by-default flag is omitted: {serialized}"
+        );
+    }
+
+    #[test]
+    fn fail_if_output_true_survives_a_round_trip_and_materializes() {
+        let mut entry = entry(&["gofmt", "-l", "."]);
+        entry.fail_if_output = true;
+        let serialized = toml::to_string(&entry).expect("serialize");
+        assert!(serialized.contains("fail_if_output = true"), "{serialized}");
+        let back: TaskEntry = toml::from_str(&serialized).expect("deserialize");
+        assert!(back.fail_if_output);
+        let task = back
+            .materialize("go", "format-check")
+            .expect("materializes");
+        assert!(task.fail_if_output);
     }
 }

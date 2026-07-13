@@ -20,6 +20,7 @@ use crate::plan::request::PlanRequest;
 /// keying facts (`base_argv`, `shared_inputs`, `cache_args`, `toolchain_identity`)
 /// the Cache-decision phase folds into the content key.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)] // schedule facts are a set of independent flags
 pub(in crate::plan) struct PlannedUnit {
     /// Stable unit id (`ecosystem:name#task`, member-prefixed under a federation;
     /// batched/whole-workspace units drop the module name and key by workspace:
@@ -51,6 +52,12 @@ pub(in crate::plan) struct PlannedUnit {
     pub(in crate::plan) shared_inputs: Vec<String>,
     /// Whether passthrough args enter the key.
     pub(in crate::plan) cache_args: bool,
+    /// Whether this unit's result may be cached (a mutating `*-fix` task authors
+    /// `false`, forcing a [`Disabled`](toven_model::CacheVerdict::Disabled) verdict).
+    pub(in crate::plan) cacheable: bool,
+    /// Whether any stdout output turns a zero-exit run into a gate failure (a
+    /// list-mode verification such as `gofmt -l` authors `true`).
+    pub(in crate::plan) fail_if_output: bool,
     /// Opaque `tool@version` identity for the owning workspace.
     pub(in crate::plan) toolchain_identity: String,
     /// Unit ids this unit depends on (scheduled dependency edges) for gating.
@@ -125,6 +132,8 @@ pub(super) fn plan_unit(
         base_argv,
         shared_inputs: task.shared_inputs.clone(),
         cache_args: task.cache_args,
+        cacheable: task.cacheable,
+        fail_if_output: task.fail_if_output,
         toolchain_identity,
         depends_on,
         resource_group,

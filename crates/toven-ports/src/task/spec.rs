@@ -18,6 +18,7 @@ use super::{FanOut, Readiness, TaskKind, TaskOrigin, readiness::DEFAULT_READINES
 /// are engine-schedule config resolved later, by the strict config `Document`,
 /// not carried on the port `Task`.
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+#[allow(clippy::struct_excessive_bools)] // a task schema is a set of independent flags
 pub struct Task {
     /// The task's identity: the name a user types (`toven <name>`).
     pub name: String,
@@ -37,6 +38,16 @@ pub struct Task {
     /// Whether rendered passthrough args enter the cache key (default off).
     #[serde(default)]
     pub cache_args: bool,
+    /// Whether this task's result may be cached (default on). A tree-mutating
+    /// task authors `false` so a stale content-key hit never suppresses the
+    /// mutation on a later run.
+    #[serde(default = "default_cacheable")]
+    pub cacheable: bool,
+    /// Whether any stdout output turns a zero-exit run into a failure (default
+    /// off). A list-mode verification that reports offenders on stdout but exits
+    /// `0` (e.g. `gofmt -l`) authors `true` so it gates instead of silently passing.
+    #[serde(default)]
+    pub fail_if_output: bool,
     /// Task-level extra cache inputs (workspace-level lives on the adapter default).
     #[serde(default)]
     pub shared_inputs: Vec<String>,
@@ -53,6 +64,11 @@ pub struct Task {
 
 const fn default_readiness_timeout() -> Duration {
     DEFAULT_READINESS_TIMEOUT
+}
+
+/// The default `cacheable` for a task when the field is omitted.
+const fn default_cacheable() -> bool {
+    true
 }
 
 impl Task {
@@ -72,6 +88,8 @@ impl Task {
             fan_out,
             origin: TaskOrigin::AdapterDefault,
             cache_args: false,
+            cacheable: true,
+            fail_if_output: false,
             shared_inputs: Vec::new(),
             persistent: false,
             readiness: Readiness::Started,
@@ -108,6 +126,8 @@ mod tests {
         assert_eq!(task.readiness_timeout, DEFAULT_READINESS_TIMEOUT);
         assert!(task.selector.is_empty());
         assert!(!task.cache_args);
+        assert!(task.cacheable);
+        assert!(!task.fail_if_output);
         assert!(task.shared_inputs.is_empty());
         assert!(!task.persistent);
     }

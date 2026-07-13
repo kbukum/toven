@@ -427,6 +427,52 @@ fn disabled_cache_skips_unit_key_so_unreadable_shared_input_never_aborts_plan() 
 }
 
 #[test]
+fn uncacheable_task_is_statically_disabled_even_with_caching_active() {
+    // A mutating `*-fix` task authors `cacheable = false`. Even under an active
+    // cache mode its unit must be statically `Disabled` (no key recorded), so a
+    // stale content-key hit can never suppress the mutation on a later run.
+    let mut response = DiscoverResponse::new(eid("rust"));
+    response.workspaces.push(Workspace::new(
+        wsid("rust"),
+        RepoPath::new(".").expect("root"),
+        ToolchainTag::new("cargo"),
+    ));
+    response
+        .modules
+        .push(module("rust", "errors", "crates/errors", "rust"));
+    let mut task = Task::new(
+        "format-fix",
+        vec!["cargo".to_string(), "fmt".to_string()],
+        FanOut::WholeWorkspace,
+    );
+    task.cacheable = false;
+    let adapter = FakeConfiguredAdapter::new(eid("rust"))
+        .with_response(response)
+        .with_tasks(vec![task]);
+    let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+    let providers: Vec<&dyn Provider> = vec![&provider];
+
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
+    let cache = NullCache;
+    let mut reporter = RecordingReporter::new();
+
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    // An active read/write cache mode: only the task's own opt-out should disable it.
+    let request = request(TaskIntent::resolve("format-fix"));
+    let plan = plan(&request, &document(), &providers, host, &mut reporter).expect("plan succeeds");
+
+    assert!(
+        plan.units
+            .iter()
+            .all(|unit| unit.cache == CacheVerdict::Disabled && unit.cache_key.is_none()),
+        "an uncacheable task's units are statically Disabled",
+    );
+}
+
+#[test]
 fn force_mode_marks_every_unit_forced() {
     let provider = rust_provider();
     let providers: Vec<&dyn Provider> = vec![&provider];

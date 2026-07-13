@@ -503,6 +503,7 @@ mod tests {
             persistent: false,
             readiness: ExecutionReadiness::Started,
             readiness_timeout: std::time::Duration::from_secs(30),
+            fail_if_output: false,
             cache: CacheVerdict::Miss,
             cache_key: None,
             depends_on: Vec::new(),

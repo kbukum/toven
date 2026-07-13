@@ -13,11 +13,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
-use rskit_process::{CapturedIo, ProcessConfig, ProcessIo, ProcessSpec, run};
+use rskit_process::ProcessSpec;
 use serde::Deserialize;
 use toven_model::{
     DepKind, EcosystemId, Edge, Module, ModuleRef, RepoPath, ToolchainTag, Workspace, WorkspaceId,
@@ -26,19 +25,8 @@ use toven_ports::{DiscoverRequest, DiscoverResponse};
 
 use crate::config::GoConfig;
 use crate::discovery::blast;
-
-/// Hard bound on retained `go` JSON output (16 MiB). Large enough for big
-/// manifests, bounded so a runaway process cannot exhaust memory.
-const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
-
-/// Wall-clock bound on a single `go mod edit` / `go work edit` invocation.
-const EDIT_TIMEOUT: Duration = Duration::new(120, 0);
-
-/// The go driver name stamped on every discovered [`Workspace`].
-const GO_TOOL: &str = "go";
-
-/// The workspace manifest that groups several modules into one build unit.
-const WORK_MANIFEST: &str = "go.work";
+use crate::exec::{GO_TOOL, run_go_json};
+use crate::modules;
 
 /// The `Module` field of `go mod edit -json` output.
 #[derive(Debug, Deserialize)]
@@ -63,20 +51,6 @@ struct GoModEdit {
     require: Option<Vec<GoRequire>>,
 }
 
-/// A single `use` entry of `go work edit -json` output.
-#[derive(Debug, Deserialize)]
-struct GoWorkUse {
-    #[serde(rename = "DiskPath")]
-    disk_path: String,
-}
-
-/// The subset of `go work edit -json` output the adapter consumes.
-#[derive(Debug, Deserialize)]
-struct GoWorkEdit {
-    #[serde(rename = "Use")]
-    use_dirs: Option<Vec<GoWorkUse>>,
-}
-
 /// Discover all Go modules, workspaces, and edges under `request.project_root`.
 pub(crate) fn discover(
     config: &GoConfig,
@@ -85,26 +59,27 @@ pub(crate) fn discover(
     let ecosystem = go_id()?;
     let project_root = request.project_root.as_path();
 
-    let work_members = detect_go_work(project_root)?;
+    let work_members = modules::go_work_members(project_root)?;
+    let manifests = modules::resolve(config, project_root)?;
 
     let mut workspaces: BTreeMap<WorkspaceId, Workspace> = BTreeMap::new();
     let mut modules: BTreeMap<ModuleRef, Module> = BTreeMap::new();
     let mut by_path: BTreeMap<String, ModuleRef> = BTreeMap::new();
     let mut requires: Vec<(ModuleRef, String)> = Vec::new();
 
-    for manifest in &config.modules {
+    for manifest in &manifests {
         let edit = run_go_mod_edit(project_root, manifest)?;
         let module_path = module_path(&edit, manifest)?;
         let manifest_path = RepoPath::new(Path::new(manifest))?;
         let module_root = manifest_parent(&manifest_path)?;
-        let id = ModuleRef::new(ecosystem.clone(), module_name(&module_path))?;
+        let id = ModuleRef::new(ecosystem.clone(), module_name(&module_root, &module_path))?;
 
         if let Some(existing) = modules.get(&id) {
             return Err(AppError::new(
                 ErrorCode::Conflict,
                 format!(
                     "duplicate module '{id}': both manifest '{}' and '{}' resolve to the same \
-                     name; module names (the final `go.mod` path segment) must be unique",
+                     name; module names (the module's repo-relative directory) must be unique",
                     existing
                         .manifest
                         .as_ref()
@@ -139,7 +114,6 @@ pub(crate) fn discover(
         module.package = Some(module_path.clone());
         module.manifest = Some(manifest_path);
         module.workspace = Some(workspace_id);
-        blast::annotate_module(&mut module, &workspace_root);
         modules.insert(id.clone(), module);
         by_path.insert(module_path, id.clone());
 
@@ -163,26 +137,6 @@ pub(crate) fn discover(
 /// The canonical Go ecosystem id.
 fn go_id() -> AppResult<EcosystemId> {
     EcosystemId::new("go")
-}
-
-/// Detect a root `go.work` and, if present, return the repo-relative roots of
-/// its member modules; `None` when there is no workspace file.
-fn detect_go_work(project_root: &Path) -> AppResult<Option<BTreeSet<RepoPath>>> {
-    let work_abs = safe_join(project_root, Path::new(WORK_MANIFEST)).map_err(|error| {
-        AppError::new(ErrorCode::Internal, "failed to resolve go.work path").with_cause(error)
-    })?;
-    if !work_abs.is_file() {
-        return Ok(None);
-    }
-
-    let edit = run_go_work_edit(project_root, &work_abs)?;
-    let mut members = BTreeSet::new();
-    if let Some(uses) = edit.use_dirs {
-        for entry in uses {
-            members.insert(RepoPath::new(Path::new(&entry.disk_path))?);
-        }
-    }
-    Ok(Some(members))
 }
 
 /// Run `go mod edit -json` for one manifest and parse its JSON output.
@@ -210,60 +164,6 @@ fn run_go_mod_edit(project_root: &Path, manifest: &str) -> AppResult<GoModEdit> 
     })
 }
 
-/// Run `go work edit -json` for the workspace file and parse its JSON output.
-fn run_go_work_edit(project_root: &Path, work_abs: &Path) -> AppResult<GoWorkEdit> {
-    let spec = ProcessSpec::new(GO_TOOL)
-        .arg("work")
-        .arg("edit")
-        .arg("-json")
-        .arg(work_abs)
-        .dir(project_root);
-    let stdout = run_go_json(&spec, "go work edit")?;
-    rskit_codec::decode::<GoWorkEdit>(&rskit_codec::JsonCodec::default(), &stdout).map_err(
-        |error| {
-            AppError::new(
-                ErrorCode::InvalidFormat,
-                "failed to parse `go work edit -json` output",
-            )
-            .with_cause(error)
-        },
-    )
-}
-
-/// Run a captured, bounded, timed-out `go` invocation and return its stdout,
-/// surfacing timeout / truncation / non-zero exit as typed errors.
-fn run_go_json(spec: &ProcessSpec, label: &str) -> AppResult<String> {
-    let config = ProcessConfig::default()
-        .with_io(ProcessIo::captured(CapturedIo::new()))
-        .with_timeout(Some(EDIT_TIMEOUT))
-        .with_max_output_bytes(MAX_OUTPUT_BYTES);
-
-    let result = run(spec, &config)?;
-    if result.timed_out {
-        return Err(AppError::new(
-            ErrorCode::Timeout,
-            format!("`{label}` timed out"),
-        ));
-    }
-    if result.stdout_truncated {
-        return Err(AppError::new(
-            ErrorCode::Internal,
-            format!("`{label}` output exceeded {MAX_OUTPUT_BYTES} bytes"),
-        ));
-    }
-    if !result.success() {
-        return Err(AppError::new(
-            ErrorCode::Internal,
-            format!(
-                "`{label}` failed (exit {:?}): {}",
-                result.exit_code,
-                result.stderr.trim()
-            ),
-        ));
-    }
-    Ok(result.stdout)
-}
-
 /// Extract the module path, rejecting an empty one.
 fn module_path(edit: &GoModEdit, manifest: &str) -> AppResult<String> {
     let path = edit.module.path.trim();
@@ -276,12 +176,30 @@ fn module_path(edit: &GoModEdit, manifest: &str) -> AppResult<String> {
     Ok(path.to_string())
 }
 
-/// The module name is the final meaningful segment of its module path, with a
-/// Go major-version suffix stripped so versioned modules keep their identity
-/// (`example.com/svc/api` → `api`, `example.com/svc/api/v2` → `api`). Stripping
-/// the `/vN` suffix is what keeps two distinct versioned modules
-/// (`a/v2`, `b/v2`) from collapsing onto the same name.
-fn module_name(module_path: &str) -> String {
+/// The module identity, unique within the repo and safe as a path segment.
+///
+/// A module's repo-relative root directory is its natural unique key (two
+/// modules cannot share a directory), so nested modules use it with the path
+/// separators folded to `-` (`database/testutil` → `database-testutil`,
+/// `cache/redis` → `cache-redis`). Deriving identity from the directory — not
+/// the final `go.mod` path segment — is what keeps sibling leaves like
+/// `connect/testutil` and `git/testutil` from collapsing onto one name.
+///
+/// The repository-root module (directory `.`) instead takes the final segment
+/// of its module path, with a Go major-version suffix stripped, so it reads as
+/// the project name (`github.com/kbukum/gokit` → `gokit`,
+/// `example.com/svc/api/v2` → `api`).
+fn module_name(module_root: &RepoPath, module_path: &str) -> String {
+    let root = module_root.as_path();
+    if root.as_os_str().is_empty() || root == Path::new(".") {
+        return root_module_name(module_path);
+    }
+    root.to_string_lossy().replace(['/', '\\'], "-")
+}
+
+/// The repository-root module name: the final meaningful segment of its module
+/// path, with a Go major-version suffix stripped (`.../api/v2` → `api`).
+fn root_module_name(module_path: &str) -> String {
     let mut segments = module_path.rsplit('/');
     let last = segments.next().unwrap_or(module_path);
     if is_major_version_suffix(last)
@@ -360,9 +278,29 @@ mod tests {
     }
 
     #[test]
-    fn module_name_is_final_path_segment() {
-        assert_eq!(module_name("example.com/svc/api"), "api");
-        assert_eq!(module_name("solo"), "solo");
+    fn root_module_uses_module_path_leaf() {
+        let root = RepoPath::new(".").unwrap();
+        assert_eq!(module_name(&root, "github.com/kbukum/gokit"), "gokit");
+        assert_eq!(module_name(&root, "example.com/svc/api/v2"), "api");
+        assert_eq!(module_name(&root, "solo"), "solo");
+    }
+
+    #[test]
+    fn nested_module_uses_directory_so_leaf_collisions_stay_distinct() {
+        let connect = RepoPath::new("connect/testutil").unwrap();
+        let git = RepoPath::new("git/testutil").unwrap();
+        assert_eq!(
+            module_name(&connect, "github.com/kbukum/gokit/connect/testutil"),
+            "connect-testutil"
+        );
+        assert_eq!(
+            module_name(&git, "github.com/kbukum/gokit/git/testutil"),
+            "git-testutil"
+        );
+        assert_ne!(
+            module_name(&connect, "github.com/kbukum/gokit/connect/testutil"),
+            module_name(&git, "github.com/kbukum/gokit/git/testutil")
+        );
     }
 
     #[test]

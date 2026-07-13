@@ -114,6 +114,8 @@ fn task_entry(task: &Task) -> (String, TaskEntry) {
         readiness: task.readiness.clone(),
         readiness_timeout_secs,
         cache_args: task.cache_args,
+        cacheable: task.cacheable,
+        fail_if_output: task.fail_if_output,
         shared_inputs: task.shared_inputs.clone(),
     };
     (key, entry)

@@ -14,11 +14,16 @@ toven-model.workspace = true
 toven-ports.workspace = true
 rskit-errors.workspace = true
 rskit-config.workspace = true
+rskit-cli.workspace = true
 rskit-codec.workspace = true
 rskit-process.workspace = true
 rskit-fs.workspace = true
+rskit-git.workspace = true
 serde.workspace = true
 toml.workspace = true
+
+[dev-dependencies]
+toven-testkit.workspace = true
 
 [lints]
 workspace = true

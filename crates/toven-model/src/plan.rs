@@ -110,6 +110,12 @@ pub struct ExecutionUnit {
     /// Bound on how long to wait for persistent readiness.
     #[serde(default = "default_readiness_timeout")]
     pub readiness_timeout: Duration,
+    /// Whether any stdout output turns a zero-exit run into a failure. Set for a
+    /// list-mode verification (e.g. `gofmt -l`) whose tool reports offenders on
+    /// stdout but still exits `0`, so APPLY treats a non-empty stdout as a gate
+    /// failure.
+    #[serde(default)]
+    pub fail_if_output: bool,
     /// Cache outcome decided during PLAN.
     pub cache: CacheVerdict,
     /// Content cache key to record after a successful cacheable run.
@@ -182,6 +188,7 @@ mod tests {
             persistent: false,
             readiness: ExecutionReadiness::Started,
             readiness_timeout: Duration::from_secs(30),
+            fail_if_output: false,
             cache: CacheVerdict::Miss,
             cache_key: Some("cache-key".to_string()),
             depends_on: vec!["rust:core#build".to_string()],
