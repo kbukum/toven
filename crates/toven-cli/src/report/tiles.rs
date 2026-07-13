@@ -192,7 +192,7 @@ impl RawOutputSink for TilesRawSink {
         // run clean and never re-surfaces a prior run's failures.
         let failures = std::mem::take(&mut self.failures);
         self.console.note("")?;
-        let heading = format!("failures ({}):", failures.len());
+        let heading = format!("failures ({})", failures.len());
         self.console.note(self.palette.error(&heading).as_ref())?;
         for record in &failures {
             self.console.note(&record.verdict)?;
