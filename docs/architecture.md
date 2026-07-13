@@ -167,7 +167,7 @@ flowchart TD
     Disabled --> Miss
 ```
 
-A task authored `cacheable = false` is statically excluded from the cache, exactly as a `persistent` task is. This is the correctness rule for **mutating** tasks (a `*-fix` twin such as Go's `format` / `tidy-fix`): a mutation must run on every invocation, so a stale content-key hit can never suppress it — for example manually un-formatting a file yields the same source digest as the pre-`format` state, which would otherwise register as a cache hit and skip the re-format.
+A task authored `cacheable = false` is statically excluded from the cache, exactly as a `persistent` task is. This is the correctness rule for **mutating** tasks (such as Go's `format` / `tidy-fix`): a mutation must run on every invocation, so a stale content-key hit can never suppress it — for example manually un-formatting a file yields the same source digest as the pre-`format` state, which would otherwise register as a cache hit and skip the re-format.
 
 Explicit selection (`--module`/`--workspace`, optionally `--dependents` and/or `--dependencies`) short-circuits the changed-file diff: the named targets become the active set directly, then feed the same cache and execution stages. Selectors are lenient input — bare name, `ecosystem:name`, `workspace/name`, or glob, resolved against the graph — while every listing stays the canonical `ecosystem:name` form. It is mutually exclusive with the baseline flags. See [what invalidates cache](commands/cache.md#what-invalidates-cache) for the full list of cache inputs.
 
