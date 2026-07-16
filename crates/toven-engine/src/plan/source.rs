@@ -270,6 +270,41 @@ mod tests {
     }
 
     #[test]
+    fn missing_shared_input_cannot_alias_a_present_file() {
+        // A declared-but-missing shared input hashes to the empty digest. That
+        // absent state must stay distinct from every present state — including a
+        // present but empty file — so a vanished shared input can never collide
+        // with a real one and register a false cache hit.
+        let workspace = TestWorkspace::new("source-digest-missing-shared");
+        let root = AbsPath::new(workspace.path()).unwrap();
+        let digest = FsSourceDigest::new(&root);
+        let path = std::path::Path::new("config/base.toml");
+
+        let absent = digest.path(path).unwrap();
+
+        workspace.write_file("config/base.toml", b"").unwrap();
+        let empty_present = digest.path(path).unwrap();
+
+        workspace
+            .write_file("config/base.toml", b"key = 1")
+            .unwrap();
+        let populated = digest.path(path).unwrap();
+
+        assert_ne!(
+            absent, empty_present,
+            "an absent input must not alias a present but empty file"
+        );
+        assert_ne!(
+            absent, populated,
+            "an absent input must not alias a populated file"
+        );
+        assert_ne!(
+            empty_present, populated,
+            "content must still move the shared-input digest"
+        );
+    }
+
+    #[test]
     fn directory_shared_input_hashes_its_subtree() {
         let workspace = TestWorkspace::new("source-digest-dir");
         workspace

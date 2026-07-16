@@ -127,6 +127,54 @@ fn blast_radius_glob_activates_the_whole_workspace() {
 }
 
 #[test]
+fn dirty_worktree_changes_seed_the_affected_set() {
+    // Uncommitted working-tree edits are part of the affected input, unioned
+    // with the committed diff, so a dirty checkout plans the same modules a
+    // commit would — here an uncommitted edit under errors reaches its dependent
+    // app through the reverse closure even with nothing committed.
+    let federation = Federation {
+        workspaces: vec![rust_workspace_with_blast()],
+        modules: vec![
+            module("rust", "app", "crates/app", Some("rust")),
+            module("rust", "errors", "crates/errors", Some("rust")),
+        ],
+        edges: vec![Edge::new(
+            mref("rust", "app"),
+            mref("rust", "errors"),
+            DepKind::Normal,
+        )],
+        warnings: Vec::new(),
+    };
+    let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
+
+    let request = PlanRequest::new(
+        "r",
+        "t",
+        toven_ports::TaskIntent::resolve("test"),
+        AbsPath::new("/repo").unwrap(),
+    )
+    .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+    let vcs = FakeVcsReader::new()
+        .with_changed_since(Vec::new())
+        .with_worktree_status(vec![ChangeRecord::new(
+            "crates/errors/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+
+    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
+        .unwrap()
+        .modules;
+    assert!(
+        active.contains(&mkey("rust", "errors")),
+        "the uncommitted change seeds its owning module"
+    );
+    assert!(
+        active.contains(&mkey("rust", "app")),
+        "the reverse closure reaches the dependent"
+    );
+}
+
+#[test]
 fn closure_spans_ecosystems_via_overlay() {
     let federation = Federation {
         workspaces: Vec::new(),

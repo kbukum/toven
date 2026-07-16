@@ -184,6 +184,38 @@ mod tests {
         }
     }
 
+    /// A shared-input digest that maps known paths to a scripted hash and, like
+    /// [`FsSourceDigest`](crate::plan::source::FsSourceDigest), hashes an absent
+    /// path to the empty digest.
+    struct MapDigest {
+        paths: std::collections::BTreeMap<String, String>,
+    }
+
+    impl MapDigest {
+        fn new(entries: &[(&str, &str)]) -> Self {
+            Self {
+                paths: entries
+                    .iter()
+                    .map(|(path, hash)| ((*path).to_string(), (*hash).to_string()))
+                    .collect(),
+            }
+        }
+    }
+
+    impl SourceDigest for MapDigest {
+        fn module(&self, _module: &Module) -> AppResult<String> {
+            Ok(String::new())
+        }
+        fn path(&self, repo_relative: &Path) -> AppResult<String> {
+            let key = repo_relative.to_string_lossy();
+            Ok(self
+                .paths
+                .get(key.as_ref())
+                .cloned()
+                .unwrap_or_else(|| rskit_util::hash::ContentHasher::new().finalize_hex()))
+        }
+    }
+
     fn mkey(name: &str) -> ModuleKey {
         ModuleKey::bare(
             toven_model::ModuleRef::new(EcosystemId::new("rust").unwrap(), name).unwrap(),
@@ -230,5 +262,38 @@ mod tests {
         // the leaf re-keys app; an unchanged leaf reproduces the same key.
         assert_eq!(app_key("errors-1"), app_key("errors-1"));
         assert_ne!(app_key("errors-1"), app_key("errors-2"));
+    }
+
+    #[test]
+    fn missing_shared_input_cannot_silently_produce_a_false_hit() {
+        // The unit key folds every declared shared input as (path, digest). A
+        // missing input hashes to the empty digest while a present one hashes to
+        // its content, so the two states key apart — a vanished shared input can
+        // never alias a real one into a false cache hit.
+        let app = [mkey("app")];
+        let mut sources = SourceHashes::new();
+        sources.insert(mkey("app"), "app-1".to_string());
+        sources.insert(mkey("errors"), "errors-1".to_string());
+        let shared = ["config/base.toml".to_string()];
+        let inputs = KeyInputs {
+            modules: &app,
+            base_argv: &["cargo".to_string(), "test".to_string()],
+            shared_inputs: &shared,
+            toolchain_identity: "cargo@1",
+            cache_args: false,
+            passthrough: &[],
+        };
+        let adjacency = forward_adjacency(&graph());
+
+        let absent = MapDigest::new(&[]);
+        let present = MapDigest::new(&[("config/base.toml", "content-1")]);
+
+        let key_absent = unit_key(&inputs, &adjacency, &sources, &absent).unwrap();
+        let key_present = unit_key(&inputs, &adjacency, &sources, &present).unwrap();
+
+        assert_ne!(
+            key_absent, key_present,
+            "a missing shared input must key apart from a present one"
+        );
     }
 }
