@@ -1,0 +1,9 @@
+# A per-module release override with an unknown key: strict decode must reject it.
+[project]
+name = "release-module-unknown-field"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+
+[modules."rust:core".release]
+bogus = true

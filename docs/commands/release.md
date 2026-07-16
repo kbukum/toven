@@ -11,6 +11,8 @@ toven release publish    # run the full pipeline through publish (--dry-run rehe
 
 An action is required; `toven release` alone is a usage error.
 
+Release behavior is declarative: bump defaults, prerelease channels, tag/commit templates, changelog, push/branch gating, registry, signing, and hooks are owned through the `[…release]` config block, per ecosystem and per module. See [release configuration](../config/release.md) for every field, its default, the per-module override, and precedence.
+
 ## Read-only projections
 
 `release plan` and `release status` never mutate a manifest, tag, commit, or registry (though both may issue read-only registry queries to resolve published versions). They render on stdout (warnings go to stderr) and honor `--output human` (default) or `--output jsonl`.

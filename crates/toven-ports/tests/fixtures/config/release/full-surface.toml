@@ -1,0 +1,29 @@
+strategy = "semver-cascade"
+level = "minor"
+dependent_version = "upgrade"
+tag_format = "{module}/v{version}"
+tag_message = "release {module} {version}"
+commit_message = "chore: release {version}"
+push = false
+remote = "upstream"
+branches = ["main", "release"]
+registry = "crates-io"
+offline = true
+token_env = "CARGO_REGISTRY_TOKEN"
+readiness = ["deny", "audit"]
+
+[prerelease]
+channels = ["rc", "beta"]
+branch_channels = { next = "beta" }
+
+[changelog]
+path = "CHANGELOG.md"
+required = true
+
+[sign]
+enabled = true
+signer = "release-bot"
+
+[hooks]
+pre = ["fmt-check"]
+post = ["announce"]

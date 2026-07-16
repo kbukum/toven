@@ -9,6 +9,7 @@ pub(crate) mod plan;
 pub(crate) mod publish;
 mod rehearse;
 mod run;
+mod settings;
 mod status;
 mod strategy;
 pub(crate) mod tag;
@@ -23,5 +24,6 @@ pub use model::{
 pub use plan::release_plan;
 pub use rehearse::release_rehearse;
 pub use run::release_run;
+pub use settings::ResolvedReleaseSettings;
 pub use status::release_status;
 pub(crate) use targets::ReleaseTargets;

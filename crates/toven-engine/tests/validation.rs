@@ -74,3 +74,22 @@ fn group_name_with_reserved_separator_is_rejected() {
     // marker, so it is rejected at the config boundary.
     assert_rejected("invalid/group-name-reserved-separator.toml", &["rust"]);
 }
+
+#[test]
+fn per_module_release_unknown_field_is_rejected() {
+    // `[modules.<name>.release]` is strict: an unknown key fails the decode.
+    assert_rejected("invalid/release-module-unknown-field.toml", &["rust"]);
+}
+
+#[test]
+fn per_module_release_bad_tag_template_is_rejected() {
+    // An unknown tag-template placeholder in a per-module override fails
+    // structural validation.
+    assert_rejected("invalid/release-module-bad-tag-template.toml", &["rust"]);
+}
+
+#[test]
+fn per_module_release_unqualified_ref_is_rejected() {
+    // A `[modules.<name>]` key must be a qualified `ecosystem:module` reference.
+    assert_rejected("invalid/release-module-unqualified-ref.toml", &["rust"]);
+}

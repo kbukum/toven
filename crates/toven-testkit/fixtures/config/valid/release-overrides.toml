@@ -1,0 +1,34 @@
+# Full release surface with a per-module override.
+[project]
+name = "release-overrides"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"
+
+[ecosystems.rust.release]
+strategy = "semver-cascade"
+level = "minor"
+dependent_version = "upgrade"
+tag_format = "{module}/v{version}"
+tag_message = "release {module} {version}"
+commit_message = "chore: release {version}"
+push = true
+remote = "origin"
+branches = ["main"]
+registry = "crates-io"
+offline = false
+token_env = "CARGO_REGISTRY_TOKEN"
+readiness = ["deny", "audit"]
+
+[ecosystems.rust.release.prerelease]
+channels = ["rc", "beta"]
+branch_channels = { next = "beta" }
+
+[ecosystems.rust.release.changelog]
+path = "CHANGELOG.md"
+required = true
+
+[modules."rust:core".release]
+level = "major"
+tag_format = "core-v{version}"

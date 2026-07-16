@@ -7,7 +7,7 @@ use toven_model::EcosystemId;
 
 use serde::{Deserialize, Serialize};
 
-use super::{GroupConfig, MemberConfig, OverlayConfig, ProjectConfig, TovenConfig};
+use super::{GroupConfig, MemberConfig, ModuleConfig, OverlayConfig, ProjectConfig, TovenConfig};
 
 /// The whole `toven.toml`, parsed strictly.
 ///
@@ -34,6 +34,9 @@ pub struct Document {
     /// Raw `[ecosystems.<id>]` subtrees, kept verbatim for adapter `configure`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub ecosystems: BTreeMap<EcosystemId, RawValue>,
+    /// Per-module release overrides, keyed by `ecosystem:module` reference.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub modules: BTreeMap<String, ModuleConfig>,
     /// Multi-repo umbrella members (single-repo documents leave this empty).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub members: Vec<MemberConfig>,
