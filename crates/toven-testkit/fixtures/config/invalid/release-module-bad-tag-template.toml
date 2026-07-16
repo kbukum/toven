@@ -1,0 +1,10 @@
+# A per-module release override with an unknown tag template placeholder:
+# structural validation must reject it.
+[project]
+name = "release-module-bad-tag-template"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+
+[modules."rust:core".release]
+tag_format = "{bogus}/v{version}"

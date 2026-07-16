@@ -8,4 +8,4 @@ Layout (grouped by the surface under test, then by case):
   - `rust/adapter.toml` — a flattened Rust adapter config (common knobs + adapter-specific `manifests`).
 - `config/invalid/` — malformed configs that must be rejected (e.g. unknown keys).
 
-Load fixtures with `include_str!` (relative to the consuming source file) so a missing or renamed fixture is a compile error rather than a runtime surprise.
+Load fixtures with `include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/..."))` — anchored at the crate root rather than traversing `../` from the consuming source file, so a case keeps loading when its test moves between module depths, and a missing or renamed fixture is a compile error rather than a runtime surprise.

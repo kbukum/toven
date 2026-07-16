@@ -2,17 +2,16 @@
 
 use std::collections::BTreeMap;
 
-use rskit_config::{RawValue, deserialize_subtree};
-use rskit_errors::{AppError, AppResult};
-use toven_model::EcosystemId;
+use rskit_errors::{AppError, AppResult, ErrorCode};
+use toven_model::ModuleKey;
 use toven_ports::{Provider, Reporter};
 
 use crate::config::Document;
 use crate::federation::baseline::MemberVcsReaders;
 use crate::federation::resolve::PathDriverLocator;
-use crate::plan::{PlanRequest, prepare_front};
+use crate::plan::{PlanContext, PlanRequest, prepare_front};
 
-use super::{ReleasePlan, bump, change, changelog, strategy};
+use super::{ReleasePlan, ReleaseStrategyName, ResolvedReleaseSettings, bump, change, changelog};
 
 /// Build an immutable release plan.
 ///
@@ -48,7 +47,7 @@ pub fn release_plan(
 /// Propagates strategy selection, change-detection, and bump-planning failures.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn plan_with_context(
-    context: &crate::plan::PlanContext,
+    context: &PlanContext,
     document: &Document,
     request: &PlanRequest,
     readers: &MemberVcsReaders<'_>,
@@ -59,13 +58,14 @@ pub(crate) fn plan_with_context(
 }
 
 fn plan_with_changes(
-    context: &crate::plan::PlanContext,
+    context: &PlanContext,
     document: &Document,
     _request: &PlanRequest,
     changes: &change::ReleaseChanges,
     targets: &super::ReleaseTargets,
 ) -> AppResult<ReleasePlan> {
-    let strategy = strategy::resolve(release_strategy(document)?.as_deref())?;
+    let settings = resolve_release_settings(context, document, targets)?;
+    let strategy = reconcile_strategy(&settings)?;
     let changelogs = context
         .federation
         .modules
@@ -98,9 +98,7 @@ fn plan_with_changes(
 /// # Errors
 /// Propagates a release target's construction failure.
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) fn release_targets(
-    context: &crate::plan::PlanContext,
-) -> AppResult<super::ReleaseTargets> {
+pub(crate) fn release_targets(context: &PlanContext) -> AppResult<super::ReleaseTargets> {
     let mut targets = super::ReleaseTargets::new();
     for (member, ecosystem, adapter) in context.adapters.iter() {
         if let Some(target) = adapter.release_target()? {
@@ -110,54 +108,89 @@ pub(crate) fn release_targets(
     Ok(targets)
 }
 
-/// Resolve the single release strategy declared across ecosystem sections.
+/// Fold each **releaseable** module's ecosystem-default and per-module release
+/// override into its [`ResolvedReleaseSettings`].
+///
+/// Only modules whose `(member, ecosystem)` has a release target participate:
+/// an ecosystem/member with no release target (e.g. a non-publishable adapter)
+/// never joins a release plan, so its config must not force a plan-wide strategy
+/// conflict. The ecosystem-level release config is validated once per configured
+/// adapter; the per-module override (validated structurally at load) is folded on
+/// top with the documented precedence
+/// (`[modules.<name>.release]` > `[ecosystems.<id>].release` > adapter default).
+///
+/// # Errors
+/// Propagates an invalid ecosystem release config or an unknown release strategy.
+fn resolve_release_settings(
+    context: &PlanContext,
+    document: &Document,
+    targets: &super::ReleaseTargets,
+) -> AppResult<BTreeMap<ModuleKey, ResolvedReleaseSettings>> {
+    for (_, ecosystem, adapter) in context.adapters.iter() {
+        adapter
+            .common()
+            .release
+            .validate(&format!("ecosystems.{ecosystem}.release"))?;
+    }
+    let mut resolved = BTreeMap::new();
+    for module in &context.federation.modules {
+        if !targets.contains_key(&(module.member.clone(), module.id.ecosystem.clone())) {
+            continue;
+        }
+        let ecosystem = context
+            .adapters
+            .get(module.member.as_ref(), &module.id.ecosystem)
+            .ok_or_else(|| {
+                AppError::new(
+                    ErrorCode::Internal,
+                    format!(
+                        "module '{}' has a release target but no configured adapter",
+                        module.id
+                    ),
+                )
+            })?
+            .common()
+            .release
+            .clone();
+        let over = document
+            .modules
+            .get(&module.id.to_string())
+            .map(|entry| &entry.release);
+        resolved.insert(
+            module.key(),
+            ResolvedReleaseSettings::resolve(&ecosystem, over)?,
+        );
+    }
+    Ok(resolved)
+}
+
+/// Reconcile the single plan-wide bump strategy from per-module resolved
+/// settings.
 ///
 /// The engine produces one [`ReleasePlan`] with a single strategy, so every
-/// ecosystem that names a `release.strategy` must agree. A conflict is a typed
-/// configuration error rather than a silent first-wins pick.
-fn release_strategy(document: &Document) -> AppResult<Option<String>> {
-    let mut selected: Option<String> = None;
-    for (ecosystem, raw) in &document.ecosystems {
-        let Some(strategy) = strategy_of(ecosystem, raw)? else {
-            continue;
-        };
+/// module must resolve the same strategy. A conflict is a typed configuration
+/// error rather than a silent first-wins pick; an empty release scope defaults to
+/// [`ReleaseStrategyName::SemverCascade`].
+fn reconcile_strategy(
+    settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
+) -> AppResult<ReleaseStrategyName> {
+    let mut selected: Option<(ModuleKey, ReleaseStrategyName)> = None;
+    for (module, resolved) in settings {
         match &selected {
-            Some(existing) if existing != &strategy => {
+            Some((existing_module, existing)) if *existing != resolved.strategy => {
                 return Err(AppError::invalid_input(
                     "release.strategy",
                     format!(
-                        "conflicting release strategies '{existing}' and '{strategy}' across ecosystems"
+                        "conflicting release strategies '{}' ({existing_module}) and '{}' ({module})",
+                        existing.as_str(),
+                        resolved.strategy.as_str()
                     ),
                 ));
             }
-            _ => selected = Some(strategy),
+            _ => selected = Some((module.clone(), resolved.strategy)),
         }
     }
-    Ok(selected)
-}
-
-/// Partial view over one ecosystem section's `release.strategy`.
-///
-/// Permissive by design (no `deny_unknown_fields`): an ecosystem section carries
-/// many adapter-owned keys the engine ignores here. But a malformed `release`
-/// table or a non-string `strategy` surfaces as a typed configuration error
-/// instead of being silently treated as "no strategy declared".
-#[derive(serde::Deserialize)]
-struct EcosystemReleaseView {
-    #[serde(default)]
-    release: Option<ReleaseStrategyView>,
-}
-
-#[derive(serde::Deserialize)]
-struct ReleaseStrategyView {
-    #[serde(default)]
-    strategy: Option<String>,
-}
-
-/// Extract `release.strategy` from one raw ecosystem section, if present.
-fn strategy_of(ecosystem: &EcosystemId, raw: &RawValue) -> AppResult<Option<String>> {
-    let view: EcosystemReleaseView = deserialize_subtree(ecosystem.as_str(), raw.clone())?;
-    Ok(view.release.and_then(|release| release.strategy))
+    Ok(selected.map_or(ReleaseStrategyName::SemverCascade, |(_, strategy)| strategy))
 }
 
 #[cfg(test)]
@@ -169,14 +202,14 @@ mod tests {
     use serde_json::json;
     use toven_model::{AbsPath, DepKind, EcosystemId, Edge, Module, ModuleRef, RepoPath};
     use toven_ports::{
-        BaselineSpec, ChangeRecord, ChangeStatus, DiscoverResponse, Provider, TaskIntent,
+        BaselineSpec, ChangeRecord, ChangeStatus, CommonEcosystemConfig, DiscoverResponse,
+        Provider, ReleaseConfig, TaskIntent,
     };
     use toven_testkit::{
         FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, RecordingReporter,
     };
 
-    use super::release_plan;
-    use super::release_strategy;
+    use super::{ReleaseStrategyName, ResolvedReleaseSettings, reconcile_strategy, release_plan};
     use crate::config::{Document, ProjectConfig, TovenConfig};
     use crate::federation::baseline::MemberVcsReaders;
     use crate::plan::{PlanRequest, Selection};
@@ -206,6 +239,7 @@ mod tests {
             groups: BTreeMap::new(),
             overlays: Vec::new(),
             ecosystems,
+            modules: std::collections::BTreeMap::new(),
             members: Vec::new(),
         }
     }
@@ -306,55 +340,70 @@ mod tests {
     }
 
     #[test]
-    fn release_strategy_reads_a_single_declared_strategy() {
-        let mut ecosystems = BTreeMap::new();
-        ecosystems.insert(
-            eid("rust"),
-            RawValue::from(json!({ "release": { "strategy": "caret-prerelease" } })),
-        );
-        ecosystems.insert(eid("go"), RawValue::from(json!({ "release": {} })));
-        let mut doc = document();
-        doc.ecosystems = ecosystems;
+    fn release_plan_honors_the_configured_bump_strategy() {
+        let core = module("core", "crates/core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
 
+        let mut common = CommonEcosystemConfig::default();
+        common.release.strategy = Some("caret-prerelease".to_string());
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_common(common)
+            .with_release_target(FakeReleaseTarget::new());
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let request = PlanRequest::new(
+            "r1",
+            "t",
+            TaskIntent::resolve("test"),
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+        let vcs = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
+            "crates/core/src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+        let mut reporter = RecordingReporter::new();
+
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let plan =
+            release_plan(&request, &document(), &providers, &readers, &mut reporter).unwrap();
+
+        assert_eq!(plan.strategy, ReleaseStrategyName::CaretPrerelease);
+    }
+
+    fn settings_with_strategy(strategy: &str) -> ResolvedReleaseSettings {
+        let config = ReleaseConfig {
+            strategy: Some(strategy.to_string()),
+            ..ReleaseConfig::default()
+        };
+        ResolvedReleaseSettings::resolve(&config, None).unwrap()
+    }
+
+    #[test]
+    fn reconcile_strategy_defaults_to_semver_cascade_when_no_modules() {
+        let empty = BTreeMap::new();
         assert_eq!(
-            release_strategy(&doc).unwrap().as_deref(),
-            Some("caret-prerelease")
+            reconcile_strategy(&empty).unwrap(),
+            ReleaseStrategyName::SemverCascade
         );
     }
 
     #[test]
-    fn release_strategy_rejects_conflicting_declarations() {
-        let mut ecosystems = BTreeMap::new();
-        ecosystems.insert(
-            eid("rust"),
-            RawValue::from(json!({ "release": { "strategy": "semver-cascade" } })),
+    fn reconcile_strategy_rejects_conflicting_modules() {
+        let mut settings = BTreeMap::new();
+        settings.insert(
+            module("core", "crates/core").key(),
+            settings_with_strategy("semver-cascade"),
         );
-        ecosystems.insert(
-            eid("go"),
-            RawValue::from(json!({ "release": { "strategy": "caret-prerelease" } })),
+        settings.insert(
+            module("app", "crates/app").key(),
+            settings_with_strategy("caret-prerelease"),
         );
-        let mut doc = document();
-        doc.ecosystems = ecosystems;
 
-        let error = release_strategy(&doc).expect_err("conflicting strategies must be rejected");
+        let error =
+            reconcile_strategy(&settings).expect_err("conflicting strategies must be rejected");
         assert!(error.to_string().contains("conflicting release strategies"));
-    }
-
-    #[test]
-    fn release_strategy_rejects_a_malformed_release_section() {
-        // A non-string `strategy` must surface a typed error rather than being
-        // silently dropped (the previous `.ok()?` swallowed conversion failures).
-        let mut ecosystems = BTreeMap::new();
-        ecosystems.insert(
-            eid("rust"),
-            RawValue::from(json!({ "release": { "strategy": 7 } })),
-        );
-        let mut doc = document();
-        doc.ecosystems = ecosystems;
-
-        assert!(
-            release_strategy(&doc).is_err(),
-            "a non-string strategy must be a typed error, not a silent default"
-        );
     }
 }

@@ -1,0 +1,10 @@
+# A per-module release key that is not a qualified `ecosystem:module` reference:
+# structural validation must reject it.
+[project]
+name = "release-module-unqualified-ref"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+
+[modules.core.release]
+level = "minor"

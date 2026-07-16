@@ -348,6 +348,7 @@ mod tests {
             groups: BTreeMap::new(),
             overlays: Vec::new(),
             ecosystems: BTreeMap::new(),
+            modules: std::collections::BTreeMap::new(),
             members,
         }
     }

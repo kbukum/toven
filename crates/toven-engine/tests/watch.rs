@@ -79,6 +79,7 @@ fn document() -> Document {
         groups: BTreeMap::new(),
         overlays: Vec::new(),
         ecosystems: BTreeMap::from([(eid("rust"), serde_json::json!({}))]),
+        modules: std::collections::BTreeMap::new(),
         members: Vec::new(),
     }
 }

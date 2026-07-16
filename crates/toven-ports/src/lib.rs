@@ -62,14 +62,17 @@ pub mod watch;
 pub mod wizard;
 
 pub use cache::{CacheStore, CacheWriter};
-pub use config::{CommonEcosystemConfig, ReleaseConfig, RunStrategy, TaskEntry, TaskOverride};
+pub use config::{
+    BumpLevel, ChangelogConfig, CommonEcosystemConfig, DependentVersion, HooksConfig,
+    PrereleaseConfig, ReleaseConfig, RunStrategy, SignConfig, TaskEntry, TaskOverride,
+};
 pub use discover::{DISCOVERY_SCHEMA_VERSION, DiscoverContext, DiscoverRequest, DiscoverResponse};
 pub use driver::{DriverLocator, DriverWizard};
 pub use exec::{
     CommandRunner, HeldProcess, Invocation, InvocationEnvPolicy, InvocationEnvironment,
     OutputObserver, RunOutcome, StartOutcome,
 };
-pub use merge::merge_task;
+pub use merge::{merge_release, merge_task};
 pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
 pub use raw_output::RawOutputSink;
 pub use release::{Artifact, PublishOutcome, RegistryCadence, ReleaseMutation, ReleaseTarget};
@@ -79,7 +82,7 @@ pub use task::{
     DEFAULT_READINESS_TIMEOUT, FanOut, Readiness, Task, TaskIntent, TaskKind, TaskOrigin,
     ToolchainProbe,
 };
-pub use template::{CommandTemplate, TaskVar};
+pub use template::{CommandTemplate, ReleaseVar, TaskVar};
 pub use toolchain::ToolchainProber;
 pub use vcs::{
     BaselineMode, BaselineSpec, ChangeRecord, ChangeStatus, Oid, TagRef, VcsReader, VcsWriter,

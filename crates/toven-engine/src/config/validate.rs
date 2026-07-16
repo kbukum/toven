@@ -39,7 +39,23 @@ pub(super) fn structural(document: &Document, canonical: &CanonicalRegistry) -> 
     for (index, overlay) in document.overlays.iter().enumerate() {
         validate_overlay(index, overlay, canonical)?;
     }
+    for (reference, module) in &document.modules {
+        validate_module(reference, module, canonical)?;
+    }
     Ok(())
+}
+
+/// Validate one `[modules.<ecosystem:module>]` override: the key is a canonical
+/// `ecosystem:module` reference and its release override is field-valid.
+fn validate_module(
+    reference: &str,
+    module: &super::ModuleConfig,
+    canonical: &CanonicalRegistry,
+) -> AppResult<()> {
+    ModuleRefSyntax::validate_qualified(&format!("modules.{reference}"), reference, canonical)?;
+    module
+        .release
+        .validate(&format!("modules.{reference}.release"))
 }
 
 fn validate_project(project: &ProjectConfig) -> AppResult<()> {

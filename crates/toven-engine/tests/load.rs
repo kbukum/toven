@@ -112,3 +112,22 @@ fn distinct_overlays_from_includes_concatenate() {
     assert!(modules.contains(&"api"));
     assert!(modules.contains(&"worker"));
 }
+
+#[test]
+fn loads_per_module_release_override() {
+    // `[modules."rust:core".release]` parses into the typed override and keeps its
+    // set fields; the ecosystem `[ecosystems.rust.release]` default parses too.
+    let document = load_fixture("valid/release-overrides.toml", &["rust"]);
+
+    let over = &document.modules["rust:core"].release;
+    assert_eq!(
+        over.level,
+        Some(toven_ports::BumpLevel::Major),
+        "per-module level override is retained"
+    );
+    assert_eq!(over.tag_format.as_deref(), Some("core-v{version}"));
+    assert!(
+        over.registry.is_none(),
+        "unset override fields stay None so the ecosystem default shows through"
+    );
+}

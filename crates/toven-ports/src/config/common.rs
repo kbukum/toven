@@ -29,14 +29,6 @@ pub struct CommonEcosystemConfig {
     pub tasks: BTreeMap<String, TaskEntry>,
 }
 
-impl ReleaseConfig {
-    /// Whether this config is entirely default (so it can be skipped on serialize).
-    #[must_use]
-    pub fn is_default(&self) -> bool {
-        self == &Self::default()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{CommonEcosystemConfig, RunStrategy};
@@ -55,7 +47,10 @@ mod tests {
 
     #[test]
     fn flatten_round_trips_through_toml() {
-        let source = include_str!("../../tests/fixtures/config/ecosystems/rust/adapter.toml");
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/config/ecosystems/rust/adapter.toml"
+        ));
 
         let parsed: FakeAdapterConfig = toml::from_str(source).expect("parses");
         assert_eq!(parsed.manifests, ["Cargo.toml", "contrib/Cargo.toml"]);
@@ -78,7 +73,10 @@ mod tests {
     #[test]
     fn task_entry_section_rejects_unknown_field() {
         // A leaf (non-flattened) section enforces its own strictness.
-        let source = include_str!("../../tests/fixtures/config/invalid/unknown-task-field.toml");
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/config/invalid/unknown-task-field.toml"
+        ));
         let error = toml::from_str::<CommonEcosystemConfig>(source)
             .expect_err("unknown TaskEntry field must be rejected");
         assert!(error.to_string().contains("bogus"), "{error}");
