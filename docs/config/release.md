@@ -17,7 +17,7 @@ The engine folds each module's settings from lowest to highest precedence:
 per-run bump argv  >  [modules.<ecosystem:module>.release]  >  [ecosystems.<id>.release]  >  built-in adapter default
 ```
 
-Per-run argv (`--patch`/`--minor`/`--major`/`--pre <channel>` …) is layered by `toven release` at run time; the config levels resolve to a single per-module settings value first. A field set in a per-module override replaces only that field; every other field still inherits the ecosystem default (and, in turn, the built-in default).
+Per-run argv (`--patch`/`--minor`/`--major`/`--pre <channel>` …) is layered by `toven release` at run time; the config levels resolve to a single per-module settings value first. A field set in a per-module override replaces only that field; every other field still inherits the ecosystem default (and, in turn, the built-in default). A list or sub-table override replaces the inherited value too — including clearing it: an explicit `branches = []` opts one module out of an ecosystem branch restriction, while omitting `branches` inherits it.
 
 ## Fields
 

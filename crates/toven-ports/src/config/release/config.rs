@@ -33,9 +33,9 @@ pub struct ReleaseConfig {
     /// How a dependency-floor bump cascades into dependents; `None` = default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dependent_version: Option<DependentVersion>,
-    /// Prerelease channels and the branch→channel mapping.
-    #[serde(default, skip_serializing_if = "PrereleaseConfig::is_default")]
-    pub prerelease: PrereleaseConfig,
+    /// Prerelease channels and the branch→channel mapping; `None` = inherit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prerelease: Option<PrereleaseConfig>,
     /// Release tag name template (e.g. `v{version}`, `{module}/v{version}`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag_format: Option<String>,
@@ -45,18 +45,18 @@ pub struct ReleaseConfig {
     /// Release commit message template; `None` = adapter default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit_message: Option<String>,
-    /// Changelog generation settings.
-    #[serde(default, skip_serializing_if = "ChangelogConfig::is_default")]
-    pub changelog: ChangelogConfig,
+    /// Changelog generation settings; `None` = inherit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changelog: Option<ChangelogConfig>,
     /// Whether the release commit/tags are pushed; `None` = adapter default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub push: Option<bool>,
     /// Git remote pushed to; `None` = adapter default (`origin`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<String>,
-    /// Allowed release branches; empty = any branch.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub branches: Vec<String>,
+    /// Allowed release branches; `Some([])` clears to any branch, `None` = inherit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branches: Option<Vec<String>>,
     /// Target registry identifier (e.g. `"crates-io"`); `None` = not publishable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry: Option<String>,
@@ -66,15 +66,17 @@ pub struct ReleaseConfig {
     /// Environment-variable name holding the registry token (never the secret).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_env: Option<String>,
-    /// Artifact-signing settings.
-    #[serde(default, skip_serializing_if = "SignConfig::is_default")]
-    pub sign: SignConfig,
-    /// Recognized checks composing `release readiness`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub readiness: Vec<String>,
-    /// Optional pre/post release hooks (recognized task references).
-    #[serde(default, skip_serializing_if = "HooksConfig::is_default")]
-    pub hooks: HooksConfig,
+    /// Artifact-signing settings; `None` = inherit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign: Option<SignConfig>,
+    /// Recognized checks composing `release readiness`; `Some([])` clears,
+    /// `None` = inherit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readiness: Option<Vec<String>>,
+    /// Optional pre/post release hooks (recognized task references); `None` =
+    /// inherit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hooks: Option<HooksConfig>,
 }
 
 impl ReleaseConfig {
@@ -87,13 +89,13 @@ impl ReleaseConfig {
     /// Validate every field value beyond serde's type/variant checks.
     ///
     /// `field` is the config path prefix used in diagnostics (e.g.
-    /// `ecosystems.rust.release` or `modules.core.release`).
+    /// `ecosystems.rust.release` or `modules.rust:core.release`).
     ///
     /// # Errors
     /// Rejects a malformed tag/commit template (unknown placeholder), an invalid
     /// prerelease channel or branch mapping, an unsafe changelog path, a blank
-    /// remote/token-env/branch/readiness/hook reference, and an inconsistent
-    /// signing selection.
+    /// strategy/registry/remote/token-env/branch/readiness/hook reference, and an
+    /// inconsistent signing selection.
     pub fn validate(&self, field: &str) -> AppResult<()> {
         for (name, template) in [
             ("tag_format", &self.tag_format),
@@ -104,14 +106,28 @@ impl ReleaseConfig {
                 validate_template(&format!("{field}.{name}"), value)?;
             }
         }
-        self.prerelease.validate(&format!("{field}.prerelease"))?;
-        self.changelog.validate(&format!("{field}.changelog"))?;
-        self.sign.validate(&format!("{field}.sign"))?;
-        self.hooks.validate(&format!("{field}.hooks"))?;
+        if let Some(prerelease) = &self.prerelease {
+            prerelease.validate(&format!("{field}.prerelease"))?;
+        }
+        if let Some(changelog) = &self.changelog {
+            changelog.validate(&format!("{field}.changelog"))?;
+        }
+        if let Some(sign) = &self.sign {
+            sign.validate(&format!("{field}.sign"))?;
+        }
+        if let Some(hooks) = &self.hooks {
+            hooks.validate(&format!("{field}.hooks"))?;
+        }
+        validate_optional_nonblank(&format!("{field}.strategy"), self.strategy.as_deref())?;
+        validate_optional_nonblank(&format!("{field}.registry"), self.registry.as_deref())?;
         validate_optional_nonblank(&format!("{field}.remote"), self.remote.as_deref())?;
         validate_optional_nonblank(&format!("{field}.token_env"), self.token_env.as_deref())?;
-        validate_nonblank_entries(&format!("{field}.branches"), &self.branches)?;
-        validate_nonblank_entries(&format!("{field}.readiness"), &self.readiness)?;
+        if let Some(branches) = &self.branches {
+            validate_nonblank_entries(&format!("{field}.branches"), branches)?;
+        }
+        if let Some(readiness) = &self.readiness {
+            validate_nonblank_entries(&format!("{field}.readiness"), readiness)?;
+        }
         Ok(())
     }
 }
@@ -168,11 +184,11 @@ mod tests {
         assert_eq!(config.level, Some(BumpLevel::Minor));
         assert_eq!(config.dependent_version, Some(DependentVersion::Upgrade));
         assert_eq!(config.tag_format.as_deref(), Some("{module}/v{version}"));
-        assert_eq!(config.branches, ["main", "release"]);
-        assert_eq!(config.prerelease.channels, ["rc", "beta"]);
-        assert!(config.changelog.required);
-        assert!(config.sign.enabled);
-        assert_eq!(config.hooks.pre, ["fmt-check"]);
+        assert_eq!(config.branches.as_deref(), Some(["main".into(), "release".into()].as_slice()));
+        assert_eq!(config.prerelease.as_ref().expect("prerelease set").channels, ["rc", "beta"]);
+        assert!(config.changelog.as_ref().expect("changelog set").required);
+        assert!(config.sign.as_ref().expect("sign set").enabled);
+        assert_eq!(config.hooks.as_ref().expect("hooks set").pre, ["fmt-check"]);
         config.validate("ecosystems.rust.release").expect("valid");
     }
 
@@ -237,6 +253,21 @@ mod tests {
             "#,
         )
         .expect("parses");
+        assert!(config.validate("ecosystems.rust.release").is_err());
+    }
+
+    #[test]
+    fn validate_rejects_blank_registry() {
+        let config = parse(r#"registry = "   ""#).expect("parses");
+        let error = config
+            .validate("ecosystems.rust.release")
+            .expect_err("blank registry rejected");
+        assert!(error.to_string().contains("registry"), "{error}");
+    }
+
+    #[test]
+    fn validate_rejects_blank_strategy() {
+        let config = parse(r#"strategy = " ""#).expect("parses");
         assert!(config.validate("ecosystems.rust.release").is_err());
     }
 }

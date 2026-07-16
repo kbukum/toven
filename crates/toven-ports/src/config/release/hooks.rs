@@ -21,12 +21,6 @@ pub struct HooksConfig {
 }
 
 impl HooksConfig {
-    /// Whether both hook lists are empty (so they can be skipped on serialize).
-    #[must_use]
-    pub const fn is_default(&self) -> bool {
-        self.pre.is_empty() && self.post.is_empty()
-    }
-
     /// Validate that every hook names a non-blank task reference.
     ///
     /// # Errors

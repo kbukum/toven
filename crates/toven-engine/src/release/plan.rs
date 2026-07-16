@@ -64,7 +64,7 @@ fn plan_with_changes(
     changes: &change::ReleaseChanges,
     targets: &super::ReleaseTargets,
 ) -> AppResult<ReleasePlan> {
-    let settings = resolve_release_settings(context, document)?;
+    let settings = resolve_release_settings(context, document, targets)?;
     let strategy = reconcile_strategy(&settings)?;
     let changelogs = context
         .federation
@@ -108,19 +108,22 @@ pub(crate) fn release_targets(context: &PlanContext) -> AppResult<super::Release
     Ok(targets)
 }
 
-/// Fold each module's ecosystem-default and per-module release override into its
-/// [`ResolvedReleaseSettings`].
+/// Fold each **releaseable** module's ecosystem-default and per-module release
+/// override into its [`ResolvedReleaseSettings`].
 ///
-/// The ecosystem-level release config is validated once per configured adapter;
-/// the per-module override (validated structurally at load) is folded on top with
-/// the documented precedence (`[modules.<name>.release]` >
-/// `[ecosystems.<id>].release` > adapter default).
+/// Only modules with a release target participate: a non-publishable module
+/// (e.g. `publish = false`) never joins a release plan, so its config must not
+/// force a plan-wide strategy conflict. The ecosystem-level release config is
+/// validated once per configured adapter; the per-module override (validated
+/// structurally at load) is folded on top with the documented precedence
+/// (`[modules.<name>.release]` > `[ecosystems.<id>].release` > adapter default).
 ///
 /// # Errors
 /// Propagates an invalid ecosystem release config or an unknown release strategy.
 fn resolve_release_settings(
     context: &PlanContext,
     document: &Document,
+    targets: &super::ReleaseTargets,
 ) -> AppResult<BTreeMap<ModuleKey, ResolvedReleaseSettings>> {
     for (_, ecosystem, adapter) in context.adapters.iter() {
         adapter
@@ -130,6 +133,9 @@ fn resolve_release_settings(
     }
     let mut resolved = BTreeMap::new();
     for module in &context.federation.modules {
+        if !targets.contains_key(&(module.member.clone(), module.id.ecosystem.clone())) {
+            continue;
+        }
         let ecosystem = context
             .adapters
             .get(module.member.as_ref(), &module.id.ecosystem)

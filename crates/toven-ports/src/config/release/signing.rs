@@ -19,12 +19,6 @@ pub struct SignConfig {
 }
 
 impl SignConfig {
-    /// Whether every field is at its default (so it can be skipped on serialize).
-    #[must_use]
-    pub const fn is_default(&self) -> bool {
-        !self.enabled && self.signer.is_none()
-    }
-
     /// Validate the signer selection.
     ///
     /// # Errors

@@ -80,26 +80,26 @@ impl ResolvedReleaseSettings {
             strategy: strategy::resolve(config.strategy.as_deref())?,
             level: config.level.unwrap_or(BumpLevel::Auto),
             dependent_version: config.dependent_version.unwrap_or(DependentVersion::Bump),
-            prerelease: config.prerelease.clone(),
+            prerelease: config.prerelease.clone().unwrap_or_default(),
             tag_format: config
                 .tag_format
                 .clone()
                 .unwrap_or_else(|| DEFAULT_TAG_FORMAT.to_string()),
             tag_message: config.tag_message.clone(),
             commit_message: config.commit_message.clone(),
-            changelog: config.changelog.clone(),
+            changelog: config.changelog.clone().unwrap_or_default(),
             push: config.push.unwrap_or(true),
             remote: config
                 .remote
                 .clone()
                 .unwrap_or_else(|| DEFAULT_REMOTE.to_string()),
-            branches: config.branches.clone(),
+            branches: config.branches.clone().unwrap_or_default(),
             registry: config.registry.clone(),
             offline: config.offline.unwrap_or(false),
             token_env: config.token_env.clone(),
-            sign: config.sign.clone(),
-            readiness: config.readiness.clone(),
-            hooks: config.hooks.clone(),
+            sign: config.sign.clone().unwrap_or_default(),
+            readiness: config.readiness.clone().unwrap_or_default(),
+            hooks: config.hooks.clone().unwrap_or_default(),
         })
     }
 }

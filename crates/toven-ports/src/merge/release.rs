@@ -5,13 +5,13 @@ use crate::config::ReleaseConfig;
 
 /// Field-merge a per-module release `over`ride onto an ecosystem `base` config.
 ///
-/// A set override field **replaces** the base: an `Option` that is `Some`, a
-/// non-empty list (`branches`/`readiness`), or a non-default sub-config
-/// (`prerelease`/`changelog`/`sign`/`hooks`) wins; anything the override leaves
-/// unset inherits the base. So a per-module `[modules.<name>.release]` that only
-/// sets `level` flips exactly one field while the rest carry over from
-/// `[ecosystems.<id>].release`, matching the documented precedence
-/// (per-module > ecosystem > adapter default).
+/// Every field is presence-aware: a `Some` override field **replaces** the base
+/// value for exactly that field, and a `None` inherits the base. So a per-module
+/// `[modules.<name>.release]` that only sets `level` flips one field while the
+/// rest carry over, and it can explicitly **clear** a base default — e.g.
+/// `branches = []` opts one module out of the ecosystem's branch restriction.
+/// This matches the documented precedence (per-module > ecosystem > adapter
+/// default).
 #[must_use]
 pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfig {
     let mut merged = base.clone();
@@ -25,8 +25,8 @@ pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfi
     if over.dependent_version.is_some() {
         merged.dependent_version = over.dependent_version;
     }
-    if !over.prerelease.is_default() {
-        merged.prerelease = over.prerelease.clone();
+    if over.prerelease.is_some() {
+        merged.prerelease.clone_from(&over.prerelease);
     }
     if over.tag_format.is_some() {
         merged.tag_format.clone_from(&over.tag_format);
@@ -37,8 +37,8 @@ pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfi
     if over.commit_message.is_some() {
         merged.commit_message.clone_from(&over.commit_message);
     }
-    if !over.changelog.is_default() {
-        merged.changelog = over.changelog.clone();
+    if over.changelog.is_some() {
+        merged.changelog.clone_from(&over.changelog);
     }
     if over.push.is_some() {
         merged.push = over.push;
@@ -46,7 +46,7 @@ pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfi
     if over.remote.is_some() {
         merged.remote.clone_from(&over.remote);
     }
-    if !over.branches.is_empty() {
+    if over.branches.is_some() {
         merged.branches.clone_from(&over.branches);
     }
     if over.registry.is_some() {
@@ -58,14 +58,14 @@ pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfi
     if over.token_env.is_some() {
         merged.token_env.clone_from(&over.token_env);
     }
-    if !over.sign.is_default() {
-        merged.sign = over.sign.clone();
+    if over.sign.is_some() {
+        merged.sign.clone_from(&over.sign);
     }
-    if !over.readiness.is_empty() {
+    if over.readiness.is_some() {
         merged.readiness.clone_from(&over.readiness);
     }
-    if !over.hooks.is_default() {
-        merged.hooks = over.hooks.clone();
+    if over.hooks.is_some() {
+        merged.hooks.clone_from(&over.hooks);
     }
 
     merged
@@ -81,7 +81,7 @@ mod tests {
             strategy: Some("semver-cascade".into()),
             level: Some(BumpLevel::Patch),
             registry: Some("crates-io".into()),
-            branches: vec!["main".into()],
+            branches: Some(vec!["main".into()]),
             ..ReleaseConfig::default()
         }
     }
@@ -99,22 +99,22 @@ mod tests {
         // inherited from base, untouched by the override:
         assert_eq!(merged.strategy.as_deref(), Some("semver-cascade"));
         assert_eq!(merged.registry.as_deref(), Some("crates-io"));
-        assert_eq!(merged.branches, ["main"]);
+        assert_eq!(merged.branches.as_deref(), Some(["main".into()].as_slice()));
     }
 
     #[test]
     fn non_default_sub_config_replaces() {
         let over = ReleaseConfig {
-            changelog: ChangelogConfig {
+            changelog: Some(ChangelogConfig {
                 required: true,
                 ..ChangelogConfig::default()
-            },
+            }),
             ..ReleaseConfig::default()
         };
 
         let merged = merge_release(&base(), &over);
 
-        assert!(merged.changelog.required);
+        assert!(merged.changelog.expect("changelog set").required);
     }
 
     #[test]
@@ -126,12 +126,28 @@ mod tests {
     #[test]
     fn non_empty_override_list_replaces_base_list() {
         let over = ReleaseConfig {
-            branches: vec!["release".into(), "next".into()],
+            branches: Some(vec!["release".into(), "next".into()]),
             ..ReleaseConfig::default()
         };
 
         let merged = merge_release(&base(), &over);
 
-        assert_eq!(merged.branches, ["release", "next"]);
+        assert_eq!(
+            merged.branches.as_deref(),
+            Some(["release".into(), "next".into()].as_slice())
+        );
+    }
+
+    #[test]
+    fn empty_override_list_clears_base_default() {
+        let over = ReleaseConfig {
+            branches: Some(Vec::new()),
+            ..ReleaseConfig::default()
+        };
+
+        let merged = merge_release(&base(), &over);
+
+        // an explicit `branches = []` clears the ecosystem's branch restriction:
+        assert_eq!(merged.branches.as_deref(), Some([].as_slice()));
     }
 }

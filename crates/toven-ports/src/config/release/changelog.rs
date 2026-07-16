@@ -22,12 +22,6 @@ pub struct ChangelogConfig {
 }
 
 impl ChangelogConfig {
-    /// Whether every field is at its default (so it can be skipped on serialize).
-    #[must_use]
-    pub const fn is_default(&self) -> bool {
-        self.path.is_none() && !self.required
-    }
-
     /// Validate the changelog path as a safe workspace-relative path.
     ///
     /// # Errors

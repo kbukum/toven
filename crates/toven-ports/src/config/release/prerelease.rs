@@ -26,12 +26,6 @@ pub struct PrereleaseConfig {
 }
 
 impl PrereleaseConfig {
-    /// Whether every field is at its default (so it can be skipped on serialize).
-    #[must_use]
-    pub fn is_default(&self) -> bool {
-        self.channels.is_empty() && self.branch_channels.is_empty()
-    }
-
     /// Whether `channel` is one of the configured channels.
     #[must_use]
     pub fn recognizes(&self, channel: &str) -> bool {
