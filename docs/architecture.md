@@ -101,6 +101,15 @@ flowchart TD
 
 A wave is everything safe to start now. A module joins a later wave when a dependency must finish first. A `batchable` task keeps ready modules together when the command can handle them, splitting by Cargo manifest so selectors reach the right workspace.
 
+### Run strategies
+
+Wave ordering is governed by a `run_strategy`, an engine-owned named policy chosen per ecosystem or task (the adapter supplies a per-kind default). Two strategies are the deliberate, complete set:
+
+- **`leaf-to-top`** (the default) orders dependency-respecting waves — a dependency always runs before its dependents, so a build/test/lint sees its prerequisites already done.
+- **`unordered`** collapses every active module into one wave, ignoring the dependency graph, for tasks with no inter-module ordering constraint (for example a formatter or a whole-workspace check) where waiting on the graph only serializes independent work.
+
+This pair covers the shine points Toven is built on; a grouped or aggregate strategy is added only if a concrete Rust/Go need is demonstrated (with tests and docs), never speculatively.
+
 ### Ecosystem task entries vs. group task overrides
 
 An ecosystem's `[ecosystems.<id>.tasks.<task>]` entries and a group's `[groups.<name>.tasks.<task>]` overrides look similar but play different roles and use different shapes.
@@ -168,6 +177,8 @@ flowchart TD
 ```
 
 A task authored `cacheable = false` is statically excluded from the cache, exactly as a `persistent` task is. This is the correctness rule for **mutating** tasks (such as Go's `format` / `tidy-fix`): a mutation must run on every invocation, so a stale content-key hit can never suppress it — for example manually un-formatting a file yields the same source digest as the pre-`format` state, which would otherwise register as a cache hit and skip the re-format.
+
+A task's `shared_inputs` are validated at plan time as literal, traversal-safe relative paths (no globs or unresolved templates) and folded into the key as a `(path, digest)` pair. A declared input that is missing on disk hashes to the empty digest — an absent state that is provably distinct from every present state, including a present but empty file, because file contents are length-prefix framed. A vanished shared input therefore re-keys the unit rather than silently aliasing a real one into a false hit.
 
 Explicit selection (`--module`/`--workspace`, optionally `--dependents` and/or `--dependencies`) short-circuits the changed-file diff: the named targets become the active set directly, then feed the same cache and execution stages. Selectors are lenient input — bare name, `ecosystem:name`, `workspace/name`, or glob, resolved against the graph — while every listing stays the canonical `ecosystem:name` form. It is mutually exclusive with the baseline flags. See [what invalidates cache](commands/cache.md#what-invalidates-cache) for the full list of cache inputs.
 

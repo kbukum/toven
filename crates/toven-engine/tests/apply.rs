@@ -175,6 +175,33 @@ fn resource_groups_serialize_within_group_but_run_across_groups() {
 }
 
 #[test]
+fn max_parallel_caps_peak_concurrency() {
+    // A single wave of independent units must never run more than `max_parallel`
+    // at once: the pool's bounded permits are the concurrency contract the shine
+    // points rest on. Four ready units at a cap of two overlap up to — but never
+    // beyond — the cap.
+    let plan = Plan::new(
+        vec![unit("a"), unit("b"), unit("c"), unit("d")],
+        vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
+    );
+    let runner = Arc::new(FakeCommandRunner::new());
+    let sink = RecordingRawOutputSink::new();
+
+    run_with_parallelism(&plan, runner.clone(), sink, 2);
+
+    assert!(
+        runner.peak_concurrency() <= 2,
+        "peak concurrency {} exceeded max_parallel 2",
+        runner.peak_concurrency(),
+    );
+    assert!(
+        runner.peak_concurrency() >= 2,
+        "independent units in one wave should overlap up to the cap, got {}",
+        runner.peak_concurrency(),
+    );
+}
+
+#[test]
 fn keep_going_blocks_reverse_dependents_but_runs_independents() {
     let a = unit("a");
     let x = unit("x");

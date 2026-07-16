@@ -364,13 +364,14 @@ mod tests {
             &locator(&["toven-go"]),
         )
         .expect("resolution succeeds");
-        match resolution {
-            Resolution::Driver(driver) => {
-                assert!(driver.pinned);
-                assert_eq!(driver.program, PathBuf::from("/opt/toven-go"));
-            }
-            other => panic!("expected pinned driver, got {other:?}"),
-        }
+        assert!(
+            matches!(
+                &resolution,
+                Resolution::Driver(driver)
+                    if driver.pinned && driver.program == std::path::Path::new("/opt/toven-go")
+            ),
+            "expected a pinned /opt/toven-go driver, got {resolution:?}"
+        );
     }
 
     #[test]
