@@ -1,6 +1,6 @@
 # Pass 02 — Principle conformance
 
-Each item here is a hard principle from [`docs/engineering.md`](../../../docs/engineering.md), not a preference. This is where vibe coding usually drifts.
+Each item here is a hard principle from [`docs/engineering.md`](../../../../docs/engineering.md), not a preference. This is where vibe coding usually drifts.
 
 > **Run in a separate, clean-context agent** — never inline in the session that wrote the code. An independent reviewer re-derives every judgment from the code and the principles instead of trusting prior reasoning. A plan/spec may be passed in as a scope checklist only; it never excuses a baseline violation.
 

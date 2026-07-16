@@ -1,14 +1,14 @@
 # Review changes
 
-Standing, re-runnable review of a **change set** in this repository — a branch, a commit range, or `HEAD~1`. Use it after every change set, especially fast/"vibe-coded" work. It sequences the seven focused passes in [`reviews/`](./) over a diff and adds scope handling; the actual checks live in the focused files.
+Standing, re-runnable review of a **change set** in this repository — a branch, a commit range, or `HEAD~1`. Use it after every change set, especially fast/"vibe-coded" work. It sequences the seven focused passes in [`references/`](./) over a diff and adds scope handling; the actual checks live in the focused files.
 
 ## Run this in a separate, clean-context agent
 
 **Always dispatch this review to a fresh reviewer agent with no shared session context.** A reviewer that "remembers" writing the code rationalizes it; an independent agent re-derives every judgment from the diff and the principles. Do not run it inline in the same session/context that produced the change.
 
-- Hand the reviewer agent: the diff (or base ref), this file, and the [`reviews/`](./) folder. Nothing else from the authoring session.
+- Hand the reviewer agent: the diff (or base ref), this file, and the [`references/`](./) folder. Nothing else from the authoring session.
 - The reviewer reads the code as-is; it does not trust prior reasoning about why the code "should" be correct.
-- **Optional plan check.** If a plan/spec exists (e.g. the session `plan.md`, an issue, or a design doc), pass it in *as a scope checklist only* — "here is what this change set claimed to do; verify the diff actually did it, cascade-complete, with tests." The plan defines intended scope; it never excuses a principle violation. If the diff diverges from the plan, report the divergence; do not assume the plan is authoritative over the baseline in [`docs/engineering.md`](../../../docs/engineering.md).
+- **Optional plan check.** If a plan/spec exists (e.g. the session `plan.md`, an issue, or a design doc), pass it in *as a scope checklist only* — "here is what this change set claimed to do; verify the diff actually did it, cascade-complete, with tests." The plan defines intended scope; it never excuses a principle violation. If the diff diverges from the plan, report the divergence; do not assume the plan is authoritative over the baseline in [`docs/engineering.md`](../../../../docs/engineering.md).
 
 ## Pass 0 — Scope and context
 
@@ -39,7 +39,7 @@ Record every finding as:
 severity (blocker / should-fix / nit) — file:line — what's wrong — which principle — suggested fix
 ```
 
-See [`README.md`](./README.md) for severity definitions.
+See [`SKILL.md`](../SKILL.md) for severity definitions.
 
 ## Validation
 
@@ -47,8 +47,8 @@ See [`README.md`](./README.md) for severity definitions.
 
 ```bash
 git submodule update --init --recursive     # once, if rskit/ isn't initialized
-cargo clippy -p <crate> --all-targets -- -D warnings   # e.g. -p toven-engine
-cargo test   -p <crate> -q                              # only the touched crate(s)
+cargo clippy -p <crate> --all-targets --all-features -- -D warnings   # e.g. -p toven-engine
+cargo test   -p <crate> --all-features -q                              # only the touched crate(s)
 make fmt-check                                          # fast, whole-tree formatting check
 make structure                                          # cheap mod.rs / placement guard (run if structure changed)
 ```
