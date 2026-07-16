@@ -77,7 +77,8 @@ impl ResolvedReleaseSettings {
     }
 
     /// Apply defaults and resolve the strategy over an already-merged config.
-    fn from_merged(config: &ReleaseConfig) -> AppResult<Self> {        Ok(Self {
+    fn from_merged(config: &ReleaseConfig) -> AppResult<Self> {
+        Ok(Self {
             strategy: strategy::resolve(config.strategy.as_deref())?,
             level: config.level.unwrap_or(BumpLevel::Auto),
             dependent_version: config.dependent_version.unwrap_or(DependentVersion::Bump),
