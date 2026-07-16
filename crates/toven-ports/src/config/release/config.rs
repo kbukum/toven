@@ -184,8 +184,14 @@ mod tests {
         assert_eq!(config.level, Some(BumpLevel::Minor));
         assert_eq!(config.dependent_version, Some(DependentVersion::Upgrade));
         assert_eq!(config.tag_format.as_deref(), Some("{module}/v{version}"));
-        assert_eq!(config.branches.as_deref(), Some(["main".into(), "release".into()].as_slice()));
-        assert_eq!(config.prerelease.as_ref().expect("prerelease set").channels, ["rc", "beta"]);
+        assert_eq!(
+            config.branches.as_deref(),
+            Some(["main".into(), "release".into()].as_slice())
+        );
+        assert_eq!(
+            config.prerelease.as_ref().expect("prerelease set").channels,
+            ["rc", "beta"]
+        );
         assert!(config.changelog.as_ref().expect("changelog set").required);
         assert!(config.sign.as_ref().expect("sign set").enabled);
         assert_eq!(config.hooks.as_ref().expect("hooks set").pre, ["fmt-check"]);
