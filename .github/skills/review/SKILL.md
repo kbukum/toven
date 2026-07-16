@@ -84,13 +84,14 @@ severity (blocker / should-fix / nit) — file:line — what's wrong — which p
 
 ## Validation commands
 
-**Scope to the touched crate(s)** — Toven's `make` targets all run `--workspace`, so drive `cargo`
-directly with `-p <crate>` to stay scoped:
+**Scope to the touched crate(s)** — Toven's cargo-based `make` gates (`lint`, `test`, `doc`,
+`coverage`) run `--workspace --all-features`, so drive `cargo` directly with `-p <crate>` to stay
+scoped:
 
 ```bash
 git submodule update --init --recursive                # if not already
-cargo clippy -p <crate> --all-targets -- -D warnings   # e.g. -p toven-engine
-cargo test   -p <crate> -q
+cargo clippy -p <crate> --all-targets --all-features -- -D warnings   # e.g. -p toven-engine
+cargo test   -p <crate> --all-features -q
 make fmt-check                                          # fast, whole-tree formatting check
 make structure                                          # mod.rs declare-only + placement guard
 ```

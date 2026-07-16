@@ -63,8 +63,8 @@ cargo new --lib crates/toven-<name>
 
 ```bash
 git submodule update --init --recursive
-cargo clippy -p toven-<name> --all-targets -- -D warnings
-cargo test   -p toven-<name> -q
+cargo clippy -p toven-<name> --all-targets --all-features -- -D warnings
+cargo test   -p toven-<name> --all-features -q
 make fmt-check
 make structure
 ```

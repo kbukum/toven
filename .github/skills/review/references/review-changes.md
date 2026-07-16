@@ -47,8 +47,8 @@ See [`SKILL.md`](../SKILL.md) for severity definitions.
 
 ```bash
 git submodule update --init --recursive     # once, if rskit/ isn't initialized
-cargo clippy -p <crate> --all-targets -- -D warnings   # e.g. -p toven-engine
-cargo test   -p <crate> -q                              # only the touched crate(s)
+cargo clippy -p <crate> --all-targets --all-features -- -D warnings   # e.g. -p toven-engine
+cargo test   -p <crate> --all-features -q                              # only the touched crate(s)
 make fmt-check                                          # fast, whole-tree formatting check
 make structure                                          # cheap mod.rs / placement guard (run if structure changed)
 ```

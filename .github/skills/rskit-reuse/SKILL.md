@@ -59,7 +59,7 @@ Toven-specific.**
 
 ```bash
 git submodule update --init --recursive
-cargo test -p <crate> -q
+cargo test -p <crate> --all-features -q
 ```
 
 For a real audit of a reuse claim, run the `review` skill's `01-rskit-reuse` pass in a fresh

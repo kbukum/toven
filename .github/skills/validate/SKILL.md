@@ -11,10 +11,10 @@ user-invocable: true
 # Validating Toven changes with cargo/make
 
 Toven is one hexagonal Cargo workspace (`members = ["crates/*"]`, `exclude = ["rskit"]`) on top of
-the vendored `rskit/` submodule. The `Makefile` runs the canonical gates, but **its targets all
-run `--workspace`** — so to stay scoped to a changed crate, drive `cargo` directly with
-`-p <crate>`. Always scope to what changed; the full-workspace gates are for audits and CI
-sign-off.
+the vendored `rskit/` submodule. The `Makefile` runs the canonical gates, but **its cargo-based
+gates (`lint`, `test`, `doc`, `coverage`) run `--workspace --all-features`** — so to stay scoped to
+a changed crate, drive `cargo` directly with `-p <crate>`. Always scope to what changed; the
+full-workspace gates are for audits and CI sign-off.
 
 ## Prerequisite: initialize the submodule
 
@@ -27,9 +27,9 @@ git submodule update --init --recursive
 ## Golden rule: scope to what changed with `cargo -p`
 
 ```bash
-cargo clippy -p <crate> --all-targets -- -D warnings   # e.g. -p toven-engine
-cargo test   -p <crate> -q
-cargo test   -p <crate> <test-name-filter> -q          # a single test / module
+cargo clippy -p <crate> --all-targets --all-features -- -D warnings   # e.g. -p toven-engine
+cargo test   -p <crate> --all-features -q
+cargo test   -p <crate> --all-features <test-name-filter> -q          # a single test / module
 ```
 
 Crates: `toven-model` (L0), `toven-ports` (L1), `toven-engine` / `toven-rust` / `toven-go` /
@@ -55,8 +55,9 @@ final sign-off.
 
 ## Before you hand work off
 
-For a self-contained change, the minimum green bar is: `cargo clippy -p <crate> -- -D warnings`,
-`cargo test -p <crate>` (deterministic, no real network), `make fmt-check`, and `make structure`
+For a self-contained change, the minimum green bar is: `cargo clippy -p <crate> --all-features --
+-D warnings`, `cargo test -p <crate> --all-features` (deterministic, no real network),
+`make fmt-check`, and `make structure`
 on any structural change. Escalate to `make check` only when the change is genuinely tree-wide or
 you are preparing a release. Back any performance claim with `make benchmark`.
 

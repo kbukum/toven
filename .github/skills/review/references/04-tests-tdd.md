@@ -32,4 +32,4 @@ rg 'struct .*(Fake|Mock|Stub|Dummy)' crates/*/tests
 ls crates/toven-testkit/src/doubles
 ```
 
-Then run the focused crate tests (e.g. `cargo test -p toven-engine -q`) and `make coverage` for the gate.
+Then run the focused crate tests (e.g. `cargo test -p toven-engine --all-features -q`) and `make coverage` for the gate.

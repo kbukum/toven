@@ -81,8 +81,8 @@ git diff origin/main...HEAD --name-only     # the files in scope
 Run the smallest gates that cover the touched crates (see the `validate` skill):
 
 ```bash
-cargo test -p <crate> -q
-cargo clippy -p <crate> --all-targets -- -D warnings
+cargo test -p <crate> --all-features -q
+cargo clippy -p <crate> --all-targets --all-features -- -D warnings
 make structure
 ```
 
