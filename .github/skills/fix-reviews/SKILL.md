@@ -1,5 +1,5 @@
 ---
-name: evaluate-reviews
+name: fix-reviews
 description: >-
     Evaluate a pull request's review comments as signals of an underlying pattern, not one-off
     spot fixes — judge each comment against Toven's engineering baseline, then apply the pattern
@@ -9,7 +9,7 @@ description: >-
 user-invocable: true
 ---
 
-# Evaluating and acting on PR reviews by pattern
+# Fixing PR reviews by pattern
 
 A review comment points at one spot, but it almost always describes a *class* of problem. The value of this skill is **generalization**: treat each comment as a probe into a pattern, fix every instance of that pattern across the change set, and only then resolve the thread. A reviewer who flags one typo, one silent argv rewrite, or one library print is telling you where to look — not the full extent of the fix.
 
