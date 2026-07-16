@@ -1,0 +1,203 @@
+//! Read-only release status projection.
+//!
+//! Reports, per releasable module, the version its manifest declares, the
+//! newest release tag cut for it, and the versions the registry already
+//! reports as published — all without mutating any manifest, tag, or registry.
+
+use std::collections::BTreeMap;
+
+use rskit_errors::AppResult;
+use toven_model::MemberId;
+use toven_ports::{Provider, Reporter, TagRef};
+
+use super::{ReleaseModuleStatus, ReleaseStatus, tag};
+use crate::config::Document;
+use crate::federation::baseline::MemberVcsReaders;
+use crate::federation::resolve::PathDriverLocator;
+use crate::plan::{PlanRequest, prepare_front};
+
+use super::plan::release_targets;
+
+/// Project the declared/published/tagged state of every releasable module.
+///
+/// A module is releasable when its ecosystem adapter exposes a release target;
+/// modules without one are omitted. Registry lookups are best-effort per the
+/// [`ReleaseTarget`](toven_ports::ReleaseTarget) contract, so a partial
+/// published set still yields a status.
+///
+/// # Errors
+/// Propagates configuration/discovery/graph failures, VCS tag-listing failures,
+/// and release-target version I/O failures.
+pub fn release_status(
+    request: &PlanRequest,
+    document: &Document,
+    providers: &[&dyn Provider],
+    readers: &MemberVcsReaders<'_>,
+    reporter: &mut dyn Reporter,
+) -> AppResult<ReleaseStatus> {
+    let locator = PathDriverLocator::new();
+    let context = prepare_front(
+        &request.project_root,
+        document,
+        providers,
+        &locator,
+        reporter,
+    )?;
+    let targets = release_targets(&context)?;
+
+    let tags_by_member = list_member_tags(readers)?;
+    let mut modules = Vec::new();
+    for module in &context.federation.modules {
+        let key = (module.member.clone(), module.id.ecosystem.clone());
+        let Some(target) = targets.get(&key) else {
+            continue;
+        };
+        let declared = target.declared_version(module)?;
+        let published = target.published_versions(module)?;
+        let latest_tag = tags_by_member
+            .get(&module.member)
+            .and_then(|tags| tag::latest(&module.id, tags))
+            .map(|(_, tag)| tag.name);
+        modules.push(ReleaseModuleStatus {
+            module: module.key(),
+            is_published: published.contains(&declared),
+            declared_version: declared,
+            latest_tag,
+            published_versions: published,
+        });
+    }
+    modules.sort_by(|left, right| left.module.cmp(&right.module));
+    Ok(ReleaseStatus::new(modules))
+}
+
+/// List every member repo's tags once, keyed by member.
+///
+/// Mirrors change detection: each member's VCS adapter enumerates all tags and
+/// the per-module baseline resolves against that shared snapshot, so the tag set
+/// is fetched once per member rather than once per module.
+fn list_member_tags(
+    readers: &MemberVcsReaders<'_>,
+) -> AppResult<BTreeMap<Option<MemberId>, Vec<TagRef>>> {
+    let mut tags = BTreeMap::new();
+    for reader in readers.entries() {
+        tags.insert(reader.member().cloned(), reader.reader().list_tags(None)?);
+    }
+    Ok(tags)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use rskit_config::RawValue;
+    use rskit_version::semver::Version;
+    use serde_json::json;
+    use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
+    use toven_ports::{BaselineSpec, DiscoverResponse, Oid, Provider, TagRef, TaskIntent};
+    use toven_testkit::{
+        FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, RecordingReporter,
+    };
+
+    use super::release_status;
+    use crate::config::{Document, ProjectConfig, TovenConfig};
+    use crate::federation::baseline::MemberVcsReaders;
+    use crate::plan::{PlanRequest, Selection};
+
+    fn eid(id: &str) -> EcosystemId {
+        EcosystemId::new(id).unwrap()
+    }
+
+    fn mref(name: &str) -> ModuleRef {
+        ModuleRef::new(eid("rust"), name).unwrap()
+    }
+
+    fn module(name: &str) -> Module {
+        Module::new(mref(name), RepoPath::new(format!("crates/{name}")).unwrap())
+    }
+
+    fn document() -> Document {
+        let mut ecosystems = BTreeMap::new();
+        ecosystems.insert(eid("rust"), RawValue::from(json!({ "release": {} })));
+        Document {
+            project: ProjectConfig {
+                name: "t".to_string(),
+                root: ".".to_string(),
+                base_ref: None,
+            },
+            toven: TovenConfig::default(),
+            groups: BTreeMap::new(),
+            overlays: Vec::new(),
+            ecosystems,
+            members: Vec::new(),
+        }
+    }
+
+    fn request() -> PlanRequest {
+        PlanRequest::new(
+            "r1",
+            "t",
+            TaskIntent::resolve("release"),
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))))
+    }
+
+    #[test]
+    fn status_reports_declared_published_and_tag_per_module() {
+        let core = module("core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core.clone()];
+
+        let target = FakeReleaseTarget::new()
+            .with_declared_version(Version::new(0, 2, 0))
+            .with_published_versions(vec![Version::new(0, 1, 0)]);
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_release_target(target);
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+
+        let vcs =
+            FakeVcsReader::new().with_tags(vec![TagRef::new("rust/core@0.1.0", Oid::new("cafe"))]);
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let status =
+            release_status(&request(), &document(), &providers, &readers, &mut reporter).unwrap();
+
+        assert_eq!(status.modules.len(), 1);
+        let entry = &status.modules[0];
+        assert_eq!(entry.module, core.key());
+        assert_eq!(entry.declared_version, Version::new(0, 2, 0));
+        assert_eq!(entry.latest_tag.as_deref(), Some("rust/core@0.1.0"));
+        assert_eq!(entry.published_versions, vec![Version::new(0, 1, 0)]);
+        assert!(!entry.is_published);
+    }
+
+    #[test]
+    fn status_marks_a_declared_version_already_on_the_registry() {
+        let core = module("core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+
+        let target = FakeReleaseTarget::new()
+            .with_declared_version(Version::new(0, 1, 0))
+            .with_published_versions(vec![Version::new(0, 1, 0)]);
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_release_target(target);
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+
+        let vcs = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let status =
+            release_status(&request(), &document(), &providers, &readers, &mut reporter).unwrap();
+
+        let entry = &status.modules[0];
+        assert!(entry.is_published);
+        assert_eq!(entry.latest_tag, None);
+    }
+}

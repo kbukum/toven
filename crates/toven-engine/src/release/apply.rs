@@ -28,8 +28,9 @@ pub struct ReleaseApplyOptions {
     pub allow_dirty: bool,
     /// Push the release commit and tags after tagging.
     pub push: bool,
-    /// Plan only: validate the guardrail and return without mutating anything.
-    pub dry_run: bool,
+    /// Publish the packaged artifacts to the registry after tagging. When false,
+    /// the pipeline stops after commit/tag/push (the `release tag` surface).
+    pub publish: bool,
     /// Maximum rate-limit retries per module in the publish loop.
     pub retry_budget: usize,
 }
@@ -39,7 +40,7 @@ impl Default for ReleaseApplyOptions {
         Self {
             allow_dirty: false,
             push: false,
-            dry_run: false,
+            publish: true,
             retry_budget: DEFAULT_RETRY_BUDGET,
         }
     }
@@ -68,12 +69,8 @@ pub fn release_apply(
         return Ok(stats);
     }
 
-    // The guardrail is part of the dry-run contract: validate it, then stop
-    // before any mutation when `dry_run` is set.
+    // The clean-tree guardrail runs before any mutation.
     guard_clean_tree(reader, options)?;
-    if options.dry_run {
-        return Ok(stats);
-    }
 
     let module_by_ref: BTreeMap<ModuleKey, &Module> = modules
         .iter()
@@ -106,8 +103,10 @@ pub fn release_apply(
         writer.push(&push_refspecs(plan))?;
     }
 
-    let items = publish_items(plan, &module_by_ref, targets, &artifacts)?;
-    publish::run(&items, options.retry_budget, &mut stats)?;
+    if options.publish {
+        let items = publish_items(plan, &module_by_ref, targets, &artifacts)?;
+        publish::run(&items, options.retry_budget, &mut stats)?;
+    }
 
     Ok(stats)
 }
@@ -422,6 +421,44 @@ mod tests {
     }
 
     #[test]
+    fn tag_only_run_commits_and_tags_without_publishing() {
+        let plan = ReleasePlan::new(
+            ReleaseStrategyName::SemverCascade,
+            vec![entry("core", Version::new(0, 1, 1), true, 0)],
+        );
+        let target = FakeReleaseTarget::new();
+        let writer = FakeVcsWriter::new().with_commit_oid("c0ffee");
+
+        let stats = release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", target.clone())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions {
+                publish: false,
+                ..Default::default()
+            },
+        )
+        .expect("tag-only release apply");
+
+        assert_eq!(stats.tagged_modules, 1);
+        assert_eq!(stats.published_modules, 0);
+        assert!(
+            writer.writes().iter().any(
+                |w| matches!(w, VcsWrite::CreateTag { name, .. } if name == "rust/core@0.1.1")
+            )
+        );
+        assert!(
+            !target
+                .calls()
+                .iter()
+                .any(|c| matches!(c, ReleaseCall::Publish(_))),
+            "tag-only run must not publish"
+        );
+    }
+
+    #[test]
     fn restores_worktree_when_commit_fails() {
         let plan = ReleasePlan::new(
             ReleaseStrategyName::SemverCascade,
@@ -567,57 +604,6 @@ mod tests {
         )
         .expect("allow-dirty bypasses the guardrail");
         assert_eq!(stats.published_modules, 1);
-    }
-
-    #[test]
-    fn dry_run_validates_the_guardrail_but_makes_no_changes() {
-        let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
-            vec![entry("core", Version::new(0, 1, 1), true, 0)],
-        );
-        let target = FakeReleaseTarget::new();
-        let writer = FakeVcsWriter::new();
-
-        let stats = release_apply(
-            &plan,
-            &[module("core")],
-            &targets(vec![("core", target.clone())]),
-            &FakeVcsReader::new(),
-            &writer,
-            &ReleaseApplyOptions {
-                dry_run: true,
-                ..Default::default()
-            },
-        )
-        .expect("dry run");
-
-        assert_eq!(stats.mutated_modules, 0);
-        assert!(writer.writes().is_empty());
-        assert!(target.calls().is_empty());
-    }
-
-    #[test]
-    fn dry_run_still_rejects_a_dirty_worktree() {
-        let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
-            vec![entry("core", Version::new(0, 1, 1), true, 0)],
-        );
-        let writer = FakeVcsWriter::new();
-
-        let error = release_apply(
-            &plan,
-            &[module("core")],
-            &targets(vec![("core", FakeReleaseTarget::new())]),
-            &dirty(),
-            &writer,
-            &ReleaseApplyOptions {
-                dry_run: true,
-                ..Default::default()
-            },
-        )
-        .expect_err("dry run validates the guardrail");
-        assert!(error.to_string().contains("uncommitted change"));
-        assert!(writer.writes().is_empty());
     }
 
     #[test]

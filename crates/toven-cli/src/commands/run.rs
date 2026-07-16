@@ -1,13 +1,12 @@
-//! Execution verbs: the argv-first task, the `run <task>` escape hatch, and
-//! `release`.
+//! Execution verbs: the argv-first task and the `run <task>` escape hatch.
 //!
 //! These are the verbs with an APPLY half. Each builds the typed
 //! [`PlanRequest`], binds the rskit-backed engine ports, emits the CLI-owned
 //! [`Event::RunStarted`], and calls the engine PLAN spine. A `--dry-run` /
 //! `--explain` cut stops at PLAN and synthesizes the terminal summary from the
 //! immutable [`Plan`]; a full run drives APPLY on a Tokio runtime with
-//! cooperative Ctrl-C cancellation. `release` delegates to the engine's combined
-//! release facade.
+//! cooperative Ctrl-C cancellation. The `release` lifecycle lives in its own
+//! [`commands::release`](crate::commands::release) module.
 
 use std::sync::Arc;
 
@@ -20,8 +19,6 @@ use toven_engine::output::UnitOutputChannel;
 use toven_engine::plan::{
     CacheMode, FsSourceDigest, PlanHost, PlanRequest, ProcessToolchainProber, plan,
 };
-use toven_engine::release::{ReleaseApplyOptions, release_run};
-use toven_engine::vcs::BaselineFlags;
 use toven_model::{CacheVerdict, Event, Plan, RunStats};
 use toven_ports::{CommandRunner, Provider, Reporter, TaskIntent};
 
@@ -186,50 +183,6 @@ pub(crate) fn execute(
     // regardless of how the run exited.
     let _ = rskit_fs::sync_io::dir::remove_all_if_exists(&pane_dir);
     Ok(exit_code(&summary?))
-}
-
-/// Plan and publish a release (`toven release`).
-///
-/// # Errors
-/// Propagates release PLAN/APPLY failures (guardrails, mutation, tagging,
-/// publishing).
-pub(crate) fn release(
-    providers: &[&dyn Provider],
-    project: &Project,
-    report: Report,
-    allow_dirty: bool,
-    no_push: bool,
-    dry_run: bool,
-) -> AppResult<ExitCode> {
-    let request = PlanRequest::new(
-        new_run_id()?,
-        project.document.project.name.clone(),
-        TaskIntent::resolve("release"),
-        project.project_root.clone(),
-    );
-
-    let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
-    let readers = opened.readers();
-    let repos = opened.release_repos();
-    let mut reporter = report.reporter();
-    let sink: &mut dyn Reporter = reporter.as_mut();
-
-    let options = ReleaseApplyOptions {
-        allow_dirty,
-        push: !no_push,
-        dry_run,
-        ..ReleaseApplyOptions::default()
-    };
-    release_run(
-        &request,
-        &project.document,
-        providers,
-        &readers,
-        &repos,
-        sink,
-        &options,
-    )?;
-    Ok(ExitCode::Success)
 }
 
 /// Synthesize the terminal [`RunStats`] from a PLAN-only [`Plan`].

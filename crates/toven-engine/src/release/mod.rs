@@ -7,15 +7,21 @@ mod changelog;
 mod model;
 pub(crate) mod plan;
 pub(crate) mod publish;
+mod rehearse;
 mod run;
+mod status;
 mod strategy;
 pub(crate) mod tag;
 mod targets;
 
 pub use apply::{ReleaseApplyOptions, release_apply};
 pub use model::{
-    ChangelogEntry, ReleaseBaseline, ReleaseEntry, ReleasePlan, ReleaseStats, ReleaseStrategyName,
+    ChangelogEntry, PublishDecision, RehearsalVerdict, ReleaseBaseline, ReleaseEntry,
+    ReleaseModuleStatus, ReleasePlan, ReleaseRehearsal, ReleaseStats, ReleaseStatus,
+    ReleaseStrategyName,
 };
 pub use plan::release_plan;
+pub use rehearse::release_rehearse;
 pub use run::release_run;
+pub use status::release_status;
 pub(crate) use targets::ReleaseTargets;

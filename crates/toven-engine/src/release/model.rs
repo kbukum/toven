@@ -138,6 +138,90 @@ impl ReleasePlan {
     }
 }
 
+/// One module's read-only release status: what it declares versus what the
+/// registry already publishes and the release tag it last cut.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ReleaseModuleStatus {
+    /// Module the status describes.
+    pub module: ModuleKey,
+    /// Version the module's manifest currently declares.
+    pub declared_version: Version,
+    /// Newest release tag cut for the module, if any.
+    pub latest_tag: Option<String>,
+    /// Versions the registry reports as already published (best-effort).
+    pub published_versions: Vec<Version>,
+    /// Whether the declared version is already among the published versions.
+    pub is_published: bool,
+}
+
+/// A read-only projection of every releasable module's declared/published/tagged
+/// state. Produced without mutating any manifest, tag, or registry.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ReleaseStatus {
+    /// Per-module status, sorted in module-key order.
+    pub modules: Vec<ReleaseModuleStatus>,
+}
+
+impl ReleaseStatus {
+    /// Construct a release status projection.
+    #[must_use]
+    pub const fn new(modules: Vec<ReleaseModuleStatus>) -> Self {
+        Self { modules }
+    }
+}
+
+/// The rehearsal verdict for one publish-needed module: what a real publish loop
+/// would do, decided without any registry mutation.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum PublishDecision {
+    /// The registry lacks this version; a real run would publish it.
+    WouldPublish,
+    /// The registry already reports this version; a real run would skip it.
+    AlreadyPublished,
+}
+
+impl PublishDecision {
+    /// Canonical wire/report name for the decision.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::WouldPublish => "would-publish",
+            Self::AlreadyPublished => "already-published",
+        }
+    }
+}
+
+/// One module's place in the rehearsed publish order and its skip/publish verdict.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RehearsalVerdict {
+    /// Module being rehearsed.
+    pub module: ModuleKey,
+    /// Version that would be published.
+    pub version: Version,
+    /// Whether a real run would publish or skip this version.
+    pub decision: PublishDecision,
+}
+
+/// A read-only rehearsal of the release publish loop: the resolved publish order
+/// and per-module verdicts, computed without mutating manifests, tags, or the
+/// registry.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ReleaseRehearsal {
+    /// Selected engine-owned release strategy.
+    pub strategy: ReleaseStrategyName,
+    /// Per-module verdicts in deterministic publish order.
+    pub verdicts: Vec<RehearsalVerdict>,
+}
+
+impl ReleaseRehearsal {
+    /// Construct a rehearsal report.
+    #[must_use]
+    pub const fn new(strategy: ReleaseStrategyName, verdicts: Vec<RehearsalVerdict>) -> Self {
+        Self { strategy, verdicts }
+    }
+}
+
 /// Release-specific APPLY counters.
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
 pub struct ReleaseStats {
