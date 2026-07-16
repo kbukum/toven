@@ -134,6 +134,9 @@ impl ReleaseConfig {
 
 /// Validate a tag/commit template against the [`ReleaseVar`] vocabulary.
 fn validate_template(field: &str, value: &str) -> AppResult<()> {
+    if value.trim().is_empty() {
+        return Err(AppError::invalid_input(field, "must not be blank"));
+    }
     Template::parse(value, ReleaseVar::ALL).map_err(|error| {
         AppError::invalid_input(field, format!("invalid release template: {error}"))
             .with_cause(error)
@@ -275,5 +278,14 @@ mod tests {
     fn validate_rejects_blank_strategy() {
         let config = parse(r#"strategy = " ""#).expect("parses");
         assert!(config.validate("ecosystems.rust.release").is_err());
+    }
+
+    #[test]
+    fn validate_rejects_blank_template() {
+        let config = parse(r#"tag_format = "   ""#).expect("parses");
+        let error = config
+            .validate("ecosystems.rust.release")
+            .expect_err("blank template rejected");
+        assert!(error.to_string().contains("tag_format"), "{error}");
     }
 }

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use rskit_errors::{AppError, AppResult};
+use rskit_errors::{AppError, AppResult, ErrorCode};
 use toven_model::ModuleKey;
 use toven_ports::{Provider, Reporter};
 
@@ -139,8 +139,18 @@ fn resolve_release_settings(
         let ecosystem = context
             .adapters
             .get(module.member.as_ref(), &module.id.ecosystem)
-            .map(|adapter| adapter.common().release.clone())
-            .unwrap_or_default();
+            .ok_or_else(|| {
+                AppError::new(
+                    ErrorCode::Internal,
+                    format!(
+                        "module '{}' has a release target but no configured adapter",
+                        module.id
+                    ),
+                )
+            })?
+            .common()
+            .release
+            .clone();
         let over = document
             .modules
             .get(&module.id.to_string())
