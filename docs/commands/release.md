@@ -13,7 +13,7 @@ An action is required; `toven release` alone is a usage error.
 
 ## Read-only projections
 
-`release plan` and `release status` never touch a manifest, tag, commit, or registry. They render on stdout (warnings go to stderr) and honor `--output human` (default) or `--output jsonl`.
+`release plan` and `release status` never mutate a manifest, tag, commit, or registry (though both may issue read-only registry queries to resolve published versions). They render on stdout (warnings go to stderr) and honor `--output human` (default) or `--output jsonl`.
 
 ### `toven release plan`
 
