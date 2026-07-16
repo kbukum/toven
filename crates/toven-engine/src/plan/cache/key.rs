@@ -166,55 +166,10 @@ fn transitive_dependencies(module: &ModuleKey, adjacency: &Adjacency) -> BTreeSe
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
-    use rskit_errors::AppResult;
     use toven_model::{DepKind, EcosystemId, Edge, Graph, Module, ModuleKey, RepoPath};
-    use toven_ports::SourceDigest;
+    use toven_testkit::FakeSourceDigest;
 
     use super::{KeyInputs, SourceHashes, forward_adjacency, unit_key};
-
-    struct NoFileDigest;
-    impl SourceDigest for NoFileDigest {
-        fn module(&self, _module: &Module) -> AppResult<String> {
-            Ok(String::new())
-        }
-        fn path(&self, _repo_relative: &Path) -> AppResult<String> {
-            Ok(String::new())
-        }
-    }
-
-    /// A shared-input digest that maps known paths to a scripted hash and, like
-    /// [`FsSourceDigest`](crate::plan::source::FsSourceDigest), hashes an absent
-    /// path to the empty digest.
-    struct MapDigest {
-        paths: std::collections::BTreeMap<String, String>,
-    }
-
-    impl MapDigest {
-        fn new(entries: &[(&str, &str)]) -> Self {
-            Self {
-                paths: entries
-                    .iter()
-                    .map(|(path, hash)| ((*path).to_string(), (*hash).to_string()))
-                    .collect(),
-            }
-        }
-    }
-
-    impl SourceDigest for MapDigest {
-        fn module(&self, _module: &Module) -> AppResult<String> {
-            Ok(String::new())
-        }
-        fn path(&self, repo_relative: &Path) -> AppResult<String> {
-            let key = repo_relative.to_string_lossy();
-            Ok(self
-                .paths
-                .get(key.as_ref())
-                .cloned()
-                .unwrap_or_else(|| rskit_util::hash::ContentHasher::new().finalize_hex()))
-        }
-    }
 
     fn mkey(name: &str) -> ModuleKey {
         ModuleKey::bare(
@@ -251,7 +206,7 @@ mod tests {
             &inputs,
             &forward_adjacency(&graph()),
             &sources,
-            &NoFileDigest,
+            &FakeSourceDigest::new(),
         )
         .unwrap()
     }
@@ -267,9 +222,9 @@ mod tests {
     #[test]
     fn missing_shared_input_cannot_silently_produce_a_false_hit() {
         // The unit key folds every declared shared input as (path, digest). A
-        // missing input hashes to the empty digest while a present one hashes to
-        // its content, so the two states key apart — a vanished shared input can
-        // never alias a real one into a false cache hit.
+        // missing input hashes to the shared empty identity while a present one
+        // hashes to a distinct derived identity, so the two states key apart — a
+        // vanished shared input can never alias a real one into a false cache hit.
         let app = [mkey("app")];
         let mut sources = SourceHashes::new();
         sources.insert(mkey("app"), "app-1".to_string());
@@ -285,11 +240,11 @@ mod tests {
         };
         let adjacency = forward_adjacency(&graph());
 
-        let absent = MapDigest::new(&[]);
-        let present = MapDigest::new(&[("config/base.toml", "content-1")]);
+        let present = FakeSourceDigest::new();
+        let absent = FakeSourceDigest::new().with_absent_path("config/base.toml");
 
-        let key_absent = unit_key(&inputs, &adjacency, &sources, &absent).unwrap();
         let key_present = unit_key(&inputs, &adjacency, &sources, &present).unwrap();
+        let key_absent = unit_key(&inputs, &adjacency, &sources, &absent).unwrap();
 
         assert_ne!(
             key_absent, key_present,
