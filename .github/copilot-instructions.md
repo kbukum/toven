@@ -19,11 +19,7 @@ Apply this baseline to all work here:
 
 The authoritative, longer-form baseline lives in [`docs/engineering.md`](../docs/engineering.md).
 
-Standing, re-runnable development skills encoding this baseline live in
-[`.github/skills/`](skills/README.md) — the `review` skill runs the review passes in a fresh,
-clean-context agent after every change set and before releases; `create-branch`, `create-plan`,
-`apply-plan`, `apply-step`, `commit`, `create-pr`, `evaluate-reviews`, `validate`, `new-crate`, and
-`rskit-reuse` cover the rest of the workflow.
+Standing, re-runnable development skills encoding this baseline live in [`.github/skills/`](skills/README.md) — the `review` skill runs the review passes in a fresh, clean-context agent after every change set and before releases; `create-branch`, `create-plan`, `apply-plan`, `apply-step`, `commit`, `create-pr`, `evaluate-reviews`, `validate`, `new-crate`, and `rskit-reuse` cover the rest of the workflow.
 
 ## Build, test, and lint
 

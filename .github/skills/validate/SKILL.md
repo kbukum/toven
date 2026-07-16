@@ -10,7 +10,7 @@ user-invocable: true
 
 # Validating Toven changes with cargo/make
 
-Toven is one hexagonal Cargo workspace (`members = ["crates/*"]`, `exclude = ["rskit"]`) on top of the vendored `rskit/` submodule. The `Makefile` runs the canonical gates, but **its cargo-based gates (`lint`, `test`, `doc`, `coverage`) run `--workspace --all-features`** — so to stay scoped to a changed crate, drive `cargo` directly with `-p <crate>`. Always scope to what changed; the full-workspace gates are for audits and CI sign-off.
+Toven is one hexagonal Cargo workspace (`members = ["crates/*"]`, `exclude = ["rskit"]`) on top of the vendored `rskit/` submodule. The `Makefile` runs the canonical gates, but **they run against the whole workspace** (the cargo-based ones — `lint`, `test`, `doc` — with `--all-features`) — so to stay scoped to a changed crate, drive `cargo` directly with `-p <crate>`. Always scope to what changed; the full-workspace gates are for audits and CI sign-off.
 
 ## Prerequisite: initialize the submodule
 

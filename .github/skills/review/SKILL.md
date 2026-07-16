@@ -57,7 +57,7 @@ severity (blocker / should-fix / nit) — file:line — what's wrong — which p
 
 ## Validation commands
 
-**Scope to the touched crate(s)** — Toven's cargo-based `make` gates (`lint`, `test`, `doc`, `coverage`) run `--workspace --all-features`, so drive `cargo` directly with `-p <crate>` to stay scoped:
+**Scope to the touched crate(s)** — Toven's `make` gates run against the whole workspace (the cargo-based ones — `lint`, `test`, `doc` — with `--all-features`), so drive `cargo` directly with `-p <crate>` to stay scoped:
 
 ```bash
 git submodule update --init --recursive                # if not already
