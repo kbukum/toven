@@ -508,8 +508,8 @@ pub enum ReleaseAction {
     /// publishing to the registry.
     Tag,
     /// Run the full release pipeline (commit, tag, push, publish); `--dry-run`
-    /// rehearses the publish order and per-module skip/would-publish verdicts
-    /// without mutating anything.
+    /// rehearses the publish order and per-module would-publish/already-published
+    /// verdicts without mutating anything.
     Publish,
 }
 
@@ -629,7 +629,8 @@ impl Cli {
 /// Returns a typed usage error naming the misused flag and the verb it belongs
 /// to.
 pub fn gate(cli: &Cli) -> AppResult<()> {
-    let verb = verb_name(&cli.command);
+    let verb_owned = verb_name(&cli.command);
+    let verb = verb_owned.as_str();
     let mutating_release = release_action(&cli.command).is_some_and(ReleaseAction::is_mutating);
     let is_init = matches!(cli.command, Command::Init);
     let is_graph = matches!(cli.command, Command::Graph);
@@ -1043,23 +1044,25 @@ pub(crate) fn refresh_no_cache_conflict() -> AppError {
     )
 }
 
-/// The user-facing name of the dispatched verb (for error messages).
-fn verb_name(command: &Command) -> &str {
+/// The user-facing name of the dispatched verb (for error messages). Release
+/// actions include the action so a gating error names the exact subcommand
+/// (`release status`) rather than the bare `release`.
+fn verb_name(command: &Command) -> String {
     match command {
-        Command::Run { .. } => "run",
-        Command::Plan { .. } => "plan",
-        Command::Release { .. } => "release",
-        Command::Explain { .. } => "explain",
-        Command::Init => "init",
-        Command::Affected { .. } => "affected",
-        Command::Modules => "modules",
-        Command::Graph => "graph",
-        Command::Tasks { .. } => "tasks",
-        Command::Completions { .. } => "completions",
-        Command::Driver { .. } => "driver",
-        Command::Federation { .. } => "federation",
-        Command::Cache { .. } => "cache",
-        Command::External(tokens) => tokens.first().map_or("<task>", String::as_str),
+        Command::Run { .. } => "run".to_string(),
+        Command::Plan { .. } => "plan".to_string(),
+        Command::Release { action } => format!("release {}", action.as_str()),
+        Command::Explain { .. } => "explain".to_string(),
+        Command::Init => "init".to_string(),
+        Command::Affected { .. } => "affected".to_string(),
+        Command::Modules => "modules".to_string(),
+        Command::Graph => "graph".to_string(),
+        Command::Tasks { .. } => "tasks".to_string(),
+        Command::Completions { .. } => "completions".to_string(),
+        Command::Driver { .. } => "driver".to_string(),
+        Command::Federation { .. } => "federation".to_string(),
+        Command::Cache { .. } => "cache".to_string(),
+        Command::External(tokens) => tokens.first().map_or("<task>", String::as_str).to_string(),
     }
 }
 

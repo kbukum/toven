@@ -26,7 +26,7 @@ toven release plan --output jsonl
 
 ### `toven release status`
 
-Shows each releasable module's declared version against what the registry already reports as published and the newest release tag cut for it. Registry lookups are best-effort, so a partial published set still yields a status.
+Shows each releasable module's declared version, whether that version is already published, and the newest release tag cut for it. The default human table carries a yes/no `Published` column; `--output jsonl` additionally lists the full set of versions the registry reports. Registry lookups are best-effort, so a partial published set still yields a status.
 
 ```bash
 toven release status

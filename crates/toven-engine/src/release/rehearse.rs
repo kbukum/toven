@@ -1,9 +1,10 @@
 //! Read-only rehearsal of the release publish loop.
 //!
-//! Resolves the same release plan a real run would, then classifies each
-//! publish-needed module against the registry's reported versions — reporting
-//! the deterministic publish order and per-module would-publish/skip verdicts
-//! without applying any mutation, cutting any tag, or invoking any publish.
+//! Resolves the same release plan a real run would, then classifies every
+//! planned release against the registry's reported versions — reporting the
+//! deterministic publish order and a per-module would-publish/already-published
+//! verdict without applying any mutation, cutting any tag, or invoking any
+//! publish.
 
 use rskit_errors::AppResult;
 use toven_ports::{Provider, Reporter};
@@ -46,11 +47,11 @@ pub fn release_rehearse(
     Ok(rehearse_plan(&plan))
 }
 
-/// Classify every released module (one with a planned version) against the
+/// Classify every planned release (an entry with a planned version) against the
 /// plan's publish verdict, preserving the plan's deterministic publish order.
 ///
-/// A `publish_needed` entry would be published; one the planner already found on
-/// the registry would be skipped.
+/// A `publish_needed` entry is classified `would-publish`; one the planner
+/// already found on the registry is classified `already-published`.
 fn rehearse_plan(plan: &ReleasePlan) -> ReleaseRehearsal {
     let verdicts = plan
         .entries

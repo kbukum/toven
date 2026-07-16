@@ -6,7 +6,7 @@
 //! ([`release_run`]): `tag` stops after the release commit/tag/push, `publish`
 //! continues to the registry. `publish` under `--dry-run` instead runs a
 //! no-mutation rehearsal ([`release_rehearse`]) that reports the resolved publish
-//! order and per-module skip/would-publish verdicts. Libraries return typed data;
+//! order and per-module would-publish/already-published verdicts. Libraries return typed data;
 //! this CLI layer is the only one that prints, following the introspection stream
 //! convention (projection on stdout, warnings/summaries on stderr).
 

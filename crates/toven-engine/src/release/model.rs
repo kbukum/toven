@@ -170,8 +170,8 @@ impl ReleaseStatus {
     }
 }
 
-/// The rehearsal verdict for one publish-needed module: what a real publish loop
-/// would do, decided without any registry mutation.
+/// The rehearsal verdict for one planned release: what a real publish loop would
+/// do, decided without any registry mutation.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum PublishDecision {
@@ -192,14 +192,16 @@ impl PublishDecision {
     }
 }
 
-/// One module's place in the rehearsed publish order and its skip/publish verdict.
+/// One planned release's place in the rehearsed publish order and its
+/// would-publish/already-published verdict.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RehearsalVerdict {
     /// Module being rehearsed.
     pub module: ModuleKey,
     /// Version that would be published.
     pub version: Version,
-    /// Whether a real run would publish or skip this version.
+    /// Whether a real run would publish this version or find it already
+    /// published.
     pub decision: PublishDecision,
 }
 
