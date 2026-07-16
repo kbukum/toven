@@ -180,17 +180,9 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
             let project = load(providers, cli, true)?;
             plan_command(providers, cli, &project, task)
         }
-        Command::Release => {
+        Command::Release { action } => {
             let project = load(providers, cli, false)?;
-            let report = resolve_report(cli, &project);
-            commands::run::release(
-                providers,
-                &project,
-                report,
-                cli.allow_dirty,
-                cli.no_push,
-                cli.is_plan_only(),
-            )
+            commands::release::execute(providers, &project, cli, *action)
         }
         Command::Explain { task } => {
             let project = load(providers, cli, false)?;

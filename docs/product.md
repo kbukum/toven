@@ -70,6 +70,8 @@ A `toven.toml` can describe one repository or an umbrella that federates several
 | `toven explain <task>` | Show the planned unit(s): argv, dependencies, persistence (filter with `--module`). |
 | `toven modules` | List discovered modules. |
 | `toven graph` | Show the dependency graph. |
+| `toven release plan` / `status` | Project the release cut or per-module publish/tag state (read-only). |
+| `toven release tag` / `publish` | Cut the release (commit/tag/push) or run the full pipeline through publish (`publish` rehearses under `--dry-run`). |
 | `toven cache stats` / `clean` / `path` | Inspect and manage the local cache. |
 
 See the [command reference](commands/README.md) for full flag detail.

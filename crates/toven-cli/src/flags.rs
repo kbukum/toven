@@ -425,8 +425,12 @@ pub enum Command {
         /// Task to plan.
         task: String,
     },
-    /// Plan and publish a release.
-    Release,
+    /// Plan, inspect, and publish a release through its lifecycle actions.
+    Release {
+        /// Release lifecycle action.
+        #[command(subcommand)]
+        action: ReleaseAction,
+    },
     /// Explain the PLAN cut for a task, optionally filtered to a `--module`
     /// selection.
     #[command(after_long_help = EXPLAIN_EXAMPLES)]
@@ -484,6 +488,64 @@ pub enum Command {
     External(Vec<String>),
 }
 
+/// `toven release <action>`.
+///
+/// A reviewable release lifecycle: read-only projections (`plan`, `status`) that
+/// never mutate, and mutating actions (`tag`, `publish`) that run the release
+/// pipeline. `tag` stops after the release commit/tag/push; `publish` continues
+/// to the registry. `--dry-run` turns `publish` into a no-mutation rehearsal that
+/// reports the resolved publish order and per-module verdicts.
+#[derive(Debug, Clone, Copy, Subcommand)]
+#[non_exhaustive]
+pub enum ReleaseAction {
+    /// Show the release PLAN cut — bumped versions, changelog, and publish order
+    /// — without mutating anything.
+    Plan,
+    /// Show each module's declared version versus what is published and tagged
+    /// (read-only).
+    Status,
+    /// Cut the release: bump manifests, commit, tag, and push — without
+    /// publishing to the registry.
+    Tag,
+    /// Run the full release pipeline (commit, tag, push, publish); `--dry-run`
+    /// rehearses the publish order and per-module would-publish/already-published
+    /// verdicts without mutating anything.
+    Publish,
+}
+
+impl ReleaseAction {
+    /// The action's canonical name (for error messages and help).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Plan => "plan",
+            Self::Status => "status",
+            Self::Tag => "tag",
+            Self::Publish => "publish",
+        }
+    }
+
+    /// Whether the action mutates history/registry (accepts `--allow-dirty` /
+    /// `--no-push`).
+    #[must_use]
+    pub const fn is_mutating(self) -> bool {
+        matches!(self, Self::Tag | Self::Publish)
+    }
+
+    /// Whether the action is a read-only PLAN projection (`plan` / `status`).
+    #[must_use]
+    pub const fn is_projection(self) -> bool {
+        matches!(self, Self::Plan | Self::Status)
+    }
+
+    /// Whether `--dry-run` is meaningful for the action: `plan` (already a
+    /// projection) and the rehearsable `publish` pipeline.
+    #[must_use]
+    pub const fn accepts_dry_run(self) -> bool {
+        matches!(self, Self::Plan | Self::Publish)
+    }
+}
+
 /// `toven driver <action>`.
 #[derive(Debug, Subcommand)]
 #[non_exhaustive]
@@ -526,7 +588,13 @@ impl Cli {
     /// introspection verb that is a projection over the PLAN cut by definition.
     #[must_use]
     pub const fn is_plan_only(&self) -> bool {
-        self.dry_run || self.explain
+        if self.dry_run || self.explain {
+            return true;
+        }
+        matches!(
+            self.command,
+            Command::Release { action } if action.is_projection()
+        )
     }
 
     /// The reporter verbosity selected by the global `-v`/`-q` counts.
@@ -561,16 +629,24 @@ impl Cli {
 /// Returns a typed usage error naming the misused flag and the verb it belongs
 /// to.
 pub fn gate(cli: &Cli) -> AppResult<()> {
-    let verb = verb_name(&cli.command);
-    let is_release = matches!(cli.command, Command::Release);
+    let verb_owned = verb_name(&cli.command);
+    let verb = verb_owned.as_str();
+    let mutating_release = release_action(&cli.command).is_some_and(ReleaseAction::is_mutating);
     let is_init = matches!(cli.command, Command::Init);
     let is_graph = matches!(cli.command, Command::Graph);
 
-    if cli.allow_dirty && !is_release {
-        return Err(only_applies("--allow-dirty", "toven release", verb));
+    // `--allow-dirty`/`--no-push` bypass a release guardrail, so they belong only
+    // to the mutating release actions; the read-only projections (`release plan`/
+    // `release status`) never touch history, and no other verb releases at all.
+    if cli.allow_dirty && !mutating_release {
+        return Err(only_applies(
+            "--allow-dirty",
+            "toven release tag/publish",
+            verb,
+        ));
     }
-    if cli.no_push && !is_release {
-        return Err(only_applies("--no-push", "toven release", verb));
+    if cli.no_push && !mutating_release {
+        return Err(only_applies("--no-push", "toven release tag/publish", verb));
     }
     gate_init_flags(cli, verb, is_init)?;
     if cli.format.is_some() && !is_graph {
@@ -591,25 +667,37 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
             verb,
         ));
     }
-    if (cli.dry_run || cli.explain) && !accepts_execution_flags(&cli.command) {
+    // `--dry-run` is a PLAN cut for task verbs and a no-mutation rehearsal for
+    // `release publish` (and a no-op on the already-dry `release plan`);
+    // `--explain` adds task-planning reasoning detail. Neither has meaning on the
+    // introspection/maintenance verbs, and `--dry-run` is a no-op on the mutating
+    // `release tag` and read-only `release status`, so reject it there.
+    if cli.dry_run && !accepts_dry_run(&cli.command) {
         return Err(AppError::invalid_input(
             "flags",
-            format!("execution flags (--dry-run/--explain) do not apply to `toven {verb}`"),
+            format!("`--dry-run` does not apply to `toven {verb}`"),
         ));
     }
-    // `--output` selects the event-sink/projection format; the execution verbs
-    // and the `tasks` discovery verb render a chooseable projection, but the
-    // other introspection/maintenance verbs print their own fixed rendering.
+    if cli.explain && !accepts_explain(&cli.command) {
+        return Err(AppError::invalid_input(
+            "flags",
+            format!("`--explain` does not apply to `toven {verb}`"),
+        ));
+    }
+    // `--output` selects the event-sink/projection format; the execution verbs,
+    // the release lifecycle actions, and the `tasks`/`modules` listings render a
+    // chooseable projection, but the other verbs print their own fixed rendering.
     if cli.output.is_some() && !accepts_output_format(&cli.command) {
         return Err(AppError::invalid_input(
             "flags",
             format!("`--output` does not apply to `toven {verb}`"),
         ));
     }
-    // `-v`/`-q` only shape the human reporter, which only the execution verbs
-    // build; the introspection/maintenance verbs render their own projection and
-    // would silently ignore the flag, so reject it rather than advertise a no-op.
-    if (cli.verbose > 0 || cli.quiet > 0) && !accepts_execution_flags(&cli.command) {
+    // `-v`/`-q` only shape the human run reporter, which the execution verbs and
+    // the mutating release actions build; the introspection/maintenance verbs and
+    // the read-only release projections render their own projection and would
+    // silently ignore the flag, so reject it rather than advertise a no-op.
+    if (cli.verbose > 0 || cli.quiet > 0) && !accepts_reporter_shaping(&cli.command) {
         return Err(AppError::invalid_input(
             "flags",
             format!(
@@ -617,10 +705,10 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
             ),
         ));
     }
-    // `--color` shapes the same human reporter as `-v`/`-q`; only the execution
-    // verbs build it. An explicit `--color` on an introspection/maintenance verb
-    // would be a silent no-op, so reject it rather than advertise one.
-    if cli.color.is_some() && !accepts_execution_flags(&cli.command) {
+    // `--color` shapes the same human reporter as `-v`/`-q`; only the verbs that
+    // build it consume it. An explicit `--color` elsewhere would be a silent
+    // no-op, so reject it rather than advertise one.
+    if cli.color.is_some() && !accepts_reporter_shaping(&cli.command) {
         return Err(AppError::invalid_input(
             "flags",
             format!("`--color` does not apply to `toven {verb}`"),
@@ -839,19 +927,56 @@ const fn accepts_watch(command: &Command) -> bool {
     matches!(command, Command::Run { .. } | Command::External(_))
 }
 
-/// Whether `command` is an execution verb that accepts reporter-shaping flags
-/// (`--dry-run`/`--explain` and the `-v`/`-q` verbosity counts).
-const fn accepts_execution_flags(command: &Command) -> bool {
+/// The release lifecycle action `command` carries, if it is `toven release`.
+const fn release_action(command: &Command) -> Option<ReleaseAction> {
+    match command {
+        Command::Release { action } => Some(*action),
+        _ => None,
+    }
+}
+
+/// Whether `--dry-run` is meaningful for `command`: a PLAN cut for the task
+/// verbs and a no-mutation rehearsal for the rehearsable release actions.
+const fn accepts_dry_run(command: &Command) -> bool {
+    match command {
+        Command::Run { .. } | Command::Plan { .. } | Command::External(_) => true,
+        Command::Release { action } => action.accepts_dry_run(),
+        _ => false,
+    }
+}
+
+/// Whether `--explain` (task-planning reasoning detail) is meaningful for
+/// `command`; only the task-planning verbs surface it.
+const fn accepts_explain(command: &Command) -> bool {
     matches!(
         command,
-        Command::Run { .. } | Command::Plan { .. } | Command::Release | Command::External(_)
+        Command::Run { .. } | Command::Plan { .. } | Command::External(_)
     )
 }
 
+/// Whether `command` builds the human run reporter that `-v`/`-q`/`--color`
+/// shape: the execution verbs and the mutating release actions.
+const fn accepts_reporter_shaping(command: &Command) -> bool {
+    match command {
+        Command::Run { .. } | Command::Plan { .. } | Command::External(_) => true,
+        Command::Release { action } => action.is_mutating(),
+        _ => false,
+    }
+}
+
 /// Whether `command` renders a projection whose format `--output` selects: the
-/// execution verbs, the `tasks` discovery verb, and the `modules` listing.
+/// execution verbs, every release lifecycle action, and the `tasks`/`modules`
+/// listings.
 const fn accepts_output_format(command: &Command) -> bool {
-    accepts_execution_flags(command) || matches!(command, Command::Tasks { .. } | Command::Modules)
+    matches!(
+        command,
+        Command::Run { .. }
+            | Command::Plan { .. }
+            | Command::External(_)
+            | Command::Release { .. }
+            | Command::Tasks { .. }
+            | Command::Modules
+    )
 }
 
 /// Whether `command` is a task-APPLY verb that consumes `--fail-fast`.
@@ -919,29 +1044,31 @@ pub(crate) fn refresh_no_cache_conflict() -> AppError {
     )
 }
 
-/// The user-facing name of the dispatched verb (for error messages).
-fn verb_name(command: &Command) -> &str {
+/// The user-facing name of the dispatched verb (for error messages). Release
+/// actions include the action so a gating error names the exact subcommand
+/// (`release status`) rather than the bare `release`.
+fn verb_name(command: &Command) -> String {
     match command {
-        Command::Run { .. } => "run",
-        Command::Plan { .. } => "plan",
-        Command::Release => "release",
-        Command::Explain { .. } => "explain",
-        Command::Init => "init",
-        Command::Affected { .. } => "affected",
-        Command::Modules => "modules",
-        Command::Graph => "graph",
-        Command::Tasks { .. } => "tasks",
-        Command::Completions { .. } => "completions",
-        Command::Driver { .. } => "driver",
-        Command::Federation { .. } => "federation",
-        Command::Cache { .. } => "cache",
-        Command::External(tokens) => tokens.first().map_or("<task>", String::as_str),
+        Command::Run { .. } => "run".to_string(),
+        Command::Plan { .. } => "plan".to_string(),
+        Command::Release { action } => format!("release {}", action.as_str()),
+        Command::Explain { .. } => "explain".to_string(),
+        Command::Init => "init".to_string(),
+        Command::Affected { .. } => "affected".to_string(),
+        Command::Modules => "modules".to_string(),
+        Command::Graph => "graph".to_string(),
+        Command::Tasks { .. } => "tasks".to_string(),
+        Command::Completions { .. } => "completions".to_string(),
+        Command::Driver { .. } => "driver".to_string(),
+        Command::Federation { .. } => "federation".to_string(),
+        Command::Cache { .. } => "cache".to_string(),
+        Command::External(tokens) => tokens.first().map_or("<task>", String::as_str).to_string(),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Command};
+    use super::{Cli, Command, ReleaseAction};
     use clap::Parser;
 
     fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
@@ -1039,7 +1166,7 @@ mod tests {
         for args in [
             ["--color", "always", "run", "test"].as_slice(),
             ["--color", "never", "plan", "test"].as_slice(),
-            ["--color", "auto", "release"].as_slice(),
+            ["--color", "auto", "release", "publish"].as_slice(),
             ["--color", "always", "test"].as_slice(),
         ] {
             let cli = parse(args).expect("parses");
@@ -1100,8 +1227,110 @@ mod tests {
 
     #[test]
     fn release_accepts_its_own_flags() {
-        let cli = parse(&["--allow-dirty", "--no-push", "release"]).expect("parses");
+        let cli = parse(&["--allow-dirty", "--no-push", "release", "publish"]).expect("parses");
         assert!(super::gate(&cli).is_ok());
+    }
+
+    #[test]
+    fn release_requires_a_lifecycle_action() {
+        assert!(parse(&["release"]).is_err());
+    }
+
+    #[test]
+    fn release_actions_parse_to_their_variants() {
+        for (arg, want) in [
+            ("plan", ReleaseAction::Plan),
+            ("status", ReleaseAction::Status),
+            ("tag", ReleaseAction::Tag),
+            ("publish", ReleaseAction::Publish),
+        ] {
+            let cli = parse(&["release", arg]).expect("parses");
+            match cli.command {
+                Command::Release { action } => {
+                    assert_eq!(action.as_str(), want.as_str(), "{arg}");
+                }
+                other => panic!("expected release, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn release_projections_are_plan_only() {
+        assert!(parse(&["release", "plan"]).unwrap().is_plan_only());
+        assert!(parse(&["release", "status"]).unwrap().is_plan_only());
+        assert!(!parse(&["release", "publish"]).unwrap().is_plan_only());
+    }
+
+    #[test]
+    fn dirty_and_no_push_only_on_mutating_release_actions() {
+        for action in ["tag", "publish"] {
+            let cli = parse(&["--allow-dirty", "--no-push", "release", action]).expect("parses");
+            assert!(super::gate(&cli).is_ok(), "{action}");
+        }
+        for action in ["plan", "status"] {
+            let dirty = parse(&["--allow-dirty", "release", action]).expect("parses");
+            assert!(super::gate(&dirty).is_err(), "allow-dirty {action}");
+            let no_push = parse(&["--no-push", "release", action]).expect("parses");
+            assert!(super::gate(&no_push).is_err(), "no-push {action}");
+        }
+    }
+
+    #[test]
+    fn dry_run_only_on_rehearsable_release_actions() {
+        for action in ["plan", "publish"] {
+            let cli = parse(&["--dry-run", "release", action]).expect("parses");
+            assert!(super::gate(&cli).is_ok(), "{action}");
+        }
+        for action in ["status", "tag"] {
+            let cli = parse(&["--dry-run", "release", action]).expect("parses");
+            assert!(super::gate(&cli).is_err(), "{action}");
+        }
+    }
+
+    #[test]
+    fn explain_rejected_on_every_release_action() {
+        for action in ["plan", "status", "tag", "publish"] {
+            let cli = parse(&["--explain", "release", action]).expect("parses");
+            assert!(super::gate(&cli).is_err(), "{action}");
+        }
+    }
+
+    #[test]
+    fn reporter_shaping_only_on_mutating_release_actions() {
+        for action in ["tag", "publish"] {
+            let cli = parse(&["--verbose", "release", action]).expect("parses");
+            assert!(super::gate(&cli).is_ok(), "{action}");
+            let colored = parse(&["--color", "auto", "release", action]).expect("parses");
+            assert!(super::gate(&colored).is_ok(), "color {action}");
+        }
+        for action in ["plan", "status"] {
+            let cli = parse(&["--verbose", "release", action]).expect("parses");
+            assert!(super::gate(&cli).is_err(), "{action}");
+            let colored = parse(&["--color", "auto", "release", action]).expect("parses");
+            assert!(super::gate(&colored).is_err(), "color {action}");
+        }
+    }
+
+    #[test]
+    fn output_format_accepted_on_every_release_action() {
+        for action in ["plan", "status", "tag", "publish"] {
+            let cli = parse(&["--output", "jsonl", "release", action]).expect("parses");
+            assert!(super::gate(&cli).is_ok(), "{action}");
+        }
+    }
+
+    #[test]
+    fn release_action_classification() {
+        assert!(ReleaseAction::Plan.is_projection());
+        assert!(ReleaseAction::Status.is_projection());
+        assert!(!ReleaseAction::Tag.is_projection());
+        assert!(ReleaseAction::Tag.is_mutating());
+        assert!(ReleaseAction::Publish.is_mutating());
+        assert!(!ReleaseAction::Plan.is_mutating());
+        assert!(ReleaseAction::Plan.accepts_dry_run());
+        assert!(ReleaseAction::Publish.accepts_dry_run());
+        assert!(!ReleaseAction::Status.accepts_dry_run());
+        assert!(!ReleaseAction::Tag.accepts_dry_run());
     }
 
     #[test]
@@ -1146,7 +1375,7 @@ mod tests {
             assert!(super::gate(&parse(args).unwrap()).is_ok(), "{args:?}");
         }
         for args in [
-            ["--no-cache", "release"].as_slice(),
+            ["--no-cache", "release", "publish"].as_slice(),
             ["--no-cache", "affected", "test"].as_slice(),
             ["--no-cache", "modules"].as_slice(),
         ] {
@@ -1168,7 +1397,7 @@ mod tests {
             assert!(super::gate(&parse(args).unwrap()).is_ok(), "{args:?}");
         }
         for args in [
-            ["--refresh", "release"].as_slice(),
+            ["--refresh", "release", "publish"].as_slice(),
             ["--refresh", "affected", "test"].as_slice(),
             ["--refresh", "modules"].as_slice(),
         ] {
@@ -1193,7 +1422,7 @@ mod tests {
         // units, so the bound is a no-op and is rejected.
         for args in [
             ["--timeout", "5s", "plan", "test"].as_slice(),
-            ["--timeout", "5s", "release"].as_slice(),
+            ["--timeout", "5s", "release", "publish"].as_slice(),
             ["--timeout", "5s", "affected", "test"].as_slice(),
         ] {
             assert!(super::gate(&parse(args).unwrap()).is_err(), "{args:?}");
@@ -1217,7 +1446,7 @@ mod tests {
         for args in [
             ["--watch", "plan", "test"].as_slice(),
             ["--watch", "affected", "test"].as_slice(),
-            ["--watch", "release"].as_slice(),
+            ["--watch", "release", "publish"].as_slice(),
             ["--watch", "graph"].as_slice(),
         ] {
             assert!(super::gate(&parse(args).unwrap()).is_err(), "{args:?}");
@@ -1284,7 +1513,7 @@ mod tests {
         for args in [
             ["--dry-run", "run", "test"].as_slice(),
             ["--explain", "plan", "test"].as_slice(),
-            ["--output", "jsonl", "release"].as_slice(),
+            ["--output", "jsonl", "release", "plan"].as_slice(),
             ["--fail-fast", "test"].as_slice(),
         ] {
             let cli = parse(args).expect("parses");
@@ -1304,7 +1533,7 @@ mod tests {
         // (PLAN-only) and `release` (single linear pipeline) and rejected there.
         for args in [
             ["--fail-fast", "plan", "test"].as_slice(),
-            ["--fail-fast", "release"].as_slice(),
+            ["--fail-fast", "release", "publish"].as_slice(),
         ] {
             let cli = parse(args).expect("parses");
             assert!(super::gate(&cli).is_err(), "{args:?}");
@@ -1342,7 +1571,7 @@ mod tests {
         for args in [
             ["-v", "run", "test"].as_slice(),
             ["-q", "plan", "test"].as_slice(),
-            ["--verbose", "release"].as_slice(),
+            ["--verbose", "release", "publish"].as_slice(),
             ["-vv", "test"].as_slice(),
         ] {
             let cli = parse(args).expect("parses");
@@ -1366,7 +1595,7 @@ mod tests {
     #[test]
     fn baseline_flags_rejected_on_other_verbs() {
         for args in [
-            ["--base", "origin/main", "release"].as_slice(),
+            ["--base", "origin/main", "release", "publish"].as_slice(),
             ["--merge-base", "modules"].as_slice(),
             ["--base", "origin/main", "graph"].as_slice(),
             ["--merge-base", "explain", "test"].as_slice(),

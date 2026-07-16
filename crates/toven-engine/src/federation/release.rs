@@ -99,9 +99,6 @@ pub fn release_apply_by_member(
         .collect();
     let shards = shard_plan(plan, modules)?;
     guard_member_trees(&shards, repos, options)?;
-    if options.dry_run {
-        return Ok(stats);
-    }
 
     let mut prepared = Vec::with_capacity(shards.len());
     for shard in &shards {

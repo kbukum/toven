@@ -14,6 +14,7 @@ pub(crate) mod completions;
 pub(crate) mod driver;
 pub(crate) mod init;
 pub(crate) mod introspect;
+pub(crate) mod release;
 pub(crate) mod run;
 pub(crate) mod selection;
 pub(crate) mod tasks;
