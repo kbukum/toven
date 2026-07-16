@@ -111,11 +111,12 @@ pub(crate) fn release_targets(context: &PlanContext) -> AppResult<super::Release
 /// Fold each **releaseable** module's ecosystem-default and per-module release
 /// override into its [`ResolvedReleaseSettings`].
 ///
-/// Only modules with a release target participate: a non-publishable module
-/// (e.g. `publish = false`) never joins a release plan, so its config must not
-/// force a plan-wide strategy conflict. The ecosystem-level release config is
-/// validated once per configured adapter; the per-module override (validated
-/// structurally at load) is folded on top with the documented precedence
+/// Only modules whose `(member, ecosystem)` has a release target participate:
+/// an ecosystem/member with no release target (e.g. a non-publishable adapter)
+/// never joins a release plan, so its config must not force a plan-wide strategy
+/// conflict. The ecosystem-level release config is validated once per configured
+/// adapter; the per-module override (validated structurally at load) is folded on
+/// top with the documented precedence
 /// (`[modules.<name>.release]` > `[ecosystems.<id>].release` > adapter default).
 ///
 /// # Errors

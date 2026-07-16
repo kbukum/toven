@@ -2,6 +2,8 @@
 
 Toven's release behavior is declarative. You own it through the `[…release]` config block, so a release runs *your* way — bump defaults, prerelease channels, tag/commit templates, changelog, push/branch gating, registry, signing, and hooks — without a per-run flag for every choice.
 
+> **Status:** the full block is parsed, validated, and resolved with the precedence below, but only the bump **strategy** is consumed by the release engine today. The remaining fields are schema-and-resolution only for now and are wired into the pipeline in later work.
+
 The same block is available at two levels:
 
 - `[ecosystems.<id>.release]` — the ecosystem-wide default for every module in that ecosystem.

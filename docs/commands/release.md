@@ -11,7 +11,7 @@ toven release publish    # run the full pipeline through publish (--dry-run rehe
 
 An action is required; `toven release` alone is a usage error.
 
-Release behavior is declarative: bump defaults, prerelease channels, tag/commit templates, changelog, push/branch gating, registry, signing, and hooks are owned through the `[…release]` config block, per ecosystem and per module. See [release configuration](../config/release.md) for every field, its default, the per-module override, and precedence.
+Release behavior is declarative: bump defaults, prerelease channels, tag/commit templates, changelog, push/branch gating, registry, signing, and hooks are owned through the `[…release]` config block, per ecosystem and per module. The full block is parsed, validated, and resolved with documented precedence, but only the bump strategy is consumed by the release engine today; the remaining fields are schema-and-resolution only for now. See [release configuration](../config/release.md) for every field, its default, the per-module override, and precedence.
 
 ## Read-only projections
 
