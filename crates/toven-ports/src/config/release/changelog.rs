@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ChangelogConfig {
-    /// Workspace-relative changelog path; `None` uses the adapter default.
+    /// Workspace-relative changelog path; `None` resolves to `CHANGELOG.md`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     /// Whether a changelog entry is required for a changed module.

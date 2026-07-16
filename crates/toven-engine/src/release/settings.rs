@@ -16,6 +16,8 @@ use super::{ReleaseStrategyName, strategy};
 const DEFAULT_TAG_FORMAT: &str = "v{version}";
 /// Default git remote when none is configured.
 const DEFAULT_REMOTE: &str = "origin";
+/// Default workspace-relative changelog path when none is configured.
+const DEFAULT_CHANGELOG_PATH: &str = "CHANGELOG.md";
 
 /// The fully-resolved, defaults-applied release settings for one module.
 ///
@@ -40,7 +42,7 @@ pub struct ResolvedReleaseSettings {
     pub tag_message: Option<String>,
     /// Release commit message template; `None` = adapter default.
     pub commit_message: Option<String>,
-    /// Changelog generation settings.
+    /// Changelog generation settings; `path` is defaulted to `CHANGELOG.md`.
     pub changelog: ChangelogConfig,
     /// Whether the release commit/tags are pushed.
     pub push: bool,
@@ -75,8 +77,7 @@ impl ResolvedReleaseSettings {
     }
 
     /// Apply defaults and resolve the strategy over an already-merged config.
-    fn from_merged(config: &ReleaseConfig) -> AppResult<Self> {
-        Ok(Self {
+    fn from_merged(config: &ReleaseConfig) -> AppResult<Self> {        Ok(Self {
             strategy: strategy::resolve(config.strategy.as_deref())?,
             level: config.level.unwrap_or(BumpLevel::Auto),
             dependent_version: config.dependent_version.unwrap_or(DependentVersion::Bump),
@@ -87,7 +88,7 @@ impl ResolvedReleaseSettings {
                 .unwrap_or_else(|| DEFAULT_TAG_FORMAT.to_string()),
             tag_message: config.tag_message.clone(),
             commit_message: config.commit_message.clone(),
-            changelog: config.changelog.clone().unwrap_or_default(),
+            changelog: resolve_changelog(config.changelog.clone().unwrap_or_default()),
             push: config.push.unwrap_or(true),
             remote: config
                 .remote
@@ -102,6 +103,14 @@ impl ResolvedReleaseSettings {
             hooks: config.hooks.clone().unwrap_or_default(),
         })
     }
+}
+
+/// Apply the built-in `CHANGELOG.md` default to an unset changelog path.
+fn resolve_changelog(mut changelog: ChangelogConfig) -> ChangelogConfig {
+    if changelog.path.is_none() {
+        changelog.path = Some(DEFAULT_CHANGELOG_PATH.to_string());
+    }
+    changelog
 }
 
 #[cfg(test)]
@@ -119,6 +128,7 @@ mod tests {
         assert!(resolved.push);
         assert_eq!(resolved.remote, "origin");
         assert!(!resolved.offline);
+        assert_eq!(resolved.changelog.path.as_deref(), Some("CHANGELOG.md"));
     }
 
     #[test]
