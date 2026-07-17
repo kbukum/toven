@@ -42,6 +42,9 @@ impl ReleaseTarget for FakeReleaseTarget {
     fn published_versions(&self, _module: &Module) -> AppResult<Vec<Version>> {
         Ok(Vec::new())
     }
+    fn tag_scheme(&self, _module: &Module, _tag_format: Option<&str>) -> AppResult<TagScheme> {
+        Ok(TagScheme::new("v", ""))
+    }
     fn package(&self, _module: &Module) -> AppResult<Artifact> {
         Ok(Artifact::new("dist/fake.crate"))
     }

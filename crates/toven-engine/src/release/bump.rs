@@ -132,6 +132,10 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
             up_to_date,
             mutation,
             publish_needed,
+            tag_format: input
+                .settings
+                .get(&reference)
+                .and_then(|resolved| resolved.tag_format.clone()),
             topo_rank: *ranks.get(&reference).unwrap_or(&usize::MAX),
             baseline: input.baselines.get(&reference).cloned(),
             changelog: input

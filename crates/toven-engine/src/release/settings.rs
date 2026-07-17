@@ -12,8 +12,6 @@ use toven_ports::{
 
 use super::{BumpPolicy, strategy};
 
-/// Default release tag template when none is configured (`v1.2.3`).
-const DEFAULT_TAG_FORMAT: &str = "v{version}";
 /// Default git remote when none is configured.
 const DEFAULT_REMOTE: &str = "origin";
 /// Default workspace-relative changelog path when none is configured.
@@ -36,8 +34,8 @@ pub struct ResolvedReleaseSettings {
     pub dependent_version: DependentVersion,
     /// Prerelease channels and the branch→channel mapping.
     pub prerelease: PrereleaseConfig,
-    /// Release tag name template.
-    pub tag_format: String,
+    /// Configured release tag name template; `None` = target default.
+    pub tag_format: Option<String>,
     /// Annotated-tag message template; `None` = a lightweight tag.
     pub tag_message: Option<String>,
     /// Release commit message template; `None` = adapter default.
@@ -84,10 +82,7 @@ impl ResolvedReleaseSettings {
             level: config.level.unwrap_or(BumpLevel::Auto),
             dependent_version: config.dependent_version.unwrap_or(DependentVersion::Bump),
             prerelease: config.prerelease.clone().unwrap_or_default(),
-            tag_format: config
-                .tag_format
-                .clone()
-                .unwrap_or_else(|| DEFAULT_TAG_FORMAT.to_string()),
+            tag_format: config.tag_format.clone(),
             tag_message: config.tag_message.clone(),
             commit_message: config.commit_message.clone(),
             changelog: resolve_changelog(config.changelog.clone().unwrap_or_default()),
@@ -126,7 +121,7 @@ mod tests {
         let resolved = ResolvedReleaseSettings::resolve(&ReleaseConfig::default(), None).unwrap();
         assert_eq!(resolved.policy, BumpPolicy::SemverCascade);
         assert_eq!(resolved.level, BumpLevel::Auto);
-        assert_eq!(resolved.tag_format, "v{version}");
+        assert_eq!(resolved.tag_format, None);
         assert!(resolved.push);
         assert_eq!(resolved.remote, "origin");
         assert!(!resolved.offline);

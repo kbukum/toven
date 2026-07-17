@@ -85,7 +85,7 @@ pub fn release_apply(
 
     // Commit boundary: if commit itself fails, no history was created yet, so the
     // pre-commit working tree mutations are still undoable.
-    let message = commit_message(plan);
+    let message = commit_message(plan, &module_by_ref, targets)?;
     let commit = match writer.commit(&message) {
         Ok(commit) => commit,
         Err(error) => return Err(restore_or_precommit_error(writer, "commit", error)),
@@ -94,13 +94,16 @@ pub fn release_apply(
     // Post-commit phase (no rollback): tag, optionally push, publish.
     for entry in &plan.entries {
         if let Some(version) = &entry.planned_version {
-            let name = tag::format(&entry.module.module, version);
+            let module = module_for(&module_by_ref, &entry.module)?;
+            let target = target_for(targets, module)?;
+            let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
+            let name = tag::format(&scheme, version);
             writer.create_tag(&name, commit.as_str(), Some(&message))?;
             stats.tagged_modules += 1;
         }
     }
     if options.push {
-        writer.push(&push_refspecs(plan))?;
+        writer.push(&push_refspecs(plan, &module_by_ref, targets)?)?;
     }
 
     if options.publish {
@@ -242,34 +245,40 @@ fn target_for<'a>(
 
 /// Build the single release commit message from the released module versions.
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) fn commit_message(plan: &ReleasePlan) -> String {
-    let released = plan
-        .entries
-        .iter()
-        .filter_map(|entry| {
-            entry
-                .planned_version
-                .as_ref()
-                .map(|version| tag::format(&entry.module.module, version))
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!("release: {released}")
+pub(crate) fn commit_message(
+    plan: &ReleasePlan,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+    targets: &super::ReleaseTargets,
+) -> AppResult<String> {
+    let mut released = Vec::new();
+    for entry in &plan.entries {
+        if let Some(version) = &entry.planned_version {
+            let module = module_for(module_by_ref, &entry.module)?;
+            let target = target_for(targets, module)?;
+            let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
+            released.push(tag::format(&scheme, version));
+        }
+    }
+    Ok(format!("release: {}", released.join(", ")))
 }
 
 /// Refspecs pushed after tagging: the release commit plus every release tag.
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) fn push_refspecs(plan: &ReleasePlan) -> Vec<String> {
+pub(crate) fn push_refspecs(
+    plan: &ReleasePlan,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+    targets: &super::ReleaseTargets,
+) -> AppResult<Vec<String>> {
     let mut refspecs = vec!["HEAD".to_string()];
     for entry in &plan.entries {
         if let Some(version) = &entry.planned_version {
-            refspecs.push(format!(
-                "refs/tags/{}",
-                tag::format(&entry.module.module, version)
-            ));
+            let module = module_for(module_by_ref, &entry.module)?;
+            let target = target_for(targets, module)?;
+            let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
+            refspecs.push(format!("refs/tags/{}", tag::format(&scheme, version)));
         }
     }
-    refspecs
+    Ok(refspecs)
 }
 
 #[cfg(test)]
@@ -278,7 +287,7 @@ mod tests {
     use rskit_errors::ErrorCode;
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleKey, ModuleRef, RepoPath};
-    use toven_ports::{ChangeRecord, ChangeStatus, PublishOutcome, ReleaseMutation};
+    use toven_ports::{ChangeRecord, ChangeStatus, PublishOutcome, ReleaseMutation, TagScheme};
     use toven_testkit::{FakeReleaseTarget, FakeVcsReader, FakeVcsWriter, ReleaseCall, VcsWrite};
 
     use super::{ReleaseApplyOptions, release_apply};
@@ -314,6 +323,7 @@ mod tests {
             up_to_date: false,
             mutation: ReleaseMutation::version(version),
             publish_needed,
+            tag_format: None,
             topo_rank: rank,
             baseline: None,
             changelog: ChangelogEntry::new(mkey(name), "changed", Vec::new()),
@@ -464,6 +474,65 @@ mod tests {
                 .iter()
                 .any(|c| matches!(c, ReleaseCall::Publish(_))),
             "tag-only run must not publish"
+        );
+    }
+
+    #[test]
+    fn mixed_ecosystem_umbrella_tags_each_member_with_its_own_scheme() {
+        // A Rust crate (crates.io tag grammar) and a Go module (path-based git
+        // tag grammar) release over the one topological order, each carrying its
+        // own target-owned tag scheme.
+        let go_ref = ModuleRef::new(EcosystemId::new("go").unwrap(), "cache-redis").unwrap();
+        let go_key = ModuleKey::bare(go_ref.clone());
+        let mut go_module = Module::new(go_ref, RepoPath::new("cache/redis").unwrap());
+        go_module.manifest = Some(RepoPath::new("cache/redis/go.mod").unwrap());
+        let mut go_entry = entry("core", Version::new(2, 0, 0), true, 1);
+        go_entry.module = go_key;
+
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", Version::new(0, 1, 1), true, 0), go_entry],
+        );
+
+        let go_target =
+            FakeReleaseTarget::new().with_tag_scheme(TagScheme::new("cache/redis/v", ""));
+        let mut map = super::super::ReleaseTargets::new();
+        map.insert(
+            (None, EcosystemId::new("rust").unwrap()),
+            Box::new(FakeReleaseTarget::new()),
+        );
+        map.insert((None, EcosystemId::new("go").unwrap()), Box::new(go_target));
+        let writer = FakeVcsWriter::new().with_commit_oid("c0ffee");
+
+        release_apply(
+            &plan,
+            &[module("core"), go_module],
+            &map,
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions {
+                publish: false,
+                ..Default::default()
+            },
+        )
+        .expect("mixed-ecosystem release apply");
+
+        let recorded = writer.writes();
+        assert_eq!(
+            recorded[0],
+            VcsWrite::Commit("release: rust/core@0.1.1, cache/redis/v2.0.0".into())
+        );
+        assert!(
+            recorded.iter().any(
+                |w| matches!(w, VcsWrite::CreateTag { name, .. } if name == "rust/core@0.1.1")
+            ),
+            "rust member keeps its crates.io tag grammar"
+        );
+        assert!(
+            recorded.iter().any(
+                |w| matches!(w, VcsWrite::CreateTag { name, .. } if name == "cache/redis/v2.0.0")
+            ),
+            "go member uses its path-based git tag grammar"
         );
     }
 

@@ -7,7 +7,7 @@ use rskit_errors::AppResult;
 use rskit_version::semver::Version;
 use toven_model::Module;
 
-use super::{Artifact, PublishOutcome, ReleaseMutation};
+use super::{Artifact, PublishOutcome, ReleaseMutation, TagScheme};
 
 /// The ~10% ecosystem-specific release surface.
 ///
@@ -15,7 +15,7 @@ use super::{Artifact, PublishOutcome, ReleaseMutation};
 /// can hand back a `Box<dyn ReleaseTarget>`. The engine owns change-detection,
 /// the bump plan, topo order, changelog, tagging, idempotency, and the retry
 /// loop; the port owns reading/writing the version, querying the registry,
-/// packaging, and one classified publish attempt.
+/// packaging, release-tag grammar, and one classified publish attempt.
 pub trait ReleaseTarget {
     /// Read the module's declared version from its manifest.
     fn declared_version(&self, module: &Module) -> AppResult<Version>;
@@ -30,6 +30,9 @@ pub trait ReleaseTarget {
     /// [`PublishOutcome::AlreadyPublished`](super::PublishOutcome::AlreadyPublished)
     /// as the authoritative idempotency backstop.
     fn published_versions(&self, module: &Module) -> AppResult<Vec<Version>>;
+
+    /// Build this module's release-tag scheme, honoring a configured `tag_format` override (`None` = the target's ecosystem-default shape).
+    fn tag_scheme(&self, module: &Module, tag_format: Option<&str>) -> AppResult<TagScheme>;
 
     /// Build and verify the publishable artifact.
     fn package(&self, module: &Module) -> AppResult<Artifact>;

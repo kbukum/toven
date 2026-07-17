@@ -57,20 +57,27 @@ pub(crate) fn plan_with_context(
     overrides: &BumpOverrides,
     targets: &super::ReleaseTargets,
 ) -> AppResult<ReleasePlan> {
-    let changes = change::detect(context, &request.selection, overrides.base(), readers)?;
-    plan_with_changes(context, document, request, &changes, overrides, targets)
+    let settings = resolve_release_settings(context, document, targets)?;
+    let changes = change::detect(
+        context,
+        &request.selection,
+        overrides.base(),
+        readers,
+        targets,
+        &settings,
+    )?;
+    plan_with_changes(context, request, &changes, overrides, targets, &settings)
 }
 
 fn plan_with_changes(
     context: &PlanContext,
-    document: &Document,
     _request: &PlanRequest,
     changes: &change::ReleaseChanges,
     overrides: &BumpOverrides,
     targets: &super::ReleaseTargets,
+    settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
 ) -> AppResult<ReleasePlan> {
-    let settings = resolve_release_settings(context, document, targets)?;
-    let policy = reconcile_policy(&settings)?;
+    let policy = reconcile_policy(settings)?;
     let changelogs = context
         .federation
         .modules
@@ -91,7 +98,7 @@ fn plan_with_changes(
         changed: &changes.changed,
         baselines: &changes.baselines,
         changelogs: &changelogs,
-        settings: &settings,
+        settings,
         targets,
         policy,
         overrides,

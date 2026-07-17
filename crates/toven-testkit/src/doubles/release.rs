@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_version::semver::Version;
 use toven_model::{Module, ModuleRef};
-use toven_ports::{Artifact, PublishOutcome, ReleaseMutation, ReleaseTarget};
+use toven_ports::{Artifact, PublishOutcome, ReleaseMutation, ReleaseTarget, TagScheme};
 
 /// A single call recorded by [`FakeReleaseTarget`].
 #[derive(Debug, Clone)]
@@ -21,6 +21,13 @@ pub enum ReleaseCall {
     DeclaredVersion(ModuleRef),
     /// `published_versions` was called for a module.
     PublishedVersions(ModuleRef),
+    /// `tag_scheme` was called for a module.
+    TagScheme {
+        /// Module whose tag scheme was requested.
+        module: ModuleRef,
+        /// Configured tag format passed by the engine.
+        tag_format: Option<String>,
+    },
     /// `package` was called for a module.
     Package(ModuleRef),
     /// `apply_release` was called with a module mutation.
@@ -54,6 +61,7 @@ struct FakeReleaseState {
     declared: Version,
     published: Vec<Version>,
     artifact_path: String,
+    tag_scheme: Option<TagScheme>,
     outcomes: Vec<PublishOutcome>,
     publish_index: usize,
     fail_apply: Option<String>,
@@ -71,6 +79,7 @@ impl Default for FakeReleaseTarget {
                 declared: Version::new(0, 1, 0),
                 published: Vec::new(),
                 artifact_path: "dist/fake.pkg".to_string(),
+                tag_scheme: None,
                 outcomes: vec![PublishOutcome::Published],
                 publish_index: 0,
                 fail_apply: None,
@@ -95,6 +104,13 @@ impl FakeReleaseTarget {
     #[must_use]
     pub fn with_declared_version(self, version: Version) -> Self {
         self.state().declared = version;
+        self
+    }
+
+    /// Set the release tag scheme returned by `tag_scheme`.
+    #[must_use]
+    pub fn with_tag_scheme(self, scheme: TagScheme) -> Self {
+        self.state().tag_scheme = Some(scheme);
         self
     }
 
@@ -194,6 +210,24 @@ impl ReleaseTarget for FakeReleaseTarget {
         Ok(self.state().published.clone())
     }
 
+    fn tag_scheme(&self, module: &Module, tag_format: Option<&str>) -> AppResult<TagScheme> {
+        self.record(ReleaseCall::TagScheme {
+            module: module.id.clone(),
+            tag_format: tag_format.map(str::to_string),
+        });
+        let cached = self.state().tag_scheme.clone();
+        if let Some(scheme) = cached {
+            return Ok(scheme);
+        }
+        if let Some(format) = tag_format {
+            return render_tag_format(format, module);
+        }
+        Ok(TagScheme::new(
+            format!("{}/{}@", module.id.ecosystem.as_str(), module.id.name),
+            "",
+        ))
+    }
+
     fn package(&self, module: &Module) -> AppResult<Artifact> {
         self.record(ReleaseCall::Package(module.id.clone()));
         let state = self.state();
@@ -249,6 +283,24 @@ impl ReleaseTarget for FakeReleaseTarget {
 
 fn fake_error(message: &str) -> AppError {
     AppError::new(ErrorCode::Internal, message.to_string())
+}
+
+/// Render a `tag_format` template into a prefix/suffix [`TagScheme`] for the
+/// double, substituting the module-scoped placeholders and splitting on
+/// `{version}`.
+#[allow(clippy::literal_string_with_formatting_args)]
+fn render_tag_format(format: &str, module: &Module) -> AppResult<TagScheme> {
+    let rendered = format
+        .replace("{ecosystem}", module.id.ecosystem.as_str())
+        .replace("{module}", &module.id.name)
+        .replace("{channel}", "");
+    let Some((prefix, suffix)) = rendered.split_once("{version}") else {
+        return Err(AppError::invalid_input(
+            "release.tag_format",
+            "release tag template must contain {version}",
+        ));
+    };
+    Ok(TagScheme::new(prefix, suffix))
 }
 
 #[cfg(test)]

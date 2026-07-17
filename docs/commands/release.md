@@ -89,6 +89,12 @@ toven release tag
 toven release publish --allow-dirty --no-push
 ```
 
+## Go module tags
+
+Go releases are tag-only: there is no registry publish or manifest version rewrite, so Toven treats the git tag as the released version and the generic publish loop records the tag-only target as published after the release commit. The root Go module is tagged as `vX.Y.Z`; each submodule is tagged with its repo-relative module root followed by the version, for example `cache/redis/v1.2.3`. `--no-push` still skips pushing the release commit and all tags, and `--allow-dirty` is still required to bypass the clean-tree guardrail.
+
+Go rejects a configured `tag_format` because the Go module tag convention fixes the grammar; Rust and other registry targets may honor `tag_format` overrides.
+
 ## Bump policy and per-run bump flags
 
 Each module bumps independently. By default a changed module takes a **patch** bump; a breaking signal forces a **minor** bump; a **major** bump is only ever explicit. A dependency-floor bump cascades into dependents, and a module already at/above the registry's max published version is a reported no-op ("up to date"), never re-published. "Breaking" is driven by an explicit signal only — a `--minor`/`--major` override or an explicit per-module config `level` — never inferred from raw argv.
