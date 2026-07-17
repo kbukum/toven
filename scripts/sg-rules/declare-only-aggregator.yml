@@ -1,0 +1,41 @@
+id: declare-only-aggregator
+language: rust
+severity: error
+message: >-
+  aggregator (lib.rs/mod.rs) must declare and re-export only — no functions,
+  types, consts, statics, impls, traits, macros, bare `use` imports, or inline
+  modules. Move logic into concern-named sibling files and re-export with
+  `pub use` (development principles §4).
+files:
+  # crate roots and responsibility folders under `crates/*/src`.
+  - crates/*/src/lib.rs
+  - crates/*/src/**/mod.rs
+ignores:
+  # `toven-testkit/fixtures/**` are sample repositories, not toven aggregators.
+  - crates/toven-testkit/fixtures/**
+rule:
+  any:
+    - kind: function_item
+    - kind: impl_item
+    - kind: struct_item
+    - kind: enum_item
+    - kind: union_item
+    - kind: trait_item
+    - kind: const_item
+    - kind: static_item
+    - kind: type_item
+    - kind: macro_definition
+    # item-level macro invocation (e.g. `include_proto!`); ignore macros used
+    # inside an attribute such as `#![doc = include_str!("../README.md")]`
+    - all:
+        - kind: macro_invocation
+        - not: { inside: { kind: attribute, stopBy: end } }
+    - kind: foreign_mod_item
+    # bare `use` import (no `pub`): a private import implies consuming logic
+    - all:
+        - kind: use_declaration
+        - not: { has: { kind: visibility_modifier, stopBy: neighbor } }
+    # inline module with a body (`mod x { ... }`) instead of `mod x;`
+    - all:
+        - kind: mod_item
+        - has: { kind: declaration_list, stopBy: neighbor }
