@@ -10,7 +10,7 @@ use rskit_errors::AppResult;
 use toven_ports::{Provider, Reporter};
 
 use super::plan::{plan_with_context, release_targets};
-use super::{PublishDecision, RehearsalVerdict, ReleasePlan, ReleaseRehearsal};
+use super::{BumpOverrides, PublishDecision, RehearsalVerdict, ReleasePlan, ReleaseRehearsal};
 use crate::config::Document;
 use crate::federation::baseline::MemberVcsReaders;
 use crate::federation::resolve::PathDriverLocator;
@@ -23,7 +23,7 @@ use crate::plan::{PlanRequest, prepare_front};
 /// ([`ReleaseTarget::published_versions`](toven_ports::ReleaseTarget::published_versions)),
 /// to report what a real publish would do. It never calls `apply_release`,
 /// `package`, or `publish`, so no manifest, tag, commit, or registry entry is
-/// touched.
+/// touched. `overrides` carry the per-run bump argv.
 ///
 /// # Errors
 /// Propagates configuration/discovery/graph failures and release-plan failures.
@@ -32,6 +32,7 @@ pub fn release_rehearse(
     document: &Document,
     providers: &[&dyn Provider],
     readers: &MemberVcsReaders<'_>,
+    overrides: &BumpOverrides,
     reporter: &mut dyn Reporter,
 ) -> AppResult<ReleaseRehearsal> {
     let locator = PathDriverLocator::new();
@@ -43,7 +44,7 @@ pub fn release_rehearse(
         reporter,
     )?;
     let targets = release_targets(&context)?;
-    let plan = plan_with_context(&context, document, request, readers, &targets)?;
+    let plan = plan_with_context(&context, document, request, readers, overrides, &targets)?;
     Ok(rehearse_plan(&plan))
 }
 
@@ -71,7 +72,7 @@ fn rehearse_plan(plan: &ReleasePlan) -> ReleaseRehearsal {
                 })
         })
         .collect();
-    ReleaseRehearsal::new(plan.strategy, verdicts)
+    ReleaseRehearsal::new(plan.policy, verdicts)
 }
 
 #[cfg(test)]
@@ -94,6 +95,7 @@ mod tests {
     use crate::config::{Document, ProjectConfig, TovenConfig};
     use crate::federation::baseline::MemberVcsReaders;
     use crate::plan::{PlanRequest, Selection};
+    use crate::release::BumpOverrides;
     use crate::release::PublishDecision;
 
     fn eid(id: &str) -> EcosystemId {
@@ -159,8 +161,15 @@ mod tests {
         let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
-        let rehearsal =
-            release_rehearse(&request(), &document(), &providers, &readers, &mut reporter).unwrap();
+        let rehearsal = release_rehearse(
+            &request(),
+            &document(),
+            &providers,
+            &readers,
+            &BumpOverrides::new(),
+            &mut reporter,
+        )
+        .unwrap();
 
         assert_eq!(rehearsal.verdicts.len(), 1);
         let verdict = &rehearsal.verdicts[0];
@@ -193,8 +202,15 @@ mod tests {
         let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
-        let rehearsal =
-            release_rehearse(&request(), &document(), &providers, &readers, &mut reporter).unwrap();
+        let rehearsal = release_rehearse(
+            &request(),
+            &document(),
+            &providers,
+            &readers,
+            &BumpOverrides::new(),
+            &mut reporter,
+        )
+        .unwrap();
 
         assert_eq!(
             rehearsal.verdicts[0].decision,

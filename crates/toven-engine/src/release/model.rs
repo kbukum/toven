@@ -2,25 +2,92 @@
 
 use rskit_version::semver::Version;
 use toven_model::ModuleKey;
-use toven_ports::{BaselineSpec, Oid, ReleaseMutation};
+use toven_ports::{BaselineSpec, BumpLevel, Oid, ReleaseMutation};
 
-/// Engine-owned named release bump policies.
+/// The engine-owned named bump policy.
+///
+/// The bump surface is a single matrix, not a family of named strategies. The
+/// `[…release].strategy` config field is kept as a named selector so additional
+/// policies can be introduced later without a config break, but it currently
+/// resolves to exactly one policy: prerelease behavior is driven only by
+/// `--pre <channel>` / the `prerelease` config, never by a policy name.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum ReleaseStrategyName {
-    /// Cascade normal semantic-version bumps through affected dependents.
+pub enum BumpPolicy {
+    /// Semantic-version cascade: patch by default, minor on a breaking signal,
+    /// major on explicit request, cascading a dependency-floor bump into
+    /// dependents. Prerelease is driven only by `--pre`/config.
     SemverCascade,
-    /// Keep prerelease/caret-compatible trains together.
-    CaretPrerelease,
 }
 
-impl ReleaseStrategyName {
-    /// Canonical strategy name used by config and reports.
+impl BumpPolicy {
+    /// Canonical policy name used by config and reports.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::SemverCascade => "semver-cascade",
-            Self::CaretPrerelease => "caret-prerelease",
+        }
+    }
+}
+
+/// Which input decided a module's bump, under the documented precedence
+/// (argv > `[modules.<name>.release]` > `[ecosystems.<id>].release` > adapter
+/// default).
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum BumpSource {
+    /// An explicit `--set-version <module>=<x.y.z>` argv override pinned the
+    /// target version.
+    SetVersion,
+    /// An argv level override (`--patch`/`--minor`/`--major <module>`) forced the
+    /// level.
+    Argv,
+    /// The resolved config level (`[modules.<name>.release]` or
+    /// `[ecosystems.<id>].release`) selected the level.
+    Config,
+    /// `Auto` resolved to a minor bump from a breaking changelog classification.
+    Changelog,
+    /// `Auto` resolved to the patch default (no breaking signal).
+    Default,
+    /// A dependency-floor cascade into a dependent that did not itself change.
+    Cascade,
+}
+
+impl BumpSource {
+    /// Canonical report name for the winning input.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SetVersion => "set-version",
+            Self::Argv => "argv",
+            Self::Config => "config",
+            Self::Changelog => "changelog",
+            Self::Default => "default",
+            Self::Cascade => "cascade",
+        }
+    }
+}
+
+/// Why a module receives a release bump.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum BumpReason {
+    /// The module itself changed since its release baseline.
+    Changed,
+    /// The module bumped only because a dependency's floor rose (cascade).
+    DependencyCascade,
+    /// The module was pinned to an explicit target version.
+    Explicit,
+}
+
+impl BumpReason {
+    /// Canonical report name for the reason.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Changed => "changed",
+            Self::DependencyCascade => "dependency-cascade",
+            Self::Explicit => "explicit",
         }
     }
 }
@@ -32,6 +99,9 @@ pub struct ReleaseBaseline {
     pub module: ModuleKey,
     /// Tag name used as the baseline, when a prior release tag exists.
     pub tag: Option<String>,
+    /// Version parsed from the baseline release tag, when one exists. Anchors
+    /// offline idempotency (a planned version at/below this is up to date).
+    pub version: Option<Version>,
     /// Object id the release tag points at, when a prior release tag exists.
     pub target: Option<Oid>,
     /// Fallback baseline spec used when no prior release tag is available.
@@ -41,10 +111,11 @@ pub struct ReleaseBaseline {
 impl ReleaseBaseline {
     /// Construct a baseline from an existing module release tag.
     #[must_use]
-    pub fn tag(module: ModuleKey, tag: impl Into<String>, target: Oid) -> Self {
+    pub fn tag(module: ModuleKey, tag: impl Into<String>, version: Version, target: Oid) -> Self {
         Self {
             module,
             tag: Some(tag.into()),
+            version: Some(version),
             target: Some(target),
             fallback: None,
         }
@@ -56,6 +127,7 @@ impl ReleaseBaseline {
         Self {
             module,
             tag: None,
+            version: None,
             target: None,
             fallback: Some(spec),
         }
@@ -71,17 +143,27 @@ pub struct ChangelogEntry {
     pub summary: String,
     /// Detailed lines for later report rendering.
     pub lines: Vec<String>,
+    /// Whether the change classification marks this release as breaking.
+    pub breaking: bool,
 }
 
 impl ChangelogEntry {
-    /// Construct a changelog entry.
+    /// Construct a non-breaking changelog entry.
     #[must_use]
     pub fn new(module: ModuleKey, summary: impl Into<String>, lines: Vec<String>) -> Self {
         Self {
             module,
             summary: summary.into(),
             lines,
+            breaking: false,
         }
+    }
+
+    /// Mark this entry as a breaking change.
+    #[must_use]
+    pub const fn with_breaking(mut self, breaking: bool) -> Self {
+        self.breaking = breaking;
+        self
     }
 }
 
@@ -94,6 +176,21 @@ pub struct ReleaseEntry {
     pub current_version: Version,
     /// Version to release, if this module receives an own-version bump.
     pub planned_version: Option<Version>,
+    /// The effective bump level applied to reach the planned version.
+    pub level: BumpLevel,
+    /// Why this module is being bumped.
+    pub reason: BumpReason,
+    /// Which input won under the documented precedence.
+    pub winning_input: BumpSource,
+    /// The changed module that triggered this cascade, when `reason` is a
+    /// dependency cascade.
+    pub cascade_origin: Option<ModuleKey>,
+    /// Prerelease channel applied to the planned version, when cutting a
+    /// prerelease.
+    pub prerelease_channel: Option<String>,
+    /// Whether the planned version is already at/above the registry (or, offline,
+    /// the release tag), making a real publish a reported no-op.
+    pub up_to_date: bool,
     /// Atomic mutation to pass back to the ecosystem release target.
     pub mutation: ReleaseMutation,
     /// Whether the publish loop must publish this module/version.
@@ -109,8 +206,8 @@ pub struct ReleaseEntry {
 /// Immutable release plan produced by the release PLAN tail.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReleasePlan {
-    /// Selected engine-owned release strategy.
-    pub strategy: ReleaseStrategyName,
+    /// Selected engine-owned bump policy.
+    pub policy: BumpPolicy,
     /// Per-module entries, already sorted in deterministic publish order.
     pub entries: Vec<ReleaseEntry>,
 }
@@ -118,8 +215,8 @@ pub struct ReleasePlan {
 impl ReleasePlan {
     /// Construct a release plan.
     #[must_use]
-    pub const fn new(strategy: ReleaseStrategyName, entries: Vec<ReleaseEntry>) -> Self {
-        Self { strategy, entries }
+    pub const fn new(policy: BumpPolicy, entries: Vec<ReleaseEntry>) -> Self {
+        Self { policy, entries }
     }
 
     /// Number of entries that require an actual publish attempt.
@@ -210,8 +307,8 @@ pub struct RehearsalVerdict {
 /// registry.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReleaseRehearsal {
-    /// Selected engine-owned release strategy.
-    pub strategy: ReleaseStrategyName,
+    /// Selected engine-owned bump policy.
+    pub policy: BumpPolicy,
     /// Per-module verdicts in deterministic publish order.
     pub verdicts: Vec<RehearsalVerdict>,
 }
@@ -219,8 +316,8 @@ pub struct ReleaseRehearsal {
 impl ReleaseRehearsal {
     /// Construct a rehearsal report.
     #[must_use]
-    pub const fn new(strategy: ReleaseStrategyName, verdicts: Vec<RehearsalVerdict>) -> Self {
-        Self { strategy, verdicts }
+    pub const fn new(policy: BumpPolicy, verdicts: Vec<RehearsalVerdict>) -> Self {
+        Self { policy, verdicts }
     }
 }
 
@@ -263,24 +360,27 @@ impl ReleaseStats {
 mod tests {
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, ModuleKey, ModuleRef};
-    use toven_ports::ReleaseMutation;
+    use toven_ports::{BumpLevel, ReleaseMutation};
 
-    use super::{ChangelogEntry, ReleaseEntry, ReleasePlan, ReleaseStats, ReleaseStrategyName};
+    use super::{
+        BumpPolicy, BumpReason, BumpSource, ChangelogEntry, ReleaseEntry, ReleasePlan, ReleaseStats,
+    };
 
     fn module(name: &str) -> ModuleKey {
         ModuleKey::bare(ModuleRef::new(EcosystemId::new("rust").unwrap(), name).unwrap())
     }
 
     #[test]
-    fn strategy_names_are_stable() {
-        assert_eq!(
-            ReleaseStrategyName::SemverCascade.as_str(),
-            "semver-cascade"
-        );
-        assert_eq!(
-            ReleaseStrategyName::CaretPrerelease.as_str(),
-            "caret-prerelease"
-        );
+    fn policy_name_is_stable() {
+        assert_eq!(BumpPolicy::SemverCascade.as_str(), "semver-cascade");
+    }
+
+    #[test]
+    fn bump_source_and_reason_names_are_stable() {
+        assert_eq!(BumpSource::SetVersion.as_str(), "set-version");
+        assert_eq!(BumpSource::Cascade.as_str(), "cascade");
+        assert_eq!(BumpReason::Changed.as_str(), "changed");
+        assert_eq!(BumpReason::DependencyCascade.as_str(), "dependency-cascade");
     }
 
     #[test]
@@ -289,6 +389,12 @@ mod tests {
             module: module(name),
             current_version: Version::new(0, 1, 0),
             planned_version: Some(Version::new(0, 2, 0)),
+            level: BumpLevel::Minor,
+            reason: BumpReason::Changed,
+            winning_input: BumpSource::Default,
+            cascade_origin: None,
+            prerelease_channel: None,
+            up_to_date: false,
             mutation: ReleaseMutation::version(Version::new(0, 2, 0)),
             publish_needed,
             topo_rank: 0,
@@ -297,7 +403,7 @@ mod tests {
         };
 
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![entry("core", true), entry("app", false)],
         );
 

@@ -282,7 +282,10 @@ mod tests {
     use toven_testkit::{FakeReleaseTarget, FakeVcsReader, FakeVcsWriter, ReleaseCall, VcsWrite};
 
     use super::{ReleaseApplyOptions, release_apply};
-    use crate::release::{ChangelogEntry, ReleaseEntry, ReleasePlan, ReleaseStrategyName};
+    use crate::release::{
+        BumpPolicy, BumpReason, BumpSource, ChangelogEntry, ReleaseEntry, ReleasePlan,
+    };
+    use toven_ports::BumpLevel;
 
     fn mref(name: &str) -> ModuleRef {
         ModuleRef::new(EcosystemId::new("rust").unwrap(), name).unwrap()
@@ -303,6 +306,12 @@ mod tests {
             module: mkey(name),
             current_version: Version::new(0, 1, 0),
             planned_version: Some(version.clone()),
+            level: BumpLevel::Patch,
+            reason: BumpReason::Changed,
+            winning_input: BumpSource::Default,
+            cascade_origin: None,
+            prerelease_channel: None,
+            up_to_date: false,
             mutation: ReleaseMutation::version(version),
             publish_needed,
             topo_rank: rank,
@@ -327,7 +336,7 @@ mod tests {
     #[test]
     fn applies_mutations_commits_tags_and_publishes_in_order() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![
                 entry("core", Version::new(0, 1, 1), true, 0),
                 entry("app", Version::new(0, 1, 1), true, 1),
@@ -388,7 +397,7 @@ mod tests {
     #[test]
     fn push_emits_commit_and_tag_refspecs() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(1, 0, 0), true, 0)],
         );
         let writer = FakeVcsWriter::new();
@@ -423,7 +432,7 @@ mod tests {
     #[test]
     fn tag_only_run_commits_and_tags_without_publishing() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(0, 1, 1), true, 0)],
         );
         let target = FakeReleaseTarget::new();
@@ -461,7 +470,7 @@ mod tests {
     #[test]
     fn restores_worktree_when_commit_fails() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(0, 1, 1), true, 0)],
         );
         let writer = FakeVcsWriter::new().with_commit_failure("commit failed");
@@ -489,7 +498,7 @@ mod tests {
     #[test]
     fn prepare_failure_reports_restore_failure_without_losing_original_error() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(0, 1, 1), true, 0)],
         );
         let writer = FakeVcsWriter::new().with_restore_failure("restore failed");
@@ -523,7 +532,7 @@ mod tests {
     #[test]
     fn commit_failure_reports_restore_failure_without_losing_original_error() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(0, 1, 1), true, 0)],
         );
         let writer = FakeVcsWriter::new()
@@ -562,7 +571,7 @@ mod tests {
     #[test]
     fn dirty_worktree_is_rejected_without_allow_dirty() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(0, 1, 1), true, 0)],
         );
         let writer = FakeVcsWriter::new();
@@ -586,7 +595,7 @@ mod tests {
     #[test]
     fn allow_dirty_bypasses_the_clean_tree_guardrail() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(0, 1, 1), true, 0)],
         );
         let writer = FakeVcsWriter::new();
@@ -609,7 +618,7 @@ mod tests {
     #[test]
     fn package_failure_rolls_back_before_commit() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(0, 1, 1), true, 0)],
         );
         let writer = FakeVcsWriter::new();
@@ -636,7 +645,7 @@ mod tests {
     #[test]
     fn already_published_version_is_pre_skipped() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(0, 1, 1), true, 0)],
         );
         let target = FakeReleaseTarget::new().with_published_versions(vec![Version::new(0, 1, 1)]);
@@ -665,7 +674,7 @@ mod tests {
     #[test]
     fn already_published_outcome_is_resume_safe() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(0, 1, 1), true, 0)],
         );
         let target =
@@ -688,7 +697,7 @@ mod tests {
     #[test]
     fn rate_limited_publish_retries_within_budget() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(0, 1, 1), true, 0)],
         );
         let target = FakeReleaseTarget::new().with_publish_outcomes(vec![
@@ -713,7 +722,7 @@ mod tests {
     #[test]
     fn rate_limited_publish_surfaces_exhausted_budget() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(0, 1, 1), true, 0)],
         );
         let target = FakeReleaseTarget::new()
@@ -737,7 +746,7 @@ mod tests {
     #[test]
     fn entries_without_publish_needed_are_not_published() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(0, 1, 1), false, 0)],
         );
         let target = FakeReleaseTarget::new();

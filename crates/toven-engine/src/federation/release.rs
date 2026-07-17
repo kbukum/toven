@@ -250,7 +250,7 @@ fn shard_plan(plan: &ReleasePlan, modules: &[Module]) -> AppResult<Vec<MemberRel
         .filter_map(|member| {
             entries.remove(&member).map(|entries| MemberReleaseShard {
                 member,
-                plan: ReleasePlan::new(plan.strategy, entries),
+                plan: ReleasePlan::new(plan.policy, entries),
             })
         })
         .collect())
@@ -266,8 +266,10 @@ mod tests {
 
     use super::{MemberReleaseRepo, MemberReleaseRepos, release_apply_by_member};
     use crate::release::{
-        ChangelogEntry, ReleaseApplyOptions, ReleaseEntry, ReleasePlan, ReleaseStrategyName,
+        BumpPolicy, BumpReason, BumpSource, ChangelogEntry, ReleaseApplyOptions, ReleaseEntry,
+        ReleasePlan,
     };
+    use toven_ports::BumpLevel;
 
     fn eid(id: &str) -> EcosystemId {
         EcosystemId::new(id).unwrap()
@@ -299,6 +301,12 @@ mod tests {
             module: mkey(member, name),
             current_version: Version::new(0, 1, 0),
             planned_version: Some(version.clone()),
+            level: BumpLevel::Patch,
+            reason: BumpReason::Changed,
+            winning_input: BumpSource::Default,
+            cascade_origin: None,
+            prerelease_channel: None,
+            up_to_date: false,
             mutation: ReleaseMutation::version(version),
             publish_needed: true,
             topo_rank: rank,
@@ -332,7 +340,7 @@ mod tests {
     #[test]
     fn release_apply_commits_per_member_and_publishes_in_federated_order() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![
                 entry("core", "shared", Version::new(0, 1, 1), 0),
                 entry("gateway", "api", Version::new(0, 1, 1), 1),
@@ -394,7 +402,7 @@ mod tests {
     #[test]
     fn member_prepare_failure_restores_only_that_member() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![
                 entry("core", "shared", Version::new(0, 1, 1), 0),
                 entry("gateway", "api", Version::new(0, 1, 1), 1),
@@ -428,7 +436,7 @@ mod tests {
     #[test]
     fn later_member_prepare_failure_restores_prepared_members_before_any_commit() {
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![
                 entry("core", "shared", Version::new(0, 1, 1), 0),
                 entry("gateway", "api", Version::new(0, 1, 1), 1),
@@ -468,7 +476,7 @@ mod tests {
         // `(member, ecosystem)` must not let `gateway`'s module borrow `core`'s
         // target and get silently released.
         let plan = ReleasePlan::new(
-            ReleaseStrategyName::SemverCascade,
+            BumpPolicy::SemverCascade,
             vec![
                 entry("core", "shared", Version::new(0, 1, 1), 0),
                 entry("gateway", "api", Version::new(0, 1, 1), 1),

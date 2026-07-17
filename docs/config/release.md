@@ -2,7 +2,7 @@
 
 Toven's release behavior is declarative. You own it through the `[…release]` config block, so a release runs *your* way — bump defaults, prerelease channels, tag/commit templates, changelog, push/branch gating, registry, signing, and hooks — without a per-run flag for every choice.
 
-> **Status:** the full block is parsed, validated, and resolved with the precedence below, but only the bump **strategy** is consumed by the release engine today. The remaining fields are schema-and-resolution only for now and are wired into the pipeline in later work.
+> **Status:** the full block is parsed, validated, and resolved with the precedence below. The bump policy (`strategy`, `level`, `dependent_version`, `prerelease`) and the per-run bump argv are consumed by the release engine; the remaining target/signing/hooks fields are schema-and-resolution only for now and are wired into the pipeline in later work.
 
 The same block is available at two levels:
 
@@ -27,7 +27,7 @@ Every field is optional. The **Default** column is the built-in value applied wh
 
 | Field | Type | Default | Purpose |
 |-------|------|---------|---------|
-| `strategy` | string | `semver-cascade` | Named bump policy. `semver-cascade` or `caret-prerelease`. Every module in one plan must resolve the same strategy. |
+| `strategy` | string | `semver-cascade` | Named bump policy. Currently resolves to the single `semver-cascade` matrix (patch by default, minor on a breaking signal, major on request, cascading a dependency-floor bump into dependents); the field is a named selector so more policies can be added later. Every module in one plan must resolve the same policy. |
 | `level` | `patch` \| `minor` \| `major` \| `auto` | `auto` | Default bump level for a changed module. `auto` defers to change classification (patch unless a breaking signal forces minor). |
 | `dependent_version` | `bump` \| `upgrade` | `bump` | How a dependency-floor bump cascades: `bump` re-releases the dependent; `upgrade` only raises its floor. |
 | `tag_format` | template | `v{version}` | Release tag name template. Placeholders: `{version}`, `{module}`, `{channel}`. |

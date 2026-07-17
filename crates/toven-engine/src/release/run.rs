@@ -13,7 +13,7 @@ use rskit_errors::AppResult;
 use toven_ports::{Provider, Reporter};
 
 use super::plan::{plan_with_context, release_targets};
-use super::{ReleaseApplyOptions, ReleaseStats};
+use super::{BumpOverrides, ReleaseApplyOptions, ReleaseStats};
 use crate::config::Document;
 use crate::federation::baseline::MemberVcsReaders;
 use crate::federation::release::{MemberReleaseRepos, release_apply_by_member};
@@ -25,17 +25,21 @@ use crate::plan::{PlanRequest, prepare_front};
 /// Prepares the shared PLAN front matter once, derives the release plan and
 /// targets from it, then runs the per-member release APPLY tail. `readers` are
 /// the per-member change seams and `repos` the per-member commit/tag/push ports;
-/// a single-repo project is the N=1 degenerate member.
+/// a single-repo project is the N=1 degenerate member. `overrides` carry the
+/// per-run bump argv (level flags, set-version, prerelease channel, base,
+/// offline).
 ///
 /// # Errors
 /// Propagates configuration/discovery/graph failures, release-plan failures, and
 /// release-apply failures (guardrails, mutation, tagging, publishing).
+#[allow(clippy::too_many_arguments)]
 pub fn release_run(
     request: &PlanRequest,
     document: &Document,
     providers: &[&dyn Provider],
     readers: &MemberVcsReaders<'_>,
     repos: &MemberReleaseRepos<'_>,
+    overrides: &BumpOverrides,
     reporter: &mut dyn Reporter,
     options: &ReleaseApplyOptions,
 ) -> AppResult<ReleaseStats> {
@@ -48,6 +52,6 @@ pub fn release_run(
         reporter,
     )?;
     let targets = release_targets(&context)?;
-    let plan = plan_with_context(&context, document, request, readers, &targets)?;
+    let plan = plan_with_context(&context, document, request, readers, overrides, &targets)?;
     release_apply_by_member(&plan, &context.federation.modules, &targets, repos, options)
 }
