@@ -187,7 +187,7 @@ fn reconcile_policy(
                 return Err(AppError::invalid_input(
                     "release.strategy",
                     format!(
-                        "conflicting release strategies '{}' ({existing_module}) and '{}' ({module})",
+                        "conflicting bump policies '{}' ({existing_module}) and '{}' ({module})",
                         existing.as_str(),
                         resolved.policy.as_str()
                     ),
@@ -348,6 +348,61 @@ mod tests {
                 .mutation
                 .dep_floor_updates
                 .get(&mref("core")),
+            Some(&Version::new(0, 1, 1))
+        );
+    }
+
+    #[test]
+    fn release_plan_cascades_transitively_to_indirect_dependents() {
+        let core = module("core", "crates/core");
+        let mid = module("mid", "crates/mid");
+        let top = module("top", "crates/top");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core.clone(), mid.clone(), top.clone()];
+        response.edges = vec![
+            Edge::new(mid.id.clone(), core.id.clone(), DepKind::Normal),
+            Edge::new(top.id.clone(), mid.id.clone(), DepKind::Normal),
+        ];
+
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_release_target(FakeReleaseTarget::new());
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let request = PlanRequest::new(
+            "r1",
+            "t",
+            TaskIntent::resolve("test"),
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+        let vcs = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
+            "crates/core/src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+        let mut reporter = RecordingReporter::new();
+
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let overrides = BumpOverrides::new();
+        let plan = release_plan(
+            &request,
+            &document(),
+            &providers,
+            &readers,
+            &overrides,
+            &mut reporter,
+        )
+        .unwrap();
+
+        // core changed → mid (direct) and top (transitive) both cascade, and both
+        // report the changed root as the cascade origin.
+        assert_eq!(plan.publish_count(), 3);
+        assert_eq!(plan.entries[2].module, top.key());
+        assert_eq!(plan.entries[2].reason, BumpReason::DependencyCascade);
+        assert_eq!(plan.entries[2].cascade_origin, Some(core.key()));
+        assert_eq!(plan.entries[2].planned_version, Some(Version::new(0, 1, 1)));
+        assert_eq!(
+            plan.entries[2].mutation.dep_floor_updates.get(&mref("mid")),
             Some(&Version::new(0, 1, 1))
         );
     }

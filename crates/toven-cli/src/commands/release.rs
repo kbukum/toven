@@ -229,7 +229,7 @@ struct PlanRecord {
     module: String,
     current_version: String,
     planned_version: Option<String>,
-    level: String,
+    level: Option<String>,
     reason: String,
     winning_input: String,
     cascade_origin: Option<String>,
@@ -252,7 +252,11 @@ fn render_plan_human(plan: &ReleasePlan) {
                 .planned_version
                 .as_ref()
                 .map_or_else(|| "-".to_string(), ToString::to_string),
-            entry.level.as_str().to_string(),
+            if entry.planned_version.is_some() {
+                entry.level.as_str().to_string()
+            } else {
+                "-".to_string()
+            },
             entry.reason.as_str().to_string(),
             entry.winning_input.as_str().to_string(),
             if entry.up_to_date {
@@ -274,7 +278,10 @@ fn render_plan_jsonl(plan: &ReleasePlan) -> AppResult<()> {
             module: entry.module.to_string(),
             current_version: entry.current_version.to_string(),
             planned_version: entry.planned_version.as_ref().map(ToString::to_string),
-            level: entry.level.as_str().to_string(),
+            level: entry
+                .planned_version
+                .as_ref()
+                .map(|_| entry.level.as_str().to_string()),
             reason: entry.reason.as_str().to_string(),
             winning_input: entry.winning_input.as_str().to_string(),
             cascade_origin: entry.cascade_origin.as_ref().map(ToString::to_string),

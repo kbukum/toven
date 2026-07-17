@@ -34,7 +34,7 @@ pub(super) fn resolve(raw: Option<&str>) -> AppResult<BumpPolicy> {
         "semver-cascade" => Ok(BumpPolicy::SemverCascade),
         unknown => Err(AppError::invalid_input(
             "release.strategy",
-            format!("unknown release strategy '{unknown}'"),
+            format!("unknown bump policy '{unknown}'"),
         )),
     }
 }

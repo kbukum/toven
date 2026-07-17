@@ -56,7 +56,7 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
         let module = lookup(&module_by_ref, reference)?;
         let target = target_for(input.targets, module)?;
         let current = target.declared_version(module)?;
-        let origin = cascade_origin(reference, input.edges, input.changed);
+        let origin = cascade_origin(reference, input.graph, input.changed)?;
         let decision = resolve_bump(input, reference, &current, origin.is_some())?;
         decisions.insert(reference.clone(), (current, origin, decision));
     }
@@ -315,22 +315,26 @@ fn idempotency(
 }
 
 /// The changed module that triggered a dependent's cascade, if the module is a
-/// dependent (not itself changed) with a changed dependency.
+/// dependent (not itself changed) that transitively depends on a changed module.
+///
+/// The cascade closure is transitive over the dependency graph, so a dependent
+/// several hops removed from the change (`A` changed → `B` → `C`) still resolves
+/// its origin to the changed root, matching the transitive reverse-dependents
+/// closure that selects the release scope.
 fn cascade_origin(
     module: &ModuleKey,
-    edges: &[Edge],
+    graph: &Graph,
     changed: &BTreeSet<ModuleKey>,
-) -> Option<ModuleKey> {
+) -> AppResult<Option<ModuleKey>> {
     if changed.contains(module) {
-        return None;
+        return Ok(None);
     }
-    edges
-        .iter()
-        .filter(|edge| &edge.from == module && !matches!(edge.kind, DepKind::Overlay))
-        .map(|edge| &edge.to)
-        .filter(|to| changed.contains(*to))
-        .min()
-        .cloned()
+    let seed: BTreeSet<ModuleKey> = std::iter::once(module.clone()).collect();
+    let dependencies = graph.dependencies_closure(&seed, release_closure_edge)?;
+    Ok(dependencies
+        .into_iter()
+        .filter(|dependency| changed.contains(dependency))
+        .min())
 }
 
 const fn release_closure_edge(kind: DepKind) -> bool {
