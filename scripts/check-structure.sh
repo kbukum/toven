@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Structure guard (development principles §4): `mod.rs` files declare and re-export
-# only — they must never contain logic or private items. Applied to every crate
-# under `crates/*/src`. Attribute-only lines (e.g. `#[cfg(unix)]`) are permitted
-# because they annotate a following declare/re-export without introducing logic.
+# Structure guard (development principles §4): `mod.rs` and crate-root `lib.rs` files
+# declare and re-export only — they must never contain logic or private items. Applied to
+# every crate under `crates/*/src` (test fixtures under `toven-testkit/fixtures` are excluded:
+# they are sample repositories, not toven aggregators). Attribute-only lines (e.g.
+# `#[cfg(unix)]`) are permitted because they annotate a following declare/re-export without
+# introducing logic.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,7 +15,9 @@ while IFS= read -r file; do
     /^[[:space:]]*$/ { next }
     /^[[:space:]]*\/\/!/ { next }
     /^[[:space:]]*\/\/\// { next }
+    /^[[:space:]]*\/\// { next }
     /^[[:space:]]*#\[.*\][[:space:]]*$/ { next }
+    /^[[:space:]]*#!\[.*\][[:space:]]*$/ { next }
     /^[[:space:]]*(pub([[:space:]]*\([^)]*\))?[[:space:]]+)?mod[[:space:]]+[A-Za-z_][A-Za-z0-9_]*;[[:space:]]*$/ { next }
     /^[[:space:]]*pub([[:space:]]*\([^)]*\))?[[:space:]]+use[[:space:]].+;[[:space:]]*$/ { next }
     /^[[:space:]]*pub([[:space:]]*\([^)]*\))?[[:space:]]+use[[:space:]].+\{[[:space:]]*$/ { next }
@@ -22,9 +26,10 @@ while IFS= read -r file; do
     { print }
   ' "$file")"
   if [ -n "$invalid_lines" ]; then
-    printf 'mod.rs contains logic or private items: %s\n%s\n' "${file#"$root"/}" "$invalid_lines" >&2
+    printf 'aggregator contains logic or private items: %s\n%s\n' "${file#"$root"/}" "$invalid_lines" >&2
     fail=1
   fi
-done < <(find "$root/crates" -path '*/src/*' -name mod.rs -type f | sort)
+done < <(find "$root/crates" -path '*/src/*' \( -name mod.rs -o -name lib.rs \) -type f \
+  -not -path '*/toven-testkit/fixtures/*' | sort)
 
 exit "$fail"

@@ -41,7 +41,7 @@ cargo new --lib crates/toven-<name>
 - `#[must_use]` on `with_*` builders; `#[non_exhaustive]` on public enums that may grow; no `unwrap()`/`expect()` in library code; use rskit `AppError`/`AppResult` preserving cause.
 - **Libraries don't print** — only `toven-cli` produces user-facing output; library crates return typed data and typed errors.
 - No test-only escape hatch on a production public surface (`into_inner`, `into_sink`, …): `#[cfg(test)]`-gate or remove it; shared doubles expose recording accessors instead.
-- Organize by focused files — never pile unrelated logic into one file.
+- Organize by focused, concern-named files — never pile unrelated logic into one file; `lib.rs`/`mod.rs` stay declare-only (`make structure`).
 
 ## Step 4 — Validate
 

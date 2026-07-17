@@ -36,7 +36,7 @@ Crates: `toven-model` (L0), `toven-ports` (L1), `toven-engine` / `toven-rust` / 
 |---|---|---|
 | Format (check) | `make fmt-check` | fast, whole-tree |
 | Format (write) | `make fmt` | rustfmt |
-| Structure guard | `make structure` | `mod.rs` declare-only + placement (cheap, run on structural changes) |
+| Structure guard | `make structure` | `lib.rs`/`mod.rs` declare-only + placement (cheap, run on structural changes) |
 | Lint | `make lint` | clippy `-D warnings`, `--workspace` |
 | Test | `make test` | nextest + doctests, `--workspace` (needs cargo-nextest) |
 | Doc | `make doc` | `-D warnings` |

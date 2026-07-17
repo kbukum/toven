@@ -7,7 +7,7 @@ Toven is a fast, argv-first development and CI task planner for multi-module rep
 Apply this baseline to all work here:
 
 - **Phases:** discover → decide (redesign / align / enhance / drop / leave) → implement completely → validate. Toven and rskit are pre-stable: prefer root-cause redesigns over compatibility shims; backward compatibility is not a goal yet.
-- **Reuse rskit first:** before writing a shared concern (errors, config, validation, filesystem, git, process, logging), reuse or enhance the canonical rskit owner. If an rskit capability is missing or inadequate, improve rskit generically — never fork a Toven-specific copy or make rskit Toven-specific.
+- **Reuse rskit first:** before writing a shared concern (errors, config, validation, filesystem, git, process, logging), reuse or enhance the canonical rskit owner. If an rskit capability is missing or inadequate, improve rskit generically — never fork a Toven-specific copy or make rskit Toven-specific. Consult [`docs/concern-owners.md`](../docs/concern-owners.md) (rskit-reused vs toven-owned) for the canonical owner of each concern before writing new code.
 - **Cascade-complete changes:** a model change flows through schema, normalization, planner, executor, output, tests, and docs in the same change — no half-applied edits.
 - **argv is sacred:** user-owned argv is never silently rewritten. Toven validates and expands selectors but does not infer hidden flags. Generated commands are argument vectors by default; shell execution must be opted into explicitly.
 - **Libraries do not print:** only the CLI/reporting layer produces user-facing output. Library crates return typed data and typed errors.
@@ -53,6 +53,8 @@ One Cargo workspace (`members = ["crates/*"]`, `exclude = ["rskit"]`). Layers de
 **Port placement (binding):** a port trait lives in `toven-ports`; its concrete adapter lives in the consuming crate (engine or `toven-<eco>`), never beside the trait; every port has exactly one shared double in `toven-testkit` (`doubles/<port>.rs`) — no port double is stranded inline in a crate's `tests/`. A port trait references only `toven-model` + rskit + std/ports value types; no engine type leaks upward.
 
 The vendored `rskit/` submodule is a separate workspace; Toven depends on individual rskit core crates via path deps pinned to the submodule's prerelease version.
+
+Each crate root (`lib.rs`) and responsibility folder (`mod.rs`) stays **declare-only** — submodule declarations and re-exports only, no logic or private items. Enforced by `scripts/check-structure.sh` (`make structure`), which covers both `lib.rs` and `mod.rs`.
 
 ## Code style
 

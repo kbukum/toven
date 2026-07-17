@@ -22,6 +22,8 @@ Before writing a shared concern, reuse or enhance the canonical **rskit** owner:
 
 If you find yourself defining a type or helper that a lower-level, general-purpose framework should own, that is the signal to reach into rskit instead.
 
+The canonical owner of each concern (rskit-reused vs toven-owned) is documented in [`docs/concern-owners.md`](../../../docs/concern-owners.md) — consult it before writing any shared helper, and keep the two tables in sync with this skill.
+
 ## Initialize the submodule first
 
 rskit must be on disk to inspect or build against:

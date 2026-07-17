@@ -14,7 +14,8 @@ If rskit's capability is missing or inadequate, the fix is to **enhance rskit ge
 
 ## How to check, not just glance
 
-For each candidate, locate the rskit owner in the `rskit/` submodule and confirm the new code calls it rather than reimplementing it:
+The rskit-reused vs toven-owned concern owners are documented in
+[`docs/concern-owners.md`](../../../../docs/concern-owners.md) — start there. For each candidate, locate the rskit owner in the `rskit/` submodule and confirm the new code calls it rather than reimplementing it:
 
 - **Errors.** Must be rskit `AppError` / `AppResult` with the cause preserved. A hand-rolled error enum, a `thiserror` type, or a `String` error for a shared concern is duplication. Check that `?` / `map_err` chains do not drop context.
 - **Filesystem / git / process.** Any direct `std::fs`, `std::process::Command`, `Command::new`, `git2`, or shelling-out-to-git that rskit already wraps is duplication — route through the rskit abstraction (`rskit-fs`, `rskit-git`, `rskit-process`) so its validation / bounds / argv guarantees hold.
