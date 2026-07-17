@@ -194,12 +194,7 @@ impl VcsWriter for FakeVcs {
     fn commit(&self, _message: &str) -> AppResult<Oid> {
         Ok(Oid::new("deadbeef"))
     }
-    fn create_tag(
-        &self,
-        _name: &str,
-        _target_rev: &str,
-        _message: Option<&str>,
-    ) -> AppResult<()> {
+    fn create_tag(&self, _name: &str, _target_rev: &str, _message: Option<&str>) -> AppResult<()> {
         Ok(())
     }
     fn push(&self, _refspecs: &[String]) -> AppResult<()> {
@@ -226,8 +221,7 @@ impl WatchSource for FakeWatchSource {
 #[allow(clippy::too_many_lines)]
 fn port_traits_are_object_safe() {
     let mut reporter: Box<dyn Reporter> = Box::new(FakeReporter);
-    let mut raw_sink: Box<dyn RawOutputSink> =
-        Box::new(FakeRawOutputSink { live: 0, blocks: 0 });
+    let mut raw_sink: Box<dyn RawOutputSink> = Box::new(FakeRawOutputSink { live: 0, blocks: 0 });
     let release: Box<dyn ReleaseTarget> = Box::new(FakeReleaseTarget);
     let reader: Box<dyn VcsReader> = Box::new(FakeVcs);
     let writer: Box<dyn VcsWriter> = Box::new(FakeVcs);
