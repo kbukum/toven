@@ -4,12 +4,16 @@ pub(crate) mod apply;
 mod bump;
 mod change;
 mod changelog;
+mod depgraphs;
+mod manifest;
 mod model;
 mod overrides;
 pub(crate) mod plan;
 pub(crate) mod publish;
+mod readiness;
 mod rehearse;
 mod run;
+mod sbom;
 mod settings;
 mod status;
 mod strategy;
@@ -17,6 +21,8 @@ pub(crate) mod tag;
 mod targets;
 
 pub use apply::{ReleaseApplyOptions, release_apply};
+pub use depgraphs::{DepgraphReport, release_depgraphs};
+pub use manifest::ArtifactManifest;
 pub use model::{
     BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PublishDecision, RehearsalVerdict,
     ReleaseBaseline, ReleaseEntry, ReleaseModuleStatus, ReleasePlan, ReleaseRehearsal,
@@ -24,8 +30,10 @@ pub use model::{
 };
 pub use overrides::BumpOverrides;
 pub use plan::release_plan;
+pub use readiness::{ReadinessCheck, ReadinessReport, release_readiness};
 pub use rehearse::release_rehearse;
 pub use run::release_run;
+pub use sbom::{SbomReport, release_sbom};
 pub use settings::ResolvedReleaseSettings;
 pub use status::release_status;
 pub(crate) use targets::ReleaseTargets;

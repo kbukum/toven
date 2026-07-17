@@ -180,7 +180,7 @@ pub(crate) fn graph(
     let graph = build_graph(providers, project)?;
     let rendered = match format {
         GraphFormat::Text => render_graph_text(&graph),
-        GraphFormat::Dot => render_graph_dot(&graph),
+        GraphFormat::Dot => toven_model::graph::render(&graph),
     };
     print!("{rendered}");
     Ok(ExitCode::Success)
@@ -340,7 +340,7 @@ fn plan_module_names(plan: &Plan) -> Vec<String> {
     modules
 }
 
-/// Render the discovered dependency edges as indented adjacency text.
+/// Render the discovered dependency edges as an indented text adjacency list.
 fn render_graph_text(graph: &Graph) -> String {
     let mut out = String::new();
     for module in graph.modules() {
@@ -359,43 +359,11 @@ fn render_graph_text(graph: &Graph) -> String {
     out
 }
 
-/// Render the discovered dependency edges as a Graphviz DOT digraph.
-fn render_graph_dot(graph: &Graph) -> String {
-    let mut out = String::from("digraph toven {\n");
-    for module in graph.modules() {
-        out.push_str("  \"");
-        out.push_str(&dot_id(&module.key().to_string()));
-        out.push_str("\";\n");
-    }
-    for edge in graph.edges() {
-        out.push_str("  \"");
-        out.push_str(&dot_id(&edge.from.to_string()));
-        out.push_str("\" -> \"");
-        out.push_str(&dot_id(&edge.to.to_string()));
-        out.push_str("\";\n");
-    }
-    out.push_str("}\n");
-    out
-}
-
-/// Escape a DOT quoted string identifier.
-fn dot_id(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '"' => escaped.push_str("\\\""),
-            '\\' => escaped.push_str("\\\\"),
-            _ => escaped.push(ch),
-        }
-    }
-    escaped
-}
-
 #[cfg(test)]
 mod tests {
     use toven_model::{DepKind, EcosystemId, Edge, Graph, MemberId, Module, ModuleRef, RepoPath};
 
-    use super::{ModuleRow, dot_id, module_rows, render_graph_dot, render_graph_text};
+    use super::{ModuleRow, module_rows, render_graph_text};
 
     fn module(name: &str) -> Module {
         Module::new(mref(name), RepoPath::new(format!("crates/{name}")).unwrap())
@@ -468,25 +436,6 @@ mod tests {
         let rendered = render_graph_text(&federated_graph());
         assert!(rendered.contains("gateway/rust:app"));
         assert!(rendered.contains("  -> core/rust:core"));
-    }
-
-    #[test]
-    fn graph_dot_emits_a_digraph_with_directed_edges() {
-        let rendered = render_graph_dot(&graph());
-        assert!(rendered.starts_with("digraph toven {"));
-        assert!(rendered.contains("\"rust:app\" -> \"rust:core\";"));
-        assert!(rendered.trim_end().ends_with('}'));
-    }
-
-    #[test]
-    fn graph_dot_uses_member_scoped_node_names() {
-        let rendered = render_graph_dot(&federated_graph());
-        assert!(rendered.contains("\"gateway/rust:app\" -> \"core/rust:core\";"));
-    }
-
-    #[test]
-    fn graph_dot_escapes_quoted_identifiers() {
-        assert_eq!(dot_id("rust:app\"#build\\dev"), "rust:app\\\"#build\\\\dev");
     }
 
     #[test]

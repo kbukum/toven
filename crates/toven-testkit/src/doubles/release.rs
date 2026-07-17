@@ -5,6 +5,7 @@
 //! It is `Clone` so a [`FakeConfiguredAdapter`](super::FakeConfiguredAdapter)
 //! can hand back a fresh boxed target from `release_target` on each call.
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
@@ -31,6 +32,14 @@ pub enum ReleaseCall {
     },
     /// `publish` was called for a module.
     Publish(ModuleRef),
+    /// `sbom` was called for a module, with the bounded output directory the
+    /// engine passed.
+    Sbom {
+        /// Module the SBOM was requested for.
+        module: ModuleRef,
+        /// Output directory the tool invocation was bounded to.
+        out_dir: String,
+    },
 }
 
 /// A [`ReleaseTarget`] with canned version I/O, scripted publish behaviour, and
@@ -50,6 +59,8 @@ struct FakeReleaseState {
     fail_apply: Option<String>,
     fail_package: Option<String>,
     fail_publish: Option<String>,
+    sbom_artifact: Option<String>,
+    fail_sbom: Option<String>,
     calls: Vec<ReleaseCall>,
 }
 
@@ -65,6 +76,8 @@ impl Default for FakeReleaseTarget {
                 fail_apply: None,
                 fail_package: None,
                 fail_publish: None,
+                sbom_artifact: Some("sbom/fake.cdx.json".to_string()),
+                fail_sbom: None,
                 calls: Vec::new(),
             })),
         }
@@ -134,6 +147,27 @@ impl FakeReleaseTarget {
         self
     }
 
+    /// Set the SBOM artifact path `sbom` returns (relative to the output dir).
+    #[must_use]
+    pub fn with_sbom_artifact(self, path: impl Into<String>) -> Self {
+        self.state().sbom_artifact = Some(path.into());
+        self
+    }
+
+    /// Make `sbom` report the ecosystem as having no SBOM tooling (`Ok(None)`).
+    #[must_use]
+    pub fn with_sbom_unsupported(self) -> Self {
+        self.state().sbom_artifact = None;
+        self
+    }
+
+    /// Make `sbom` fail with a typed internal error (a tool failure).
+    #[must_use]
+    pub fn with_sbom_failure(self, message: impl Into<String>) -> Self {
+        self.state().fail_sbom = Some(message.into());
+        self
+    }
+
     /// Snapshot the recorded release calls in call order.
     #[must_use]
     pub fn calls(&self) -> Vec<ReleaseCall> {
@@ -195,6 +229,21 @@ impl ReleaseTarget for FakeReleaseTarget {
         state.publish_index = state.publish_index.saturating_add(1);
         drop(state);
         Ok(outcome)
+    }
+
+    fn sbom(&self, module: &Module, out_dir: &Path) -> AppResult<Option<Artifact>> {
+        self.record(ReleaseCall::Sbom {
+            module: module.id.clone(),
+            out_dir: out_dir.display().to_string(),
+        });
+        let state = self.state();
+        if let Some(message) = &state.fail_sbom {
+            return Err(fake_error(message));
+        }
+        Ok(state
+            .sbom_artifact
+            .as_ref()
+            .map(|path| Artifact::new(out_dir.join(path))))
     }
 }
 

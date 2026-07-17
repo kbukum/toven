@@ -5,6 +5,9 @@
 ```text
 toven release plan       # show the release PLAN cut, mutating nothing
 toven release status     # declared vs published/tagged per module
+toven release readiness  # fail-closed go/no-go release preflight
+toven release sbom       # generate a CycloneDX SBOM per releasable module
+toven release depgraphs  # render the dependency graph to a DOT artifact
 toven release tag        # cut the release: commit, tag, push (no registry publish)
 toven release publish    # run the full pipeline through publish (--dry-run previews it)
 ```
@@ -15,7 +18,7 @@ Release behavior is declarative: bump defaults, prerelease channels, tag/commit 
 
 ## Read-only previews
 
-`release plan` and `release status` never change a manifest, tag, commit, or registry (though both may issue read-only registry queries to resolve published versions). They render on stdout (warnings go to stderr) and honor `--output human` (default) or `--output jsonl`.
+`release plan` and `release status` never change a manifest, tag, commit, or registry (though both may issue read-only registry queries to resolve published versions). `release readiness` is likewise read-only; `release sbom` and `release depgraphs` write generated artifacts only inside their `--out-dir` and touch nothing else. They all render on stdout (warnings go to stderr) and honor `--output human` (default) or `--output jsonl`.
 
 ### `toven release plan`
 
@@ -36,6 +39,33 @@ Shows each releasable module's declared version, whether that version is already
 toven release status
 ```
 
+### `toven release readiness`
+
+Evaluates the fail-closed release preflight: each configured go/no-go check runs and reports pass/fail with a short detail, and the command exits non-zero the moment any check fails so CI gates on it. The checks are declared through `[…release.readiness]`; a `clean-tree` check fails when a member worktree is dirty, and a `registry-idempotent` check fails when a module declares a version behind what the registry already published. An unrecognized check name is a typed usage error rather than a silent pass. The default human table carries a `Result`/`Detail` column and a `go`/`no-go` verdict; `--output jsonl` emits one record per check.
+
+```bash
+toven release readiness
+toven release readiness --output jsonl
+```
+
+### `toven release sbom`
+
+Generates a [CycloneDX](https://cyclonedx.org/) SBOM per releasable module, orchestrating each ecosystem's SBOM tool argv-first and writing the artifacts into the directory named by `--out-dir` (default `target/toven/release`, created if absent). A module whose ecosystem has no SBOM tooling is reported as a skip on stderr rather than a failure. The command writes only inside the output directory and mutates nothing else. The human table lists each module and its artifact path; `--output jsonl` emits one record per artifact.
+
+```bash
+toven release sbom
+toven release sbom --out-dir dist/sbom --output jsonl
+```
+
+### `toven release depgraphs`
+
+Renders the validated federation dependency graph to a Graphviz DOT artifact under `--out-dir` (default `target/toven/release`, created if absent), reusing the same DOT renderer as `toven graph`. It writes only inside the output directory and mutates nothing else. The human table lists the graph label and its artifact path; `--output jsonl` emits one record per artifact.
+
+```bash
+toven release depgraphs
+toven release depgraphs --out-dir dist/graphs
+```
+
 ## Dry run — `--dry-run`
 
 For `release publish`, `--dry-run` is a real **dry run**: it resolves the same release plan a real run would and reports the resolved publish order and per-module `would-publish`/`already-published` verdicts, without changing any manifest, tag, or registry and without running any publish. `release plan` is already a preview, so `--dry-run` is a no-op there; it is rejected on `release status` and `release tag` (which never publishes).
@@ -52,7 +82,7 @@ toven release publish --dry-run --output jsonl
 - `--allow-dirty` — proceed even when the worktree has uncommitted changes.
 - `--no-push` — skip pushing commits and tags to the remote.
 
-Both flags are rejected on the read-only actions (`plan`, `status`) with a typed usage error.
+Both flags are rejected on every non-mutating action (`plan`, `status`, `readiness`, `sbom`, `depgraphs`) with a typed usage error.
 
 ```bash
 toven release tag
@@ -63,7 +93,7 @@ toven release publish --allow-dirty --no-push
 
 Each module bumps independently. By default a changed module takes a **patch** bump; a breaking signal forces a **minor** bump; a **major** bump is only ever explicit. A dependency-floor bump cascades into dependents, and a module already at/above the registry's max published version is a reported no-op ("up to date"), never re-published. "Breaking" is driven by an explicit signal only — a `--minor`/`--major` override or an explicit per-module config `level` — never inferred from raw argv.
 
-The mutating actions (`release tag`/`release publish`) accept per-run bump argv that layers over the config. Each flag is rejected on the read-only actions (`plan`, `status`) with a typed usage error.
+The mutating actions (`release tag`/`release publish`) accept per-run bump argv that layers over the config. Each flag is rejected on every non-mutating action (`plan`, `status`, `readiness`, `sbom`, `depgraphs`) with a typed usage error.
 
 - `--patch <module>` / `--minor <module>` / `--major <module>` (each repeatable) — force a module's bump level.
 - `--set-version <module>=<x.y.z>` (repeatable) — pin an explicit target version for a module.
@@ -90,13 +120,14 @@ toven release tag --pre rc --base v1.4.0 --offline
 
 ## Which flags apply
 
-| Flag | plan | status | tag | publish |
-|------|:----:|:------:|:---:|:-------:|
-| `--dry-run` (preview) | no-op | ✗ | ✗ | ✓ |
-| `--allow-dirty` / `--no-push` | ✗ | ✗ | ✓ | ✓ |
-| `--patch` / `--minor` / `--major` / `--set-version` / `--pre` / `--offline` | ✗ | ✗ | ✓ | ✓ |
-| `--base` | ✗ | ✗ | ✓ | ✓ |
-| `-v`/`-q` / `--color` | ✗ | ✗ | ✓ | ✓ |
-| `--output human|jsonl` | ✓ | ✓ | ✓ | ✓ |
+| Flag | plan | status | readiness | sbom | depgraphs | tag | publish |
+|------|:----:|:------:|:---------:|:----:|:---------:|:---:|:-------:|
+| `--dry-run` (preview) | no-op | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| `--allow-dirty` / `--no-push` | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | ✓ |
+| `--patch` / `--minor` / `--major` / `--set-version` / `--pre` / `--offline` | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | ✓ |
+| `--base` | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | ✓ |
+| `--out-dir` | ✗ | ✗ | ✗ | ✓ | ✓ | ✗ | ✗ |
+| `-v`/`-q` / `--color` | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | ✓ |
+| `--output human\|jsonl` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 A rejected flag/action combination fails fast with a typed `InvalidInput` error, mapped to the usage exit code.

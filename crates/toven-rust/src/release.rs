@@ -13,6 +13,7 @@ use std::time::{Duration, SystemTime};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
+use rskit_fs::sync_io::dir::create_all;
 use rskit_fs::sync_io::file::{exists, read_string_bounded, write_atomic_replace};
 use rskit_process::{
     CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessResult, ProcessSpec, run,
@@ -188,6 +189,48 @@ impl ReleaseTarget for CratesIoTarget {
         )?;
         classify_publish(*self, module, &output)
     }
+
+    fn sbom(&self, module: &Module, out_dir: &Path) -> AppResult<Option<Artifact>> {
+        let manifest = Self::manifest_path(module)?;
+        create_all(out_dir)?;
+        let stem = package_name(module);
+        let output = cargo(out_dir.to_path_buf(), sbom_argv(&manifest, &stem))?;
+        output.check()?;
+        let artifact = out_dir.join(format!("{stem}.{SBOM_FILE_SUFFIX}"));
+        // `cargo cyclonedx`'s on-disk output location and naming are
+        // version-specific, so verify the tool actually wrote the expected file
+        // rather than returning a success-shaped path that may not exist.
+        if !exists(&artifact)? {
+            return Err(AppError::new(
+                ErrorCode::Internal,
+                format!(
+                    "cargo cyclonedx reported success but did not write the expected SBOM at '{}'",
+                    artifact.display()
+                ),
+            ));
+        }
+        Ok(Some(Artifact::new(artifact)))
+    }
+}
+
+/// `CycloneDX` SBOM output suffix for the JSON format (`<stem>.cdx.json`).
+const SBOM_FILE_SUFFIX: &str = "cdx.json";
+
+/// Build the argv-only `cargo cyclonedx` invocation for `manifest`.
+///
+/// Invoked from `out_dir` (the process working directory), so the tool writes
+/// `<stem>.cdx.json` relative to that directory. `--override-filename` pins the
+/// output stem deterministically instead of relying on the crate name.
+fn sbom_argv(manifest: &Path, stem: &str) -> Vec<String> {
+    vec![
+        "cyclonedx".to_string(),
+        "--manifest-path".to_string(),
+        manifest.display().to_string(),
+        "--format".to_string(),
+        "json".to_string(),
+        "--override-filename".to_string(),
+        stem.to_string(),
+    ]
 }
 
 fn cargo<I>(working_dir: PathBuf, args: I) -> AppResult<ProcessResult>
@@ -479,7 +522,7 @@ mod tests {
 
     use toml_edit::Item;
 
-    use super::{apply_mutation, parse_cargo_search_versions, read_declared_version};
+    use super::{apply_mutation, parse_cargo_search_versions, read_declared_version, sbom_argv};
 
     const MANIFEST: &str = "\
 [package]
@@ -643,5 +686,22 @@ core = \"0.2.0\"
             vec![Version::new(0, 2, 0)]
         );
         assert!(parse_cargo_search_versions("absent", stdout).is_empty());
+    }
+
+    #[test]
+    fn sbom_argv_is_an_argv_only_cyclonedx_invocation() {
+        let manifest = Path::new("/repo/crates/core/Cargo.toml");
+        assert_eq!(
+            sbom_argv(manifest, "core"),
+            vec![
+                "cyclonedx".to_string(),
+                "--manifest-path".to_string(),
+                "/repo/crates/core/Cargo.toml".to_string(),
+                "--format".to_string(),
+                "json".to_string(),
+                "--override-filename".to_string(),
+                "core".to_string(),
+            ]
+        );
     }
 }

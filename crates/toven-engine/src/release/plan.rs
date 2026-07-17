@@ -128,7 +128,8 @@ pub(crate) fn release_targets(context: &PlanContext) -> AppResult<super::Release
 ///
 /// # Errors
 /// Propagates an invalid ecosystem release config or an unknown bump policy.
-fn resolve_release_settings(
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn resolve_release_settings(
     context: &PlanContext,
     document: &Document,
     targets: &super::ReleaseTargets,

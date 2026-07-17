@@ -1,6 +1,8 @@
 //! The thin ecosystem release sliver — version I/O, packaging, and one publish
 //! attempt; the generic ~90% (bump plan, ordering, retry) lives in the engine.
 
+use std::path::Path;
+
 use rskit_errors::AppResult;
 use rskit_version::semver::Version;
 use toven_model::Module;
@@ -37,4 +39,21 @@ pub trait ReleaseTarget {
 
     /// Perform exactly one publish attempt and classify the registry's response.
     fn publish(&self, module: &Module, artifact: &Artifact) -> AppResult<PublishOutcome>;
+
+    /// Generate a `CycloneDX` SBOM for the module, writing it under `out_dir`.
+    ///
+    /// Orchestrated argv-first: the ecosystem's SBOM tool is invoked as an
+    /// argument vector against the module's manifest, its output bounded to
+    /// `out_dir`. The engine owns scope, ordering, and reporting; the target owns
+    /// only building and running the tool invocation. Returns `Ok(None)` when the
+    /// ecosystem has no SBOM tooling — a typed "not applicable" the engine records
+    /// as a skipped module rather than a success-shaped empty artifact; the
+    /// default is exactly that, so an adapter opts in by overriding.
+    ///
+    /// # Errors
+    /// Propagates a tool spawn/IO failure or a non-zero tool exit.
+    fn sbom(&self, module: &Module, out_dir: &Path) -> AppResult<Option<Artifact>> {
+        let _ = (module, out_dir);
+        Ok(None)
+    }
 }

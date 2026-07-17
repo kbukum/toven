@@ -16,8 +16,9 @@ use rskit_version::semver::Version;
 use serde::Serialize;
 use toven_engine::plan::PlanRequest;
 use toven_engine::release::{
-    BumpOverrides, PublishDecision, ReleaseApplyOptions, ReleasePlan, ReleaseRehearsal,
-    ReleaseStatus, release_plan, release_rehearse, release_run, release_status,
+    BumpOverrides, DepgraphReport, PublishDecision, ReadinessReport, ReleaseApplyOptions,
+    ReleasePlan, ReleaseRehearsal, ReleaseStatus, SbomReport, release_depgraphs, release_plan,
+    release_readiness, release_rehearse, release_run, release_sbom, release_status,
 };
 use toven_engine::vcs::BaselineFlags;
 use toven_model::{Event, ModuleRef};
@@ -54,6 +55,9 @@ pub(crate) fn execute(
     match action {
         ReleaseAction::Plan => plan(providers, project, cli.output),
         ReleaseAction::Status => status(providers, project, cli.output),
+        ReleaseAction::Readiness => readiness(providers, project, cli.output),
+        ReleaseAction::Sbom => sbom(providers, project, cli),
+        ReleaseAction::Depgraphs => depgraphs(providers, project, cli),
         ReleaseAction::Publish if cli.dry_run => rehearse(providers, project, cli),
         ReleaseAction::Tag | ReleaseAction::Publish => run(providers, project, cli, action),
     }
@@ -156,6 +160,87 @@ fn status(
     match resolve_output(output, &project.document) {
         OutputKind::Jsonl => render_status_jsonl(&status)?,
         OutputKind::Human => render_status_human(&status),
+    }
+    Ok(ExitCode::Success)
+}
+
+/// The default artifact output directory when `--out-dir` is not given.
+fn resolve_out_dir(cli: &Cli, project: &Project) -> std::path::PathBuf {
+    cli.out_dir.clone().unwrap_or_else(|| {
+        project
+            .project_root
+            .as_path()
+            .join("target")
+            .join("toven")
+            .join("release")
+    })
+}
+
+/// `release readiness`: evaluate the fail-closed go/no-go preflight, mutating
+/// nothing. A no-go verdict exits non-zero so CI gates on it.
+fn readiness(
+    providers: &[&dyn Provider],
+    project: &Project,
+    output: Option<OutputKind>,
+) -> AppResult<ExitCode> {
+    let request = release_request(project)?;
+    let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
+    let readers = opened.readers();
+    let mut reporter = QuietReporter;
+    let report = release_readiness(
+        &request,
+        &project.document,
+        providers,
+        &readers,
+        &mut reporter,
+    )?;
+    match resolve_output(output, &project.document) {
+        OutputKind::Jsonl => render_readiness_jsonl(&report)?,
+        OutputKind::Human => render_readiness_human(&report),
+    }
+    Ok(if report.is_go() {
+        ExitCode::Success
+    } else {
+        ExitCode::Failure
+    })
+}
+
+/// `release sbom`: generate a `CycloneDX` SBOM per releasable module under the
+/// resolved output directory, mutating nothing outside it.
+fn sbom(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+    let request = release_request(project)?;
+    let out_dir = resolve_out_dir(cli, project);
+    let mut reporter = QuietReporter;
+    let report = release_sbom(
+        &request,
+        &project.document,
+        providers,
+        &out_dir,
+        &mut reporter,
+    )?;
+    match resolve_output(cli.output, &project.document) {
+        OutputKind::Jsonl => render_sbom_jsonl(&report)?,
+        OutputKind::Human => render_sbom_human(&report),
+    }
+    Ok(ExitCode::Success)
+}
+
+/// `release depgraphs`: render the dependency graph to a DOT artifact under the
+/// resolved output directory, mutating nothing outside it.
+fn depgraphs(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+    let request = release_request(project)?;
+    let out_dir = resolve_out_dir(cli, project);
+    let mut reporter = QuietReporter;
+    let report = release_depgraphs(
+        &request,
+        &project.document,
+        providers,
+        &out_dir,
+        &mut reporter,
+    )?;
+    match resolve_output(cli.output, &project.document) {
+        OutputKind::Jsonl => render_depgraphs_jsonl(&report)?,
+        OutputKind::Human => render_depgraphs_human(&report),
     }
     Ok(ExitCode::Success)
 }
@@ -378,6 +463,114 @@ fn render_rehearsal_jsonl(rehearsal: &ReleaseRehearsal) -> AppResult<()> {
             module: verdict.module.to_string(),
             version: verdict.version.to_string(),
             decision: verdict.decision.as_str().to_string(),
+        };
+        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+        println!("{line}");
+    }
+    Ok(())
+}
+
+/// A stable JSON-lines record for one readiness check.
+#[derive(Serialize)]
+struct ReadinessRecord {
+    check: String,
+    passed: bool,
+    detail: String,
+}
+
+fn render_readiness_human(report: &ReadinessReport) {
+    let mut summary = OutputKV::new();
+    summary.add(
+        "verdict",
+        if report.is_go() { "go" } else { "no-go" }.to_string(),
+    );
+    println!("{summary}");
+    let mut table =
+        OutputTable::new(vec!["Check", "Result", "Detail"]).with_title("Release readiness");
+    for check in &report.checks {
+        table.add_row(vec![
+            check.name.clone(),
+            if check.passed { "pass" } else { "fail" }.to_string(),
+            check.detail.clone(),
+        ]);
+    }
+    println!("{table}");
+}
+
+fn render_readiness_jsonl(report: &ReadinessReport) -> AppResult<()> {
+    for check in &report.checks {
+        let record = ReadinessRecord {
+            check: check.name.clone(),
+            passed: check.passed,
+            detail: check.detail.clone(),
+        };
+        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+        println!("{line}");
+    }
+    Ok(())
+}
+
+/// A stable JSON-lines record for one generated SBOM artifact.
+#[derive(Serialize)]
+struct SbomRecord {
+    module: String,
+    path: String,
+}
+
+fn render_sbom_human(report: &SbomReport) {
+    let mut table =
+        OutputTable::new(vec!["Module", "Artifact"]).with_title("Release SBOM artifacts");
+    for artifact in &report.artifacts {
+        table.add_row(vec![
+            artifact.label.clone(),
+            artifact.path.display().to_string(),
+        ]);
+    }
+    println!("{table}");
+    for module in &report.skipped {
+        eprintln!("warning: {module} skipped (ecosystem has no SBOM tooling)");
+    }
+}
+
+fn render_sbom_jsonl(report: &SbomReport) -> AppResult<()> {
+    for artifact in &report.artifacts {
+        let record = SbomRecord {
+            module: artifact.label.clone(),
+            path: artifact.path.display().to_string(),
+        };
+        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+        println!("{line}");
+    }
+    for module in &report.skipped {
+        eprintln!("warning: {module} skipped (ecosystem has no SBOM tooling)");
+    }
+    Ok(())
+}
+
+/// A stable JSON-lines record for one generated dependency-graph artifact.
+#[derive(Serialize)]
+struct DepgraphRecord {
+    label: String,
+    path: String,
+}
+
+fn render_depgraphs_human(report: &DepgraphReport) {
+    let mut table =
+        OutputTable::new(vec!["Graph", "Artifact"]).with_title("Release dependency graphs");
+    for artifact in &report.artifacts {
+        table.add_row(vec![
+            artifact.label.clone(),
+            artifact.path.display().to_string(),
+        ]);
+    }
+    println!("{table}");
+}
+
+fn render_depgraphs_jsonl(report: &DepgraphReport) -> AppResult<()> {
+    for artifact in &report.artifacts {
+        let record = DepgraphRecord {
+            label: artifact.label.clone(),
+            path: artifact.path.display().to_string(),
         };
         let line = serde_json::to_string(&record).map_err(AppError::internal)?;
         println!("{line}");
