@@ -3,7 +3,7 @@ name: validate
 description: >-
     Build, test, lint, format-check, and structure-check Toven changes through cargo and make —
     scoped to the crates that actually changed. Use whenever you need to validate a Toven change,
-    run tests for a crate, reproduce CI locally, or check the blast radius of an edit before
+    run tests for a crate, reproduce CI locally, or check the affected area of an edit before
     committing.
 user-invocable: true
 ---
@@ -20,7 +20,7 @@ rskit lives in the `rskit/` submodule; nothing builds without it:
 git submodule update --init --recursive
 ```
 
-## Golden rule: scope to what changed with `cargo -p`
+## Main rule: scope to what changed with `cargo -p`
 
 ```bash
 cargo clippy -p <crate> --all-targets --all-features -- -D warnings   # e.g. -p toven-engine

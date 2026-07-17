@@ -7,7 +7,7 @@ Standards for contributing to Toven.
 1. Discover before deciding; reuse rskit and existing project helpers where they fit.
 2. Prefer clean redesigns over compatibility detours — Toven and rskit are pre-stable.
 3. Cascade model changes through schema, normalization, planner, executor, output, tests, and docs together.
-4. User-owned argv is sacred: Toven validates and expands selectors but never infers hidden flags or rewrites commands.
+4. Keep user-owned argv unchanged: Toven validates and expands selectors but never infers hidden flags or rewrites commands.
 5. Libraries return typed data and typed errors. Only the CLI/reporting layer prints, and it reserves stdout for the machine-readable stream.
 6. Performance claims require benchmark evidence (`make benchmark`).
 7. Place every injected contract in `toven-ports`, keep its concrete adapter in the consuming crate, and give it a `toven-testkit` double.
@@ -20,7 +20,7 @@ Dependencies flow downward only:
 |-------|----------|------|
 | L0 | `toven-model` | pure vocabulary + graph/topo/wave algorithms (the dependency root) |
 | L1 | `toven-ports` | the port traits + the shared surface behind them |
-| L2 | `toven-engine`, adapter crates | orchestration + concrete adapters over the ports |
+| L2 | `toven-engine`, adapter crates | coordination + concrete adapters over the ports |
 | L3 | `toven-cli` | CLI taxonomy, argv dispatch, stdio/Event projections |
 | L4 | `apps/*` | thin wiring binaries |
 
@@ -59,11 +59,11 @@ Prefer validating changed modules unless a broader gate is clearly necessary.
 ## Documentation
 
 - Stable project documentation belongs in `docs/`; `tmp/` holds only active plans and handoff notes.
-- Markdown is not hard-wrapped: one line per paragraph, preserving code blocks, mermaid, tables, and lists.
+- Prose is never hard-wrapped: write one line per paragraph — in Markdown, `///` rustdoc, and `//` comments — with no mid-sentence line breaks to hit a column width (the `max_width` limit is for code, not prose). Preserve code blocks, mermaid, tables, and lists.
 
 ## Release policy
 
 1. Remove publish-blocking local path dependency assumptions.
-2. Rehearse installation through the intended release path.
+2. Test installation through the intended release path.
 3. Use the installed `toven` binary for adoption and benchmarks.
 4. Produce checksums, release metadata, and signed/provenance-ready artifacts.

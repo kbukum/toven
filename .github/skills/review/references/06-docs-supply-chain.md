@@ -1,4 +1,4 @@
-# Pass 05 — Docs and supply chain
+# Pass 06 — Docs and supply chain
 
 The last gate: public surfaces are documented, docs policy is honored, and the supply chain stays pinned and clean.
 
@@ -9,7 +9,7 @@ The last gate: public surfaces are documented, docs policy is honored, and the s
 ## Docs
 
 - **Public API documented.** Public API changes are reflected in `///` docs and `make doc` (`-D warnings`) passes. Every public item carries docs (`missing_docs = "warn"`).
-- **Examples match the live schema.** Config and CLI snippets in `docs/` and `README` must parse/validate against the *current* `Document` loader and CLI surface, not a removed schema. A snippet using a dropped key (e.g. a stale `[profiles.*]` / `[scopes.*]` section), an outdated task shape, or a wrong default path is a should-fix — and prefer asserting at least one representative doc example round-trips through the loader in a test so the doc cannot silently drift again.
+- **Examples match the live schema.** Config and CLI snippets in `docs/` and `README` must parse/validate against the *current* `Document` loader and CLI surface, not a removed schema. A snippet using a dropped key (e.g. an outdated `[profiles.*]` / `[scopes.*]` section), an outdated task shape, or a wrong default path is a should-fix — and prefer asserting at least one representative doc example round-trips through the loader in a test so the doc cannot silently drift again.
 - **Docs live in `docs/`.** Stable project documentation belongs in `docs/`. `tmp/` is for active plans/handoff/research only and must **not** be referenced from committed docs — a committed doc pointing at `tmp/` is a should-fix. Completed phase-history docs should be summarized into stable docs or removed, not accumulated in `tmp/`.
 - **No hard-wrapping.** Markdown is one line per paragraph (no mid-sentence line breaks); preserve code blocks, mermaid, tables, and lists.
 - **No drifting section refs.** Do not cite numeric section refs (e.g. "principles §4") in code comments or rustdoc — they drift from `docs/engineering.md`. Keep the rationale prose without the number.

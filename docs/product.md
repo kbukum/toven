@@ -46,7 +46,7 @@ Toven uses one strict `toven.toml`:
 - `[project]` — project name, root, and default baseline (`base_ref`).
 - `[toven]` — report format, parallelism, and `[toven.cache]`.
 - `[ecosystems.<id>]` — per-ecosystem discovery, run strategy, release policy, and per-task argv under `[ecosystems.<id>.tasks.<name>]`.
-- `[groups.<name>]` — named module groupings with guardrails and optional group-scoped `run_strategy`/`tasks` overrides.
+- `[groups.<name>]` — named module groupings with safety limits and optional group-scoped `run_strategy`/`tasks` overrides.
 - `[[overlays]]` — explicit cross-ecosystem dependency edges native metadata cannot prove.
 - `[[members]]` — multi-repo federation roots.
 

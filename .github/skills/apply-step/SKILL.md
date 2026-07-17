@@ -34,7 +34,7 @@ Apply the current step's actions **test-first**, honoring Toven's engineering ba
 - **Reuse rskit first.** Before writing a shared concern, open [`docs/concern-owners.md`](../../../docs/concern-owners.md), find the concern's owner (rskit-reused vs toven-owned), and reuse or extend it; improve rskit generically if it is inadequate — never fork a Toven-specific copy.
 - **Cascade-complete.** A model change flows through schema, normalization, planner, executor, output, tests, and docs in the same change — no half-applied edits.
 - **Placement & layering.** Downward-only (L0 `toven-model` → L1 `toven-ports` → L2 `toven-engine`/`toven-{rust,go,command}` → L3 `toven-cli`); port trait in `toven-ports`, adapter in the consuming crate, one shared double per port in `toven-testkit`; `lib.rs`/`mod.rs` declare-only.
-- **argv is sacred; libraries don't print.** User argv is never silently rewritten; only the CLI layer produces user-facing output.
+- **Keep argv unchanged; libraries don't print.** User argv is never silently rewritten; only the CLI layer produces user-facing output.
 - **Typed & no panic.** No broad `Any` on public surfaces; no `unwrap`/`expect`/swallowed errors on runtime paths; typed `AppError`/`AppResult` preserving cause.
 - **Readable files.** Split by concern into focused files; no test-only escape hatches on production public surfaces (`#[cfg(test)]`-gate or remove them).
 

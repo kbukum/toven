@@ -12,9 +12,9 @@ user-invocable: true
 
 A branch and its eventual PR must read as a **standalone unit of change** to a reviewer who has no knowledge of how the work was planned or sequenced. Two rules make that true: branch off the right, up-to-date base, and name the branch after the actual change — nothing else.
 
-## Golden rule: branch off an up-to-date main
+## Main rule: branch off an up-to-date main
 
-Unless the request explicitly says to build on another branch, always base new work on the latest `origin/main`. Never branch off a stale local `main` or whatever happens to be checked out.
+Unless the request explicitly says to build on another branch, always base new work on the latest `origin/main`. Never branch off an outdated local `main` or whatever happens to be checked out.
 
 ```bash
 git fetch origin                       # refresh remote refs first — always
@@ -30,7 +30,7 @@ git switch -c <branch-name> origin/<base-branch>   # explicit base, per the requ
 
 Before switching, check the working tree with `git status`. Uncommitted changes follow you onto the new branch — confirm that is intentional rather than dragging along unrelated edits. Note the `rskit/` submodule is a separate checkout; branch names here refer to the Toven superproject.
 
-## Naming: describe the change, not the plumbing
+## Naming: describe the change, not the internal mechanics
 
 The branch name captures **what the change does at a high level** — the capability, fix, or refactor a reviewer will see. It must not leak how the work was organized internally.
 

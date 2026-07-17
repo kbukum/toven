@@ -1,6 +1,6 @@
 # Maintainers
 
-This file lists the people responsible for Toven. Maintainers handle code review, releases, security triage, and project direction.
+This file lists the people responsible for Toven. Maintainers handle code review, releases, security review, and project direction.
 
 ## Core Maintainers
 

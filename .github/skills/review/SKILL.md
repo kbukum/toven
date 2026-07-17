@@ -2,16 +2,16 @@
 name: review
 description: >-
     Run Toven's standing engineering-baseline review over a change set (a branch, commit range,
-    or HEAD~1) or over a whole crate/area/tree. Sequences seven focused passes — structure &
-    placement, rskit reuse, principles, quality, tests/TDD, docs & supply chain, comments &
-    rustdoc. Use before merging a change, when auditing a crate, or before a release. Always run
-    it in a fresh, clean-context reviewer.
+    or HEAD~1) or over a whole crate/area/tree. Sequences eight focused passes — structure &
+    placement, rskit reuse, principles, security & privacy, quality, tests/TDD, docs & supply
+    chain, comments & rustdoc. Use before merging a change, when auditing a crate, or before a
+    release. Always run it in a fresh, clean-context reviewer.
 user-invocable: true
 ---
 
 # Reviewing Toven against its engineering baseline
 
-Toven is an argv-first task planner built on the vendored rskit foundation (a git submodule). A defect in a lower crate propagates up the hexagonal stack to the CLI and every generated command batch. This skill encodes Toven's permanent review baseline as seven focused passes plus orchestrators.
+Toven is an argv-first task planner built on the vendored rskit foundation (a git submodule). A defect in a lower crate propagates up the hexagonal stack to the CLI and every generated command batch. This skill encodes Toven's permanent review baseline as eight focused passes plus orchestrators.
 
 The authoritative baseline lives in [`docs/engineering.md`](../../../docs/engineering.md) (and [`docs/architecture.md`](../../../docs/architecture.md)); see also [`.github/copilot-instructions.md`](../../copilot-instructions.md). A plan, spec, issue, or roadmap may be passed in **as a scope checklist only** — it defines intended scope, never excuses a baseline violation. If the code diverges from the plan, report the divergence; the baseline wins.
 
@@ -33,17 +33,18 @@ git submodule update --init --recursive
 - **Whole tree / crate** → [`references/review-project.md`](references/review-project.md). A standing audit independent of any diff. Use periodically, before a release, or when onboarding.
 - **Review → fix in one pass** → [`references/review-details.md`](references/review-details.md). Fans the review into parallel subagent passes, then plans and applies fixes.
 
-## The seven focused passes (run in order)
+## The eight focused passes (run in order)
 
 Stop and reject as soon as a change fails pass `00` or `01` — misplaced or duplicated code makes every later pass moot. Each file can be run standalone when you need only one lens.
 
 1. [`references/00-structure-placement.md`](references/00-structure-placement.md) — layering, port placement, `mod.rs` guard, file homes.
 2. [`references/01-rskit-reuse.md`](references/01-rskit-reuse.md) — did the code reuse rskit, or quietly reimplement a concern rskit already owns? *(blocker class)*
-3. [`references/02-principles.md`](references/02-principles.md) — cascade-complete, argv-is-sacred, libraries-don't-print, CLI output/flag discipline, typed/no-panic, security, performance evidence.
-4. [`references/03-quality.md`](references/03-quality.md) — simplicity/root-cause, dead code, outdated patterns, style gates.
-5. [`references/04-tests-tdd.md`](references/04-tests-tdd.md) — TDD, fixtures, failure paths, shared doubles, determinism.
-6. [`references/05-docs-supply-chain.md`](references/05-docs-supply-chain.md) — docs policy, docs-match-the-live-schema, Conventional Commits, `Cargo.lock`, `cargo-deny`, SHA-pinned actions.
-7. [`references/06-comments-rustdoc.md`](references/06-comments-rustdoc.md) — comments and `///` docs describe the code as it is, not plans/history/process.
+3. [`references/02-principles.md`](references/02-principles.md) — cascade-complete, argv unchanged, libraries-don't-print, CLI output/flag discipline, typed/no-panic, security, performance evidence.
+4. [`references/03-security-privacy.md`](references/03-security-privacy.md) — trust-boundary validation, argv-only/no-shell execution, bounded input/output, secret hygiene, path/traversal safety.
+5. [`references/04-quality.md`](references/04-quality.md) — simplicity/root-cause, dead code, outdated patterns, style gates.
+6. [`references/05-tests-tdd.md`](references/05-tests-tdd.md) — TDD, fixtures, failure paths, shared doubles, determinism.
+7. [`references/06-docs-supply-chain.md`](references/06-docs-supply-chain.md) — docs policy, docs-match-the-live-schema, Conventional Commits, `Cargo.lock`, `cargo-deny`, SHA-pinned actions.
+8. [`references/07-comments-rustdoc.md`](references/07-comments-rustdoc.md) — comments and `///` docs describe the code as it is, not plans/history/process.
 
 ## Severity and finding format
 
@@ -51,7 +52,7 @@ Stop and reject as soon as a change fails pass `00` or `01` — misplaced or dup
 severity (blocker / should-fix / nit) — file:line — what's wrong — which principle — suggested fix
 ```
 
-- **blocker** — hard-principle violation (upward dependency, rskit concern reimplemented, library prints, panic on a runtime path, `unsafe`, argv silently rewritten, behavioral change with no test). Fix before merge.
+- **blocker** — hard-principle violation (upward dependency, rskit concern reimplemented, library prints, panic on a runtime path, `unsafe`, argv silently rewritten, untrusted input into a path/command/deserialization without validation, behavioral change with no test). Fix before merge.
 - **should-fix** — real defect or debt that isn't a baseline violation (stranded test double, inline TOML in a test, compat shim, missing regression test on a non-behavioral tidy-up).
 - **nit** — minor/style, take-it-or-leave-it.
 

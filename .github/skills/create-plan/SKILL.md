@@ -55,13 +55,13 @@ What this step changes and, explicitly, what it does not.
 
 ## Bind every plan to the baseline
 
-A plan may **not** invent a lighter standard than Toven's. Its cross-cutting rules restate — and link to — the engineering baseline in [`docs/engineering.md`](../../../docs/engineering.md) / [`.github/copilot-instructions.md`](../../copilot-instructions.md) and defer detailed judgment to the `review` skill's seven passes. In every plan's README, make these load-bearing:
+A plan may **not** invent a lighter standard than Toven's. Its cross-cutting rules restate — and link to — the engineering baseline in [`docs/engineering.md`](../../../docs/engineering.md) / [`.github/copilot-instructions.md`](../../copilot-instructions.md) and defer detailed judgment to the `review` skill's eight passes. In every plan's README, make these load-bearing:
 
 - **Test-first (TDD).** Failing test → minimal code → refactor while green, failure paths included. Use `toven-testkit` fixtures over inline TOML; never batch code and bolt tests on.
 - **Reuse rskit first.** Reuse or enhance the canonical rskit owner before writing a shared concern; if rskit is inadequate, improve it generically — never fork a Toven-specific copy. Consult [`docs/concern-owners.md`](../../../docs/concern-owners.md) (rskit-reused vs toven-owned) for the canonical owner.
 - **Cascade-complete.** A model change flows through schema, normalization, planner, executor, output, tests, and docs in the same change.
 - **Structure & placement.** Downward-only layering (L0→L1→L2→L3); a port trait in `toven-ports`, its adapter in the consuming crate, one shared double per port in `toven-testkit`; `lib.rs`/`mod.rs` declare-only.
-- **argv is sacred; libraries don't print.** User argv is never silently rewritten; only the CLI/reporting layer produces user-facing output.
+- **Keep argv unchanged; libraries don't print.** User argv is never silently rewritten; only the CLI/reporting layer produces user-facing output.
 - **Typed & no panic.** No broad `Any` on public surfaces; no `unwrap`/`expect`/swallowed errors on runtime paths; rskit `AppError`/`AppResult` preserving cause.
 - **Root-cause, no shims.** Pre-stable: redesign cleanly and remove the old path.
 - **Readable files.** Split by concern into focused files — never pile into one file.

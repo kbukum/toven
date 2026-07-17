@@ -16,7 +16,7 @@ Toven is one Cargo workspace (`members = ["crates/*"]`, `exclude = ["rskit"]`) a
 
 - **L0 `toven-model`** — pure vocabulary: identity, dependency graph, plan, event types, and graph algorithms. Depends on no other Toven crate (only rskit + third-party like `serde`).
 - **L1 `toven-ports`** — hexagonal port traits (Provider/ConfiguredAdapter, ReleaseTarget, Reporter, RawOutputSink, VcsReader/VcsWriter, ToolchainProber, SourceDigest, CacheStore) and helpers (template, merge, config). Depends on `toven-model` + rskit.
-- **L2 `toven-engine`** — PLAN/APPLY orchestration + concrete rskit-backed adapters for injected ports; owns the strict config `Document` loader. `toven-{rust,go,command}` are the L2 ecosystem adapters implementing the ports; they never reach into engine or cli.
+- **L2 `toven-engine`** — PLAN/APPLY coordination + concrete rskit-backed adapters for injected ports; owns the strict config `Document` loader. `toven-{rust,go,command}` are the L2 ecosystem adapters implementing the ports; they never reach into engine or cli.
 - **L3 `toven-cli`** — CLI taxonomy, argv-first dispatch, and the only layer that prints.
 - **`toven-testkit`** — dev-only (`publish = false`): fixtures API, port doubles, sample-repo/git scenario helpers.
 

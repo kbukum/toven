@@ -1,10 +1,10 @@
-# Pass 02 — Principle conformance
+# Pass 02 — Following principles
 
 Each item here is a hard principle from [`docs/engineering.md`](../../../../docs/engineering.md), not a preference. This is where vibe coding usually drifts.
 
 > **Run in a separate, clean-context agent** — never inline in the session that wrote the code. An independent reviewer re-derives every judgment from the code and the principles instead of trusting prior reasoning. A plan/spec may be passed in as a scope checklist only; it never excuses a baseline violation.
 
-**Scope note.** *Changes mode:* walk the cascade list you built for the diff and grep the touched crates. *Project mode:* the print/panic/argv/security invariants below hold for the entire library surface — sweep all of `crates/toven-{model,ports,engine,rust,go,command}/src`, not just a diff.
+**Scope note.** *Changes mode:* walk the cascade list you built for the diff and grep the touched crates. *Project mode:* the print/panic/argv/security rules below hold for the entire library surface — sweep all of `crates/toven-{model,ports,engine,rust,go,command}/src`, not just a diff.
 
 ## rskit-first
 
@@ -12,9 +12,9 @@ Covered in depth in pass `01`. Confirm it was done before continuing.
 
 ## Cascade-complete
 
-A model change must flow through **schema → normalization → planner → executor → output → tests → docs in the same change**. Walk the list of layers that *should* have changed with the touched model/schema type; any half-applied edit is a blocker. Common miss: a new field added to the model and serde schema but never normalized, never reaching the planner, or with no test. *Project mode:* spot-check that existing model fields are actually consumed end-to-end — an orphaned field that nothing reads is dead schema (hand to pass `03`).
+A model change must flow through **schema → normalization → planner → executor → output → tests → docs in the same change**. Walk the list of layers that *should* have changed with the touched model/schema type; any half-applied edit is a blocker. Common miss: a new field added to the model and serde schema but never normalized, never reaching the planner, or with no test. *Project mode:* spot-check that existing model fields are actually consumed end-to-end — an orphaned field that nothing reads is dead schema (hand to pass `04`).
 
-## argv is sacred
+## Keep argv unchanged
 
 User-owned argv is never silently rewritten. Validation and selector expansion are allowed; inferring hidden flags is not. Generated commands must be argument vectors by default; any shell execution must be an explicit opt-in, not a default. Look for string-concatenated commands or implicit shell invocation.
 
@@ -33,13 +33,13 @@ Only `toven-cli` produces user-facing output. Any `println!` / `print!` / `eprin
 
 On an async runtime path, never run a synchronous, potentially long-blocking call — process shutdown/join, a `blocking_send` into a bounded channel, blocking filesystem IO — inline on a task that must keep making progress. It can park the runtime and deadlock a bounded live-output / IPC channel whose reader thread is waiting on that same task (this is exactly the APPLY persistent-teardown class of hang). Offload blocking work via `tokio::task::spawn_blocking` (or an async API) and `await` it so draining continues while the blocking work waits. Every subprocess/RPC call carries a timeout and honors the cancellation token.
 
-## CLI output and flag discipline
+## CLI output and flag rules
 
-The complement to *libraries don't print* (this section is the one place `toven-cli` is in scope): the CLI is the only layer that prints, but it must keep the channels clean. `stdout` is reserved for the machine-readable stream — the JSONL event projection — so human progress, status, and diagnostics go to `stderr`; a consumer of `--output jsonl` must never have to filter human chrome out of stdout. A global flag must be rejected (or scoped) on any verb that does not consume it: never advertise a flag that is silently a no-op for the dispatched verb (e.g. `--fail-fast` on a verb that never schedules multiple units, or `-v`/`-q` on a verb with no reporter). Each accepted flag must actually change that verb's behavior.
+The complement to *libraries don't print* (this section is the one place `toven-cli` is in scope): the CLI is the only layer that prints, but it must keep the channels clean. `stdout` is reserved for the machine-readable stream — the JSONL event projection — so human progress, status, and diagnostics go to `stderr`; a consumer of `--output jsonl` must never have to filter human status text out of stdout. A global flag must be rejected (or scoped) on any verb that does not consume it: never advertise a flag that is silently a no-op for the dispatched verb (e.g. `--fail-fast` on a verb that never schedules multiple units, or `-v`/`-q` on a verb with no reporter). Each accepted flag must actually change that verb's behavior.
 
 ## Security
 
-User commands and repository files are untrusted at the CLI boundary. Validate at every trust boundary, use argv-only subprocess execution, never log secrets, bound input and output. Flag any unbounded read of repo files or any unvalidated path/selector flowing into execution. (For a deeper, dedicated sweep, pair this with a security-focused review; this pass covers the baseline.)
+User commands and repository files are untrusted at the CLI boundary. Validate at every trust boundary, use argv-only subprocess execution, never log secrets, bound input and output. Flag any unbounded read of repo files or any unvalidated path/selector flowing into execution. Covered in depth in pass `03` (security & privacy) — this section is the principle-level summary.
 
 ## Performance
 

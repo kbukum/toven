@@ -9,7 +9,7 @@ Apply this baseline to all work here:
 - **Phases:** discover → decide (redesign / align / enhance / drop / leave) → implement completely → validate. Toven and rskit are pre-stable: prefer root-cause redesigns over compatibility shims; backward compatibility is not a goal yet.
 - **Reuse rskit first:** before writing a shared concern (errors, config, validation, filesystem, git, process, logging), reuse or enhance the canonical rskit owner. If an rskit capability is missing or inadequate, improve rskit generically — never fork a Toven-specific copy or make rskit Toven-specific. Consult [`docs/concern-owners.md`](../docs/concern-owners.md) (rskit-reused vs toven-owned) for the canonical owner of each concern before writing new code.
 - **Cascade-complete changes:** a model change flows through schema, normalization, planner, executor, output, tests, and docs in the same change — no half-applied edits.
-- **argv is sacred:** user-owned argv is never silently rewritten. Toven validates and expands selectors but does not infer hidden flags. Generated commands are argument vectors by default; shell execution must be opted into explicitly.
+- **Keep argv unchanged:** user-owned argv is never silently rewritten. Toven validates and expands selectors but does not infer hidden flags. Generated commands are argument vectors by default; shell execution must be opted into explicitly.
 - **Libraries do not print:** only the CLI/reporting layer produces user-facing output. Library crates return typed data and typed errors.
 - **Typed, minimal APIs:** no broad `Any`-style escape hatches in public surfaces; actionable typed errors that preserve cause.
 - **No panics on runtime paths:** no `unwrap()` / `expect()` / swallowed errors outside tests; no success-shaped fallbacks that hide failure.
@@ -19,7 +19,7 @@ Apply this baseline to all work here:
 
 The authoritative, longer-form baseline lives in [`docs/engineering.md`](../docs/engineering.md).
 
-Standing, re-runnable development skills encoding this baseline live in [`.github/skills/`](skills/README.md) — the `review` skill runs the review passes in a fresh, clean-context agent after every change set and before releases; `create-branch`, `create-plan`, `apply-plan`, `apply-step`, `commit`, `create-pr`, `fix-reviews`, `validate`, `new-crate`, and `rskit-reuse` cover the rest of the workflow.
+Standing, re-runnable development skills encoding this baseline live in [`.github/skills/`](skills/README.md) — the `review` skill runs the review passes in a fresh, clean-context agent after every change set and before releases; `create-branch`, `create-plan`, `apply-plan`, `apply-step`, `commit`, `create-pr`, `fix-reviews`, `validate`, `new-crate`, `rskit-reuse`, `release`, and `docs` cover the rest of the workflow.
 
 ## Build, test, and lint
 
@@ -45,7 +45,7 @@ One Cargo workspace (`members = ["crates/*"]`, `exclude = ["rskit"]`). Layers de
 
 - `crates/toven-model` (L0) — pure vocabulary: identity, dependency graph, plan, and event types plus graph algorithms. The dependency root; it depends on no other Toven crate (only rskit and third-party crates such as `serde`).
 - `crates/toven-ports` (L1) — hexagonal port traits (Provider/ConfiguredAdapter, ReleaseTarget, Reporter, RawOutputSink, VcsReader/VcsWriter, ToolchainProber, SourceDigest, CacheStore) and helpers (template, merge, config). Each port is a declare-only responsibility folder. Depends on `toven-model` + rskit.
-- `crates/toven-engine` (L2) — PLAN/APPLY orchestration and the concrete rskit-backed adapters for the injected ports (e.g. `ProcessToolchainProber`, `FsSourceDigest`, `NullCache`); also owns the strict config `Document` loader.
+- `crates/toven-engine` (L2) — PLAN/APPLY coordination and the concrete rskit-backed adapters for the injected ports (e.g. `ProcessToolchainProber`, `FsSourceDigest`, `NullCache`); also owns the strict config `Document` loader.
 - adapter crates `crates/toven-{rust,go,command}` (L2) — ecosystem adapters implementing the `toven-ports` traits; never reach into the engine or cli.
 - `crates/toven-cli` (L3) — CLI taxonomy, argv-first dispatch, and the stdio/Event projection sinks (the only layer that prints).
 - `crates/toven-testkit` — dev-only (`publish = false`) shared test surface: fixtures API, port doubles, sample-repo/git scenario helpers. Tests use it instead of inline TOML.
@@ -76,4 +76,4 @@ Each crate root (`lib.rs`) and responsibility folder (`mod.rs`) stays **declare-
 ## Documentation
 
 - Stable project documentation lives in `docs/`; `tmp/` is for active plans/handoff notes only and is never referenced from committed docs.
-- Markdown is not hard-wrapped: write one line per paragraph (no mid-sentence line breaks); preserve code blocks, tables, and lists.
+- Prose is never hard-wrapped. Write **one line per paragraph** — in Markdown, `///` rustdoc, and `//` code comments — and never insert a line break in the middle of a sentence to hit a column width; let the editor soft-wrap. The `max_width = 100` limit is for *code*, not prose. Preserve code blocks, tables, and lists as-is. (YAML folded scalars like a skill's frontmatter `description` are exempt — they already collapse to one logical line.)

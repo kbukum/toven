@@ -56,7 +56,7 @@ Passthrough args disable caching unless the task opts in with `cache_args = true
 
 Persistent tasks are never cached: readiness and process lifetime are runtime behavior, not reusable results.
 
-Tasks authored `cacheable = false` are never cached either: a mutating task (Go's `format` / `tidy-fix`) must apply its change on every run, so it can never be satisfied by a stale content-key hit.
+Tasks authored `cacheable = false` are never cached either: a state-changing task (Go's `format` / `tidy-fix`) must apply its change on every run, so it can never be satisfied by an outdated content-key hit.
 
 To force a re-run for one invocation, use [`--refresh` or `--no-cache`](run.md#cache-control---refresh-vs---no-cache).
 
