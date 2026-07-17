@@ -69,14 +69,15 @@ impl ResolvedReleaseSettings {
     /// per-module override, applying built-in defaults for anything unset.
     ///
     /// # Errors
-    /// Propagates an unknown/malformed release strategy from the merged config.
+    /// Propagates an unknown/malformed bump policy from the merged config's
+    /// `strategy` field.
     pub fn resolve(ecosystem: &ReleaseConfig, module: Option<&ReleaseConfig>) -> AppResult<Self> {
         let merged =
             module.map_or_else(|| ecosystem.clone(), |over| merge_release(ecosystem, over));
         Self::from_merged(&merged)
     }
 
-    /// Apply defaults and resolve the strategy over an already-merged config.
+    /// Apply defaults and resolve the bump policy over an already-merged config.
     fn from_merged(config: &ReleaseConfig) -> AppResult<Self> {
         Ok(Self {
             policy: strategy::resolve(config.strategy.as_deref())?,

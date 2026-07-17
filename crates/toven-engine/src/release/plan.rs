@@ -19,7 +19,7 @@ use super::{
 ///
 /// # Errors
 /// Propagates configuration/discovery/graph failures, VCS failures, release
-/// target failures, or invalid release strategy selection.
+/// target failures, or invalid bump-policy selection.
 pub fn release_plan(
     request: &PlanRequest,
     document: &Document,
@@ -47,7 +47,7 @@ pub fn release_plan(
 /// facade so the PLAN cut is computed by exactly one path.
 ///
 /// # Errors
-/// Propagates strategy selection, change-detection, and bump-planning failures.
+/// Propagates bump-policy selection, change-detection, and bump-planning failures.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn plan_with_context(
     context: &PlanContext,
@@ -120,14 +120,14 @@ pub(crate) fn release_targets(context: &PlanContext) -> AppResult<super::Release
 ///
 /// Only modules whose `(member, ecosystem)` has a release target participate:
 /// an ecosystem/member with no release target (e.g. a non-publishable adapter)
-/// never joins a release plan, so its config must not force a plan-wide strategy
+/// never joins a release plan, so its config must not force a plan-wide policy
 /// conflict. The ecosystem-level release config is validated once per configured
 /// adapter; the per-module override (validated structurally at load) is folded on
 /// top with the documented precedence
 /// (`[modules.<name>.release]` > `[ecosystems.<id>].release` > adapter default).
 ///
 /// # Errors
-/// Propagates an invalid ecosystem release config or an unknown release strategy.
+/// Propagates an invalid ecosystem release config or an unknown bump policy.
 fn resolve_release_settings(
     context: &PlanContext,
     document: &Document,

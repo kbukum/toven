@@ -39,9 +39,16 @@ impl BumpOverrides {
     /// Force `module` to bump at `level`.
     ///
     /// # Errors
-    /// Rejects a module already forced to a different level or pinned by
-    /// `--set-version`.
+    /// Rejects `BumpLevel::Auto` (a per-run override is always an explicit
+    /// `patch`/`minor`/`major`), a module already forced to a different level, or
+    /// one pinned by `--set-version`.
     pub fn with_module_level(mut self, module: ModuleRef, level: BumpLevel) -> AppResult<Self> {
+        if level == BumpLevel::Auto {
+            return Err(AppError::invalid_input(
+                "release.bump",
+                format!("bump override for module '{module}' must be patch, minor, or major"),
+            ));
+        }
         if self.set_versions.contains_key(&module) {
             return Err(conflict(&module));
         }

@@ -38,7 +38,22 @@ struct BumpDecision {
     prerelease_channel: Option<String>,
 }
 
+/// One module's resolved bump, its dependency-floor updates, and its cascade
+/// origin, prepared in dependency-first order before entry assembly.
+struct PreparedBump {
+    reference: ModuleKey,
+    current: Version,
+    origin: Option<ModuleKey>,
+    decision: BumpDecision,
+    dep_floor_updates: BTreeMap<ModuleRef, Version>,
+}
+
 /// Build release entries from changed modules and release targets.
+///
+/// Bumps are decided **dependency-first** so a dependent only cascades when a
+/// direct dependency actually receives an own-version bump — a dependent whose
+/// dependencies stayed put (e.g. an `upgrade`-mode intermediate that raised a
+/// floor without republishing) is never given a bump that carries no change.
 pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry>> {
     let active = input.graph.closure(input.changed, release_closure_edge)?;
     let module_by_ref = input
@@ -51,37 +66,46 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
         .overrides
         .validate_known(&active.iter().map(|key| key.module.clone()).collect())?;
 
-    let mut decisions = BTreeMap::new();
-    for reference in &active {
+    let ranks = publish_ranks(input.graph, &active)?;
+    let mut ordered = active.iter().cloned().collect::<Vec<_>>();
+    ordered.sort_by_key(|module| (*ranks.get(module).unwrap_or(&usize::MAX), module.clone()));
+
+    let mut planned_versions: BTreeMap<ModuleKey, Version> = BTreeMap::new();
+    let mut prepared = Vec::with_capacity(ordered.len());
+    for reference in &ordered {
         let module = lookup(&module_by_ref, reference)?;
         let target = target_for(input.targets, module)?;
         let current = target.declared_version(module)?;
+        // Every dependency has a lower topo rank, so its bump (if any) is already
+        // recorded: a non-empty floor set means a direct dependency really bumped.
+        let dep_floor_updates = dep_floor_updates(reference, input.edges, &planned_versions);
         let origin = cascade_origin(reference, input.graph, input.changed)?;
-        let decision = resolve_bump(input, reference, &current, origin.is_some())?;
-        decisions.insert(reference.clone(), (current, origin, decision));
+        let decision = resolve_bump(input, reference, &current, !dep_floor_updates.is_empty())?;
+        if let Some(version) = &decision.planned {
+            planned_versions.insert(reference.clone(), version.clone());
+        }
+        prepared.push(PreparedBump {
+            reference: reference.clone(),
+            current,
+            origin,
+            decision,
+            dep_floor_updates,
+        });
     }
 
-    let planned_versions = decisions
-        .iter()
-        .filter_map(|(key, (_, _, decision))| {
-            decision
-                .planned
-                .clone()
-                .map(|version| (key.clone(), version))
-        })
-        .collect::<BTreeMap<_, _>>();
-
-    let ranks = publish_ranks(input.graph, &active)?;
-    let mut entries = Vec::new();
-    for reference in &active {
-        let module = lookup(&module_by_ref, reference)?;
+    let mut entries = Vec::with_capacity(prepared.len());
+    for PreparedBump {
+        reference,
+        current,
+        origin,
+        decision,
+        dep_floor_updates,
+    } in prepared
+    {
+        let module = lookup(&module_by_ref, &reference)?;
         let target = target_for(input.targets, module)?;
-        let (current_version, origin, decision) = decisions
-            .remove(reference)
-            .ok_or_else(|| AppError::invalid_input("release.modules", "missing bump decision"))?;
-        let dep_floor_updates = dep_floor_updates(reference, input.edges, &planned_versions);
         let (up_to_date, publish_needed) =
-            idempotency(input, module, target, reference, decision.planned.as_ref());
+            idempotency(input, module, target, &reference, decision.planned.as_ref());
         let cascade_origin = origin.filter(|_| decision.reason == BumpReason::DependencyCascade);
         let mutation = ReleaseMutation {
             new_version: decision.planned.clone(),
@@ -89,7 +113,7 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
         };
         entries.push(ReleaseEntry {
             module: reference.clone(),
-            current_version,
+            current_version: current,
             planned_version: decision.planned,
             level: decision.level,
             reason: decision.reason,
@@ -99,9 +123,9 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
             up_to_date,
             mutation,
             publish_needed,
-            topo_rank: *ranks.get(reference).unwrap_or(&usize::MAX),
-            baseline: input.baselines.get(reference).cloned(),
-            changelog: input.changelogs.get(reference).cloned().unwrap_or_else(|| {
+            topo_rank: *ranks.get(&reference).unwrap_or(&usize::MAX),
+            baseline: input.baselines.get(&reference).cloned(),
+            changelog: input.changelogs.get(&reference).cloned().unwrap_or_else(|| {
                 ChangelogEntry::new(reference.clone(), "dependency cascade", Vec::new())
             }),
         });
