@@ -71,6 +71,7 @@ A `toven.toml` can describe one repository or an umbrella that federates several
 | `toven modules` | List discovered modules. |
 | `toven graph` | Show the dependency graph. |
 | `toven release plan` / `status` | Project the release cut or per-module publish/tag state (read-only). |
+| `toven release readiness` / `sbom` / `depgraphs` | Run the fail-closed release preflight, generate a per-module CycloneDX SBOM, or render the dependency graph to a DOT artifact (read-only). |
 | `toven release tag` / `publish` | Cut the release (commit/tag/push) or run the full pipeline through publish (`publish` rehearses under `--dry-run`). |
 | `toven cache stats` / `clean` / `path` | Inspect and manage the local cache. |
 

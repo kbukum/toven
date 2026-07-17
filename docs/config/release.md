@@ -39,7 +39,7 @@ Every field is optional. The **Default** column is the built-in value applied wh
 | `registry` | string | — | Target registry identifier (e.g. `crates-io`); unset means not publishable. |
 | `offline` | bool | `false` | Skip registry lookups and anchor idempotency on release tags only. |
 | `token_env` | string | — | Environment-variable **name** holding the registry token (never the secret itself). |
-| `readiness` | list of string | — | Recognized checks composing `release readiness`. |
+| `readiness` | list of string | — | Ordered checks composing `release readiness`; each must be a recognized name (`clean-tree`, `registry-idempotent`). |
 
 ### `[…release.prerelease]`
 
@@ -82,7 +82,7 @@ level = "auto"
 tag_format = "{module}/v{version}"
 registry = "crates-io"
 token_env = "CARGO_REGISTRY_TOKEN"
-readiness = ["deny", "audit"]
+readiness = ["clean-tree", "registry-idempotent"]
 
 [ecosystems.rust.release.prerelease]
 channels = ["rc", "beta"]

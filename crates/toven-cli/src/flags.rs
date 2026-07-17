@@ -428,6 +428,10 @@ pub struct Cli {
     /// anchor idempotency on the release tag only.
     #[arg(long, global = true, help_heading = "Release")]
     pub offline: bool,
+    /// Release sbom/depgraphs only: directory to write generated artifacts into
+    /// (created if absent; defaults to `target/toven/release`).
+    #[arg(long, global = true, value_name = "PATH", help_heading = "Release")]
+    pub out_dir: Option<PathBuf>,
     /// Init only: regenerate one `[ecosystems.<id>]` section.
     #[arg(long, global = true, value_name = "ID", help_heading = "Init")]
     pub force: Option<String>,
@@ -562,6 +566,16 @@ pub enum ReleaseAction {
     /// rehearses the publish order and per-module would-publish/already-published
     /// verdicts without mutating anything.
     Publish,
+    /// Evaluate the fail-closed release-readiness preflight (configured
+    /// go/no-go checks) without mutating anything.
+    Readiness,
+    /// Generate a CycloneDX SBOM per releasable module under `--out-dir`
+    /// (read-only).
+    #[allow(clippy::doc_markdown)]
+    Sbom,
+    /// Render the dependency graph to a DOT artifact under `--out-dir`
+    /// (read-only).
+    Depgraphs,
 }
 
 impl ReleaseAction {
@@ -573,6 +587,9 @@ impl ReleaseAction {
             Self::Status => "status",
             Self::Tag => "tag",
             Self::Publish => "publish",
+            Self::Readiness => "readiness",
+            Self::Sbom => "sbom",
+            Self::Depgraphs => "depgraphs",
         }
     }
 
@@ -583,10 +600,21 @@ impl ReleaseAction {
         matches!(self, Self::Tag | Self::Publish)
     }
 
-    /// Whether the action is a read-only PLAN projection (`plan` / `status`).
+    /// Whether the action is a read-only projection (`plan` / `status` /
+    /// `readiness` / `sbom` / `depgraphs`).
     #[must_use]
     pub const fn is_projection(self) -> bool {
-        matches!(self, Self::Plan | Self::Status)
+        matches!(
+            self,
+            Self::Plan | Self::Status | Self::Readiness | Self::Sbom | Self::Depgraphs
+        )
+    }
+
+    /// Whether the action writes artifacts under `--out-dir` (`sbom` /
+    /// `depgraphs`).
+    #[must_use]
+    pub const fn writes_artifacts(self) -> bool {
+        matches!(self, Self::Sbom | Self::Depgraphs)
     }
 
     /// Whether `--dry-run` is meaningful for the action: `plan` (already a
@@ -699,6 +727,7 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     if cli.no_push && !mutating_release {
         return Err(only_applies("--no-push", "toven release tag/publish", verb));
     }
+    gate_out_dir_flag(cli, verb)?;
     gate_bump_flags(cli, verb, mutating_release)?;
     gate_init_flags(cli, verb, is_init)?;
     if cli.format.is_some() && !is_graph {
@@ -844,6 +873,21 @@ fn gate_view_flag(cli: &Cli, verb: &str) -> AppResult<()> {
             format!(
                 "`--view` only applies to task-APPLY verbs (`toven run`/`toven <task>`); it has no effect on `toven {verb}`"
             ),
+        ));
+    }
+    Ok(())
+}
+
+/// Reject `--out-dir` on anything but the artifact-writing release actions
+/// (`release sbom`/`release depgraphs`); elsewhere it has no target directory.
+fn gate_out_dir_flag(cli: &Cli, verb: &str) -> AppResult<()> {
+    let writes_artifacts =
+        release_action(&cli.command).is_some_and(ReleaseAction::writes_artifacts);
+    if cli.out_dir.is_some() && !writes_artifacts {
+        return Err(only_applies(
+            "--out-dir",
+            "toven release sbom/depgraphs",
+            verb,
         ));
     }
     Ok(())
@@ -1323,6 +1367,9 @@ mod tests {
             ("status", ReleaseAction::Status),
             ("tag", ReleaseAction::Tag),
             ("publish", ReleaseAction::Publish),
+            ("readiness", ReleaseAction::Readiness),
+            ("sbom", ReleaseAction::Sbom),
+            ("depgraphs", ReleaseAction::Depgraphs),
         ] {
             let cli = parse(&["release", arg]).expect("parses");
             match cli.command {
@@ -1338,6 +1385,9 @@ mod tests {
     fn release_projections_are_plan_only() {
         assert!(parse(&["release", "plan"]).unwrap().is_plan_only());
         assert!(parse(&["release", "status"]).unwrap().is_plan_only());
+        assert!(parse(&["release", "readiness"]).unwrap().is_plan_only());
+        assert!(parse(&["release", "sbom"]).unwrap().is_plan_only());
+        assert!(parse(&["release", "depgraphs"]).unwrap().is_plan_only());
         assert!(!parse(&["release", "publish"]).unwrap().is_plan_only());
     }
 
@@ -1347,7 +1397,7 @@ mod tests {
             let cli = parse(&["--allow-dirty", "--no-push", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_ok(), "{action}");
         }
-        for action in ["plan", "status"] {
+        for action in ["plan", "status", "readiness", "sbom", "depgraphs"] {
             let dirty = parse(&["--allow-dirty", "release", action]).expect("parses");
             assert!(super::gate(&dirty).is_err(), "allow-dirty {action}");
             let no_push = parse(&["--no-push", "release", action]).expect("parses");
@@ -1372,12 +1422,24 @@ mod tests {
                 let cli = parse(&argv).expect("parses");
                 assert!(super::gate(&cli).is_ok(), "{flag:?} on {action}");
             }
-            for action in ["plan", "status"] {
+            for action in ["plan", "status", "readiness", "sbom", "depgraphs"] {
                 let mut argv = flag.clone();
                 argv.extend(["release", action]);
                 let cli = parse(&argv).expect("parses");
                 assert!(super::gate(&cli).is_err(), "{flag:?} on {action}");
             }
+        }
+    }
+
+    #[test]
+    fn out_dir_only_on_artifact_release_actions() {
+        for action in ["sbom", "depgraphs"] {
+            let cli = parse(&["--out-dir", "/tmp/out", "release", action]).expect("parses");
+            assert!(super::gate(&cli).is_ok(), "{action}");
+        }
+        for action in ["plan", "status", "readiness", "tag", "publish"] {
+            let cli = parse(&["--out-dir", "/tmp/out", "release", action]).expect("parses");
+            assert!(super::gate(&cli).is_err(), "{action}");
         }
     }
 
@@ -1401,7 +1463,7 @@ mod tests {
             let cli = parse(&["--dry-run", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_ok(), "{action}");
         }
-        for action in ["status", "tag"] {
+        for action in ["status", "tag", "readiness", "sbom", "depgraphs"] {
             let cli = parse(&["--dry-run", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_err(), "{action}");
         }
@@ -1409,7 +1471,15 @@ mod tests {
 
     #[test]
     fn explain_rejected_on_every_release_action() {
-        for action in ["plan", "status", "tag", "publish"] {
+        for action in [
+            "plan",
+            "status",
+            "tag",
+            "publish",
+            "readiness",
+            "sbom",
+            "depgraphs",
+        ] {
             let cli = parse(&["--explain", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_err(), "{action}");
         }
@@ -1423,7 +1493,7 @@ mod tests {
             let colored = parse(&["--color", "auto", "release", action]).expect("parses");
             assert!(super::gate(&colored).is_ok(), "color {action}");
         }
-        for action in ["plan", "status"] {
+        for action in ["plan", "status", "readiness", "sbom", "depgraphs"] {
             let cli = parse(&["--verbose", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_err(), "{action}");
             let colored = parse(&["--color", "auto", "release", action]).expect("parses");
@@ -1433,7 +1503,15 @@ mod tests {
 
     #[test]
     fn output_format_accepted_on_every_release_action() {
-        for action in ["plan", "status", "tag", "publish"] {
+        for action in [
+            "plan",
+            "status",
+            "tag",
+            "publish",
+            "readiness",
+            "sbom",
+            "depgraphs",
+        ] {
             let cli = parse(&["--output", "jsonl", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_ok(), "{action}");
         }
@@ -1443,14 +1521,22 @@ mod tests {
     fn release_action_classification() {
         assert!(ReleaseAction::Plan.is_projection());
         assert!(ReleaseAction::Status.is_projection());
+        assert!(ReleaseAction::Readiness.is_projection());
+        assert!(ReleaseAction::Sbom.is_projection());
+        assert!(ReleaseAction::Depgraphs.is_projection());
         assert!(!ReleaseAction::Tag.is_projection());
         assert!(ReleaseAction::Tag.is_mutating());
         assert!(ReleaseAction::Publish.is_mutating());
         assert!(!ReleaseAction::Plan.is_mutating());
+        assert!(!ReleaseAction::Readiness.is_mutating());
+        assert!(ReleaseAction::Sbom.writes_artifacts());
+        assert!(ReleaseAction::Depgraphs.writes_artifacts());
+        assert!(!ReleaseAction::Readiness.writes_artifacts());
         assert!(ReleaseAction::Plan.accepts_dry_run());
         assert!(ReleaseAction::Publish.accepts_dry_run());
         assert!(!ReleaseAction::Status.accepts_dry_run());
         assert!(!ReleaseAction::Tag.accepts_dry_run());
+        assert!(!ReleaseAction::Readiness.accepts_dry_run());
     }
 
     #[test]
