@@ -63,7 +63,7 @@ Skip if: no CLI in scope.
 
 **Scope:** config loaders, env var handling, path tests, docs describing config or env.
 
-Check: path-shaped env vars require absolute paths or document expansion explicitly; config keys round-trip (dotted ↔ TOML table); stale or invalid example snippets removed; precedence (CLI > env > file > default) tested; path tests use `PathBuf`/`Path::join`, not hardcoded separators; `tempfile` over `/tmp/...`; platform-specific behavior uses explicit `#[cfg(...)]` with both branches exercised.
+Check: path-shaped env vars require absolute paths or document expansion explicitly; config keys round-trip (dotted ↔ TOML table); outdated or invalid example snippets removed; precedence (CLI > env > file > default) tested; path tests use `PathBuf`/`Path::join`, not hardcoded separators; `tempfile` over `/tmp/...`; platform-specific behavior uses explicit `#[cfg(...)]` with both branches exercised.
 
 Skip if: no config, env, path, or cross-platform code in scope.
 

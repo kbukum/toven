@@ -78,7 +78,7 @@ flowchart LR
 
 Rust discovery is backed by `cargo metadata`. `[ecosystems.rust].manifests` selects the Cargo workspace roots for a multi-workspace repo — either `"auto"` (re-discover first-level workspace roots every plan, minus `exclude`) or an explicit list — and Cargo path dependencies are inferred across them. Adapters contribute their default task set, so a hand-written config stays minimal. `[[overlays]]` add cross-ecosystem edges native metadata cannot prove.
 
-Go discovery is backed by offline `go mod edit -json` / `go work edit -json` (no network, no module-graph resolution). `[ecosystems.go].modules` selects the managed `go.mod` modules — either `"auto"` (enumerate a root `go.work`'s members at any depth on every plan, or the root plus first-level nested `go.mod` when there is no workspace file) or an explicit list. In-repo `require`s become intra-ecosystem edges, and a root `go.work` groups its members into one workspace whose `go.work`/`go.work.sum` form the shared blast radius. Each module's identity is its repo-relative directory, so sibling modules sharing a leaf name (`connect/testutil`, `git/testutil`) stay distinct.
+Go discovery is backed by offline `go mod edit -json` / `go work edit -json` (no network, no module-graph resolution). `[ecosystems.go].modules` selects the managed `go.mod` modules — either `"auto"` (enumerate a root `go.work`'s members at any depth on every plan, or the root plus first-level nested `go.mod` when there is no workspace file) or an explicit list. In-repo `require`s become intra-ecosystem edges, and a root `go.work` groups its members into one workspace whose `go.work`/`go.work.sum` form the shared affected area. Each module's identity is its repo-relative directory, so sibling modules sharing a leaf name (`connect/testutil`, `git/testutil`) stay distinct.
 
 ## Planning, waves, and bundling
 
@@ -108,7 +108,7 @@ Wave ordering is governed by a `run_strategy`, an engine-owned named policy chos
 - **`leaf-to-top`** (the default) orders dependency-respecting waves — a dependency always runs before its dependents, so a build/test/lint sees its prerequisites already done.
 - **`unordered`** collapses every active module into one wave, ignoring the dependency graph, for tasks with no inter-module ordering constraint (for example a formatter or a whole-workspace check) where waiting on the graph only serializes independent work.
 
-This pair covers the shine points Toven is built on; a grouped or aggregate strategy is added only if a concrete Rust/Go need is demonstrated (with tests and docs), never speculatively.
+This pair covers the core cases Toven is built on; a grouped strategy is added only if a concrete Rust/Go need is demonstrated (with tests and docs), never speculatively.
 
 ### Ecosystem task entries vs. group task overrides
 
@@ -176,7 +176,7 @@ flowchart TD
     Disabled --> Miss
 ```
 
-A task authored `cacheable = false` is statically excluded from the cache, exactly as a `persistent` task is. This is the correctness rule for **mutating** tasks (such as Go's `format` / `tidy-fix`): a mutation must run on every invocation, so a stale content-key hit can never suppress it — for example manually un-formatting a file yields the same source digest as the pre-`format` state, which would otherwise register as a cache hit and skip the re-format.
+A task authored `cacheable = false` is statically excluded from the cache, exactly as a `persistent` task is. This is the correctness rule for **state-changing** tasks (such as Go's `format` / `tidy-fix`): a mutation must run on every invocation, so an outdated content-key hit can never suppress it — for example manually un-formatting a file yields the same source digest as the pre-`format` state, which would otherwise register as a cache hit and skip the re-format.
 
 A task's `shared_inputs` are validated at plan time as literal, traversal-safe relative paths (no globs or unresolved templates) and folded into the key as a `(path, digest)` pair. A declared input that is missing on disk hashes to the empty digest — an absent state that is provably distinct from every present state, including a present but empty file, because file contents are length-prefix framed. A vanished shared input therefore re-keys the unit rather than silently aliasing a real one into a false hit.
 

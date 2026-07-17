@@ -1,14 +1,14 @@
-# Pass 06 — Comments and rustdoc
+# Pass 07 — Comments and rustdoc
 
 Every comment and `///` doc earns its place by explaining the code as it exists now. This pass sweeps all prose in the source and rewrites or deletes anything that documents history, plans, or the author's process instead of the code.
 
 > **Run in a separate, clean-context agent** — never inline in the session that wrote the code. An independent reader judges each comment against the code in front of it, with no memory of why it was written. A plan/spec may be passed in as a scope checklist only; it never excuses a baseline violation.
 
-**Scope note.** *Changes mode:* review every comment and rustdoc touched by (or owed by) the diff, including comments left stale by a code change. *Project mode:* sweep all prose across `crates/*/src`, `crates/*/tests`, and any other first-party source — module headers (`//!`), item docs (`///`), and inline (`//`) comments alike. This pass is about prose, not code; never weaken a check from another pass to make a comment "true".
+**Scope note.** *Changes mode:* review every comment and rustdoc touched by (or owed by) the diff, including comments left outdated by a code change. *Project mode:* sweep all prose across `crates/*/src`, `crates/*/tests`, and any other first-party source — module headers (`//!`), item docs (`///`), and inline (`//`) comments alike. This pass is about prose, not code; never weaken a check from another pass to make a comment "true".
 
 ## The principle
 
-A comment describes **what the code does and why**, for a reader who has the code but not its history. It is read far more often than it is written, and a wrong or stale comment is worse than none. Treat every comment as code that must stay correct: if the surrounding code changes, the comment changes with it or it goes.
+A comment describes **what the code does and why**, for a reader who has the code but not its history. It is read far more often than it is written, and a wrong or outdated comment is worse than none. Treat every comment as code that must stay correct: if the surrounding code changes, the comment changes with it or it goes.
 
 ## What good looks like
 
@@ -26,7 +26,7 @@ Flag and fix every comment that documents the *process* rather than the *code*:
 - **Temporal / narrative phrasing.** "now", "new", "newly added", "recently changed", "as of this PR", "previously we…", "used to…", "for now", "temporary", "TODO from the old design". Either the statement is a durable fact (rephrase it as one) or it is process noise (delete it). A genuine, actionable `TODO`/`FIXME` stays only if it names what and why — ideally with a tracked issue link — otherwise remove it.
 - **Restating the code.** Comments that paraphrase the next line (`// increment i`), obvious getters/setters, or type signatures already visible. Delete them; they only add drift surface.
 - **Commented-out code and dead prose.** Old implementations left in comments, scaffolding notes, "left here in case", debug breadcrumbs. Delete — version control is the history.
-- **Stale or contradicted comments.** Any comment the current code no longer matches. Correct it to the code, or remove it. A comment that disagrees with the code is a blocker — the reader can no longer trust either.
+- **Outdated or contradicted comments.** Any comment the current code no longer matches. Correct it to the code, or remove it. A comment that disagrees with the code is a blocker — the reader can no longer trust either.
 - **Apology / chatter / attribution.** "hacky", "not sure why this works", "sorry", banner art, author names, dates, changelog lines inside source. Replace genuine uncertainty with a precise statement of the invariant, or remove.
 
 ## How to apply
@@ -41,7 +41,7 @@ This is a refactor pass, not just a report: **fix what you find** in the same ch
 
 ## Detection starters
 
-These surface the mechanical offenders; the judgment calls (stale, redundant, narrative) still need a human/agent read.
+These surface the mechanical offenders; the judgment calls (outdated, redundant, narrative) still need a human/agent read.
 
 ```bash
 # plan/roadmap bookkeeping in source prose

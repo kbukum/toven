@@ -1,4 +1,4 @@
-# Pass 04 — TDD and tests
+# Pass 05 — TDD and tests
 
 Toven's bar: behavioral, deterministic, failure paths covered, a regression test for every fix, tests added in the **same** change. This pass catches the classic vibe-coding tell — tests written after the fact that only assert the happy path the author already saw working.
 

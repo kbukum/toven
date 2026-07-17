@@ -4,9 +4,9 @@ Confirm every touched (or, in project mode, every existing) item lives in the ri
 
 > **Run in a separate, clean-context agent** — never inline in the session that wrote the code. An independent reviewer re-derives every judgment from the code and the principles instead of trusting prior reasoning. A plan/spec may be passed in as a scope checklist only; it never excuses a baseline violation.
 
-**Scope note.** *Changes mode:* check the crates the diff touches plus their blast radius. *Project mode:* sweep each crate's `Cargo.toml` dependency block and `src/` tree; the layering and port-placement rules below are invariants for the whole workspace, not just a diff.
+**Scope note.** *Changes mode:* check the crates the diff touches plus their affected area. *Project mode:* sweep each crate's `Cargo.toml` dependency block and `src/` tree; the layering and port-placement rules below are rules for the whole workspace, not just a diff.
 
-## The layering invariant
+## The layering rule
 
 Dependencies flow **downward only**, never upward:
 
@@ -14,7 +14,7 @@ Dependencies flow **downward only**, never upward:
 |-------|----------|------|
 | L0 | `toven-model` | pure vocabulary + graph/topo/wave algorithms (the dependency root) |
 | L1 | `toven-ports` | port traits + the shared surface behind them |
-| L2 | `toven-engine`, adapters (`toven-rust`/`toven-go`/`toven-command`) | orchestration + concrete adapters over the ports |
+| L2 | `toven-engine`, adapters (`toven-rust`/`toven-go`/`toven-command`) | coordination + concrete adapters over the ports |
 | L3 | `toven-cli` (and the `toven` library facade) | CLI taxonomy, argv dispatch, stdio/Event projections |
 | L4 | `apps/*` | thin wiring binaries |
 

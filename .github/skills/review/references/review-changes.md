@@ -1,6 +1,6 @@
 # Review changes
 
-Standing, re-runnable review of a **change set** in this repository — a branch, a commit range, or `HEAD~1`. Use it after every change set, especially fast/"vibe-coded" work. It sequences the seven focused passes in [`references/`](./) over a diff and adds scope handling; the actual checks live in the focused files.
+Standing, re-runnable review of a **change set** in this repository — a branch, a commit range, or `HEAD~1`. Use it after every change set, especially fast/"vibe-coded" work. It sequences the eight focused passes in [`references/`](./) over a diff and adds scope handling; the actual checks live in the focused files.
 
 ## Run this in a separate, clean-context agent
 
@@ -12,7 +12,7 @@ Standing, re-runnable review of a **change set** in this repository — a branch
 
 ## Pass 0 — Scope and context
 
-- Get the actual diff: `git diff <base>...HEAD --stat`, then per file. Review only what changed plus its blast radius; do not audit the whole repo (that is [`review-project.md`](./review-project.md)).
+- Get the actual diff: `git diff <base>...HEAD --stat`, then per file. Review only what changed plus its affected area; do not audit the whole repo (that is [`review-project.md`](./review-project.md)).
 - For every changed model/schema type, list every layer that *should* have changed with it (the cascade — see pass `02`). Hold that list; incomplete cascades are the most common vibe-coding defect.
 - Note which crates are touched and confirm the change belongs in those crates at all.
 - Initialize the submodule if needed: `git submodule update --init --recursive` (pass `01` reads `rskit/`).
@@ -23,11 +23,12 @@ Work the focused files top to bottom. **Stop and reject as soon as a change fail
 
 1. [`00-structure-placement.md`](./00-structure-placement.md) — layering, port placement, `mod.rs` guard, file homes.
 2. [`01-rskit-reuse.md`](./01-rskit-reuse.md) — reuse vs. reimplementation of an rskit-owned concern. *(blocker class)*
-3. [`02-principles.md`](./02-principles.md) — cascade-complete, argv-is-sacred, libraries-don't-print, typed/no-panic, security, performance evidence.
-4. [`03-quality.md`](./03-quality.md) — simplicity/root-cause, dead code, outdated patterns, style gates.
-5. [`04-tests-tdd.md`](./04-tests-tdd.md) — TDD, fixtures, failure paths, shared doubles, determinism.
-6. [`05-docs-supply-chain.md`](./05-docs-supply-chain.md) — docs policy, Conventional Commits, `Cargo.lock`, `cargo-deny`, SHA-pinned actions.
-7. [`06-comments-rustdoc.md`](./06-comments-rustdoc.md) — comments and `///` docs explain the code as it is; rewrite or delete plan/history/process prose.
+3. [`02-principles.md`](./02-principles.md) — cascade-complete, argv unchanged, libraries-don't-print, typed/no-panic, security, performance evidence.
+4. [`03-security-privacy.md`](./03-security-privacy.md) — trust-boundary validation, argv-only/no-shell execution, bounded input/output, secret hygiene, path/traversal safety. *(blocker class)*
+5. [`04-quality.md`](./04-quality.md) — simplicity/root-cause, dead code, outdated patterns, style gates.
+6. [`05-tests-tdd.md`](./05-tests-tdd.md) — TDD, fixtures, failure paths, shared doubles, determinism.
+7. [`06-docs-supply-chain.md`](./06-docs-supply-chain.md) — docs policy, Conventional Commits, `Cargo.lock`, `cargo-deny`, SHA-pinned actions.
+8. [`07-comments-rustdoc.md`](./07-comments-rustdoc.md) — comments and `///` docs explain the code as it is; rewrite or delete plan/history/process prose.
 
 Each focused file carries a "Changes mode" scope note — follow that mode here. When you only need one lens (e.g. just TDD, just security), run that focused file directly instead of this orchestrator.
 

@@ -69,7 +69,7 @@ flowchart LR
 
 Task-level `shared_inputs` invalidate every module using the task — `Cargo.lock`, `rust-toolchain.toml`, lint config, CI config. Write plain workspace paths (`Cargo.lock`, not `./Cargo.lock`). See [what invalidates cache](commands/cache.md#what-invalidates-cache).
 
-## Installed-binary rehearsal
+## Installed-binary dry run
 
 ```mermaid
 flowchart TD

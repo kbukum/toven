@@ -18,7 +18,7 @@ Reviewers are contributors who have shown sustained engagement and are trusted t
 
 ### Maintainers
 
-Maintainers have merge rights and are responsible for project direction, security triage, releases, and community health. The current list is maintained in [MAINTAINERS.md](MAINTAINERS.md).
+Maintainers have merge rights and are responsible for project direction, security review, releases, and community health. The current list is maintained in [MAINTAINERS.md](MAINTAINERS.md).
 
 ## Decision Making
 

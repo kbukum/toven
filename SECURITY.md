@@ -27,7 +27,7 @@ Do **not** open a public GitHub issue for security reports.
 | Step | Target |
 |------|--------|
 | Acknowledgment | 48 hours |
-| Triage & severity | 5 business days |
+| Review & severity | 5 business days |
 | Fix available | 30 calendar days (critical), 90 days (high/medium) |
 | Public disclosure | 90 days after report (coordinated with reporter) |
 
@@ -65,6 +65,6 @@ Toven runs against untrusted repositories and forwards user-authored commands, s
 
 - All GitHub Actions used in CI are pinned to commit SHAs (see `.github/workflows/`).
 - Dependency updates are automated via Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml)).
-- The Rust toolchain is pinned via `rust-toolchain.toml`; CI enforces this invariant. `Cargo.lock` is committed and checked via locked Cargo operations.
+- The Rust toolchain is pinned via `rust-toolchain.toml`; CI enforces this rule. `Cargo.lock` is committed and checked via locked Cargo operations.
 - Supply-chain policy is enforced by [`cargo-deny`](https://embarkstudios.github.io/cargo-deny/) via [`deny.toml`](deny.toml): advisory database, license allowlist, banned crates, and source allowlist.
 - Release automation generates an SBOM and targets Sigstore signing and SLSA provenance for published artifacts.
