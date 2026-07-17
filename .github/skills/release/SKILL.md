@@ -6,6 +6,7 @@ description: >-
     signed source artifact, SBOM, and provenance. Toven ships tagged, signed build artifacts (all
     crates are publish = false) — it does not publish to crates.io. Use when preparing or
     publishing a Toven release or checking release readiness.
+user-invocable: true
 ---
 
 # Releasing Toven
@@ -60,12 +61,13 @@ Toven follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While 
 
 ## Step 4 — Set the workspace version
 
-Bump `version` in the root `Cargo.toml` (the whole workspace shares it and `PACKAGE_VERSION` derives from it), then refresh the lockfile — never hand-edit `Cargo.lock`:
+Bump `version` in the root `Cargo.toml` (the whole workspace shares it and `PACKAGE_VERSION` derives from it), then let the build refresh the lockfile — never hand-edit `Cargo.lock`, and never `cargo update` (it would pull unreviewed dependency bumps into the release):
 
 ```bash
-cargo update --workspace   # sync Cargo.lock to the new version; keep it committed
-make release-dry-run       # confirm the workspace still builds at the new version
+make release-dry-run       # rebuilds at the new version and syncs the workspace-member versions in Cargo.lock
 ```
+
+Keep the resulting `Cargo.lock` committed.
 
 ## Step 5 — Tag and let CI sign and create attestations
 
