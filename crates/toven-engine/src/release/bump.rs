@@ -1,6 +1,4 @@
-//! Release bump planning: resolve each module's independent bump from config and
-//! the per-run argv overrides, cascade dependency floors, and pre-skip versions
-//! already satisfied by the registry (or, offline, the release tag).
+//! Release bump planning: resolve each module's independent bump from config and the per-run argv overrides, cascade dependency floors, and pre-skip versions already satisfied by the registry (or, offline, the release tag).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -38,8 +36,7 @@ struct BumpDecision {
     prerelease_channel: Option<String>,
 }
 
-/// One module's resolved bump, its dependency-floor updates, and its cascade
-/// origin, prepared in dependency-first order before entry assembly.
+/// One module's resolved bump, its dependency-floor updates, and its cascade origin, prepared in dependency-first order before entry assembly.
 struct PreparedBump {
     reference: ModuleKey,
     current: Version,
@@ -50,10 +47,7 @@ struct PreparedBump {
 
 /// Build release entries from changed modules and release targets.
 ///
-/// Bumps are decided **dependency-first** so a dependent only cascades when a
-/// direct dependency actually receives an own-version bump — a dependent whose
-/// dependencies stayed put (e.g. an `upgrade`-mode intermediate that raised a
-/// floor without republishing) is never given a bump that carries no change.
+/// Bumps are decided **dependency-first** so a dependent only cascades when a direct dependency actually receives an own-version bump — a dependent whose dependencies stayed put (e.g. an `upgrade`-mode intermediate that raised a floor without republishing) is never given a bump that carries no change.
 pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry>> {
     let active = input.graph.closure(input.changed, release_closure_edge)?;
     let module_by_ref = input
@@ -71,15 +65,26 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
     ordered.sort_by_key(|module| (*ranks.get(module).unwrap_or(&usize::MAX), module.clone()));
 
     let mut planned_versions: BTreeMap<ModuleKey, Version> = BTreeMap::new();
+    let mut cascade_roots: BTreeMap<ModuleKey, ModuleKey> = BTreeMap::new();
     let mut prepared = Vec::with_capacity(ordered.len());
     for reference in &ordered {
         let module = lookup(&module_by_ref, reference)?;
         let target = target_for(input.targets, module)?;
         let current = target.declared_version(module)?;
-        // Every dependency has a lower topo rank, so its bump (if any) is already
-        // recorded: a non-empty floor set means a direct dependency really bumped.
+        // Every dependency has a lower topo rank, so its bump (if any) is already recorded: a non-empty floor set means a direct dependency really bumped.
         let dep_floor_updates = dep_floor_updates(reference, input.edges, &planned_versions);
-        let origin = cascade_origin(reference, input.graph, input.changed)?;
+        // Attribute the cascade to the changed root carried forward by the actual bumped direct dependency, not an arbitrary changed transitive ancestor.
+        let origin = if input.changed.contains(reference) {
+            cascade_roots.insert(reference.clone(), reference.clone());
+            None
+        } else {
+            let root = triggering_dependency(reference, input.edges, &planned_versions)
+                .and_then(|dependency| cascade_roots.get(&dependency).cloned());
+            if let Some(root) = &root {
+                cascade_roots.insert(reference.clone(), root.clone());
+            }
+            root
+        };
         let decision = resolve_bump(input, reference, &current, !dep_floor_updates.is_empty())?;
         if let Some(version) = &decision.planned {
             planned_versions.insert(reference.clone(), version.clone());
@@ -102,6 +107,10 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
         dep_floor_updates,
     } in prepared
     {
+        // A module pulled into the release closure with neither an own-version bump nor a dependency floor to raise carries no mutation, so it must not reach APPLY (which would rewrite manifests and cut a tag for nothing).
+        if decision.planned.is_none() && dep_floor_updates.is_empty() {
+            continue;
+        }
         let module = lookup(&module_by_ref, &reference)?;
         let target = target_for(input.targets, module)?;
         let (up_to_date, publish_needed) =
@@ -142,9 +151,7 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
     Ok(entries)
 }
 
-/// Resolve one module's own-version bump under the documented precedence
-/// (argv `--set-version` > argv level > config level > adapter default), then a
-/// dependency cascade for a dependent that did not itself change.
+/// Resolve one module's own-version bump under the documented precedence (argv `--set-version` > argv level > config level > adapter default), then a dependency cascade for a dependent that did not itself change.
 fn resolve_bump(
     input: &BumpInputs<'_>,
     reference: &ModuleKey,
@@ -155,6 +162,14 @@ fn resolve_bump(
     let module_ref = &reference.module;
 
     if let Some(version) = input.overrides.set_version(module_ref) {
+        if version <= current {
+            return Err(AppError::invalid_input(
+                "release.bump",
+                format!(
+                    "--set-version for module '{module_ref}' must exceed the current version {current} (got {version})"
+                ),
+            ));
+        }
         return Ok(BumpDecision {
             level: classify(current, version),
             planned: Some(version.clone()),
@@ -183,8 +198,7 @@ fn resolve_bump(
         });
     };
 
-    // Only a module cutting an own version consults the prerelease channel, so a
-    // floor-only dependent never fails on a channel it would not use.
+    // Only a module cutting an own version consults the prerelease channel, so a floor-only dependent never fails on a channel it would not use.
     let channel = resolve_channel(input, settings)?;
     let planned = strategy::next_version(input.policy, current, level, channel.as_deref())?;
     Ok(BumpDecision {
@@ -196,8 +210,7 @@ fn resolve_bump(
     })
 }
 
-/// Select the effective bump level and its winning input/reason. `None` means a
-/// dependency-floor upgrade with no own-version bump.
+/// Select the effective bump level and its winning input/reason. `None` means a dependency-floor upgrade with no own-version bump.
 fn select_level(
     input: &BumpInputs<'_>,
     module_ref: &ModuleRef,
@@ -259,8 +272,7 @@ fn select_level(
     (None, BumpSource::Cascade, BumpReason::DependencyCascade)
 }
 
-/// Resolve and validate the per-run prerelease channel against the module's
-/// configured channels.
+/// Resolve and validate the per-run prerelease channel against the module's configured channels.
 fn resolve_channel(
     input: &BumpInputs<'_>,
     settings: Option<&ResolvedReleaseSettings>,
@@ -305,8 +317,7 @@ const fn effective_to_level(level: EffectiveLevel) -> BumpLevel {
     }
 }
 
-/// Decide `(up_to_date, publish_needed)` for a planned version, anchoring on the
-/// registry's published set (or, offline, the baseline release tag).
+/// Decide `(up_to_date, publish_needed)` for a planned version, anchoring on the registry's published set (or, offline, the baseline release tag).
 fn idempotency(
     input: &BumpInputs<'_>,
     module: &Module,
@@ -331,10 +342,7 @@ fn idempotency(
             .is_some_and(|tagged| planned <= tagged);
         return (up_to_date, !up_to_date);
     }
-    // `published_versions` is best-effort: a transient registry/search failure
-    // must not abort planning. Treat a lookup error as "publish needed" — the
-    // APPLY publish loop's `AlreadyPublished` classification is the authoritative
-    // idempotency backstop.
+    // `published_versions` is best-effort: a transient registry/search failure must not abort planning. Treat a lookup error as "publish needed" — the APPLY publish loop's `AlreadyPublished` classification is the authoritative idempotency backstop.
     let Ok(published) = target.published_versions(module) else {
         return (false, true);
     };
@@ -342,27 +350,25 @@ fn idempotency(
     (up_to_date, !up_to_date)
 }
 
-/// The changed module that triggered a dependent's cascade, if the module is a
-/// dependent (not itself changed) that transitively depends on a changed module.
+/// The bumped direct dependency that triggers `module`'s cascade, chosen deterministically (lowest key) when several same-ecosystem dependencies bump.
 ///
-/// The cascade closure is transitive over the dependency graph, so a dependent
-/// several hops removed from the change (`A` changed → `B` → `C`) still resolves
-/// its origin to the changed root, matching the transitive reverse-dependents
-/// closure that selects the release scope.
-fn cascade_origin(
+/// Only same-member, same-ecosystem, non-overlay dependencies raise a floor, so they are the only edges that can propagate a cascade. Because planning runs dependency-first, every candidate's own bump is already recorded in `planned_versions` by the time a dependent is processed.
+fn triggering_dependency(
     module: &ModuleKey,
-    graph: &Graph,
-    changed: &BTreeSet<ModuleKey>,
-) -> AppResult<Option<ModuleKey>> {
-    if changed.contains(module) {
-        return Ok(None);
-    }
-    let seed: BTreeSet<ModuleKey> = std::iter::once(module.clone()).collect();
-    let dependencies = graph.dependencies_closure(&seed, release_closure_edge)?;
-    Ok(dependencies
-        .into_iter()
-        .filter(|dependency| changed.contains(dependency))
-        .min())
+    edges: &[Edge],
+    planned_versions: &BTreeMap<ModuleKey, Version>,
+) -> Option<ModuleKey> {
+    edges
+        .iter()
+        .filter(|edge| {
+            &edge.from == module
+                && edge.from.module.ecosystem == edge.to.module.ecosystem
+                && edge.from.member == edge.to.member
+                && !matches!(edge.kind, DepKind::Overlay)
+                && planned_versions.contains_key(&edge.to)
+        })
+        .map(|edge| edge.to.clone())
+        .min()
 }
 
 const fn release_closure_edge(kind: DepKind) -> bool {
@@ -490,8 +496,7 @@ mod tests {
             ResolvedReleaseSettings::resolve(&ReleaseConfig::default(), None).unwrap(),
         );
 
-        // Level resolves to `auto`; the breaking classification, not raw argv,
-        // lifts it to a minor bump attributed to the changelog signal.
+        // Level resolves to `auto`; the breaking classification, not raw argv, lifts it to a minor bump attributed to the changelog signal.
         let mut changelogs = BTreeMap::new();
         changelogs.insert(
             key.clone(),
@@ -525,9 +530,45 @@ mod tests {
     }
 
     #[test]
+    fn a_set_version_at_or_below_the_current_version_is_rejected() {
+        let core = core_module();
+        let key = core.key();
+        let graph = Graph::build(vec![core.clone()], Vec::new()).unwrap();
+        let targets = rust_targets();
+
+        let mut settings = BTreeMap::new();
+        settings.insert(key.clone(), settings_for(&ReleaseConfig::default()));
+
+        // The fake target declares 0.1.0, so pinning that same version is a no-op
+        // rewrite and must be rejected before it can reach APPLY.
+        let overrides = BumpOverrides::new()
+            .with_set_version(core.id.clone(), Version::new(0, 1, 0))
+            .unwrap();
+        let changed: BTreeSet<_> = std::iter::once(key).collect();
+        let baselines = BTreeMap::new();
+        let changelogs = BTreeMap::new();
+        let modules = vec![core];
+        let edges = Vec::new();
+
+        let result = plan_entries(&BumpInputs {
+            graph: &graph,
+            modules: &modules,
+            edges: &edges,
+            changed: &changed,
+            baselines: &baselines,
+            changelogs: &changelogs,
+            settings: &settings,
+            targets: &targets,
+            policy: BumpPolicy::SemverCascade,
+            overrides: &overrides,
+        });
+
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn an_upgrade_only_dependency_does_not_cascade_a_bump_to_its_dependents() {
-        // app -> lib -> base; base changes, lib only raises floors (upgrade), so
-        // app's direct dependency never republishes and app must stay untouched.
+        // app -> lib -> base; base changes, lib only raises floors (upgrade), so app's direct dependency never republishes and app must stay untouched.
         let base = rust_module("base");
         let lib = rust_module("lib");
         let app = rust_module("app");
@@ -568,24 +609,21 @@ mod tests {
         })
         .unwrap();
 
-        let by_module = |key: &_| entries.iter().find(|e| &e.module == key).unwrap();
+        let by_module = |key: &_| entries.iter().find(|e| &e.module == key);
         assert_eq!(
-            by_module(&base_key).planned_version,
+            by_module(&base_key).unwrap().planned_version,
             Some(Version::new(0, 1, 1))
         );
-        let lib_entry = by_module(&lib_key);
+        let lib_entry = by_module(&lib_key).unwrap();
         assert_eq!(lib_entry.planned_version, None);
         assert!(!lib_entry.mutation.dep_floor_updates.is_empty());
-        let app_entry = by_module(&app_key);
-        assert_eq!(app_entry.planned_version, None);
-        assert!(app_entry.mutation.dep_floor_updates.is_empty());
-        assert!(!app_entry.publish_needed);
+        // app's only dependency raised a floor without republishing, so app has no mutation and is dropped from the plan entirely.
+        assert!(by_module(&app_key).is_none());
     }
 
     #[test]
     fn a_bumping_dependency_chain_cascades_through_every_dependent() {
-        // app -> lib -> base with the default bump policy: base changes and each
-        // dependent republishes, so the cascade reaches app transitively.
+        // app -> lib -> base with the default bump policy: base changes and each dependent republishes, so the cascade reaches app transitively.
         let base = rust_module("base");
         let lib = rust_module("lib");
         let app = rust_module("app");

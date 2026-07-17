@@ -1,9 +1,6 @@
 //! Bump-policy selection and the semver-increment matrix.
 //!
-//! The bump surface is one matrix rather than a family of named strategies. The
-//! `[…release].strategy` config field resolves to a single [`BumpPolicy`]; a
-//! prerelease is driven only by `--pre <channel>` / the `prerelease` config,
-//! never by a policy name.
+//! The bump surface is one matrix rather than a family of named strategies. The `[…release].strategy` config field resolves to a single [`BumpPolicy`]; a prerelease is driven only by `--pre <channel>` / the `prerelease` config, never by a policy name.
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_version::semver::Version;
@@ -12,9 +9,7 @@ use super::BumpPolicy;
 
 /// A concrete, `Auto`-resolved bump level: the semver component to advance.
 ///
-/// [`BumpLevel::Auto`](toven_ports::BumpLevel) is resolved to one of these by the
-/// bump planner (from the breaking-change signal) before reaching the matrix, so
-/// the version math never has to guess a level.
+/// [`BumpLevel::Auto`](toven_ports::BumpLevel) is resolved to one of these by the bump planner (from the breaking-change signal) before reaching the matrix, so the version math never has to guess a level.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(super) enum EffectiveLevel {
     /// Advance the patch component (`1.2.3` → `1.2.4`).
@@ -39,19 +34,12 @@ pub(super) fn resolve(raw: Option<&str>) -> AppResult<BumpPolicy> {
     }
 }
 
-/// Compute the next version for `current` under `policy`, applying `level` and an
-/// optional prerelease `channel`.
+/// Compute the next version for `current` under `policy`, applying `level` and an optional prerelease `channel`.
 ///
-/// Without a channel, the matrix advances the requested semver component; a
-/// patch bump of a pending prerelease finalizes it to its release (`1.2.0-rc.1`
-/// → `1.2.0`). With a channel, the target sits on a prerelease train: continuing
-/// the same channel on the same base increments its numeric tail
-/// (`1.2.4-rc.1` → `1.2.4-rc.2`), otherwise a fresh train starts at `.1` on the
-/// bumped base (`1.2.3` + patch + `rc` → `1.2.4-rc.1`).
+/// Without a channel, the matrix advances the requested semver component; a patch bump of a pending prerelease finalizes it to its release (`1.2.0-rc.1` → `1.2.0`). With a channel, the target sits on a prerelease train: continuing the same channel on the same base increments its numeric tail (`1.2.4-rc.1` → `1.2.4-rc.2`), otherwise a fresh train starts at `.1` on the bumped base (`1.2.3` + patch + `rc` → `1.2.4-rc.1`).
 ///
 /// # Errors
-/// Returns an error only if composing a prerelease fails to parse as a valid
-/// semantic version (not expected for the bounded channel/level inputs).
+/// Returns an error only if composing a prerelease fails to parse as a valid semantic version (not expected for the bounded channel/level inputs).
 pub(super) fn next_version(
     policy: BumpPolicy,
     current: &Version,
@@ -79,8 +67,7 @@ fn stable_bump(current: &Version, level: EffectiveLevel) -> Version {
                     current.patch.saturating_add(1),
                 )
             } else {
-                // A pending prerelease finalizes to its release rather than
-                // silently discarding the train into the next patch.
+                // A pending prerelease finalizes to its release rather than silently discarding the train into the next patch.
                 Version::new(current.major, current.minor, current.patch)
             }
         }
@@ -113,14 +100,12 @@ fn prerelease_bump(current: &Version, level: EffectiveLevel, channel: &str) -> A
     })
 }
 
-/// Whether a prerelease identifier belongs to `channel` (its leading
-/// dot-separated segment equals the channel).
+/// Whether a prerelease identifier belongs to `channel` (its leading dot-separated segment equals the channel).
 fn channel_matches(pre: &str, channel: &str) -> bool {
     pre.split('.').next() == Some(channel)
 }
 
-/// The trailing dot-separated numeric identifier of a prerelease train, or `0`
-/// when it has no numeric tail (so `rc` → `1`, `rc.1` → `2`).
+/// The trailing dot-separated numeric identifier of a prerelease train, or `0` when it has no numeric tail (so `rc` → `1`, `rc.1` → `2`).
 fn trailing_number(pre: &str) -> u64 {
     pre.rsplit('.')
         .next()
