@@ -33,6 +33,7 @@ pub(super) struct ReleaseChanges {
 pub(super) fn detect(
     context: &PlanContext,
     selection: &Selection,
+    base_override: Option<&str>,
     readers: &MemberVcsReaders<'_>,
 ) -> AppResult<ReleaseChanges> {
     let mut changes = ReleaseChanges {
@@ -41,7 +42,7 @@ pub(super) fn detect(
         baselines: BTreeMap::new(),
     };
     for reader in readers.entries() {
-        detect_member(context, selection, reader, &mut changes)?;
+        detect_member(context, selection, base_override, reader, &mut changes)?;
     }
     Ok(changes)
 }
@@ -49,6 +50,7 @@ pub(super) fn detect(
 fn detect_member(
     context: &PlanContext,
     selection: &Selection,
+    base_override: Option<&str>,
     reader: &MemberVcsReader<'_>,
     changes: &mut ReleaseChanges,
 ) -> AppResult<()> {
@@ -67,8 +69,14 @@ fn detect_member(
         .iter()
         .filter(|module| module.member.as_ref() == member)
     {
-        let Some(spec) = baseline_spec(module, base_ref, selection, &tags, &mut changes.baselines)
-        else {
+        let Some(spec) = baseline_spec(
+            module,
+            base_ref,
+            base_override,
+            selection,
+            &tags,
+            &mut changes.baselines,
+        ) else {
             changes.changed.insert(module.key());
             changes.records.insert(module.key(), Vec::new());
             continue;
@@ -106,22 +114,38 @@ fn member_base_ref<'a>(context: &'a PlanContext, member: Option<&MemberId>) -> O
 fn baseline_spec(
     module: &Module,
     base_ref: Option<&str>,
+    base_override: Option<&str>,
     selection: &Selection,
     tags: &[TagRef],
     baselines: &mut BTreeMap<ModuleKey, ReleaseBaseline>,
 ) -> Option<BaselineSpec> {
-    if let Some((_version, release_tag)) = tag::latest(&module.id, tags) {
+    // Record the anchoring baseline (a release tag is preferred, since it also
+    // carries the version that offline idempotency anchors on).
+    let tag_spec = tag::latest(&module.id, tags).map(|(version, release_tag)| {
         baselines.insert(
             module.key(),
             ReleaseBaseline::tag(
                 module.key(),
                 release_tag.name.clone(),
+                version,
                 release_tag.target.clone(),
             ),
         );
-        return Some(BaselineSpec::explicit(
-            release_tag.target.as_str().to_string(),
-        ));
+        BaselineSpec::explicit(release_tag.target.as_str().to_string())
+    });
+
+    // `--base` overrides the diff ref (default: the latest release tag) while the
+    // tag still anchors idempotency.
+    if let Some(base) = base_override {
+        let spec = BaselineSpec::explicit(base.to_string());
+        baselines
+            .entry(module.key())
+            .or_insert_with(|| ReleaseBaseline::fallback(module.key(), spec.clone()));
+        return Some(spec);
+    }
+
+    if let Some(spec) = tag_spec {
+        return Some(spec);
     }
 
     if let Selection::Changed(Some(spec)) = selection {

@@ -5,6 +5,7 @@ mod bump;
 mod change;
 mod changelog;
 mod model;
+mod overrides;
 pub(crate) mod plan;
 pub(crate) mod publish;
 mod rehearse;
@@ -17,10 +18,11 @@ mod targets;
 
 pub use apply::{ReleaseApplyOptions, release_apply};
 pub use model::{
-    ChangelogEntry, PublishDecision, RehearsalVerdict, ReleaseBaseline, ReleaseEntry,
-    ReleaseModuleStatus, ReleasePlan, ReleaseRehearsal, ReleaseStats, ReleaseStatus,
-    ReleaseStrategyName,
+    BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PublishDecision, RehearsalVerdict,
+    ReleaseBaseline, ReleaseEntry, ReleaseModuleStatus, ReleasePlan, ReleaseRehearsal,
+    ReleaseStats, ReleaseStatus,
 };
+pub use overrides::BumpOverrides;
 pub use plan::release_plan;
 pub use rehearse::release_rehearse;
 pub use run::release_run;

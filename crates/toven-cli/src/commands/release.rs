@@ -12,15 +12,16 @@
 
 use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult};
+use rskit_version::semver::Version;
 use serde::Serialize;
 use toven_engine::plan::PlanRequest;
 use toven_engine::release::{
-    PublishDecision, ReleaseApplyOptions, ReleasePlan, ReleaseRehearsal, ReleaseStatus,
-    release_plan, release_rehearse, release_run, release_status,
+    BumpOverrides, PublishDecision, ReleaseApplyOptions, ReleasePlan, ReleaseRehearsal,
+    ReleaseStatus, release_plan, release_rehearse, release_run, release_status,
 };
 use toven_engine::vcs::BaselineFlags;
-use toven_model::Event;
-use toven_ports::{Provider, Reporter, TaskIntent};
+use toven_model::{Event, ModuleRef};
+use toven_ports::{BumpLevel, Provider, Reporter, TaskIntent};
 
 use crate::flags::{Cli, OutputKind, ReleaseAction};
 use crate::host::{Project, Report, new_run_id, resolve_output};
@@ -53,9 +54,51 @@ pub(crate) fn execute(
     match action {
         ReleaseAction::Plan => plan(providers, project, cli.output),
         ReleaseAction::Status => status(providers, project, cli.output),
-        ReleaseAction::Publish if cli.dry_run => rehearse(providers, project, cli.output),
+        ReleaseAction::Publish if cli.dry_run => rehearse(providers, project, cli),
         ReleaseAction::Tag | ReleaseAction::Publish => run(providers, project, cli, action),
     }
+}
+
+/// Build the validated per-run bump overrides from the parsed release argv.
+fn build_overrides(cli: &Cli) -> AppResult<BumpOverrides> {
+    let mut overrides = BumpOverrides::new();
+    for (modules, level) in [
+        (&cli.patch, BumpLevel::Patch),
+        (&cli.minor, BumpLevel::Minor),
+        (&cli.major, BumpLevel::Major),
+    ] {
+        for module in modules {
+            overrides = overrides.with_module_level(ModuleRef::parse(module)?, level)?;
+        }
+    }
+    for pair in &cli.set_version {
+        let (module, version) = parse_set_version(pair)?;
+        overrides = overrides.with_set_version(module, version)?;
+    }
+    if let Some(channel) = &cli.pre {
+        overrides = overrides.with_prerelease(channel.clone());
+    }
+    if let Some(base) = &cli.base {
+        overrides = overrides.with_base(base.clone());
+    }
+    Ok(overrides.with_offline(cli.offline))
+}
+
+/// Parse a `--set-version <module>=<x.y.z>` argument into its module and target.
+fn parse_set_version(pair: &str) -> AppResult<(ModuleRef, Version)> {
+    let (module, version) = pair.split_once('=').ok_or_else(|| {
+        AppError::invalid_input(
+            "release.set-version",
+            format!("expected '<module>=<x.y.z>', got '{pair}'"),
+        )
+    })?;
+    let version = Version::parse(version).map_err(|error| {
+        AppError::invalid_input(
+            "release.set-version",
+            format!("invalid version '{version}': {error}"),
+        )
+    })?;
+    Ok((ModuleRef::parse(module)?, version))
 }
 
 /// Build the release-scoped PLAN request rooted at the project.
@@ -83,6 +126,7 @@ fn plan(
         &project.document,
         providers,
         &readers,
+        &BumpOverrides::new(),
         &mut reporter,
     )?;
     match resolve_output(output, &project.document) {
@@ -117,23 +161,21 @@ fn status(
 }
 
 /// `release publish --dry-run`: rehearse the publish loop, mutating nothing.
-fn rehearse(
-    providers: &[&dyn Provider],
-    project: &Project,
-    output: Option<OutputKind>,
-) -> AppResult<ExitCode> {
+fn rehearse(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
+    let overrides = build_overrides(cli)?;
     let mut reporter = QuietReporter;
     let rehearsal = release_rehearse(
         &request,
         &project.document,
         providers,
         &readers,
+        &overrides,
         &mut reporter,
     )?;
-    match resolve_output(output, &project.document) {
+    match resolve_output(cli.output, &project.document) {
         OutputKind::Jsonl => render_rehearsal_jsonl(&rehearsal)?,
         OutputKind::Human => render_rehearsal_human(&rehearsal),
     }
@@ -161,6 +203,7 @@ fn run(
     let mut reporter = report.reporter();
     let sink: &mut dyn Reporter = reporter.as_mut();
 
+    let overrides = build_overrides(cli)?;
     let options = ReleaseApplyOptions {
         allow_dirty: cli.allow_dirty,
         push: !cli.no_push,
@@ -173,6 +216,7 @@ fn run(
         providers,
         &readers,
         &repos,
+        &overrides,
         sink,
         &options,
     )?;
@@ -185,13 +229,21 @@ struct PlanRecord {
     module: String,
     current_version: String,
     planned_version: Option<String>,
+    level: String,
+    reason: String,
+    winning_input: String,
+    cascade_origin: Option<String>,
+    prerelease_channel: Option<String>,
+    up_to_date: bool,
     publish_needed: bool,
     summary: String,
 }
 
 fn render_plan_human(plan: &ReleasePlan) {
-    let mut table = OutputTable::new(vec!["Module", "Current", "Planned", "Publish", "Summary"])
-        .with_title(format!("Release plan ({})", plan.strategy.as_str()));
+    let mut table = OutputTable::new(vec![
+        "Module", "Current", "Planned", "Level", "Reason", "Input", "Publish", "Summary",
+    ])
+    .with_title(format!("Release plan ({})", plan.policy.as_str()));
     for entry in &plan.entries {
         table.add_row(vec![
             entry.module.to_string(),
@@ -200,7 +252,16 @@ fn render_plan_human(plan: &ReleasePlan) {
                 .planned_version
                 .as_ref()
                 .map_or_else(|| "-".to_string(), ToString::to_string),
-            if entry.publish_needed { "yes" } else { "no" }.to_string(),
+            entry.level.as_str().to_string(),
+            entry.reason.as_str().to_string(),
+            entry.winning_input.as_str().to_string(),
+            if entry.up_to_date {
+                "up to date".to_string()
+            } else if entry.publish_needed {
+                "yes".to_string()
+            } else {
+                "no".to_string()
+            },
             entry.changelog.summary.clone(),
         ]);
     }
@@ -213,6 +274,12 @@ fn render_plan_jsonl(plan: &ReleasePlan) -> AppResult<()> {
             module: entry.module.to_string(),
             current_version: entry.current_version.to_string(),
             planned_version: entry.planned_version.as_ref().map(ToString::to_string),
+            level: entry.level.as_str().to_string(),
+            reason: entry.reason.as_str().to_string(),
+            winning_input: entry.winning_input.as_str().to_string(),
+            cascade_origin: entry.cascade_origin.as_ref().map(ToString::to_string),
+            prerelease_channel: entry.prerelease_channel.clone(),
+            up_to_date: entry.up_to_date,
             publish_needed: entry.publish_needed,
             summary: entry.changelog.summary.clone(),
         };
@@ -282,7 +349,7 @@ fn render_rehearsal_human(rehearsal: &ReleaseRehearsal) {
     let already_published = rehearsal.verdicts.len() - would_publish;
     let mut summary = OutputKV::new();
     summary
-        .add("strategy", rehearsal.strategy.as_str().to_string())
+        .add("policy", rehearsal.policy.as_str().to_string())
         .add("would_publish", would_publish.to_string())
         .add("already_published", already_published.to_string());
     println!("{summary}");

@@ -377,6 +377,57 @@ pub struct Cli {
     /// Release only: skip pushing the release commit and tags.
     #[arg(long, global = true, help_heading = "Release")]
     pub no_push: bool,
+    /// Release tag/publish only: force `<module>` to bump at the patch level
+    /// (repeatable). Highest precedence with the other level flags and
+    /// `--set-version`; a module named in two level flags or a level flag plus
+    /// `--set-version` is a usage error.
+    #[arg(
+        long = "patch",
+        global = true,
+        value_name = "MODULE",
+        help_heading = "Release"
+    )]
+    pub patch: Vec<String>,
+    /// Release tag/publish only: force `<module>` to bump at the minor level
+    /// (repeatable).
+    #[arg(
+        long = "minor",
+        global = true,
+        value_name = "MODULE",
+        help_heading = "Release"
+    )]
+    pub minor: Vec<String>,
+    /// Release tag/publish only: force `<module>` to bump at the major level
+    /// (repeatable).
+    #[arg(
+        long = "major",
+        global = true,
+        value_name = "MODULE",
+        help_heading = "Release"
+    )]
+    pub major: Vec<String>,
+    /// Release tag/publish only: pin `<module>=<x.y.z>` to an explicit target
+    /// version (repeatable).
+    #[arg(
+        long = "set-version",
+        global = true,
+        value_name = "MODULE=VERSION",
+        help_heading = "Release"
+    )]
+    pub set_version: Vec<String>,
+    /// Release tag/publish only: cut a prerelease on a configured channel
+    /// (`rc`/`alpha`/`beta`).
+    #[arg(
+        long = "pre",
+        global = true,
+        value_name = "CHANNEL",
+        help_heading = "Release"
+    )]
+    pub pre: Option<String>,
+    /// Release tag/publish only: skip registry `published_versions` lookups and
+    /// anchor idempotency on the release tag only.
+    #[arg(long, global = true, help_heading = "Release")]
+    pub offline: bool,
     /// Init only: regenerate one `[ecosystems.<id>]` section.
     #[arg(long, global = true, value_name = "ID", help_heading = "Init")]
     pub force: Option<String>,
@@ -648,6 +699,7 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     if cli.no_push && !mutating_release {
         return Err(only_applies("--no-push", "toven release tag/publish", verb));
     }
+    gate_bump_flags(cli, verb, mutating_release)?;
     gate_init_flags(cli, verb, is_init)?;
     if cli.format.is_some() && !is_graph {
         return Err(only_applies("--format", "toven graph", verb));
@@ -797,6 +849,28 @@ fn gate_view_flag(cli: &Cli, verb: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// Reject the per-run bump argv (`--patch`/`--minor`/`--major`/`--set-version`/
+/// `--pre`/`--offline`) on anything but the mutating release actions, which are
+/// the only place a version cut happens.
+fn gate_bump_flags(cli: &Cli, verb: &str, mutating_release: bool) -> AppResult<()> {
+    if mutating_release {
+        return Ok(());
+    }
+    for (present, flag) in [
+        (!cli.patch.is_empty(), "--patch"),
+        (!cli.minor.is_empty(), "--minor"),
+        (!cli.major.is_empty(), "--major"),
+        (!cli.set_version.is_empty(), "--set-version"),
+        (cli.pre.is_some(), "--pre"),
+        (cli.offline, "--offline"),
+    ] {
+        if present {
+            return Err(only_applies(flag, "toven release tag/publish", verb));
+        }
+    }
+    Ok(())
+}
+
 /// Reject the `init`-only wizard flags (`--force`/`--root`/`--non-interactive`/
 /// `--print`) on any other verb.
 fn gate_init_flags(cli: &Cli, verb: &str, is_init: bool) -> AppResult<()> {
@@ -819,16 +893,22 @@ fn gate_init_flags(cli: &Cli, verb: &str, is_init: bool) -> AppResult<()> {
 /// `--module`/`--workspace`/`--dependents`/`--dependencies`) on a verb that
 /// performs no selection.
 fn gate_selection_flags(cli: &Cli, verb: &str) -> AppResult<()> {
-    if !accepts_baseline(&cli.command) && (cli.base.is_some() || cli.merge_base) {
-        let flag = if cli.base.is_some() {
-            "--base"
-        } else {
-            "--merge-base"
-        };
+    // `--base` is also the release diff baseline for the mutating release
+    // actions; `--merge-base` stays restricted to the changed-selection verbs.
+    let mutating_release = release_action(&cli.command).is_some_and(ReleaseAction::is_mutating);
+    if cli.base.is_some() && !accepts_baseline(&cli.command) && !mutating_release {
         return Err(AppError::invalid_input(
             "flags",
             format!(
-                "`{flag}` only applies to changed-selection verbs (`toven run`/`toven plan`/`toven affected`/`toven <task>`); it has no effect on `toven {verb}`"
+                "`--base` only applies to changed-selection verbs (`toven run`/`toven plan`/`toven affected`/`toven <task>`) and `toven release tag/publish`; it has no effect on `toven {verb}`"
+            ),
+        ));
+    }
+    if cli.merge_base && !accepts_baseline(&cli.command) {
+        return Err(AppError::invalid_input(
+            "flags",
+            format!(
+                "`--merge-base` only applies to changed-selection verbs (`toven run`/`toven plan`/`toven affected`/`toven <task>`); it has no effect on `toven {verb}`"
             ),
         ));
     }
@@ -1276,6 +1356,46 @@ mod tests {
     }
 
     #[test]
+    fn bump_argv_only_on_mutating_release_actions() {
+        let flags = [
+            vec!["--minor", "rust:core"],
+            vec!["--major", "rust:core"],
+            vec!["--patch", "rust:core"],
+            vec!["--set-version", "rust:core=1.0.0"],
+            vec!["--pre", "rc"],
+            vec!["--offline"],
+        ];
+        for flag in &flags {
+            for action in ["tag", "publish"] {
+                let mut argv = flag.clone();
+                argv.extend(["release", action]);
+                let cli = parse(&argv).expect("parses");
+                assert!(super::gate(&cli).is_ok(), "{flag:?} on {action}");
+            }
+            for action in ["plan", "status"] {
+                let mut argv = flag.clone();
+                argv.extend(["release", action]);
+                let cli = parse(&argv).expect("parses");
+                assert!(super::gate(&cli).is_err(), "{flag:?} on {action}");
+            }
+        }
+    }
+
+    #[test]
+    fn base_accepted_on_mutating_release_but_merge_base_is_not() {
+        for action in ["tag", "publish"] {
+            let cli = parse(&["--base", "v1.0.0", "release", action]).expect("parses");
+            assert!(super::gate(&cli).is_ok(), "base {action}");
+            let merge = parse(&["--merge-base", "release", action]).expect("parses");
+            assert!(super::gate(&merge).is_err(), "merge-base {action}");
+        }
+        for action in ["plan", "status"] {
+            let cli = parse(&["--base", "v1.0.0", "release", action]).expect("parses");
+            assert!(super::gate(&cli).is_err(), "base {action}");
+        }
+    }
+
+    #[test]
     fn dry_run_only_on_rehearsable_release_actions() {
         for action in ["plan", "publish"] {
             let cli = parse(&["--dry-run", "release", action]).expect("parses");
@@ -1595,7 +1715,7 @@ mod tests {
     #[test]
     fn baseline_flags_rejected_on_other_verbs() {
         for args in [
-            ["--base", "origin/main", "release", "publish"].as_slice(),
+            ["--merge-base", "release", "publish"].as_slice(),
             ["--merge-base", "modules"].as_slice(),
             ["--base", "origin/main", "graph"].as_slice(),
             ["--merge-base", "explain", "test"].as_slice(),

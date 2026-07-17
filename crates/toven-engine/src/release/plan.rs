@@ -11,7 +11,9 @@ use crate::federation::baseline::MemberVcsReaders;
 use crate::federation::resolve::PathDriverLocator;
 use crate::plan::{PlanContext, PlanRequest, prepare_front};
 
-use super::{ReleasePlan, ReleaseStrategyName, ResolvedReleaseSettings, bump, change, changelog};
+use super::{
+    BumpOverrides, BumpPolicy, ReleasePlan, ResolvedReleaseSettings, bump, change, changelog,
+};
 
 /// Build an immutable release plan.
 ///
@@ -23,6 +25,7 @@ pub fn release_plan(
     document: &Document,
     providers: &[&dyn Provider],
     readers: &MemberVcsReaders<'_>,
+    overrides: &BumpOverrides,
     reporter: &mut dyn Reporter,
 ) -> AppResult<ReleasePlan> {
     let locator = PathDriverLocator::new();
@@ -34,7 +37,7 @@ pub fn release_plan(
         reporter,
     )?;
     let targets = release_targets(&context)?;
-    plan_with_context(&context, document, request, readers, &targets)
+    plan_with_context(&context, document, request, readers, overrides, &targets)
 }
 
 /// Build a [`ReleasePlan`] from an already-prepared [`PlanContext`] and its
@@ -51,10 +54,11 @@ pub(crate) fn plan_with_context(
     document: &Document,
     request: &PlanRequest,
     readers: &MemberVcsReaders<'_>,
+    overrides: &BumpOverrides,
     targets: &super::ReleaseTargets,
 ) -> AppResult<ReleasePlan> {
-    let changes = change::detect(context, &request.selection, readers)?;
-    plan_with_changes(context, document, request, &changes, targets)
+    let changes = change::detect(context, &request.selection, overrides.base(), readers)?;
+    plan_with_changes(context, document, request, &changes, overrides, targets)
 }
 
 fn plan_with_changes(
@@ -62,10 +66,11 @@ fn plan_with_changes(
     document: &Document,
     _request: &PlanRequest,
     changes: &change::ReleaseChanges,
+    overrides: &BumpOverrides,
     targets: &super::ReleaseTargets,
 ) -> AppResult<ReleasePlan> {
     let settings = resolve_release_settings(context, document, targets)?;
-    let strategy = reconcile_strategy(&settings)?;
+    let policy = reconcile_policy(&settings)?;
     let changelogs = context
         .federation
         .modules
@@ -86,11 +91,13 @@ fn plan_with_changes(
         changed: &changes.changed,
         baselines: &changes.baselines,
         changelogs: &changelogs,
+        settings: &settings,
         targets,
-        release_strategy: strategy,
+        policy,
+        overrides,
     })?;
 
-    Ok(ReleasePlan::new(strategy, entries))
+    Ok(ReleasePlan::new(policy, entries))
 }
 
 /// Resolve the release targets declared by each configured ecosystem adapter.
@@ -164,33 +171,32 @@ fn resolve_release_settings(
     Ok(resolved)
 }
 
-/// Reconcile the single plan-wide bump strategy from per-module resolved
-/// settings.
+/// Reconcile the single plan-wide bump policy from per-module resolved settings.
 ///
-/// The engine produces one [`ReleasePlan`] with a single strategy, so every
-/// module must resolve the same strategy. A conflict is a typed configuration
-/// error rather than a silent first-wins pick; an empty release scope defaults to
-/// [`ReleaseStrategyName::SemverCascade`].
-fn reconcile_strategy(
+/// The engine produces one [`ReleasePlan`] with a single policy, so every module
+/// must resolve the same policy. A conflict is a typed configuration error rather
+/// than a silent first-wins pick; an empty release scope defaults to
+/// [`BumpPolicy::SemverCascade`].
+fn reconcile_policy(
     settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
-) -> AppResult<ReleaseStrategyName> {
-    let mut selected: Option<(ModuleKey, ReleaseStrategyName)> = None;
+) -> AppResult<BumpPolicy> {
+    let mut selected: Option<(ModuleKey, BumpPolicy)> = None;
     for (module, resolved) in settings {
         match &selected {
-            Some((existing_module, existing)) if *existing != resolved.strategy => {
+            Some((existing_module, existing)) if *existing != resolved.policy => {
                 return Err(AppError::invalid_input(
                     "release.strategy",
                     format!(
                         "conflicting release strategies '{}' ({existing_module}) and '{}' ({module})",
                         existing.as_str(),
-                        resolved.strategy.as_str()
+                        resolved.policy.as_str()
                     ),
                 ));
             }
-            _ => selected = Some((module.clone(), resolved.strategy)),
+            _ => selected = Some((module.clone(), resolved.policy)),
         }
     }
-    Ok(selected.map_or(ReleaseStrategyName::SemverCascade, |(_, strategy)| strategy))
+    Ok(selected.map_or(BumpPolicy::SemverCascade, |(_, policy)| policy))
 }
 
 #[cfg(test)]
@@ -202,17 +208,18 @@ mod tests {
     use serde_json::json;
     use toven_model::{AbsPath, DepKind, EcosystemId, Edge, Module, ModuleRef, RepoPath};
     use toven_ports::{
-        BaselineSpec, ChangeRecord, ChangeStatus, CommonEcosystemConfig, DiscoverResponse,
-        Provider, ReleaseConfig, TaskIntent,
+        BaselineSpec, BumpLevel, ChangeRecord, ChangeStatus, CommonEcosystemConfig,
+        DependentVersion, DiscoverResponse, PrereleaseConfig, Provider, TaskIntent,
     };
     use toven_testkit::{
         FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, RecordingReporter,
     };
 
-    use super::{ReleaseStrategyName, ResolvedReleaseSettings, reconcile_strategy, release_plan};
+    use super::{BumpPolicy, ResolvedReleaseSettings, reconcile_policy, release_plan};
     use crate::config::{Document, ProjectConfig, TovenConfig};
     use crate::federation::baseline::MemberVcsReaders;
     use crate::plan::{PlanRequest, Selection};
+    use crate::release::{BumpOverrides, BumpReason, BumpSource, ReleasePlan};
 
     fn eid(id: &str) -> EcosystemId {
         EcosystemId::new(id).unwrap()
@@ -244,6 +251,52 @@ mod tests {
         }
     }
 
+    /// Plan a single changed `core` module against the given `common` config and
+    /// per-run `overrides`, with `target` supplying its declared/published state.
+    fn plan_core(
+        common: CommonEcosystemConfig,
+        target: FakeReleaseTarget,
+        overrides: &BumpOverrides,
+    ) -> ReleasePlan {
+        let core = module("core", "crates/core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_common(common)
+            .with_release_target(target);
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let request = PlanRequest::new(
+            "r1",
+            "t",
+            TaskIntent::resolve("release"),
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+        let vcs = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
+            "crates/core/src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+        release_plan(
+            &request,
+            &document(),
+            &providers,
+            &readers,
+            overrides,
+            &mut reporter,
+        )
+        .unwrap()
+    }
+
+    fn common_with_level(level: BumpLevel) -> CommonEcosystemConfig {
+        let mut common = CommonEcosystemConfig::default();
+        common.release.level = Some(level);
+        common
+    }
+
     #[test]
     fn release_plan_bumps_changed_module_and_dependent_floor() {
         let core = module("core", "crates/core");
@@ -271,13 +324,25 @@ mod tests {
         let mut reporter = RecordingReporter::new();
 
         let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
-        let plan =
-            release_plan(&request, &document(), &providers, &readers, &mut reporter).unwrap();
+        let overrides = BumpOverrides::new();
+        let plan = release_plan(
+            &request,
+            &document(),
+            &providers,
+            &readers,
+            &overrides,
+            &mut reporter,
+        )
+        .unwrap();
 
         assert_eq!(plan.publish_count(), 2);
         assert_eq!(plan.entries[0].module, core.key());
         assert_eq!(plan.entries[0].planned_version, Some(Version::new(0, 1, 1)));
+        assert_eq!(plan.entries[0].reason, BumpReason::Changed);
+        assert_eq!(plan.entries[0].winning_input, BumpSource::Default);
         assert_eq!(plan.entries[1].module, app.key());
+        assert_eq!(plan.entries[1].reason, BumpReason::DependencyCascade);
+        assert_eq!(plan.entries[1].cascade_origin, Some(core.key()));
         assert_eq!(
             plan.entries[1]
                 .mutation
@@ -318,8 +383,16 @@ mod tests {
         let mut reporter = RecordingReporter::new();
 
         let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
-        let plan =
-            release_plan(&request, &document(), &providers, &readers, &mut reporter).unwrap();
+        let overrides = BumpOverrides::new();
+        let plan = release_plan(
+            &request,
+            &document(),
+            &providers,
+            &readers,
+            &overrides,
+            &mut reporter,
+        )
+        .unwrap();
         let by_module = plan
             .entries
             .iter()
@@ -340,13 +413,136 @@ mod tests {
     }
 
     #[test]
-    fn release_plan_honors_the_configured_bump_strategy() {
+    fn config_minor_level_bumps_minor() {
+        let plan = plan_core(
+            common_with_level(BumpLevel::Minor),
+            FakeReleaseTarget::new(),
+            &BumpOverrides::new(),
+        );
+        assert_eq!(plan.entries[0].planned_version, Some(Version::new(0, 2, 0)));
+        assert_eq!(plan.entries[0].level, BumpLevel::Minor);
+        assert_eq!(plan.entries[0].winning_input, BumpSource::Config);
+    }
+
+    #[test]
+    fn argv_level_override_beats_config() {
+        let overrides = BumpOverrides::new()
+            .with_module_level(mref("core"), BumpLevel::Major)
+            .unwrap();
+        let plan = plan_core(
+            common_with_level(BumpLevel::Minor),
+            FakeReleaseTarget::new(),
+            &overrides,
+        );
+        assert_eq!(plan.entries[0].planned_version, Some(Version::new(1, 0, 0)));
+        assert_eq!(plan.entries[0].level, BumpLevel::Major);
+        assert_eq!(plan.entries[0].winning_input, BumpSource::Argv);
+    }
+
+    #[test]
+    fn set_version_pins_an_explicit_target() {
+        let overrides = BumpOverrides::new()
+            .with_set_version(mref("core"), Version::new(3, 1, 4))
+            .unwrap();
+        let plan = plan_core(
+            CommonEcosystemConfig::default(),
+            FakeReleaseTarget::new(),
+            &overrides,
+        );
+        assert_eq!(plan.entries[0].planned_version, Some(Version::new(3, 1, 4)));
+        assert_eq!(plan.entries[0].reason, BumpReason::Explicit);
+        assert_eq!(plan.entries[0].winning_input, BumpSource::SetVersion);
+    }
+
+    #[test]
+    fn pre_channel_cuts_a_prerelease() {
+        let mut common = CommonEcosystemConfig::default();
+        common.release.prerelease = Some(PrereleaseConfig {
+            channels: vec!["rc".to_string()],
+            ..PrereleaseConfig::default()
+        });
+        let overrides = BumpOverrides::new().with_prerelease("rc");
+        let plan = plan_core(common, FakeReleaseTarget::new(), &overrides);
+        assert_eq!(
+            plan.entries[0].planned_version,
+            Some(Version::parse("0.1.1-rc.1").unwrap())
+        );
+        assert_eq!(plan.entries[0].prerelease_channel.as_deref(), Some("rc"));
+    }
+
+    #[test]
+    fn unrecognized_pre_channel_is_rejected() {
+        let overrides = BumpOverrides::new().with_prerelease("nightly");
         let core = module("core", "crates/core");
         let mut response = DiscoverResponse::new(eid("rust"));
         response.modules = vec![core];
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_release_target(FakeReleaseTarget::new());
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let request = PlanRequest::new(
+            "r1",
+            "t",
+            TaskIntent::resolve("release"),
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+        let vcs = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
+            "crates/core/src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+        assert!(
+            release_plan(
+                &request,
+                &document(),
+                &providers,
+                &readers,
+                &overrides,
+                &mut reporter,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn module_at_registry_max_is_a_reported_no_op() {
+        let target = FakeReleaseTarget::new().with_published_versions(vec![Version::new(0, 1, 1)]);
+        let plan = plan_core(
+            CommonEcosystemConfig::default(),
+            target,
+            &BumpOverrides::new(),
+        );
+        // Patch of 0.1.0 → 0.1.1 which the registry already has: up to date.
+        assert_eq!(plan.entries[0].planned_version, Some(Version::new(0, 1, 1)));
+        assert!(plan.entries[0].up_to_date);
+        assert!(!plan.entries[0].publish_needed);
+        assert_eq!(plan.publish_count(), 0);
+    }
+
+    #[test]
+    fn offline_skips_the_registry_and_still_publishes() {
+        // Registry already reports 0.1.1, but --offline ignores the registry, so
+        // idempotency is not anchored on it and a publish is still proposed.
+        let target = FakeReleaseTarget::new().with_published_versions(vec![Version::new(0, 1, 1)]);
+        let overrides = BumpOverrides::new().with_offline(true);
+        let plan = plan_core(CommonEcosystemConfig::default(), target, &overrides);
+        assert!(!plan.entries[0].up_to_date);
+        assert!(plan.entries[0].publish_needed);
+    }
+
+    #[test]
+    fn dependent_upgrade_raises_floor_without_own_bump() {
+        let core = module("core", "crates/core");
+        let app = module("app", "crates/app");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core.clone(), app.clone()];
+        response.edges = vec![Edge::new(app.id.clone(), core.id, DepKind::Normal)];
 
         let mut common = CommonEcosystemConfig::default();
-        common.release.strategy = Some("caret-prerelease".to_string());
+        common.release.dependent_version = Some(DependentVersion::Upgrade);
         let adapter = FakeConfiguredAdapter::new(eid("rust"))
             .with_response(response)
             .with_common(common)
@@ -356,7 +552,7 @@ mod tests {
         let request = PlanRequest::new(
             "r1",
             "t",
-            TaskIntent::resolve("test"),
+            TaskIntent::resolve("release"),
             AbsPath::new("/repo").unwrap(),
         )
         .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
@@ -364,46 +560,42 @@ mod tests {
             "crates/core/src/lib.rs",
             ChangeStatus::Modified,
         )]);
-        let mut reporter = RecordingReporter::new();
-
         let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
-        let plan =
-            release_plan(&request, &document(), &providers, &readers, &mut reporter).unwrap();
+        let mut reporter = RecordingReporter::new();
+        let overrides = BumpOverrides::new();
+        let plan = release_plan(
+            &request,
+            &document(),
+            &providers,
+            &readers,
+            &overrides,
+            &mut reporter,
+        )
+        .unwrap();
 
-        assert_eq!(plan.strategy, ReleaseStrategyName::CaretPrerelease);
-    }
-
-    fn settings_with_strategy(strategy: &str) -> ResolvedReleaseSettings {
-        let config = ReleaseConfig {
-            strategy: Some(strategy.to_string()),
-            ..ReleaseConfig::default()
-        };
-        ResolvedReleaseSettings::resolve(&config, None).unwrap()
-    }
-
-    #[test]
-    fn reconcile_strategy_defaults_to_semver_cascade_when_no_modules() {
-        let empty = BTreeMap::new();
+        let app_entry = plan
+            .entries
+            .iter()
+            .find(|entry| entry.module == app.key())
+            .expect("app entry");
+        assert_eq!(app_entry.planned_version, None);
+        assert!(!app_entry.publish_needed);
         assert_eq!(
-            reconcile_strategy(&empty).unwrap(),
-            ReleaseStrategyName::SemverCascade
+            app_entry.mutation.dep_floor_updates.get(&mref("core")),
+            Some(&Version::new(0, 1, 1))
         );
     }
 
     #[test]
-    fn reconcile_strategy_rejects_conflicting_modules() {
-        let mut settings = BTreeMap::new();
-        settings.insert(
-            module("core", "crates/core").key(),
-            settings_with_strategy("semver-cascade"),
-        );
-        settings.insert(
-            module("app", "crates/app").key(),
-            settings_with_strategy("caret-prerelease"),
-        );
+    fn reconcile_policy_defaults_to_semver_cascade_when_no_modules() {
+        let empty = BTreeMap::new();
+        assert_eq!(reconcile_policy(&empty).unwrap(), BumpPolicy::SemverCascade);
+    }
 
-        let error =
-            reconcile_strategy(&settings).expect_err("conflicting strategies must be rejected");
-        assert!(error.to_string().contains("conflicting release strategies"));
+    #[test]
+    fn resolved_settings_carry_the_single_policy() {
+        let settings =
+            ResolvedReleaseSettings::resolve(&toven_ports::ReleaseConfig::default(), None).unwrap();
+        assert_eq!(settings.policy, BumpPolicy::SemverCascade);
     }
 }

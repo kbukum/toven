@@ -11,7 +11,7 @@ toven release publish    # run the full pipeline through publish (--dry-run prev
 
 An action is required; `toven release` alone is a usage error.
 
-Release behavior is declarative: bump defaults, prerelease channels, tag/commit templates, changelog, push/branch gating, registry, signing, and hooks are owned through the `[…release]` config block, per ecosystem and per module. The full block is parsed, validated, and resolved with documented precedence, but only the bump strategy is consumed by the release engine today; the remaining fields are schema-and-resolution only for now. See [release configuration](../config/release.md) for every field, its default, the per-module override, and precedence.
+Release behavior is declarative: bump defaults, prerelease channels, tag/commit templates, changelog, push/branch gating, registry, signing, and hooks are owned through the `[…release]` config block, per ecosystem and per module. The full block is parsed, validated, and resolved with documented precedence; the bump policy and per-run bump argv are consumed by the release engine, while the remaining target/signing/hooks fields are schema-and-resolution only for now. See [release configuration](../config/release.md) for every field, its default, the per-module override, and precedence.
 
 ## Read-only previews
 
@@ -19,12 +19,14 @@ Release behavior is declarative: bump defaults, prerelease channels, tag/commit 
 
 ### `toven release plan`
 
-Shows the release PLAN cut: per releasable module, its current version, the version that would be released, whether a publish is needed, and the changelog summary — in deterministic publish order.
+Shows the release PLAN cut: per releasable module, its current version, the version that would be released, the resolved bump level, why the module is bumped, which input won under precedence, whether a publish is needed, and the changelog summary — in deterministic publish order.
 
 ```bash
 toven release plan
 toven release plan --output jsonl
 ```
+
+The human table carries `Level`, `Reason`, and `Input` columns; the `--output jsonl` record additionally exposes `cascade_origin` (the changed module that triggered a dependency cascade), `prerelease_channel`, and `up_to_date` (a planned version already at/above the registry — reported as a no-op instead of a re-publish).
 
 ### `toven release status`
 
@@ -57,12 +59,43 @@ toven release tag
 toven release publish --allow-dirty --no-push
 ```
 
+## Bump policy and per-run bump flags
+
+Each module bumps independently. By default a changed module takes a **patch** bump; a breaking signal forces a **minor** bump; a **major** bump is only ever explicit. A dependency-floor bump cascades into dependents, and a module already at/above the registry's max published version is a reported no-op ("up to date"), never re-published. "Breaking" is driven by an explicit signal only — a `--minor`/`--major` override or an explicit per-module config `level` — never inferred from raw argv.
+
+The mutating actions (`release tag`/`release publish`) accept per-run bump argv that layers over the config. Each flag is rejected on the read-only actions (`plan`, `status`) with a typed usage error.
+
+- `--patch <module>` / `--minor <module>` / `--major <module>` (each repeatable) — force a module's bump level.
+- `--set-version <module>=<x.y.z>` (repeatable) — pin an explicit target version for a module.
+- `--pre <channel>` — cut a prerelease on a configured channel (`rc`/`alpha`/`beta`), validated against the `[…release.prerelease]` channels.
+- `--base <ref>` — git ref to diff against for change detection (default: the latest release tag).
+- `--offline` — skip registry `published_versions` lookups and anchor idempotency on the release tag only.
+
+A module named in two level flags, or in both a level flag and `--set-version`, is a typed usage error; an override naming an unknown module is rejected with an error naming the module.
+
+### Precedence
+
+Each module's bump resolves from highest to lowest precedence:
+
+```text
+per-run bump argv  >  [modules.<ecosystem:module>.release]  >  [ecosystems.<id>.release]  >  built-in adapter default
+```
+
+Per-run argv (`--patch`/`--minor`/`--major`/`--set-version`/`--pre`) wins over both config levels; the per-module override wins over the ecosystem default, which wins over the adapter default. The `release plan` `Input` column reports which input won for each module (`argv`, `set-version`, `config`, `changelog`, `default`, or `cascade`).
+
+```bash
+toven release publish --minor rust:core --set-version rust:app=2.0.0
+toven release tag --pre rc --base v1.4.0 --offline
+```
+
 ## Which flags apply
 
 | Flag | plan | status | tag | publish |
 |------|:----:|:------:|:---:|:-------:|
 | `--dry-run` (preview) | no-op | ✗ | ✗ | ✓ |
 | `--allow-dirty` / `--no-push` | ✗ | ✗ | ✓ | ✓ |
+| `--patch` / `--minor` / `--major` / `--set-version` / `--pre` / `--offline` | ✗ | ✗ | ✓ | ✓ |
+| `--base` | ✗ | ✗ | ✓ | ✓ |
 | `-v`/`-q` / `--color` | ✗ | ✗ | ✓ | ✓ |
 | `--output human|jsonl` | ✓ | ✓ | ✓ | ✓ |
 

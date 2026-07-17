@@ -1,15 +1,37 @@
-//! Release strategy selection and semver increments.
+//! Bump-policy selection and the semver-increment matrix.
+//!
+//! The bump surface is one matrix rather than a family of named strategies. The
+//! `[…release].strategy` config field resolves to a single [`BumpPolicy`]; a
+//! prerelease is driven only by `--pre <channel>` / the `prerelease` config,
+//! never by a policy name.
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_version::semver::Version;
 
-use super::ReleaseStrategyName;
+use super::BumpPolicy;
 
-/// Resolve a configured release strategy name.
-pub(super) fn resolve(raw: Option<&str>) -> AppResult<ReleaseStrategyName> {
-    match raw.unwrap_or(ReleaseStrategyName::SemverCascade.as_str()) {
-        "semver-cascade" => Ok(ReleaseStrategyName::SemverCascade),
-        "caret-prerelease" => Ok(ReleaseStrategyName::CaretPrerelease),
+/// A concrete, `Auto`-resolved bump level: the semver component to advance.
+///
+/// [`BumpLevel::Auto`](toven_ports::BumpLevel) is resolved to one of these by the
+/// bump planner (from the breaking-change signal) before reaching the matrix, so
+/// the version math never has to guess a level.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(super) enum EffectiveLevel {
+    /// Advance the patch component (`1.2.3` → `1.2.4`).
+    Patch,
+    /// Advance the minor component, zeroing patch (`1.2.3` → `1.3.0`).
+    Minor,
+    /// Advance the major component, zeroing minor/patch (`1.2.3` → `2.0.0`).
+    Major,
+}
+
+/// Resolve a configured bump-policy name.
+///
+/// # Errors
+/// Rejects any unknown policy name (including the removed `caret-prerelease`).
+pub(super) fn resolve(raw: Option<&str>) -> AppResult<BumpPolicy> {
+    match raw.unwrap_or(BumpPolicy::SemverCascade.as_str()) {
+        "semver-cascade" => Ok(BumpPolicy::SemverCascade),
         unknown => Err(AppError::invalid_input(
             "release.strategy",
             format!("unknown release strategy '{unknown}'"),
@@ -17,147 +39,199 @@ pub(super) fn resolve(raw: Option<&str>) -> AppResult<ReleaseStrategyName> {
     }
 }
 
-/// Compute the next version for a strategy.
+/// Compute the next version for `current` under `policy`, applying `level` and an
+/// optional prerelease `channel`.
 ///
-/// `semver-cascade` finalizes a prerelease to its release (`1.0.0-rc.1` →
-/// `1.0.0`) and bumps the patch of a stable version (`1.2.3` → `1.2.4`).
-/// `caret-prerelease` keeps a prerelease train together by advancing its numeric
-/// tail (`1.0.0-rc.1` → `1.0.0-rc.2`) and bumps the patch of a stable version.
+/// Without a channel, the matrix advances the requested semver component; a
+/// patch bump of a pending prerelease finalizes it to its release (`1.2.0-rc.1`
+/// → `1.2.0`). With a channel, the target sits on a prerelease train: continuing
+/// the same channel on the same base increments its numeric tail
+/// (`1.2.4-rc.1` → `1.2.4-rc.2`), otherwise a fresh train starts at `.1` on the
+/// bumped base (`1.2.3` + patch + `rc` → `1.2.4-rc.1`).
 ///
 /// # Errors
-/// Returns an error only if advancing a prerelease train fails to produce a
-/// valid semantic version (not expected for registry-sourced versions).
-pub(super) fn next_version(strategy: ReleaseStrategyName, current: &Version) -> AppResult<Version> {
-    match strategy {
-        ReleaseStrategyName::SemverCascade => Ok(semver_cascade(current)),
-        ReleaseStrategyName::CaretPrerelease => caret_prerelease(current),
+/// Returns an error only if composing a prerelease fails to parse as a valid
+/// semantic version (not expected for the bounded channel/level inputs).
+pub(super) fn next_version(
+    policy: BumpPolicy,
+    current: &Version,
+    level: EffectiveLevel,
+    channel: Option<&str>,
+) -> AppResult<Version> {
+    match policy {
+        BumpPolicy::SemverCascade => channel.map_or_else(
+            || Ok(stable_bump(current, level)),
+            |channel| prerelease_bump(current, level, channel),
+        ),
     }
 }
 
-/// A stable version's standard patch bump, dropping any build metadata.
-const fn patch_bump(current: &Version) -> Version {
-    Version::new(
-        current.major,
-        current.minor,
-        current.patch.saturating_add(1),
-    )
+/// The stable target for `current` at `level`, dropping any prerelease/build.
+fn stable_bump(current: &Version, level: EffectiveLevel) -> Version {
+    match level {
+        EffectiveLevel::Major => Version::new(current.major.saturating_add(1), 0, 0),
+        EffectiveLevel::Minor => Version::new(current.major, current.minor.saturating_add(1), 0),
+        EffectiveLevel::Patch => {
+            if current.pre.is_empty() {
+                Version::new(
+                    current.major,
+                    current.minor,
+                    current.patch.saturating_add(1),
+                )
+            } else {
+                // A pending prerelease finalizes to its release rather than
+                // silently discarding the train into the next patch.
+                Version::new(current.major, current.minor, current.patch)
+            }
+        }
+    }
 }
 
-/// `semver-cascade`: a prerelease finalizes to its release; a stable version
-/// bumps the patch.
-fn semver_cascade(current: &Version) -> Version {
-    if current.pre.is_empty() {
-        patch_bump(current)
+/// The prerelease target for `current` at `level` on `channel`.
+fn prerelease_bump(current: &Version, level: EffectiveLevel, channel: &str) -> AppResult<Version> {
+    let base = stable_bump(current, level);
+    let continuing = !current.pre.is_empty()
+        && channel_matches(current.pre.as_str(), channel)
+        && base.major == current.major
+        && base.minor == current.minor
+        && base.patch == current.patch;
+    let next = if continuing {
+        trailing_number(current.pre.as_str()).saturating_add(1)
     } else {
-        // Promote the prerelease to its final release, dropping pre/build.
-        Version::new(current.major, current.minor, current.patch)
-    }
-}
-
-/// `caret-prerelease`: keep a prerelease train together by advancing its numeric
-/// tail; a stable version bumps the patch.
-fn caret_prerelease(current: &Version) -> AppResult<Version> {
-    if current.pre.is_empty() {
-        return Ok(patch_bump(current));
-    }
-    let next_pre = increment_prerelease(current.pre.as_str());
+        1
+    };
     let raw = format!(
-        "{}.{}.{}-{next_pre}",
-        current.major, current.minor, current.patch
+        "{}.{}.{}-{channel}.{next}",
+        base.major, base.minor, base.patch
     );
     Version::parse(&raw).map_err(|error| {
         AppError::new(
             ErrorCode::InvalidFormat,
-            format!("failed to advance prerelease train for '{current}'"),
+            format!("failed to compose prerelease '{raw}' for '{current}'"),
         )
         .with_cause(error)
     })
 }
 
-/// Advance the trailing dot-separated numeric identifier of a prerelease train,
-/// or append `.1` when the train has no numeric tail (`rc` → `rc.1`,
-/// `rc.1` → `rc.2`, `alpha.3` → `alpha.4`).
-fn increment_prerelease(pre: &str) -> String {
-    match pre.rsplit_once('.') {
-        Some((head, tail)) => tail.parse::<u64>().map_or_else(
-            |_| format!("{pre}.1"),
-            |number| format!("{head}.{}", number.saturating_add(1)),
-        ),
-        None => pre.parse::<u64>().map_or_else(
-            |_| format!("{pre}.1"),
-            |number| number.saturating_add(1).to_string(),
-        ),
-    }
+/// Whether a prerelease identifier belongs to `channel` (its leading
+/// dot-separated segment equals the channel).
+fn channel_matches(pre: &str, channel: &str) -> bool {
+    pre.split('.').next() == Some(channel)
+}
+
+/// The trailing dot-separated numeric identifier of a prerelease train, or `0`
+/// when it has no numeric tail (so `rc` → `1`, `rc.1` → `2`).
+fn trailing_number(pre: &str) -> u64 {
+    pre.rsplit('.')
+        .next()
+        .and_then(|tail| tail.parse::<u64>().ok())
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
 mod tests {
     use rskit_version::semver::Version;
 
-    use super::{next_version, resolve};
-    use crate::release::ReleaseStrategyName;
+    use super::{EffectiveLevel, next_version, resolve};
+    use crate::release::BumpPolicy;
 
     fn parse(raw: &str) -> Version {
         Version::parse(raw).unwrap()
     }
 
     #[test]
-    fn resolves_known_strategy_names() {
+    fn resolves_the_single_named_policy_and_defaults() {
         assert_eq!(
             resolve(Some("semver-cascade")).unwrap(),
-            ReleaseStrategyName::SemverCascade
+            BumpPolicy::SemverCascade
         );
-        assert_eq!(
-            resolve(Some("caret-prerelease")).unwrap(),
-            ReleaseStrategyName::CaretPrerelease
-        );
+        assert_eq!(resolve(None).unwrap(), BumpPolicy::SemverCascade);
+    }
+
+    #[test]
+    fn rejects_the_removed_and_unknown_policy_names() {
+        assert!(resolve(Some("caret-prerelease")).is_err());
         assert!(resolve(Some("other")).is_err());
     }
 
     #[test]
-    fn defaults_to_semver_cascade_and_bumps_patch() {
-        let strategy = resolve(None).unwrap();
-        assert_eq!(strategy, ReleaseStrategyName::SemverCascade);
+    fn stable_matrix_advances_the_requested_component() {
+        let current = Version::new(1, 2, 3);
+        let policy = BumpPolicy::SemverCascade;
         assert_eq!(
-            next_version(strategy, &Version::new(1, 2, 3)).unwrap(),
+            next_version(policy, &current, EffectiveLevel::Patch, None).unwrap(),
             Version::new(1, 2, 4)
+        );
+        assert_eq!(
+            next_version(policy, &current, EffectiveLevel::Minor, None).unwrap(),
+            Version::new(1, 3, 0)
+        );
+        assert_eq!(
+            next_version(policy, &current, EffectiveLevel::Major, None).unwrap(),
+            Version::new(2, 0, 0)
         );
     }
 
     #[test]
-    fn semver_cascade_finalizes_a_prerelease() {
-        // A prerelease promotes to its release rather than dropping into the
-        // next patch (which would silently discard the prerelease train).
+    fn patch_of_a_pending_prerelease_finalizes_it() {
         assert_eq!(
-            next_version(ReleaseStrategyName::SemverCascade, &parse("1.0.0-rc.1")).unwrap(),
+            next_version(
+                BumpPolicy::SemverCascade,
+                &parse("1.0.0-rc.1"),
+                EffectiveLevel::Patch,
+                None,
+            )
+            .unwrap(),
             Version::new(1, 0, 0)
         );
     }
 
     #[test]
-    fn caret_prerelease_advances_the_train_but_patch_bumps_stable() {
-        // Stable input: same patch bump as semver-cascade.
-        assert_eq!(
-            next_version(ReleaseStrategyName::CaretPrerelease, &Version::new(1, 2, 3)).unwrap(),
-            Version::new(1, 2, 4)
-        );
-        // Prerelease input: keep the train together, distinct from semver-cascade.
-        assert_eq!(
-            next_version(ReleaseStrategyName::CaretPrerelease, &parse("1.0.0-rc.1")).unwrap(),
-            parse("1.0.0-rc.2")
-        );
+    fn prerelease_channel_starts_and_continues_a_train() {
+        let policy = BumpPolicy::SemverCascade;
+        // Stable + patch + rc starts a fresh train on the bumped base.
         assert_eq!(
             next_version(
-                ReleaseStrategyName::CaretPrerelease,
-                &parse("2.0.0-alpha.3")
+                policy,
+                &Version::new(1, 2, 3),
+                EffectiveLevel::Patch,
+                Some("rc")
             )
             .unwrap(),
-            parse("2.0.0-alpha.4")
+            parse("1.2.4-rc.1")
         );
-        // A train with no numeric tail starts one.
+        // Same channel on the same base increments the numeric tail.
         assert_eq!(
-            next_version(ReleaseStrategyName::CaretPrerelease, &parse("1.0.0-rc")).unwrap(),
-            parse("1.0.0-rc.1")
+            next_version(
+                policy,
+                &parse("1.2.4-rc.1"),
+                EffectiveLevel::Patch,
+                Some("rc")
+            )
+            .unwrap(),
+            parse("1.2.4-rc.2")
+        );
+        // A different channel restarts the train at `.1`.
+        assert_eq!(
+            next_version(
+                policy,
+                &parse("1.2.4-rc.1"),
+                EffectiveLevel::Patch,
+                Some("beta")
+            )
+            .unwrap(),
+            parse("1.2.4-beta.1")
+        );
+        // A higher level moves the base and restarts the train.
+        assert_eq!(
+            next_version(
+                policy,
+                &parse("1.2.4-rc.1"),
+                EffectiveLevel::Minor,
+                Some("rc")
+            )
+            .unwrap(),
+            parse("1.3.0-rc.1")
         );
     }
 }

@@ -10,7 +10,7 @@ use toven_ports::{
     SignConfig, merge_release,
 };
 
-use super::{ReleaseStrategyName, strategy};
+use super::{BumpPolicy, strategy};
 
 /// Default release tag template when none is configured (`v1.2.3`).
 const DEFAULT_TAG_FORMAT: &str = "v{version}";
@@ -28,8 +28,8 @@ const DEFAULT_CHANGELOG_PATH: &str = "CHANGELOG.md";
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct ResolvedReleaseSettings {
-    /// Resolved engine-owned bump strategy.
-    pub strategy: ReleaseStrategyName,
+    /// Resolved engine-owned bump policy.
+    pub policy: BumpPolicy,
     /// Default bump level applied to a changed module.
     pub level: BumpLevel,
     /// How a dependency-floor bump cascades into dependents.
@@ -79,7 +79,7 @@ impl ResolvedReleaseSettings {
     /// Apply defaults and resolve the strategy over an already-merged config.
     fn from_merged(config: &ReleaseConfig) -> AppResult<Self> {
         Ok(Self {
-            strategy: strategy::resolve(config.strategy.as_deref())?,
+            policy: strategy::resolve(config.strategy.as_deref())?,
             level: config.level.unwrap_or(BumpLevel::Auto),
             dependent_version: config.dependent_version.unwrap_or(DependentVersion::Bump),
             prerelease: config.prerelease.clone().unwrap_or_default(),
@@ -117,13 +117,13 @@ fn resolve_changelog(mut changelog: ChangelogConfig) -> ChangelogConfig {
 #[cfg(test)]
 mod tests {
     use super::ResolvedReleaseSettings;
-    use crate::release::ReleaseStrategyName;
+    use crate::release::BumpPolicy;
     use toven_ports::{BumpLevel, ReleaseConfig};
 
     #[test]
     fn empty_config_yields_documented_defaults() {
         let resolved = ResolvedReleaseSettings::resolve(&ReleaseConfig::default(), None).unwrap();
-        assert_eq!(resolved.strategy, ReleaseStrategyName::SemverCascade);
+        assert_eq!(resolved.policy, BumpPolicy::SemverCascade);
         assert_eq!(resolved.level, BumpLevel::Auto);
         assert_eq!(resolved.tag_format, "v{version}");
         assert!(resolved.push);

@@ -13,7 +13,7 @@ use toven_engine::federation::MemberVcsReaders;
 use toven_engine::federation::baseline::MemberVcsReader;
 use toven_engine::federation::release::{MemberReleaseRepo, MemberReleaseRepos};
 use toven_engine::plan::PlanRequest;
-use toven_engine::release::{ReleaseApplyOptions, release_run};
+use toven_engine::release::{BumpOverrides, ReleaseApplyOptions, release_run};
 use toven_model::{
     AbsPath, EcosystemId, MemberId, Module, ModuleRef, RepoPath, ToolchainTag, Workspace,
     WorkspaceId,
@@ -124,6 +124,7 @@ fn release_shards_history_mutations_per_member_repo() {
         &providers,
         &readers,
         &repos,
+        &BumpOverrides::new(),
         &mut reporter,
         &options,
     )
