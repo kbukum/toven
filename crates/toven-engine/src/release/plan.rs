@@ -361,7 +361,7 @@ mod tests {
         response.modules = vec![core.clone(), mid.clone(), top.clone()];
         response.edges = vec![
             Edge::new(mid.id.clone(), core.id.clone(), DepKind::Normal),
-            Edge::new(top.id.clone(), mid.id.clone(), DepKind::Normal),
+            Edge::new(top.id.clone(), mid.id, DepKind::Normal),
         ];
 
         let adapter = FakeConfiguredAdapter::new(eid("rust"))

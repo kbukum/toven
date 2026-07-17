@@ -125,9 +125,13 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
             publish_needed,
             topo_rank: *ranks.get(&reference).unwrap_or(&usize::MAX),
             baseline: input.baselines.get(&reference).cloned(),
-            changelog: input.changelogs.get(&reference).cloned().unwrap_or_else(|| {
-                ChangelogEntry::new(reference.clone(), "dependency cascade", Vec::new())
-            }),
+            changelog: input
+                .changelogs
+                .get(&reference)
+                .cloned()
+                .unwrap_or_else(|| {
+                    ChangelogEntry::new(reference.clone(), "dependency cascade", Vec::new())
+                }),
         });
     }
     entries.sort_by(|left, right| {
@@ -532,7 +536,7 @@ mod tests {
             Edge::new(app_key.clone(), lib_key.clone(), DepKind::Normal),
             Edge::new(lib_key.clone(), base_key.clone(), DepKind::Normal),
         ];
-        let modules = vec![base.clone(), lib.clone(), app.clone()];
+        let modules = vec![base, lib, app];
         let graph = Graph::build(modules.clone(), edges.clone()).unwrap();
 
         let upgrade = ReleaseConfig {
@@ -565,7 +569,10 @@ mod tests {
         .unwrap();
 
         let by_module = |key: &_| entries.iter().find(|e| &e.module == key).unwrap();
-        assert_eq!(by_module(&base_key).planned_version, Some(Version::new(0, 1, 1)));
+        assert_eq!(
+            by_module(&base_key).planned_version,
+            Some(Version::new(0, 1, 1))
+        );
         let lib_entry = by_module(&lib_key);
         assert_eq!(lib_entry.planned_version, None);
         assert!(!lib_entry.mutation.dep_floor_updates.is_empty());
@@ -587,7 +594,7 @@ mod tests {
             Edge::new(app_key.clone(), lib_key.clone(), DepKind::Normal),
             Edge::new(lib_key.clone(), base_key.clone(), DepKind::Normal),
         ];
-        let modules = vec![base.clone(), lib.clone(), app.clone()];
+        let modules = vec![base, lib, app];
         let graph = Graph::build(modules.clone(), edges.clone()).unwrap();
 
         let mut settings = BTreeMap::new();
@@ -616,8 +623,14 @@ mod tests {
         .unwrap();
 
         let by_module = |key: &_| entries.iter().find(|e| &e.module == key).unwrap();
-        assert_eq!(by_module(&base_key).planned_version, Some(Version::new(0, 1, 1)));
-        assert_eq!(by_module(&lib_key).planned_version, Some(Version::new(0, 1, 1)));
+        assert_eq!(
+            by_module(&base_key).planned_version,
+            Some(Version::new(0, 1, 1))
+        );
+        assert_eq!(
+            by_module(&lib_key).planned_version,
+            Some(Version::new(0, 1, 1))
+        );
         let app_entry = by_module(&app_key);
         assert_eq!(app_entry.planned_version, Some(Version::new(0, 1, 1)));
         assert!(!app_entry.mutation.dep_floor_updates.is_empty());
