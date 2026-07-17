@@ -431,8 +431,8 @@ fn publish_ranks(
 #[cfg(test)]
 mod tests {
     use rskit_version::semver::Version;
-    use toven_model::{EcosystemId, Graph, Module, RepoPath};
-    use toven_ports::{BumpLevel, ReleaseConfig, ReleaseTarget};
+    use toven_model::{DepKind, EcosystemId, Edge, Graph, Module, RepoPath};
+    use toven_ports::{BumpLevel, DependentVersion, ReleaseConfig, ReleaseTarget};
     use toven_testkit::FakeReleaseTarget;
 
     use super::{
@@ -446,6 +446,26 @@ mod tests {
             ModuleRef::new(EcosystemId::new("rust").unwrap(), "core").unwrap(),
             RepoPath::new("crates/core").unwrap(),
         )
+    }
+
+    fn rust_module(name: &str) -> Module {
+        Module::new(
+            ModuleRef::new(EcosystemId::new("rust").unwrap(), name).unwrap(),
+            RepoPath::new(format!("crates/{name}")).unwrap(),
+        )
+    }
+
+    fn settings_for(config: &ReleaseConfig) -> ResolvedReleaseSettings {
+        ResolvedReleaseSettings::resolve(config, None).unwrap()
+    }
+
+    fn rust_targets() -> ReleaseTargets {
+        let mut targets = ReleaseTargets::new();
+        targets.insert(
+            (None, EcosystemId::new("rust").unwrap()),
+            Box::new(FakeReleaseTarget::new()) as Box<dyn ReleaseTarget>,
+        );
+        targets
     }
 
     #[test]
@@ -498,5 +518,109 @@ mod tests {
         assert_eq!(entries[0].level, BumpLevel::Minor);
         assert_eq!(entries[0].winning_input, BumpSource::Changelog);
         assert_eq!(entries[0].planned_version, Some(Version::new(0, 2, 0)));
+    }
+
+    #[test]
+    fn an_upgrade_only_dependency_does_not_cascade_a_bump_to_its_dependents() {
+        // app -> lib -> base; base changes, lib only raises floors (upgrade), so
+        // app's direct dependency never republishes and app must stay untouched.
+        let base = rust_module("base");
+        let lib = rust_module("lib");
+        let app = rust_module("app");
+        let (base_key, lib_key, app_key) = (base.key(), lib.key(), app.key());
+        let edges = vec![
+            Edge::new(app_key.clone(), lib_key.clone(), DepKind::Normal),
+            Edge::new(lib_key.clone(), base_key.clone(), DepKind::Normal),
+        ];
+        let modules = vec![base.clone(), lib.clone(), app.clone()];
+        let graph = Graph::build(modules.clone(), edges.clone()).unwrap();
+
+        let upgrade = ReleaseConfig {
+            dependent_version: Some(DependentVersion::Upgrade),
+            ..ReleaseConfig::default()
+        };
+        let mut settings = BTreeMap::new();
+        settings.insert(base_key.clone(), settings_for(&ReleaseConfig::default()));
+        settings.insert(lib_key.clone(), settings_for(&upgrade));
+        settings.insert(app_key.clone(), settings_for(&ReleaseConfig::default()));
+
+        let changed: BTreeSet<_> = std::iter::once(base_key.clone()).collect();
+        let targets = rust_targets();
+        let baselines = BTreeMap::new();
+        let changelogs = BTreeMap::new();
+        let overrides = BumpOverrides::new();
+
+        let entries = plan_entries(&BumpInputs {
+            graph: &graph,
+            modules: &modules,
+            edges: &edges,
+            changed: &changed,
+            baselines: &baselines,
+            changelogs: &changelogs,
+            settings: &settings,
+            targets: &targets,
+            policy: BumpPolicy::SemverCascade,
+            overrides: &overrides,
+        })
+        .unwrap();
+
+        let by_module = |key: &_| entries.iter().find(|e| &e.module == key).unwrap();
+        assert_eq!(by_module(&base_key).planned_version, Some(Version::new(0, 1, 1)));
+        let lib_entry = by_module(&lib_key);
+        assert_eq!(lib_entry.planned_version, None);
+        assert!(!lib_entry.mutation.dep_floor_updates.is_empty());
+        let app_entry = by_module(&app_key);
+        assert_eq!(app_entry.planned_version, None);
+        assert!(app_entry.mutation.dep_floor_updates.is_empty());
+        assert!(!app_entry.publish_needed);
+    }
+
+    #[test]
+    fn a_bumping_dependency_chain_cascades_through_every_dependent() {
+        // app -> lib -> base with the default bump policy: base changes and each
+        // dependent republishes, so the cascade reaches app transitively.
+        let base = rust_module("base");
+        let lib = rust_module("lib");
+        let app = rust_module("app");
+        let (base_key, lib_key, app_key) = (base.key(), lib.key(), app.key());
+        let edges = vec![
+            Edge::new(app_key.clone(), lib_key.clone(), DepKind::Normal),
+            Edge::new(lib_key.clone(), base_key.clone(), DepKind::Normal),
+        ];
+        let modules = vec![base.clone(), lib.clone(), app.clone()];
+        let graph = Graph::build(modules.clone(), edges.clone()).unwrap();
+
+        let mut settings = BTreeMap::new();
+        for key in [&base_key, &lib_key, &app_key] {
+            settings.insert(key.clone(), settings_for(&ReleaseConfig::default()));
+        }
+
+        let changed: BTreeSet<_> = std::iter::once(base_key.clone()).collect();
+        let targets = rust_targets();
+        let baselines = BTreeMap::new();
+        let changelogs = BTreeMap::new();
+        let overrides = BumpOverrides::new();
+
+        let entries = plan_entries(&BumpInputs {
+            graph: &graph,
+            modules: &modules,
+            edges: &edges,
+            changed: &changed,
+            baselines: &baselines,
+            changelogs: &changelogs,
+            settings: &settings,
+            targets: &targets,
+            policy: BumpPolicy::SemverCascade,
+            overrides: &overrides,
+        })
+        .unwrap();
+
+        let by_module = |key: &_| entries.iter().find(|e| &e.module == key).unwrap();
+        assert_eq!(by_module(&base_key).planned_version, Some(Version::new(0, 1, 1)));
+        assert_eq!(by_module(&lib_key).planned_version, Some(Version::new(0, 1, 1)));
+        let app_entry = by_module(&app_key);
+        assert_eq!(app_entry.planned_version, Some(Version::new(0, 1, 1)));
+        assert!(!app_entry.mutation.dep_floor_updates.is_empty());
+        assert!(app_entry.publish_needed);
     }
 }

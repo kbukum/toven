@@ -213,4 +213,10 @@ mod tests {
         let known = std::iter::once(mref("core")).collect();
         assert!(overrides.validate_known(&known).is_err());
     }
+
+    #[test]
+    fn an_auto_level_override_is_rejected() {
+        let result = BumpOverrides::new().with_module_level(mref("core"), BumpLevel::Auto);
+        assert!(result.is_err());
+    }
 }
