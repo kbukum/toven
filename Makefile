@@ -30,7 +30,9 @@ test-doc:
 	cargo test --workspace --all-features --doc
 
 structure:
-	./scripts/check-structure.sh
+	@echo "==> Checking declare-only aggregators (lib.rs / mod.rs)..."
+	@command -v ast-grep >/dev/null 2>&1 || { echo "structure: ast-grep not found — install with 'brew install ast-grep' or 'cargo install ast-grep --locked'"; exit 1; }
+	@ast-grep scan
 
 doc:
 	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features

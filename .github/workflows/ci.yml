@@ -54,11 +54,17 @@ jobs:
         with:
           tool: cargo-nextest
 
+      - name: Install ast-grep
+        uses: taiki-e/install-action@c7eb1735f09259a5035e8e5d44b1406b1cddc0fb # v2
+        with:
+          tool: ast-grep
+
       - name: Show tool versions
         run: |
           rustc --version
           cargo --version
           cargo nextest --version
+          ast-grep --version
           go version
 
       - name: Install cargo-deny

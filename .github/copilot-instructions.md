@@ -54,7 +54,7 @@ One Cargo workspace (`members = ["crates/*"]`, `exclude = ["rskit"]`). Layers de
 
 The vendored `rskit/` submodule is a separate workspace; Toven depends on individual rskit core crates via path deps pinned to the submodule's prerelease version.
 
-Each crate root (`lib.rs`) and responsibility folder (`mod.rs`) stays **declare-only** — submodule declarations and re-exports only, no logic or private items. Enforced by `scripts/check-structure.sh` (`make structure`), which covers both `lib.rs` and `mod.rs`.
+Each crate root (`lib.rs`) and responsibility folder (`mod.rs`) stays **declare-only** — submodule declarations and re-exports only, no logic or private items. Enforced by the `declare-only-aggregator` ast-grep rule (`scripts/sg-rules/`, run via `make structure`), which covers both `lib.rs` and `mod.rs`.
 
 ## Code style
 
