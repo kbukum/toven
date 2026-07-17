@@ -110,7 +110,7 @@ pub fn release_apply_by_member(
 
     let mut artifacts = BTreeMap::new();
     for (shard, member_artifacts) in prepared {
-        commit_member_shard(shard, repos, options, &mut stats)?;
+        commit_member_shard(shard, &module_by_ref, targets, repos, options, &mut stats)?;
         artifacts.extend(member_artifacts);
     }
 
@@ -145,12 +145,14 @@ fn prepare_member_shard(
 
 fn commit_member_shard(
     shard: &MemberReleaseShard,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+    targets: &crate::release::ReleaseTargets,
     repos: &MemberReleaseRepos<'_>,
     options: &ReleaseApplyOptions,
     stats: &mut ReleaseStats,
 ) -> AppResult<()> {
     let repo = repo_for(repos, shard.member.as_ref())?;
-    let message = apply::commit_message(&shard.plan);
+    let message = apply::commit_message(&shard.plan, module_by_ref, targets)?;
     let commit = match repo.writer().commit(&message) {
         Ok(commit) => commit,
         Err(error) => {
@@ -163,14 +165,31 @@ fn commit_member_shard(
     };
     for entry in &shard.plan.entries {
         if let Some(version) = &entry.planned_version {
-            let name = crate::release::tag::format(&entry.module.module, version);
+            let module = module_by_ref.get(&entry.module).copied().ok_or_else(|| {
+                AppError::invalid_input(
+                    "release.modules",
+                    format!("unknown module '{}'", entry.module),
+                )
+            })?;
+            let target = targets
+                .get(&(module.member.clone(), module.id.ecosystem.clone()))
+                .map(Box::as_ref)
+                .ok_or_else(|| {
+                    AppError::invalid_input(
+                        "release.target",
+                        format!("module '{}' has no release target", module.key()),
+                    )
+                })?;
+            let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
+            let name = crate::release::tag::format(&scheme, version);
             repo.writer()
                 .create_tag(&name, commit.as_str(), Some(&message))?;
             stats.tagged_modules += 1;
         }
     }
     if options.push {
-        repo.writer().push(&apply::push_refspecs(&shard.plan))?;
+        repo.writer()
+            .push(&apply::push_refspecs(&shard.plan, module_by_ref, targets)?)?;
     }
     Ok(())
 }
@@ -309,6 +328,7 @@ mod tests {
             up_to_date: false,
             mutation: ReleaseMutation::version(version),
             publish_needed: true,
+            tag_format: None,
             topo_rank: rank,
             baseline: None,
             changelog: ChangelogEntry::new(mkey(member, name), "changed", Vec::new()),

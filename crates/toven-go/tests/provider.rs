@@ -67,9 +67,9 @@ fn configure_rejects_a_task_entry_without_argv() {
 }
 
 #[test]
-fn go_has_no_release_target() {
+fn go_exposes_release_target() {
     let adapter = configure(SINGLE_MODULE);
-    assert!(adapter.release_target().expect("release target").is_none());
+    assert!(adapter.release_target().expect("release target").is_some());
 }
 
 #[test]

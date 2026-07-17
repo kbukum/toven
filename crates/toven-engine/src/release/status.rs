@@ -16,7 +16,7 @@ use crate::federation::baseline::MemberVcsReaders;
 use crate::federation::resolve::PathDriverLocator;
 use crate::plan::{PlanRequest, prepare_front};
 
-use super::plan::release_targets;
+use super::plan::{release_targets, resolve_release_settings};
 
 /// Project the declared/published/tagged state of every releasable module.
 ///
@@ -44,6 +44,7 @@ pub fn release_status(
         reporter,
     )?;
     let targets = release_targets(&context)?;
+    let settings = resolve_release_settings(&context, document, &targets)?;
 
     let tags_by_member = list_member_tags(readers)?;
     let mut modules = Vec::new();
@@ -54,10 +55,15 @@ pub fn release_status(
         };
         let declared = target.declared_version(module)?;
         let published = target.published_versions(module)?;
-        let latest_tag = tags_by_member
-            .get(&module.member)
-            .and_then(|tags| tag::latest(&module.id, tags))
-            .map(|(_, tag)| tag.name);
+        let latest_tag = if let Some(resolved) = settings.get(&module.key()) {
+            let scheme = target.tag_scheme(module, resolved.tag_format.as_deref())?;
+            tags_by_member
+                .get(&module.member)
+                .and_then(|tags| tag::latest(&scheme, tags))
+                .map(|(_, tag)| tag.name)
+        } else {
+            None
+        };
         modules.push(ReleaseModuleStatus {
             module: module.key(),
             is_published: published.contains(&declared),

@@ -195,6 +195,8 @@ pub struct ReleaseEntry {
     pub mutation: ReleaseMutation,
     /// Whether the publish loop must publish this module/version.
     pub publish_needed: bool,
+    /// Configured tag-format override used to build the target-owned tag scheme.
+    pub tag_format: Option<String>,
     /// Topological rank used for deterministic publish ordering.
     pub topo_rank: usize,
     /// Baseline used for change detection.
@@ -397,6 +399,7 @@ mod tests {
             up_to_date: false,
             mutation: ReleaseMutation::version(Version::new(0, 2, 0)),
             publish_needed,
+            tag_format: None,
             topo_rank: 0,
             baseline: None,
             changelog: ChangelogEntry::new(module(name), "changed", Vec::new()),

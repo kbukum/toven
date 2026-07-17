@@ -40,6 +40,8 @@ L4  apps/{toven, toven-rs, toven-go}                  # thin wiring binaries
 
 Toven builds on the vendored [`rskit`](../rskit) submodule for process, git/fs, cache, cli, and typed errors. Foundational gaps are fixed generically in rskit.
 
+Release tag grammar is target-owned through the `ReleaseTarget::tag_scheme` seam in `toven-ports`: the engine asks the Rust target for `{ecosystem}/{module}@{version}` by default, asks the Go target for root `vX.Y.Z` or submodule `<path>/vX.Y.Z`, and then formats/parses only through the returned `TagScheme`. This keeps release baseline detection, commit tagging, push refspecs, and status projections target-agnostic.
+
 ## Config and discovery flow
 
 ```mermaid

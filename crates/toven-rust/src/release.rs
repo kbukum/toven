@@ -18,10 +18,14 @@ use rskit_fs::sync_io::file::{exists, read_string_bounded, write_atomic_replace}
 use rskit_process::{
     CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessResult, ProcessSpec, run,
 };
+use rskit_util::{Template, TemplatePart};
 use rskit_version::semver::Version;
 use toml_edit::{DocumentMut, Item, value};
 use toven_model::Module;
-use toven_ports::{Artifact, PublishOutcome, RegistryCadence, ReleaseMutation, ReleaseTarget};
+use toven_ports::{
+    Artifact, PublishOutcome, RegistryCadence, ReleaseMutation, ReleaseTarget, ReleaseVar,
+    TagScheme,
+};
 
 /// Hard bound on a `Cargo.toml` read (4 MiB) — manifests are tiny; this only
 /// guards against a pathological file.
@@ -29,6 +33,12 @@ const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Temp-file prefix for atomic manifest rewrites.
 const MANIFEST_TEMP_PREFIX: &str = "toven-cargo-manifest";
+
+/// Default Rust release tag template.
+const DEFAULT_TAG_FORMAT: &str = "{ecosystem}/{module}@{version}";
+
+/// Sentinel used to split a rendered tag template into version prefix/suffix.
+const VERSION_SENTINEL: &str = "\u{1f}TOVEN_VERSION_SENTINEL\u{1f}";
 
 /// Maximum retained stdout/stderr for cargo registry commands (64 KiB each).
 const MAX_CARGO_OUTPUT_BYTES: usize = 64 * 1024;
@@ -148,6 +158,10 @@ impl ReleaseTarget for CratesIoTarget {
         Ok(parse_cargo_search_versions(&package, &output.stdout))
     }
 
+    fn tag_scheme(&self, module: &Module, tag_format: Option<&str>) -> AppResult<TagScheme> {
+        tag_scheme(module, tag_format.unwrap_or(DEFAULT_TAG_FORMAT))
+    }
+
     fn package(&self, module: &Module) -> AppResult<Artifact> {
         let path = Self::manifest_path(module)?;
         let output = cargo(
@@ -211,6 +225,67 @@ impl ReleaseTarget for CratesIoTarget {
         }
         Ok(Some(Artifact::new(artifact)))
     }
+}
+
+fn tag_scheme(module: &Module, template: &str) -> AppResult<TagScheme> {
+    let template = Template::parse(template, ReleaseVar::ALL).map_err(|error| {
+        AppError::invalid_input(
+            "release.tag_format",
+            format!("invalid release template: {error}"),
+        )
+        .with_cause(error)
+    })?;
+    let version_count = template
+        .parts()
+        .iter()
+        .filter(|part| matches!(part, TemplatePart::Placeholder(ReleaseVar::Version)))
+        .count();
+    if version_count != 1 {
+        return Err(AppError::invalid_input(
+            "release.tag_format",
+            "release tag template must contain exactly one {version} placeholder",
+        ));
+    }
+    if template
+        .parts()
+        .iter()
+        .any(|part| matches!(part, TemplatePart::Placeholder(ReleaseVar::Channel)))
+    {
+        // The prerelease channel is already carried inside `{version}` (e.g. `1.0.0-rc.1`), so a static tag prefix/suffix cannot fill `{channel}`; reject it instead of rendering it empty.
+        return Err(AppError::invalid_input(
+            "release.tag_format",
+            "release tag template must not contain {channel}: the prerelease channel is part of {version}",
+        ));
+    }
+    let rendered = template
+        .render_with(|placeholder| {
+            Ok::<_, AppError>(match placeholder {
+                ReleaseVar::Version => VERSION_SENTINEL.to_string(),
+                ReleaseVar::Ecosystem => module.id.ecosystem.as_str().to_string(),
+                ReleaseVar::Module => module.id.name.clone(),
+                _ => String::new(),
+            })
+        })
+        .map_err(|error| {
+            AppError::invalid_input(
+                "release.tag_format",
+                format!("invalid release template: {error}"),
+            )
+            .with_cause(error)
+        })?;
+    if rendered.matches(VERSION_SENTINEL).count() != 1 {
+        return Err(AppError::invalid_input(
+            "release.tag_format",
+            "release tag template rendered an ambiguous version marker",
+        ));
+    }
+    let (prefix, suffix) = rendered.split_once(VERSION_SENTINEL).ok_or_else(|| {
+        AppError::invalid_input(
+            "release.tag_format",
+            "release tag template must contain exactly one {version} placeholder",
+        )
+    })?;
+    Ok(TagScheme::new(prefix, suffix))
 }
 
 /// `CycloneDX` SBOM output suffix for the JSON format (`<stem>.cdx.json`).
@@ -703,5 +778,59 @@ core = \"0.2.0\"
                 "core".to_string(),
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod tag_scheme_tests {
+    use rskit_version::semver::Version;
+    use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
+    use toven_ports::ReleaseTarget;
+
+    use super::CratesIoTarget;
+
+    fn module() -> Module {
+        Module::new(
+            ModuleRef::new(EcosystemId::new("rust").expect("ecosystem"), "core").expect("module"),
+            RepoPath::new("crates/core").expect("path"),
+        )
+    }
+
+    #[test]
+    fn default_tag_scheme_preserves_existing_rust_tags() {
+        let scheme = CratesIoTarget::new()
+            .tag_scheme(&module(), None)
+            .expect("scheme");
+
+        assert_eq!(scheme.format(&Version::new(1, 2, 3)), "rust/core@1.2.3");
+        assert_eq!(scheme.parse("rust/core@1.2.3"), Some(Version::new(1, 2, 3)));
+    }
+
+    #[test]
+    fn override_tag_scheme_splits_around_version() {
+        let scheme = CratesIoTarget::new()
+            .tag_scheme(&module(), Some("{module}/v{version}-release"))
+            .expect("scheme");
+
+        assert_eq!(scheme.format(&Version::new(1, 2, 3)), "core/v1.2.3-release");
+    }
+
+    #[test]
+    fn override_without_version_is_rejected() {
+        let error = CratesIoTarget::new()
+            .tag_scheme(&module(), Some("{module}"))
+            .expect_err("missing version rejected");
+
+        assert!(error.to_string().contains("{version}"));
+    }
+
+    #[test]
+    fn override_with_channel_is_rejected() {
+        // `{channel}` cannot appear in a static tag prefix/suffix — the channel is already part of `{version}` (e.g. `1.0.0-rc.1`), so a `{channel}` in a tag template would always render empty. Reject it instead of silently dropping it.
+        let error = CratesIoTarget::new()
+            .tag_scheme(&module(), Some("{module}-{channel}/v{version}"))
+            .expect_err("channel placeholder rejected");
+
+        assert!(error.to_string().contains("{channel}"));
     }
 }

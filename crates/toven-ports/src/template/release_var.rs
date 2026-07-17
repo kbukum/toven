@@ -16,6 +16,8 @@ use rskit_util::Placeholder;
 pub enum ReleaseVar {
     /// `{version}` — the resolved release version (`1.2.3`, `1.0.0-rc.1`).
     Version,
+    /// `{ecosystem}` — the releasing module's ecosystem id (`rust`).
+    Ecosystem,
     /// `{module}` — the releasing module's name (`toven-core`).
     Module,
     /// `{channel}` — the prerelease channel, empty for a stable release.
@@ -24,13 +26,14 @@ pub enum ReleaseVar {
 
 impl ReleaseVar {
     /// Every placeholder, for [`Template::parse`](rskit_util::Template::parse).
-    pub const ALL: &'static [Self] = &[Self::Version, Self::Module, Self::Channel];
+    pub const ALL: &'static [Self] = &[Self::Version, Self::Ecosystem, Self::Module, Self::Channel];
 }
 
 impl Placeholder for ReleaseVar {
     fn token(self) -> &'static str {
         match self {
             Self::Version => "version",
+            Self::Ecosystem => "ecosystem",
             Self::Module => "module",
             Self::Channel => "channel",
         }

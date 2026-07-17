@@ -30,7 +30,7 @@ Every field is optional. The **Default** column is the built-in value applied wh
 | `strategy` | string | `semver-cascade` | Named bump policy. Currently resolves to the single `semver-cascade` matrix (patch by default, minor on a breaking signal, major on request, cascading a dependency-floor bump into dependents); the field is a named selector so more policies can be added later. Every module in one plan must resolve the same policy. |
 | `level` | `patch` \| `minor` \| `major` \| `auto` | `auto` | Default bump level for a changed module. `auto` defers to change classification (patch unless a breaking signal forces minor). |
 | `dependent_version` | `bump` \| `upgrade` | `bump` | How a dependency-floor bump cascades: `bump` re-releases the dependent; `upgrade` only raises its floor. |
-| `tag_format` | template | `v{version}` | Release tag name template. Placeholders: `{version}`, `{module}`, `{channel}`. |
+| `tag_format` | template | target default | Optional release tag name template override. Placeholders: `{version}`, `{ecosystem}`, `{module}` (`{channel}` is rejected — the prerelease channel is already part of `{version}`); when unset, each release target owns its default grammar (Rust uses `{ecosystem}/{module}@{version}`, Go rejects overrides and uses Go module tags). |
 | `tag_message` | template | — | Annotated-tag message template; unset cuts a lightweight tag. |
 | `commit_message` | template | adapter default | Release commit message template. |
 | `push` | bool | `true` | Whether the release commit and tags are pushed. |
@@ -79,7 +79,7 @@ Both lists name **recognized task references** (argv-first, no shell unless the 
 [ecosystems.rust.release]
 strategy = "semver-cascade"
 level = "auto"
-tag_format = "{module}/v{version}"
+tag_format = "{ecosystem}/{module}@{version}"
 registry = "crates-io"
 token_env = "CARGO_REGISTRY_TOKEN"
 readiness = ["clean-tree", "registry-idempotent"]
@@ -98,6 +98,6 @@ level = "major"
 tag_format = "core-v{version}"
 ```
 
-Here `rust:core` releases with a `major` level and a `core-v{version}` tag, but still inherits the ecosystem `registry`, `readiness`, prerelease channels, and changelog settings.
+Here `rust:core` releases with a `major` level and a `core-v{version}` tag, but still inherits the ecosystem `registry`, `readiness`, prerelease channels, and changelog settings. If `tag_format` is omitted, the Rust target uses its own default instead of an engine-wide default; the Go target rejects a configured `tag_format` and always uses Go module tag conventions.
 
 See [`toven release`](../commands/release.md) for the lifecycle actions these settings drive.

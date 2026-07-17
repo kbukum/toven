@@ -8,6 +8,7 @@ use toven_ports::{
 
 use crate::config::GoConfig;
 use crate::discovery;
+use crate::release::GoVcsTarget;
 use crate::tasks;
 use crate::toolchain;
 
@@ -46,8 +47,7 @@ impl ConfiguredAdapter for GoAdapter {
     }
 
     fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseTarget>>> {
-        // Go modules do not expose a release target through this adapter.
-        Ok(None)
+        Ok(Some(Box::new(GoVcsTarget::new())))
     }
 
     fn common(&self) -> &CommonEcosystemConfig {

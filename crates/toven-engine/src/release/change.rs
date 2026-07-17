@@ -9,13 +9,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::AppResult;
 use toven_model::{MemberId, Module, ModuleKey};
-use toven_ports::{BaselineSpec, ChangeRecord, TagRef};
+use toven_ports::{BaselineSpec, ChangeRecord, ReleaseTarget, TagRef, TagScheme};
 
 use crate::federation::baseline::{MemberVcsReader, MemberVcsReaders};
 use crate::federation::compose::ComposedMember;
 use crate::plan::{PlanContext, Selection};
 
-use super::{ReleaseBaseline, tag};
+use super::{ReleaseBaseline, ReleaseTargets, ResolvedReleaseSettings, tag};
 
 /// Per-module change-detection output.
 #[derive(Debug, Clone)]
@@ -35,6 +35,8 @@ pub(super) fn detect(
     selection: &Selection,
     base_override: Option<&str>,
     readers: &MemberVcsReaders<'_>,
+    targets: &ReleaseTargets,
+    settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
 ) -> AppResult<ReleaseChanges> {
     let mut changes = ReleaseChanges {
         changed: BTreeSet::new(),
@@ -42,7 +44,15 @@ pub(super) fn detect(
         baselines: BTreeMap::new(),
     };
     for reader in readers.entries() {
-        detect_member(context, selection, base_override, reader, &mut changes)?;
+        detect_member(
+            context,
+            selection,
+            base_override,
+            reader,
+            targets,
+            settings,
+            &mut changes,
+        )?;
     }
     Ok(changes)
 }
@@ -52,6 +62,8 @@ fn detect_member(
     selection: &Selection,
     base_override: Option<&str>,
     reader: &MemberVcsReader<'_>,
+    targets: &ReleaseTargets,
+    settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
     changes: &mut ReleaseChanges,
 ) -> AppResult<()> {
     let member = reader.member();
@@ -69,12 +81,20 @@ fn detect_member(
         .iter()
         .filter(|module| module.member.as_ref() == member)
     {
+        let Some(resolved) = settings.get(&module.key()) else {
+            continue;
+        };
+        let Some(target) = target_for(targets, module) else {
+            continue;
+        };
+        let scheme = target.tag_scheme(module, resolved.tag_format.as_deref())?;
         let Some(spec) = baseline_spec(
             module,
             base_ref,
             base_override,
             selection,
             &tags,
+            &scheme,
             &mut changes.baselines,
         ) else {
             changes.changed.insert(module.key());
@@ -117,11 +137,12 @@ fn baseline_spec(
     base_override: Option<&str>,
     selection: &Selection,
     tags: &[TagRef],
+    scheme: &TagScheme,
     baselines: &mut BTreeMap<ModuleKey, ReleaseBaseline>,
 ) -> Option<BaselineSpec> {
     // Record the anchoring baseline (a release tag is preferred, since it also
     // carries the version that offline idempotency anchors on).
-    let tag_spec = tag::latest(&module.id, tags).map(|(version, release_tag)| {
+    let tag_spec = tag::latest(scheme, tags).map(|(version, release_tag)| {
         baselines.insert(
             module.key(),
             ReleaseBaseline::tag(
@@ -166,4 +187,10 @@ fn baseline_spec(
     }
 
     None
+}
+
+fn target_for<'a>(targets: &'a ReleaseTargets, module: &Module) -> Option<&'a dyn ReleaseTarget> {
+    targets
+        .get(&(module.member.clone(), module.id.ecosystem.clone()))
+        .map(Box::as_ref)
 }
