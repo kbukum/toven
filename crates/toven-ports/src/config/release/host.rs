@@ -8,11 +8,13 @@ use serde::{Deserialize, Serialize};
 /// The `[…release].host` sub-config: which forge to cut a hosted Release on and
 /// how to shape it.
 ///
-/// Every field is optional. With no `forge`, the release pipeline stops after
-/// tag and registry publish — a hosted Release is opt-in. An unset `draft` /
-/// `prerelease` inherits the engine default (`prerelease` derives from the
-/// released version's prerelease channel), unset `notes` sources the release
-/// notes from the changelog, and unset `assets` uploads nothing.
+/// Every field is optional, but a Release-shaping field only takes effect once
+/// `forge` selects a hosted Release. With no `forge`, the release pipeline stops
+/// after tag and registry publish — a hosted Release is opt-in, and setting any
+/// shaping field without a forge is rejected. An unset `draft` / `prerelease`
+/// inherits the engine default (`prerelease` derives from the released version's
+/// prerelease channel), unset `notes` sources the release notes from the
+/// changelog, and unset `assets` uploads nothing.
 #[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct HostConfig {
@@ -38,15 +40,21 @@ impl HostConfig {
     /// Validate every field value beyond serde's type checks.
     ///
     /// # Errors
-    /// Rejects a blank forge/notes value and any asset path that is blank,
-    /// absolute, or escapes the workspace via traversal.
+    /// Rejects a blank forge/notes value, any asset path that is blank,
+    /// absolute, or escapes the workspace via traversal, and any Release-shaping
+    /// field (`draft`/`prerelease`/`notes`/`assets`) set while `forge` is unset.
     pub fn validate(&self, field: &str) -> AppResult<()> {
-        if let Some(forge) = &self.forge
-            && forge.trim().is_empty()
-        {
+        if let Some(forge) = &self.forge {
+            if forge.trim().is_empty() {
+                return Err(AppError::invalid_input(
+                    format!("{field}.forge"),
+                    "must not be blank",
+                ));
+            }
+        } else if let Some(shaping) = self.shaping_field() {
             return Err(AppError::invalid_input(
-                format!("{field}.forge"),
-                "must not be blank",
+                format!("{field}.{shaping}"),
+                format!("{shaping} is set but no forge is configured (set {field}.forge)"),
             ));
         }
         if let Some(notes) = &self.notes
@@ -72,6 +80,25 @@ impl HostConfig {
             }
         }
         Ok(())
+    }
+
+    /// Name of the first Release-shaping field that is set, if any.
+    ///
+    /// These fields only take effect once a `forge` selects a hosted Release, so
+    /// setting one without a forge is a configuration mistake rather than a
+    /// silent no-op.
+    fn shaping_field(&self) -> Option<&'static str> {
+        if self.draft.is_some() {
+            Some("draft")
+        } else if self.prerelease.is_some() {
+            Some("prerelease")
+        } else if self.notes.is_some() {
+            Some("notes")
+        } else if self.assets.is_some() {
+            Some("assets")
+        } else {
+            None
+        }
     }
 }
 
@@ -157,5 +184,22 @@ mod tests {
             .validate("ecosystems.rust.release.host")
             .expect_err("traversing asset rejected");
         assert!(error.to_string().contains("assets[1]"), "{error}");
+    }
+
+    #[test]
+    fn validate_rejects_shaping_field_without_forge() {
+        for (toml, field) in [
+            ("draft = true", "draft"),
+            ("prerelease = true", "prerelease"),
+            (r#"notes = "handcrafted""#, "notes"),
+            (r#"assets = ["target/toven/release/core.cdx.json"]"#, "assets"),
+        ] {
+            let config = parse(toml).expect("parses");
+            let error = config
+                .validate("ecosystems.rust.release.host")
+                .expect_err("shaping field without forge rejected");
+            assert!(error.to_string().contains(field), "{error}");
+            assert!(error.to_string().contains("forge"), "{error}");
+        }
     }
 }
