@@ -2,7 +2,7 @@
 
 Toven's release behavior is declarative. You own it through the `[…release]` config block, so a release runs *your* way — bump defaults, prerelease channels, tag/commit templates, changelog, push/branch gating, registry, signing, and hooks — without a per-run flag for every choice.
 
-> **Status:** the full block is parsed, validated, and resolved with the precedence below. The bump policy (`strategy`, `level`, `dependent_version`, `prerelease`), the per-run bump argv, and the `[…release.host]` hosted-forge Release are consumed by the release engine; the remaining target/signing/hooks fields are schema-and-resolution only for now and are wired into the pipeline in later work.
+> **Status:** the full block is parsed, validated, and resolved with the precedence below. The bump policy (`strategy`, `level`, `dependent_version`, `prerelease`), the per-run bump argv, and the `[…release.host]` hosted-forge Release settings are consumed by the release engine; the remaining target/signing/hooks fields are schema-and-resolution only for now and are wired into the pipeline in later work.
 
 The same block is available at two levels:
 

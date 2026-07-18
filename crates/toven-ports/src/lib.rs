@@ -77,7 +77,7 @@ pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
 pub use raw_output::RawOutputSink;
 pub use release::{
     Artifact, HostReleaseOutcome, HostedRelease, PublishOutcome, RegistryCadence, ReleaseAsset,
-    ReleaseHost, ReleaseMutation, ReleaseTarget, TagScheme,
+    ReleaseHost, ReleaseMutation, ReleaseTarget, SUPPORTED_FORGES, TagScheme, is_supported_forge,
 };
 pub use reporter::Reporter;
 pub use source::SourceDigest;

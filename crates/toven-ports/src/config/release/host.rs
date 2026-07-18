@@ -5,6 +5,8 @@ use rskit_errors::{AppError, AppResult};
 use rskit_validation::input::validate_safe_path;
 use serde::{Deserialize, Serialize};
 
+use crate::release::{SUPPORTED_FORGES, is_supported_forge};
+
 /// The `[…release].host` sub-config: which forge to cut a hosted Release on and
 /// how to shape it.
 ///
@@ -40,15 +42,25 @@ impl HostConfig {
     /// Validate every field value beyond serde's type checks.
     ///
     /// # Errors
-    /// Rejects a blank forge/notes value, any asset path that is blank,
-    /// absolute, or escapes the workspace via traversal, and any Release-shaping
-    /// field (`draft`/`prerelease`/`notes`/`assets`) set while `forge` is unset.
+    /// Rejects a blank or unsupported forge, a blank notes value, any asset path
+    /// that is blank, absolute, or escapes the workspace via traversal, and any
+    /// Release-shaping field (`draft`/`prerelease`/`notes`/`assets`) set while
+    /// `forge` is unset.
     pub fn validate(&self, field: &str) -> AppResult<()> {
         if let Some(forge) = &self.forge {
             if forge.trim().is_empty() {
                 return Err(AppError::invalid_input(
                     format!("{field}.forge"),
                     "must not be blank",
+                ));
+            }
+            if !is_supported_forge(forge) {
+                return Err(AppError::invalid_input(
+                    format!("{field}.forge"),
+                    format!(
+                        "unsupported forge '{forge}'; supported: {}",
+                        SUPPORTED_FORGES.join(", ")
+                    ),
                 ));
             }
         } else if let Some(shaping) = self.shaping_field() {
@@ -157,6 +169,16 @@ mod tests {
             .validate("ecosystems.rust.release.host")
             .expect_err("blank forge rejected");
         assert!(error.to_string().contains("forge"), "{error}");
+    }
+
+    #[test]
+    fn validate_rejects_unsupported_forge() {
+        let config = parse(r#"forge = "bitbucket""#).expect("parses");
+        let error = config
+            .validate("ecosystems.rust.release.host")
+            .expect_err("unsupported forge rejected");
+        assert!(error.to_string().contains("unsupported forge"), "{error}");
+        assert!(error.to_string().contains("bitbucket"), "{error}");
     }
 
     #[test]

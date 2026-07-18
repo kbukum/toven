@@ -10,6 +10,19 @@ use std::path::{Path, PathBuf};
 
 use rskit_errors::AppResult;
 
+/// Forge identifiers the hosted-release phase can cut a Release on.
+///
+/// This is the single source of truth for recognized forges: config validation
+/// rejects any other `forge` value up front — before a run tags or publishes —
+/// and each engine adapter maps exactly one of these identifiers.
+pub const SUPPORTED_FORGES: &[&str] = &["github"];
+
+/// Whether `forge` names a hosted-release forge the system supports.
+#[must_use]
+pub fn is_supported_forge(forge: &str) -> bool {
+    SUPPORTED_FORGES.contains(&forge)
+}
+
 /// One artifact uploaded to a hosted release.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReleaseAsset {
