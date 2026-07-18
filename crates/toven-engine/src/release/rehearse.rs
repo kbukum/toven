@@ -59,7 +59,11 @@ pub fn release_rehearse(
         &settings,
         request.project_root.as_path(),
     )?;
-    Ok(rehearse_plan(&plan, &planned))
+    Ok(rehearse_plan(
+        &plan,
+        &planned,
+        request.project_root.as_path(),
+    ))
 }
 
 /// Classify every planned release (an entry with a planned version) against the
@@ -68,7 +72,11 @@ pub fn release_rehearse(
 ///
 /// A `publish_needed` entry is classified `would-publish`; one the planner
 /// already found on the registry is classified `already-published`.
-fn rehearse_plan(plan: &ReleasePlan, planned: &[host::PlannedHostRelease]) -> ReleaseRehearsal {
+fn rehearse_plan(
+    plan: &ReleasePlan,
+    planned: &[host::PlannedHostRelease],
+    project_root: &std::path::Path,
+) -> ReleaseRehearsal {
     let verdicts = plan
         .entries
         .iter()
@@ -98,7 +106,14 @@ fn rehearse_plan(plan: &ReleasePlan, planned: &[host::PlannedHostRelease]) -> Re
                 .release
                 .assets
                 .iter()
-                .map(|asset| asset.path.display().to_string())
+                .map(|asset| {
+                    asset
+                        .path
+                        .strip_prefix(project_root)
+                        .unwrap_or(&asset.path)
+                        .display()
+                        .to_string()
+                })
                 .collect(),
         })
         .collect();
@@ -265,6 +280,7 @@ mod tests {
                 host: Some(HostConfig {
                     forge: Some("github".into()),
                     draft: Some(true),
+                    assets: Some(vec!["dist/core.tgz".into()]),
                     ..HostConfig::default()
                 }),
                 ..ReleaseConfig::default()
@@ -291,6 +307,8 @@ mod tests {
         assert_eq!(hosted.forge, "github");
         assert_eq!(hosted.tag, "rust/core@0.1.1");
         assert!(hosted.draft);
+        // Rehearsal asset paths stay project-relative, never absolutized.
+        assert_eq!(hosted.assets, vec!["dist/core.tgz".to_string()]);
 
         // Rehearsal resolves the hosted plan but never mutates or publishes.
         let calls = target.calls();

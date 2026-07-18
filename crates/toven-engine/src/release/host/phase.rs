@@ -77,7 +77,9 @@ fn build_host(forge: &str) -> AppResult<Box<dyn ReleaseHost>> {
 /// Only entries with a planned version whose settings name a forge participate.
 ///
 /// # Errors
-/// Propagates a module/target lookup failure or a tag-scheme construction error.
+/// Propagates a module/target lookup failure or a tag-scheme construction error,
+/// and reports an internal error if a planned module has no resolved release
+/// settings (the plan and settings are derived from the same context).
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn planned_host_releases(
     plan: &ReleasePlan,
@@ -97,7 +99,13 @@ pub(crate) fn planned_host_releases(
             continue;
         };
         let Some(host) = settings.get(&entry.module).map(|resolved| &resolved.host) else {
-            continue;
+            return Err(AppError::new(
+                ErrorCode::Internal,
+                format!(
+                    "no resolved release settings for planned module '{}'",
+                    entry.module
+                ),
+            ));
         };
         let Some(forge) = &host.forge else {
             continue;
@@ -194,6 +202,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
 
+    use rskit_errors::ErrorCode;
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleKey, ModuleRef, RepoPath};
     use toven_ports::{BumpLevel, HostConfig, HostReleaseOutcome, ReleaseConfig, ReleaseMutation};
@@ -305,6 +314,26 @@ mod tests {
         assert_eq!(planned[0].release.tag, "rust/core@0.1.1");
         // Notes default to the changelog body.
         assert_eq!(planned[0].release.notes, "- did a thing");
+    }
+
+    #[test]
+    fn planned_releases_error_when_a_planned_module_has_no_resolved_settings() {
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry("core", None)]);
+        let modules = vec![module("core")];
+
+        // Settings resolved for a different module leave the planned module
+        // unresolved: an internal inconsistency, not a legitimate skip.
+        let result = planned_host_releases(
+            &plan,
+            &modules,
+            &targets(),
+            &settings("other", Some(github_host())),
+            Path::new("/repo"),
+        );
+        let Err(error) = result else {
+            panic!("missing settings must surface a typed error");
+        };
+        assert_eq!(error.code(), ErrorCode::Internal);
     }
 
     #[test]
