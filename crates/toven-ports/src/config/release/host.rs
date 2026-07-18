@@ -87,7 +87,7 @@ impl HostConfig {
     /// These fields only take effect once a `forge` selects a hosted Release, so
     /// setting one without a forge is a configuration mistake rather than a
     /// silent no-op.
-    fn shaping_field(&self) -> Option<&'static str> {
+    const fn shaping_field(&self) -> Option<&'static str> {
         if self.draft.is_some() {
             Some("draft")
         } else if self.prerelease.is_some() {
@@ -161,7 +161,9 @@ mod tests {
 
     #[test]
     fn validate_rejects_blank_asset_path() {
-        let config = parse(r#"assets = ["ok", "  "]"#).expect("parses");
+        let config = parse(r#"forge = "github"
+        assets = ["ok", "  "]"#)
+        .expect("parses");
         let error = config
             .validate("ecosystems.rust.release.host")
             .expect_err("blank asset rejected");
@@ -170,7 +172,9 @@ mod tests {
 
     #[test]
     fn validate_rejects_absolute_asset_path() {
-        let config = parse(r#"assets = ["/etc/passwd"]"#).expect("parses");
+        let config = parse(r#"forge = "github"
+        assets = ["/etc/passwd"]"#)
+        .expect("parses");
         let error = config
             .validate("ecosystems.rust.release.host")
             .expect_err("absolute asset rejected");
@@ -179,7 +183,9 @@ mod tests {
 
     #[test]
     fn validate_rejects_traversing_asset_path() {
-        let config = parse(r#"assets = ["ok", "../../etc/passwd"]"#).expect("parses");
+        let config = parse(r#"forge = "github"
+        assets = ["ok", "../../etc/passwd"]"#)
+        .expect("parses");
         let error = config
             .validate("ecosystems.rust.release.host")
             .expect_err("traversing asset rejected");
