@@ -16,7 +16,8 @@ use std::time::Duration;
 
 use rskit_errors::AppResult;
 use rskit_process::{
-    CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessResult, ProcessSpec, run,
+    CapturedIo, InputPolicy, OutputPolicy, ProcessConfig, ProcessIo, ProcessResult, ProcessSpec,
+    run,
 };
 use toven_ports::{HostReleaseOutcome, HostedRelease, ReleaseHost};
 
@@ -44,7 +45,8 @@ impl ReleaseHost for GithubReleaseHost {
         root: &Path,
         release: &HostedRelease,
     ) -> AppResult<HostReleaseOutcome> {
-        let created = gh(root, create_argv(release))?;
+        let notes = release.notes.as_bytes();
+        let created = gh(root, create_argv(release), notes)?;
         if created.success() {
             return Ok(HostReleaseOutcome::Created);
         }
@@ -56,9 +58,9 @@ impl ReleaseHost for GithubReleaseHost {
         // The Release already exists: update it in place, then re-upload assets
         // with `--clobber`, overwriting any same-named asset instead of erroring
         // on repeats. Assets dropped from config are not deleted from the Release.
-        gh(root, edit_argv(release))?.check()?;
+        gh(root, edit_argv(release), notes)?.check()?;
         if let Some(argv) = upload_argv(release) {
-            gh(root, argv)?.check()?;
+            gh(root, argv, &[])?.check()?;
         }
         Ok(HostReleaseOutcome::Updated)
     }
@@ -72,6 +74,10 @@ fn release_already_exists(output: &ProcessResult) -> bool {
 }
 
 /// Build the `gh release create` argv for a hosted release.
+///
+/// Release notes are piped through stdin via `--notes-file -`, never an argv
+/// value, so changelog-derived notes cannot leak through process listings or hit
+/// argv-length limits.
 fn create_argv(release: &HostedRelease) -> Vec<String> {
     let mut argv = vec![
         "release".to_string(),
@@ -79,8 +85,8 @@ fn create_argv(release: &HostedRelease) -> Vec<String> {
         release.tag.clone(),
         "--title".to_string(),
         release.title.clone(),
-        "--notes".to_string(),
-        release.notes.clone(),
+        "--notes-file".to_string(),
+        "-".to_string(),
     ];
     if release.draft {
         argv.push("--draft".to_string());
@@ -94,6 +100,8 @@ fn create_argv(release: &HostedRelease) -> Vec<String> {
 
 /// Build the `gh release edit` argv that reconciles an existing Release's
 /// metadata (title, notes, draft/prerelease flags) with the resolved release.
+///
+/// Notes are piped through stdin via `--notes-file -`, matching `create_argv`.
 fn edit_argv(release: &HostedRelease) -> Vec<String> {
     vec![
         "release".to_string(),
@@ -101,8 +109,8 @@ fn edit_argv(release: &HostedRelease) -> Vec<String> {
         release.tag.clone(),
         "--title".to_string(),
         release.title.clone(),
-        "--notes".to_string(),
-        release.notes.clone(),
+        "--notes-file".to_string(),
+        "-".to_string(),
         format!("--draft={}", release.draft),
         format!("--prerelease={}", release.prerelease),
     ]
@@ -150,13 +158,15 @@ fn display(path: &Path) -> String {
     path.display().to_string()
 }
 
-fn gh(root: &Path, args: Vec<String>) -> AppResult<ProcessResult> {
+fn gh(root: &Path, args: Vec<String>, stdin: &[u8]) -> AppResult<ProcessResult> {
     let spec = ProcessSpec::new("gh").args(args).dir(PathBuf::from(root));
     let config = ProcessConfig::default()
         .with_timeout(Some(GH_COMMAND_TIMEOUT))
-        .with_io(ProcessIo::captured(CapturedIo::new().with_output(
-            OutputPolicy::captured().with_max_output_bytes(MAX_GH_OUTPUT_BYTES),
-        )));
+        .with_io(ProcessIo::captured(
+            CapturedIo::new()
+                .with_input(InputPolicy::Bytes(stdin.to_vec()))
+                .with_output(OutputPolicy::captured().with_max_output_bytes(MAX_GH_OUTPUT_BYTES)),
+        ));
     run(&spec, &config)
 }
 
@@ -184,11 +194,15 @@ mod tests {
 
         assert_eq!(&argv[0..3], &["release", "create", "rust/core@1.2.3"]);
         assert!(argv.iter().any(|arg| arg == "--title"));
-        assert!(argv.iter().any(|arg| arg == "the notes"));
         assert!(argv.iter().any(|arg| arg == "--draft"));
         assert!(argv.iter().any(|arg| arg == "--prerelease"));
         assert!(argv.iter().any(|arg| arg == "dist/core.cdx.json#SBOM"));
         assert!(argv.iter().any(|arg| arg == "dist/core.tgz"));
+        // Notes are piped through stdin (`--notes-file -`), never argv, so they
+        // cannot leak via process listings or hit argv-length limits.
+        assert!(argv.iter().any(|arg| arg == "--notes-file"));
+        assert!(argv.iter().all(|arg| arg != "--notes"));
+        assert!(argv.iter().all(|arg| arg != "the notes"));
         // No token or shell string ever appears on the command line.
         assert!(argv.iter().all(|arg| !arg.contains("token")));
     }
