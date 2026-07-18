@@ -393,8 +393,18 @@ mod tests {
         let core_writer = FakeVcsWriter::new().with_commit_oid("corecommit");
         let gateway_writer = FakeVcsWriter::new().with_commit_oid("gwcommit");
         let repos = MemberReleaseRepos::new(vec![
-            MemberReleaseRepo::new(Some(member("core")), std::path::PathBuf::from("/repos/core"), &core_reader, &core_writer),
-            MemberReleaseRepo::new(Some(member("gateway")), std::path::PathBuf::from("/repos/gateway"), &gateway_reader, &gateway_writer),
+            MemberReleaseRepo::new(
+                Some(member("core")),
+                std::path::PathBuf::from("/repos/core"),
+                &core_reader,
+                &core_writer,
+            ),
+            MemberReleaseRepo::new(
+                Some(member("gateway")),
+                std::path::PathBuf::from("/repos/gateway"),
+                &gateway_reader,
+                &gateway_writer,
+            ),
         ]);
 
         let stats = release_apply_by_member(
@@ -455,8 +465,18 @@ mod tests {
         let core_writer = FakeVcsWriter::new();
         let gateway_writer = FakeVcsWriter::new();
         let repos = MemberReleaseRepos::new(vec![
-            MemberReleaseRepo::new(Some(member("core")), std::path::PathBuf::from("/repos/core"), &core_reader, &core_writer),
-            MemberReleaseRepo::new(Some(member("gateway")), std::path::PathBuf::from("/repos/gateway"), &gateway_reader, &gateway_writer),
+            MemberReleaseRepo::new(
+                Some(member("core")),
+                std::path::PathBuf::from("/repos/core"),
+                &core_reader,
+                &core_writer,
+            ),
+            MemberReleaseRepo::new(
+                Some(member("gateway")),
+                std::path::PathBuf::from("/repos/gateway"),
+                &gateway_reader,
+                &gateway_writer,
+            ),
         ]);
 
         let error = release_apply_by_member(
@@ -491,8 +511,18 @@ mod tests {
         let core_writer = FakeVcsWriter::new().with_commit_oid("corecommit");
         let gateway_writer = FakeVcsWriter::new();
         let repos = MemberReleaseRepos::new(vec![
-            MemberReleaseRepo::new(Some(member("core")), std::path::PathBuf::from("/repos/core"), &core_reader, &core_writer),
-            MemberReleaseRepo::new(Some(member("gateway")), std::path::PathBuf::from("/repos/gateway"), &gateway_reader, &gateway_writer),
+            MemberReleaseRepo::new(
+                Some(member("core")),
+                std::path::PathBuf::from("/repos/core"),
+                &core_reader,
+                &core_writer,
+            ),
+            MemberReleaseRepo::new(
+                Some(member("gateway")),
+                std::path::PathBuf::from("/repos/gateway"),
+                &gateway_reader,
+                &gateway_writer,
+            ),
         ]);
 
         let error = release_apply_by_member(
@@ -533,8 +563,18 @@ mod tests {
         let core_writer = FakeVcsWriter::new().with_commit_oid("corecommit");
         let gateway_writer = FakeVcsWriter::new();
         let repos = MemberReleaseRepos::new(vec![
-            MemberReleaseRepo::new(Some(member("core")), std::path::PathBuf::from("/repos/core"), &core_reader, &core_writer),
-            MemberReleaseRepo::new(Some(member("gateway")), std::path::PathBuf::from("/repos/gateway"), &gateway_reader, &gateway_writer),
+            MemberReleaseRepo::new(
+                Some(member("core")),
+                std::path::PathBuf::from("/repos/core"),
+                &core_reader,
+                &core_writer,
+            ),
+            MemberReleaseRepo::new(
+                Some(member("gateway")),
+                std::path::PathBuf::from("/repos/gateway"),
+                &gateway_reader,
+                &gateway_writer,
+            ),
         ]);
 
         let error = release_apply_by_member(

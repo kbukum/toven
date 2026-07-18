@@ -170,7 +170,9 @@ pub(crate) fn run_host_phase(
                 format!("no host adapter resolved for forge '{}'", entry.forge),
             )
         })?;
-        let root = repos.root_for(entry.member.as_ref()).unwrap_or(project_root);
+        let root = repos
+            .root_for(entry.member.as_ref())
+            .unwrap_or(project_root);
         host.ensure_release(root, &entry.release)?;
         stats.hosted_releases += 1;
     }
