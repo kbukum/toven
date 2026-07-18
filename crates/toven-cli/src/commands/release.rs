@@ -469,8 +469,9 @@ fn render_rehearsal_human(rehearsal: &ReleaseRehearsal) {
     }
     println!("{table}");
     if !rehearsal.hosted.is_empty() {
-        let mut hosted = OutputTable::new(vec!["Forge", "Tag", "Draft", "Prerelease", "Assets"])
-            .with_title("Hosted releases (would cut)");
+        let mut hosted =
+            OutputTable::new(vec!["Forge", "Tag", "Draft", "Prerelease", "Asset count"])
+                .with_title("Hosted releases (would cut)");
         for release in &rehearsal.hosted {
             hosted.add_row(vec![
                 release.forge.clone(),
