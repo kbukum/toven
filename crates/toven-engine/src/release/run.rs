@@ -12,7 +12,8 @@
 use rskit_errors::AppResult;
 use toven_ports::{Provider, Reporter};
 
-use super::plan::{plan_with_context, release_targets};
+use super::host;
+use super::plan::{plan_with_context, release_targets, resolve_release_settings};
 use super::{BumpOverrides, ReleaseApplyOptions, ReleaseStats};
 use crate::config::Document;
 use crate::federation::baseline::MemberVcsReaders;
@@ -29,9 +30,15 @@ use crate::plan::{PlanRequest, prepare_front};
 /// per-run bump argv (level flags, set-version, prerelease channel, base,
 /// offline).
 ///
+/// When the run publishes and pushes, a config-gated hosted-release phase runs
+/// after APPLY: every tagged module whose `[…release].host` names a forge cuts a
+/// forge Release over the one topological order. `--no-push` (a non-pushing
+/// APPLY) skips the phase, consistent with the tag push it depends on.
+///
 /// # Errors
-/// Propagates configuration/discovery/graph failures, release-plan failures, and
-/// release-apply failures (guardrails, mutation, tagging, publishing).
+/// Propagates configuration/discovery/graph failures, release-plan failures,
+/// release-apply failures (guardrails, mutation, tagging, publishing), and
+/// hosted-release failures.
 #[allow(clippy::too_many_arguments)]
 pub fn release_run(
     request: &PlanRequest,
@@ -53,5 +60,145 @@ pub fn release_run(
     )?;
     let targets = release_targets(&context)?;
     let plan = plan_with_context(&context, document, request, readers, overrides, &targets)?;
-    release_apply_by_member(&plan, &context.federation.modules, &targets, repos, options)
+    let mut stats =
+        release_apply_by_member(&plan, &context.federation.modules, &targets, repos, options)?;
+
+    // The hosted-release phase runs after a pushing publish: it needs the pushed
+    // tag on the forge to cut a Release against.
+    if options.publish && options.push {
+        let settings = resolve_release_settings(&context, document, &targets)?;
+        let planned = host::planned_host_releases(
+            &plan,
+            &context.federation.modules,
+            &targets,
+            &settings,
+            request.project_root.as_path(),
+        )?;
+        if !planned.is_empty() {
+            let hosts = host::build_hosts(&settings)?;
+            host::run_host_phase(&planned, &hosts, request.project_root.as_path(), &mut stats)?;
+        }
+    }
+    Ok(stats)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use rskit_config::RawValue;
+    use serde_json::json;
+    use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
+    use toven_ports::{
+        BaselineSpec, ChangeRecord, ChangeStatus, CommonEcosystemConfig, DiscoverResponse,
+        HostConfig, Provider, ReleaseConfig, TaskIntent,
+    };
+    use toven_testkit::{
+        FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, FakeVcsWriter,
+        RecordingReporter,
+    };
+
+    use super::release_run;
+    use crate::config::{Document, ProjectConfig, TovenConfig};
+    use crate::federation::baseline::MemberVcsReaders;
+    use crate::federation::release::{MemberReleaseRepo, MemberReleaseRepos};
+    use crate::plan::{PlanRequest, Selection};
+    use crate::release::{BumpOverrides, ReleaseApplyOptions};
+
+    fn eid() -> EcosystemId {
+        EcosystemId::new("rust").unwrap()
+    }
+
+    fn mref(name: &str) -> ModuleRef {
+        ModuleRef::new(eid(), name).unwrap()
+    }
+
+    fn module(name: &str) -> Module {
+        Module::new(mref(name), RepoPath::new(format!("crates/{name}")).unwrap())
+    }
+
+    fn request() -> PlanRequest {
+        PlanRequest::new(
+            "r1",
+            "t",
+            TaskIntent::resolve("release"),
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))))
+    }
+
+    fn document() -> Document {
+        let mut ecosystems = BTreeMap::new();
+        ecosystems.insert(eid(), RawValue::from(json!({ "release": {} })));
+        Document {
+            project: ProjectConfig {
+                name: "t".to_string(),
+                root: ".".to_string(),
+                base_ref: None,
+            },
+            toven: TovenConfig::default(),
+            groups: BTreeMap::new(),
+            overlays: Vec::new(),
+            ecosystems,
+            modules: BTreeMap::new(),
+            members: Vec::new(),
+        }
+    }
+
+    fn provider_with_host() -> FakeProvider {
+        let mut response = DiscoverResponse::new(eid());
+        response.modules = vec![module("core")];
+        let common = CommonEcosystemConfig {
+            release: ReleaseConfig {
+                host: Some(HostConfig {
+                    forge: Some("github".into()),
+                    ..HostConfig::default()
+                }),
+                ..ReleaseConfig::default()
+            },
+            ..CommonEcosystemConfig::default()
+        };
+        let adapter = FakeConfiguredAdapter::new(eid())
+            .with_response(response)
+            .with_common(common)
+            .with_release_target(FakeReleaseTarget::new());
+        FakeProvider::new(eid()).with_adapter(adapter)
+    }
+
+    // A configured hosted release must NOT be cut when the run does not push:
+    // the host phase depends on the pushed tag, so `--no-push` skips it.
+    #[test]
+    fn host_phase_is_skipped_when_the_run_does_not_push() {
+        let provider = provider_with_host();
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let plan_reader = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
+            "crates/core/src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+        let readers = MemberVcsReaders::single(&plan_reader, BaselineSpec::explicit("main"));
+        let apply_reader = FakeVcsReader::new();
+        let writer = FakeVcsWriter::new().with_commit_oid("c1");
+        let repos =
+            MemberReleaseRepos::new(vec![MemberReleaseRepo::new(None, &apply_reader, &writer)]);
+        let mut reporter = RecordingReporter::new();
+
+        let stats = release_run(
+            &request(),
+            &document(),
+            &providers,
+            &readers,
+            &repos,
+            &BumpOverrides::new(),
+            &mut reporter,
+            &ReleaseApplyOptions {
+                push: false,
+                publish: true,
+                ..ReleaseApplyOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(stats.published_modules, 1);
+        assert_eq!(stats.hosted_releases, 0);
+    }
 }

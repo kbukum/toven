@@ -9,8 +9,8 @@ mod task_override;
 
 pub use common::CommonEcosystemConfig;
 pub use release::{
-    BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, PrereleaseConfig, ReleaseConfig,
-    SignConfig,
+    BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, HostConfig, PrereleaseConfig,
+    ReleaseConfig, SignConfig,
 };
 pub use run_strategy::RunStrategy;
 pub use task_entry::TaskEntry;

@@ -67,6 +67,9 @@ pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfi
     if over.hooks.is_some() {
         merged.hooks.clone_from(&over.hooks);
     }
+    if over.host.is_some() {
+        merged.host.clone_from(&over.host);
+    }
 
     merged
 }
@@ -115,6 +118,36 @@ mod tests {
         let merged = merge_release(&base(), &over);
 
         assert!(merged.changelog.expect("changelog set").required);
+    }
+
+    #[test]
+    fn host_override_replaces_base_host() {
+        use crate::config::HostConfig;
+
+        let base = ReleaseConfig {
+            host: Some(HostConfig {
+                forge: Some("github".into()),
+                draft: Some(true),
+                ..HostConfig::default()
+            }),
+            ..ReleaseConfig::default()
+        };
+        let over = ReleaseConfig {
+            host: Some(HostConfig {
+                forge: Some("github".into()),
+                prerelease: Some(true),
+                ..HostConfig::default()
+            }),
+            ..ReleaseConfig::default()
+        };
+
+        let merged = merge_release(&base, &over);
+
+        let host = merged.host.expect("host set");
+        // The whole host sub-config is replaced, not field-merged.
+        assert_eq!(host.forge.as_deref(), Some("github"));
+        assert_eq!(host.draft, None);
+        assert_eq!(host.prerelease, Some(true));
     }
 
     #[test]

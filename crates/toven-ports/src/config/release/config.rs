@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use crate::template::ReleaseVar;
 
 use super::{
-    BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, PrereleaseConfig, SignConfig,
+    BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, HostConfig, PrereleaseConfig,
+    SignConfig,
 };
 
 /// The declarative release surface (`[ecosystems.<id>].release` and the
@@ -77,6 +78,10 @@ pub struct ReleaseConfig {
     /// inherit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hooks: Option<HooksConfig>,
+    /// Hosted forge Release settings (the phase after tag/registry publish);
+    /// `None` = inherit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<HostConfig>,
 }
 
 impl ReleaseConfig {
@@ -117,6 +122,9 @@ impl ReleaseConfig {
         }
         if let Some(hooks) = &self.hooks {
             hooks.validate(&format!("{field}.hooks"))?;
+        }
+        if let Some(host) = &self.host {
+            host.validate(&format!("{field}.host"))?;
         }
         validate_optional_nonblank(&format!("{field}.strategy"), self.strategy.as_deref())?;
         validate_optional_nonblank(&format!("{field}.registry"), self.registry.as_deref())?;
@@ -198,6 +206,10 @@ mod tests {
         assert!(config.changelog.as_ref().expect("changelog set").required);
         assert!(config.sign.as_ref().expect("sign set").enabled);
         assert_eq!(config.hooks.as_ref().expect("hooks set").pre, ["fmt-check"]);
+        assert_eq!(
+            config.host.as_ref().expect("host set").forge.as_deref(),
+            Some("github")
+        );
         config.validate("ecosystems.rust.release").expect("valid");
     }
 

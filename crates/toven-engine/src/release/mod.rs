@@ -5,6 +5,8 @@ mod bump;
 mod change;
 mod changelog;
 mod depgraphs;
+mod github;
+mod host;
 mod manifest;
 mod model;
 mod overrides;
@@ -22,11 +24,12 @@ mod targets;
 
 pub use apply::{ReleaseApplyOptions, release_apply};
 pub use depgraphs::{DepgraphReport, release_depgraphs};
+pub use github::GithubReleaseHost;
 pub use manifest::ArtifactManifest;
 pub use model::{
-    BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PublishDecision, RehearsalVerdict,
-    ReleaseBaseline, ReleaseEntry, ReleaseModuleStatus, ReleasePlan, ReleaseRehearsal,
-    ReleaseStats, ReleaseStatus,
+    BumpPolicy, BumpReason, BumpSource, ChangelogEntry, HostRehearsal, PublishDecision,
+    RehearsalVerdict, ReleaseBaseline, ReleaseEntry, ReleaseModuleStatus, ReleasePlan,
+    ReleaseRehearsal, ReleaseStats, ReleaseStatus,
 };
 pub use overrides::BumpOverrides;
 pub use plan::release_plan;
@@ -34,6 +37,6 @@ pub use readiness::{ReadinessCheck, ReadinessReport, release_readiness};
 pub use rehearse::release_rehearse;
 pub use run::release_run;
 pub use sbom::{SbomReport, release_sbom};
-pub use settings::ResolvedReleaseSettings;
+pub use settings::{ResolvedHostSettings, ResolvedReleaseSettings};
 pub use status::release_status;
 pub(crate) use targets::ReleaseTargets;

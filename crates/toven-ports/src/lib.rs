@@ -63,7 +63,7 @@ pub mod wizard;
 
 pub use cache::{CacheStore, CacheWriter};
 pub use config::{
-    BumpLevel, ChangelogConfig, CommonEcosystemConfig, DependentVersion, HooksConfig,
+    BumpLevel, ChangelogConfig, CommonEcosystemConfig, DependentVersion, HooksConfig, HostConfig,
     PrereleaseConfig, ReleaseConfig, RunStrategy, SignConfig, TaskEntry, TaskOverride,
 };
 pub use discover::{DISCOVERY_SCHEMA_VERSION, DiscoverContext, DiscoverRequest, DiscoverResponse};
@@ -76,7 +76,8 @@ pub use merge::{merge_release, merge_task};
 pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
 pub use raw_output::RawOutputSink;
 pub use release::{
-    Artifact, PublishOutcome, RegistryCadence, ReleaseMutation, ReleaseTarget, TagScheme,
+    Artifact, HostReleaseOutcome, HostedRelease, PublishOutcome, RegistryCadence, ReleaseAsset,
+    ReleaseHost, ReleaseMutation, ReleaseTarget, TagScheme,
 };
 pub use reporter::Reporter;
 pub use source::SourceDigest;

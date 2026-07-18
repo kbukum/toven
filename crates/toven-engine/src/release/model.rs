@@ -304,6 +304,22 @@ pub struct RehearsalVerdict {
     pub decision: PublishDecision,
 }
 
+/// One hosted forge Release a real publish run would cut, rehearsed without any
+/// forge mutation.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct HostRehearsal {
+    /// Forge that would host the Release.
+    pub forge: String,
+    /// Release tag the hosted Release would be cut against.
+    pub tag: String,
+    /// Whether the Release would be a draft.
+    pub draft: bool,
+    /// Whether the Release would be marked as a prerelease.
+    pub prerelease: bool,
+    /// Project-relative artifact paths that would be uploaded.
+    pub assets: Vec<String>,
+}
+
 /// A read-only rehearsal of the release publish loop: the resolved publish order
 /// and per-module verdicts, computed without mutating manifests, tags, or the
 /// registry.
@@ -313,13 +329,23 @@ pub struct ReleaseRehearsal {
     pub policy: BumpPolicy,
     /// Per-module verdicts in deterministic publish order.
     pub verdicts: Vec<RehearsalVerdict>,
+    /// Hosted forge Releases that a real run would cut, in publish order.
+    pub hosted: Vec<HostRehearsal>,
 }
 
 impl ReleaseRehearsal {
     /// Construct a rehearsal report.
     #[must_use]
-    pub const fn new(policy: BumpPolicy, verdicts: Vec<RehearsalVerdict>) -> Self {
-        Self { policy, verdicts }
+    pub const fn new(
+        policy: BumpPolicy,
+        verdicts: Vec<RehearsalVerdict>,
+        hosted: Vec<HostRehearsal>,
+    ) -> Self {
+        Self {
+            policy,
+            verdicts,
+            hosted,
+        }
     }
 }
 
@@ -340,6 +366,8 @@ pub struct ReleaseStats {
     pub skipped_published_modules: usize,
     /// Rate-limit waits performed by the publish loop.
     pub rate_limited_waits: usize,
+    /// Hosted forge Releases created or updated after publish.
+    pub hosted_releases: usize,
 }
 
 impl ReleaseStats {
@@ -354,6 +382,7 @@ impl ReleaseStats {
             published_modules: 0,
             skipped_published_modules: 0,
             rate_limited_waits: 0,
+            hosted_releases: 0,
         }
     }
 }

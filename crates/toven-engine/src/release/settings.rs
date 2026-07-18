@@ -6,8 +6,8 @@
 
 use rskit_errors::AppResult;
 use toven_ports::{
-    BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, PrereleaseConfig, ReleaseConfig,
-    SignConfig, merge_release,
+    BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, HostConfig, PrereleaseConfig,
+    ReleaseConfig, SignConfig, merge_release,
 };
 
 use super::{BumpPolicy, strategy};
@@ -16,6 +16,43 @@ use super::{BumpPolicy, strategy};
 const DEFAULT_REMOTE: &str = "origin";
 /// Default workspace-relative changelog path when none is configured.
 const DEFAULT_CHANGELOG_PATH: &str = "CHANGELOG.md";
+
+/// Fully-resolved hosted-release settings for one module.
+///
+/// Folded from the `[…release].host` block. With no configured `forge`, the
+/// release pipeline stops after tag/registry publish and no hosted Release is
+/// cut. `prerelease` stays `None` when unset so the engine derives it from the
+/// released version's prerelease channel.
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct ResolvedHostSettings {
+    /// Forge that hosts the Release; `None` = no hosted Release.
+    pub forge: Option<String>,
+    /// Whether the Release is cut as a draft.
+    pub draft: bool,
+    /// Explicit prerelease flag; `None` = derive from the version channel.
+    pub prerelease: Option<bool>,
+    /// Explicit release-note body; `None` = source from the changelog.
+    pub notes: Option<String>,
+    /// Project-relative artifact paths uploaded to the Release.
+    pub assets: Vec<String>,
+}
+
+impl ResolvedHostSettings {
+    /// Fold a configured `[…release].host` block into resolved settings.
+    fn from_config(config: Option<&HostConfig>) -> Self {
+        let Some(config) = config else {
+            return Self::default();
+        };
+        Self {
+            forge: config.forge.clone(),
+            draft: config.draft.unwrap_or(false),
+            prerelease: config.prerelease,
+            notes: config.notes.clone(),
+            assets: config.assets.clone().unwrap_or_default(),
+        }
+    }
+}
 
 /// The fully-resolved, defaults-applied release settings for one module.
 ///
@@ -60,6 +97,8 @@ pub struct ResolvedReleaseSettings {
     pub readiness: Vec<String>,
     /// Optional pre/post release hooks.
     pub hooks: HooksConfig,
+    /// Hosted forge Release settings.
+    pub host: ResolvedHostSettings,
 }
 
 impl ResolvedReleaseSettings {
@@ -98,6 +137,7 @@ impl ResolvedReleaseSettings {
             sign: config.sign.clone().unwrap_or_default(),
             readiness: config.readiness.clone().unwrap_or_default(),
             hooks: config.hooks.clone().unwrap_or_default(),
+            host: ResolvedHostSettings::from_config(config.host.as_ref()),
         })
     }
 }
@@ -157,6 +197,35 @@ mod tests {
         // per-module override wins on level, inherits ecosystem registry:
         assert_eq!(resolved.level, BumpLevel::Major);
         assert_eq!(resolved.registry.as_deref(), Some("crates-io"));
+    }
+
+    #[test]
+    fn host_settings_default_to_no_hosted_release() {
+        let resolved = ResolvedReleaseSettings::resolve(&ReleaseConfig::default(), None).unwrap();
+        assert_eq!(resolved.host.forge, None);
+        assert!(!resolved.host.draft);
+        assert_eq!(resolved.host.prerelease, None);
+        assert!(resolved.host.assets.is_empty());
+    }
+
+    #[test]
+    fn host_config_resolves_into_settings() {
+        use toven_ports::HostConfig;
+
+        let ecosystem = ReleaseConfig {
+            host: Some(HostConfig {
+                forge: Some("github".into()),
+                draft: Some(true),
+                assets: Some(vec!["target/toven/release/core.cdx.json".into()]),
+                ..HostConfig::default()
+            }),
+            ..ReleaseConfig::default()
+        };
+        let resolved = ResolvedReleaseSettings::resolve(&ecosystem, None).unwrap();
+        assert_eq!(resolved.host.forge.as_deref(), Some("github"));
+        assert!(resolved.host.draft);
+        assert_eq!(resolved.host.prerelease, None);
+        assert_eq!(resolved.host.assets.len(), 1);
     }
 
     #[test]

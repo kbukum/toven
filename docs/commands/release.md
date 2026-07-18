@@ -68,7 +68,7 @@ toven release depgraphs --out-dir dist/graphs
 
 ## Dry run — `--dry-run`
 
-For `release publish`, `--dry-run` is a real **dry run**: it resolves the same release plan a real run would and reports the resolved publish order and per-module `would-publish`/`already-published` verdicts, without changing any manifest, tag, or registry and without running any publish. `release plan` is already a preview, so `--dry-run` is a no-op there; it is rejected on `release status` and `release tag` (which never publishes).
+For `release publish`, `--dry-run` is a real **dry run**: it resolves the same release plan a real run would and reports the resolved publish order and per-module `would-publish`/`already-published` verdicts, plus any hosted forge Releases it would cut, without changing any manifest, tag, or registry, without running any publish, and without calling the forge. `release plan` is already a preview, so `--dry-run` is a no-op there; it is rejected on `release status` and `release tag` (which never publishes).
 
 ```bash
 toven release publish --dry-run
@@ -87,6 +87,17 @@ Both flags are rejected on every non-mutating action (`plan`, `status`, `readine
 ```bash
 toven release tag
 toven release publish --allow-dirty --no-push
+```
+
+## Hosted forge releases
+
+When a module's `[…release.host]` block names a `forge`, `release publish` cuts a Release on that forge after the tag is pushed and the registry publish succeeds. Only `github` is supported today; it shells out to the `gh` CLI argv-first (never passing a token on the command line — `gh` reads the ambient `GH_TOKEN`/`GITHUB_TOKEN`), so `gh` must be installed and authenticated. The hosted phase is idempotent: it creates the Release, and if one already exists for the tag it edits the Release and re-uploads assets with `--clobber`.
+
+The Release title is the tag, its notes come from the module's changelog body (or the `notes` override), it is marked a prerelease when the plan cut a prerelease channel (or when `prerelease` overrides), and any configured `assets` are resolved relative to the project root and uploaded. The phase is skipped entirely under `--no-push` (a hosted Release needs the pushed tag) and under `--dry-run` (which only previews the Release). GitLab is a documented same-port seam; a non-`github` forge is a typed error.
+
+```bash
+toven release publish              # tag, publish, then cut the hosted Release
+toven release publish --dry-run    # preview the hosted Release without calling the forge
 ```
 
 ## Go module tags

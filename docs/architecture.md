@@ -42,6 +42,8 @@ Toven builds on the vendored [`rskit`](../rskit) submodule for process, git/fs, 
 
 Release tag grammar is target-owned through the `ReleaseTarget::tag_scheme` seam in `toven-ports`: the engine asks the Rust target for `{ecosystem}/{module}@{version}` by default, asks the Go target for root `vX.Y.Z` or submodule `<path>/vX.Y.Z`, and then formats/parses only through the returned `TagScheme`. This keeps release baseline detection, commit tagging, push refspecs, and status projections target-agnostic.
 
+Hosted forge Releases are a separate `ReleaseHost` port in `toven-ports`: after the tag is pushed and the registry publish succeeds, the engine cuts a Release through the forge adapter (the argv-first `gh`-backed `GithubReleaseHost` in `toven-engine`; GitLab is a documented same-port seam). The port is target-agnostic infrastructure — every module's `[…release].host` config decides participation independently — and `--dry-run` rehearses the Release without touching the forge.
+
 ## Config and discovery flow
 
 ```mermaid
