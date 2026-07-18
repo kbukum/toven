@@ -110,8 +110,18 @@ fn release_shards_history_mutations_per_member_repo() {
         ),
     ]);
     let repos = MemberReleaseRepos::new(vec![
-        MemberReleaseRepo::new(Some(core_id), &core_vcs, &core_writer),
-        MemberReleaseRepo::new(Some(gateway_id), &gateway_vcs, &gateway_writer),
+        MemberReleaseRepo::new(
+            Some(core_id),
+            std::path::PathBuf::from("repos/core"),
+            &core_vcs,
+            &core_writer,
+        ),
+        MemberReleaseRepo::new(
+            Some(gateway_id),
+            std::path::PathBuf::from("repos/gateway"),
+            &gateway_vcs,
+            &gateway_writer,
+        ),
     ]);
 
     let request = PlanRequest::new("rel-1", "umbrella", TaskIntent::resolve("build"), root);

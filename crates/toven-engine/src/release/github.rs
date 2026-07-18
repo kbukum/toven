@@ -54,7 +54,8 @@ impl ReleaseHost for GithubReleaseHost {
         }
 
         // The Release already exists: update it in place, then re-upload assets
-        // with `--clobber` so the set converges rather than erroring on repeats.
+        // with `--clobber`, overwriting any same-named asset instead of erroring
+        // on repeats. Assets dropped from config are not deleted from the Release.
         gh(root, edit_argv(release))?.check()?;
         if let Some(argv) = upload_argv(release) {
             gh(root, argv)?.check()?;
@@ -109,8 +110,9 @@ fn edit_argv(release: &HostedRelease) -> Vec<String> {
 
 /// Build the `gh release upload` argv, or `None` when the release has no assets.
 ///
-/// `--clobber` replaces an existing asset of the same name so a re-run converges
-/// on the resolved asset set instead of failing on a duplicate.
+/// `--clobber` overwrites an existing asset of the same name so a re-run replaces
+/// it in place instead of failing on a duplicate. Assets no longer configured are
+/// left on the Release; the upload adds and overwrites but never deletes.
 fn upload_argv(release: &HostedRelease) -> Option<Vec<String>> {
     if release.assets.is_empty() {
         return None;
@@ -129,8 +131,8 @@ fn upload_argv(release: &HostedRelease) -> Option<Vec<String>> {
 ///
 /// A labeled asset uses `gh`'s `<path>#<label>` syntax; an unlabeled one is the
 /// bare path. Both `create` and `upload` accept this form, so a clobbering
-/// re-upload converges on the same labeled asset set instead of stripping the
-/// label.
+/// re-upload overwrites the same-named asset while keeping its label instead of
+/// stripping it.
 fn asset_args(release: &HostedRelease) -> Vec<String> {
     release
         .assets
@@ -216,7 +218,8 @@ mod tests {
         ]);
         let argv = upload_argv(&with_assets).expect("assets present");
         assert_eq!(&argv[0..3], &["release", "upload", "rust/core@1.2.3"]);
-        // The clobbering re-upload keeps the label so it converges, not regresses.
+        // The clobbering re-upload keeps the label so it does not regress to an
+        // unlabeled asset.
         assert!(argv.iter().any(|arg| arg == "dist/core.cdx.json#SBOM"));
         assert!(argv.iter().any(|arg| arg == "dist/core.tgz"));
         assert!(argv.iter().any(|arg| arg == "--clobber"));

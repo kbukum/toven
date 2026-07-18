@@ -94,7 +94,7 @@ impl HostedRelease {
     }
 }
 
-/// How ensuring a hosted release resolved against the forge.
+/// The outcome of ensuring a hosted Release exists on the forge.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum HostReleaseOutcome {

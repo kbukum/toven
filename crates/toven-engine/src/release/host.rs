@@ -12,12 +12,13 @@
 use std::collections::BTreeMap;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_model::{Module, ModuleKey};
+use toven_model::{MemberId, Module, ModuleKey};
 use toven_ports::{HostedRelease, ReleaseAsset, ReleaseHost};
 
 use super::github::GithubReleaseHost;
 use super::settings::ResolvedReleaseSettings;
 use super::{ReleasePlan, ReleaseStats, ReleaseTargets, tag};
+use crate::federation::release::MemberReleaseRepos;
 
 /// Forge identifier for the GitHub hosted-release adapter.
 const FORGE_GITHUB: &str = "github";
@@ -31,6 +32,9 @@ pub(crate) type ReleaseHosts = BTreeMap<String, Box<dyn ReleaseHost>>;
 pub(crate) struct PlannedHostRelease {
     /// Forge identifier the Release is cut on.
     pub forge: String,
+    /// Member repo whose pushed tag this Release is cut against; `None` for the
+    /// degenerate single-repo project.
+    pub member: Option<MemberId>,
     /// Fully-resolved hosted Release.
     pub release: HostedRelease,
 }
@@ -136,6 +140,7 @@ pub(crate) fn planned_host_releases(
             .with_assets(assets);
         planned.push(PlannedHostRelease {
             forge: forge.clone(),
+            member: module.member.clone(),
             release,
         });
     }
@@ -144,12 +149,17 @@ pub(crate) fn planned_host_releases(
 
 /// Cut every planned hosted Release through its forge host, accounting outcomes.
 ///
+/// Each Release is cut from its member repo's root so a forge command targets the
+/// repository whose tags that member pushed; the degenerate single-repo project
+/// (and any member without a resolved repo) falls back to `project_root`.
+///
 /// # Errors
 /// Returns a typed error when a forge host is missing or a forge Release fails.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn run_host_phase(
     planned: &[PlannedHostRelease],
     hosts: &ReleaseHosts,
+    repos: &MemberReleaseRepos<'_>,
     project_root: &std::path::Path,
     stats: &mut ReleaseStats,
 ) -> AppResult<()> {
@@ -160,7 +170,8 @@ pub(crate) fn run_host_phase(
                 format!("no host adapter resolved for forge '{}'", entry.forge),
             )
         })?;
-        host.ensure_release(project_root, &entry.release)?;
+        let root = repos.root_for(entry.member.as_ref()).unwrap_or(project_root);
+        host.ensure_release(root, &entry.release)?;
         stats.hosted_releases += 1;
     }
     Ok(())
@@ -179,14 +190,15 @@ fn changelog_notes(changelog: &super::ChangelogEntry) -> String {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleKey, ModuleRef, RepoPath};
     use toven_ports::{BumpLevel, HostConfig, HostReleaseOutcome, ReleaseConfig, ReleaseMutation};
-    use toven_testkit::{FakeReleaseHost, FakeReleaseTarget};
+    use toven_testkit::{FakeReleaseHost, FakeReleaseTarget, FakeVcsReader, FakeVcsWriter};
 
     use super::{build_hosts, planned_host_releases, run_host_phase};
+    use crate::federation::release::{MemberReleaseRepo, MemberReleaseRepos};
     use crate::release::ResolvedReleaseSettings;
     use crate::release::{
         BumpPolicy, BumpReason, BumpSource, ChangelogEntry, ReleaseEntry, ReleasePlan,
@@ -347,7 +359,7 @@ mod tests {
     }
 
     #[test]
-    fn run_host_phase_cuts_each_release_and_counts_it() {
+    fn run_host_phase_cuts_each_release_from_the_member_repo_root() {
         let plan = ReleasePlan::new(
             BumpPolicy::SemverCascade,
             vec![entry("core", None), entry("api", None)],
@@ -363,13 +375,48 @@ mod tests {
         hosts.insert("github".to_string(), Box::new(host.clone()));
         let mut stats = ReleaseStats::new(2);
 
-        run_host_phase(&planned, &hosts, Path::new("/repo"), &mut stats).unwrap();
+        // The degenerate project's member repo root wins over the project-root
+        // fallback: `gh` runs from the repo whose tags this member pushed.
+        let reader = FakeVcsReader::new();
+        let writer = FakeVcsWriter::new();
+        let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
+            None,
+            PathBuf::from("/member/repo"),
+            &reader,
+            &writer,
+        )]);
+        run_host_phase(&planned, &hosts, &repos, Path::new("/fallback"), &mut stats).unwrap();
 
         assert_eq!(stats.hosted_releases, 2);
         let calls = host.calls();
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[0].release.tag, "rust/core@0.1.1");
-        assert_eq!(calls[0].root, Path::new("/repo"));
+        assert_eq!(calls[0].root, Path::new("/member/repo"));
+    }
+
+    #[test]
+    fn run_host_phase_falls_back_to_project_root_for_an_unknown_member() {
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry("core", None)]);
+        let modules = vec![module("core")];
+        let planned = planned_host_releases(
+            &plan,
+            &modules,
+            &targets(),
+            &settings("core", Some(github_host())),
+            Path::new("/repo"),
+        )
+        .unwrap();
+
+        let host = FakeReleaseHost::new().with_outcome(HostReleaseOutcome::Updated);
+        let mut hosts = super::ReleaseHosts::new();
+        hosts.insert("github".to_string(), Box::new(host.clone()));
+        let mut stats = ReleaseStats::new(1);
+
+        // No member repo resolved: the project root is the cwd.
+        let repos = MemberReleaseRepos::new(Vec::new());
+        run_host_phase(&planned, &hosts, &repos, Path::new("/fallback"), &mut stats).unwrap();
+
+        assert_eq!(host.calls()[0].root, Path::new("/fallback"));
     }
 
     #[test]

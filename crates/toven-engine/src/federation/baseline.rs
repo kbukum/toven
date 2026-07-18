@@ -99,8 +99,9 @@ impl OpenMemberVcsReaders {
             .entries
             .iter()
             .map(|entry| {
-                let vcs = self.set.groups()[entry.group_index].vcs();
-                MemberReleaseRepo::new(entry.member.clone(), vcs, vcs)
+                let group = &self.set.groups()[entry.group_index];
+                let vcs = group.vcs();
+                MemberReleaseRepo::new(entry.member.clone(), group.root().to_path_buf(), vcs, vcs)
             })
             .collect();
         MemberReleaseRepos::new(entries)

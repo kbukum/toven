@@ -427,6 +427,7 @@ fn render_status_jsonl(status: &ReleaseStatus) -> AppResult<()> {
 /// A stable JSON-lines record for one rehearsed publish verdict.
 #[derive(Serialize)]
 struct RehearsalRecord {
+    kind: &'static str,
     module: String,
     version: String,
     decision: String,
@@ -435,6 +436,7 @@ struct RehearsalRecord {
 /// A stable JSON-lines record for one rehearsed hosted forge Release.
 #[derive(Serialize)]
 struct HostRehearsalRecord {
+    kind: &'static str,
     forge: String,
     tag: String,
     draft: bool,
@@ -485,6 +487,7 @@ fn render_rehearsal_human(rehearsal: &ReleaseRehearsal) {
 fn render_rehearsal_jsonl(rehearsal: &ReleaseRehearsal) -> AppResult<()> {
     for verdict in &rehearsal.verdicts {
         let record = RehearsalRecord {
+            kind: "publish",
             module: verdict.module.to_string(),
             version: verdict.version.to_string(),
             decision: verdict.decision.as_str().to_string(),
@@ -494,6 +497,7 @@ fn render_rehearsal_jsonl(rehearsal: &ReleaseRehearsal) -> AppResult<()> {
     }
     for release in &rehearsal.hosted {
         let record = HostRehearsalRecord {
+            kind: "hosted_release",
             forge: release.forge.clone(),
             tag: release.tag.clone(),
             draft: release.draft,

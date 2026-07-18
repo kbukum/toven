@@ -76,7 +76,13 @@ pub fn release_run(
         )?;
         if !planned.is_empty() {
             let hosts = host::build_hosts(&settings)?;
-            host::run_host_phase(&planned, &hosts, request.project_root.as_path(), &mut stats)?;
+            host::run_host_phase(
+                &planned,
+                &hosts,
+                repos,
+                request.project_root.as_path(),
+                &mut stats,
+            )?;
         }
     }
     Ok(stats)
@@ -178,8 +184,12 @@ mod tests {
         let readers = MemberVcsReaders::single(&plan_reader, BaselineSpec::explicit("main"));
         let apply_reader = FakeVcsReader::new();
         let writer = FakeVcsWriter::new().with_commit_oid("c1");
-        let repos =
-            MemberReleaseRepos::new(vec![MemberReleaseRepo::new(None, &apply_reader, &writer)]);
+        let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
+            None,
+            AbsPath::new("/repo").unwrap().as_path().to_path_buf(),
+            &apply_reader,
+            &writer,
+        )]);
         let mut reporter = RecordingReporter::new();
 
         let stats = release_run(
