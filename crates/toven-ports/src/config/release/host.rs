@@ -161,8 +161,10 @@ mod tests {
 
     #[test]
     fn validate_rejects_blank_asset_path() {
-        let config = parse(r#"forge = "github"
-        assets = ["ok", "  "]"#)
+        let config = parse(
+            r#"forge = "github"
+        assets = ["ok", "  "]"#,
+        )
         .expect("parses");
         let error = config
             .validate("ecosystems.rust.release.host")
@@ -172,8 +174,10 @@ mod tests {
 
     #[test]
     fn validate_rejects_absolute_asset_path() {
-        let config = parse(r#"forge = "github"
-        assets = ["/etc/passwd"]"#)
+        let config = parse(
+            r#"forge = "github"
+        assets = ["/etc/passwd"]"#,
+        )
         .expect("parses");
         let error = config
             .validate("ecosystems.rust.release.host")
@@ -183,8 +187,10 @@ mod tests {
 
     #[test]
     fn validate_rejects_traversing_asset_path() {
-        let config = parse(r#"forge = "github"
-        assets = ["ok", "../../etc/passwd"]"#)
+        let config = parse(
+            r#"forge = "github"
+        assets = ["ok", "../../etc/passwd"]"#,
+        )
         .expect("parses");
         let error = config
             .validate("ecosystems.rust.release.host")
@@ -198,7 +204,10 @@ mod tests {
             ("draft = true", "draft"),
             ("prerelease = true", "prerelease"),
             (r#"notes = "handcrafted""#, "notes"),
-            (r#"assets = ["target/toven/release/core.cdx.json"]"#, "assets"),
+            (
+                r#"assets = ["target/toven/release/core.cdx.json"]"#,
+                "assets",
+            ),
         ] {
             let config = parse(toml).expect("parses");
             let error = config
