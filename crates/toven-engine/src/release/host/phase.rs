@@ -16,9 +16,9 @@ use toven_model::{MemberId, Module, ModuleKey};
 use toven_ports::{HostedRelease, ReleaseAsset, ReleaseHost};
 
 use super::github::GithubReleaseHost;
-use super::settings::ResolvedReleaseSettings;
-use super::{ReleasePlan, ReleaseStats, ReleaseTargets, tag};
 use crate::federation::release::MemberReleaseRepos;
+use crate::release::settings::ResolvedReleaseSettings;
+use crate::release::{ReleasePlan, ReleaseStats, ReleaseTargets, tag};
 
 /// Forge identifier for the GitHub hosted-release adapter.
 const FORGE_GITHUB: &str = "github";
@@ -179,7 +179,7 @@ pub(crate) fn run_host_phase(
 
 /// Derive the release-note body from a module's changelog entry: the detailed
 /// lines when present, otherwise the short summary.
-fn changelog_notes(changelog: &super::ChangelogEntry) -> String {
+fn changelog_notes(changelog: &crate::release::ChangelogEntry) -> String {
     if changelog.lines.is_empty() {
         changelog.summary.clone()
     } else {
