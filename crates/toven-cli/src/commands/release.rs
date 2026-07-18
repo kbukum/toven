@@ -427,9 +427,21 @@ fn render_status_jsonl(status: &ReleaseStatus) -> AppResult<()> {
 /// A stable JSON-lines record for one rehearsed publish verdict.
 #[derive(Serialize)]
 struct RehearsalRecord {
+    kind: &'static str,
     module: String,
     version: String,
     decision: String,
+}
+
+/// A stable JSON-lines record for one rehearsed hosted forge Release.
+#[derive(Serialize)]
+struct HostRehearsalRecord {
+    kind: &'static str,
+    forge: String,
+    tag: String,
+    draft: bool,
+    prerelease: bool,
+    assets: Vec<String>,
 }
 
 fn render_rehearsal_human(rehearsal: &ReleaseRehearsal) {
@@ -443,7 +455,8 @@ fn render_rehearsal_human(rehearsal: &ReleaseRehearsal) {
     summary
         .add("policy", rehearsal.policy.as_str().to_string())
         .add("would_publish", would_publish.to_string())
-        .add("already_published", already_published.to_string());
+        .add("already_published", already_published.to_string())
+        .add("hosted_releases", rehearsal.hosted.len().to_string());
     println!("{summary}");
     let mut table = OutputTable::new(vec!["Module", "Version", "Decision"])
         .with_title("Release rehearsal (no mutation)");
@@ -455,14 +468,42 @@ fn render_rehearsal_human(rehearsal: &ReleaseRehearsal) {
         ]);
     }
     println!("{table}");
+    if !rehearsal.hosted.is_empty() {
+        let mut hosted =
+            OutputTable::new(vec!["Forge", "Tag", "Draft", "Prerelease", "Asset count"])
+                .with_title("Hosted releases (would cut)");
+        for release in &rehearsal.hosted {
+            hosted.add_row(vec![
+                release.forge.clone(),
+                release.tag.clone(),
+                release.draft.to_string(),
+                release.prerelease.to_string(),
+                release.assets.len().to_string(),
+            ]);
+        }
+        println!("{hosted}");
+    }
 }
 
 fn render_rehearsal_jsonl(rehearsal: &ReleaseRehearsal) -> AppResult<()> {
     for verdict in &rehearsal.verdicts {
         let record = RehearsalRecord {
+            kind: "publish",
             module: verdict.module.to_string(),
             version: verdict.version.to_string(),
             decision: verdict.decision.as_str().to_string(),
+        };
+        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+        println!("{line}");
+    }
+    for release in &rehearsal.hosted {
+        let record = HostRehearsalRecord {
+            kind: "hosted_release",
+            forge: release.forge.clone(),
+            tag: release.tag.clone(),
+            draft: release.draft,
+            prerelease: release.prerelease,
+            assets: release.assets.clone(),
         };
         let line = serde_json::to_string(&record).map_err(AppError::internal)?;
         println!("{line}");

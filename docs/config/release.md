@@ -2,7 +2,7 @@
 
 Toven's release behavior is declarative. You own it through the `[…release]` config block, so a release runs *your* way — bump defaults, prerelease channels, tag/commit templates, changelog, push/branch gating, registry, signing, and hooks — without a per-run flag for every choice.
 
-> **Status:** the full block is parsed, validated, and resolved with the precedence below. The bump policy (`strategy`, `level`, `dependent_version`, `prerelease`) and the per-run bump argv are consumed by the release engine; the remaining target/signing/hooks fields are schema-and-resolution only for now and are wired into the pipeline in later work.
+> **Status:** the full block is parsed, validated, and resolved with the precedence below. The bump policy (`strategy`, `level`, `dependent_version`, `prerelease`), the per-run bump argv, and the `[…release.host]` hosted-forge Release settings are consumed by the release engine; the remaining target/signing/hooks fields are schema-and-resolution only for now and are wired into the pipeline in later work.
 
 The same block is available at two levels:
 
@@ -57,6 +57,18 @@ Prerelease channels and the optional branch→channel mapping.
 | `path` | string | `CHANGELOG.md` | Workspace-relative changelog path (must stay inside the workspace). |
 | `required` | bool | `false` | Fail a release when a changed module has no changelog entry. |
 
+### `[…release.host]`
+
+The forge Release cut after the tag is pushed and the registry publish succeeds. With no `forge`, the pipeline stops after publish — a hosted Release is opt-in. Only `github` is supported today (via the argv-first `gh` CLI); GitLab is a documented same-port seam and a non-`github` forge is a typed error.
+
+| Field | Type | Default | Purpose |
+|-------|------|---------|---------|
+| `forge` | string | — | Forge that hosts the Release (`github`); unset means no hosted Release. |
+| `draft` | bool | `false` | Cut the Release as a draft. |
+| `prerelease` | bool | derived | Mark the Release as a prerelease; unset derives from the released version's prerelease channel. |
+| `notes` | string | changelog | Explicit release-note body; unset sources notes from the module's changelog. |
+| `assets` | list of string | empty | Project-relative artifact paths uploaded to the Release. |
+
 ### `[…release.sign]`
 
 | Field | Type | Default | Purpose |
@@ -91,6 +103,10 @@ branch_channels = { next = "beta" }
 [ecosystems.rust.release.changelog]
 path = "CHANGELOG.md"
 required = true
+
+[ecosystems.rust.release.host]
+forge = "github"
+assets = ["target/toven/release/core.cdx.json"]
 
 # One module cuts its own major-versioned tags.
 [modules."rust:core".release]

@@ -110,8 +110,18 @@ fn release_shards_history_mutations_per_member_repo() {
         ),
     ]);
     let repos = MemberReleaseRepos::new(vec![
-        MemberReleaseRepo::new(Some(core_id), &core_vcs, &core_writer),
-        MemberReleaseRepo::new(Some(gateway_id), &gateway_vcs, &gateway_writer),
+        MemberReleaseRepo::new(
+            Some(core_id),
+            std::path::PathBuf::from("repos/core"),
+            &core_vcs,
+            &core_writer,
+        ),
+        MemberReleaseRepo::new(
+            Some(gateway_id),
+            std::path::PathBuf::from("repos/gateway"),
+            &gateway_vcs,
+            &gateway_writer,
+        ),
     ]);
 
     let request = PlanRequest::new("rel-1", "umbrella", TaskIntent::resolve("build"), root);
@@ -133,19 +143,25 @@ fn release_shards_history_mutations_per_member_repo() {
     // Each member repo gets exactly one release commit and one module tag.
     let core_log = core_writer.writes();
     let gateway_log = gateway_writer.writes();
-    assert_eq!(
-        core_log
-            .iter()
+    assert_member_repos_isolated(&core_log, &gateway_log);
+
+    // Publishing runs once across both members after the commit boundary.
+    assert_eq!(stats.published_modules, 2, "both modules publish federated");
+}
+
+fn assert_member_repos_isolated(core_log: &[VcsWrite], gateway_log: &[VcsWrite]) {
+    let commit_count = |log: &[VcsWrite]| {
+        log.iter()
             .filter(|write| matches!(write, VcsWrite::Commit(_)))
-            .count(),
+            .count()
+    };
+    assert_eq!(
+        commit_count(core_log),
         1,
         "the core member commits exactly once: {core_log:?}"
     );
     assert_eq!(
-        gateway_log
-            .iter()
-            .filter(|write| matches!(write, VcsWrite::Commit(_)))
-            .count(),
+        commit_count(gateway_log),
         1,
         "the gateway member commits exactly once: {gateway_log:?}"
     );
@@ -173,7 +189,4 @@ fn release_shards_history_mutations_per_member_repo() {
         )),
         "core member must not tag the gateway's module: {core_log:?}"
     );
-
-    // Publishing runs once across both members after the commit boundary.
-    assert_eq!(stats.published_modules, 2, "both modules publish federated");
 }

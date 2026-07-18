@@ -27,3 +27,10 @@ signer = "release-bot"
 [hooks]
 pre = ["fmt-check"]
 post = ["announce"]
+
+[host]
+forge = "github"
+draft = false
+prerelease = true
+notes = "handcrafted release notes"
+assets = ["target/toven/release/core.cdx.json"]

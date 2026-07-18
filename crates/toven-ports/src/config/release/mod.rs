@@ -8,6 +8,7 @@
 mod changelog;
 mod config;
 mod hooks;
+mod host;
 mod policy;
 mod prerelease;
 mod signing;
@@ -15,6 +16,7 @@ mod signing;
 pub use changelog::ChangelogConfig;
 pub use config::ReleaseConfig;
 pub use hooks::HooksConfig;
+pub use host::HostConfig;
 pub use policy::{BumpLevel, DependentVersion};
 pub use prerelease::PrereleaseConfig;
 pub use signing::SignConfig;

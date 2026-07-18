@@ -44,10 +44,10 @@ pub use assertions::{
 };
 pub use doubles::{
     CountingToolchainProber, EMPTY_IDENTITY, FakeCacheStore, FakeCommandRunner,
-    FakeConfiguredAdapter, FakeDriverLocator, FakeDriverWizard, FakeProvider, FakeReleaseTarget,
-    FakeSourceDigest, FakeVcsReader, FakeVcsWriter, RecordingCacheStore, RecordingCacheWriter,
-    RecordingRawOutputSink, RecordingReporter, ReleaseCall, ScriptedAnswers, ScriptedWatchSource,
-    VcsWrite, WatchCall,
+    FakeConfiguredAdapter, FakeDriverLocator, FakeDriverWizard, FakeProvider, FakeReleaseHost,
+    FakeReleaseTarget, FakeSourceDigest, FakeVcsReader, FakeVcsWriter, HostCall,
+    RecordingCacheStore, RecordingCacheWriter, RecordingRawOutputSink, RecordingReporter,
+    ReleaseCall, ScriptedAnswers, ScriptedWatchSource, VcsWrite, WatchCall,
 };
 pub use fixtures::{
     FIXTURES_ROOT, document, document_path, document_string, ecosystem, ecosystem_string,
