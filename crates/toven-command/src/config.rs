@@ -12,7 +12,7 @@ use toven_ports::CommonEcosystemConfig;
 /// across the flattened remainder, so
 /// [`CommandProvider::configure`](toven_ports::Provider::configure) surfaces
 /// section-level typos itself.
-#[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CommandConfig {
     /// The declared modules this ecosystem orchestrates. Discovery normalizes
