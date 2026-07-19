@@ -56,10 +56,14 @@ pub(crate) fn execute(
     let selection = coverage_selection(cli);
     let overrides = build_overrides(cli);
 
-    // The task's argv writes its profiles into the Toven-owned staging dir; make
-    // sure it exists so a tool that does not create the parent (e.g. `go test
-    // -coverprofile`) can write into it.
-    rskit_fs::sync_io::dir::create_all(&project.project_root.as_path().join(COVERAGE_DIR))?;
+    // The task's argv writes its profiles into the Toven-owned staging dir. Clear
+    // it first so aggregation gates only this run's profiles — a stale profile
+    // from an earlier run or a broader selection must not be re-attributed into
+    // the current verdict — then recreate it so a tool that does not create the
+    // parent (e.g. `go test -coverprofile`) can write into it.
+    let staging = project.project_root.as_path().join(COVERAGE_DIR);
+    rskit_fs::sync_io::dir::remove_all_if_exists(&staging)?;
+    rskit_fs::sync_io::dir::create_all(&staging)?;
 
     let measured = measure(providers, project, cli, &selection)?;
     let report = aggregate(providers, project, &selection, &overrides)?;
