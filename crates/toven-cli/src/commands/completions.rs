@@ -27,3 +27,55 @@ pub(crate) fn completions(shell: Shell) -> ExitCode {
     generate(shell, &mut command, PROGRAM, &mut io::stdout());
     ExitCode::Success
 }
+
+#[cfg(test)]
+mod tests {
+    use super::PROGRAM;
+    use clap::CommandFactory;
+    use clap_complete::{Shell, generate};
+
+    use crate::flags::Cli;
+
+    /// Generate a completion script into a string (the testable core of
+    /// [`completions`](super::completions), which writes the same bytes to
+    /// stdout).
+    fn script_for(shell: Shell) -> String {
+        let mut command = Cli::command();
+        command.set_bin_name(PROGRAM);
+        let mut buffer: Vec<u8> = Vec::new();
+        generate(shell, &mut command, PROGRAM, &mut buffer);
+        String::from_utf8(buffer).expect("completion scripts are valid UTF-8")
+    }
+
+    #[test]
+    fn completions_cover_the_full_verb_and_action_tree_for_every_shell() {
+        // Completions are derived from the clap command tree, so every verb and
+        // release action appears for each supported shell — a regression that
+        // dropped one from the tree would surface here.
+        for shell in [
+            Shell::Bash,
+            Shell::Zsh,
+            Shell::Fish,
+            Shell::PowerShell,
+            Shell::Elvish,
+        ] {
+            let script = script_for(shell);
+            for token in [
+                "coverage",
+                "release",
+                "readiness",
+                "sbom",
+                "depgraphs",
+                "federation",
+                "driver",
+                "cache",
+                "completions",
+            ] {
+                assert!(
+                    script.contains(token),
+                    "{shell} completions omit `{token}`:\n{script}"
+                );
+            }
+        }
+    }
+}

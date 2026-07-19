@@ -97,6 +97,26 @@ toven cache clean
 
 See [managing cache](commands/cache.md).
 
+## 6. Measure coverage and rehearse a release
+
+When a `coverage` task is configured, run it to aggregate per-module profiles and gate them against the resolved `[…coverage]` thresholds:
+
+```bash
+toven coverage
+toven coverage --line 90 --enforcement advisory
+```
+
+`--enforcement advisory` reports shortfalls without failing, and the threshold flags (`--line`/`--function`/`--region`/`--changed-line`) override the config for a single run. See [measuring coverage](commands/coverage.md).
+
+Before cutting a real release, rehearse the whole pipeline with `--dry-run` — it resolves the same plan and reports the publish order and per-module verdicts without mutating any manifest, tag, or registry:
+
+```bash
+toven release plan
+toven release publish --dry-run
+```
+
+See [releasing](commands/release.md).
+
 ## Related docs
 
 - [Command reference](commands/README.md)
