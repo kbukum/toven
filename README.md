@@ -74,7 +74,7 @@ Start with [`docs/`](docs/README.md): [installation](docs/installation.md), [get
 
 ```bash
 git submodule update --init --recursive
-make check      # canonical gate: fmt, clippy, tests, docs, deny, structure, release build
+make check      # canonical gate: fmt-check, lint, test, structure, doc, deny, release build
 ```
 
 The workspace is a hexagonal `crates/*` + `apps/*` stack rooted at [`toven-model`](crates/toven-model). See [engineering](docs/engineering.md) for standards and validation commands.

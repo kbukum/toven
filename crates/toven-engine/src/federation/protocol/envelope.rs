@@ -107,7 +107,7 @@ impl Capabilities {
     /// `run_strategy`, so any of these reported as `false` marks the driver
     /// incompatible. An empty result means the required surface is satisfied;
     /// `release` is optional and never reported here. The runnable task table is
-    /// no longer an RPC — it travels in the [`Welcome`]'s resolved common config.
+    /// not an RPC — it travels in the [`Welcome`]'s resolved common config.
     #[must_use]
     pub fn missing_required(&self) -> Vec<&'static str> {
         let mut missing = Vec::new();

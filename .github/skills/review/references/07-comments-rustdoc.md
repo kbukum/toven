@@ -36,7 +36,7 @@ This is a refactor pass, not just a report: **fix what you find** in the same ch
 1. Sweep the in-scope prose (use the starters below to surface the usual offenders, then read for the subtler cases — staleness and code-restating do not grep).
 2. For each finding, decide: **rewrite** (the rationale is worth keeping — restate it as a durable, code-grounded statement) or **delete** (it is process noise, dead, or redundant).
 3. Preserve correct domain vocabulary and real rationale. When in doubt about an invariant the comment claims, verify it against the code before rewriting — never launder a wrong comment into a confident-sounding wrong comment.
-4. Keep prose style consistent with the crate: complete sentences, present tense, describing the code as it is. Markdown in docs stays one line per paragraph (no hard-wrapping); preserve code blocks, lists, and tables.
+4. Keep prose style consistent with the crate: complete sentences, present tense, and describing the code as it is. Markdown and rustdoc paragraphs flow continuously without arbitrary column-based breaks; preserve intentional paragraph boundaries, code blocks, lists, and tables.
 5. Re-run the doc gate so nothing breaks: rustdoc intra-doc links still resolve and `make doc` (`-D warnings`) passes.
 
 ## Detection starters

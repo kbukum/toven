@@ -6,7 +6,7 @@ By participating, you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Project status
 
-Toven is **pre-alpha** and mid-redesign into a hexagonal `crates/*` (+ future `apps/*`) stack on top of the [rskit](https://github.com/kbukum/rskit) foundation framework. Toven and rskit are both pre-stable: backward compatibility is not a goal yet, so prefer clean redesigns over compatibility shims. See [GOVERNANCE.md](GOVERNANCE.md) for how decisions are made.
+Toven is **pre-alpha** and mid-redesign into a hexagonal `crates/*` + `apps/*` stack on top of the [rskit](https://github.com/kbukum/rskit) foundation framework. Toven and rskit are both pre-stable: backward compatibility is not a goal yet, so prefer clean redesigns over compatibility shims. See [GOVERNANCE.md](GOVERNANCE.md) for how decisions are made.
 
 ## Local setup
 
@@ -16,9 +16,11 @@ Toven vendors rskit as a git submodule, so initialize submodules before building
 git submodule update --init --recursive
 ```
 
-Install the toolchain pinned in `rust-toolchain.toml`, then the local tools used by the supply-chain and coverage gates:
+Install the toolchain pinned in `rust-toolchain.toml`, then the local tools `make check`/`make coverage` need: `cargo-nextest` for `make test`, `ast-grep` for `make structure`, `cargo-deny` for the supply-chain gate, and `cargo-llvm-cov` for coverage:
 
 ```bash
+cargo install cargo-nextest --locked
+cargo install ast-grep --locked
 cargo install cargo-deny --locked --version 0.19.0
 cargo install cargo-llvm-cov --locked --version 0.8.5
 ```
@@ -48,11 +50,14 @@ CodeQL, artifact signing, and provenance attestations remain GitHub-hosted valid
 
 ## Workspace layout
 
-One Cargo workspace (`members = ["crates/*"]`, `exclude = ["rskit"]`), with layers depending downward only:
+One Cargo workspace (`members = ["crates/*", "apps/*"]`, `exclude = ["rskit"]`), with layers depending downward only:
 
-- `crates/toven-model` — pure vocabulary (identity, dependency graph, plan, event types) plus graph algorithms; the dependency root.
-- `crates/toven-ports` — hexagonal port traits and helpers (template, merge, config).
-- `crates/toven-testkit` — dev-only (`publish = false`) shared test surface: fixtures API, port doubles, sample-repo/git scenario helpers.
+- `crates/toven-model` (L0) — pure vocabulary (identity, dependency graph, plan, event types) plus graph algorithms; the dependency root.
+- `crates/toven-ports` (L1) — hexagonal port traits and helpers (template, merge, config).
+- `crates/toven-engine`, `crates/toven-rust`, `crates/toven-go`, `crates/toven-command` (L2) — orchestration engine and ecosystem adapters over the ports.
+- `crates/toven-cli` (L3) — CLI taxonomy, argv-first dispatch, and the stdio/Event projection sinks.
+- `apps/toven`, `apps/toven-rs`, `apps/toven-go` (L4) — thin wiring binaries.
+- `crates/toven-testkit` — dev-only (`publish = false`) shared test surface: fixtures API, port doubles, and sample-repo/git scenario helpers.
 
 The vendored `rskit/` submodule is a separate workspace consumed via path deps.
 

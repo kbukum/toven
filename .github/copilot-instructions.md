@@ -41,13 +41,14 @@ Prefer validating only the changed modules/crates unless a broader gate is clear
 
 ## Workspace structure
 
-One Cargo workspace (`members = ["crates/*"]`, `exclude = ["rskit"]`). Layers depend **downward only** (L0 → L1 → L2 → L3 → apps); a lower layer never imports a higher one:
+One Cargo workspace (`members = ["crates/*", "apps/*"]`, `exclude = ["rskit"]`). Layers depend **downward only** (L0 → L1 → L2 → L3 → L4); a lower layer never imports a higher one:
 
 - `crates/toven-model` (L0) — pure vocabulary: identity, dependency graph, plan, and event types plus graph algorithms. The dependency root; it depends on no other Toven crate (only rskit and third-party crates such as `serde`).
 - `crates/toven-ports` (L1) — hexagonal port traits (Provider/ConfiguredAdapter, ReleaseTarget, Reporter, RawOutputSink, VcsReader/VcsWriter, ToolchainProber, SourceDigest, CacheStore) and helpers (template, merge, config). Each port is a declare-only responsibility folder. Depends on `toven-model` + rskit.
 - `crates/toven-engine` (L2) — PLAN/APPLY coordination and the concrete rskit-backed adapters for the injected ports (e.g. `ProcessToolchainProber`, `FsSourceDigest`, `NullCache`); also owns the strict config `Document` loader.
 - adapter crates `crates/toven-{rust,go,command}` (L2) — ecosystem adapters implementing the `toven-ports` traits; never reach into the engine or cli.
 - `crates/toven-cli` (L3) — CLI taxonomy, argv-first dispatch, and the stdio/Event projection sinks (the only layer that prints).
+- `apps/*` (L4) — thin wiring binaries (`apps/toven`, `apps/toven-rs`, `apps/toven-go`); each wires a set of adapters into `toven-cli`. No new capability lives here — it belongs in the appropriate `crates/*` layer.
 - `crates/toven-testkit` — dev-only (`publish = false`) shared test surface: fixtures API, port doubles, sample-repo/git scenario helpers. Tests use it instead of inline TOML.
 
 **Port placement (binding):** a port trait lives in `toven-ports`; its concrete adapter lives in the consuming crate (engine or `toven-<eco>`), never beside the trait; every port has exactly one shared double in `toven-testkit` (`doubles/<port>.rs`) — no port double is stranded inline in a crate's `tests/`. A port trait references only `toven-model` + rskit + std/ports value types; no engine type leaks upward.
@@ -76,4 +77,5 @@ Each crate root (`lib.rs`) and responsibility folder (`mod.rs`) stays **declare-
 ## Documentation
 
 - Stable project documentation lives in `docs/`; `tmp/` is for active plans/handoff notes only and is never referenced from committed docs.
-- Prose is never hard-wrapped. Write **one line per paragraph** — in Markdown, `///` rustdoc, and `//` code comments — and never insert a line break in the middle of a sentence to hit a column width; let the editor soft-wrap. The `max_width = 100` limit is for *code*, not prose. Preserve code blocks, tables, and lists as-is. (YAML folded scalars like a skill's frontmatter `description` are exempt — they already collapse to one logical line.)
+- Write Markdown paragraphs as natural, continuous source lines. Do not hard-wrap prose to a column limit or insert source newlines for visual presentation; Markdown renderers handle viewport-aware wrapping. Keep intentional structure such as paragraph breaks, headings, lists, blockquotes, tables, mermaid diagrams, and fenced or indented code blocks.
+- Apply the same rule to prose in `//!`/`///` rustdoc and `//` comments: do not introduce arbitrary column-based breaks. Preserve rustdoc formatting conventions for code examples, directives, lists, and tables. The `rustfmt` `max_width` limit is for code, not prose.

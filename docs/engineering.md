@@ -35,17 +35,20 @@ See [architecture](architecture.md) for the runtime flow through these layers.
 
 | Command | Purpose |
 |---------|---------|
-| `make check` | Canonical full gate: fmt, clippy, tests, docs, deny, structure, release build. |
+| `make check` | Canonical full gate: fmt-check, lint, test, structure, doc, deny, release build. |
 | `make fmt` | Format code. |
+| `make fmt-check` | Check formatting without modifying files. |
 | `make lint` | Clippy with denied warnings. |
 | `make test` | Workspace tests via nextest, plus doctests. Requires `cargo-nextest`. |
-| `make coverage` | Workspace coverage gate. |
-| `make structure` | `mod.rs` declare-only guard across `crates/*`. |
+| `make structure` | `mod.rs` declare-only guard across `crates/*`. Requires `ast-grep`. |
+| `make doc` | Build docs with denied warnings. |
+| `make deny` | Dependency/license/advisory audit via `cargo-deny`. |
+| `make coverage` | Workspace coverage gate. Requires `cargo-llvm-cov`. |
 | `make smoke` | Run the in-tree app smokes over committed fixtures. |
 | `make smoke-repo REPO=<path> [TASK=<task>]` | Drive the `toven` app over a real repo (read-only PLAN cut). |
 | `make benchmark CASE=<case-file>` | Compare Toven against the native commands it runs. See [benchmarking](benchmarking.md). |
 
-The shipping apps carry end-to-end smokes that drive the built binaries under `make test`/CI: `apps/toven-rs/tests/smoke.rs` (full PLAN+APPLY), `apps/toven/tests/smoke.rs` (read-only PLAN cut), `apps/toven-go/tests/federation_smoke.rs` (driver handshake).
+The shipping apps carry end-to-end smokes that drive the built binaries under `make test`/CI: `apps/toven-rs/tests/` and `apps/toven/tests/` each split a PLAN-cut smoke (`smoke_plan.rs`) from a real-subprocess APPLY smoke (`smoke_apply.rs`), and `apps/toven-go/tests/federation_smoke.rs` drives the real `toven-go` driver handshake.
 
 Prefer validating changed modules unless a broader gate is clearly necessary.
 
@@ -59,7 +62,8 @@ Prefer validating changed modules unless a broader gate is clearly necessary.
 ## Documentation
 
 - Stable project documentation belongs in `docs/`; `tmp/` holds only active plans and handoff notes.
-- Prose is never hard-wrapped: write one line per paragraph — in Markdown, `///` rustdoc, and `//` comments — with no mid-sentence line breaks to hit a column width (the `max_width` limit is for code, not prose). Preserve code blocks, mermaid, tables, and lists.
+- Write Markdown paragraphs as natural, continuous source lines. Do not hard-wrap prose to a column limit or insert source newlines for visual presentation; Markdown renderers handle viewport-aware wrapping. Keep intentional structure such as paragraph breaks, headings, lists, blockquotes, tables, mermaid diagrams, and fenced or indented code blocks.
+- Apply the same rule to prose in `//!`/`///` rustdoc and `//` comments: do not introduce arbitrary column-based breaks. Preserve rustdoc formatting conventions for code examples, directives, lists, and tables. The `rustfmt` `max_width` limit is for code, not prose.
 
 ## Release policy
 

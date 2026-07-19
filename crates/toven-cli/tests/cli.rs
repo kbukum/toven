@@ -4,7 +4,7 @@
 //! help/usage outcomes and the flag-applicability gate — so they are fully
 //! deterministic and need no fixture repository. Project-execution paths (PLAN /
 //! APPLY against a real workspace) are covered by the in-tree app smokes
-//! (`apps/toven/tests/smoke.rs`, `apps/toven-rs/tests/smoke.rs`), and the
+//! (`apps/toven/tests/`, `apps/toven-rs/tests/`), and the
 //! projection/parse/collision logic by the crate's unit tests.
 
 use rskit_cli::ExitCode;

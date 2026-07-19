@@ -20,7 +20,7 @@ Each skill is a folder with a `SKILL.md` (YAML frontmatter + workflow) and optio
 | [`new-crate`](new-crate/SKILL.md) | Scaffold a new crate — hexagonal layer placement, port rule, workspace wiring, testkit double. |
 | [`rskit-reuse`](rskit-reuse/SKILL.md) | Reuse the vendored rskit foundation for shared concerns; improve rskit generically instead of forking Toven-local copies. |
 | [`release`](release/SKILL.md) | Cut a release — semver bump, CHANGELOG, workspace version, full gates, then tag so CI ships the signed source artifact, SBOM, and provenance (no crates.io publish). |
-| [`docs`](docs/SKILL.md) | Review/update docs to the repo's standards (one line per paragraph) and up-to-date accuracy (commands, flags, structure, examples match the code). |
+| [`docs`](docs/SKILL.md) | Review/update docs to the repo's standards (flowing paragraphs without hard column wrapping) and up-to-date accuracy (commands, flags, structure, examples match the code). |
 
 ## Conventions
 

@@ -28,7 +28,7 @@ Changes that affect the execution model, cache behavior, security posture, relea
 
 ## Release Process
 
-Releases are cut by maintainers. Each release should include a changelog entry, signed artifacts, provenance, and supply-chain metadata once release automation is in place.
+Releases are cut by maintainers. Each release includes a changelog entry and, via the `Release Readiness` CI workflow triggered on the `v*` tag push, signed build artifacts, an SBOM, and build provenance.
 
 ## Security Issues
 

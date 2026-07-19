@@ -10,7 +10,7 @@ user-invocable: true
 
 # Adding a crate to Toven
 
-Toven is one Cargo workspace (`members = ["crates/*"]`, `exclude = ["rskit"]`) arranged as a hexagonal stack that depends **downward only**. Getting layer and port placement right up front avoids layering-by-convention violations that the compiler won't catch.
+Toven is one Cargo workspace (`members = ["crates/*", "apps/*"]`, `exclude = ["rskit"]`) arranged as a hexagonal stack that depends **downward only**. Getting layer and port placement right up front avoids layering-by-convention violations that the compiler won't catch.
 
 ## Step 1 — Pick the layer (downward-only)
 
@@ -18,6 +18,7 @@ Toven is one Cargo workspace (`members = ["crates/*"]`, `exclude = ["rskit"]`) a
 - **L1 `toven-ports`** — hexagonal port traits (Provider/ConfiguredAdapter, ReleaseTarget, Reporter, RawOutputSink, VcsReader/VcsWriter, ToolchainProber, SourceDigest, CacheStore) and helpers (template, merge, config). Depends on `toven-model` + rskit.
 - **L2 `toven-engine`** — PLAN/APPLY coordination + concrete rskit-backed adapters for injected ports; owns the strict config `Document` loader. `toven-{rust,go,command}` are the L2 ecosystem adapters implementing the ports; they never reach into engine or cli.
 - **L3 `toven-cli`** — CLI taxonomy, argv-first dispatch, and the only layer that prints.
+- **L4 `apps/*`** — thin wiring binaries (`apps/toven`, `apps/toven-rs`, `apps/toven-go`); each wires adapters into `toven-cli`. No new capability goes here — add it to the right `crates/*` layer instead.
 - **`toven-testkit`** — dev-only (`publish = false`): fixtures API, port doubles, sample-repo/git scenario helpers.
 
 A lower layer importing a higher one is a **blocker**. `make structure` guards `mod.rs` declare-only placement.

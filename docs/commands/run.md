@@ -148,7 +148,7 @@ toven test --view panes    # one tmux pane per unit (under $TMUX)
 
 Selection degrades safely and never depends on a terminal for correctness. Whenever output is redirected, piped, or `--output jsonl` is active — or the target is not a terminal (CI) — Toven always uses `stream`, byte-for-byte identical to redirecting today: `toven test 2>&1 | cat` and non-tty runs are unaffected by the live renderer. `--view stream` disables the live tiles/panes area on a terminal too; live-safe units may still stream inline through a PTY, so its output is the linear stream shape but not necessarily byte-for-byte identical to a redirected run. Live tiles/panes are Unix-only (they need a pseudoterminal); on other platforms Toven always uses `stream`.
 
-`max_parallel = 1` (or `--jobs 1` for a single run) still works but is no longer required for live output — full parallelism and live per-unit output are no longer a trade-off.
+`max_parallel = 1` (or `--jobs 1` for a single run) is not required for live output: full parallelism and live per-unit output work together.
 
 ## Options
 

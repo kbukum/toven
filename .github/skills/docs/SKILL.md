@@ -1,11 +1,12 @@
 ---
 name: docs
 description: >-
-    Review and update Toven's documentation so it obeys the repo's doc standards and reflects the
-    project as it is today — reflow hard-wrapped prose to one line per paragraph, keep commands,
-    structure, flags, and examples in sync with the actual Makefile/CLI/crates, fix outdated links
-    and dead references, and drop history/plan narration. Use when writing or auditing docs,
-    after a behavior change that outdated the docs, or before a release.
+    Review and update Toven's documentation so it reads naturally and reflects the project as it is
+    today — keep Markdown paragraphs flowing without hard column wrapping, preserve intentional
+    document structure, sync commands, structure, flags, and examples with the actual
+    Makefile/CLI/crates, fix outdated links and dead references, and drop history/plan narration.
+    Use when writing or auditing docs, repairing AI-generated hard wraps, after a behavior change
+    that outdated docs, or before a release.
 user-invocable: true
 ---
 
@@ -28,8 +29,9 @@ Never touch `tmp/` (gitignored scratch) and never add a committed doc that refer
 
 ## Pass 1 — Standards (how it reads)
 
-- **One line per paragraph.** Prose is never hard-wrapped. Reflow any paragraph that was broken mid-sentence to fit a column into a single physical line; let editors soft-wrap. This applies to Markdown, `///` rustdoc, and `//` comments alike. The `max_width = 100` limit is for *code*, not prose.
-- **Preserve structure verbatim.** Do not reflow inside fenced code blocks, tables, mermaid diagrams, or list-item continuations — only collapse wrapped paragraph prose. Keep list markers, headings, and link syntax intact.
+- **Flowing Markdown prose.** A Markdown paragraph is one continuous source line. Do not hard-wrap prose to a column limit or add source newlines to control how it looks at one editor width; GitHub and other renderers wrap it for the reader's viewport. Collapse AI-generated hard wraps only within the same logical paragraph.
+- **Preserve intentional structure.** Keep blank-line paragraph boundaries, headings, list items, blockquotes, tables, link definitions, HTML blocks, mermaid diagrams, and fenced or indented code blocks. Never join separate list items or paragraphs. Preserve hard line breaks that are semantically meaningful (`<br>` or two trailing spaces).
+- **Rust documentation.** Write `//!`/`///` rustdoc and `//` prose naturally without arbitrary column-based breaks. Preserve directives, headings, lists, tables, and code examples. Do not join separate comment paragraphs. The `rustfmt` `max_width` limit is for code, not prose.
 - **No history/plan/process narration.** A doc or comment describes the system as it is now, not how it got here, what it used to do, or what a future plan intends. Delete "previously…", "we changed…", batch/plan/PR references, and TODO-narration.
 - **`tmp/` stays uncommitted.** No committed doc references a `tmp/` plan or handoff note.
 - **Frontmatter exemption.** YAML folded scalars (e.g. a skill's `description: >-`) already collapse to one logical line — leave their wrapping alone.
@@ -47,10 +49,9 @@ Verify each doc against the code it describes; a doc that lies is worse than no 
 
 ## Apply, then validate
 
-Fix every instance of a pattern across the whole surface in scope (a single reflow fix implies sweeping every hard-wrapped file), not just the first hit. Then validate what you touched:
+Fix every instance of a pattern across the whole surface in scope, not just the first hit. When repairing hard wraps, read and judge the Markdown structure rather than applying a blind line-joining script. Then validate what you touched:
 
 ```bash
-git grep -nP '.{101,}' -- 'docs/**/*.md' '*.md'   # candidates: over-long lines to inspect (code blocks/tables are fine)
 make doc                                            # rustdoc builds with -D warnings (validates /// docs + doctests)
 ```
 
@@ -58,4 +59,4 @@ Docs/prose-only changes need no build/test gate beyond `make doc` when rustdoc c
 
 ## Commit
 
-Use the [`commit`](../commit/SKILL.md) skill — one compact `docs:` Conventional-Commit line stating the change (e.g. `docs: reflow prose to one line per paragraph and sync command docs`). No `Co-authored-by` trailer, no plan/batch/tool narration. Group by intent when it aids the reader (a standards reflow sweep and an up-to-date accuracy update read as a separate commit).
+Use the [`commit`](../commit/SKILL.md) skill — one compact `docs:` Conventional-Commit line stating the change (e.g. `docs: repair hard-wrapped prose and sync command docs`). No `Co-authored-by` trailer, no plan/batch/tool narration. Group by intent when it aids the reader (a prose-flow repair and an up-to-date accuracy update read as separate commits).

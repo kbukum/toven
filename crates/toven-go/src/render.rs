@@ -474,7 +474,7 @@ mod tests {
         let lint = config.common.tasks.get("lint").expect("lint task");
         assert_eq!(lint.argv[..2], ["golangci-lint", "run"]);
         assert_eq!(lint.selector, ["./{module.root}/..."]);
-        // check and lint no longer collide: distinct programs → distinct keys.
+        // check and lint do not collide: distinct programs → distinct keys.
         let check = config.common.tasks.get("check").expect("check task");
         assert_ne!(check.argv, lint.argv);
     }
