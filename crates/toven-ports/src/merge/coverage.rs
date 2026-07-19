@@ -3,15 +3,16 @@
 
 use crate::config::CoverageConfig;
 
-/// Field-merge a per-module coverage `over`ride onto an ecosystem `base` config.
+/// Field-merge a per-module coverage `over`ride onto an ecosystem `base`
+/// config.
 ///
 /// Every field is presence-aware: a `Some` override threshold/enforcement
-/// **replaces** the base value for exactly that field, and a `None` inherits the
-/// base. A non-empty override `exclude`/`profiles` replaces the base list/map;
-/// an empty one inherits (a per-module override rarely re-declares them). This
-/// matches the documented precedence (per-module > profile > ecosystem >
-/// adapter default), with profile resolution layered in the engine between the
-/// ecosystem default and this per-module override.
+/// **replaces** the base value for exactly that field, and a `None` inherits
+/// the base. A non-empty override `exclude`/`profiles` replaces the base
+/// list/map; an empty one inherits (a per-module override rarely re-declares
+/// them). This matches the documented precedence (per-module > profile >
+/// ecosystem > adapter default), with profile resolution layered in the engine
+/// between the ecosystem default and this per-module override.
 #[must_use]
 pub fn merge_coverage(base: &CoverageConfig, over: &CoverageConfig) -> CoverageConfig {
     let mut merged = base.clone();

@@ -22,11 +22,12 @@ pub(crate) type ConfiguredSet = BTreeMap<EcosystemId, Box<dyn ConfiguredAdapter>
 
 /// The configured adapters of a whole federation, partitioned by member.
 ///
-/// Each cross-repo member carries its own authoritative `[ecosystems.*]` config,
-/// so two members exposing the same ecosystem (`rust`) hold *distinct* configured
-/// adapters. Keying by `Option<MemberId>` keeps them apart; the degenerate
-/// single-repo case is one entry under the `None` member, so a lookup with a
-/// `None` member resolves exactly like the old single [`ConfiguredSet`].
+/// Each cross-repo member carries its own authoritative `[ecosystems.*]`
+/// config, so two members exposing the same ecosystem (`rust`) hold *distinct*
+/// configured adapters. Keying by `Option<MemberId>` keeps them apart; the
+/// degenerate single-repo case is one entry under the `None` member, so a
+/// lookup with a `None` member resolves exactly like the old single
+/// [`ConfiguredSet`].
 #[derive(Default)]
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) struct MemberAdapters {
@@ -60,7 +61,8 @@ impl MemberAdapters {
         member.map_or(self.root.as_ref(), |member| self.by_member.get(member))
     }
 
-    /// Iterate every `(member, ecosystem, adapter)` triple across the federation.
+    /// Iterate every `(member, ecosystem, adapter)` triple across the
+    /// federation.
     pub(crate) fn iter(
         &self,
     ) -> impl Iterator<Item = (Option<&MemberId>, &EcosystemId, &dyn ConfiguredAdapter)> {
@@ -81,8 +83,8 @@ impl MemberAdapters {
 ///
 /// `providers` is the set of ecosystem adapters compiled into this binary. For
 /// each `[ecosystems.<id>]` subtree whose ecosystem has a provider, the raw
-/// subtree is baked into a [`ConfiguredAdapter`]; subtrees without a provider are
-/// skipped (already accepted as canonical-but-unloaded at Load).
+/// subtree is baked into a [`ConfiguredAdapter`]; subtrees without a provider
+/// are skipped (already accepted as canonical-but-unloaded at Load).
 ///
 /// # Errors
 /// Propagates a provider's `configure` failure, or a subtree that cannot be
@@ -119,11 +121,11 @@ pub(crate) fn configure(
 /// The user-addressable task names declared across every configured ecosystem
 /// that can collide with a reserved verb.
 ///
-/// A name is reported when it can be typed as `toven <name>` *and* is not itself
-/// a recognized-kind canonical name (`build`/`test`/…). Recognized-kind names map
-/// by design to their verb, so only non-recognized names (a renamed or custom
-/// task) can genuinely shadow a reserved verb. The CLI uses this for load-time
-/// collision warnings without re-deriving the configuration itself.
+/// A name is reported when it can be typed as `toven <name>` *and* is not
+/// itself a recognized-kind canonical name (`build`/`test`/…). Recognized-kind
+/// names map by design to their verb, so only non-recognized names (a renamed
+/// or custom task) can genuinely shadow a reserved verb. The CLI uses this for
+/// load-time collision warnings without re-deriving the configuration itself.
 ///
 /// # Errors
 /// Propagates `configure` failures (provider conflicts, subtree conversion, or

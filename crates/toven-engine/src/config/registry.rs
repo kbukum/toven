@@ -8,9 +8,10 @@ use toven_model::{EcosystemId, canonical_ecosystems};
 ///
 /// This is one of the *two* registries the dispatch contract needs: the static,
 /// curated list of legitimate ecosystem ids embedded in every binary, distinct
-/// from the loaded-provider set actually compiled into *this* binary. Keeping it
-/// injectable (rather than reaching straight for the model's static functions)
-/// keeps dispatch and structural validation pure and exhaustively testable.
+/// from the loaded-provider set actually compiled into *this* binary. Keeping
+/// it injectable (rather than reaching straight for the model's static
+/// functions) keeps dispatch and structural validation pure and exhaustively
+/// testable.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct CanonicalRegistry {
     ids: BTreeSet<String>,

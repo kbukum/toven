@@ -30,8 +30,9 @@ pub(crate) struct RustFacts {
     /// non-ignored first-level `<dir>/Cargo.toml`.
     pub(crate) manifests: Vec<String>,
     /// The repo-relative `Cargo.lock` files that exist beside the discovered
-    /// manifests. Authored into each task's `shared_inputs` so a lockfile change
-    /// invalidates the cache; a workspace without a lockfile contributes none.
+    /// manifests. Authored into each task's `shared_inputs` so a lockfile
+    /// change invalidates the cache; a workspace without a lockfile contributes
+    /// none.
     #[serde(default)]
     pub(crate) lockfiles: Vec<String>,
     /// Whether any discovered workspace carries a `.config/nextest.toml`.
@@ -84,8 +85,8 @@ pub(crate) fn detect(project_root: &Path) -> AppResult<Option<Detection>> {
     Ok(Some(Detection::new(ecosystem, facts.to_table()?)))
 }
 
-/// Whether any discovered workspace carries a `.config/nextest.toml`, marking the
-/// repository as configured for `cargo-nextest`.
+/// Whether any discovered workspace carries a `.config/nextest.toml`, marking
+/// the repository as configured for `cargo-nextest`.
 fn detect_nextest(project_root: &Path, manifests: &[String]) -> bool {
     manifests.iter().any(|manifest| {
         let dir = Path::new(manifest)

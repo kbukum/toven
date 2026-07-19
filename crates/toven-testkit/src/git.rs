@@ -1,9 +1,9 @@
 //! Git-scenario helpers built on `rskit-git`.
 //!
 //! These wrap a `rskit-git` [`Repo`] so the VCS adapter and affected-change
-//! detection tests share one git-scenario builder instead of shelling
-//! out to raw `git`. The canonical owner of git operations is `rskit-git`; this
-//! type only sequences its operations into common test scenarios.
+//! detection tests share one git-scenario builder instead of shelling out to
+//! raw `git`. The canonical owner of git operations is `rskit-git`; this type
+//! only sequences its operations into common test scenarios.
 
 use std::path::{Path, PathBuf};
 
@@ -44,7 +44,8 @@ impl GitScenario {
         Ok(Self { repo, root })
     }
 
-    /// Set a deterministic user identity so commits never depend on host config.
+    /// Set a deterministic user identity so commits never depend on host
+    /// config.
     fn configure_identity(repo: &Repo) -> AppResult<()> {
         repo.config_set("user.name", "Toven Test")?;
         repo.config_set("user.email", "test@toven.dev")?;

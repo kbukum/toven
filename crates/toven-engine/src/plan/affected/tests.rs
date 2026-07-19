@@ -128,10 +128,10 @@ fn blast_radius_glob_activates_the_whole_workspace() {
 
 #[test]
 fn dirty_worktree_changes_seed_the_affected_set() {
-    // Uncommitted working-tree edits are part of the affected input, unioned
-    // with the committed diff, so a dirty checkout plans the same modules a
-    // commit would — here an uncommitted edit under errors reaches its dependent
-    // app through the reverse closure even with nothing committed.
+    // Uncommitted working-tree edits are part of the affected input, unioned with
+    // the committed diff, so a dirty checkout plans the same modules a commit would
+    // — here an uncommitted edit under errors reaches its dependent app through the
+    // reverse closure even with nothing committed.
     let federation = Federation {
         workspaces: vec![rust_workspace_with_blast()],
         modules: vec![
@@ -331,8 +331,8 @@ fn member_without_a_baseline_falls_back_to_the_request_spec() {
         "crates/shared/src/lib.rs",
         ChangeStatus::Modified,
     )]);
-    // The reader carries no baseline of its own, so change detection must use
-    // the request's `Selection::Changed` spec as the fallback.
+    // The reader carries no baseline of its own, so change detection must use the
+    // request's `Selection::Changed` spec as the fallback.
     let readers = MemberVcsReaders::new(vec![MemberVcsReader::new(
         None,
         PathBuf::from(""),
@@ -697,9 +697,8 @@ fn explicit_unknown_workspace_is_a_typed_error_listing_available() {
 fn explicit_overlapping_targets_do_not_false_error_as_unknown() {
     let (federation, graph) = app_and_errors_federation();
     let vcs = FakeVcsReader::new();
-    // Workspace `rust` already activates `rust:app`; naming it again via
-    // `--module` must not be misread as an unknown module just because it
-    // adds no new seed.
+    // Workspace `rust` already activates `rust:app`; naming it again via `--module`
+    // must not be misread as an unknown module just because it adds no new seed.
     let request = explicit_request(vec![whole_ws("rust"), sel("rust:app")], false, false);
 
     let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
@@ -714,8 +713,8 @@ fn explicit_overlapping_targets_do_not_false_error_as_unknown() {
 fn explicit_duplicate_module_targets_are_idempotent() {
     let (federation, graph) = app_and_errors_federation();
     let vcs = FakeVcsReader::new();
-    // A repeated `--module` for the same identity must succeed, not error on
-    // the second (already-present) occurrence.
+    // A repeated `--module` for the same identity must succeed, not error on the
+    // second (already-present) occurrence.
     let request = explicit_request(vec![sel("rust:errors"), sel("rust:errors")], false, false);
 
     let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
@@ -753,8 +752,8 @@ fn dependencies_and_dependents_union_excludes_prerequisite_siblings() {
     let (federation, graph) = app_lib_other_federation();
     let vcs = FakeVcsReader::new();
     // `--module lib --dependencies --dependents`: each closure runs from the
-    // original seed. lib's dependency (base) and dependent (app) are added,
-    // but `other` — a mere co-dependent of base — must not leak in.
+    // original seed. lib's dependency (base) and dependent (app) are added, but
+    // `other` — a mere co-dependent of base — must not leak in.
     let request = explicit_request(vec![sel("rust:lib")], true, true);
 
     let active = active_modules(&request, &graph, &federation, &single_view(&vcs))

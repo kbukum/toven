@@ -5,8 +5,8 @@
 //! [`Document`], resolve the workspace root, and bind the rskit-backed git /
 //! digest / probe / cache ports the engine injects. This module owns that
 //! preamble so the verb modules stay focused on their projection or execution.
-//! It is wiring only: it prints nothing (the reporter sinks do) and returns typed
-//! data + typed errors.
+//! It is wiring only: it prints nothing (the reporter sinks do) and returns
+//! typed data + typed errors.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -115,7 +115,8 @@ pub(crate) fn load_project(config_path: &Path, providers: &[&dyn Provider]) -> A
     })
 }
 
-/// Canonicalize `path` to an absolute path, surfacing IO failures as typed errors.
+/// Canonicalize `path` to an absolute path, surfacing IO failures as typed
+/// errors.
 ///
 /// Delegates to rskit-fs so canonicalization follows the canonical filesystem
 /// error/cause policy rather than re-deriving it from `std::fs` here.
@@ -171,12 +172,12 @@ impl Report {
     /// Build the matching reporter sink at the resolved verbosity.
     ///
     /// The human sink lands on stderr (its progress/status/summary lines are
-    /// diagnostics), while the Jsonl sink lands on stdout as the machine-readable
-    /// projection. The verbosity filters the human reporter's rendering of the
-    /// Event stream; the JSON-lines sink ignores it and always emits every event
-    /// so a machine consumer sees the complete record. The `--color` policy is
-    /// resolved against stderr's terminal state and applied to the human sink
-    /// only — the machine projection stays byte-stable.
+    /// diagnostics), while the Jsonl sink lands on stdout as the
+    /// machine-readable projection. The verbosity filters the human reporter's
+    /// rendering of the Event stream; the JSON-lines sink ignores it and always
+    /// emits every event so a machine consumer sees the complete record. The
+    /// `--color` policy is resolved against stderr's terminal state and applied
+    /// to the human sink only — the machine projection stays byte-stable.
     #[must_use]
     pub(crate) fn reporter(self) -> Box<dyn toven_ports::Reporter> {
         match self.format {
@@ -205,9 +206,9 @@ impl Report {
 }
 
 /// Resolve the effective projection format for an introspection verb: the
-/// explicit `--output` flag wins, else the `[toven].report` document setting, so
-/// a discovery verb honors a config-driven default the same way the run reporter
-/// does via [`Report::resolve`].
+/// explicit `--output` flag wins, else the `[toven].report` document setting,
+/// so a discovery verb honors a config-driven default the same way the run
+/// reporter does via [`Report::resolve`].
 #[must_use]
 pub(crate) const fn resolve_output(flag: Option<OutputKind>, document: &Document) -> OutputKind {
     match flag {
@@ -312,9 +313,9 @@ mod tests {
 
     #[test]
     fn run_id_is_minted_and_prefixed() {
-        // Hermetic: compose the env-free core exactly as `new_run_id` does, so
-        // the assertion never depends on an ambient `TOVEN_CLOCK_EPOCH` (which
-        // could otherwise fail this test if a developer/CI has it set).
+        // Hermetic: compose the env-free core exactly as `new_run_id` does, so the
+        // assertion never depends on an ambient `TOVEN_CLOCK_EPOCH` (which could
+        // otherwise fail this test if a developer/CI has it set).
         let clock = super::resolve_clock_from(None).unwrap();
         assert!(super::run_id_from(clock.as_ref()).starts_with("run-"));
     }
@@ -331,16 +332,16 @@ mod tests {
                 .epoch_seconds(),
             1_700_000_000
         );
-        // Present but not a `u64` → invalid input, never a silent system-clock
-        // fallback that would make a snapshot run non-deterministic.
+        // Present but not a `u64` → invalid input, never a silent system-clock fallback
+        // that would make a snapshot run non-deterministic.
         assert!(resolve_clock_from(Some("not-a-number")).is_err());
     }
 
     #[test]
     fn run_id_from_a_fixed_clock_is_deterministic() {
         use rskit_util::time::FixedClock;
-        // A pinned clock (the `RUN_CLOCK_EPOCH_ENV` path resolves to this) yields
-        // a fully deterministic id, which is what makes the jsonl Event stream
+        // A pinned clock (the `RUN_CLOCK_EPOCH_ENV` path resolves to this) yields a
+        // fully deterministic id, which is what makes the jsonl Event stream
         // snapshot-stable. The monotonic reading is not part of the id.
         assert_eq!(
             super::run_id_from(&FixedClock::new(1_700_000_000, 0)),

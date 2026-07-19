@@ -231,9 +231,9 @@ fn an_all_ignored_batch_does_not_trigger_a_rerun() {
 #[test]
 fn a_member_scoped_readers_ignore_rules_are_not_applied_to_root_paths() {
     // In a federated setup, entries() holds member-scoped readers (member() is
-    // Some) whose ignore rules apply to their own repo root, not the umbrella
-    // root. is_ignored must consult only the degenerate/root entry, so a member
-    // reader that would "ignore" this path must NOT suppress the rerun.
+    // Some) whose ignore rules apply to their own repo root, not the umbrella root.
+    // is_ignored must consult only the degenerate/root entry, so a member reader
+    // that would "ignore" this path must NOT suppress the rerun.
     let vcs = FakeVcsReader::new().with_ignored(vec![PathBuf::from("crates/app/src/lib.rs")]);
     let readers = MemberVcsReaders::new(vec![MemberVcsReader::new(
         Some(MemberId::new("app").expect("valid member id")),
@@ -285,8 +285,8 @@ fn a_rescan_batch_reruns_the_baseline_scope() {
 
 #[test]
 fn a_rescan_batch_ignores_its_partial_paths() {
-    // Even with surviving paths, a rescan re-evaluates the whole scope rather
-    // than trusting the (possibly incomplete) path list, so no WatchTriggered.
+    // Even with surviving paths, a rescan re-evaluates the whole scope rather than
+    // trusting the (possibly incomplete) path list, so no WatchTriggered.
     let batch = toven_ports::ChangeBatch::new(vec![PathBuf::from("/repo/crates/app/src/lib.rs")])
         .with_rescan(true);
     let (events, _calls) = drive_batches(vec![batch], &FakeVcsReader::new());

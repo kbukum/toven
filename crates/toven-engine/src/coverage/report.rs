@@ -1,5 +1,5 @@
-//! The coverage report: the per-module verdicts and the overall gate outcome the
-//! CLI renders and exits on.
+//! The coverage report: the per-module verdicts and the overall gate outcome
+//! the CLI renders and exits on.
 
 use super::gate::{ModuleCoverage, ModuleStatus};
 

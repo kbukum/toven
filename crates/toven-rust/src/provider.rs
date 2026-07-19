@@ -40,8 +40,8 @@ impl Provider for RustProvider {
 
     fn configure(&self, raw: RawValue) -> AppResult<Box<dyn ConfiguredAdapter>> {
         let config: RustConfig = deserialize_subtree("ecosystems.rust", raw)?;
-        // Fail closed on an incomplete task entry (e.g. empty argv) at configure
-        // time, citing the offending `ecosystems.rust.tasks.<name>` path.
+        // Fail closed on an incomplete task entry (e.g. empty argv) at configure time,
+        // citing the offending `ecosystems.rust.tasks.<name>` path.
         for (key, entry) in &config.common.tasks {
             entry.materialize("rust", key)?;
         }

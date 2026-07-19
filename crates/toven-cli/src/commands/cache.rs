@@ -2,9 +2,10 @@
 //! surface).
 //!
 //! All three operate on the resolved on-disk cache root for the project
-//! ([`Project::cache_root`](crate::host::Project::cache_root)): `path` prints it,
-//! `stats` summarizes the entries under it, and `clean` removes it. They touch
-//! the filesystem directly (via rskit-fs) and never go through the PLAN spine.
+//! ([`Project::cache_root`](crate::host::Project::cache_root)): `path` prints
+//! it, `stats` summarizes the entries under it, and `clean` removes it. They
+//! touch the filesystem directly (via rskit-fs) and never go through the PLAN
+//! spine.
 
 use rskit_cli::{ExitCode, OutputKV};
 use rskit_errors::AppResult;
@@ -14,8 +15,9 @@ use rskit_fs::sync_io::tree::{WalkControl, WalkOptions, remove_tree_if_exists, w
 use crate::flags::CacheAction;
 use crate::host::Project;
 
-/// Upper bound on cache entries `stats` scans before reporting a truncated count,
-/// so an unbounded cache tree cannot exhaust memory or stall the command.
+/// Upper bound on cache entries `stats` scans before reporting a truncated
+/// count, so an unbounded cache tree cannot exhaust memory or stall the
+/// command.
 const STATS_ENTRY_CAP: usize = 100_000;
 
 /// Dispatch a `toven cache <action>`.

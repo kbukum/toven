@@ -20,13 +20,15 @@ const GOLANGCI_CONFIGS: [&str; 4] = [
     ".golangci.json",
 ];
 
-/// The adapter-owned facts a Go [`Detection`] carries to [`render`](crate::render).
+/// The adapter-owned facts a Go [`Detection`] carries to
+/// [`render`](crate::render).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct GoFacts {
     /// The repo-relative root manifest (always `go.mod` today).
     pub(crate) manifest: String,
     /// Whether a root `.golangci.{yml,yaml,toml,json}` was found, marking the
-    /// repo as configured for `golangci-lint` (drives the lint-backend default).
+    /// repo as configured for `golangci-lint` (drives the lint-backend
+    /// default).
     #[serde(default)]
     pub(crate) golangci: bool,
 }
@@ -54,8 +56,8 @@ impl GoFacts {
 }
 
 /// Detect a Go module under `project_root` and, if present, return a
-/// [`Detection`] carrying the probed facts. Returns `None` when no root `go.mod`
-/// exists.
+/// [`Detection`] carrying the probed facts. Returns `None` when no root
+/// `go.mod` exists.
 ///
 /// # Errors
 /// Propagates a path-resolution or facts-encoding failure.
@@ -75,8 +77,8 @@ pub(crate) fn detect(project_root: &Path) -> AppResult<Option<Detection>> {
     Ok(Some(Detection::new(ecosystem, facts.to_table()?)))
 }
 
-/// Whether the repo root carries a `golangci-lint` config, marking it configured
-/// for `golangci-lint` (used to preselect the lint backend).
+/// Whether the repo root carries a `golangci-lint` config, marking it
+/// configured for `golangci-lint` (used to preselect the lint backend).
 fn detect_golangci(project_root: &Path) -> bool {
     GOLANGCI_CONFIGS
         .iter()

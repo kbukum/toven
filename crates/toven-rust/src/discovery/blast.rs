@@ -2,9 +2,9 @@
 //!
 //! These are cargo-specific defaults the planner reads back through the typed
 //! [`Module::resource_group`] and [`Workspace::blast_radius`] fields: every
-//! member of a Cargo workspace shares one `Cargo.lock` (a blast-radius input) and
-//! one `target/` directory (a serialization resource), so they are grouped by
-//! workspace root.
+//! member of a Cargo workspace shares one `Cargo.lock` (a blast-radius input)
+//! and one `target/` directory (a serialization resource), so they are grouped
+//! by workspace root.
 
 use toven_model::{Module, RepoPath, Workspace};
 

@@ -42,7 +42,8 @@ pub(super) struct Walker<'a, S: RawOutputSink> {
     /// the lifecycle is perfectly paired regardless of which terminal path a
     /// unit takes.
     regioned: std::collections::HashSet<String>,
-    /// Cooperative external cancellation (Ctrl+C); fires the fail-fast teardown.
+    /// Cooperative external cancellation (Ctrl+C); fires the fail-fast
+    /// teardown.
     external_cancel: CancellationToken,
 }
 
@@ -93,11 +94,10 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
     ) -> AppResult<RunStats> {
         let start = Instant::now();
         for unit in &self.plan.units {
-            // Persistent units always stream live. Normal units stream live
-            // only when nothing else can emit concurrently — serial or
-            // single-unit execution, and no held persistent unit in the plan;
-            // otherwise their output is buffered into a deterministic per-unit
-            // block.
+            // Persistent units always stream live. Normal units stream live only when
+            // nothing else can emit concurrently — serial or single-unit execution, and no
+            // held persistent unit in the plan; otherwise their output is buffered into a
+            // deterministic per-unit block.
             let mode = if unit.persistent || self.stream_normal_live {
                 OutputMode::Live
             } else {
@@ -106,11 +106,11 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             self.output.register(unit.id.clone(), mode);
         }
 
-        // Run the wave schedule, then tear down held processes and shut the pool
-        // down unconditionally: an error from any wave must still release
-        // persistent child processes and worker tasks instead of leaking them.
-        // The first failure (waves, then teardown, then shutdown) is returned to
-        // the caller after cleanup has run.
+        // Run the wave schedule, then tear down held processes and shut the pool down
+        // unconditionally: an error from any wave must still release persistent child
+        // processes and worker tasks instead of leaking them. The first failure (waves,
+        // then teardown, then shutdown) is returned to the caller after cleanup has
+        // run.
         let wave_result = self.run_waves(&pool, &mut live_output).await;
         let teardown_result = self.teardown_held(&mut live_output).await;
         let shutdown_result = pool.shutdown().await;
@@ -120,18 +120,18 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         shutdown_result?;
 
         for unit_id in torn_down {
-            // Persistent units stream live, so there is no buffered block to
-            // flush; calling `finish` would only clear the unit's Live mode and
-            // risk dropping late chunks. The live channel is fully drained above
-            // (and again on drop), so emit the terminal event without finishing.
+            // Persistent units stream live, so there is no buffered block to flush; calling
+            // `finish` would only clear the unit's Live mode and risk dropping late chunks.
+            // The live channel is fully drained above (and again on drop), so emit the
+            // terminal event without finishing.
             self.finish_unit_event(&unit_id, UnitStatus::TornDown)?;
         }
         self.cancel_unscheduled()?;
         self.stats.duration_ms = Some(start.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
         self.stats.dropped_output_chunks = self.dropped_output.load(Ordering::Relaxed);
-        // Let the output sink emit any end-of-run epilogue (e.g. a consolidated
-        // failure section) after the live area has drained but before the run
-        // summary, so failing units land directly above the summary.
+        // Let the output sink emit any end-of-run epilogue (e.g. a consolidated failure
+        // section) after the live area has drained but before the run summary, so
+        // failing units land directly above the summary.
         self.output.finish_run()?;
         self.reporter.emit(&Event::RunFinished {
             summary: self.stats,
@@ -145,9 +145,9 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         live_output: &mut Receiver<toven_model::UnitOutput>,
     ) -> AppResult<()> {
         for wave in &self.plan.waves {
-            // Stop launching new waves once fail-fast tripped or Ctrl+C fired;
-            // the post-run `cancel_unscheduled` sweep emits the terminal
-            // `Cancelled` events for whatever stayed `Pending`.
+            // Stop launching new waves once fail-fast tripped or Ctrl+C fired; the post-run
+            // `cancel_unscheduled` sweep emits the terminal `Cancelled` events for whatever
+            // stayed `Pending`.
             if self.external_cancel.is_cancelled()
                 || (self.options.fail_fast && self.stats.has_failures())
             {
@@ -174,11 +174,10 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             if !matches!(self.gate.state(&unit.id), UnitState::Pending) {
                 continue;
             }
-            // Buffered units finish to flush any captured block and release the
-            // per-unit channel state now. Persistent units stream live, so
-            // finishing would clear their Live mode and risk dropping late
-            // chunks; the live channel is already drained, so only the terminal
-            // event is emitted.
+            // Buffered units finish to flush any captured block and release the per-unit
+            // channel state now. Persistent units stream live, so finishing would clear
+            // their Live mode and risk dropping late chunks; the live channel is already
+            // drained, so only the terminal event is emitted.
             if !unit.persistent {
                 self.output.finish(&unit.id)?;
             }
@@ -193,11 +192,11 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
     /// concurrently. If output sink pushes fail, drops the remaining output and
     /// still completes teardown before returning the first output error.
     ///
-    /// Draining during teardown is required for correctness, not just latency: a
-    /// reader thread blocked on a full bounded bridge would otherwise never
-    /// finish, so the process it feeds could never join and `teardown_all` would
-    /// deadlock. Borrowing `held` and `output` as disjoint fields lets the
-    /// teardown future and the drain push run together.
+    /// Draining during teardown is required for correctness, not just latency:
+    /// a reader thread blocked on a full bounded bridge would otherwise never
+    /// finish, so the process it feeds could never join and `teardown_all`
+    /// would deadlock. Borrowing `held` and `output` as disjoint fields lets
+    /// the teardown future and the drain push run together.
     async fn teardown_held(
         &mut self,
         live_output: &mut Receiver<toven_model::UnitOutput>,
@@ -211,8 +210,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             tokio::select! {
                 result = &mut teardown => {
                     let torn_down = result?;
-                    // After teardown completes, drain any remaining buffered output,
-                    // dropping chunks if the sink fails (best-effort).
+                    // After teardown completes, drain any remaining buffered output, dropping chunks if the sink fails (best-effort).
                     while let Ok(chunk) = live_output.try_recv() {
                         if output_error.is_none() && let Err(e) = output.push(chunk) {
                             output_error = Some(e);
@@ -273,16 +271,12 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         }
 
         let mut teardown_cancelled = false;
-        // A clone so the cancel future can be awaited in `select!` without
-        // borrowing `self` (the other branch needs `&mut self`).
+        // A clone so the cancel future can be awaited in `select!` without borrowing
+        // `self` (the other branch needs `&mut self`).
         let external_cancel = self.external_cancel.clone();
         while !joins.is_empty() {
             let joined = tokio::select! {
-                // Ctrl+C (or any external cancel): fire the same teardown a
-                // fail-fast failure does — stop scheduling, SIGTERM every
-                // in-flight worker, then fall through to held teardown / pool
-                // shutdown so no child process is abandoned. Guarded so the
-                // already-ready cancelled future cannot busy-spin the loop.
+                // Ctrl+C (or any external cancel): fire the same teardown a fail-fast failure does — stop scheduling, SIGTERM every in-flight worker, then fall through to held teardown / pool shutdown so no child process is abandoned. Guarded so the already-ready cancelled future cannot busy-spin the loop.
                 () = external_cancel.cancelled(), if !teardown_cancelled => {
                     pool.close();
                     teardown_cancelled = true;
@@ -303,10 +297,9 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             let (group_index, unit_id, result) = joined.map_err(AppError::internal)?;
             let failed = match result {
                 Ok(outcome) => self.finish_result(&unit_id, outcome, live_output).await?,
-                // A cancelled worker leaves its unit `Pending`; the post-wave
-                // `cancel_unscheduled` sweep emits its terminal `Cancelled`
-                // event and finishes its channel, so dropping the error here is
-                // safe rather than lossy.
+                // A cancelled worker leaves its unit `Pending`; the post-wave `cancel_unscheduled`
+                // sweep emits its terminal `Cancelled` event and finishes its channel, so dropping
+                // the error here is safe rather than lossy.
                 Err(_error) if teardown_cancelled => continue,
                 Err(error) => return Err(error),
             };
@@ -362,11 +355,10 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         match result {
             WorkOutcome::Normal { success, output } => {
                 if self.stream_normal_live {
-                    // Output streamed live through the observer bridge; the
-                    // returned `output` is empty. Drain any chunks still queued
-                    // (the runner returns only after its reader threads joined,
-                    // so none can arrive later) before finishing, so finishing —
-                    // which clears the unit's Live mode — cannot strand a chunk.
+                    // Output streamed live through the observer bridge; the returned `output` is
+                    // empty. Drain any chunks still queued (the runner returns only after its
+                    // reader threads joined, so none can arrive later) before finishing, so
+                    // finishing — which clears the unit's Live mode — cannot strand a chunk.
                     self.drain_live_output(live_output)?;
                     self.output.finish(unit_id)?;
                 } else {
@@ -382,9 +374,9 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 }
             }
             WorkOutcome::TimedOut { output } => {
-                // Same output routing as a normal unit (live-drain or buffered
-                // block), then a distinct timeout failure so the summary and exit
-                // reflect it as its own reason rather than a plain non-zero exit.
+                // Same output routing as a normal unit (live-drain or buffered block), then a
+                // distinct timeout failure so the summary and exit reflect it as its own reason
+                // rather than a plain non-zero exit.
                 if self.stream_normal_live {
                     self.drain_live_output(live_output)?;
                     self.output.finish(unit_id)?;
@@ -407,11 +399,10 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 Ok(false)
             }
             WorkOutcome::FailedReadiness { output } => {
-                // Persistent units stream live; routing the synthetic readiness
-                // error as a live chunk (without `finish`) keeps the unit's Live
-                // mode registered so any late chunks the failed process already
-                // emitted are still flushed by a later `drain_live_output`
-                // instead of being dropped as a fresh unregistered unit.
+                // Persistent units stream live; routing the synthetic readiness error as a live
+                // chunk (without `finish`) keeps the unit's Live mode registered so any late
+                // chunks the failed process already emitted are still flushed by a later
+                // `drain_live_output` instead of being dropped as a fresh unregistered unit.
                 self.route_output_chunks(output)?;
                 self.failed(unit_id, UnitStatus::FailedReadiness, live_output)
                     .await?;
@@ -427,9 +418,9 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
     ) -> AppResult<()> {
         self.stats.cached_units += 1;
         self.gate.satisfy(unit_id);
-        // A cache hit produces no output, but the unit was registered with a
-        // channel mode at run start; finish it so its per-unit channel state is
-        // released now rather than lingering until the channel is dropped.
+        // A cache hit produces no output, but the unit was registered with a channel
+        // mode at run start; finish it so its per-unit channel state is released now
+        // rather than lingering until the channel is dropped.
         self.output.finish(unit_id)?;
         self.finish_unit_event(unit_id, UnitStatus::Cached)?;
         self.drain_dependents(unit_id, live_output).await
@@ -480,10 +471,10 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
     ) -> AppResult<()> {
         for held_id in self.held.dependent_finished(unit_id) {
             if self.teardown_held_unit(&held_id, live_output).await? {
-                // Held units are persistent (live mode): no buffered block to
-                // flush, and finishing would clear their mode and risk dropping
-                // late chunks. Leave the unit live so any final output drains
-                // through `drain_live_output`; only emit the terminal event.
+                // Held units are persistent (live mode): no buffered block to flush, and
+                // finishing would clear their mode and risk dropping late chunks. Leave the
+                // unit live so any final output drains through `drain_live_output`; only emit
+                // the terminal event.
                 self.finish_unit_event(&held_id, UnitStatus::TornDown)?;
             }
         }
@@ -494,8 +485,8 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
     /// blocking process shutdown. The shutdown runs on a blocking thread (via
     /// [`SharedHeldProcess::shutdown_offloaded`]); this loop keeps pulling from
     /// the bounded live-output bridge so a reader thread parked in
-    /// `blocking_send` can drain and the process can join instead of deadlocking.
-    /// Returns whether a held unit was present and torn down.
+    /// `blocking_send` can drain and the process can join instead of
+    /// deadlocking. Returns whether a held unit was present and torn down.
     async fn teardown_held_unit(
         &mut self,
         held_id: &str,
@@ -512,9 +503,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             tokio::select! {
                 result = &mut shutdown => {
                     result?;
-                    // After shutdown completes, drain whatever the process
-                    // flushed last, dropping chunks only if the sink itself
-                    // already failed (best-effort, never silent loss).
+                    // After shutdown completes, drain whatever the process flushed last, dropping chunks only if the sink itself already failed (best-effort, never silent loss).
                     while let Ok(chunk) = live_output.try_recv() {
                         if output_error.is_none() && let Err(e) = output.push(chunk) {
                             output_error = Some(e);
@@ -535,7 +524,8 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
     }
 
     /// Open a sink region for an executed unit when the sink renders one region
-    /// per unit, recording it so the matching `end_unit` is emitted exactly once.
+    /// per unit, recording it so the matching `end_unit` is emitted exactly
+    /// once.
     fn begin_region(&mut self, unit_id: &str) -> AppResult<()> {
         if self.concurrent_live && !self.regioned.contains(unit_id) {
             self.output.begin_unit(unit_id, unit_id)?;
@@ -545,8 +535,9 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
     }
 
     /// Emit a unit's terminal event, first collapsing its sink region (if it
-    /// opened one) so `begin_unit`/`end_unit` stay perfectly paired across every
-    /// terminal path (success, failure, timeout, blocked, cancelled, torn down).
+    /// opened one) so `begin_unit`/`end_unit` stay perfectly paired across
+    /// every terminal path (success, failure, timeout, blocked, cancelled, torn
+    /// down).
     fn finish_unit_event(&mut self, unit_id: &str, status: UnitStatus) -> AppResult<()> {
         if self.regioned.remove(unit_id) {
             self.output.end_unit(unit_id, status)?;

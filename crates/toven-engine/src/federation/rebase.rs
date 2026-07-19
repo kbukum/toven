@@ -1,21 +1,23 @@
 //! Rebase one member's discovery output into the umbrella coordinate space.
 //!
-//! A member is discovered against its own repo root, so its workspaces, modules,
-//! and edges come back member-local: workspace ids unscoped, paths relative to
-//! the member root, and edges built from bare (member-unscoped) keys. Before the
-//! per-member responses can be unioned into one federated graph they are rebased:
+//! A member is discovered against its own repo root, so its workspaces,
+//! modules, and edges come back member-local: workspace ids unscoped, paths
+//! relative to the member root, and edges built from bare (member-unscoped)
+//! keys. Before the per-member responses can be unioned into one federated
+//! graph they are rebased:
 //!
 //! - **member stamp** — every module and every edge endpoint is scoped to the
 //!   member id, so two members exposing the same `ecosystem:name` stay distinct
 //!   ([`Graph::build`](toven_model::Graph::build) would otherwise reject the
 //!   duplicate identity);
-//! - **workspace scoping** — workspace ids are namespaced by member (two members
-//!   each discovering a `rust` workspace would otherwise collide), and every
-//!   module's `workspace` reference is rewritten to match;
-//! - **path prefixing** — module/workspace roots, manifests, and change-detection
-//!   globs are prefixed with the member's path under the umbrella root, so the
-//!   single umbrella root that toolchain probing, the content digest, and command
-//!   execution all join against resolves every member-relative path correctly.
+//! - **workspace scoping** — workspace ids are namespaced by member (two
+//!   members each discovering a `rust` workspace would otherwise collide), and
+//!   every module's `workspace` reference is rewritten to match;
+//! - **path prefixing** — module/workspace roots, manifests, and
+//!   change-detection globs are prefixed with the member's path under the
+//!   umbrella root, so the single umbrella root that toolchain probing, the
+//!   content digest, and command execution all join against resolves every
+//!   member-relative path correctly.
 //!
 //! The degenerate single-repo member has no member id and sits at the umbrella
 //! root (empty prefix), so it is never rebased and its discovery output flows
@@ -30,11 +32,12 @@ use toven_model::{MemberId, RepoPath, WorkspaceId};
 use super::identity::stamp_modules;
 use crate::plan::discover::Federation;
 
-/// Rebase `federation` (one member's discovery output) into umbrella coordinates.
+/// Rebase `federation` (one member's discovery output) into umbrella
+/// coordinates.
 ///
-/// `prefix` is the member's discovery root relative to the umbrella root. Member
-/// and workspace identities are always scoped; an empty prefix means paths stay
-/// untouched because the member already sits at the umbrella root.
+/// `prefix` is the member's discovery root relative to the umbrella root.
+/// Member and workspace identities are always scoped; an empty prefix means
+/// paths stay untouched because the member already sits at the umbrella root.
 ///
 /// # Errors
 /// Returns an [`ErrorCode::Internal`] error when discovery emits a module
@@ -56,9 +59,9 @@ pub(super) fn rebase_member(
 
 /// Scope every edge endpoint to `member`.
 ///
-/// Adapters emit intra-member edges from bare [`ModuleRef`](toven_model::ModuleRef)s,
-/// and member-local overlays are appended bare as well, so both endpoints belong
-/// to this one member.
+/// Adapters emit intra-member edges from bare
+/// [`ModuleRef`](toven_model::ModuleRef)s, and member-local overlays are
+/// appended bare as well, so both endpoints belong to this one member.
 fn stamp_edges(federation: &mut Federation, member: &MemberId) {
     for edge in &mut federation.edges {
         edge.from.member = Some(member.clone());
@@ -66,7 +69,8 @@ fn stamp_edges(federation: &mut Federation, member: &MemberId) {
     }
 }
 
-/// Namespace every workspace id by `member` and rewrite module references to it.
+/// Namespace every workspace id by `member` and rewrite module references to
+/// it.
 fn scope_workspaces(federation: &mut Federation, member: &MemberId) -> AppResult<()> {
     let mut remap: BTreeMap<WorkspaceId, WorkspaceId> = BTreeMap::new();
     for workspace in &mut federation.workspaces {

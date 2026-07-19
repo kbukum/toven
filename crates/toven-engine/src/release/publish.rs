@@ -19,11 +19,12 @@ use toven_ports::{Artifact, PublishOutcome, ReleaseTarget};
 
 use super::ReleaseStats;
 
-/// Hard cap on a single rate-limit wait, regardless of the registry's hint, so a
-/// pathological `Retry-After` cannot stall the publish loop indefinitely.
+/// Hard cap on a single rate-limit wait, regardless of the registry's hint, so
+/// a pathological `Retry-After` cannot stall the publish loop indefinitely.
 const MAX_RATE_LIMIT_WAIT: Duration = Duration::from_mins(2);
 
-/// One resolved unit of publish work, already ordered for deterministic publish.
+/// One resolved unit of publish work, already ordered for deterministic
+/// publish.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) struct PublishItem<'a> {
     /// Module to publish.

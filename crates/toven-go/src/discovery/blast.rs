@@ -1,16 +1,16 @@
 //! Blast-radius annotations layered onto discovered workspaces.
 //!
-//! Go modules carry no serialization `resource_group`: `go` reads and writes its
-//! build cache (`GOCACHE`) and module cache (`GOMODCACHE`) under file locks, so
-//! `go build`/`vet`/`test` run safely in parallel across modules. Leaving the
-//! group unset lets the executor give each module its own lane and run the
-//! workspace's modules concurrently within their dependency waves.
+//! Go modules carry no serialization `resource_group`: `go` reads and writes
+//! its build cache (`GOCACHE`) and module cache (`GOMODCACHE`) under file
+//! locks, so `go build`/`vet`/`test` run safely in parallel across modules.
+//! Leaving the group unset lets the executor give each module its own lane and
+//! run the workspace's modules concurrently within their dependency waves.
 //!
 //! Only the workspace-level blast radius is go-specific: the planner reads it
-//! back through [`Workspace::blast_radius`]. The checksum differs by grouping: a
-//! `go.work` workspace pins resolved versions in `go.work.sum` (and the `go.work`
-//! manifest itself selects its members), whereas a lone module pins them in its
-//! own `go.sum`.
+//! back through [`Workspace::blast_radius`]. The checksum differs by grouping:
+//! a `go.work` workspace pins resolved versions in `go.work.sum` (and the
+//! `go.work` manifest itself selects its members), whereas a lone module pins
+//! them in its own `go.sum`.
 
 use toven_model::{RepoPath, Workspace};
 

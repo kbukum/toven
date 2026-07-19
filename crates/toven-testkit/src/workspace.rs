@@ -1,9 +1,10 @@
 //! A [`TestWorkspace`] pointed at the shared `toven-testkit` fixture root.
 //!
 //! `rskit-testutil`'s [`test_workspace!`](rskit_testutil::test_workspace) macro
-//! roots fixtures at the *calling* crate's `tests/fixtures`. Toven instead wants
-//! one shared tree, so this module hands back a [`TestWorkspace`] whose fixture
-//! root is **this** crate's `fixtures/` directory regardless of the consumer.
+//! roots fixtures at the *calling* crate's `tests/fixtures`. Toven instead
+//! wants one shared tree, so this module hands back a [`TestWorkspace`] whose
+//! fixture root is **this** crate's `fixtures/` directory regardless of the
+//! consumer.
 
 use std::path::PathBuf;
 

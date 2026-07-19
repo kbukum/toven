@@ -6,14 +6,16 @@ use std::path::PathBuf;
 ///
 /// Paths are deduplicated and sorted by the watch adapter, so a batch is
 /// deterministic regardless of the order the underlying OS events arrived. The
-/// engine relativizes them against the workspace root before mapping to modules.
+/// engine relativizes them against the workspace root before mapping to
+/// modules.
 ///
 /// A batch may additionally carry a **rescan** signal
 /// ([`rescan_requested`](Self::rescan_requested)): the platform watcher dropped
-/// events during the window (typically a queue overflow), so [`paths`](Self::paths)
-/// may be incomplete. The watch loop treats a rescan as "re-evaluate the whole
-/// watched scope" rather than trusting the partial path list. A rescan-only batch
-/// has empty [`paths`](Self::paths) but is **not** [`is_empty`](Self::is_empty).
+/// events during the window (typically a queue overflow), so
+/// [`paths`](Self::paths) may be incomplete. The watch loop treats a rescan as
+/// "re-evaluate the whole watched scope" rather than trusting the partial path
+/// list. A rescan-only batch has empty [`paths`](Self::paths) but is **not**
+/// [`is_empty`](Self::is_empty).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChangeBatch {
     paths: Vec<PathBuf>,
@@ -56,8 +58,8 @@ impl ChangeBatch {
         self.rescan
     }
 
-    /// Whether the batch carries no information — no changed paths and no rescan
-    /// signal.
+    /// Whether the batch carries no information — no changed paths and no
+    /// rescan signal.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.paths.is_empty() && !self.rescan

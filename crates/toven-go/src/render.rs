@@ -1,8 +1,9 @@
 //! The Go wizard `render` step: author the complete `[ecosystems.go]` section.
 //!
 //! The config is the authoritative task source: `toven init` writes the whole
-//! `go` command table into `toven.toml` at onboarding time, so the planner reads
-//! runnable tasks straight from config rather than a compiled-in adapter default.
+//! `go` command table into `toven.toml` at onboarding time, so the planner
+//! reads runnable tasks straight from config rather than a compiled-in adapter
+//! default.
 //!
 //! The table is shaped by the wizard [`Answers`]: the lint backend, formatter,
 //! test runner, and test-hardening choices each steer one or more task argvs.
@@ -40,7 +41,8 @@ struct Formatter {
 }
 
 /// The resolved lint backend, or `None` when the built-in `go vet` was chosen
-/// (in which case the `check` task already covers it and no `lint` task exists).
+/// (in which case the `check` task already covers it and no `lint` task
+/// exists).
 enum LintBackend {
     Golangci,
     Staticcheck,
@@ -86,13 +88,14 @@ struct Selections {
 
 impl Selections {
     /// Resolve every selection from the answers, falling back to the
-    /// toolchain-native default (no external dependency) for any unanswered one.
+    /// toolchain-native default (no external dependency) for any unanswered
+    /// one.
     fn from_answers(answers: &Answers) -> Self {
         let lint = match answers.choice(&LINT_BACKEND.into()).map(ChoiceId::as_str) {
             Some(LINT_GOLANGCI) => Some(LintBackend::Golangci),
             Some(LINT_STATICCHECK) => Some(LintBackend::Staticcheck),
-            // The built-in `go vet` (or no answer) authors no separate `lint`
-            // task — the `check` task already runs `go vet`.
+            // The built-in `go vet` (or no answer) authors no separate `lint` task — the `check`
+            // task already runs `go vet`.
             _ => None,
         };
         let formatter = match answers.choice(&FORMATTER.into()).map(ChoiceId::as_str) {
@@ -141,10 +144,11 @@ fn task_table(selections: &Selections) -> BTreeMap<String, TaskEntry> {
 
 /// The starter `[ecosystems.go].coverage` block onboarding authors.
 ///
-/// Go's `-coverprofile` reports line coverage only, so the starter seeds the line
-/// and changed-scope line floors (never function/region) at conservative values
-/// under `advisory`, so a fresh `toven coverage` reports a verdict without failing
-/// CI until the user raises the floors and flips enforcement to `block`.
+/// Go's `-coverprofile` reports line coverage only, so the starter seeds the
+/// line and changed-scope line floors (never function/region) at conservative
+/// values under `advisory`, so a fresh `toven coverage` reports a verdict
+/// without failing CI until the user raises the floors and flips enforcement to
+/// `block`.
 fn starter_coverage() -> CoverageConfig {
     CoverageConfig {
         line: Some(80.0),
@@ -154,10 +158,10 @@ fn starter_coverage() -> CoverageConfig {
     }
 }
 
-/// The `coverage` measurement entry: `go test -coverprofile` writes one workspace
-/// coverprofile into Toven's staging dir, which the coverage verb aggregates and
-/// gates. Tagged [`TaskKind::Coverage`] for cross-ecosystem recognition, and
-/// `cacheable = false` so every run re-measures.
+/// The `coverage` measurement entry: `go test -coverprofile` writes one
+/// workspace coverprofile into Toven's staging dir, which the coverage verb
+/// aggregates and gates. Tagged [`TaskKind::Coverage`] for cross-ecosystem
+/// recognition, and `cacheable = false` so every run re-measures.
 fn coverage_entry() -> TaskEntry {
     let mut entry = base_entry(
         vec![
@@ -217,15 +221,16 @@ fn go_module_entry(subcommand: &str) -> TaskEntry {
 }
 
 /// The `lint` task for the chosen external backend. Both run from the repo root
-/// and scope to the module via a repo-relative package pattern (`./{module.root}/…`),
-/// since neither `golangci-lint` nor `staticcheck` accepts a `-C` chdir flag.
+/// and scope to the module via a repo-relative package pattern
+/// (`./{module.root}/…`), since neither `golangci-lint` nor `staticcheck`
+/// accepts a `-C` chdir flag.
 fn lint_entry(backend: &LintBackend) -> TaskEntry {
     let argv = match backend {
         LintBackend::Golangci => vec![
             "golangci-lint".to_string(),
             "run".to_string(),
-            // golangci-lint guards its shared cache with a global per-user lock;
-            // this flag lets Toven's per-module fan-out run linters concurrently.
+            // golangci-lint guards its shared cache with a global per-user lock; this flag lets
+            // Toven's per-module fan-out run linters concurrently.
             "--allow-parallel-runners".to_string(),
             "{args}".to_string(),
             "{module.selector}".to_string(),
@@ -249,12 +254,13 @@ fn lint_entry(backend: &LintBackend) -> TaskEntry {
 ///
 /// Both run the chosen formatter once per workspace over `{workspace.root}`
 /// (`gofmt` has no failing check mode and no per-module chdir, so a
-/// whole-workspace pass — like `cargo fmt --all` — is the clean shape). `format`
-/// rewrites files (`-w`) and is `cacheable = false` (a mutating task cannot cache
-/// correctly). `format-check` lists offenders (`-l`); list-mode formatters print
-/// the files that would change but still exit `0`, so it is authored
-/// `fail_if_output = true` — the executor turns any stdout into a failure, making
-/// the check a real CI gate while staying non-mutating and cacheable.
+/// whole-workspace pass — like `cargo fmt --all` — is the clean shape).
+/// `format` rewrites files (`-w`) and is `cacheable = false` (a mutating task
+/// cannot cache correctly). `format-check` lists offenders (`-l`); list-mode
+/// formatters print the files that would change but still exit `0`, so it is
+/// authored `fail_if_output = true` — the executor turns any stdout into a
+/// failure, making the check a real CI gate while staying non-mutating and
+/// cacheable.
 fn format_entry(formatter: &Formatter, fix: bool) -> TaskEntry {
     let flag = if fix { "-w" } else { "-l" };
     let mut entry = base_entry(
@@ -279,10 +285,11 @@ fn format_entry(formatter: &Formatter, fix: bool) -> TaskEntry {
 
 /// The `tidy` (non-mutating) / `tidy-fix` (mutating) module-hygiene entry.
 ///
-/// `tidy` runs `go mod tidy -diff` (Go 1.23+), which exits non-zero when `go.mod`
-/// / `go.sum` would change — a CI-safe verification. `tidy-fix` applies the edit
-/// and is `cacheable = false`. Both fan out per module because `go.work` makes a
-/// workspace-wide `go mod tidy` ambiguous; each module is tidied independently.
+/// `tidy` runs `go mod tidy -diff` (Go 1.23+), which exits non-zero when
+/// `go.mod` / `go.sum` would change — a CI-safe verification. `tidy-fix`
+/// applies the edit and is `cacheable = false`. Both fan out per module because
+/// `go.work` makes a workspace-wide `go mod tidy` ambiguous; each module is
+/// tidied independently.
 fn tidy_entry(fix: bool) -> TaskEntry {
     let mut argv = vec![
         "go".to_string(),
@@ -300,9 +307,10 @@ fn tidy_entry(fix: bool) -> TaskEntry {
     entry
 }
 
-/// The `vuln` supply-chain entry: `govulncheck -C {module.root} ./...` per module.
-/// The `vuln` name resolves to [`TaskKind::Vuln`], so it inherits the unordered
-/// run strategy without an explicit `kind` (matching `build`/`check`/`lint`).
+/// The `vuln` supply-chain entry: `govulncheck -C {module.root} ./...` per
+/// module. The `vuln` name resolves to [`TaskKind::Vuln`], so it inherits the
+/// unordered run strategy without an explicit `kind` (matching
+/// `build`/`check`/`lint`).
 fn vuln_entry() -> TaskEntry {
     base_entry(
         vec![
@@ -327,8 +335,8 @@ fn test_entry(selections: &Selections) -> TaskEntry {
     };
 
     let argv = if selections.gotestsum {
-        // `gotestsum` forwards everything after `--` to `go test`; `-C` chdirs
-        // into the module the same way `go -C … test` does.
+        // `gotestsum` forwards everything after `--` to `go test`; `-C` chdirs into the
+        // module the same way `go -C … test` does.
         let mut argv = vec![
             "gotestsum".to_string(),
             "--format".to_string(),
@@ -449,8 +457,8 @@ mod tests {
         assert_eq!(coverage.fan_out, FanOut::WholeWorkspace);
         assert!(!coverage.cacheable, "coverage re-measures every run");
         assert_eq!(coverage.resolved_kind("coverage"), TaskKind::Coverage);
-        // Go measures line coverage only: the starter seeds line/changed_line,
-        // never function/region, under advisory enforcement.
+        // Go measures line coverage only: the starter seeds line/changed_line, never
+        // function/region, under advisory enforcement.
         assert_eq!(config.common.coverage.line, Some(80.0));
         assert_eq!(config.common.coverage.changed_line, Some(85.0));
         assert_eq!(config.common.coverage.function, None);

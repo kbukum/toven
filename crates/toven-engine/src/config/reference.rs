@@ -1,9 +1,10 @@
 //! `ecosystem:module` reference grammar — structural validity only.
 //!
-//! This is the *structural* half of the two-phase ref contract: a ref is checked
-//! for well-formed syntax and a canonical ecosystem prefix here, at load time.
-//! Whether the ref resolves to a real module (and whether the resulting graph is
-//! acyclic) is the *semantic* half, deferred to the engine Graph phase.
+//! This is the *structural* half of the two-phase ref contract: a ref is
+//! checked for well-formed syntax and a canonical ecosystem prefix here, at
+//! load time. Whether the ref resolves to a real module (and whether the
+//! resulting graph is acyclic) is the *semantic* half, deferred to the engine
+//! Graph phase.
 
 use rskit_errors::{AppError, AppResult};
 use toven_model::{EcosystemId, ModuleRef};

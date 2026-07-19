@@ -1,9 +1,10 @@
 //! Cross-repo release planning and per-member APPLY sharding.
 //!
-//! The release plan remains one federated plan, but history mutations are scoped
-//! to each member repo: every member gets its own clean-tree guardrail, release
-//! commit, tags, and optional push. Publishing is delayed until after the member
-//! commits so registry work still follows the federated publish order.
+//! The release plan remains one federated plan, but history mutations are
+//! scoped to each member repo: every member gets its own clean-tree guardrail,
+//! release commit, tags, and optional push. Publishing is delayed until after
+//! the member commits so registry work still follows the federated publish
+//! order.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -28,8 +29,8 @@ impl<'a> MemberReleaseRepo<'a> {
     /// Construct one member repo release port binding.
     ///
     /// `root` is the member's canonical repository root — the working directory
-    /// forge commands (e.g. the hosted-release `gh` calls) run from, so a Release
-    /// is cut against the repo whose tags this member pushed.
+    /// forge commands (e.g. the hosted-release `gh` calls) run from, so a
+    /// Release is cut against the repo whose tags this member pushed.
     #[must_use]
     pub fn new(
         member: Option<MemberId>,
@@ -88,7 +89,8 @@ impl<'a> MemberReleaseRepos<'a> {
             .find(|entry| entry.member.as_ref() == member)
     }
 
-    /// The canonical repository root for `member`, if it is a known member repo.
+    /// The canonical repository root for `member`, if it is a known member
+    /// repo.
     #[must_use]
     pub fn root_for(&self, member: Option<&MemberId>) -> Option<&Path> {
         self.get(member).map(MemberReleaseRepo::root)
@@ -541,10 +543,10 @@ mod tests {
 
     #[test]
     fn member_without_a_release_target_is_not_served_by_another_members_target() {
-        // `core` publishes `rust`; `gateway` does not (its rust adapter is
-        // `publish = false`, so it contributes no target). Keying targets by
-        // `(member, ecosystem)` must not let `gateway`'s module borrow `core`'s
-        // target and get silently released.
+        // `core` publishes `rust`; `gateway` does not (its rust adapter is `publish =
+        // false`, so it contributes no target). Keying targets by `(member, ecosystem)`
+        // must not let `gateway`'s module borrow `core`'s target and get silently
+        // released.
         let plan = ReleasePlan::new(
             BumpPolicy::SemverCascade,
             vec![

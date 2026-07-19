@@ -1,4 +1,5 @@
-//! `CommandTemplate` — the two-template argv renderer (base + selector/args splices).
+//! `CommandTemplate` — the two-template argv renderer (base + selector/args
+//! splices).
 
 use rskit_errors::{AppError, AppResult};
 use rskit_util::{Template, TemplatePart};
@@ -26,8 +27,9 @@ pub struct CommandTemplate {
 /// base argv element, never inside a literal or the selector fragment.
 const SPLICE_VARS: [TaskVar; 2] = [TaskVar::ModuleSelector, TaskVar::Args];
 
-/// Config field paths used as diagnostic context in parse/render errors, kept as
-/// named constants so the field a user must fix stays consistent across messages.
+/// Config field paths used as diagnostic context in parse/render errors, kept
+/// as named constants so the field a user must fix stays consistent across
+/// messages.
 const FIELD_ARGV: &str = "task.argv";
 const FIELD_SELECTOR: &str = "task.selector";
 
@@ -50,11 +52,11 @@ impl CommandTemplate {
         Ok(Self { base, selector })
     }
 
-    /// Render the command for one module, splicing the rendered selector and the
-    /// `passthrough` args at their respective standalone elements.
+    /// Render the command for one module, splicing the rendered selector and
+    /// the `passthrough` args at their respective standalone elements.
     ///
-    /// `passthrough` args are spliced verbatim at `{args}`; `resolve` supplies a
-    /// value for every other placeholder except the splice tokens
+    /// `passthrough` args are spliced verbatim at `{args}`; `resolve` supplies
+    /// a value for every other placeholder except the splice tokens
     /// ([`TaskVar::ModuleSelector`], [`TaskVar::Args`]).
     ///
     /// # Errors
@@ -95,8 +97,9 @@ impl CommandTemplate {
     /// One `resolve` closure per module supplies that module's placeholder
     /// values; the base argv (non-selector placeholders) is rendered from the
     /// first module. With one module this matches [`render`](Self::render).
-    /// `WholeWorkspace` tasks omit `{module.selector}` and so collapse to a single
-    /// selector-less argv (still rendered from their one representative module).
+    /// `WholeWorkspace` tasks omit `{module.selector}` and so collapse to a
+    /// single selector-less argv (still rendered from their one representative
+    /// module).
     ///
     /// # Errors
     /// Returns an error if `resolvers` is empty (a batch always covers at least
@@ -207,9 +210,9 @@ mod tests {
 
     #[test]
     fn selector_is_not_rendered_when_base_omits_the_splice() {
-        // A WholeWorkspace task never splices `{module.selector}`; rendering must
-        // skip the selector fragment entirely, so a selector placeholder that would
-        // fail to resolve does not abort the render.
+        // A WholeWorkspace task never splices `{module.selector}`; rendering must skip
+        // the selector fragment entirely, so a selector placeholder that would fail to
+        // resolve does not abort the render.
         let base = ["cargo".to_string(), "build".to_string()];
         let selector = ["{module.package}".to_string()];
 
@@ -246,8 +249,8 @@ mod tests {
 
     #[test]
     fn render_error_in_selector_points_at_selector_field() {
-        // The base splices the selector, so a selector render failure must surface
-        // as a `task.selector` error, not the base argv field.
+        // The base splices the selector, so a selector render failure must surface as a
+        // `task.selector` error, not the base argv field.
         let base = ["cargo".to_string(), "{module.selector}".to_string()];
         let selector = ["{module.package}".to_string()];
         let command = CommandTemplate::parse(&base, &selector).expect("templates parse");
@@ -269,7 +272,8 @@ mod tests {
             .expect_err("unknown placeholder must be rejected");
         let message = error.to_string();
         assert!(message.contains("module.bogus"), "{error}");
-        // Parse failures point at the actual config field, not a generic template error.
+        // Parse failures point at the actual config field, not a generic template
+        // error.
         assert!(message.contains(FIELD_ARGV), "{error}");
     }
 

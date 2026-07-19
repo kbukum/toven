@@ -1,12 +1,12 @@
 //! `toven tasks`: the runnable-task discovery verb.
 //!
 //! Answers "what can I run?" by rendering the engine's [`TaskCatalog`] — the
-//! fully resolved task set per ecosystem, carrying the **canonical** name a user
-//! types (`format`, never the underlying `fmt` subcommand), its origin, fan-out,
-//! and persistence. A human table by default; a stable JSON-lines schema under
-//! `--output jsonl` for scripts. An optional `[name]` narrows to one task's
-//! detail (argv template + shared inputs). Renders data the engine returns —
-//! this verb prints, the projection does not.
+//! fully resolved task set per ecosystem, carrying the **canonical** name a
+//! user types (`format`, never the underlying `fmt` subcommand), its origin,
+//! fan-out, and persistence. A human table by default; a stable JSON-lines
+//! schema under `--output jsonl` for scripts. An optional `[name]` narrows to
+//! one task's detail (argv template + shared inputs). Renders data the engine
+//! returns — this verb prints, the projection does not.
 
 use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult};
@@ -19,8 +19,8 @@ use crate::host::{Project, resolve_output};
 /// `toven tasks [name] [--output human|jsonl]`.
 ///
 /// # Errors
-/// Propagates [`task_catalog`] (Configure) failures, or a not-found error when a
-/// `[name]` filter matches no resolved task.
+/// Propagates [`task_catalog`] (Configure) failures, or a not-found error when
+/// a `[name]` filter matches no resolved task.
 pub(crate) fn tasks(
     providers: &[&dyn Provider],
     project: &Project,

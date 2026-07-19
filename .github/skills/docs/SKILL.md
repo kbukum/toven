@@ -31,7 +31,6 @@ Never touch `tmp/` (gitignored scratch) and never add a committed doc that refer
 
 - **Flowing Markdown prose.** A Markdown paragraph is one continuous source line. Do not hard-wrap prose to a column limit or add source newlines to control how it looks at one editor width; GitHub and other renderers wrap it for the reader's viewport. Collapse AI-generated hard wraps only within the same logical paragraph.
 - **Preserve intentional structure.** Keep blank-line paragraph boundaries, headings, list items, blockquotes, tables, link definitions, HTML blocks, mermaid diagrams, and fenced or indented code blocks. Never join separate list items or paragraphs. Preserve hard line breaks that are semantically meaningful (`<br>` or two trailing spaces).
-- **Rust documentation.** Write `//!`/`///` rustdoc and `//` prose naturally without arbitrary column-based breaks. Preserve directives, headings, lists, tables, and code examples. Do not join separate comment paragraphs. The `rustfmt` `max_width` limit is for code, not prose.
 - **No history/plan/process narration.** A doc or comment describes the system as it is now, not how it got here, what it used to do, or what a future plan intends. Delete "previously…", "we changed…", batch/plan/PR references, and TODO-narration.
 - **`tmp/` stays uncommitted.** No committed doc references a `tmp/` plan or handoff note.
 - **Frontmatter exemption.** YAML folded scalars (e.g. a skill's `description: >-`) already collapse to one logical line — leave their wrapping alone.

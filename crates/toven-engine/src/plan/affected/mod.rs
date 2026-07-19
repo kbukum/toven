@@ -2,7 +2,8 @@
 //!
 //! The active set is the input to scheduling. It is derived one of two ways:
 //! - [`select`] resolves an explicit user selection (`--module`/`--workspace`
-//!   selectors, optionally expanded through the dependency/dependents closures);
+//!   selectors, optionally expanded through the dependency/dependents
+//!   closures);
 //! - [`changed`] maps changed paths to owning modules via longest-prefix roots
 //!   and adapter blast-radius globs, then fails closed to the full set on any
 //!   unclassifiable path.

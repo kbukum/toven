@@ -1,9 +1,9 @@
 //! Locate and load fixtures from this crate's shared `fixtures/` tree.
 //!
-//! Every loader resolves relative to **this crate's** `CARGO_MANIFEST_DIR`, so a
-//! fixture added here is reachable from any consumer crate's tests regardless of
-//! where that crate lives. Paths are joined through `rskit-fs` `safe_join`, so a
-//! traversing or absolute relative path is rejected, and a missing fixture
+//! Every loader resolves relative to **this crate's** `CARGO_MANIFEST_DIR`, so
+//! a fixture added here is reachable from any consumer crate's tests regardless
+//! of where that crate lives. Paths are joined through `rskit-fs` `safe_join`,
+//! so a traversing or absolute relative path is rejected, and a missing fixture
 //! surfaces as a clear [`AppError`] rather than a silent skip.
 
 use std::path::{Path, PathBuf};
@@ -49,8 +49,8 @@ fn existing(rel: impl AsRef<Path>) -> AppResult<PathBuf> {
 /// Resolve the absolute path to a config fixture under `fixtures/config/<rel>`.
 ///
 /// `rel` is relative to the `config/` subtree, e.g. `"valid/single-rust.toml"`.
-/// Use this when a consumer needs the on-disk path (e.g. a loader that reads the
-/// file itself) rather than the parsed contents.
+/// Use this when a consumer needs the on-disk path (e.g. a loader that reads
+/// the file itself) rather than the parsed contents.
 pub fn document_path(rel: impl AsRef<Path>) -> AppResult<PathBuf> {
     existing(Path::new("config").join(rel.as_ref()))
 }
@@ -72,16 +72,18 @@ pub fn document(rel: impl AsRef<Path>) -> AppResult<toml::Value> {
         .map_err(|error| AppError::invalid_input("fixture_document", error.to_string()))
 }
 
-/// Parse an inline TOML subtree into a canonical [`RawValue`](rskit_config::RawValue).
+/// Parse an inline TOML subtree into a canonical
+/// [`RawValue`](rskit_config::RawValue).
 ///
 /// The shared way for adapter tests to build a `[ecosystems.<id>]` subtree to
-/// hand a provider's `configure`, so cases live as small declarative TOML rather
-/// than format-specific value-tree construction.
+/// hand a provider's `configure`, so cases live as small declarative TOML
+/// rather than format-specific value-tree construction.
 pub fn raw_subtree(toml: &str) -> AppResult<rskit_config::RawValue> {
     rskit_codec::decode(&rskit_codec::TomlCodec, toml)
 }
 
-/// Read a UTF-8 ecosystem-specific fixture under `fixtures/ecosystems/<id>/<rel>`.
+/// Read a UTF-8 ecosystem-specific fixture under
+/// `fixtures/ecosystems/<id>/<rel>`.
 ///
 /// Ecosystem fixtures are isolated per id: adding a new ecosystem never edits
 /// another ecosystem's files.
@@ -106,8 +108,9 @@ pub fn coverage_profile_string(rel: impl AsRef<Path>) -> AppResult<String> {
 
 /// Resolve the path to a sample repo tree under `fixtures/repos/<name>`.
 ///
-/// The returned directory is the source the [`SampleRepo`](crate::repo::SampleRepo)
-/// builder copies into a temp workspace.
+/// The returned directory is the source the
+/// [`SampleRepo`](crate::repo::SampleRepo) builder copies into a temp
+/// workspace.
 pub fn repo_path(name: &str) -> AppResult<PathBuf> {
     let resolved = existing(Path::new("repos").join(name))?;
     if dir::exists(&resolved)? {

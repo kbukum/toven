@@ -1,7 +1,7 @@
 //! Four-way ecosystem dispatch and remote-adapter resolution.
 //!
-//! Extends the load-time three-way config dispatch (loaded / canonical-unloaded /
-//! unknown) into the federation four-way:
+//! Extends the load-time three-way config dispatch (loaded / canonical-unloaded
+//! / unknown) into the federation four-way:
 //!
 //! | Case | [`Resolution`] | Behavior |
 //! |------|----------------|----------|
@@ -174,7 +174,8 @@ fn absent_hint(id: &EcosystemId) -> String {
     )
 }
 
-/// Extract an explicit driver pin: per-section `driver` first, then `[toven.drivers]`.
+/// Extract an explicit driver pin: per-section `driver` first, then
+/// `[toven.drivers]`.
 fn pinned_driver(document: &Document, id: &EcosystemId) -> AppResult<Option<PathBuf>> {
     if let Some(path) = per_section_pin(document, id)? {
         return Ok(Some(path));
@@ -205,7 +206,8 @@ fn per_section_pin(document: &Document, id: &EcosystemId) -> AppResult<Option<Pa
     Ok(Some(PathBuf::from(path)))
 }
 
-/// `[toven.drivers].<id>` as either a bare path string or a `{ path = "..." }` table.
+/// `[toven.drivers].<id>` as either a bare path string or a `{ path = "..." }`
+/// table.
 fn drivers_map_pin(document: &Document, id: &EcosystemId) -> AppResult<Option<PathBuf>> {
     let Some(raw) = document.toven.drivers.get(id.as_str()) else {
         return Ok(None);
@@ -237,13 +239,13 @@ fn drivers_map_pin(document: &Document, id: &EcosystemId) -> AppResult<Option<Pa
     Ok(Some(PathBuf::from(path)))
 }
 
-/// Umbrella-only keys stripped from an ecosystem subtree before it is handed to a
-/// driver: they steer federation in the umbrella and are not part of the adapter's
-/// own (`deny_unknown_fields`) configuration schema.
+/// Umbrella-only keys stripped from an ecosystem subtree before it is handed to
+/// a driver: they steer federation in the umbrella and are not part of the
+/// adapter's own (`deny_unknown_fields`) configuration schema.
 const UMBRELLA_ONLY_KEYS: &[&str] = &["driver"];
 
-/// Strip umbrella-only keys from an `[ecosystems.<id>]` raw subtree, yielding the
-/// canonical [`RawValue`] handed to the driver's own `configure`.
+/// Strip umbrella-only keys from an `[ecosystems.<id>]` raw subtree, yielding
+/// the canonical [`RawValue`] handed to the driver's own `configure`.
 fn driver_config_subtree(raw: &rskit_config::RawValue) -> rskit_config::RawValue {
     let mut config = raw.clone();
     if let Some(table) = config.as_object_mut() {

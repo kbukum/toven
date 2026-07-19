@@ -2,8 +2,9 @@
 //! section, including the full cargo task table, from the user's answers.
 //!
 //! The config is the authoritative task source: `toven init` writes the whole
-//! cargo command table into `toven.toml` at onboarding time, so the planner reads
-//! runnable tasks straight from config rather than a compiled-in adapter default.
+//! cargo command table into `toven.toml` at onboarding time, so the planner
+//! reads runnable tasks straight from config rather than a compiled-in adapter
+//! default.
 
 use std::collections::BTreeMap;
 
@@ -29,8 +30,8 @@ struct RustFragmentBody {
     tasks: BTreeMap<String, TaskEntry>,
 }
 
-/// Render the complete `[ecosystems.rust]` fragment from a [`Detection`] and the
-/// user's [`Answers`].
+/// Render the complete `[ecosystems.rust]` fragment from a [`Detection`] and
+/// the user's [`Answers`].
 ///
 /// The `test` task's argv follows the chosen runner (`cargo nextest run …` or
 /// `cargo test …`); every other task is authored with the canonical cargo
@@ -121,9 +122,8 @@ fn task_table(use_nextest: bool, shared_inputs: &[String]) -> BTreeMap<String, T
             "cargo".to_string(),
             "nextest".to_string(),
             "run".to_string(),
-            // A crate with no test targets is not a failure; nextest otherwise
-            // exits non-zero with "no tests to run". This flag is on a generated
-            // command, not user argv.
+            // A crate with no test targets is not a failure; nextest otherwise exits non-zero with
+            // "no tests to run". This flag is on a generated command, not user argv.
             "--no-tests=pass".to_string(),
             "--manifest-path".to_string(),
             "{module.manifest}".to_string(),
@@ -181,9 +181,9 @@ fn task_table(use_nextest: bool, shared_inputs: &[String]) -> BTreeMap<String, T
 /// The starter `[ecosystems.rust].coverage` block onboarding authors.
 ///
 /// It seeds the dimensions cargo-llvm-cov measures (line/function/region plus a
-/// changed-scope line floor) at conservative floors under `advisory` enforcement,
-/// so a fresh `toven coverage` reports a verdict without failing CI until the user
-/// raises the floors and flips enforcement to `block`.
+/// changed-scope line floor) at conservative floors under `advisory`
+/// enforcement, so a fresh `toven coverage` reports a verdict without failing
+/// CI until the user raises the floors and flips enforcement to `block`.
 fn starter_coverage() -> CoverageConfig {
     CoverageConfig {
         line: Some(80.0),
@@ -198,7 +198,8 @@ fn starter_coverage() -> CoverageConfig {
 /// The `coverage` measurement entry: `cargo llvm-cov` writes one workspace lcov
 /// tracefile into Toven's staging dir, which the coverage verb aggregates and
 /// gates. Tagged [`TaskKind::Coverage`](toven_ports::TaskKind::Coverage) for
-/// cross-ecosystem recognition, and `cacheable = false` so every run re-measures.
+/// cross-ecosystem recognition, and `cacheable = false` so every run
+/// re-measures.
 fn coverage_entry(shared_inputs: &[String]) -> TaskEntry {
     TaskEntry {
         kind: Some(TaskKind::Coverage),
@@ -242,7 +243,8 @@ fn fan_out_argv(subcommand: &str) -> Vec<String> {
     ]
 }
 
-/// A fan-out cargo task entry (`-p {module.package}` selector, lockfile inputs).
+/// A fan-out cargo task entry (`-p {module.package}` selector, lockfile
+/// inputs).
 fn fan_out_entry(subcommand: &str, fan_out: FanOut, shared_inputs: &[String]) -> TaskEntry {
     TaskEntry {
         kind: None,
@@ -259,8 +261,8 @@ fn fan_out_entry(subcommand: &str, fan_out: FanOut, shared_inputs: &[String]) ->
     }
 }
 
-/// The whole-workspace `cargo fmt --all` entry (no per-module selector). `extra`
-/// flags are inserted after `--all`, before the `{args}` passthrough.
+/// The whole-workspace `cargo fmt --all` entry (no per-module selector).
+/// `extra` flags are inserted after `--all`, before the `{args}` passthrough.
 fn whole_workspace_entry(subcommand: &str, extra: &[&str], shared_inputs: &[String]) -> TaskEntry {
     let mut argv = vec![
         "cargo".to_string(),
@@ -287,9 +289,10 @@ fn whole_workspace_entry(subcommand: &str, extra: &[&str], shared_inputs: &[Stri
 }
 
 /// The CI-friendly `cargo fmt --all --check` entry: verifies formatting without
-/// rewriting the tree. Tagged [`TaskKind::Format`](toven_ports::TaskKind::Format)
-/// so it keeps the format run-strategy and cross-ecosystem recognition despite
-/// its distinct `format-check` name.
+/// rewriting the tree. Tagged
+/// [`TaskKind::Format`](toven_ports::TaskKind::Format) so it keeps the format
+/// run-strategy and cross-ecosystem recognition despite its distinct
+/// `format-check` name.
 fn format_check_entry(shared_inputs: &[String]) -> TaskEntry {
     let mut entry = whole_workspace_entry("fmt", &["--check"], shared_inputs);
     entry.kind = Some(toven_ports::TaskKind::Format);
@@ -297,8 +300,8 @@ fn format_check_entry(shared_inputs: &[String]) -> TaskEntry {
 }
 
 /// The mutating `cargo fmt --all` entry. Authored `cacheable = false`: a
-/// formatter rewrites the tree, so a stale content-key hit must never suppress a
-/// reformat (the `format-check` twin keeps caching its non-mutating verify).
+/// formatter rewrites the tree, so a stale content-key hit must never suppress
+/// a reformat (the `format-check` twin keeps caching its non-mutating verify).
 fn format_entry(shared_inputs: &[String]) -> TaskEntry {
     let mut entry = whole_workspace_entry("fmt", &[], shared_inputs);
     entry.cacheable = false;
@@ -306,12 +309,13 @@ fn format_entry(shared_inputs: &[String]) -> TaskEntry {
 }
 
 /// The `vuln` supply-chain entry: `cargo audit --file {lockfile}` once per
-/// workspace lockfile. Fanning out whole-workspace hits each `Cargo.lock` exactly
-/// once (the resolved graph an audit needs), the direct analog of Go's per-module
-/// `govulncheck`. `cargo audit` reads the `RustSec` advisory DB with no project
-/// config, so it stays generic where `cargo deny` needs a per-repo policy file.
-/// The `vuln` name resolves to [`toven_ports::TaskKind::Vuln`], so it inherits the
-/// unordered run strategy without an explicit `kind` (matching `build`/`check`).
+/// workspace lockfile. Fanning out whole-workspace hits each `Cargo.lock`
+/// exactly once (the resolved graph an audit needs), the direct analog of Go's
+/// per-module `govulncheck`. `cargo audit` reads the `RustSec` advisory DB with
+/// no project config, so it stays generic where `cargo deny` needs a per-repo
+/// policy file. The `vuln` name resolves to [`toven_ports::TaskKind::Vuln`], so
+/// it inherits the unordered run strategy without an explicit `kind` (matching
+/// `build`/`check`).
 fn vuln_entry(shared_inputs: &[String]) -> TaskEntry {
     TaskEntry {
         kind: None,
@@ -426,8 +430,8 @@ mod tests {
 
     #[test]
     fn nextest_test_task_passes_empty_crates_instead_of_failing() {
-        // A crate with no test targets must not be a failure; the generated
-        // nextest command carries `--no-tests=pass` so an empty crate is `ok`.
+        // A crate with no test targets must not be a failure; the generated nextest
+        // command carries `--no-tests=pass` so an empty crate is `ok`.
         let fragment = render(&detection(true), &Answers::new()).expect("render");
         let config = parse(&fragment);
         let test = config.common.tasks.get("test").expect("test task");

@@ -1,14 +1,15 @@
 //! Load-time task-name / reserved-word collision detection.
 //!
-//! Argv-first dispatch shadows a task whose name equals a reserved built-in word:
-//! `toven <name>` runs the built-in, and the task is reachable only via `toven run
-//! <name>`. This module turns that shadow into a visible **warning** at config
-//! load — never a hard stop (a later-reserved word must not break an existing
-//! config) — pointing at the `toven run <task>` escape hatch.
+//! Argv-first dispatch shadows a task whose name equals a reserved built-in
+//! word: `toven <name>` runs the built-in, and the task is reachable only via
+//! `toven run <name>`. This module turns that shadow into a visible **warning**
+//! at config load — never a hard stop (a later-reserved word must not break an
+//! existing config) — pointing at the `toven run <task>` escape hatch.
 
 use crate::grammar::is_reserved;
 
-/// A single collision warning: a user-addressable task name equals a reserved word.
+/// A single collision warning: a user-addressable task name equals a reserved
+/// word.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Collision {
     /// The shadowed task name.

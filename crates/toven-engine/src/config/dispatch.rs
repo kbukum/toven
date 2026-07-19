@@ -2,9 +2,9 @@
 //!
 //! A standalone binary that only links the Rust adapter must still tell a legit
 //! but unloaded `[ecosystems.go]` (warn + ignore) apart from a typo
-//! `[ecosystems.rsut]` (hard error). It cannot from its loaded adapters alone, so
-//! dispatch consults *two* registries: the [`CanonicalRegistry`] of known ids and
-//! the set of ids actually loaded in this binary.
+//! `[ecosystems.rsut]` (hard error). It cannot from its loaded adapters alone,
+//! so dispatch consults *two* registries: the [`CanonicalRegistry`] of known
+//! ids and the set of ids actually loaded in this binary.
 
 use std::collections::{BTreeMap, BTreeSet};
 

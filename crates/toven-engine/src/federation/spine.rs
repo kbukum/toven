@@ -1,6 +1,6 @@
-//! The cross-repo PLAN spine: compose members, configure each member's adapters,
-//! discover per member, and union every member's discovery output into the one
-//! federated graph dataset.
+//! The cross-repo PLAN spine: compose members, configure each member's
+//! adapters, discover per member, and union every member's discovery output
+//! into the one federated graph dataset.
 //!
 //! This is the N-member generalization of the single Configure → Discover front
 //! half. The degenerate single-repo project is the same path with one implicit,
@@ -8,10 +8,10 @@
 //!
 //! Composition is computed once up front; Configure then bakes every member's
 //! `[ecosystems.*]` into per-member adapters (kept apart by member because each
-//! member owns its config), and Discover runs each member's adapters against that
-//! member's root and rebases the responses into umbrella coordinates before the
-//! union. Cross-member overlay edges declared on the umbrella are resolved against
-//! the unioned module set and appended last.
+//! member owns its config), and Discover runs each member's adapters against
+//! that member's root and rebases the responses into umbrella coordinates
+//! before the union. Cross-member overlay edges declared on the umbrella are
+//! resolved against the unioned module set and appended last.
 
 use std::collections::BTreeSet;
 
@@ -90,10 +90,11 @@ fn configure_member(
 
 /// Discover every member and union the responses into one federated dataset.
 ///
-/// Each member is discovered against its own root, its member-local overlays are
-/// appended, and the response is rebased into umbrella coordinates (member-scoped
-/// identity + umbrella-relative paths) before being unioned. Cross-member overlay
-/// edges declared on the umbrella are resolved against the union and appended.
+/// Each member is discovered against its own root, its member-local overlays
+/// are appended, and the response is rebased into umbrella coordinates
+/// (member-scoped identity + umbrella-relative paths) before being unioned.
+/// Cross-member overlay edges declared on the umbrella are resolved against the
+/// union and appended.
 ///
 /// # Errors
 /// Propagates an adapter discovery failure, a malformed overlay endpoint, an

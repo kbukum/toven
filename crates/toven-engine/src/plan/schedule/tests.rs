@@ -1,5 +1,5 @@
-//! Behavioral tests for the schedule phase: ordering, task resolution,
-//! batch grouping with dependency-layer folding, and unit rendering.
+//! Behavioral tests for the schedule phase: ordering, task resolution, batch
+//! grouping with dependency-layer folding, and unit rendering.
 
 use std::collections::BTreeMap;
 
@@ -102,9 +102,9 @@ fn request_for(intent: TaskIntent) -> PlanRequest {
     PlanRequest::new("r", "t", intent, AbsPath::new("/repo").unwrap())
 }
 
-/// An adapter exposing both a plain `test` task and a `test-integration`
-/// named extra (`kind = "test"`) with distinct argv, so a test can prove
-/// each resolves by its own user-addressable name.
+/// An adapter exposing both a plain `test` task and a `test-integration` named
+/// extra (`kind = "test"`) with distinct argv, so a test can prove each
+/// resolves by its own user-addressable name.
 fn named_extra_adapter(ecosystem: &str) -> Box<dyn ConfiguredAdapter> {
     let plain = Task::new(
         "test",
@@ -178,8 +178,8 @@ fn workspace_module_without_resolved_toolchain_is_rejected() {
     let adapters = single_member(adapters);
 
     let active = vec![toven_model::ModuleKey::bare(mref("rust", "app"))];
-    // Empty toolchain map: the workspace-owning module has no resolved
-    // identity, which must fail closed rather than key against an empty one.
+    // Empty toolchain map: the workspace-owning module has no resolved identity,
+    // which must fail closed rather than key against an empty one.
     let result = schedule(
         &request(),
         &federation,
@@ -375,11 +375,11 @@ fn batchable_groups_members_and_keeps_distinct_ecosystems_apart() {
 
 #[test]
 fn batchable_single_workspace_chain_stays_one_batched_unit() {
-    // A clean single Cargo workspace with an internal dependency chain
-    // (app → corelib → util) under a batchable task. The modules span three
-    // dependency layers, but they form no cross-group cycle — every edge is
-    // intra-group — so the base must stay a single `cargo check -p …` unit
-    // rather than fragmenting into one unit per layer.
+    // A clean single Cargo workspace with an internal dependency chain (app →
+    // corelib → util) under a batchable task. The modules span three dependency
+    // layers, but they form no cross-group cycle — every edge is intra-group — so
+    // the base must stay a single `cargo check -p …` unit rather than fragmenting
+    // into one unit per layer.
     let federation = Federation {
         workspaces: vec![workspace("rust")],
         modules: vec![
@@ -551,8 +551,8 @@ fn facade_back_dependency_splits_a_workspace_across_layers_into_a_dag() {
             .unwrap_or_else(|| panic!("missing unit '{id}': {:?}", ids(&scheduled)))
     };
 
-    // core is split into a base layer (L0) and a suite layer (L2); contrib and
-    // the independent examples workspace stay single-layer.
+    // core is split into a base layer (L0) and a suite layer (L2); contrib and the
+    // independent examples workspace stay single-layer.
     assert_eq!(
         ids(&scheduled),
         vec![
@@ -575,8 +575,8 @@ fn facade_back_dependency_splits_a_workspace_across_layers_into_a_dag() {
         vec!["rust@contrib#test".to_string()]
     );
 
-    // Three waves, base layer first; the independent examples workspace shares
-    // that leading wave.
+    // Three waves, base layer first; the independent examples workspace shares that
+    // leading wave.
     assert_eq!(scheduled.waves.len(), 3);
     let mut first = scheduled.waves[0].clone();
     first.sort_unstable();
@@ -643,10 +643,10 @@ fn whole_workspace_facade_cycle_is_an_irreducible_typed_error() {
 
 #[test]
 fn named_extra_task_is_selected_by_its_addressable_name() {
-    // A named extra (`test-integration`, kind = "test") is advertised by
-    // discovery and suggestions; selection must resolve the user token to it
-    // by its addressable name — the plain `test` token must still resolve the
-    // unnamed Test task independently, with no collision either way.
+    // A named extra (`test-integration`, kind = "test") is advertised by discovery
+    // and suggestions; selection must resolve the user token to it by its
+    // addressable name — the plain `test` token must still resolve the unnamed Test
+    // task independently, with no collision either way.
     let federation = Federation {
         workspaces: vec![workspace("rust")],
         modules: vec![module("rust", "app", "rust")],
@@ -781,8 +781,8 @@ fn group_task_override_applies_to_members_only() {
     )
     .unwrap();
 
-    // The overridden member splits into its own group-tagged unit; the
-    // non-member keeps the ecosystem default in the plain batch unit.
+    // The overridden member splits into its own group-tagged unit; the non-member
+    // keeps the ecosystem default in the plain batch unit.
     let overridden = scheduled
         .units
         .iter()
@@ -801,11 +801,11 @@ fn group_task_override_applies_to_members_only() {
 
 #[test]
 fn same_name_group_overrides_from_distinct_scopes_do_not_collapse() {
-    // Two modules in the same batch base, overridden by a member-local group
-    // and an umbrella group that share the plain name `integration` but carry
-    // different argv. Folding the plain name would collapse them into one
-    // `…~integration#test` unit and render argv from the representative only;
-    // the scope-qualified identity must keep them in distinct units.
+    // Two modules in the same batch base, overridden by a member-local group and an
+    // umbrella group that share the plain name `integration` but carry different
+    // argv. Folding the plain name would collapse them into one
+    // `…~integration#test` unit and render argv from the representative only; the
+    // scope-qualified identity must keep them in distinct units.
     let federation = Federation {
         workspaces: vec![workspace("rust")],
         modules: vec![
@@ -888,8 +888,8 @@ fn group_run_strategy_override_relaxes_members_only() {
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
-    // Adapter default is dependency-respecting, so without an override the
-    // edge orders `errors` before `app` across two waves.
+    // Adapter default is dependency-respecting, so without an override the edge
+    // orders `errors` before `app` across two waves.
     adapters.insert(eid("rust"), adapter("rust", RunStrategy::LeafToTop));
     let group = crate::config::GroupConfig {
         run_strategy: Some(RunStrategy::Unordered),
@@ -913,8 +913,8 @@ fn group_run_strategy_override_relaxes_members_only() {
     .unwrap()
     .waves;
 
-    // The dependent's `unordered` override drops its intra-ecosystem edge, so
-    // both modules collapse into a single wave.
+    // The dependent's `unordered` override drops its intra-ecosystem edge, so both
+    // modules collapse into a single wave.
     assert_eq!(waves.len(), 1);
 }
 
@@ -957,8 +957,8 @@ fn run_task_skips_library_only_modules() {
     )
     .unwrap();
 
-    // Only the module with an executable target gets a `run` unit; the
-    // library-only crate is dropped rather than scheduled to fail at exec.
+    // Only the module with an executable target gets a `run` unit; the library-only
+    // crate is dropped rather than scheduled to fail at exec.
     assert_eq!(ids(&scheduled), vec!["rust:app#run".to_string()]);
 }
 

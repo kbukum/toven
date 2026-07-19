@@ -7,10 +7,11 @@ use rskit_util::Placeholder;
 
 /// The closed set of placeholders a release tag/commit template may reference.
 ///
-/// The *vocabulary* is Toven's; parsing and strict unknown-placeholder rejection
-/// are rskit-util's [`Template`](rskit_util::Template). A configured template is
-/// validated against this set at config time so a typo like `{verison}` fails the
-/// load rather than silently rendering an empty segment at tag time.
+/// The *vocabulary* is Toven's; parsing and strict unknown-placeholder
+/// rejection are rskit-util's [`Template`](rskit_util::Template). A configured
+/// template is validated against this set at config time so a typo like
+/// `{verison}` fails the load rather than silently rendering an empty segment
+/// at tag time.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[non_exhaustive]
 pub enum ReleaseVar {

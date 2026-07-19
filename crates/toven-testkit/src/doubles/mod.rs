@@ -1,9 +1,8 @@
 //! Shared port test doubles, defined once and reused across crates.
 //!
-//! Decomposed by port: the Provider seam, the VCS seam, the
-//! Reporter sink, the raw-output sink, and the injected toolchain/source/cache
-//! IO ports each own a file. Use these instead of redeclaring bespoke fakes
-//! inside a crate.
+//! Decomposed by port: the Provider seam, the VCS seam, the Reporter sink, the
+//! raw-output sink, and the injected toolchain/source/cache IO ports each own a
+//! file. Use these instead of redeclaring bespoke fakes inside a crate.
 
 mod answers;
 mod cache;

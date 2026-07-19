@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use toven_model::UnitOutput;
 
-/// Callback sink for output that must be routed while an invocation is still running.
+/// Callback sink for output that must be routed while an invocation is still
+/// running.
 #[derive(Clone, Default)]
 pub struct OutputObserver {
     emit: Option<Arc<dyn Fn(UnitOutput) + Send + Sync + 'static>>,

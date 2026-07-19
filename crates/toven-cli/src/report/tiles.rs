@@ -15,9 +15,9 @@
 //! buffering normal units into blocks. On a failure it both replays the unit's
 //! retained tail inline (immediate feedback) and retains it so
 //! [`finish_run`](toven_ports::RawOutputSink::finish_run) can re-surface every
-//! failure as one consolidated section above the run summary, un-buried by later
-//! output. All rendering is delegated to rskit's generic [`LiveConsole`]; this
-//! adapter only maps the port calls and owns the status header and verdict
+//! failure as one consolidated section above the run summary, un-buried by
+//! later output. All rendering is delegated to rskit's generic [`LiveConsole`];
+//! this adapter only maps the port calls and owns the status header and verdict
 //! styling.
 
 use std::collections::HashMap;
@@ -78,8 +78,8 @@ impl TilesRawSink {
     }
 
     /// Create a tiles sink whose rendering is discarded — for tests and
-    /// non-terminal runs where the live area must not draw. The grid still needs
-    /// a finite width, so a conventional 80-column terminal is assumed.
+    /// non-terminal runs where the live area must not draw. The grid still
+    /// needs a finite width, so a conventional 80-column terminal is assumed.
     #[must_use]
     pub fn hidden() -> Self {
         Self::with_console(
@@ -135,10 +135,10 @@ impl RawOutputSink for TilesRawSink {
     }
 
     fn block(&mut self, unit_id: &str, chunks: &[UnitOutput]) -> AppResult<()> {
-        // Concurrent-live sinks stream every unit through the live lifecycle, so
-        // this path is only reached defensively (e.g. a spilled buffered block
-        // from a unit that was never live-tailed). Flush it to scrollback rather
-        // than dropping the output.
+        // Concurrent-live sinks stream every unit through the live lifecycle, so this
+        // path is only reached defensively (e.g. a spilled buffered block from a unit
+        // that was never live-tailed). Flush it to scrollback rather than dropping the
+        // output.
         self.console.note(format!("==> {unit_id}"))?;
         for chunk in chunks {
             let text = String::from_utf8_lossy(&chunk.bytes);
@@ -163,8 +163,8 @@ impl RawOutputSink for TilesRawSink {
         let verdict = verdict_line(self.palette, unit_id, status, summary);
         if status.is_failure() {
             // A failure is the one case detail matters: replay the retained tail
-            // contiguously under the red verdict, and retain it so `finish_run`
-            // can re-surface every failure together above the run summary.
+            // contiguously under the red verdict, and retain it so `finish_run` can
+            // re-surface every failure together above the run summary.
             let body = self.console.finish_with_replay(unit_id, &verdict)?;
             self.failures.push(FailureRecord { verdict, body });
         } else {
@@ -185,11 +185,11 @@ impl RawOutputSink for TilesRawSink {
         if self.failures.is_empty() {
             return Ok(());
         }
-        // Re-surface every failure as one contiguous section once the live area
-        // has drained, so failing units are not buried above a flood of later
-        // per-unit output — the section lands directly above the run summary.
-        // Drain the failures so a reused sink (a `--watch` rerun) starts each
-        // run clean and never re-surfaces a prior run's failures.
+        // Re-surface every failure as one contiguous section once the live area has
+        // drained, so failing units are not buried above a flood of later per-unit
+        // output — the section lands directly above the run summary. Drain the failures
+        // so a reused sink (a `--watch` rerun) starts each run clean and never
+        // re-surfaces a prior run's failures.
         let failures = std::mem::take(&mut self.failures);
         self.console.note("")?;
         let heading = format!("failures ({})", failures.len());
@@ -204,8 +204,8 @@ impl RawOutputSink for TilesRawSink {
     }
 }
 
-/// Render a finished unit's one-line verdict: a colorized outcome label, the id,
-/// and — for a succeeding unit with a parsed count summary — a `· N passed`
+/// Render a finished unit's one-line verdict: a colorized outcome label, the
+/// id, and — for a succeeding unit with a parsed count summary — a `· N passed`
 /// tail folding the runner's own totals.
 ///
 /// Colors match the human reporter: green success, red failure, yellow
@@ -270,8 +270,8 @@ mod tests {
 
     #[test]
     fn content_cols_reserves_the_tile_indent() {
-        // Children are sized to this, not the full tile width, so a full-width
-        // in-place progress redraw does not wrap into a grid scroll.
+        // Children are sized to this, not the full tile width, so a full-width in-place
+        // progress redraw does not wrap into a grid scroll.
         assert_eq!(
             TilesRawSink::stderr(120, Palette::new(false)).content_cols(),
             118
@@ -293,8 +293,8 @@ mod tests {
 
     #[test]
     fn a_failed_unit_is_retained_for_the_end_of_run_epilogue() {
-        // A failure both replays inline (at end_unit) and is retained so
-        // finish_run can re-surface it above the summary; a success is not.
+        // A failure both replays inline (at end_unit) and is retained so finish_run can
+        // re-surface it above the summary; a success is not.
         let mut sink = TilesRawSink::hidden();
         sink.begin_unit("go:auth#test", "go:auth#test").unwrap();
         sink.live(&chunk("go:auth#test", b"--- FAIL: TestParse\nFAIL\n"))
@@ -324,8 +324,8 @@ mod tests {
 
     #[test]
     fn finish_run_drains_failures_so_a_reused_sink_starts_each_run_clean() {
-        // A `--watch` rerun reuses the sink instance, so finish_run must drain
-        // the retained failures and never re-surface a prior run's failures.
+        // A `--watch` rerun reuses the sink instance, so finish_run must drain the
+        // retained failures and never re-surface a prior run's failures.
         let mut sink = TilesRawSink::hidden();
         sink.begin_unit("go:auth#test", "go:auth#test").unwrap();
         sink.live(&chunk("go:auth#test", b"--- FAIL: TestParse\nFAIL\n"))
@@ -344,8 +344,8 @@ mod tests {
 
     #[test]
     fn a_finished_unit_summary_is_consumed_once() {
-        // The per-unit summary scanner is dropped at end_unit, so a re-used id
-        // does not carry a stale tally.
+        // The per-unit summary scanner is dropped at end_unit, so a re-used id does not
+        // carry a stale tally.
         let mut sink = TilesRawSink::hidden();
         sink.begin_unit("u", "u").unwrap();
         sink.live(&chunk(

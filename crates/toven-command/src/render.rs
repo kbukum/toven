@@ -1,8 +1,9 @@
 //! The command wizard `render` step.
 //!
-//! The command adapter is explicit-config only and has no built-in task templates.
-//! If rendered from a caller-supplied detection, it emits an empty opt-in section
-//! that round-trips through `configure`; users then author modules/tasks manually.
+//! The command adapter is explicit-config only and has no built-in task
+//! templates. If rendered from a caller-supplied detection, it emits an empty
+//! opt-in section that round-trips through `configure`; users then author
+//! modules/tasks manually.
 
 use toml::Table;
 use toven_ports::{Answers, Detection, EcosystemFragment};

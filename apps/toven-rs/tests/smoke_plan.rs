@@ -1,6 +1,6 @@
-//! Standalone `toven-rs` PLAN-cut smokes: `plan <task>`, `run <task> --dry-run`,
-//! and `--output jsonl`. Human summaries render to **stderr**; the JSONL stream
-//! renders to **stdout**. No APPLY side effects.
+//! Standalone `toven-rs` PLAN-cut smokes: `plan <task>`, `run <task>
+//! --dry-run`, and `--output jsonl`. Human summaries render to **stderr**; the
+//! JSONL stream renders to **stdout**. No APPLY side effects.
 
 mod common;
 

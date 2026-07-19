@@ -76,8 +76,8 @@ pub fn init(
     )
 }
 
-/// The injectable core of [`init`]: the driver-wizard and locator are parameters
-/// so tests drive the bootstrap probe without spawning subprocesses.
+/// The injectable core of [`init`]: the driver-wizard and locator are
+/// parameters so tests drive the bootstrap probe without spawning subprocesses.
 ///
 /// # Errors
 /// See [`init`].
@@ -138,8 +138,9 @@ fn project_name(root: &Path) -> String {
         .unwrap_or_else(|| "workspace".to_string())
 }
 
-/// The enclosing git work-tree's top-level directory name, or `None` when `root`
-/// is not inside a git repository (or the top level has no nameable component).
+/// The enclosing git work-tree's top-level directory name, or `None` when
+/// `root` is not inside a git repository (or the top level has no nameable
+/// component).
 fn git_top_level_name(root: &Path) -> Option<String> {
     let repo = rskit_git::discover(root).ok()?;
     repo.root()
@@ -172,7 +173,8 @@ fn no_ecosystem_hint(root: &Path) -> String {
     )
 }
 
-/// Warn when `--force <id>` was given on a first run but nothing detected that id.
+/// Warn when `--force <id>` was given on a first run but nothing detected that
+/// id.
 fn force_without_target(force: Option<&str>, added: &[EcosystemId]) -> Vec<String> {
     match force {
         Some(id) if !added.iter().any(|eco| eco.as_str() == id) => {

@@ -1,12 +1,12 @@
 //! Normalized coverage-profile model: the ecosystem-agnostic shape the lcov and
 //! Go `-coverprofile` parsers fold their emitted output into.
 //!
-//! A profile is a set of per-file line/function/region tallies. Line coverage is
-//! recorded per line (covered or not) so a changed-scope gate can restrict the
-//! measurement to a subset of files. Function/region tallies are `Option` — an
-//! ecosystem that cannot measure a dimension (Go emits statement/line coverage
-//! only) leaves it `None`, and the gate skips any dimension a profile did not
-//! measure rather than failing on a missing metric.
+//! A profile is a set of per-file line/function/region tallies. Line coverage
+//! is recorded per line (covered or not) so a changed-scope gate can restrict
+//! the measurement to a subset of files. Function/region tallies are `Option` —
+//! an ecosystem that cannot measure a dimension (Go emits statement/line
+//! coverage only) leaves it `None`, and the gate skips any dimension a profile
+//! did not measure rather than failing on a missing metric.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -42,13 +42,15 @@ impl Counts {
 /// Per-file coverage: line hit-map plus optional function/region tallies.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileCoverage {
-    /// The file path exactly as the tool emitted it (normalized at attribution).
+    /// The file path exactly as the tool emitted it (normalized at
+    /// attribution).
     pub path: PathBuf,
     /// Per-line coverage: line number → whether it was hit at least once.
     pub lines: BTreeMap<u32, bool>,
     /// Function tally; `None` where the ecosystem does not measure functions.
     pub functions: Option<Counts>,
-    /// Region/branch tally; `None` where the ecosystem does not measure regions.
+    /// Region/branch tally; `None` where the ecosystem does not measure
+    /// regions.
     pub regions: Option<Counts>,
 }
 

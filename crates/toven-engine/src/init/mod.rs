@@ -6,12 +6,13 @@
 //! driver found on `PATH` — running each provider's three-step wizard
 //! ([`detect`](toven_ports::Provider::detect) →
 //! [`questionnaire`](toven_ports::Provider::questionnaire) →
-//! [`render`](toven_ports::Provider::render)). Questions are answered through an
-//! injected [`AnswerProvider`](toven_ports::AnswerProvider) — the CLI prompts
-//! interactively, tests supply canned answers — so the flow itself never prompts
-//! and stays pure data orchestration. Each provider emits a complete
-//! `[ecosystems.<id>]` fragment; the engine assembles `[project]`, merges the
-//! fragments into one polyglot document, and renders it format-preserving.
+//! [`render`](toven_ports::Provider::render)). Questions are answered through
+//! an injected [`AnswerProvider`](toven_ports::AnswerProvider) — the CLI
+//! prompts interactively, tests supply canned answers — so the flow itself
+//! never prompts and stays pure data orchestration. Each provider emits a
+//! complete `[ecosystems.<id>]` fragment; the engine assembles `[project]`,
+//! merges the fragments into one polyglot document, and renders it
+//! format-preserving.
 //!
 //! The flow is **minimal and additive**: a first run writes the detected
 //! sections (smart defaults do the rest) with a few commented override hints; a
@@ -22,7 +23,8 @@
 //! ## Modules
 //! - `flow` — assemble → probe → merge → render → (optional) write.
 //! - `probe` — the bootstrap probe set (in-proc providers + PATH drivers).
-//! - `merge` — additive/idempotent fragment merge (format-preserving, `toml_edit`).
+//! - `merge` — additive/idempotent fragment merge (format-preserving,
+//!   `toml_edit`).
 //! - `render` — minimal first-run emit + commented override hints.
 
 mod flow;

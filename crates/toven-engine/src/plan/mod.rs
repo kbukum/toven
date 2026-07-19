@@ -2,19 +2,21 @@
 //! Affected → Toolchain → Schedule+Cache) culminating in one immutable
 //! [`Plan`](toven_model::Plan).
 //!
-//! Load is the [`config`](crate::config) loader; the remaining phases
-//! live one-per-file under this module and are driven by [`pipeline::plan`]. The
+//! Load is the [`config`](crate::config) loader; the remaining phases live
+//! one-per-file under this module and are driven by [`pipeline::plan`]. The
 //! cross-language differentiator is built here: ONE federated dependency graph,
 //! assembled centrally before affected/schedule.
 //!
 //! ## Surface
-//! - `pipeline` — drives the phases and emits PHASE/PLAN events → [`Plan`](toven_model::Plan).
+//! - `pipeline` — drives the phases and emits PHASE/PLAN events →
+//!   [`Plan`](toven_model::Plan).
 //! - `configure` — bakes each ecosystem subtree into a `ConfiguredAdapter`.
 //! - `discover` — full federation union (workspaces/modules/edges + overlays).
 //! - `graph` — `Graph::build` plus the deferred SEMANTIC config validation.
 //! - `affected` — longest-prefix change mapper + blast radius + closure.
 //! - `toolchain` — per-active-workspace `{tool, version}` resolution.
-//! - `schedule` — `RunStrategy` relaxation → federated waves → per-module units.
+//! - `schedule` — `RunStrategy` relaxation → federated waves → per-module
+//!   units.
 //! - `cache` — the content key, lookup port, and per-unit verdict.
 //! - `request` / `source` / `host` — PLAN inputs and injected ports.
 

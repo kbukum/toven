@@ -1,14 +1,14 @@
 //! Member enumeration for the cross-repo umbrella.
 //!
 //! Turns the umbrella `[[members]]` array (or the degenerate single-`[project]`
-//! case) into the resolved, root-confined member list the rest of the cross-repo
-//! federation composes, discovers, and releases against.
+//! case) into the resolved, root-confined member list the rest of the
+//! cross-repo federation composes, discovers, and releases against.
 //!
-//! Enumeration resolves each declared member's repo root under the umbrella root
-//! at the trust boundary (`validate_safe_path` + `safe_join`, the same
-//! confinement the include loader uses), and treats an absent declared member as
-//! a hard error rather than a warn-and-skip — a declared member is a required
-//! graph node.
+//! Enumeration resolves each declared member's repo root under the umbrella
+//! root at the trust boundary (`validate_safe_path` + `safe_join`, the same
+//! confinement the include loader uses), and treats an absent declared member
+//! as a hard error rather than a warn-and-skip — a declared member is a
+//! required graph node.
 
 use std::collections::BTreeSet;
 
@@ -21,8 +21,8 @@ use crate::config::Document;
 
 /// One resolved umbrella member: its identity, repo root, and change baseline.
 ///
-/// `id` is `None` for the degenerate single-repo case (a lone `[project]` with no
-/// `[[members]]`); modules under such a member are left unstamped so the
+/// `id` is `None` for the degenerate single-repo case (a lone `[project]` with
+/// no `[[members]]`); modules under such a member are left unstamped so the
 /// single-repo path stays byte-for-byte identical. `id` is `Some` for every
 /// declared `[[members]]` entry, and those modules are stamped with it during
 /// discovery so the model `member` slot becomes load-bearing.
@@ -70,9 +70,9 @@ impl ResolvedMember {
 /// must exist on disk.
 ///
 /// # Errors
-/// Returns a typed error when a declared member `root` escapes the umbrella root,
-/// is absent on disk (with a hint to provision or clone it), or when two members
-/// resolve to the same repo root.
+/// Returns a typed error when a declared member `root` escapes the umbrella
+/// root, is absent on disk (with a hint to provision or clone it), or when two
+/// members resolve to the same repo root.
 pub fn enumerate_members(
     document: &Document,
     umbrella_root: &AbsPath,

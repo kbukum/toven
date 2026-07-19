@@ -7,11 +7,12 @@ use rskit_errors::{AppError, AppResult};
 /// section — the `[…coverage]` block and its profiles inline these fields so
 /// they stay `deny_unknown_fields`).
 ///
-/// Each floor is an optional percentage in `0.0..=100.0`. `line` is the absolute
-/// per-module line floor (codecov's `project`); `function`/`region` are the
-/// Rust-only dimensions llvm-cov emits, left `None` where an ecosystem cannot
-/// measure them; `changed_line` is the floor applied to the changed scope under
-/// `--changed` (codecov's `patch`). A `None` dimension is not gated.
+/// Each floor is an optional percentage in `0.0..=100.0`. `line` is the
+/// absolute per-module line floor (codecov's `project`); `function`/`region`
+/// are the Rust-only dimensions llvm-cov emits, left `None` where an ecosystem
+/// cannot measure them; `changed_line` is the floor applied to the changed
+/// scope under `--changed` (codecov's `patch`). A `None` dimension is not
+/// gated.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct CoverageThresholds {
     /// Absolute per-module line-coverage floor.
@@ -35,8 +36,8 @@ impl CoverageThresholds {
     }
 
     /// Fold `over` onto `self`: a set dimension in `over` replaces this one, an
-    /// unset dimension inherits (the documented per-module > profile > ecosystem
-    /// precedence, one dimension at a time).
+    /// unset dimension inherits (the documented per-module > profile >
+    /// ecosystem precedence, one dimension at a time).
     #[must_use]
     pub fn merge(&self, over: &Self) -> Self {
         Self {

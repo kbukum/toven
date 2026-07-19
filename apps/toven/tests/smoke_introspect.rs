@@ -1,5 +1,5 @@
-//! Umbrella `toven` introspection smokes: `modules`/`list`/`ls`, `graph`
-//! (text + dot), `affected`, and `explain` — all read-only, deterministic, and
+//! Umbrella `toven` introspection smokes: `modules`/`list`/`ls`, `graph` (text +
+//! dot), `affected`, and `explain` — all read-only, deterministic, and
 //! toolchain-independent. Introspection projections render to **stdout**.
 
 mod common;
@@ -162,8 +162,8 @@ fn tasks_jsonl_emits_a_stable_record_per_task() {
 
 #[test]
 fn unknown_task_that_typos_a_reserved_verb_advises_the_builtin() {
-    // argv stays sacred: `modual` first fails to resolve as a task, and only
-    // then does the advisory point at the near-miss built-in `modules`. Lock the
+    // argv stays sacred: `modual` first fails to resolve as a task, and only then
+    // does the advisory point at the near-miss built-in `modules`. Lock the
     // typo-hint wiring so the guidance keeps reaching the error surface (stderr).
     let sample = repo("rust/multi-module");
     let out = toven(&sample, &["modual"]);
@@ -174,8 +174,8 @@ fn unknown_task_that_typos_a_reserved_verb_advises_the_builtin() {
 
 #[test]
 fn completions_emit_a_shell_script_for_each_supported_shell() {
-    // `completions` is a pure projection (no project load); it prints the script
-    // to stdout and exits success for every supported shell.
+    // `completions` is a pure projection (no project load); it prints the script to
+    // stdout and exits success for every supported shell.
     let sample = repo("rust/multi-module");
     for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
         let out = toven(&sample, &["completions", shell]);

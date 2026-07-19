@@ -21,10 +21,10 @@ pub(crate) const MANIFESTS: &str = "manifests";
 /// Build the Rust questionnaire from a [`Detection`].
 ///
 /// The test-runner question preselects the runner the probe recommends
-/// (`cargo-nextest` when a `.config/nextest.toml` was detected, else the built-in
-/// `cargo test`). When the probe discovered more than one Cargo workspace, a
-/// multi-select confirms which discovered manifests Toven should manage, every
-/// one preselected so accepting the defaults keeps them all.
+/// (`cargo-nextest` when a `.config/nextest.toml` was detected, else the
+/// built-in `cargo test`). When the probe discovered more than one Cargo
+/// workspace, a multi-select confirms which discovered manifests Toven should
+/// manage, every one preselected so accepting the defaults keeps them all.
 ///
 /// # Errors
 /// Propagates a malformed detection-facts decode.

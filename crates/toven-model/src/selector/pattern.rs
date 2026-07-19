@@ -9,8 +9,8 @@ use rskit_util::glob::{Glob, has_wildcard};
 /// Carries the parsed shape of the rightmost segment of a selector before it is
 /// resolved against a graph: either an exact name (matches one identity) or a
 /// shell-style glob (`*`/`?`, an explicit set that may match many). It is pure
-/// vocabulary — it holds no resolution logic and never touches a graph; matching
-/// a candidate name is a plain string test.
+/// vocabulary — it holds no resolution logic and never touches a graph;
+/// matching a candidate name is a plain string test.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum NamePattern {
     /// An exact module name; matches exactly the equal name.
@@ -22,11 +22,11 @@ pub enum NamePattern {
 impl NamePattern {
     /// Parse a name segment into an exact name or a glob.
     ///
-    /// A segment containing `*` or `?` becomes a [`Glob`](NamePattern::Glob); any
-    /// other segment is an [`Exact`](NamePattern::Exact) name. The segment is not
-    /// otherwise validated here — resolution against the graph decides whether it
-    /// matches, so the lenient input boundary never rejects a syntactically odd
-    /// but resolvable token.
+    /// A segment containing `*` or `?` becomes a [`Glob`](NamePattern::Glob);
+    /// any other segment is an [`Exact`](NamePattern::Exact) name. The segment
+    /// is not otherwise validated here — resolution against the graph decides
+    /// whether it matches, so the lenient input boundary never rejects a
+    /// syntactically odd but resolvable token.
     #[must_use]
     pub fn parse(segment: &str) -> Self {
         if has_wildcard(segment) {

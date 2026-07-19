@@ -1,8 +1,8 @@
 //! The injected host effects the PLAN pipeline depends on.
 //!
-//! The pipeline itself is pure orchestration; every filesystem/git/process/cache
-//! side effect is reached through this bundle of injected ports, so tests drive a
-//! fully deterministic plan with fakes.
+//! The pipeline itself is pure orchestration; every
+//! filesystem/git/process/cache side effect is reached through this bundle of
+//! injected ports, so tests drive a fully deterministic plan with fakes.
 
 use crate::federation::baseline::MemberVcsReaders;
 use toven_ports::{CacheStore, SourceDigest, ToolchainProber};

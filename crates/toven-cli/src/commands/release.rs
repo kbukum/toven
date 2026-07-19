@@ -1,14 +1,15 @@
 //! The `release` lifecycle verb: `plan`, `status`, `tag`, `publish`.
 //!
-//! `plan` and `status` are read-only projections over the engine release spine —
-//! they render typed data on stdout and never mutate a manifest, tag, or
+//! `plan` and `status` are read-only projections over the engine release spine
+//! — they render typed data on stdout and never mutate a manifest, tag, or
 //! registry. `tag` and `publish` drive the mutating release pipeline
 //! ([`release_run`]): `tag` stops after the release commit/tag/push, `publish`
 //! continues to the registry. `publish` under `--dry-run` instead runs a
-//! no-mutation rehearsal ([`release_rehearse`]) that reports the resolved publish
-//! order and per-module would-publish/already-published verdicts. Libraries return typed data;
-//! this CLI layer is the only one that prints, following the introspection stream
-//! convention (projection on stdout, warnings/summaries on stderr).
+//! no-mutation rehearsal ([`release_rehearse`]) that reports the resolved
+//! publish order and per-module would-publish/already-published verdicts.
+//! Libraries return typed data; this CLI layer is the only one that prints,
+//! following the introspection stream convention (projection on stdout,
+//! warnings/summaries on stderr).
 
 use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult};
@@ -88,7 +89,8 @@ fn build_overrides(cli: &Cli) -> AppResult<BumpOverrides> {
     Ok(overrides.with_offline(cli.offline))
 }
 
-/// Parse a `--set-version <module>=<x.y.z>` argument into its module and target.
+/// Parse a `--set-version <module>=<x.y.z>` argument into its module and
+/// target.
 fn parse_set_version(pair: &str) -> AppResult<(ModuleRef, Version)> {
     let (module, version) = pair.split_once('=').ok_or_else(|| {
         AppError::invalid_input(
@@ -267,8 +269,8 @@ fn rehearse(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRes
     Ok(ExitCode::Success)
 }
 
-/// `release tag/publish`: drive the mutating release pipeline. `tag` stops after
-/// commit/tag/push; `publish` continues to the registry.
+/// `release tag/publish`: drive the mutating release pipeline. `tag` stops
+/// after commit/tag/push; `publish` continues to the registry.
 fn run(
     providers: &[&dyn Provider],
     project: &Project,

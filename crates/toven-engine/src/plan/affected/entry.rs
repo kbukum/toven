@@ -19,8 +19,8 @@ use super::select::explicit_seeds;
 /// `modules` is the input to scheduling. `full_activation` is empty for an
 /// explicit or all-modules selection; for a changed selection it names the
 /// changed paths that no module or workspace could claim, which is exactly why
-/// every module was activated (fail-closed). The CLI renders it so a full run is
-/// never silent; the engine only returns the typed data.
+/// every module was activated (fail-closed). The CLI renders it so a full run
+/// is never silent; the engine only returns the typed data.
 #[derive(Debug, Default)]
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) struct ActiveModules {
@@ -33,16 +33,17 @@ pub(crate) struct ActiveModules {
 /// Resolve the active module set for this request.
 ///
 /// [`Selection::All`] activates every module; [`Selection::Explicit`] resolves
-/// the user-named selectors and optionally unions the forward-dependencies and/or
-/// reverse-dependents closures; [`Selection::Changed`] maps the changed paths
-/// (committed ∪ worktree) reported by every member reader to seed modules and
-/// returns the reverse-dependents closure, failing closed to the full set on any
-/// unclassifiable path. Each member reader uses its own resolved baseline; the
-/// single-repo project is the N=1 degenerate member.
+/// the user-named selectors and optionally unions the forward-dependencies
+/// and/or reverse-dependents closures; [`Selection::Changed`] maps the changed
+/// paths (committed ∪ worktree) reported by every member reader to seed modules
+/// and returns the reverse-dependents closure, failing closed to the full set
+/// on any unclassifiable path. Each member reader uses its own resolved
+/// baseline; the single-repo project is the N=1 degenerate member.
 ///
 /// # Errors
-/// Propagates [`VcsReader`](toven_ports::VcsReader) failures, selector resolution
-/// errors (unknown or ambiguous targets), and the graph closure (an unknown seed).
+/// Propagates [`VcsReader`](toven_ports::VcsReader) failures, selector
+/// resolution errors (unknown or ambiguous targets), and the graph closure (an
+/// unknown seed).
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn active_modules(
     request: &PlanRequest,
@@ -96,9 +97,10 @@ impl ActiveModules {
 /// Resolve a changed-path selection to the active set and its full-activation
 /// diagnostic.
 ///
-/// When every changed path is attributable the active set is the reverse-dependents
-/// closure of the seeds; an unattributable path fails closed to every module and
-/// names the offending path(s) so the CLI can explain the full run.
+/// When every changed path is attributable the active set is the
+/// reverse-dependents closure of the seeds; an unattributable path fails closed
+/// to every module and names the offending path(s) so the CLI can explain the
+/// full run.
 fn resolve_changed(
     request: &PlanRequest,
     graph: &Graph,
@@ -121,8 +123,8 @@ pub(super) fn all_modules(graph: &Graph) -> BTreeSet<ModuleKey> {
 
 /// The reverse-dependents edge filter for `intent`.
 ///
-/// Build/normal/overlay edges always propagate; `Dev` edges propagate only for a
-/// [`TaskKind::Test`] run (a dev-only change affects tests but not downstream
+/// Build/normal/overlay edges always propagate; `Dev` edges propagate only for
+/// a [`TaskKind::Test`] run (a dev-only change affects tests but not downstream
 /// builds).
 fn dependents_filter(intent: &TaskIntent) -> impl Fn(DepKind) -> bool {
     let is_test = intent.kind() == TaskKind::Test;
@@ -135,8 +137,8 @@ fn dependents_filter(intent: &TaskIntent) -> impl Fn(DepKind) -> bool {
 /// The forward-dependencies edge filter for `intent`.
 ///
 /// `--dependencies` expands a selection to everything it needs to build.
-/// Build/normal/overlay edges always propagate; `Dev` edges propagate only for a
-/// [`TaskKind::Test`] run, mirroring [`dependents_filter`] — a dev-only
+/// Build/normal/overlay edges always propagate; `Dev` edges propagate only for
+/// a [`TaskKind::Test`] run, mirroring [`dependents_filter`] — a dev-only
 /// prerequisite is required to test a module but not to build it.
 fn dependencies_filter(intent: &TaskIntent) -> impl Fn(DepKind) -> bool {
     let is_test = intent.kind() == TaskKind::Test;

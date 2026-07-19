@@ -3,7 +3,8 @@
 //! Composes two rskit-git primitives the port does *not* expose as one call:
 //! resolve the baseline ([`LogReader::merge_base`](rskit_git::LogReader) for
 //! `--merge-base`, the reference verbatim otherwise) then
-//! [`Differ::diff`](rskit_git::Differ) `base..HEAD`. Records are **repo-relative**.
+//! [`Differ::diff`](rskit_git::Differ) `base..HEAD`. Records are
+//! **repo-relative**.
 //!
 //! Note on renames: rskit-git's committed tree-to-tree diff reports a rename as
 //! a `Deleted` + `Added` pair. The `Renamed`/`old_path` mapping below preserves

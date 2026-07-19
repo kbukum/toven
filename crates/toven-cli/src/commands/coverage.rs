@@ -8,8 +8,8 @@
 //! and summary on stderr), then renders the per-module verdict table on stdout
 //! and exits non-zero when the gate fails closed. `--line`/`--function`/
 //! `--region`/`--changed-line`/`--enforcement` layer over the config defaults
-//! for the run (argv wins; config is the default), and the selection flags narrow
-//! the measured scope exactly as the task verbs do.
+//! for the run (argv wins; config is the default), and the selection flags
+//! narrow the measured scope exactly as the task verbs do.
 
 use rskit_cli::{ExitCode, OutputTable};
 use rskit_errors::{AppError, AppResult};
@@ -30,8 +30,8 @@ use crate::host::{Project, Report, new_run_id, resolve_output};
 /// The recognized task name the coverage verb runs and gates.
 const COVERAGE_TASK: &str = "coverage";
 
-/// A quiet [`Reporter`] for the aggregation pass: the verdict table is the stdout
-/// payload, so only warnings are surfaced (on stderr).
+/// A quiet [`Reporter`] for the aggregation pass: the verdict table is the
+/// stdout payload, so only warnings are surfaced (on stderr).
 struct QuietReporter;
 
 impl Reporter for QuietReporter {
@@ -57,10 +57,10 @@ pub(crate) fn execute(
     let overrides = build_overrides(cli);
 
     // The task's argv writes its profiles into the Toven-owned staging dir. Clear
-    // it first so aggregation gates only this run's profiles — a stale profile
-    // from an earlier run or a broader selection must not be re-attributed into
-    // the current verdict — then recreate it so a tool that does not create the
-    // parent (e.g. `go test -coverprofile`) can write into it.
+    // it first so aggregation gates only this run's profiles — a stale profile from
+    // an earlier run or a broader selection must not be re-attributed into the
+    // current verdict — then recreate it so a tool that does not create the parent
+    // (e.g. `go test -coverprofile`) can write into it.
     let staging = project.project_root.as_path().join(COVERAGE_DIR);
     rskit_fs::sync_io::dir::remove_all_if_exists(&staging)?;
     rskit_fs::sync_io::dir::create_all(&staging)?;
@@ -82,8 +82,8 @@ pub(crate) fn execute(
 }
 
 /// Run the recognized `coverage` task to emit the profiles, streaming its
-/// progress through the human reporter on stderr (never stdout, which the verdict
-/// table owns).
+/// progress through the human reporter on stderr (never stdout, which the
+/// verdict table owns).
 fn measure(
     providers: &[&dyn Provider],
     project: &Project,
@@ -173,8 +173,8 @@ fn percent(value: Option<f64>) -> String {
 }
 
 fn render_human(report: &CoverageReport) {
-    // stdout carries only the verdict table; the summary is a diagnostic that
-    // rides stderr alongside the measurement's run summary.
+    // stdout carries only the verdict table; the summary is a diagnostic that rides
+    // stderr alongside the measurement's run summary.
     println!("{}", coverage_table(report));
     eprintln!("{}", summary_line(report));
 }

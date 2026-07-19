@@ -1,11 +1,11 @@
-//! The coverage gate: compare a module's metrics against its resolved thresholds
-//! and produce a typed verdict.
+//! The coverage gate: compare a module's metrics against its resolved
+//! thresholds and produce a typed verdict.
 //!
 //! A dimension is checked only when both a threshold is configured **and** the
 //! metric was measured — a Go module never fails a `function` floor it cannot
-//! measure. A below-threshold dimension fails the gate closed under `Block`,
-//! is reported without failing under `Advisory`, and is measured-only for a
-//! module in the ecosystem `exclude` list.
+//! measure. A below-threshold dimension fails the gate closed under `Block`, is
+//! reported without failing under `Advisory`, and is measured-only for a module
+//! in the ecosystem `exclude` list.
 
 use toven_model::ModuleKey;
 use toven_ports::{CoverageThresholds, Enforcement};
@@ -84,7 +84,8 @@ impl ModuleStatus {
     }
 }
 
-/// One module's coverage verdict: its metrics, per-dimension outcomes, and status.
+/// One module's coverage verdict: its metrics, per-dimension outcomes, and
+/// status.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModuleCoverage {
     /// The module the verdict is for.
@@ -127,7 +128,8 @@ pub(super) fn gate_module(
     }
 }
 
-/// Build the per-dimension outcomes for every configured-and-measured dimension.
+/// Build the per-dimension outcomes for every configured-and-measured
+/// dimension.
 fn evaluate(metrics: CoverageMetrics, thresholds: &CoverageThresholds) -> Vec<DimensionOutcome> {
     let checks = [
         (CoverageDimension::Line, thresholds.line, Some(metrics.line)),

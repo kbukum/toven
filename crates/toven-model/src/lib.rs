@@ -1,22 +1,25 @@
 //! `toven-model` — the shared Toven vocabulary.
 //!
-//! Layer 0 of the hexagonal architecture: the types everyone speaks plus the pure
-//! graph algorithms that ports and the engine consume. It is the dependency root,
-//! depending only on `rskit-errors` (the error contract) and `rskit-validation`
-//! (identifier validation) — never on ports, adapters, or the engine.
+//! Layer 0 of the hexagonal architecture: the types everyone speaks plus the
+//! pure graph algorithms that ports and the engine consume. It is the
+//! dependency root, depending only on `rskit-errors` (the error contract) and
+//! `rskit-validation` (identifier validation) — never on ports, adapters, or
+//! the engine.
 //!
-//! All fallible APIs return [`rskit_errors::AppResult`]; there is no bespoke error
-//! type. Every cross-boundary type is `serde`-serializable so it survives the
-//! out-of-process driver transport.
+//! All fallible APIs return [`rskit_errors::AppResult`]; there is no bespoke
+//! error type. Every cross-boundary type is `serde`-serializable so it survives
+//! the out-of-process driver transport.
 //!
 //! ## Modules
-//! - [`identity`] — [`EcosystemId`], [`ModuleRef`], [`ModuleKey`], [`WorkspaceId`],
-//!   [`MemberId`], [`RepoPath`], [`AbsPath`].
+//! - [`identity`] — [`EcosystemId`], [`ModuleRef`], [`ModuleKey`],
+//!   [`WorkspaceId`], [`MemberId`], [`RepoPath`], [`AbsPath`].
 //! - [`module`] / [`edge`] / [`workspace`] — [`Module`], [`Edge`]/[`DepKind`],
 //!   [`Workspace`]/[`ToolchainTag`].
 //! - [`graph`] — [`Graph`] build/validate + wave-leveling + reverse closure.
-//! - [`plan`] — [`Plan`], [`ExecutionUnit`], [`CacheVerdict`], [`ExecutionReadiness`], [`TaskOrigin`].
-//! - [`selector`] — [`ModuleSelector`], [`NamePattern`] (the lenient selection grammar).
+//! - [`plan`] — [`Plan`], [`ExecutionUnit`], [`CacheVerdict`],
+//!   [`ExecutionReadiness`], [`TaskOrigin`].
+//! - [`selector`] — [`ModuleSelector`], [`NamePattern`] (the lenient selection
+//!   grammar).
 //! - [`event`] — [`Event`], [`UnitStatus`], [`RunStats`].
 //! - [`ecosystems`] — the canonical ecosystem registry.
 

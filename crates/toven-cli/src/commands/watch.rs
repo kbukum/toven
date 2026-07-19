@@ -4,8 +4,8 @@
 //! each time a source file changes. This module builds the same rskit-backed
 //! APPLY host as [`run`](super::run) — process runner, per-unit output channel,
 //! and cooperative Ctrl+C cancellation — plus the concrete
-//! [`RskitFsWatch`](toven_engine::watch::RskitFsWatch) adapter, then hands them to
-//! the engine loop on a Tokio runtime.
+//! [`RskitFsWatch`](toven_engine::watch::RskitFsWatch) adapter, then hands them
+//! to the engine loop on a Tokio runtime.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -42,8 +42,8 @@ pub(crate) struct LiveOutput {
 /// Run a task under watch mode until Ctrl+C or the watcher stops.
 ///
 /// Builds the APPLY host and the rskit-fs watch adapter, then drives
-/// [`WatchSession`] on a current-thread runtime. Returns the process exit derived
-/// from the last iteration's summary.
+/// [`WatchSession`] on a current-thread runtime. Returns the process exit
+/// derived from the last iteration's summary.
 ///
 /// # Errors
 /// Propagates PLAN/APPLY failures, watch-source initialization failures, and
@@ -119,8 +119,8 @@ pub(crate) fn run_watch(
         .run()
         .await
     });
-    // Reclaim the per-session pane scratch dir (created only under `--view
-    // panes`) once the watch loop exits, however it ended.
+    // Reclaim the per-session pane scratch dir (created only under `--view panes`)
+    // once the watch loop exits, however it ended.
     let _ = rskit_fs::sync_io::dir::remove_all_if_exists(&live.pane_dir);
     Ok(exit_code(&summary?))
 }

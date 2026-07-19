@@ -2,8 +2,8 @@
 //!
 //! A `modules` entry is a repo-relative `go.mod` — one module root. Onboarding
 //! ([`render`](crate::render) writes `"auto"`) and planning
-//! ([`discovery`](crate::discovery)) both resolve the effective set through this
-//! module so the two stages never drift.
+//! ([`discovery`](crate::discovery)) both resolve the effective set through
+//! this module so the two stages never drift.
 //!
 //! Resolution honours the configured [`Modules`](crate::config::Modules)
 //! selection: an explicit, author-frozen list, or `auto` — re-derive the set on
@@ -164,8 +164,8 @@ pub(crate) fn go_work_members(project_root: &Path) -> AppResult<Option<BTreeSet<
     Ok(Some(members))
 }
 
-/// The repo-relative `go.mod` inside a member root (`.` → `go.mod`,
-/// `agent` → `agent/go.mod`).
+/// The repo-relative `go.mod` inside a member root (`.` → `go.mod`, `agent` →
+/// `agent/go.mod`).
 fn manifest_in(member: &RepoPath) -> String {
     let root = member.as_path();
     if root.as_os_str().is_empty() || root == Path::new(".") {
@@ -175,7 +175,8 @@ fn manifest_in(member: &RepoPath) -> String {
     }
 }
 
-/// Whether the repo-relative `manifest` resolves to a regular file under `root`.
+/// Whether the repo-relative `manifest` resolves to a regular file under
+/// `root`.
 fn manifest_exists(root: &Path, manifest: &str) -> AppResult<bool> {
     match safe_join(root, Path::new(manifest)) {
         Ok(path) => Ok(path.is_file()),
@@ -187,8 +188,8 @@ fn manifest_exists(root: &Path, manifest: &str) -> AppResult<bool> {
     }
 }
 
-/// A Git ignore checker rooted at `project_root`, or `None` when the root is not
-/// inside a Git work tree (no ignore information is available).
+/// A Git ignore checker rooted at `project_root`, or `None` when the root is
+/// not inside a Git work tree (no ignore information is available).
 fn ignore_checker(project_root: &Path) -> Option<GitCli> {
     rskit_git::discover(project_root)
         .ok()

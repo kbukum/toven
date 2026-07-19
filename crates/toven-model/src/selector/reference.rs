@@ -12,8 +12,8 @@ use super::pattern::NamePattern;
 /// A user-named module selector, parsed but not yet resolved against a graph.
 ///
 /// Canonical identity stays `ecosystem:name`; this type only relaxes what is
-/// *accepted* as input at the selection boundary. It carries the user's intent as
-/// a pattern — a bare name/glob, an ecosystem-qualified name/glob, a
+/// *accepted* as input at the selection boundary. It carries the user's intent
+/// as a pattern — a bare name/glob, an ecosystem-qualified name/glob, a
 /// workspace-qualified name/glob, or a whole workspace — which the engine (the
 /// layer that owns a graph) resolves into concrete module keys, surfacing an
 /// ambiguous bare name as a typed error rather than guessing.
@@ -22,7 +22,8 @@ use super::pattern::NamePattern;
 /// [`parse`](ModuleSelector::parse) applies one rule to a `--module` token:
 /// - a `/` splits on the **rightmost** `/` into `workspace/name` (workspace ids
 ///   are opaque non-empty strings that may themselves contain `:` or `/`, e.g.
-///   `rust:contrib/api` or `core/rust/api`, so only the final `/` bounds the name);
+///   `rust:contrib/api` or `core/rust/api`, so only the final `/` bounds the
+///   name);
 /// - otherwise a `:` splits on the **first** `:` into `ecosystem:name`;
 /// - otherwise the whole token is a bare name.
 ///
@@ -47,7 +48,8 @@ pub enum ModuleSelector {
         /// The module-name pattern within that workspace.
         name: NamePattern,
     },
-    /// A whole workspace by id pattern: every module the matching workspace owns.
+    /// A whole workspace by id pattern: every module the matching workspace
+    /// owns.
     WholeWorkspace(NamePattern),
 }
 

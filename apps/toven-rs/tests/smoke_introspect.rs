@@ -100,8 +100,8 @@ fn affected_dependents_closure_adds_reverse_dependents() {
 
 #[test]
 fn affected_combined_closures_union_dependencies_and_dependents() {
-    // `--dependencies --dependents` unions both closures over the seed:
-    // corelib pulls its dependency (util) and its dependent (app).
+    // `--dependencies --dependents` unions both closures over the seed: corelib
+    // pulls its dependency (util) and its dependent (app).
     let sample = repo("rust/multi-module");
     toven_rs_ok(
         &sample,
@@ -129,9 +129,9 @@ fn affected_rejects_a_selector_that_matches_nothing() {
 
 #[test]
 fn affected_reports_full_activation_for_an_unattributable_root_change() {
-    // A root `toven.toml` edit cannot be attributed to any module, so the whole
-    // set activates (fail-closed) — the diagnostic names the offending path on
-    // stdout so the full run is never silent.
+    // A root `toven.toml` edit cannot be attributed to any module, so the whole set
+    // activates (fail-closed) — the diagnostic names the offending path on stdout
+    // so the full run is never silent.
     let sample = repo("rust/multi-module");
     let scenario = toven_testkit::git::GitScenario::open(sample.root()).expect("open git tree");
     scenario
@@ -154,8 +154,8 @@ fn affected_reports_full_activation_for_an_unattributable_root_change() {
 
 #[test]
 fn affected_reports_no_full_activation_for_a_precise_change() {
-    // A change confined to one crate is precisely attributed, so no
-    // full-activation diagnostic is emitted.
+    // A change confined to one crate is precisely attributed, so no full-activation
+    // diagnostic is emitted.
     let sample = repo("rust/multi-module");
     let scenario = toven_testkit::git::GitScenario::open(sample.root()).expect("open git tree");
     scenario
@@ -179,8 +179,8 @@ fn affected_reports_no_full_activation_for_a_precise_change() {
 fn explain_module_projects_the_real_batched_unit() {
     // `--module` focuses the projection without shrinking the unit: `corelib`
     // batches with its whole cargo workspace (`util`, `corelib`, `app`), so the
-    // rendered unit is that real batched argv — never a synthetic single-`-p` cut
-    // — with the focused member marked and its co-batched siblings shown in full.
+    // rendered unit is that real batched argv — never a synthetic single-`-p` cut —
+    // with the focused member marked and its co-batched siblings shown in full.
     let sample = repo("rust/multi-module");
     toven_rs(&sample, &["explain", "build", "--module", "rust:corelib"])
         .expect_success()
@@ -194,9 +194,9 @@ fn explain_module_projects_the_real_batched_unit() {
 
 #[test]
 fn explain_module_narrows_to_units_containing_the_target() {
-    // Two independent cargo workspaces (`services/a`, `services/b`) each batch
-    // into their own unit. Focusing on `a-core` shows only the `a` unit; the
-    // unrelated `b` unit is filtered out of the projection.
+    // Two independent cargo workspaces (`services/a`, `services/b`) each batch into
+    // their own unit. Focusing on `a-core` shows only the `a` unit; the unrelated
+    // `b` unit is filtered out of the projection.
     let sample = repo("rust/multi-workspace");
     let out = toven_rs(&sample, &["explain", "build", "--module", "rust:a-core"]);
     out.expect_success()
@@ -228,8 +228,8 @@ fn explain_without_a_module_shows_every_unit_without_a_target_field() {
 #[test]
 fn explain_resolves_a_named_extra_task_by_its_addressable_name() {
     // Regression: a named extra (`test-integration`, kind = "test") advertised by
-    // discovery must be schedulable by the exact token the user types, and must
-    // not collide with the plain `test` task.
+    // discovery must be schedulable by the exact token the user types, and must not
+    // collide with the plain `test` task.
     let sample = repo("rust/single");
     // The `test-integration` token resolves the named extra's argv (`nextest`).
     toven_rs(

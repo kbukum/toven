@@ -43,11 +43,13 @@ pub fn release_plan(
 /// Build a [`ReleasePlan`] from an already-prepared [`PlanContext`] and its
 /// resolved release `targets`.
 ///
-/// Shared by [`release_plan`] and the combined [`release_run`](super::release_run)
-/// facade so the PLAN cut is computed by exactly one path.
+/// Shared by [`release_plan`] and the combined
+/// [`release_run`](super::release_run) facade so the PLAN cut is computed by
+/// exactly one path.
 ///
 /// # Errors
-/// Propagates bump-policy selection, change-detection, and bump-planning failures.
+/// Propagates bump-policy selection, change-detection, and bump-planning
+/// failures.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn plan_with_context(
     context: &PlanContext,
@@ -128,10 +130,10 @@ pub(crate) fn release_targets(context: &PlanContext) -> AppResult<super::Release
 /// Only modules whose `(member, ecosystem)` has a release target participate:
 /// an ecosystem/member with no release target (e.g. a non-publishable adapter)
 /// never joins a release plan, so its config must not force a plan-wide policy
-/// conflict. The ecosystem-level release config is validated once per configured
-/// adapter; the per-module override (validated structurally at load) is folded on
-/// top with the documented precedence
-/// (`[modules.<name>.release]` > `[ecosystems.<id>].release` > adapter default).
+/// conflict. The ecosystem-level release config is validated once per
+/// configured adapter; the per-module override (validated structurally at load)
+/// is folded on top with the documented precedence (`[modules.<name>.release]` >
+/// `[ecosystems.<id>].release` > adapter default).
 ///
 /// # Errors
 /// Propagates an invalid ecosystem release config or an unknown bump policy.
@@ -179,12 +181,13 @@ pub(crate) fn resolve_release_settings(
     Ok(resolved)
 }
 
-/// Reconcile the single plan-wide bump policy from per-module resolved settings.
+/// Reconcile the single plan-wide bump policy from per-module resolved
+/// settings.
 ///
-/// The engine produces one [`ReleasePlan`] with a single policy, so every module
-/// must resolve the same policy. A conflict is a typed configuration error rather
-/// than a silent first-wins pick; an empty release scope defaults to
-/// [`BumpPolicy::SemverCascade`].
+/// The engine produces one [`ReleasePlan`] with a single policy, so every
+/// module must resolve the same policy. A conflict is a typed configuration
+/// error rather than a silent first-wins pick; an empty release scope defaults
+/// to [`BumpPolicy::SemverCascade`].
 fn reconcile_policy(
     settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
 ) -> AppResult<BumpPolicy> {
@@ -259,8 +262,9 @@ mod tests {
         }
     }
 
-    /// Plan a single changed `core` module against the given `common` config and
-    /// per-run `overrides`, with `target` supplying its declared/published state.
+    /// Plan a single changed `core` module against the given `common` config
+    /// and per-run `overrides`, with `target` supplying its declared/published
+    /// state.
     fn plan_core(
         common: CommonEcosystemConfig,
         target: FakeReleaseTarget,

@@ -1,10 +1,10 @@
 //! Real-repo coverage for the one rskit-git-backed adapter, [`RskitGitVcs`].
 //!
-//! Pure baseline/fan-out logic is unit-tested over fakes inside the crate; these
-//! tests drive an actual temp git repo (via [`GitScenario`]) to prove the
+//! Pure baseline/fan-out logic is unit-tested over fakes inside the crate;
+//! these tests drive an actual temp git repo (via [`GitScenario`]) to prove the
 //! composed git reads/writes — `changed_since`, `worktree_status`, `list_tags`,
-//! `is_ignored`, `is_dirty`, `restore_worktree` — behave end to end. Network-free
-//! and deterministic.
+//! `is_ignored`, `is_dirty`, `restore_worktree` — behave end to end.
+//! Network-free and deterministic.
 
 use std::path::{Path, PathBuf};
 

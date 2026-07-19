@@ -45,8 +45,9 @@ impl Gate {
     ///
     /// An id the gate never indexed defaults to [`UnitState::Pending`] rather
     /// than [`UnitState::Blocked`]: an unknown id signals an internal plan
-    /// inconsistency that must surface loudly (via the caller's `unit()` lookup)
-    /// instead of being silently skipped as if it were upstream-blocked.
+    /// inconsistency that must surface loudly (via the caller's `unit()`
+    /// lookup) instead of being silently skipped as if it were
+    /// upstream-blocked.
     pub(super) fn state(&self, unit_id: &str) -> UnitState {
         self.states
             .get(unit_id)
@@ -123,10 +124,10 @@ mod tests {
 
     #[test]
     fn failure_blocks_dependents_along_a_dag_without_mutual_blocking() {
-        // The `rskit` facade-back-dep shape after layer-aware grouping: an acyclic
-        // base → contrib → suite chain. Failing the middle unit blocks only its
-        // transitive dependents; its dependency is never blocked back — the cyclic
-        // `core ⇄ contrib` mutual blocking is gone.
+        // The `rskit` facade-back-dep shape after layer-aware grouping: an acyclic base
+        // → contrib → suite chain. Failing the middle unit blocks only its transitive
+        // dependents; its dependency is never blocked back — the cyclic `core ⇄
+        // contrib` mutual blocking is gone.
         let plan = Plan::new(
             vec![
                 unit("rust@core~~L0#check", &[]),

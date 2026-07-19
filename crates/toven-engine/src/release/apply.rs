@@ -28,8 +28,9 @@ pub struct ReleaseApplyOptions {
     pub allow_dirty: bool,
     /// Push the release commit and tags after tagging.
     pub push: bool,
-    /// Publish the packaged artifacts to the registry after tagging. When false,
-    /// the pipeline stops after commit/tag/push (the `release tag` surface).
+    /// Publish the packaged artifacts to the registry after tagging. When
+    /// false, the pipeline stops after commit/tag/push (the `release tag`
+    /// surface).
     pub publish: bool,
     /// Maximum rate-limit retries per module in the publish loop.
     pub retry_budget: usize,
@@ -52,10 +53,10 @@ impl Default for ReleaseApplyOptions {
 /// hold a release target for every ecosystem in the plan.
 ///
 /// # Errors
-/// Returns a typed error when the clean-tree guardrail trips, a module/target is
-/// missing, a pre-commit mutation/package/commit fails (after restoring the
-/// working tree), a VCS tag/push fails, or the publish loop exhausts its
-/// retry budget.
+/// Returns a typed error when the clean-tree guardrail trips, a module/target
+/// is missing, a pre-commit mutation/package/commit fails (after restoring the
+/// working tree), a VCS tag/push fails, or the publish loop exhausts its retry
+/// budget.
 pub fn release_apply(
     plan: &ReleasePlan,
     modules: &[Module],
@@ -479,9 +480,9 @@ mod tests {
 
     #[test]
     fn mixed_ecosystem_umbrella_tags_each_member_with_its_own_scheme() {
-        // A Rust crate (crates.io tag grammar) and a Go module (path-based git
-        // tag grammar) release over the one topological order, each carrying its
-        // own target-owned tag scheme.
+        // A Rust crate (crates.io tag grammar) and a Go module (path-based git tag
+        // grammar) release over the one topological order, each carrying its own
+        // target-owned tag scheme.
         let go_ref = ModuleRef::new(EcosystemId::new("go").unwrap(), "cache-redis").unwrap();
         let go_key = ModuleKey::bare(go_ref.clone());
         let mut go_module = Module::new(go_ref, RepoPath::new("cache/redis").unwrap());

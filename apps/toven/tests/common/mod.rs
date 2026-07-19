@@ -6,9 +6,9 @@
 //! machinery lives in [`toven_testkit::smoke`]; this only binds it to the
 //! umbrella binary.
 #![allow(dead_code)]
-// A `tests/common` helper module is private, so `pub(crate)` (needed for parent
-// visibility) reads as redundant to clippy's nursery lint; the alternative `pub`
-// trips rustc's `unreachable_pub`. Silence the nursery lint here.
+// A `tests/common` helper module is private, so `pub(crate)` (needed for parent visibility) reads
+// as redundant to clippy's nursery lint; the alternative `pub` trips rustc's `unreachable_pub`.
+// Silence the nursery lint here.
 #![allow(clippy::redundant_pub_crate)]
 
 use std::path::PathBuf;

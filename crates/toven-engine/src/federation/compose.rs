@@ -3,10 +3,9 @@
 //! Loads each umbrella member's own `toven.toml` and pairs it with the
 //! cross-member overlays/groups the umbrella layers on top.
 //!
-//! Every member is an
-//! independently-runnable toven project that carries its own authoritative
-//! configuration, so the umbrella **composes** members (reusing the single strict
-//! engine [`load`] — no second parse path) rather than
+//! Every member is an independently-runnable toven project that carries its own
+//! authoritative configuration, so the umbrella **composes** members (reusing
+//! the single strict engine [`load`] — no second parse path) rather than
 //! inlining their config. The umbrella file contributes only cross-member
 //! `[[overlays]]`/`[groups]` and umbrella-level `[toven]` run knobs; it never
 //! rewrites a member's ecosystem config. A declared member without its own
@@ -48,8 +47,8 @@ impl ComposedMember {
         &self.document
     }
 
-    /// The absolute root discovery runs against for this member
-    /// (`member_root` joined with the member document's `[project].root`).
+    /// The absolute root discovery runs against for this member (`member_root`
+    /// joined with the member document's `[project].root`).
     #[must_use]
     pub const fn discover_root(&self) -> &AbsPath {
         &self.discover_root
@@ -103,11 +102,12 @@ impl ComposedFederation {
 /// cross-member layer.
 ///
 /// `loaded` is the set of ecosystem ids with a compiled-in adapter and
-/// `canonical` the known-ecosystem registry, both forwarded to the member loader.
+/// `canonical` the known-ecosystem registry, both forwarded to the member
+/// loader.
 ///
 /// # Errors
-/// Returns a typed error when a declared member has no readable `toven.toml`, or
-/// when a member document fails strict load/validation/dispatch.
+/// Returns a typed error when a declared member has no readable `toven.toml`,
+/// or when a member document fails strict load/validation/dispatch.
 pub fn compose_members(
     document: &Document,
     members: &[ResolvedMember],
@@ -187,12 +187,12 @@ fn load_member_document(
 /// the member document's `[project].root`, confined at the trust boundary.
 fn resolve_discover_root(member: &ResolvedMember, document: &Document) -> AppResult<AbsPath> {
     let relative = document.project.root();
-    // The degenerate single-repo member's root was already resolved to the
-    // umbrella project root (`config_dir` joined with `[project].root`), so
-    // re-applying `[project].root` here would duplicate it. `.` (the default
-    // project root) likewise denotes the member repo root itself, and the
-    // safe-path validator rejects it as a non-normal segment. Either way the
-    // member root is already the discovery root.
+    // The degenerate single-repo member's root was already resolved to the umbrella
+    // project root (`config_dir` joined with `[project].root`), so re-applying
+    // `[project].root` here would duplicate it. `.` (the default project root)
+    // likewise denotes the member repo root itself, and the safe-path validator
+    // rejects it as a non-normal segment. Either way the member root is already the
+    // discovery root.
     if member.id().is_none() || relative == "." {
         return Ok(member.root().clone());
     }

@@ -47,8 +47,8 @@ impl<W: Write + Send> Reporter for JsonlReporter<W> {
             .write_all(line.as_bytes())
             .map_err(AppError::internal)?;
         self.writer.write_all(b"\n").map_err(AppError::internal)?;
-        // Flush each line so machine consumers tailing a pipe (non-TTY, where
-        // stdout is block-buffered) see every Event immediately.
+        // Flush each line so machine consumers tailing a pipe (non-TTY, where stdout is
+        // block-buffered) see every Event immediately.
         self.writer.flush().map_err(AppError::internal)
     }
 }

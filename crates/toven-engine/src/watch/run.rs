@@ -1,16 +1,16 @@
 //! [`WatchSession`]: the watch-mode PLAN→APPLY loop.
 //!
-//! Watch mode reruns the affected subgraph each time the workspace tree changes.
-//! The session runs one baseline iteration, then drives the injected
+//! Watch mode reruns the affected subgraph each time the workspace tree
+//! changes. The session runs one baseline iteration, then drives the injected
 //! [`WatchSource`] stream: every debounced batch is relativized against the
 //! workspace root, dropping paths inside `.git` and paths the root repo
-//! ignores, and — when anything
-//! remains — mapped to a [`Selection::ChangedPaths`] PLAN request that plans and
-//! applies exactly the affected units. When a batch reports a rescan (the
-//! watcher dropped events), the incomplete path list is discarded and the whole
-//! watched scope (the caller's baseline selection) is re-evaluated instead. The
-//! shared [`CancellationToken`] both cancels an in-flight run and breaks the
-//! loop, so a single Ctrl+C exits cleanly with the last iteration's summary.
+//! ignores, and — when anything remains — mapped to a
+//! [`Selection::ChangedPaths`] PLAN request that plans and applies exactly the
+//! affected units. When a batch reports a rescan (the watcher dropped events),
+//! the incomplete path list is discarded and the whole watched scope (the
+//! caller's baseline selection) is re-evaluated instead. The shared
+//! [`CancellationToken`] both cancels an in-flight run and breaks the loop, so
+//! a single Ctrl+C exits cleanly with the last iteration's summary.
 
 use std::ffi::OsStr;
 use std::path::{Component, Path};
@@ -36,9 +36,10 @@ use toven_ports::{CacheStore, CacheWriter, RawOutputSink};
 /// One watch-mode run: the injected ports plus the mutable event/output sinks,
 /// driven by [`WatchSession::run`].
 ///
-/// The `request` field is the per-iteration template — every iteration clones it
-/// with a fresh run id and its own [`Selection`], so the baseline run keeps the
-/// caller's selection while change-driven runs narrow to the affected paths.
+/// The `request` field is the per-iteration template — every iteration clones
+/// it with a fresh run id and its own [`Selection`], so the baseline run keeps
+/// the caller's selection while change-driven runs narrow to the affected
+/// paths.
 pub struct WatchSession<'a, S: RawOutputSink> {
     /// PLAN request template (project root, intent, passthrough, cache mode).
     pub request: PlanRequest,
@@ -75,8 +76,8 @@ pub struct WatchSession<'a, S: RawOutputSink> {
 impl<S: RawOutputSink> WatchSession<'_, S> {
     /// Drive the watch loop until cancelled or the watcher stops.
     ///
-    /// Emits [`Event::WatchStarted`] once, runs a baseline iteration, then reruns
-    /// the affected subgraph per debounced change batch, and emits
+    /// Emits [`Event::WatchStarted`] once, runs a baseline iteration, then
+    /// reruns the affected subgraph per debounced change batch, and emits
     /// [`Event::WatchStopped`] on exit. A path-driven batch emits
     /// [`Event::WatchTriggered`]; a rescan batch (dropped events) emits
     /// [`Event::WatchRescan`] and re-evaluates the baseline scope. Returns the
@@ -88,8 +89,8 @@ impl<S: RawOutputSink> WatchSession<'_, S> {
     /// Non-zero child exits are represented in the returned [`RunStats`].
     ///
     /// Not `Send`: the injected reporter and ports are single-threaded and the
-    /// CLI drives this on a current-thread runtime, so the future never crosses a
-    /// thread boundary.
+    /// CLI drives this on a current-thread runtime, so the future never crosses
+    /// a thread boundary.
     #[allow(clippy::future_not_send)]
     pub async fn run(mut self) -> AppResult<RunStats> {
         let debounce_ms = u64::try_from(self.debounce.as_millis()).unwrap_or(u64::MAX);
@@ -115,9 +116,8 @@ impl<S: RawOutputSink> WatchSession<'_, S> {
                 },
             };
 
-            // Overflow: the change list is incomplete, so re-evaluate the whole
-            // watched scope (the caller's baseline selection) rather than trust
-            // the partial paths.
+            // Overflow: the change list is incomplete, so re-evaluate the whole watched
+            // scope (the caller's baseline selection) rather than trust the partial paths.
             let selection = if batch.rescan_requested() {
                 self.reporter.emit(&Event::WatchRescan)?;
                 self.request.selection.clone()
@@ -172,11 +172,11 @@ impl<S: RawOutputSink> WatchSession<'_, S> {
         .await
     }
 
-    /// Relativize a batch against the workspace root, dropping paths outside the
-    /// root, inside `.git`, or ignored by the root repo.
+    /// Relativize a batch against the workspace root, dropping paths outside
+    /// the root, inside `.git`, or ignored by the root repo.
     ///
-    /// The returned paths are workspace-root-relative, sorted, and deduplicated,
-    /// ready to seed [`Selection::ChangedPaths`].
+    /// The returned paths are workspace-root-relative, sorted, and
+    /// deduplicated, ready to seed [`Selection::ChangedPaths`].
     fn changed_paths(&self, batch: &ChangeBatch) -> AppResult<Vec<String>> {
         let root = self.request.project_root.as_path();
         let mut paths = Vec::new();
@@ -200,12 +200,12 @@ impl<S: RawOutputSink> WatchSession<'_, S> {
     /// Whether the root repo ignores `relative` (workspace-root-relative).
     ///
     /// Only the degenerate/root member's reader (the entry with no
-    /// [`member`](MemberVcsReader::member) id, sitting at the workspace root) is
-    /// consulted: its ignore rules are the ones that apply to root-relative
+    /// [`member`](MemberVcsReader::member) id, sitting at the workspace root)
+    /// is consulted: its ignore rules are the ones that apply to root-relative
     /// paths. In umbrella/federated setups the per-member readers are scoped to
     /// their own repo roots, so consulting an arbitrary member would risk false
-    /// positives/negatives across repos. With no root reader (a non-git host, or
-    /// a pure umbrella) nothing is treated as ignored, so every change still
+    /// positives/negatives across repos. With no root reader (a non-git host,
+    /// or a pure umbrella) nothing is treated as ignored, so every change still
     /// drives a rerun.
     fn is_ignored(&self, relative: &Path) -> AppResult<bool> {
         self.readers

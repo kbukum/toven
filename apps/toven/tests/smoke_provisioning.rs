@@ -1,6 +1,6 @@
 //! Umbrella `toven` provisioning/federation smokes: `driver list` and
-//! `federation status`. The umbrella bundles the Rust, Go, and command adapters,
-//! so all three report as linked. Status lines render to **stderr**.
+//! `federation status`. The umbrella bundles the Rust, Go, and command
+//! adapters, so all three report as linked. Status lines render to **stderr**.
 
 mod common;
 

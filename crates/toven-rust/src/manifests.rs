@@ -71,9 +71,9 @@ fn workspace_dir(manifest: &str) -> &str {
 /// Discover the repo-relative Cargo manifests under `project_root`.
 ///
 /// A root `Cargo.toml` wins outright and is returned alone. Otherwise every
-/// first-level subdirectory is scanned for a `<dir>/Cargo.toml`, skipping hidden
-/// directories and any path ignored by Git, so a repository that groups several
-/// workspaces under subdirectories is onboarded as one Rust ecosystem.
+/// first-level subdirectory is scanned for a `<dir>/Cargo.toml`, skipping
+/// hidden directories and any path ignored by Git, so a repository that groups
+/// several workspaces under subdirectories is onboarded as one Rust ecosystem.
 ///
 /// # Errors
 /// Propagates a directory-listing, path-resolution, or git-ignore failure.
@@ -145,7 +145,8 @@ pub(crate) fn existing_lockfiles(
     Ok(locks.into_iter().collect())
 }
 
-/// Whether the repo-relative `manifest` resolves to a regular file under `root`.
+/// Whether the repo-relative `manifest` resolves to a regular file under
+/// `root`.
 fn manifest_exists(root: &Path, manifest: &str) -> AppResult<bool> {
     match safe_join(root, Path::new(manifest)) {
         Ok(path) => Ok(path.is_file()),
@@ -157,9 +158,9 @@ fn manifest_exists(root: &Path, manifest: &str) -> AppResult<bool> {
     }
 }
 
-/// A Git ignore checker rooted at `project_root`, or `None` when the root is not
-/// inside a Git work tree (no ignore information is available, so nothing is
-/// filtered).
+/// A Git ignore checker rooted at `project_root`, or `None` when the root is
+/// not inside a Git work tree (no ignore information is available, so nothing
+/// is filtered).
 fn ignore_checker(project_root: &Path) -> Option<GitCli> {
     rskit_git::discover(project_root)
         .ok()

@@ -1,9 +1,9 @@
 //! Shared [`ReleaseTarget`] double: [`FakeReleaseTarget`].
 //!
 //! Release-engine tests configure canned version I/O, scripted publish
-//! behaviour, and call recording here instead of standing up a real adapter.
-//! It is `Clone` so a [`FakeConfiguredAdapter`](super::FakeConfiguredAdapter)
-//! can hand back a fresh boxed target from `release_target` on each call.
+//! behaviour, and call recording here instead of standing up a real adapter. It
+//! is `Clone` so a [`FakeConfiguredAdapter`](super::FakeConfiguredAdapter) can
+//! hand back a fresh boxed target from `release_target` on each call.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -156,7 +156,8 @@ impl FakeReleaseTarget {
         self
     }
 
-    /// Make `publish` fail with a typed internal error before returning outcomes.
+    /// Make `publish` fail with a typed internal error before returning
+    /// outcomes.
     #[must_use]
     pub fn with_publish_failure(self, message: impl Into<String>) -> Self {
         self.state().fail_publish = Some(message.into());

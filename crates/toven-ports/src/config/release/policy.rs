@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 
 /// The default version-bump level a release applies to a changed module.
 ///
-/// The per-run bump argv layers over this config default; `Auto`
-/// defers the level to the change classification (patch unless a breaking signal
-/// forces minor). An **engine-owned** policy value: the adapter only carries the
+/// The per-run bump argv layers over this config default; `Auto` defers the
+/// level to the change classification (patch unless a breaking signal forces
+/// minor). An **engine-owned** policy value: the adapter only carries the
 /// user's selection through to the bump planner.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -19,8 +19,8 @@ pub enum BumpLevel {
     Minor,
     /// Bump the major component and zero minor/patch (`1.2.3` → `2.0.0`).
     Major,
-    /// Defer to the change classification: patch unless a breaking signal forces
-    /// a minor bump.
+    /// Defer to the change classification: patch unless a breaking signal
+    /// forces a minor bump.
     Auto,
 }
 
@@ -46,7 +46,8 @@ impl BumpLevel {
 #[non_exhaustive]
 pub enum DependentVersion {
     /// Bump the dependent's own version alongside the floor update (the default
-    /// cascade — a dependent that pins a released dependency is itself released).
+    /// cascade — a dependent that pins a released dependency is itself
+    /// released).
     Bump,
     /// Only raise the dependency floor; leave the dependent's own version
     /// unchanged (it is not re-released just because a dependency moved).

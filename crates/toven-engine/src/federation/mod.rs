@@ -2,8 +2,8 @@
 //! trait.
 //!
 //! Bundled adapters are linked in-proc; any other canonical ecosystem is driven
-//! out-of-process via a [`RemoteAdapter`] proxy that forwards each port call to a
-//! separately-installed `toven-<eco> __serve` subprocess over a thin, framed
+//! out-of-process via a [`RemoteAdapter`] proxy that forwards each port call to
+//! a separately-installed `toven-<eco> __serve` subprocess over a thin, framed
 //! stdio transport. The engine's discover/configure loop is unchanged — an
 //! out-of-proc adapter is just another `dyn ConfiguredAdapter`.
 //!
@@ -16,9 +16,11 @@
 //! - [`resolve`] — the four-way dispatch and remote-adapter resolution.
 //! - [`provision`] — the explicit driver install surface.
 //! - [`members`] — umbrella `[[members]]` enumeration across repos.
-//! - [`compose`] — member-config composition + cross-member overlay/group layer.
+//! - [`compose`] — member-config composition + cross-member overlay/group
+//!   layer.
 //! - [`identity`] — member metadata stamping on the cross-repo union.
-//! - [`rebase`] — rebase one member's discovery output into umbrella coordinates.
+//! - [`rebase`] — rebase one member's discovery output into umbrella
+//!   coordinates.
 //! - [`baseline`] — per-member baseline specs and VCS reader views.
 //! - [`project`] — open one deduped rskit-git reader/writer per member repo.
 //! - [`release`] — federated release planning and per-member APPLY sharding.

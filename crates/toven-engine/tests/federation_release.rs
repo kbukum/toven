@@ -2,9 +2,10 @@
 //!
 //! A two-member umbrella (one rust member, one go member) is driven through the
 //! public [`release_run`] facade with per-member VCS doubles. The assertions
-//! prove the federated release plan shards its history mutations per member repo
-//! — one release commit and its own module tags land in each member's writer —
-//! while publishing still runs as one federated pass across both registries.
+//! prove the federated release plan shards its history mutations per member
+//! repo — one release commit and its own module tags land in each member's
+//! writer — while publishing still runs as one federated pass across both
+//! registries.
 
 use std::collections::BTreeSet;
 

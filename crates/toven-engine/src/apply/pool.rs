@@ -60,13 +60,14 @@ struct WorkHandler {
     runner: Arc<dyn CommandRunner>,
     environment: InvocationEnvironment,
     output: OutputObserver,
-    /// Stream normal-unit output live (through `output`) instead of capturing it
-    /// for a buffered block. Only set when nothing else can emit concurrently
-    /// (serial or single-unit execution and no held persistent unit), so
-    /// streamed chunks never interleave.
+    /// Stream normal-unit output live (through `output`) instead of capturing
+    /// it for a buffered block. Only set when nothing else can emit
+    /// concurrently (serial or single-unit execution and no held persistent
+    /// unit), so streamed chunks never interleave.
     stream_normal_live: bool,
-    /// Optional wall-clock bound on any single normal unit; on expiry the unit's
-    /// own cancellation token is fired so the runner tears the child down.
+    /// Optional wall-clock bound on any single normal unit; on expiry the
+    /// unit's own cancellation token is fired so the runner tears the child
+    /// down.
     unit_timeout: Option<Duration>,
 }
 
@@ -96,11 +97,10 @@ impl Handler<WorkItem, WorkOutcome> for WorkHandler {
         } else {
             let live = self.stream_normal_live.then(|| self.output.clone());
             if let Some(timeout) = self.unit_timeout {
-                // Bound the run: on expiry cancel this unit's own token and then
-                // await the runner to completion so the child is torn down (never
-                // dropped/leaked), reusing the same cooperative-cancellation path
-                // as fail-fast/Ctrl+C. `biased` prefers a natural completion that
-                // lands in the same poll as the deadline.
+                // Bound the run: on expiry cancel this unit's own token and then await the
+                // runner to completion so the child is torn down (never dropped/leaked),
+                // reusing the same cooperative-cancellation path as fail-fast/Ctrl+C. `biased`
+                // prefers a natural completion that lands in the same poll as the deadline.
                 let run = self.runner.run(&invocation, cancel.clone(), live);
                 tokio::pin!(run);
                 tokio::select! {
@@ -114,14 +114,7 @@ impl Handler<WorkItem, WorkOutcome> for WorkHandler {
                     }
                     () = tokio::time::sleep(timeout) => {
                         cancel.cancel();
-                        // We deliberately cancelled this unit, so a `Cancelled`
-                        // error (the fake/cooperative path) or an `Ok`
-                        // killed-process outcome (the rskit-process path) both
-                        // mean "timed out": salvage any captured output and
-                        // report the timeout as an explicit failure verdict.
-                        // Any *other* error is a genuine spawn/IO/teardown
-                        // failure unrelated to our cancellation — propagate it
-                        // with its cause rather than masking it as a timeout.
+                        // We deliberately cancelled this unit, so a `Cancelled` error (the fake/cooperative path) or an `Ok` killed-process outcome (the rskit-process path) both mean "timed out": salvage any captured output and report the timeout as an explicit failure verdict. Any *other* error is a genuine spawn/IO/teardown failure unrelated to our cancellation — propagate it with its cause rather than masking it as a timeout.
                         let output = match run.await {
                             Ok(outcome) => outcome.output,
                             Err(error) if error.code() == ErrorCode::Cancelled => Vec::new(),

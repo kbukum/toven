@@ -5,52 +5,51 @@
 //! PLAN/APPLY spine for config loading, discovery, graphing, scheduling,
 //! execution, federation, generation, cache, and release.
 //!
-//! Config is **engine-owned orchestration**: the engine owns the reserved-section
-//! schemas and the one strict `rskit-config`-backed loader that parses the single
-//! canonical `toven.toml` into a typed [`config::Document`]. The shared
-//! `[ecosystems.<id>]` vocabulary ([`CommonEcosystemConfig`](toven_ports::CommonEcosystemConfig))
-//! is owned by [`toven_ports`]; the engine keeps each dynamic-keyed subtree
-//! verbatim for the adapter's own `configure` parse, which flattens that shared
-//! surface.
+//! Config is **engine-owned orchestration**: the engine owns the
+//! reserved-section schemas and the one strict `rskit-config`-backed loader
+//! that parses the single canonical `toven.toml` into a typed
+//! [`config::Document`]. The shared `[ecosystems.<id>]` vocabulary
+//! ([`CommonEcosystemConfig`](toven_ports::CommonEcosystemConfig)) is owned by
+//! [`toven_ports`]; the engine keeps each dynamic-keyed subtree verbatim for
+//! the adapter's own `configure` parse, which flattens that shared surface.
 //!
 //! The engine also injects three IO ports defined in [`toven_ports`] —
 //! [`ToolchainProber`](toven_ports::ToolchainProber),
 //! [`SourceDigest`](toven_ports::SourceDigest), and
 //! [`CacheStore`](toven_ports::CacheStore) — keeping the PLAN spine pure; their
-//! concrete adapters ([`plan::ProcessToolchainProber`], [`plan::FsSourceDigest`],
-//! [`plan::NullCache`]) live here in the engine.
+//! concrete adapters ([`plan::ProcessToolchainProber`],
+//! [`plan::FsSourceDigest`], [`plan::NullCache`]) live here in the engine.
 //!
 //! ## Modules
 //! - [`config`] — the strict `Document`, reserved-section schemas, the
 //!   structural-validation pass, the ecosystem-id three-way dispatch, and the
 //!   `rskit-config::strict`-backed loader.
 //! - [`vcs`] — the single git seam's implementation side: the rskit-git-backed
-//!   [`vcs::RskitGitVcs`] adapter, the engine-owned [`vcs::BaselineStrategy`], and
-//!   the per-repo [`vcs::VcsReaderSet`] dedup + fan-out.
+//!   [`vcs::RskitGitVcs`] adapter, the engine-owned [`vcs::BaselineStrategy`],
+//!   and the per-repo [`vcs::VcsReaderSet`] dedup + fan-out.
 //! - [`plan`] — the pure PLAN spine: the seven phases (Load → Configure →
-//!   Discover → Graph → Affected → Toolchain → Schedule+Cache) that culminate in
-//!   one immutable [`toven_model::Plan`]; it also hosts the concrete adapters for
-//!   the injected toolchain/source/cache ports.
+//!   Discover → Graph → Affected → Toolchain → Schedule+Cache) that culminate
+//!   in one immutable [`toven_model::Plan`]; it also hosts the concrete
+//!   adapters for the injected toolchain/source/cache ports.
 //! - [`output`] — the engine-owned per-unit raw child-output channel: buffers
 //!   normal units into a labeled block (spilling extra blocks if a unit exceeds
 //!   the per-unit buffer cap, to bound any single unit's buffer), live-tails
-//!   persistent ones, and routes bytes through an
-//!   injected `RawOutputSink` (the CLI renders; the engine does not print). The
-//!   APPLY exec layer feeds it.
-//! - [`cache`] — the concrete filesystem cache backend ([`cache::FsContentCache`])
-//!   implementing both injected cache ports: the read-only
-//!   [`CacheStore`](toven_ports::CacheStore) for PLAN and the write-only
-//!   [`CacheWriter`](toven_ports::CacheWriter) for APPLY.
+//!   persistent ones, and routes bytes through an injected `RawOutputSink` (the
+//!   CLI renders; the engine does not print). The APPLY exec layer feeds it.
+//! - [`cache`] — the concrete filesystem cache backend
+//!   ([`cache::FsContentCache`]) implementing both injected cache ports: the
+//!   read-only [`CacheStore`](toven_ports::CacheStore) for PLAN and the
+//!   write-only [`CacheWriter`](toven_ports::CacheWriter) for APPLY.
 //! - [`release`] — the release-specific PLAN/APPLY tail: immutable release
 //!   planning vocabulary, change detection, bumping, tagging, and publishing.
 //! - [`watch`] — watch mode: the [`watch::WatchSession`] PLAN→APPLY rerun loop
 //!   over the injected [`WatchSource`](toven_ports::WatchSource) port plus the
 //!   concrete rskit-fs [`watch::RskitFsWatch`] adapter.
 //! - [`federation`] — umbrella federation: in-proc adapters plus the
-//!   [`RemoteAdapter`](federation::RemoteAdapter) proxy that drives a separately
-//!   installed `toven-<eco> __serve` over a thin framed stdio transport, the
-//!   four-way driver dispatch, the `__serve` port-server loop, and the explicit
-//!   driver provisioning surface.
+//!   [`RemoteAdapter`](federation::RemoteAdapter) proxy that drives a
+//!   separately installed `toven-<eco> __serve` over a thin framed stdio
+//!   transport, the four-way driver dispatch, the `__serve` port-server loop,
+//!   and the explicit driver provisioning surface.
 #![warn(missing_docs)]
 
 pub mod apply;

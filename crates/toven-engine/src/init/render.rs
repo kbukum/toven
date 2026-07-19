@@ -39,8 +39,8 @@ pub(super) fn first_run(
     Ok((doc.to_string(), added))
 }
 
-/// Build the minimal `[project]` table: name, the conventional `.` root, and the
-/// default change baseline.
+/// Build the minimal `[project]` table: name, the conventional `.` root, and
+/// the default change baseline.
 fn project_table(project_name: &str) -> Table {
     let mut project = Table::new();
     project.insert("name", value(project_name));

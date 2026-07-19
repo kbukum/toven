@@ -1,6 +1,6 @@
 //! `toven init` flow tests: minimal first-run emit, additive/idempotent re-run,
-//! `--force` regeneration, the bootstrap PATH-driver probe, the generated-config
-//! → loader round-trip, and an init → PLAN smoke.
+//! `--force` regeneration, the bootstrap PATH-driver probe, the
+//! generated-config → loader round-trip, and an init → PLAN smoke.
 //!
 //! Discovery is faked through `toven-testkit` doubles; the PATH-probe transport
 //! is exercised through an injected [`DriverWizard`]/[`DriverLocator`] pair (no
@@ -46,7 +46,8 @@ fn fragment(id: &str, manifests: &[&str]) -> EcosystemFragment {
     EcosystemFragment::new(eid(id), table)
 }
 
-/// A provider that detects `id` and renders a fragment with the given manifests.
+/// A provider that detects `id` and renders a fragment with the given
+/// manifests.
 fn detecting_provider(id: &str, manifests: &[&str]) -> FakeProvider {
     FakeProvider::new(eid(id)).with_fragment(fragment(id, manifests))
 }
@@ -315,8 +316,8 @@ fn force_regenerates_exactly_one_section() {
 
     let written = read_string(&config).expect("read merged config");
     assert!(written.contains("crates/Cargo.toml"), "{written}");
-    // A forced regenerate replaces the section, so its old *live* keys are gone
-    // (a commented override hint mentioning run_strategy is expected, though).
+    // A forced regenerate replaces the section, so its old *live* keys are gone (a
+    // commented override hint mentioning run_strategy is expected, though).
     assert!(
         !written.contains("\nrun_strategy = \"leaf-to-top\""),
         "{written}"
@@ -365,10 +366,10 @@ fn bootstrap_probe_picks_up_a_path_driver() {
 
 #[test]
 fn path_driver_rendering_a_foreign_ecosystem_is_rejected() {
-    // A `toven-go` driver may only render its own `go` ecosystem. A located
-    // driver returning a fragment for a different ecosystem (here `rust`) is
-    // misbehavior across the PATH-discovery trust boundary and must be a hard
-    // error, never silently merged into the generated config.
+    // A `toven-go` driver may only render its own `go` ecosystem. A located driver
+    // returning a fragment for a different ecosystem (here `rust`) is misbehavior
+    // across the PATH-discovery trust boundary and must be a hard error, never
+    // silently merged into the generated config.
     let dir = TempDir::new().expect("temp dir");
     let providers: Vec<&dyn Provider> = Vec::new();
 

@@ -1,4 +1,5 @@
-//! APPLY spine: wave-driven exec, failure gating, cache recording, and teardown.
+//! APPLY spine: wave-driven exec, failure gating, cache recording, and
+//! teardown.
 
 mod entry;
 mod exec;

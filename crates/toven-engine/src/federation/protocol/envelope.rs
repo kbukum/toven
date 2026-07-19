@@ -2,11 +2,11 @@
 //! **only** from the shared [`toven_model`]/[`toven_ports`] vocabulary.
 //!
 //! There are no bespoke DTOs: every payload field is an existing model or port
-//! value type ([`DiscoverRequest`], [`DiscoverResponse`],
-//! [`ToolchainProbe`], [`TaskKind`], [`RunStrategy`], [`CommonEcosystemConfig`]),
-//! so a model change cascades straight to the wire. The umbrella sends a
-//! [`Hello`] and a stream of [`Request`]s; the driven server answers with a
-//! [`Welcome`] then one [`Response`] per request.
+//! value type ([`DiscoverRequest`], [`DiscoverResponse`], [`ToolchainProbe`],
+//! [`TaskKind`], [`RunStrategy`], [`CommonEcosystemConfig`]), so a model change
+//! cascades straight to the wire. The umbrella sends a [`Hello`] and a stream
+//! of [`Request`]s; the driven server answers with a [`Welcome`] then one
+//! [`Response`] per request.
 
 use rskit_config::RawValue;
 use serde::{Deserialize, Serialize};
@@ -20,10 +20,11 @@ pub const ENVELOPE_SCHEMA_VERSION: u16 = 1;
 
 /// The opening handshake the umbrella sends to a freshly spawned driver.
 ///
-/// Carries the protocol version (negotiated by [`handshake`](super::handshake)),
-/// the ecosystem the umbrella wants this server to act as, and that ecosystem's
-/// raw `[ecosystems.<id>]` config as the canonical [`RawValue`] subtree the
-/// server hands straight to its own `configure`.
+/// Carries the protocol version (negotiated by
+/// [`handshake`](super::handshake)), the ecosystem the umbrella wants this
+/// server to act as, and that ecosystem's raw `[ecosystems.<id>]` config as the
+/// canonical [`RawValue`] subtree the server hands straight to its own
+/// `configure`.
 // `config` is a `RawValue` (JSON), which is not `Eq`, so only `PartialEq` is derivable.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -51,7 +52,8 @@ impl Hello {
     }
 }
 
-/// The server's handshake reply: protocol echo, capabilities, resolved common config.
+/// The server's handshake reply: protocol echo, capabilities, resolved common
+/// config.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Welcome {
     /// Envelope schema version ([`ENVELOPE_SCHEMA_VERSION`]).
@@ -66,13 +68,13 @@ pub struct Welcome {
 
 /// Which port methods a driver advertises after configure.
 ///
-/// The PLAN-side surface — `discover`, `toolchain`, and
-/// `run_strategy` — is **required**: the [`RemoteAdapter`](super::super::remote)
-/// proxy cannot function without it, so the umbrella treats any driver that
-/// reports a required capability as `false` as an incompatible driver and fails
-/// fast (see [`Capabilities::missing_required`]). `release` is the only optional
-/// surface (`release = false` ⇒ no release target). New capability flags default
-/// to `false` so an older umbrella reading a newer server's set degrades safely.
+/// The PLAN-side surface — `discover`, `toolchain`, and `run_strategy` — is
+/// **required**: the [`RemoteAdapter`](super::super::remote) proxy cannot
+/// function without it, so the umbrella treats any driver that reports a
+/// required capability as `false` as an incompatible driver and fails fast (see
+/// [`Capabilities::missing_required`]). `release` is the only optional surface
+/// (`release = false` ⇒ no release target). New capability flags default to
+/// `false` so an older umbrella reading a newer server's set degrades safely.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Default, Deserialize, Serialize)]
 #[serde(default)]
 #[allow(clippy::struct_excessive_bools)] // a flag-per-port capability set
@@ -88,8 +90,8 @@ pub struct Capabilities {
 }
 
 impl Capabilities {
-    /// The capability set every first-party driver advertises: the PLAN-side port
-    /// surface, with release capability-gated off.
+    /// The capability set every first-party driver advertises: the PLAN-side
+    /// port surface, with release capability-gated off.
     #[must_use]
     pub const fn plan_surface() -> Self {
         Self {
@@ -100,14 +102,14 @@ impl Capabilities {
         }
     }
 
-    /// The names of the **required** PLAN-side capabilities this driver fails to
-    /// advertise, in declaration order.
+    /// The names of the **required** PLAN-side capabilities this driver fails
+    /// to advertise, in declaration order.
     ///
     /// The proxy cannot answer port calls without `discover`, `toolchain`, and
     /// `run_strategy`, so any of these reported as `false` marks the driver
     /// incompatible. An empty result means the required surface is satisfied;
-    /// `release` is optional and never reported here. The runnable task table is
-    /// not an RPC — it travels in the [`Welcome`]'s resolved common config.
+    /// `release` is optional and never reported here. The runnable task table
+    /// is not an RPC — it travels in the [`Welcome`]'s resolved common config.
     #[must_use]
     pub fn missing_required(&self) -> Vec<&'static str> {
         let mut missing = Vec::new();
@@ -124,8 +126,9 @@ impl Capabilities {
     }
 }
 
-/// One request mirroring a [`ConfiguredAdapter`](toven_ports::ConfiguredAdapter)
-/// method (plus a graceful `Shutdown`).
+/// One request mirroring a
+/// [`ConfiguredAdapter`](toven_ports::ConfiguredAdapter) method (plus a
+/// graceful `Shutdown`).
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[non_exhaustive]
 pub enum Request {
@@ -138,7 +141,8 @@ pub enum Request {
         /// Task kind whose default ordering is requested.
         kind: TaskKind,
     },
-    /// Graceful teardown request; the server replies [`Response::Bye`] and exits.
+    /// Graceful teardown request; the server replies [`Response::Bye`] and
+    /// exits.
     Shutdown,
 }
 
@@ -165,7 +169,8 @@ pub enum Response {
 /// typed PLAN error.
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub struct WireError {
-    /// Stable error-code label (the remote [`ErrorCode`](rskit_errors::ErrorCode) name).
+    /// Stable error-code label (the remote
+    /// [`ErrorCode`](rskit_errors::ErrorCode) name).
     pub code: String,
     /// Human-readable failure message.
     pub message: String,

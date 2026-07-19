@@ -78,4 +78,3 @@ Each crate root (`lib.rs`) and responsibility folder (`mod.rs`) stays **declare-
 
 - Stable project documentation lives in `docs/`; `tmp/` is for active plans/handoff notes only and is never referenced from committed docs.
 - Write Markdown paragraphs as natural, continuous source lines. Do not hard-wrap prose to a column limit or insert source newlines for visual presentation; Markdown renderers handle viewport-aware wrapping. Keep intentional structure such as paragraph breaks, headings, lists, blockquotes, tables, mermaid diagrams, and fenced or indented code blocks.
-- Apply the same rule to prose in `//!`/`///` rustdoc and `//` comments: do not introduce arbitrary column-based breaks. Preserve rustdoc formatting conventions for code examples, directives, lists, and tables. The `rustfmt` `max_width` limit is for code, not prose.

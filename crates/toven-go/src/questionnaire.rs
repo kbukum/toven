@@ -2,11 +2,11 @@
 //!
 //! Go's toolchain leaves several efficiency choices to the repo (which linter,
 //! formatter, and test runner to drive, and whether to harden the test task).
-//! Each is asked once here; the renderer authors the matching task argv from the
-//! [`Answers`](toven_ports::Answers). Every default is resolved without forcing an
-//! external dependency: the recommended answer is always a tool the Go toolchain
-//! already ships, unless the repo already opted into an external one (a detected
-//! `.golangci.yml` preselects `golangci-lint`).
+//! Each is asked once here; the renderer authors the matching task argv from
+//! the [`Answers`](toven_ports::Answers). Every default is resolved without
+//! forcing an external dependency: the recommended answer is always a tool the
+//! Go toolchain already ships, unless the repo already opted into an external
+//! one (a detected `.golangci.yml` preselects `golangci-lint`).
 
 use rskit_cli::Choice;
 use rskit_errors::AppResult;
@@ -47,12 +47,13 @@ pub(crate) const TEST_HARDENING: &str = "test-hardening";
 
 /// Build the Go questionnaire from a [`Detection`].
 ///
-/// Asks four questions, each defaulted to a toolchain-native, no-extra-dependency
-/// answer so accepting the defaults yields a working catalog:
-/// - **lint backend** — `golangci-lint` (preselected when a `.golangci.*` config
-///   is detected), `staticcheck`, or the built-in `go vet` (recommended when no
-///   config is present; selecting it drops the redundant `lint` task since
-///   `check` already runs `go vet`).
+/// Asks four questions, each defaulted to a toolchain-native,
+/// no-extra-dependency answer so accepting the defaults yields a working
+/// catalog:
+/// - **lint backend** — `golangci-lint` (preselected when a `.golangci.*`
+///   config is detected), `staticcheck`, or the built-in `go vet` (recommended
+///   when no config is present; selecting it drops the redundant `lint` task
+///   since `check` already runs `go vet`).
 /// - **formatter** — `gofmt` (recommended, always available), `gofumpt`, or
 ///   `goimports`.
 /// - **test runner** — the built-in `go test` (recommended) or `gotestsum`.

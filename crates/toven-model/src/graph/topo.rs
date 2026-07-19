@@ -1,4 +1,5 @@
-//! Pure traversal algorithms over a [`Graph`]: wave-leveling and reverse closure.
+//! Pure traversal algorithms over a [`Graph`]: wave-leveling and reverse
+//! closure.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,10 +14,11 @@ use crate::{
 impl Graph {
     /// Reverse-dependents closure over the seed set.
     ///
-    /// Starting from `seeds`, walk reverse edges (`to` → `from`) whose [`DepKind`]
-    /// satisfies `include`, returning the seeds plus every transitively affected
-    /// dependent. `include` lets a caller distinguish, e.g., a `Dev`-only change
-    /// (affects tests) from a `Normal` one (affects downstream builds).
+    /// Starting from `seeds`, walk reverse edges (`to` → `from`) whose
+    /// [`DepKind`] satisfies `include`, returning the seeds plus every
+    /// transitively affected dependent. `include` lets a caller distinguish,
+    /// e.g., a `Dev`-only change (affects tests) from a `Normal` one (affects
+    /// downstream builds).
     ///
     /// Errors if a seed is not a known module.
     pub fn closure(
@@ -50,10 +52,11 @@ impl Graph {
 
     /// Forward-dependencies closure over the seed set.
     ///
-    /// Starting from `seeds`, walk forward edges (`from` → `to`) whose [`DepKind`]
-    /// satisfies `include`, returning the seeds plus everything they transitively
-    /// depend on. The mirror of [`closure`](Graph::closure): where that expands to
-    /// what would be *affected* by a seed, this expands to what a seed *needs*.
+    /// Starting from `seeds`, walk forward edges (`from` → `to`) whose
+    /// [`DepKind`] satisfies `include`, returning the seeds plus everything
+    /// they transitively depend on. The mirror of [`closure`](Graph::closure):
+    /// where that expands to what would be *affected* by a seed, this expands
+    /// to what a seed *needs*.
     ///
     /// Errors if a seed is not a known module.
     pub fn dependencies_closure(
@@ -88,10 +91,11 @@ impl Graph {
     /// Topologically level the graph into dependency-ordered ready waves.
     ///
     /// Each wave contains modules whose kept dependencies all appear in earlier
-    /// waves (leaf-first). The `keep` relaxation hook decides, per edge, whether
-    /// it counts as an ordering constraint — `leaf-to-top` keeps intra-ecosystem
-    /// edges, `unordered` drops them, and overlay edges are always kept by the
-    /// engine. Within a wave, modules are ordered by key for determinism.
+    /// waves (leaf-first). The `keep` relaxation hook decides, per edge,
+    /// whether it counts as an ordering constraint — `leaf-to-top` keeps
+    /// intra-ecosystem edges, `unordered` drops them, and overlay edges are
+    /// always kept by the engine. Within a wave, modules are ordered by key for
+    /// determinism.
     ///
     /// Errors if a kept-edge cycle remains (defensive — `build` already rejects
     /// cycles over the full edge set, and dropping edges cannot create one).

@@ -2,15 +2,16 @@
 //! unit graph acyclic.
 //!
 //! A `PerModule` task keys one unit per module. A `Batchable`/`WholeWorkspace`
-//! task collapses same-ecosystem-and-workspace modules into a shared **base** id
-//! ([`group_id`]). The scheduler then splits a base by dependency layer
-//! ([`layered_group_ids`]) **only** when that base participates in a cross-group
-//! cycle of the condensed base-group graph ([`cyclic_bases`]) — the facade
-//! back-dependency shape. A clean single-workspace batch (even one with an
-//! internal dependency chain) has no cross-group cycle, so it stays one collapsed
-//! unit. [`level_units_into_waves`] then levels the condensed unit graph into
-//! dependency-respecting waves, failing closed ([`ensure_distinct_ids`], and the
-//! leveler's own cycle check) on any residual collision or cycle.
+//! task collapses same-ecosystem-and-workspace modules into a shared **base**
+//! id ([`group_id`]). The scheduler then splits a base by dependency layer
+//! ([`layered_group_ids`]) **only** when that base participates in a
+//! cross-group cycle of the condensed base-group graph ([`cyclic_bases`]) — the
+//! facade back-dependency shape. A clean single-workspace batch (even one with
+//! an internal dependency chain) has no cross-group cycle, so it stays one
+//! collapsed unit. [`level_units_into_waves`] then levels the condensed unit
+//! graph into dependency-respecting waves, failing closed
+//! ([`ensure_distinct_ids`], and the leveler's own cycle check) on any residual
+//! collision or cycle.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -21,28 +22,29 @@ use toven_ports::FanOut;
 use super::task::{EffectiveTask, effective_for};
 use super::unit::PlannedUnit;
 
-/// The unit id for `module` under `task` (`ecosystem:name#task`, member-prefixed
-/// whenever the module belongs to a federation member via [`ModuleKey`]'s
-/// `Display`).
+/// The unit id for `module` under `task` (`ecosystem:name#task`,
+/// member-prefixed whenever the module belongs to a federation member via
+/// [`ModuleKey`]'s `Display`).
 fn unit_id(module: &ModuleKey, task: &str) -> String {
     format!("{module}#{task}")
 }
 
 /// The id of the unit a module belongs to: its own per-module id for a
-/// `PerModule` task, or a shared **base** group id for `Batchable`/`WholeWorkspace`
-/// tasks that the scheduler splits by dependency layer only when the base is in a
-/// cross-group cycle (see [`layered_group_ids`]).
+/// `PerModule` task, or a shared **base** group id for
+/// `Batchable`/`WholeWorkspace` tasks that the scheduler splits by dependency
+/// layer only when the base is in a cross-group cycle (see
+/// [`layered_group_ids`]).
 ///
 /// A base group id is keyed by `member`, `ecosystem`, **and owning workspace**
 /// (`[member/]ecosystem@workspace#task`, or `[member/]ecosystem#task` for a
-/// workspace-less module). Keeping the workspace in the key guarantees a collapsed
-/// unit never spans workspaces, so the representative's `{workspace.root}` and
-/// resolved toolchain identity are valid for every member it carries. When a group
-/// task override applies, its scope-qualified identity is folded into the key
-/// (`…~identity…`) so members carrying overrides from different declarations — or
-/// none — never collapse into one argv. When the base participates in a cross-group
-/// cycle, the scheduler folds each module's dependency layer on top of this base to
-/// break it.
+/// workspace-less module). Keeping the workspace in the key guarantees a
+/// collapsed unit never spans workspaces, so the representative's
+/// `{workspace.root}` and resolved toolchain identity are valid for every
+/// member it carries. When a group task override applies, its scope-qualified
+/// identity is folded into the key (`…~identity…`) so members carrying
+/// overrides from different declarations — or none — never collapse into one
+/// argv. When the base participates in a cross-group cycle, the scheduler folds
+/// each module's dependency layer on top of this base to break it.
 fn group_id(
     key: &ModuleKey,
     module: &Module,
@@ -65,8 +67,8 @@ fn group_id(
     )
 }
 
-/// Map every active module to its base group id (pre-layer). The scheduler folds
-/// each module's dependency layer on top via [`layered_group_ids`].
+/// Map every active module to its base group id (pre-layer). The scheduler
+/// folds each module's dependency layer on top via [`layered_group_ids`].
 pub(super) fn group_id_map(
     modules: &BTreeMap<ModuleKey, Module>,
     effective: &BTreeMap<ModuleKey, EffectiveTask>,
@@ -88,23 +90,23 @@ pub(super) fn group_id_map(
     Ok(ids)
 }
 
-/// Fold each module's dependency layer into its base group id **only** for bases
-/// that participate in a cross-group cycle of the condensed base-group graph (the
-/// facade back-dependency case, where a workspace's suite crate depends on another
-/// workspace that in turn depends on the workspace's base crates). Such a base is
-/// split one unit per layer, each tagged `~~L{layer}`, so the layer-homogeneous
-/// pieces order strictly low-to-high and break the cycle.
+/// Fold each module's dependency layer into its base group id **only** for
+/// bases that participate in a cross-group cycle of the condensed base-group
+/// graph (the facade back-dependency case, where a workspace's suite crate
+/// depends on another workspace that in turn depends on the workspace's base
+/// crates). Such a base is split one unit per layer, each tagged `~~L{layer}`,
+/// so the layer-homogeneous pieces order strictly low-to-high and break the
+/// cycle.
 ///
 /// A base that is **not** in a cross-group cycle — including a clean single
 /// workspace whose modules form an internal dependency chain — is returned
-/// byte-for-byte unchanged and stays one collapsed unit, preserving the
-/// `cargo check -p a -p b …` batching. Every `PerModule` id is likewise
-/// unchanged.
+/// byte-for-byte unchanged and stays one collapsed unit, preserving the `cargo
+/// check -p a -p b …` batching. Every `PerModule` id is likewise unchanged.
 ///
 /// `WholeWorkspace` bases are **never** split: a whole-workspace task is one
-/// invocation covering the entire workspace, so its members stay collapsed into a
-/// single unit (scheduled at their latest wave). A genuine facade cycle between
-/// whole-workspace units is therefore irreducible and surfaces from
+/// invocation covering the entire workspace, so its members stay collapsed into
+/// a single unit (scheduled at their latest wave). A genuine facade cycle
+/// between whole-workspace units is therefore irreducible and surfaces from
 /// [`level_units_into_waves`] as a typed error.
 pub(super) fn layered_group_ids(
     base_ids: &BTreeMap<ModuleKey, String>,
@@ -158,11 +160,12 @@ fn unlayered_module_error(key: &ModuleKey) -> AppError {
 }
 
 /// The base group ids that participate in a cross-group cycle of the condensed
-/// base-group graph. Kept edges are condensed onto distinct base ids (intra-group
-/// self-loops dropped); a base is cyclic iff it reaches itself in that self-loop-
-/// free graph — any such cycle spans at least two distinct bases. Only these bases
-/// are split by layer; a clean single-workspace batch (even one with an internal
-/// dependency chain) yields only self-loops and so stays one collapsed unit.
+/// base-group graph. Kept edges are condensed onto distinct base ids
+/// (intra-group self-loops dropped); a base is cyclic iff it reaches itself in
+/// that self-loop- free graph — any such cycle spans at least two distinct
+/// bases. Only these bases are split by layer; a clean single-workspace batch
+/// (even one with an internal dependency chain) yields only self-loops and so
+/// stays one collapsed unit.
 fn cyclic_bases(
     base_ids: &BTreeMap<ModuleKey, String>,
     kept_deps: &BTreeMap<ModuleKey, Vec<ModuleKey>>,
@@ -214,14 +217,15 @@ fn reaches_self(start: &str, adjacency: &BTreeMap<&str, BTreeSet<&str>>) -> bool
     false
 }
 
-/// A base group id, tagged with its layer only when the base spans several layers.
+/// A base group id, tagged with its layer only when the base spans several
+/// layers.
 ///
 /// The layer tag uses the reserved double-`~` marker (`~~L{layer}`) so it can
 /// never collide with a `~`-folded group override identity: `~` is rejected in
 /// group and member names at the config boundary, so no user identity contains
 /// `~`, and a `~~` sequence is therefore unique to this marker. The tag is
-/// inserted before the `#task` suffix so the task name stays the final segment; a
-/// single-layer base is returned unchanged.
+/// inserted before the `#task` suffix so the task name stays the final segment;
+/// a single-layer base is returned unchanged.
 fn layered_id(base: &str, layer: usize, multi_layer: bool) -> String {
     if !multi_layer {
         return base.to_string();
@@ -232,10 +236,10 @@ fn layered_id(base: &str, layer: usize, multi_layer: bool) -> String {
     )
 }
 
-/// Fail closed if two *distinct* base groups collapsed onto the same display id,
-/// which would silently merge separate units under gating. Modules sharing one
-/// base id and layer are the batching we intend; a collision across differing
-/// base ids is the pathological case this tripwire rejects.
+/// Fail closed if two *distinct* base groups collapsed onto the same display
+/// id, which would silently merge separate units under gating. Modules sharing
+/// one base id and layer are the batching we intend; a collision across
+/// differing base ids is the pathological case this tripwire rejects.
 fn ensure_distinct_ids(
     base_ids: &BTreeMap<ModuleKey, String>,
     ids: &BTreeMap<ModuleKey, String>,
@@ -264,8 +268,9 @@ fn ensure_distinct_ids(
 
 /// The de-duplicated dependency-group ids a unit gates on (excluding itself).
 ///
-/// Order is the first-seen order across `members`; a `BTreeSet` guards membership
-/// so de-duplication stays linear rather than quadratic in the edge count.
+/// Order is the first-seen order across `members`; a `BTreeSet` guards
+/// membership so de-duplication stays linear rather than quadratic in the edge
+/// count.
 pub(super) fn group_dependencies(
     id: &str,
     members: &[ModuleKey],
@@ -291,12 +296,13 @@ pub(super) fn group_dependencies(
 
 /// Level the condensed unit graph into dependency-respecting waves.
 ///
-/// Each unit is placed exactly one wave after its latest `depends_on` dependency
-/// (longest-path leveling over the unit edges), so APPLY's strict wave-by-wave
-/// execution never submits a unit before a unit it gates on. Deriving waves from
-/// the collapsed **unit** graph — rather than from member module wave-indices —
-/// is what keeps an un-split multi-layer batch (pulled to a later wave than any
-/// single member's module layer) from inverting an external dependent.
+/// Each unit is placed exactly one wave after its latest `depends_on`
+/// dependency (longest-path leveling over the unit edges), so APPLY's strict
+/// wave-by-wave execution never submits a unit before a unit it gates on.
+/// Deriving waves from the collapsed **unit** graph — rather than from member
+/// module wave-indices — is what keeps an un-split multi-layer batch (pulled to
+/// a later wave than any single member's module layer) from inverting an
+/// external dependent.
 ///
 /// Fails closed with a typed internal error if the graph still contains a cycle
 /// (e.g. an irreducible whole-workspace facade cycle), rather than silently

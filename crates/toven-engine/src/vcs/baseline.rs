@@ -1,10 +1,11 @@
-//! `BaselineStrategy` — the engine-owned named policy that resolves CLI flags and
-//! `[project].base_ref` into a typed [`BaselineSpec`].
+//! `BaselineStrategy` — the engine-owned named policy that resolves CLI flags
+//! and `[project].base_ref` into a typed [`BaselineSpec`].
 //!
 //! Consistent with the other engine-owned named policies (`RunStrategy`,
-//! `ReleaseStrategy`): the git mechanism ([`VcsReader`](toven_ports::VcsReader))
-//! stays policy-free and consumes the resolved spec, while the *which-ref /
-//! merge-base* decision lives here — pure and unit-testable without a repo.
+//! `ReleaseStrategy`): the git mechanism
+//! ([`VcsReader`](toven_ports::VcsReader)) stays policy-free and consumes the
+//! resolved spec, while the *which-ref / merge-base* decision lives here — pure
+//! and unit-testable without a repo.
 
 use rskit_errors::{AppError, AppResult};
 use toven_ports::BaselineSpec;
@@ -17,7 +18,8 @@ use toven_ports::BaselineSpec;
 /// and mode separate mirrors [`BaselineSpec`].
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct BaselineFlags {
-    /// `--base <ref>`: overrides `[project].base_ref` as the baseline reference.
+    /// `--base <ref>`: overrides `[project].base_ref` as the baseline
+    /// reference.
     pub base: Option<String>,
     /// `--merge-base`: diff against `merge-base(reference, HEAD)`.
     pub merge_base: bool,
@@ -55,8 +57,8 @@ impl BaselineStrategy {
     ///
     /// Precedence for the reference is `--base` then `[project].base_ref`; the
     /// mode is `MergeBase` iff `--merge-base` is set, else `Explicit`. Errors
-    /// when no reference is available from either source — argv is never silently
-    /// rewritten with a hidden default.
+    /// when no reference is available from either source — argv is never
+    /// silently rewritten with a hidden default.
     pub fn resolve(
         flags: &BaselineFlags,
         project_base_ref: Option<&str>,
@@ -69,13 +71,13 @@ impl BaselineStrategy {
         })
     }
 
-    /// Resolve like [`resolve`](Self::resolve) but yield `None` when neither the
-    /// flags nor config name a reference, instead of erroring.
+    /// Resolve like [`resolve`](Self::resolve) but yield `None` when neither
+    /// the flags nor config name a reference, instead of erroring.
     ///
-    /// Opening the per-member reader set must not force a baseline: a single-repo
-    /// `build` planning every module (`Selection::All`) never consults one, so the
-    /// missing-reference error belongs at the point a changed-selection actually
-    /// consumes the baseline — not at open time.
+    /// Opening the per-member reader set must not force a baseline: a
+    /// single-repo `build` planning every module (`Selection::All`) never
+    /// consults one, so the missing-reference error belongs at the point a
+    /// changed-selection actually consumes the baseline — not at open time.
     #[must_use]
     pub fn resolve_optional(
         flags: &BaselineFlags,

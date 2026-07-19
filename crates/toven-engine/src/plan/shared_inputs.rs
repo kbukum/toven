@@ -7,17 +7,18 @@
 //! hash to an empty digest (a missing file) and break cache correctness.
 //!
 //! The engine treats adapter- and config-provided `shared_inputs` as untrusted
-//! at the PLAN boundary and rejects them up front rather than letting an invalid
-//! entry reach the hasher. The relative/traversal/absolute rules are the shared
-//! rskit `validate_safe_path` policy; the literal-path rules (no glob or
-//! template metacharacters) are Toven's own task-config semantics.
+//! at the PLAN boundary and rejects them up front rather than letting an
+//! invalid entry reach the hasher. The relative/traversal/absolute rules are
+//! the shared rskit `validate_safe_path` policy; the literal-path rules (no
+//! glob or template metacharacters) are Toven's own task-config semantics.
 
 use rskit_errors::{AppError, AppResult};
 use rskit_validation::input::validate_safe_path;
 
 /// Characters that mark a path as a glob pattern or an unresolved template
 /// rather than a literal relative path. Toven renders templates with `${…}` and
-/// never glob-expands `shared_inputs`, so any of these signals a config mistake.
+/// never glob-expands `shared_inputs`, so any of these signals a config
+/// mistake.
 const PATTERN_METACHARACTERS: &[char] = &['*', '?', '[', ']', '{', '}', '$'];
 
 /// Validate a single resolved `shared_inputs` entry for `unit_id`.

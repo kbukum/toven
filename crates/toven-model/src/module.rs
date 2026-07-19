@@ -6,14 +6,15 @@ use crate::identity::{MemberId, ModuleKey, ModuleRef, RepoPath, WorkspaceId};
 
 /// A discovered module, independent of language-specific manifests.
 ///
-/// Dependencies live in a separate [`Edge`](crate::Edge) list rather than inline,
-/// so federation is a plain union of module and edge sets and cross-ecosystem
-/// overlay edges share one uniform edge set.
+/// Dependencies live in a separate [`Edge`](crate::Edge) list rather than
+/// inline, so federation is a plain union of module and edge sets and
+/// cross-ecosystem overlay edges share one uniform edge set.
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub struct Module {
     /// Stable identity (`ecosystem:name`).
     pub id: ModuleRef,
-    /// Package/crate name used by command templates (may differ from `id.name`).
+    /// Package/crate name used by command templates (may differ from
+    /// `id.name`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package: Option<String>,
     /// Repo-relative module root.
@@ -31,20 +32,22 @@ pub struct Module {
     #[serde(default)]
     pub source_patterns: Vec<String>,
     /// Serialization resource group: units sharing this label are serialized by
-    /// the executor because they contend on one resource (e.g. a shared `target/`
-    /// directory). Adapter-set during discovery; `None` leaves the unit unguarded.
+    /// the executor because they contend on one resource (e.g. a shared
+    /// `target/` directory). Adapter-set during discovery; `None` leaves the
+    /// unit unguarded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resource_group: Option<String>,
-    /// Whether this module has an executable target a `run`-kind task can launch.
-    /// Adapter-set during discovery; defaults `true` (assume runnable) so only an
-    /// adapter that can prove a module is library-only (no binary) excludes it
-    /// from persistent `run` units. Consumed by the scheduler, not identity.
+    /// Whether this module has an executable target a `run`-kind task can
+    /// launch. Adapter-set during discovery; defaults `true` (assume runnable)
+    /// so only an adapter that can prove a module is library-only (no binary)
+    /// excludes it from persistent `run` units. Consumed by the scheduler, not
+    /// identity.
     #[serde(default = "default_runnable", skip_serializing_if = "is_runnable")]
     pub runnable: bool,
 }
 
-/// Serde default for [`Module::runnable`]: assume a module is runnable unless the
-/// discovering adapter proves otherwise.
+/// Serde default for [`Module::runnable`]: assume a module is runnable unless
+/// the discovering adapter proves otherwise.
 const fn default_runnable() -> bool {
     true
 }
@@ -56,8 +59,9 @@ const fn is_runnable(value: &bool) -> bool {
 }
 
 impl Module {
-    /// Construct a module with only the required identity + root, leaving optional
-    /// fields empty. Optional fields are set directly by the discovery adapter.
+    /// Construct a module with only the required identity + root, leaving
+    /// optional fields empty. Optional fields are set directly by the discovery
+    /// adapter.
     #[must_use]
     pub const fn new(id: ModuleRef, root: RepoPath) -> Self {
         Self {
@@ -75,9 +79,10 @@ impl Module {
 
     /// The graph key for this module: its identity scoped by its `member`.
     ///
-    /// `member` is `None` for a single-repo module, so the key renders and orders
-    /// identically to its [`ModuleRef`] there; under a cross-repo umbrella the
-    /// member qualifier keeps two members' same `ecosystem:name` distinct.
+    /// `member` is `None` for a single-repo module, so the key renders and
+    /// orders identically to its [`ModuleRef`] there; under a cross-repo
+    /// umbrella the member qualifier keeps two members' same `ecosystem:name`
+    /// distinct.
     #[must_use]
     pub fn key(&self) -> ModuleKey {
         ModuleKey::new(self.member.clone(), self.id.clone())

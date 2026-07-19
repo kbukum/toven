@@ -1,8 +1,8 @@
 //! Protocol version negotiation and typed driver-failure classification.
 //!
-//! Protocol version negotiation requires a **MAJOR match** and tolerates additive
-//! **MINOR** differences. A resolved driver that fails compatibility — or
-//! crashes, times out, or emits a malformed frame — is a hard PLAN error
+//! Protocol version negotiation requires a **MAJOR match** and tolerates
+//! additive **MINOR** differences. A resolved driver that fails compatibility —
+//! or crashes, times out, or emits a malformed frame — is a hard PLAN error
 //! (classified by [`DriverFault`]); only an *absent* driver is warn + skip, and
 //! that distinction is made earlier, in [`resolve`](super::super::resolve).
 
@@ -15,9 +15,9 @@ pub const PROTOCOL_VERSION: &str = "1.0.0";
 /// Parse the compiled-in [`PROTOCOL_VERSION`] into a semver [`Version`].
 ///
 /// # Panics
-/// Never in practice: [`PROTOCOL_VERSION`] is a compile-time constant verified by
-/// the `protocol_version_is_valid_semver` test. The fallback keeps this total
-/// without an `unwrap` on the runtime path.
+/// Never in practice: [`PROTOCOL_VERSION`] is a compile-time constant verified
+/// by the `protocol_version_is_valid_semver` test. The fallback keeps this
+/// total without an `unwrap` on the runtime path.
 #[must_use]
 pub fn protocol_version() -> Version {
     parse_version(PROTOCOL_VERSION).unwrap_or(Version::new(1, 0, 0))

@@ -2,8 +2,8 @@
 //! Toven-domain [`Event`] assertions for the
 //! [`RecordingReporter`](crate::doubles::RecordingReporter).
 //!
-//! The `AppResult` assertions are re-exported (canonical owner: `rskit-testutil`);
-//! only the Toven-shaped event assertions are added here.
+//! The `AppResult` assertions are re-exported (canonical owner:
+//! `rskit-testutil`); only the Toven-shaped event assertions are added here.
 
 use toven_model::Event;
 
@@ -27,8 +27,8 @@ pub fn assert_emitted(events: &[Event], predicate: impl Fn(&Event) -> bool) {
 ///
 /// Intervening events are allowed; the relative order of `expected` must hold.
 /// This is the common shape for engine flow tests that pin lifecycle order
-/// (e.g. `PlanPrepared` → `UnitStarted` → `UnitFinished`) without over-asserting
-/// on every event.
+/// (e.g. `PlanPrepared` → `UnitStarted` → `UnitFinished`) without
+/// over-asserting on every event.
 #[track_caller]
 pub fn assert_event_sequence(events: &[Event], expected: &[Event]) {
     let mut remaining = expected.iter();

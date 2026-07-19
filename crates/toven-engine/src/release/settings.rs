@@ -56,8 +56,8 @@ impl ResolvedHostSettings {
 
 /// The fully-resolved, defaults-applied release settings for one module.
 ///
-/// Produced by folding the ecosystem `[ecosystems.<id>].release` default with an
-/// optional `[modules.<name>.release]` override, then applying the built-in
+/// Produced by folding the ecosystem `[ecosystems.<id>].release` default with
+/// an optional `[modules.<name>.release]` override, then applying the built-in
 /// defaults for anything still unset. The per-run bump argv layers over this
 /// resolved value.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -87,7 +87,8 @@ pub struct ResolvedReleaseSettings {
     pub branches: Vec<String>,
     /// Target registry identifier; `None` = not publishable.
     pub registry: Option<String>,
-    /// Whether registry lookups are skipped (idempotency anchored on tags only).
+    /// Whether registry lookups are skipped (idempotency anchored on tags
+    /// only).
     pub offline: bool,
     /// Environment-variable name holding the registry token (never the secret).
     pub token_env: Option<String>,
@@ -114,7 +115,8 @@ impl ResolvedReleaseSettings {
         Self::from_merged(&merged)
     }
 
-    /// Apply defaults and resolve the bump policy over an already-merged config.
+    /// Apply defaults and resolve the bump policy over an already-merged
+    /// config.
     fn from_merged(config: &ReleaseConfig) -> AppResult<Self> {
         Ok(Self {
             policy: strategy::resolve(config.strategy.as_deref())?,

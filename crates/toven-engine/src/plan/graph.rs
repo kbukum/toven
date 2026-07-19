@@ -2,9 +2,9 @@
 //! validation against discovered modules.
 //!
 //! [`toven_model::Graph::build`] already validates unique identity, resolvable
-//! edges, and acyclicity (intra-ecosystem + overlay edges in one set). On top of
-//! that this phase resolves every `[groups.*]` membership against the now-known
-//! module set and enforces group guardrails against the real edges.
+//! edges, and acyclicity (intra-ecosystem + overlay edges in one set). On top
+//! of that this phase resolves every `[groups.*]` membership against the
+//! now-known module set and enforces group guardrails against the real edges.
 
 use std::collections::BTreeSet;
 
@@ -20,30 +20,32 @@ use super::overrides::GroupOverrides;
 /// Build the validated federated [`Graph`] from the discovery union.
 ///
 /// # Errors
-/// Propagates [`Graph::build`] failures: duplicate identity, an edge referencing
-/// an unknown module, a self-edge, or a dependency cycle.
+/// Propagates [`Graph::build`] failures: duplicate identity, an edge
+/// referencing an unknown module, a self-edge, or a dependency cycle.
 pub(super) fn build(federation: &Federation) -> AppResult<Graph> {
     Graph::build(federation.modules.clone(), federation.edges.clone())
 }
 
-/// Run semantic config validation against the real graph, returning the resolved
-/// per-module group overrides gathered along the way.
+/// Run semantic config validation against the real graph, returning the
+/// resolved per-module group overrides gathered along the way.
 ///
 /// Groups are validated in the coordinate space they were declared in: each
 /// member's own `[groups.*]` resolve against that member (bare refs bind to the
-/// member's own modules), while the umbrella's cross-member `[groups.*]` resolve
-/// against the whole union with optional `member/` qualifiers. The degenerate
-/// single-repo project is one member with no id, so its groups resolve to bare
-/// keys exactly as before and the umbrella layer is empty.
+/// member's own modules), while the umbrella's cross-member `[groups.*]`
+/// resolve against the whole union with optional `member/` qualifiers. The
+/// degenerate single-repo project is one member with no id, so its groups
+/// resolve to bare keys exactly as before and the umbrella layer is empty.
 ///
 /// The same membership resolution feeds group scope overrides
 /// ([`GroupOverrides`]): a group's `run_strategy`/`tasks` are recorded against
-/// every resolved member so scheduling can layer them on the ecosystem defaults.
+/// every resolved member so scheduling can layer them on the ecosystem
+/// defaults.
 ///
 /// # Errors
 /// A group ref that does not resolve to a real module, a forbidden edge that is
-/// actually present, an external dependency outside a non-empty `allow` list, or
-/// two overlapping groups that override the same module's task/`run_strategy`.
+/// actually present, an external dependency outside a non-empty `allow` list,
+/// or two overlapping groups that override the same module's
+/// task/`run_strategy`.
 pub(super) fn validate_semantics(
     graph: &Graph,
     composed: &ComposedFederation,
@@ -69,11 +71,12 @@ pub(super) fn validate_semantics(
 /// The coordinate scope a group's references resolve in.
 #[derive(Clone, Copy)]
 enum GroupScope<'a> {
-    /// A member-local group: every reference binds to this one member. The id is
-    /// `None` for the degenerate single-repo project, giving bare keys.
+    /// A member-local group: every reference binds to this one member. The id
+    /// is `None` for the degenerate single-repo project, giving bare keys.
     Member(Option<&'a MemberId>),
-    /// An umbrella cross-member group: references may carry an optional `member/`
-    /// qualifier and bare references resolve against the union when unambiguous.
+    /// An umbrella cross-member group: references may carry an optional
+    /// `member/` qualifier and bare references resolve against the union when
+    /// unambiguous.
     Umbrella,
 }
 
@@ -139,9 +142,9 @@ fn resolve_ref(
 ) -> AppResult<ModuleKey> {
     match scope {
         GroupScope::Member(member) => {
-            // A member-local entry names a module within its own member, so it
-            // never carries a `member/` qualifier; the whole entry is the module
-            // reference and the owning member is fixed.
+            // A member-local entry names a module within its own member, so it never
+            // carries a `member/` qualifier; the whole entry is the module reference and
+            // the owning member is fixed.
             let reference = parse_module_ref(field, entry.to_string(), default_ecosystem)?;
             let key = ModuleKey::new(member.cloned(), reference);
             if graph.contains(&key) {
@@ -211,9 +214,9 @@ fn parse_module_ref(
 
 /// Resolve a `(member?, module)` reference to a concrete graph key.
 ///
-/// A member-qualified ref must match exactly; an unqualified ref resolves when a
-/// single member exposes that `ecosystem:name`, and is rejected as ambiguous when
-/// two members collide (the caller must add a `member/` qualifier).
+/// A member-qualified ref must match exactly; an unqualified ref resolves when
+/// a single member exposes that `ecosystem:name`, and is rejected as ambiguous
+/// when two members collide (the caller must add a `member/` qualifier).
 fn resolve_in_graph(
     field: &str,
     graph: &Graph,
@@ -299,7 +302,8 @@ fn enforce_guardrails(
     Ok(())
 }
 
-/// Resolve a list of (optionally member-qualified) guardrail refs to graph keys.
+/// Resolve a list of (optionally member-qualified) guardrail refs to graph
+/// keys.
 fn resolve_refs(
     field: &str,
     refs: &[String],
@@ -375,7 +379,8 @@ mod tests {
         groups
     }
 
-    /// Validate a degenerate single-repo group set (member id `None`, bare keys).
+    /// Validate a degenerate single-repo group set (member id `None`, bare
+    /// keys).
     fn validate_local(graph: &Graph, groups: &BTreeMap<String, GroupConfig>) -> AppResult<()> {
         validate_only(graph, groups, GroupScope::Member(None))
     }
@@ -447,8 +452,8 @@ mod tests {
     fn member_local_group_binds_bare_refs_to_its_own_member() {
         let graph = build(&two_members_each_with_core()).unwrap();
         let billing = MemberId::new("billing").unwrap();
-        // `rust:core` is exposed by both members, but a member-local group
-        // resolves it to that member's own module without a qualifier.
+        // `rust:core` is exposed by both members, but a member-local group resolves it
+        // to that member's own module without a qualifier.
         let groups = one_group("core", group(&["rust:core"]));
 
         assert!(validate_only(&graph, &groups, GroupScope::Member(Some(&billing))).is_ok());
@@ -474,8 +479,8 @@ mod tests {
     #[test]
     fn umbrella_group_rejects_an_ambiguous_bare_ref() {
         let graph = build(&two_members_each_with_core()).unwrap();
-        // Across the union `rust:core` is exposed by two members, so an umbrella
-        // group must qualify it; a bare ref is ambiguous.
+        // Across the union `rust:core` is exposed by two members, so an umbrella group
+        // must qualify it; a bare ref is ambiguous.
         let groups = one_group("shared", group(&["rust:core"]));
 
         let error =

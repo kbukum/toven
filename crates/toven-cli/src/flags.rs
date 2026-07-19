@@ -1,12 +1,13 @@
 //! The clap surface: global flags, the reserved-verb command tree, and the
 //! per-verb applicability gate.
 //!
-//! Behavior-shaping flags are defined **once, globally**
-//! and accepted before or after the verb; [`gate`] rejects a verb-specific flag
-//! used with a verb it does not apply to with a clear, typed error. The
-//! argv-first task dispatch itself stays Toven domain — clap only models the
-//! reserved verbs and the global flag schema, with bare task names captured as an
-//! [`Command::External`] subcommand and re-parsed by [`grammar`](crate::grammar).
+//! Behavior-shaping flags are defined **once, globally** and accepted before or
+//! after the verb; [`gate`] rejects a verb-specific flag used with a verb it
+//! does not apply to with a clear, typed error. The argv-first task dispatch
+//! itself stays Toven domain — clap only models the reserved verbs and the
+//! global flag schema, with bare task names captured as an
+//! [`Command::External`] subcommand and re-parsed by
+//! [`grammar`](crate::grammar).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -169,10 +170,10 @@ Examples:
 /// Parse a `--timeout` duration string (e.g. `30s`, `5m`) into a [`Duration`].
 ///
 /// A clap `value_parser`, so it also backs the trailing-token path via
-/// [`parse_timeout`](crate::grammar::parse_timeout): both dispatch routes reject
-/// the same malformed values with the same message. Rejects a zero or unparseable
-/// duration — a bound of zero would fail every unit immediately, which is never
-/// what the user means.
+/// [`parse_timeout`](crate::grammar::parse_timeout): both dispatch routes
+/// reject the same malformed values with the same message. Rejects a zero or
+/// unparseable duration — a bound of zero would fail every unit immediately,
+/// which is never what the user means.
 pub(crate) fn parse_duration_arg(value: &str) -> Result<Duration, String> {
     match parse_duration(value) {
         Some(duration) if !duration.is_zero() => Ok(duration),
@@ -237,7 +238,8 @@ pub enum ViewMode {
     Auto,
     /// One live, content-sized tile per in-flight unit in a single terminal.
     Tiles,
-    /// One multiplexer pane per unit (opt-in; requires a supported multiplexer).
+    /// One multiplexer pane per unit (opt-in; requires a supported
+    /// multiplexer).
     Panes,
     /// A single linear stream, log-friendly (each unit flushed as one block).
     Stream,
@@ -289,9 +291,7 @@ impl From<EnforcementArg> for toven_ports::Enforcement {
 
 /// When to emit ANSI color in the human reporter, selected by `--color`.
 ///
-/// Maps to rskit's [`ColorChoice`](rskit_cli::ColorChoice); the `NO_COLOR`
-/// environment variable always overrides an explicit `always`, following the
-/// [`NO_COLOR` standard](https://no-color.org).
+/// Maps to rskit's [`ColorChoice`](rskit_cli::ColorChoice); the `NO_COLOR` environment variable always overrides an explicit `always`, following the [`NO_COLOR` standard](https://no-color.org).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
 #[value(rename_all = "lowercase")]
 #[non_exhaustive]
@@ -328,11 +328,11 @@ impl std::fmt::Display for ColorWhen {
 
 /// The resolved reporter verbosity level (cli-taxonomy `-v`/`-q`).
 ///
-/// Derived from the net of the repeatable `--verbose` and `--quiet` counts: each
-/// `-v` raises the level and each `-q` lowers it. The level selects how much of
-/// the engine's [`Event`](toven_model::Event) stream the human reporter renders;
-/// the machine-parseable JSON-lines stream is unaffected (it always carries every
-/// event so consumers see the full record).
+/// Derived from the net of the repeatable `--verbose` and `--quiet` counts:
+/// each `-v` raises the level and each `-q` lowers it. The level selects how
+/// much of the engine's [`Event`](toven_model::Event) stream the human reporter
+/// renders; the machine-parseable JSON-lines stream is unaffected (it always
+/// carries every event so consumers see the full record).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Verbosity {
     /// Only the run-level lines (start + the terminal summary).
@@ -340,12 +340,14 @@ pub enum Verbosity {
     /// The default: run, plan, and terminal per-unit results.
     #[default]
     Normal,
-    /// Everything, including per-phase, cache-decision, and unit-lifecycle lines.
+    /// Everything, including per-phase, cache-decision, and unit-lifecycle
+    /// lines.
     Verbose,
 }
 
 impl Verbosity {
-    /// Resolve the level from the net of the `verbose` and `quiet` repeat counts.
+    /// Resolve the level from the net of the `verbose` and `quiet` repeat
+    /// counts.
     ///
     /// A positive net (more `-v` than `-q`) is [`Verbose`](Self::Verbose), a
     /// negative net is [`Quiet`](Self::Quiet), and a balanced net is
@@ -381,7 +383,8 @@ impl Verbosity {
 )]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Cli {
-    /// Path to the `toven.toml` config (otherwise discovered upward from the cwd).
+    /// Path to the `toven.toml` config (otherwise discovered upward from the
+    /// cwd).
     #[arg(long, global = true, value_name = "PATH")]
     pub config: Option<PathBuf>,
     /// Event-sink format (defaults to the `[toven].report` setting).
@@ -422,8 +425,8 @@ pub struct Cli {
     /// (duration string, e.g. `30s`, `5m`).
     #[arg(long, global = true, value_name = "DURATION", value_parser = parse_duration_arg, help_heading = "Execution")]
     pub timeout: Option<Duration>,
-    /// Task-APPLY verbs only: cap how many units run concurrently, overriding the
-    /// `[toven].max_parallel` setting. `--jobs 1` forces strictly serial
+    /// Task-APPLY verbs only: cap how many units run concurrently, overriding
+    /// the `[toven].max_parallel` setting. `--jobs 1` forces strictly serial
     /// execution (one unit at a time), which streams each unit's output inline
     /// as a single continuous log instead of buffered per-unit blocks.
     #[arg(long, short = 'j', global = true, value_name = "N", value_parser = parse_jobs_arg, help_heading = "Execution")]
@@ -433,7 +436,8 @@ pub struct Cli {
     /// `[project].base_ref`).
     #[arg(long, global = true, value_name = "REF", help_heading = "Selection")]
     pub base: Option<String>,
-    /// Changed-selection verbs only: diff against `merge-base(reference, HEAD)`.
+    /// Changed-selection verbs only: diff against `merge-base(reference,
+    /// HEAD)`.
     #[arg(long, global = true, help_heading = "Selection")]
     pub merge_base: bool,
     /// Execution/affected/explain verbs and bare tasks: activate modules by
@@ -468,8 +472,8 @@ pub struct Cli {
     )]
     pub with_dependents: bool,
     /// Execution/affected/explain verbs and bare tasks: with `--module`/
-    /// `--workspace`, also activate the forward-dependencies closure (everything
-    /// the selection needs).
+    /// `--workspace`, also activate the forward-dependencies closure
+    /// (everything the selection needs).
     #[arg(long = "dependencies", global = true, help_heading = "Selection")]
     pub with_dependencies: bool,
     /// Task-APPLY verbs only: keep running, re-executing the affected subgraph
@@ -548,7 +552,8 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "PATH", help_heading = "Release")]
     pub out_dir: Option<PathBuf>,
     /// Coverage only: override the absolute line-coverage floor for this run
-    /// (percentage, `0..=100`); wins over the `[…coverage].line` config default.
+    /// (percentage, `0..=100`); wins over the `[…coverage].line` config
+    /// default.
     #[arg(long, global = true, value_name = "PCT", value_parser = parse_percentage_arg, help_heading = "Coverage")]
     pub line: Option<f64>,
     /// Coverage only: override the function-coverage floor for this run
@@ -559,8 +564,8 @@ pub struct Cli {
     /// (percentage; gated only where the ecosystem measures regions).
     #[arg(long, global = true, value_name = "PCT", value_parser = parse_percentage_arg, help_heading = "Coverage")]
     pub region: Option<f64>,
-    /// Coverage only: override the changed-lines floor for this run (percentage;
-    /// applied to changed files under a changed selection).
+    /// Coverage only: override the changed-lines floor for this run
+    /// (percentage; applied to changed files under a changed selection).
     #[arg(long = "changed-line", global = true, value_name = "PCT", value_parser = parse_percentage_arg, help_heading = "Coverage")]
     pub changed_line: Option<f64>,
     /// Coverage only: override how a below-threshold verdict is enforced
@@ -600,12 +605,14 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 #[non_exhaustive]
 pub enum Command {
-    /// Run a task by name (escape hatch for task names that shadow a reserved word).
+    /// Run a task by name (escape hatch for task names that shadow a reserved
+    /// word).
     #[command(after_long_help = RUN_EXAMPLES)]
     Run {
         /// Task name to run.
         task: String,
-        /// Passthrough args after `--`, spliced verbatim at each task's `{args}`.
+        /// Passthrough args after `--`, spliced verbatim at each task's
+        /// `{args}`.
         #[arg(last = true)]
         passthrough: Vec<String>,
     },
@@ -622,8 +629,8 @@ pub enum Command {
         #[command(subcommand)]
         action: ReleaseAction,
     },
-    /// Run the coverage task, aggregate the emitted profiles per module, and gate
-    /// them against the resolved `[…coverage]` thresholds.
+    /// Run the coverage task, aggregate the emitted profiles per module, and
+    /// gate them against the resolved `[…coverage]` thresholds.
     #[command(after_long_help = COVERAGE_EXAMPLES)]
     Coverage,
     /// Explain the PLAN cut for a task, optionally filtered to a `--module`
@@ -654,7 +661,8 @@ pub enum Command {
         /// Optional task name to show in detail (argv template, inputs).
         name: Option<String>,
     },
-    /// Print a shell completion script (`bash`/`zsh`/`fish`/`powershell`/`elvish`).
+    /// Print a shell completion script
+    /// (`bash`/`zsh`/`fish`/`powershell`/`elvish`).
     #[command(after_long_help = COMPLETIONS_EXAMPLES)]
     Completions {
         /// Target shell for the emitted completion script.
@@ -688,16 +696,16 @@ pub enum Command {
 
 /// `toven release <action>`.
 ///
-/// A reviewable release lifecycle: read-only projections (`plan`, `status`) that
-/// never mutate, and mutating actions (`tag`, `publish`) that run the release
-/// pipeline. `tag` stops after the release commit/tag/push; `publish` continues
-/// to the registry. `--dry-run` turns `publish` into a no-mutation rehearsal that
-/// reports the resolved publish order and per-module verdicts.
+/// A reviewable release lifecycle: read-only projections (`plan`, `status`)
+/// that never mutate, and mutating actions (`tag`, `publish`) that run the
+/// release pipeline. `tag` stops after the release commit/tag/push; `publish`
+/// continues to the registry. `--dry-run` turns `publish` into a no-mutation
+/// rehearsal that reports the resolved publish order and per-module verdicts.
 #[derive(Debug, Clone, Copy, Subcommand)]
 #[non_exhaustive]
 pub enum ReleaseAction {
-    /// Show the release PLAN cut — bumped versions, changelog, and publish order
-    /// — without mutating anything.
+    /// Show the release PLAN cut — bumped versions, changelog, and publish
+    /// order — without mutating anything.
     #[command(after_long_help = RELEASE_PLAN_EXAMPLES)]
     Plan,
     /// Show each module's declared version versus what is published and tagged
@@ -709,8 +717,8 @@ pub enum ReleaseAction {
     #[command(after_long_help = RELEASE_TAG_EXAMPLES)]
     Tag,
     /// Run the full release pipeline (commit, tag, push, publish); `--dry-run`
-    /// rehearses the publish order and per-module would-publish/already-published
-    /// verdicts without mutating anything.
+    /// rehearses the publish order and per-module
+    /// would-publish/already-published verdicts without mutating anything.
     #[command(after_long_help = RELEASE_PUBLISH_EXAMPLES)]
     Publish,
     /// Evaluate the fail-closed release-readiness preflight (configured
@@ -832,16 +840,16 @@ impl Cli {
         Verbosity::for_execution(self.verbose, self.quiet, self.explain)
     }
 
-    /// The color policy applied to the human reporter, defaulting to `auto` when
-    /// `--color` is not given.
+    /// The color policy applied to the human reporter, defaulting to `auto`
+    /// when `--color` is not given.
     #[must_use]
     pub fn color_choice(&self) -> ColorWhen {
         self.color.unwrap_or(ColorWhen::Auto)
     }
 
-    /// The CLI-sourced baseline selection (`--base`/`--merge-base`) threaded into
-    /// changed-selection. Empty when neither flag is given, so the engine falls
-    /// back to the configured `base_ref`.
+    /// The CLI-sourced baseline selection (`--base`/`--merge-base`) threaded
+    /// into changed-selection. Empty when neither flag is given, so the engine
+    /// falls back to the configured `base_ref`.
     #[must_use]
     pub fn baseline_flags(&self) -> BaselineFlags {
         let mut flags = BaselineFlags::new().with_merge_base(self.merge_base);
@@ -917,8 +925,8 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
             format!("`--explain` does not apply to `toven {verb}`"),
         ));
     }
-    // `--output` selects the event-sink/projection format; the execution verbs,
-    // the release lifecycle actions, and the `tasks`/`modules` listings render a
+    // `--output` selects the event-sink/projection format; the execution verbs, the
+    // release lifecycle actions, and the `tasks`/`modules` listings render a
     // chooseable projection, but the other verbs print their own fixed rendering.
     if cli.output.is_some() && !accepts_output_format(&cli.command) {
         return Err(AppError::invalid_input(
@@ -939,8 +947,8 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
         ));
     }
     // `--color` shapes the same human reporter as `-v`/`-q`; only the verbs that
-    // build it consume it. An explicit `--color` elsewhere would be a silent
-    // no-op, so reject it rather than advertise one.
+    // build it consume it. An explicit `--color` elsewhere would be a silent no-op,
+    // so reject it rather than advertise one.
     if cli.color.is_some() && !accepts_reporter_shaping(&cli.command) {
         return Err(AppError::invalid_input(
             "flags",
@@ -948,9 +956,9 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
         ));
     }
     // `--view` shapes only the live APPLY output rendering, so it is meaningful
-    // only on the task-APPLY verbs that stream child output. On `plan`
-    // (PLAN-only), `release`, and every introspection/maintenance verb it would
-    // be a silent no-op, so reject it rather than advertise one.
+    // only on the task-APPLY verbs that stream child output. On `plan` (PLAN-only),
+    // `release`, and every introspection/maintenance verb it would be a silent
+    // no-op, so reject it rather than advertise one.
     gate_view_flag(cli, verb)?;
     // `--fail-fast` shapes APPLY scheduling, so it is meaningful only on the
     // task-APPLY verbs. `plan` stops at PLAN and `release` never multiplexes
@@ -958,8 +966,8 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     reject_apply_only_flag(cli.fail_fast, "--fail-fast", &cli.command, verb)?;
     // `--no-cache` shapes the PLAN cache verdict, so it is meaningful only on the
     // execution verbs that build a cache-aware `PlanRequest` (`run`/`plan`/a bare
-    // task). `release` runs its own pipeline without the task cache, so the flag
-    // is a no-op there and is rejected.
+    // task). `release` runs its own pipeline without the task cache, so the flag is
+    // a no-op there and is rejected.
     if cli.no_cache && !accepts_cache_mode(&cli.command) {
         return Err(AppError::invalid_input(
             "flags",
@@ -991,8 +999,8 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     reject_apply_only_flag(cli.jobs.is_some(), "--jobs", &cli.command, verb)?;
     gate_watch_flags(cli, verb)?;
     // `--base`/`--merge-base` only shape changed selection, and
-    // `--module`/`--workspace`/`--with-dependents` shape explicit selection —
-    // both belong to the same selection verbs; other verbs would ignore them.
+    // `--module`/`--workspace`/`--with-dependents` shape explicit selection — both
+    // belong to the same selection verbs; other verbs would ignore them.
     gate_selection_flags(cli, verb)?;
     Ok(())
 }
@@ -1016,8 +1024,8 @@ fn reject_apply_only_flag(
     Ok(())
 }
 
-/// Reject `--view` on any verb other than the task-APPLY verbs that stream
-/// live child output; elsewhere it is a silent no-op.
+/// Reject `--view` on any verb other than the task-APPLY verbs that stream live
+/// child output; elsewhere it is a silent no-op.
 fn gate_view_flag(cli: &Cli, verb: &str) -> AppResult<()> {
     if cli.view.is_some() && !accepts_fail_fast(&cli.command) {
         return Err(AppError::invalid_input(
@@ -1110,8 +1118,8 @@ fn gate_coverage_flags(cli: &Cli, verb: &str, is_coverage: bool) -> AppResult<()
 /// `--module`/`--workspace`/`--dependents`/`--dependencies`) on a verb that
 /// performs no selection.
 fn gate_selection_flags(cli: &Cli, verb: &str) -> AppResult<()> {
-    // `--base` is also the release diff baseline for the mutating release
-    // actions; `--merge-base` stays restricted to the changed-selection verbs.
+    // `--base` is also the release diff baseline for the mutating release actions;
+    // `--merge-base` stays restricted to the changed-selection verbs.
     let mutating_release = release_action(&cli.command).is_some_and(ReleaseAction::is_mutating);
     if cli.base.is_some() && !accepts_baseline(&cli.command) && !mutating_release {
         return Err(AppError::invalid_input(
@@ -1154,8 +1162,8 @@ fn gate_selection_flags(cli: &Cli, verb: &str) -> AppResult<()> {
     Ok(())
 }
 
-/// Reject the watch flags (`--watch`, `--watch-debounce-ms`) on a verb that runs
-/// no APPLY loop, then enforce the shared APPLY-execution flag combination
+/// Reject the watch flags (`--watch`, `--watch-debounce-ms`) on a verb that
+/// runs no APPLY loop, then enforce the shared APPLY-execution flag combination
 /// invariants on the pre-token global flags.
 fn gate_watch_flags(cli: &Cli, verb: &str) -> AppResult<()> {
     if cli.watch && !accepts_watch(&cli.command) {
@@ -1176,15 +1184,17 @@ fn gate_watch_flags(cli: &Cli, verb: &str) -> AppResult<()> {
 }
 
 /// Reject APPLY-execution flag *combinations* that are meaningless however the
-/// flags arrived — as pre-token globals on a reserved verb, or as trailing tokens
-/// on a bare task (which land in [`Command::External`] and never touch [`Cli`]).
+/// flags arrived — as pre-token globals on a reserved verb, or as trailing
+/// tokens on a bare task (which land in [`Command::External`] and never touch
+/// [`Cli`]).
 ///
 /// `watch`, `fail_fast`, `timeout_present`, `plan_only`, and `debounce_present`
 /// are the effective values after merging global and per-task flags, so both
 /// dispatch paths enforce the same invariants: every APPLY-execution flag
-/// (`--watch`/`--fail-fast`/`--timeout`) drives real unit execution and so cannot
-/// combine with a PLAN-only cut (`--dry-run`/`--explain`), which stops before any
-/// unit runs; and the debounce knob is only meaningful with `--watch`.
+/// (`--watch`/`--fail-fast`/`--timeout`) drives real unit execution and so
+/// cannot combine with a PLAN-only cut (`--dry-run`/`--explain`), which stops
+/// before any unit runs; and the debounce knob is only meaningful with
+/// `--watch`.
 #[allow(clippy::fn_params_excessive_bools)]
 pub(crate) fn gate_apply_flag_combination(
     watch: bool,
@@ -1218,8 +1228,8 @@ pub(crate) fn gate_apply_flag_combination(
 /// Whether `command` is a task-APPLY verb that consumes `--watch`.
 ///
 /// Watch reruns the affected subgraph through APPLY, so — like `--fail-fast` —
-/// only the verbs that drive multi-unit APPLY scheduling read it: `plan` stops at
-/// PLAN and `release` runs a single linear pipeline.
+/// only the verbs that drive multi-unit APPLY scheduling read it: `plan` stops
+/// at PLAN and `release` runs a single linear pipeline.
 const fn accepts_watch(command: &Command) -> bool {
     matches!(command, Command::Run { .. } | Command::External(_))
 }
@@ -1292,8 +1302,8 @@ const fn accepts_fail_fast(command: &Command) -> bool {
 /// Whether `command` builds a cache-aware `PlanRequest` and thus consumes
 /// `--no-cache`.
 ///
-/// `run`/`plan`/a bare task all run the cache-aware PLAN spine; `release` runs a
-/// separate pipeline without the task cache, so the flag is a no-op there.
+/// `run`/`plan`/a bare task all run the cache-aware PLAN spine; `release` runs
+/// a separate pipeline without the task cache, so the flag is a no-op there.
 const fn accepts_cache_mode(command: &Command) -> bool {
     matches!(
         command,
@@ -1337,9 +1347,10 @@ fn only_applies(flag: &str, owner: &str, verb: &str) -> AppError {
 
 /// The shared typed error for combining `--refresh` and `--no-cache`.
 ///
-/// Raised from whichever dispatch path first sees both set (the pre-token `gate`
-/// for reserved verbs, or `dispatch_task` for the merged global+task flags on a
-/// bare task), so the contradiction is rejected identically either way.
+/// Raised from whichever dispatch path first sees both set (the pre-token
+/// `gate` for reserved verbs, or `dispatch_task` for the merged global+task
+/// flags on a bare task), so the contradiction is rejected identically either
+/// way.
 pub(crate) fn refresh_no_cache_conflict() -> AppError {
     AppError::invalid_input(
         "flags",
@@ -1452,8 +1463,8 @@ mod tests {
 
     #[test]
     fn color_rejected_on_non_execution_verbs() {
-        // `--color` shapes the human reporter only the execution verbs build, so
-        // like `-v`/`-q` it is rejected on introspection/maintenance verbs.
+        // `--color` shapes the human reporter only the execution verbs build, so like
+        // `-v`/`-q` it is rejected on introspection/maintenance verbs.
         for args in [
             ["--color", "always", "modules"].as_slice(),
             ["--color", "never", "graph"].as_slice(),
@@ -1505,8 +1516,8 @@ mod tests {
             top.contains("Examples:") && top.contains("toven tasks"),
             "top-level help is missing its examples block: {top}"
         );
-        // The top-level list advertises the coverage and release-lifecycle
-        // verbs alongside the task workflows.
+        // The top-level list advertises the coverage and release-lifecycle verbs
+        // alongside the task workflows.
         assert!(
             top.contains("toven coverage") && top.contains("toven release"),
             "top-level examples omit the coverage/release surface: {top}"
@@ -1527,9 +1538,9 @@ mod tests {
     fn every_verb_help_carries_an_examples_block() {
         use clap::CommandFactory;
         let mut command = Cli::command();
-        // Every reserved verb the user can invoke reads coherently: its long help
-        // ends in a worked `Examples:` block. `help` is clap's built-in and
-        // `external` is the argv-first task escape hatch (no clap help of its own).
+        // Every reserved verb the user can invoke reads coherently: its long help ends
+        // in a worked `Examples:` block. `help` is clap's built-in and `external` is
+        // the argv-first task escape hatch (no clap help of its own).
         for sub in command.get_subcommands_mut() {
             let name = sub.get_name().to_string();
             if name == "help" {
@@ -1575,8 +1586,8 @@ mod tests {
 
     #[test]
     fn unknown_subcommand_action_suggests_the_nearest_action() {
-        // argv stays sacred: an unrecognized lifecycle action is never rewritten,
-        // but clap surfaces the nearest real action so the typo is actionable.
+        // argv stays sacred: an unrecognized lifecycle action is never rewritten, but
+        // clap surfaces the nearest real action so the typo is actionable.
         for (args, suggestion) in [
             (["release", "publsh"].as_slice(), "publish"),
             (["cache", "statss"].as_slice(), "stats"),
@@ -1879,8 +1890,8 @@ mod tests {
         ] {
             assert!(super::gate(&parse(args).unwrap()).is_ok(), "{args:?}");
         }
-        // `plan` stops at PLAN and `release`/introspection never run bounded
-        // units, so the bound is a no-op and is rejected.
+        // `plan` stops at PLAN and `release`/introspection never run bounded units, so
+        // the bound is a no-op and is rejected.
         for args in [
             ["--timeout", "5s", "plan", "test"].as_slice(),
             ["--timeout", "5s", "release", "publish"].as_slice(),
@@ -1922,10 +1933,10 @@ mod tests {
 
     #[test]
     fn apply_execution_flags_reject_plan_only_cuts() {
-        // `--fail-fast`/`--timeout`, like `--watch`, drive real unit execution,
-        // so combining them with a PLAN-only cut (`--dry-run`/`--explain`) — even
-        // on an APPLY verb that otherwise accepts them — is rejected rather than
-        // silently ignored.
+        // `--fail-fast`/`--timeout`, like `--watch`, drive real unit execution, so
+        // combining them with a PLAN-only cut (`--dry-run`/`--explain`) — even on an
+        // APPLY verb that otherwise accepts them — is rejected rather than silently
+        // ignored.
         for args in [
             ["--fail-fast", "--dry-run", "run", "test"].as_slice(),
             ["--fail-fast", "--explain", "test"].as_slice(),
@@ -1990,8 +2001,8 @@ mod tests {
 
     #[test]
     fn fail_fast_rejected_on_non_apply_verbs() {
-        // `--fail-fast` shapes APPLY scheduling, so it is a no-op on `plan`
-        // (PLAN-only) and `release` (single linear pipeline) and rejected there.
+        // `--fail-fast` shapes APPLY scheduling, so it is a no-op on `plan` (PLAN-only)
+        // and `release` (single linear pipeline) and rejected there.
         for args in [
             ["--fail-fast", "plan", "test"].as_slice(),
             ["--fail-fast", "release", "publish"].as_slice(),

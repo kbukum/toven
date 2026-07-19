@@ -3,35 +3,36 @@
 //!
 //! Every app's `tests/smoke*.rs` drives the *real* shipping binary against a
 //! [`SampleRepo`](crate::repo::SampleRepo) tree, so each app duplicated a tiny
-//! `run(cwd, args)` helper. This module is the one shared home for that harness:
-//! a [`RunResult`] value plus [`run`]/[`run_ok`] so app tests read as
+//! `run(cwd, args)` helper. This module is the one shared home for that
+//! harness: a [`RunResult`] value plus [`run`]/[`run_ok`] so app tests read as
 //! declarative `(argv, expectation)` case lists instead of re-declaring process
 //! plumbing.
 //!
-//! The binary path is passed in by the caller, because `env!("CARGO_BIN_EXE_…")`
-//! only expands inside the app crate that owns the binary; the helper therefore
-//! stays binary-agnostic and takes the resolved path as an argument.
+//! The binary path is passed in by the caller, because
+//! `env!("CARGO_BIN_EXE_…")` only expands inside the app crate that owns the
+//! binary; the helper therefore stays binary-agnostic and takes the resolved
+//! path as an argument.
 //!
 //! ## Stream routing (why [`RunResult`] carries both streams)
 //! The CLI splits its output by purpose: introspection tables (`modules`,
 //! `graph`, `affected`, `explain`), `cache path`/`cache stats`, the `init`
 //! document, and the `jsonl` event stream go to **stdout**; the human run
 //! reporter (`plan`/run summaries, per-unit status), `driver`/`federation`
-//! status lines, and `cache clean` diagnostics go to **stderr**. Assertions must
-//! target the correct stream, so both are captured verbatim.
+//! status lines, and `cache clean` diagnostics go to **stderr**. Assertions
+//! must target the correct stream, so both are captured verbatim.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
 
 /// Environment variable that pins the CLI's wall clock to a fixed epoch second.
 ///
-/// Mirrors `toven_cli::host::RUN_CLOCK_EPOCH_ENV` (kept as a literal here because
-/// the dev-only testkit does not depend on the CLI crate). The shared [`run`]
-/// harness sets it on every spawned binary so the machine-readable Event stream
-/// — whose only wall-clock field is the `run_id` — is byte-for-byte
-/// deterministic, which is what makes snapshotting the `jsonl` projection sound.
-/// The demonstrative jsonl snapshot smokes fail loudly if this drifts from the
-/// CLI-side constant.
+/// Mirrors `toven_cli::host::RUN_CLOCK_EPOCH_ENV` (kept as a literal here
+/// because the dev-only testkit does not depend on the CLI crate). The shared
+/// [`run`] harness sets it on every spawned binary so the machine-readable
+/// Event stream — whose only wall-clock field is the `run_id` — is
+/// byte-for-byte deterministic, which is what makes snapshotting the `jsonl`
+/// projection sound. The demonstrative jsonl snapshot smokes fail loudly if
+/// this drifts from the CLI-side constant.
 pub const CLOCK_EPOCH_ENV: &str = "TOVEN_CLOCK_EPOCH";
 
 /// The fixed epoch second the harness pins the clock to.
@@ -139,19 +140,16 @@ impl RunResult {
 /// Run `binary <args>` in `cwd`, capturing both streams and the exit code.
 ///
 /// The process inherits no stdin. Panics only if the binary cannot be spawned
-/// at all (a genuine test-setup failure); a non-zero exit is returned as data so
-/// callers can assert on failure paths too.
+/// at all (a genuine test-setup failure); a non-zero exit is returned as data
+/// so callers can assert on failure paths too.
 #[must_use]
 pub fn run(binary: &Path, cwd: &Path, args: &[&str]) -> RunResult {
     let output = Command::new(binary)
         .args(args)
         .current_dir(cwd)
-        // Detach stdin explicitly so any tool that reads it sees EOF instead of
-        // blocking on the test runner's stdin; keeps the "inherits no stdin"
-        // guarantee true even if this ever moves off `Command::output()`.
+        // Detach stdin explicitly so any tool that reads it sees EOF instead of blocking on the test runner's stdin; keeps the "inherits no stdin" guarantee true even if this ever moves off `Command::output()`.
         .stdin(Stdio::null())
-        // Pin the wall clock so the emitted `run_id` (the only clock-derived
-        // field in the Event stream) is deterministic; see `CLOCK_EPOCH_ENV`.
+        // Pin the wall clock so the emitted `run_id` (the only clock-derived field in the Event stream) is deterministic; see `CLOCK_EPOCH_ENV`.
         .env(CLOCK_EPOCH_ENV, CLOCK_EPOCH_VALUE)
         .output()
         .unwrap_or_else(|error| {
@@ -171,9 +169,9 @@ pub fn run(binary: &Path, cwd: &Path, args: &[&str]) -> RunResult {
 
 /// Run `binary <args>` in `cwd` and assert a zero exit, returning the result.
 ///
-/// The common green-path case: `run` followed by
-/// [`RunResult::expect_success`]. The returned [`RunResult`] is often discarded
-/// (the success assertion is the point), so it is intentionally not `#[must_use]`.
+/// The common green-path case: `run` followed by [`RunResult::expect_success`].
+/// The returned [`RunResult`] is often discarded (the success assertion is the
+/// point), so it is intentionally not `#[must_use]`.
 pub fn run_ok(binary: &Path, cwd: &Path, args: &[&str]) -> RunResult {
     let result = run(binary, cwd, args);
     result.expect_success();
@@ -187,10 +185,11 @@ pub fn run_ok(binary: &Path, cwd: &Path, args: &[&str]) -> RunResult {
 /// green instead of failing.
 ///
 /// The probe uses Unix executable-bit semantics (via `rskit_fs`), matching
-/// Toven's currently Unix-only runtime stack (`rskit-process` does not yet build
-/// on Windows). A cross-platform PATH lookup — honouring Windows `PATHEXT` /
-/// `.exe` — belongs in a future generic `which`-style helper in rskit rather
-/// than a bespoke branch here, and lands with the tracked Windows port.
+/// Toven's currently Unix-only runtime stack (`rskit-process` does not yet
+/// build on Windows). A cross-platform PATH lookup — honouring Windows
+/// `PATHEXT` / `.exe` — belongs in a future generic `which`-style helper in
+/// rskit rather than a bespoke branch here, and lands with the tracked Windows
+/// port.
 #[must_use]
 pub fn program_on_path(program: &str) -> bool {
     let Some(path) = std::env::var_os("PATH") else {

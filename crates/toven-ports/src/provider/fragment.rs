@@ -15,8 +15,8 @@ use toven_model::EcosystemId;
 ///
 /// It is (de)serializable so a fragment can also cross the federated driver
 /// transport: `toven init` prompts against any out-of-process `toven-<eco>`
-/// driver, which returns its rendered fragment over the same framed protocol the
-/// PLAN spine uses.
+/// driver, which returns its rendered fragment over the same framed protocol
+/// the PLAN spine uses.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EcosystemFragment {
     /// The ecosystem the fragment configures (the `[ecosystems.<id>]` key).

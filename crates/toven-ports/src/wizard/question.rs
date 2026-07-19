@@ -1,15 +1,18 @@
-//! [`Question`] — one declarative wizard question mapped onto a `Prompter` method.
+//! [`Question`] — one declarative wizard question mapped onto a `Prompter`
+//! method.
 
 use rskit_cli::Choice;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// A stable identifier for a [`Question`] within a [`Questionnaire`](super::Questionnaire).
+/// A stable identifier for a [`Question`] within a
+/// [`Questionnaire`](super::Questionnaire).
 ///
-/// Opaque data (like [`ChoiceId`](rskit_cli::ChoiceId)): the adapter mints it in
-/// [`questionnaire`](crate::provider::Provider::questionnaire) and reads the
+/// Opaque data (like [`ChoiceId`](rskit_cli::ChoiceId)): the adapter mints it
+/// in [`questionnaire`](crate::provider::Provider::questionnaire) and reads the
 /// matching [`Answer`](super::Answer) back in
-/// [`render`](crate::provider::Provider::render) without stringly-typed lookups.
+/// [`render`](crate::provider::Provider::render) without stringly-typed
+/// lookups.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct QuestionId(String);
 
@@ -47,9 +50,9 @@ impl fmt::Display for QuestionId {
 
 /// A serializable validation rule for a [`QuestionKind::Text`] answer.
 ///
-/// The rskit [`Validator`](rskit_cli::Validator) trait is behavioural and cannot
-/// cross the wizard transport, so a `Text` question carries this data instead;
-/// the CLI maps it to an rskit validator at prompt time (`NonEmpty` →
+/// The rskit [`Validator`](rskit_cli::Validator) trait is behavioural and
+/// cannot cross the wizard transport, so a `Text` question carries this data
+/// instead; the CLI maps it to an rskit validator at prompt time (`NonEmpty` →
 /// [`non_empty`](rskit_cli::non_empty)) so invalid input is re-asked with a
 /// reason, and a rejected non-interactive default is a typed error.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,11 +66,12 @@ pub enum TextRule {
 /// The kind of answer a [`Question`] expects, mapped one-to-one onto a
 /// [`Prompter`](rskit_cli::Prompter) method by the CLI.
 ///
-/// For [`Select`](QuestionKind::Select)/[`MultiSelect`](QuestionKind::MultiSelect)
-/// the recommended default lives *inside* the [`Choice`] values
+/// For [`Select`](QuestionKind::Select)/
+/// [`MultiSelect`](QuestionKind::MultiSelect) the recommended default lives
+/// *inside* the [`Choice`] values
 /// ([`Choice::recommended`](rskit_cli::Choice::recommended)), matching how the
-/// prompter resolves non-interactive defaults, so no separate `default` field is
-/// needed for selection kinds.
+/// prompter resolves non-interactive defaults, so no separate `default` field
+/// is needed for selection kinds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
@@ -78,7 +82,8 @@ pub enum QuestionKind {
     MultiSelect(Vec<Choice>),
     /// A yes/no answer with an explicit default (`Prompter::confirm`).
     Confirm {
-        /// The default answer used when the prompt is left blank or non-interactive.
+        /// The default answer used when the prompt is left blank or
+        /// non-interactive.
         default: bool,
     },
     /// Freeform text with an optional default and optional validation rule
@@ -93,7 +98,8 @@ pub enum QuestionKind {
     },
 }
 
-/// One declarative wizard question: an id, the prompt text, and its answer kind.
+/// One declarative wizard question: an id, the prompt text, and its answer
+/// kind.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Question {
     /// The stable id the [`Answer`](super::Answer) is keyed by.

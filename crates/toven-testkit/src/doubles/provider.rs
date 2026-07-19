@@ -1,4 +1,5 @@
-//! Shared Provider-side doubles: [`FakeProvider`] and [`FakeConfiguredAdapter`].
+//! Shared Provider-side doubles: [`FakeProvider`] and
+//! [`FakeConfiguredAdapter`].
 //!
 //! Planner/discover tests configure canned discovery, tasks, and probe here
 //! instead of standing up a real adapter. Wizard tests preset a detection,
@@ -18,10 +19,11 @@ use super::release::FakeReleaseTarget;
 
 /// A [`ConfiguredAdapter`] returning canned discovery, config, and defaults.
 ///
-/// Build it with `with_*`; `discover` returns the scripted response stamped with
-/// the request's schema version. The task table lives in the resolved
+/// Build it with `with_*`; `discover` returns the scripted response stamped
+/// with the request's schema version. The task table lives in the resolved
 /// [`CommonEcosystemConfig`] (config is authoritative), so [`with_tasks`] folds
-/// resolved [`Task`]s back into the `[ecosystems.<id>.tasks]` config projection.
+/// resolved [`Task`]s back into the `[ecosystems.<id>.tasks]` config
+/// projection.
 ///
 /// [`with_tasks`]: Self::with_tasks
 #[derive(Debug, Clone)]
@@ -151,9 +153,9 @@ impl ConfiguredAdapter for FakeConfiguredAdapter {
 /// A [`Provider`] that bakes a canned [`FakeConfiguredAdapter`] and scripts the
 /// three-step wizard (`detect` / `questionnaire` / `render`).
 ///
-/// `configure` ignores the raw TOML and returns a clone of the template adapter;
-/// `detect` returns the scripted detection (a bare one by default), `render`
-/// returns the scripted fragment (an empty one by default).
+/// `configure` ignores the raw TOML and returns a clone of the template
+/// adapter; `detect` returns the scripted detection (a bare one by default),
+/// `render` returns the scripted fragment (an empty one by default).
 #[derive(Debug, Clone)]
 pub struct FakeProvider {
     ecosystem: EcosystemId,

@@ -2,11 +2,11 @@
 //!
 //! The engine emits a closed, typed [`Event`](toven_model::Event) stream; these
 //! sinks render it. Two built-ins ship — [`HumanReporter`] (terminal
-//! tables/progress lines) and [`JsonlReporter`] (machine-parseable Event stream)
-//! — and slot in future ones (GH-annotations, `JUnit`) with no engine change.
-//! The per-unit raw child-output channel is rendered by one of three views —
-//! [`WriterRawSink`] (linear `stream`), [`TilesRawSink`] (live in-terminal
-//! tiles), or the tmux-backed `PaneRawSink` — selected by
+//! tables/progress lines) and [`JsonlReporter`] (machine-parseable Event
+//! stream) — and slot in future ones (GH-annotations, `JUnit`) with no engine
+//! change. The per-unit raw child-output channel is rendered by one of three
+//! views — [`WriterRawSink`] (linear `stream`), [`TilesRawSink`] (live
+//! in-terminal tiles), or the tmux-backed `PaneRawSink` — selected by
 //! `configure_live_output`. [`exit_code`] derives the process exit from a run
 //! summary.
 

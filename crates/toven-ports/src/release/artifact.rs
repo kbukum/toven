@@ -1,4 +1,5 @@
-//! The built, publishable artifact a [`ReleaseTarget`](super::ReleaseTarget) produces.
+//! The built, publishable artifact a [`ReleaseTarget`](super::ReleaseTarget)
+//! produces.
 
 use std::path::PathBuf;
 

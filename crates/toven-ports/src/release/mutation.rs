@@ -15,8 +15,8 @@ use toven_model::ModuleRef;
 pub struct ReleaseMutation {
     /// The module's new version; `None` leaves it unchanged.
     pub new_version: Option<Version>,
-    /// Sibling deps whose declared version floor this manifest must rewrite (the
-    /// cascade: when a dep bumps, every dependent re-floors).
+    /// Sibling deps whose declared version floor this manifest must rewrite
+    /// (the cascade: when a dep bumps, every dependent re-floors).
     pub dep_floor_updates: BTreeMap<ModuleRef, Version>,
 }
 

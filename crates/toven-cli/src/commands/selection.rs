@@ -14,8 +14,8 @@ use toven_engine::vcs::{BaselineFlags, BaselineStrategy};
 ///
 /// Bundles the changed-selection baseline (`--base`/`--merge-base`) with the
 /// explicit graph targets (`--module`/`--workspace` plus the `--dependencies`/
-/// `--dependents` closures) so the selection verbs thread one value instead of a
-/// widening argument list.
+/// `--dependents` closures) so the selection verbs thread one value instead of
+/// a widening argument list.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct TaskSelection {
     /// The changed-selection baseline flags.
@@ -35,15 +35,16 @@ impl TaskSelection {
     ///
     /// Explicit targets (`--module`/`--workspace`) take precedence and produce
     /// [`Selection::Explicit`]; they are mutually exclusive with the changed
-    /// baseline (`--base`/`--merge-base`). With no explicit target the result is
-    /// [`Selection::All`] (no baseline) or [`Selection::Changed`] (baseline set),
-    /// where `base_ref` is the project's configured fallback baseline
+    /// baseline (`--base`/`--merge-base`). With no explicit target the result
+    /// is [`Selection::All`] (no baseline) or [`Selection::Changed`] (baseline
+    /// set), where `base_ref` is the project's configured fallback baseline
     /// (`[project].base_ref`).
     ///
     /// # Errors
     /// Returns a typed usage error when explicit targets are combined with a
-    /// baseline, when `--dependencies`/`--dependents` is used without an explicit
-    /// target, or when a `--module`/`--workspace` value fails to parse.
+    /// baseline, when `--dependencies`/`--dependents` is used without an
+    /// explicit target, or when a `--module`/`--workspace` value fails to
+    /// parse.
     pub(crate) fn resolve(&self, base_ref: Option<&str>) -> AppResult<Selection> {
         let baseline = &self.baseline;
         let has_explicit = !self.modules.is_empty() || !self.workspaces.is_empty();
@@ -88,8 +89,8 @@ impl TaskSelection {
     /// Split the CLI selection into an `explain` plan scope and an optional
     /// display focus.
     ///
-    /// An explicit `--module`/`--workspace` selection becomes the display *focus*
-    /// (which units to show) while the plan is built over the full set
+    /// An explicit `--module`/`--workspace` selection becomes the display
+    /// *focus* (which units to show) while the plan is built over the full set
     /// ([`Selection::All`]), so each shown unit is the real batched unit the
     /// target belongs to rather than a synthetic single-module cut. A
     /// changed/no-baseline selection has no focus: the plan is built over that

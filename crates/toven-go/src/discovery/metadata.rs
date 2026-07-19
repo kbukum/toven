@@ -4,12 +4,12 @@
 //! `{workspaces, modules, edges}` [`DiscoverResponse`].
 //!
 //! Every `go` invocation goes through `rskit-process` (captured, bounded,
-//! timed-out — never a shell string). `go mod edit -json` / `go work edit -json`
-//! only parse the manifest text into JSON: no module-graph resolution, no
-//! network, fully deterministic. In-repo `require`s whose target resolves to a
-//! discovered module become intra-ecosystem [`Edge`]s, so a Go project spanning
-//! several modules (with or without a `go.work`) surfaces as one module + edge
-//! set.
+//! timed-out — never a shell string). `go mod edit -json` / `go work edit
+//! -json` only parse the manifest text into JSON: no module-graph resolution,
+//! no network, fully deterministic. In-repo `require`s whose target resolves to
+//! a discovered module become intra-ecosystem [`Edge`]s, so a Go project
+//! spanning several modules (with or without a `go.work`) surfaces as one
+//! module + edge set.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -210,9 +210,7 @@ fn root_module_name(module_path: &str) -> String {
     last.to_string()
 }
 
-/// A Go major-version path suffix is `v` followed by an unpadded integer of two
-/// or more (`v2`, `v10`); `v0`/`v1` are never written as suffixes.
-/// See <https://go.dev/ref/mod#major-version-suffixes>.
+/// A Go major-version path suffix is `v` followed by an unpadded integer of two or more (`v2`, `v10`); `v0`/`v1` are never written as suffixes. See <https://go.dev/ref/mod#major-version-suffixes>.
 fn is_major_version_suffix(segment: &str) -> bool {
     let Some(digits) = segment.strip_prefix('v') else {
         return false;

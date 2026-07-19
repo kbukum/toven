@@ -4,9 +4,9 @@ use toven_ports::{Detection, Questionnaire};
 
 /// Build the command questionnaire from a [`Detection`].
 ///
-/// Command detections are not produced by the provider today; if a caller supplies
-/// one manually, no questions are needed because all command modules/tasks are
-/// user-owned explicit config.
+/// Command detections are not produced by the provider today; if a caller
+/// supplies one manually, no questions are needed because all command
+/// modules/tasks are user-owned explicit config.
 pub(crate) fn questionnaire(detection: &Detection) -> Questionnaire {
     Questionnaire::empty(detection.ecosystem.clone())
 }

@@ -1,9 +1,9 @@
 //! Group-scoped task/strategy overrides resolved per active module.
 //!
-//! A `[groups.<name>]` may carry a `run_strategy` and a `tasks` map that layer on
-//! top of the ecosystem/adapter defaults for *its members only*. The Graph phase
-//! already resolves each group's membership to concrete [`ModuleKey`]s; this
-//! module folds those resolved memberships into a per-module lookup the
+//! A `[groups.<name>]` may carry a `run_strategy` and a `tasks` map that layer
+//! on top of the ecosystem/adapter defaults for *its members only*. The Graph
+//! phase already resolves each group's membership to concrete [`ModuleKey`]s;
+//! this module folds those resolved memberships into a per-module lookup the
 //! [`schedule`](super::schedule) phase consults when it selects each module's
 //! effective task and wave-ordering strategy.
 //!
@@ -21,8 +21,8 @@ use crate::config::GroupConfig;
 
 /// The resolved group overrides for every module a group touches.
 ///
-/// Empty when no group declares a `tasks`/`run_strategy` override, in which case
-/// scheduling falls back entirely to the ecosystem/adapter defaults.
+/// Empty when no group declares a `tasks`/`run_strategy` override, in which
+/// case scheduling falls back entirely to the ecosystem/adapter defaults.
 #[derive(Debug, Clone, Default)]
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) struct GroupOverrides {
@@ -44,11 +44,12 @@ impl GroupOverrides {
     /// resolved members.
     ///
     /// `identity` is the scope-qualified, id-safe group identity (see
-    /// `override_identity` in [`graph`](super::graph)). It is used both to detect
-    /// conflicts between distinct declarations that may share a plain name (a
-    /// member-local group and an umbrella group both called `integration`) and as
-    /// the token folded into batch unit ids so members carrying overrides from
-    /// distinct declarations never collapse into one argv.
+    /// `override_identity` in [`graph`](super::graph)). It is used both to
+    /// detect conflicts between distinct declarations that may share a plain
+    /// name (a member-local group and an umbrella group both called
+    /// `integration`) and as the token folded into batch unit ids so members
+    /// carrying overrides from distinct declarations never collapse into one
+    /// argv.
     ///
     /// # Errors
     /// A member already carrying a `run_strategy` or same-named task override
@@ -107,7 +108,8 @@ impl GroupOverrides {
     }
 }
 
-/// A typed conflict: two declarations disagree on the same module's override slot.
+/// A typed conflict: two declarations disagree on the same module's override
+/// slot.
 fn conflict(module: &ModuleKey, slot: &str, prior: &str, next: &str) -> AppError {
     AppError::invalid_input(
         "groups",
@@ -221,9 +223,9 @@ mod tests {
     #[test]
     fn same_name_groups_in_different_scopes_have_distinct_identities() {
         // A member-local group and an umbrella group that share the plain name
-        // `integration` are distinct declarations: overlapping them on one module
-        // must fail closed, and their fold identities must differ so members
-        // overridden by each never collapse into one batch unit.
+        // `integration` are distinct declarations: overlapping them on one module must
+        // fail closed, and their fold identities must differ so members overridden by
+        // each never collapse into one batch unit.
         let mut overrides = GroupOverrides::default();
         let group = task_group();
 

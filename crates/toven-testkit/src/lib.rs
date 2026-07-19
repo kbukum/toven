@@ -1,5 +1,5 @@
-//! `toven-testkit` — the one shared, dependency-light test-support surface every
-//! Toven crate's tests build on.
+//! `toven-testkit` — the one shared, dependency-light test-support surface
+//! every Toven crate's tests build on.
 //!
 //! Layer note: this is a **dev-support crate**. It may depend on
 //! [`toven_model`] and [`toven_ports`], but **nothing ships it** and no
@@ -9,26 +9,27 @@
 //!
 //! ## What lives here
 //! - [`fixtures`] — typed loaders rooted at this crate's `fixtures/` tree
-//!   ([`fixtures::document`], [`fixtures::ecosystem`], [`fixtures::repo_path`]),
-//!   with clear errors on a missing/renamed fixture.
+//!   ([`fixtures::document`], [`fixtures::ecosystem`],
+//!   [`fixtures::repo_path`]), with clear errors on a missing/renamed fixture.
 //! - [`workspace`] — a [`TestWorkspace`] pointed at the shared fixture root.
-//! - [`repo`] — [`SampleRepo`]: materialize a `repos/<name>` tree into a temp dir
-//!   and optionally `git init` it.
-//! - [`git`] — git-scenario helpers ([`GitScenario`](git::GitScenario)) over `rskit-git`.
+//! - [`repo`] — [`SampleRepo`]: materialize a `repos/<name>` tree into a temp
+//!   dir and optionally `git init` it.
+//! - [`git`] — git-scenario helpers ([`GitScenario`](git::GitScenario)) over
+//!   `rskit-git`.
 //! - [`smoke`] — the shared end-to-end smoke harness ([`RunResult`], [`run`],
 //!   [`run_ok`]) every app's `tests/smoke*.rs` drives the real binary through.
 //! - [`doubles`] — the shared port doubles ([`FakeProvider`],
 //!   [`FakeConfiguredAdapter`], [`FakeVcsReader`], [`FakeVcsWriter`],
-//!   [`RecordingReporter`], [`RecordingRawOutputSink`], [`CountingToolchainProber`],
-//!   [`FakeSourceDigest`], [`FakeCacheStore`], [`RecordingCacheStore`]).
+//!   [`RecordingReporter`], [`RecordingRawOutputSink`],
+//!   [`CountingToolchainProber`], [`FakeSourceDigest`], [`FakeCacheStore`],
+//!   [`RecordingCacheStore`]).
 //! - [`assertions`] — rskit `assert_ok`/`assert_err_code` re-exports plus
 //!   Toven-domain event assertions.
 //!
 //! ## Reuse, don't re-implement
-//! The temp-dir + fixture harness is `rskit-testutil`'s
-//! [`TestWorkspace`]; safe paths come from
-//! `rskit-fs`; git scripting goes through `rskit-git`. This crate adds only the
-//! Toven-shaped layer on top.
+//! The temp-dir + fixture harness is `rskit-testutil`'s [`TestWorkspace`]; safe
+//! paths come from `rskit-fs`; git scripting goes through `rskit-git`. This
+//! crate adds only the Toven-shaped layer on top.
 #![warn(missing_docs)]
 
 pub mod assertions;

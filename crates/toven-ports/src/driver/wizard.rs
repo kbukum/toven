@@ -13,17 +13,18 @@ use crate::wizard::AnswerProvider;
 ///
 /// Injected so `toven init` stays testable without spawning a real subprocess;
 /// the engine's production adapter runs the federated two-round-trip `__init`
-/// exchange, keeping the driver alive across the prompt so a single detection is
-/// answered and rendered without re-probing.
+/// exchange, keeping the driver alive across the prompt so a single detection
+/// is answered and rendered without re-probing.
 pub trait DriverWizard {
-    /// Ask the driver at `program` to detect its ecosystems under `project_root`,
-    /// prompt each detected questionnaire via `answers`, and return the rendered
-    /// `[ecosystems.<id>]` fragments.
+    /// Ask the driver at `program` to detect its ecosystems under
+    /// `project_root`, prompt each detected questionnaire via `answers`, and
+    /// return the rendered `[ecosystems.<id>]` fragments.
     ///
     /// # Errors
-    /// Returns a typed error if the driver cannot be reached, the exchange fails
-    /// or times out, answering fails, or the driver reports a render failure. A
-    /// *located* driver that misbehaves is a hard error, never a silent skip.
+    /// Returns a typed error if the driver cannot be reached, the exchange
+    /// fails or times out, answering fails, or the driver reports a render
+    /// failure. A *located* driver that misbehaves is a hard error, never a
+    /// silent skip.
     fn run(
         &self,
         program: &Path,

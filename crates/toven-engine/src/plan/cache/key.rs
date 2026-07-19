@@ -3,11 +3,12 @@
 //! A unit's key folds the module `source_hash`, a recursive `dep_hash` over the
 //! transitive (cross-ecosystem) dependency closure, the rendered base argv
 //! (`task_hash`), the `shared_inputs` file hashes, and the phase-6 toolchain
-//! identity; rendered passthrough args are folded only when `cache_args` is set.
+//! identity; rendered passthrough args are folded only when `cache_args` is
+//! set.
 //!
 //! Because the key folds dependencies' **source** hashes (not build outputs),
-//! every verdict is determinable statically in PLAN and a changed leaf naturally
-//! re-keys its dependents.
+//! every verdict is determinable statically in PLAN and a changed leaf
+//! naturally re-keys its dependents.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -39,8 +40,8 @@ pub(in crate::plan) fn source_hashes(
 /// The set of modules whose source hashes any unit key needs: every scheduled
 /// unit's own module plus its transitive dependency closure.
 ///
-/// Hashing only this set avoids walking unrelated ecosystems and prevents an I/O
-/// error under an inactive module root from aborting PLAN.
+/// Hashing only this set avoids walking unrelated ecosystems and prevents an
+/// I/O error under an inactive module root from aborting PLAN.
 pub(in crate::plan) fn needed_modules(
     units: &[ModuleKey],
     adjacency: &Adjacency,
@@ -56,7 +57,8 @@ pub(in crate::plan) fn needed_modules(
 /// The per-unit inputs that compose its content key.
 #[derive(Debug, Clone, Copy)]
 pub(in crate::plan) struct KeyInputs<'a> {
-    /// Modules the unit operates on (one for `PerModule`, several when batched).
+    /// Modules the unit operates on (one for `PerModule`, several when
+    /// batched).
     pub(in crate::plan) modules: &'a [ModuleKey],
     /// Rendered base argv (without passthrough) — the `task_hash` source.
     pub(in crate::plan) base_argv: &'a [String],
@@ -70,8 +72,9 @@ pub(in crate::plan) struct KeyInputs<'a> {
     pub(in crate::plan) passthrough: &'a [String],
 }
 
-/// A forward adjacency map (`from` → its direct dependency `to`s), built once and
-/// reused across every unit's closure to avoid rescanning all edges per node.
+/// A forward adjacency map (`from` → its direct dependency `to`s), built once
+/// and reused across every unit's closure to avoid rescanning all edges per
+/// node.
 pub(in crate::plan) type Adjacency = BTreeMap<ModuleKey, Vec<ModuleKey>>;
 
 /// Build the forward adjacency map of the graph in one pass.
@@ -147,7 +150,8 @@ fn source_hash<'a>(sources: &'a SourceHashes, module: &ModuleKey) -> AppResult<&
     })
 }
 
-/// The transitive set of modules `module` depends on, via the forward adjacency.
+/// The transitive set of modules `module` depends on, via the forward
+/// adjacency.
 fn transitive_dependencies(module: &ModuleKey, adjacency: &Adjacency) -> BTreeSet<ModuleKey> {
     let mut dependencies = BTreeSet::new();
     let mut pending = vec![module.clone()];
@@ -213,18 +217,18 @@ mod tests {
 
     #[test]
     fn changed_leaf_rekeys_its_dependent() {
-        // A dependency's source hash folds into the dependent's key, so changing
-        // the leaf re-keys app; an unchanged leaf reproduces the same key.
+        // A dependency's source hash folds into the dependent's key, so changing the
+        // leaf re-keys app; an unchanged leaf reproduces the same key.
         assert_eq!(app_key("errors-1"), app_key("errors-1"));
         assert_ne!(app_key("errors-1"), app_key("errors-2"));
     }
 
     #[test]
     fn missing_shared_input_cannot_silently_produce_a_false_hit() {
-        // The unit key folds every declared shared input as (path, digest). A
-        // missing input hashes to the shared empty identity while a present one
-        // hashes to a distinct derived identity, so the two states key apart — a
-        // vanished shared input can never alias a real one into a false cache hit.
+        // The unit key folds every declared shared input as (path, digest). A missing
+        // input hashes to the shared empty identity while a present one hashes to a
+        // distinct derived identity, so the two states key apart — a vanished shared
+        // input can never alias a real one into a false cache hit.
         let app = [mkey("app")];
         let mut sources = SourceHashes::new();
         sources.insert(mkey("app"), "app-1".to_string());

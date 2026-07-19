@@ -4,9 +4,9 @@
 //! version from its `Cargo.toml`, applying one atomic version mutation (own
 //! version + intra-project dependency-floor rewrites) with format-preserving
 //! `toml_edit`, and the registry-facing trio (`published_versions`, `package`,
-//! `publish`) routed through `cargo` via `rskit-process` with bounded output and
-//! a hard timeout. Each method returns typed data or a typed error — never a
-//! success-shaped fallback.
+//! `publish`) routed through `cargo` via `rskit-process` with bounded output
+//! and a hard timeout. Each method returns typed data or a typed error — never
+//! a success-shaped fallback.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -83,9 +83,9 @@ impl CratesIoTarget {
                 ),
             )
         })?;
-        // `module.manifest` is untrusted input from discovery/config: fail fast
-        // with a typed input error rather than spawning cargo against a path that
-        // does not exist on disk.
+        // `module.manifest` is untrusted input from discovery/config: fail fast with a
+        // typed input error rather than spawning cargo against a path that does not
+        // exist on disk.
         if !exists(&resolved)? {
             return Err(AppError::invalid_input(
                 "module.manifest",
@@ -122,8 +122,8 @@ impl CratesIoTarget {
         Ok(metadata.target_directory.into_std_path_buf())
     }
 
-    /// The trust boundary for manifest resolution: the process working directory
-    /// (the engine runs from the repository root).
+    /// The trust boundary for manifest resolution: the process working
+    /// directory (the engine runs from the repository root).
     fn working_root() -> AppResult<PathBuf> {
         std::env::current_dir().map_err(|error| {
             AppError::new(ErrorCode::Internal, "failed to read current directory").with_cause(error)
@@ -141,10 +141,10 @@ impl ReleaseTarget for CratesIoTarget {
 
     fn published_versions(&self, module: &Module) -> AppResult<Vec<Version>> {
         let package = package_name(module);
-        // `cargo search` reports only the single latest version of a crate, so
-        // this is the best-effort "latest published" set the port contract
-        // allows — the publish loop's `AlreadyPublished` classification is the
-        // authoritative idempotency backstop for older versions.
+        // `cargo search` reports only the single latest version of a crate, so this is
+        // the best-effort "latest published" set the port contract allows — the publish
+        // loop's `AlreadyPublished` classification is the authoritative idempotency
+        // backstop for older versions.
         let output = cargo(
             Self::working_root()?,
             [
@@ -211,9 +211,9 @@ impl ReleaseTarget for CratesIoTarget {
         let output = cargo(out_dir.to_path_buf(), sbom_argv(&manifest, &stem))?;
         output.check()?;
         let artifact = out_dir.join(format!("{stem}.{SBOM_FILE_SUFFIX}"));
-        // `cargo cyclonedx`'s on-disk output location and naming are
-        // version-specific, so verify the tool actually wrote the expected file
-        // rather than returning a success-shaped path that may not exist.
+        // `cargo cyclonedx`'s on-disk output location and naming are version-specific,
+        // so verify the tool actually wrote the expected file rather than returning a
+        // success-shaped path that may not exist.
         if !exists(&artifact)? {
             return Err(AppError::new(
                 ErrorCode::Internal,
@@ -251,7 +251,9 @@ fn tag_scheme(module: &Module, template: &str) -> AppResult<TagScheme> {
         .iter()
         .any(|part| matches!(part, TemplatePart::Placeholder(ReleaseVar::Channel)))
     {
-        // The prerelease channel is already carried inside `{version}` (e.g. `1.0.0-rc.1`), so a static tag prefix/suffix cannot fill `{channel}`; reject it instead of rendering it empty.
+        // The prerelease channel is already carried inside `{version}` (e.g.
+        // `1.0.0-rc.1`), so a static tag prefix/suffix cannot fill `{channel}`; reject
+        // it instead of rendering it empty.
         return Err(AppError::invalid_input(
             "release.tag_format",
             "release tag template must not contain {channel}: the prerelease channel is part of {version}",
@@ -321,8 +323,8 @@ where
     run(&spec, &config)
 }
 
-/// Run `cargo metadata --no-deps` for `manifest`, bounded and timed-out, to read
-/// the effective target directory. `metadata` output can be large for big
+/// Run `cargo metadata --no-deps` for `manifest`, bounded and timed-out, to
+/// read the effective target directory. `metadata` output can be large for big
 /// workspaces, so this uses a wider output bound than the registry commands.
 fn cargo_metadata_command(working_dir: PathBuf, manifest: &Path) -> AppResult<ProcessResult> {
     let spec = ProcessSpec::new("cargo")
@@ -385,9 +387,9 @@ fn classify_publish(
         || combined.contains("rate limit")
         || combined.contains("too many requests")
     {
-        // crates.io applies a stricter cadence to a brand-new crate name than to a
-        // new version of an existing one. Treat "no versions on the registry" as a
-        // first publish; a failed lookup falls back to the existing-name cadence.
+        // crates.io applies a stricter cadence to a brand-new crate name than to a new
+        // version of an existing one. Treat "no versions on the registry" as a first
+        // publish; a failed lookup falls back to the existing-name cadence.
         let is_new_release = target
             .published_versions(module)
             .is_ok_and(|versions| versions.is_empty());
@@ -407,10 +409,11 @@ fn fallback_retry_after(is_new_release: bool, now: SystemTime) -> Option<SystemT
 /// Read `[package].version` from a `Cargo.toml` body.
 ///
 /// A string `version` is returned directly. A workspace-inherited version
-/// (`version.workspace = true`) is resolved from the nearest `[workspace.package]
-/// version` — first in the same manifest (root package), then by walking ancestor
-/// directories from `path` for the workspace-root `Cargo.toml`. The ancestor walk
-/// never crosses above `root` (the working/repository-root trust boundary).
+/// (`version.workspace = true`) is resolved from the nearest
+/// `[workspace.package] version` — first in the same manifest (root package),
+/// then by walking ancestor directories from `path` for the workspace-root
+/// `Cargo.toml`. The ancestor walk never crosses above `root` (the
+/// working/repository-root trust boundary).
 fn read_declared_version(text: &str, path: &Path, root: &Path) -> AppResult<Version> {
     let doc = parse_manifest(text, path)?;
     let version_item = doc
@@ -521,9 +524,9 @@ fn parse_version(raw: &str, path: &Path) -> AppResult<Version> {
     })
 }
 
-/// Apply one [`ReleaseMutation`] to a `Cargo.toml` body, returning the rewritten
-/// text. Own version and each dependency floor are set with format-preserving
-/// edits; the document is otherwise untouched.
+/// Apply one [`ReleaseMutation`] to a `Cargo.toml` body, returning the
+/// rewritten text. Own version and each dependency floor are set with
+/// format-preserving edits; the document is otherwise untouched.
 fn apply_mutation(text: &str, mutation: &ReleaseMutation, path: &Path) -> AppResult<String> {
     let mut doc = parse_manifest(text, path)?;
 
@@ -548,7 +551,8 @@ fn apply_mutation(text: &str, mutation: &ReleaseMutation, path: &Path) -> AppRes
 }
 
 /// Rewrite the version requirement of one intra-project dependency across every
-/// dependency table (`[dependencies]`, `[dev-dependencies]`, `[build-dependencies]`).
+/// dependency table (`[dependencies]`, `[dev-dependencies]`,
+/// `[build-dependencies]`).
 fn set_dependency_floor(doc: &mut DocumentMut, name: &str, floor: &Version) {
     for table_name in ["dependencies", "dev-dependencies", "build-dependencies"] {
         let Some(table) = doc.get_mut(table_name).and_then(Item::as_table_like_mut) else {
@@ -563,8 +567,8 @@ fn set_dependency_floor(doc: &mut DocumentMut, name: &str, floor: &Version) {
             }
             _ => {
                 if let Some(detail) = entry.as_table_like_mut() {
-                    // A workspace-inherited dependency (`{ workspace = true }`) must
-                    // not gain a `version` key — cargo rejects the combination.
+                    // A workspace-inherited dependency (`{ workspace = true }`) must not gain a
+                    // `version` key — cargo rejects the combination.
                     let inherited =
                         detail.get("workspace").and_then(toml_edit::Item::as_bool) == Some(true);
                     if !inherited {
@@ -610,7 +614,8 @@ plain = \"0.4.0\"
 ";
 
     /// A root manifest that is both the workspace root and a package, where the
-    /// package inherits its version from `[workspace.package]` in the same file.
+    /// package inherits its version from `[workspace.package]` in the same
+    /// file.
     const ROOT_INHERITED_MANIFEST: &str = "\
 [workspace]
 members = [\".\"]
@@ -684,8 +689,8 @@ plain = \"0.4.0\"
     #[test]
     fn dep_floor_skips_workspace_inherited_dependencies() {
         let mut mutation = ReleaseMutation::version(Version::new(2, 0, 0));
-        // `core` is workspace-inherited; bumping its floor must not stamp a
-        // `version` key onto it (cargo forbids `workspace = true` + `version`).
+        // `core` is workspace-inherited; bumping its floor must not stamp a `version`
+        // key onto it (cargo forbids `workspace = true` + `version`).
         mutation
             .dep_floor_updates
             .insert(dep("core"), Version::new(0, 2, 0));
@@ -826,7 +831,10 @@ mod tag_scheme_tests {
 
     #[test]
     fn override_with_channel_is_rejected() {
-        // `{channel}` cannot appear in a static tag prefix/suffix — the channel is already part of `{version}` (e.g. `1.0.0-rc.1`), so a `{channel}` in a tag template would always render empty. Reject it instead of silently dropping it.
+        // `{channel}` cannot appear in a static tag prefix/suffix — the channel is
+        // already part of `{version}` (e.g. `1.0.0-rc.1`), so a `{channel}` in a tag
+        // template would always render empty. Reject it instead of silently dropping
+        // it.
         let error = CratesIoTarget::new()
             .tag_scheme(&module(), Some("{module}-{channel}/v{version}"))
             .expect_err("channel placeholder rejected");

@@ -1,6 +1,6 @@
 //! Standalone `toven-rs` provisioning + init smokes. The Rust-only binary links
-//! just the Rust adapter, so `driver list` reports `rust` linked and every other
-//! ecosystem absent. `init` onboards a config for the Rust workspace.
+//! just the Rust adapter, so `driver list` reports `rust` linked and every
+//! other ecosystem absent. `init` onboards a config for the Rust workspace.
 
 mod common;
 

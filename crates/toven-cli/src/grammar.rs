@@ -1,9 +1,9 @@
 //! Argv-first dispatch grammar: the reserved-word set and the bare-task tail
 //! parser.
 //!
-//! `toven <token>` is argv-first: a token in the [reserved set](RESERVED) routes
-//! to a built-in (modeled by [`Command`](crate::flags::Command)); anything else
-//! is a task name. Because clap captures a bare task name as an
+//! `toven <token>` is argv-first: a token in the [reserved set](RESERVED)
+//! routes to a built-in (modeled by [`Command`](crate::flags::Command));
+//! anything else is a task name. Because clap captures a bare task name as an
 //! [`External`](crate::flags::Command::External) subcommand — collecting the
 //! token plus every following arg verbatim — the execution flags and `--`
 //! passthrough that trail a task are re-parsed here, keeping user argv sacred:
@@ -49,20 +49,20 @@ pub fn is_reserved(token: &str) -> bool {
 /// The maximum edit distance for a token to be treated as a typo of a reserved
 /// built-in verb.
 ///
-/// Looser than the default suggestion distance because the reserved set is small
-/// and closed, and the hint is only ever offered *after* the token already
-/// failed to resolve as a task — so a slightly wider net (catching `modual` →
-/// `modules`) carries little risk of a misleading suggestion.
+/// Looser than the default suggestion distance because the reserved set is
+/// small and closed, and the hint is only ever offered *after* the token
+/// already failed to resolve as a task — so a slightly wider net (catching
+/// `modual` → `modules`) carries little risk of a misleading suggestion.
 const RESERVED_SUGGESTION_DISTANCE: usize = 3;
 
 /// The reserved built-in nearest to `token` within
 /// `RESERVED_SUGGESTION_DISTANCE`, or `None` when it is not a plausible typo of
 /// any built-in.
 ///
-/// Advisory only: the argv-first dispatch never uses this to redirect input — it
-/// feeds the "did you mean the built-in?" hint after a token has already failed
-/// to resolve as a task. Exact reserved words are handled by dispatch and so are
-/// excluded here.
+/// Advisory only: the argv-first dispatch never uses this to redirect input —
+/// it feeds the "did you mean the built-in?" hint after a token has already
+/// failed to resolve as a task. Exact reserved words are handled by dispatch
+/// and so are excluded here.
 #[must_use]
 pub fn nearest_reserved(token: &str) -> Option<&'static str> {
     if is_reserved(token) {
@@ -83,9 +83,11 @@ pub struct TaskFlags {
     pub config: Option<PathBuf>,
     /// `--output <format>` override.
     pub output: Option<OutputKind>,
-    /// `--color <when>`: how the human reporter colorizes (`auto`/`always`/`never`).
+    /// `--color <when>`: how the human reporter colorizes
+    /// (`auto`/`always`/`never`).
     pub color: Option<ColorWhen>,
-    /// `--view <mode>`: live output rendering (`auto`/`tiles`/`panes`/`stream`).
+    /// `--view <mode>`: live output rendering
+    /// (`auto`/`tiles`/`panes`/`stream`).
     pub view: Option<ViewMode>,
     /// `--dry-run`.
     pub dry_run: bool,
@@ -134,25 +136,26 @@ pub struct TaskInvocation {
     pub task: String,
     /// Recognized execution flags that trailed the task name.
     pub flags: TaskFlags,
-    /// Passthrough args carried verbatim and never rewritten. Begins at either an
-    /// explicit `--` or the first token that is not a recognized Toven flag.
+    /// Passthrough args carried verbatim and never rewritten. Begins at either
+    /// an explicit `--` or the first token that is not a recognized Toven flag.
     pub passthrough: Vec<String>,
 }
 
-/// Parse the `External` token vector for a bare task: `<task> [toven-flags...] [args...]`.
+/// Parse the `External` token vector for a bare task: `<task> [toven-flags...]
+/// [args...]`.
 ///
 /// Toven's own execution/selection flags are consumed only as a *contiguous
 /// prefix* immediately after the task name. The first token that is not a
-/// recognized Toven flag — a positional argument or an unknown flag — begins the
-/// task's own argument vector: it and every token after it are carried through
-/// verbatim, never interpreted. An explicit `--` forces the boundary early. This
-/// keeps `toven test <the task's own args...>` friction-free: users pass their
-/// command's parameters without escaping, and only the leading Toven flags they
-/// deliberately place before them are absorbed.
+/// recognized Toven flag — a positional argument or an unknown flag — begins
+/// the task's own argument vector: it and every token after it are carried
+/// through verbatim, never interpreted. An explicit `--` forces the boundary
+/// early. This keeps `toven test <the task's own args...>` friction-free: users
+/// pass their command's parameters without escaping, and only the leading Toven
+/// flags they deliberately place before them are absorbed.
 ///
 /// # Errors
-/// Returns a usage error for an empty token vector, or a Toven value-flag in the
-/// prefix that is missing its value.
+/// Returns a usage error for an empty token vector, or a Toven value-flag in
+/// the prefix that is missing its value.
 pub fn parse_task(tokens: &[String]) -> AppResult<TaskInvocation> {
     let mut iter = tokens.iter();
     let task = iter
@@ -199,8 +202,8 @@ pub fn parse_task(tokens: &[String]) -> AppResult<TaskInvocation> {
             "--output" => flags.output = Some(parse_output(&value_for("--output", &mut iter)?)?),
             "--color" => flags.color = Some(parse_color(&value_for("--color", &mut iter)?)?),
             "--view" => flags.view = Some(parse_view(&value_for("--view", &mut iter)?)?),
-            // First non-Toven token ends the prefix: it and the rest are the
-            // task's own argv, spliced verbatim and never rewritten.
+            // First non-Toven token ends the prefix: it and the rest are the task's own argv,
+            // spliced verbatim and never rewritten.
             _ => {
                 passthrough.push(token.clone());
                 passthrough.extend(iter.cloned());
@@ -365,8 +368,8 @@ mod tests {
 
     #[test]
     fn a_previously_verb_specific_flag_now_passes_through_to_the_task() {
-        // Friction-free passthrough: the first non-Toven token ends the prefix,
-        // so a flag Toven does not own becomes the task's own argument.
+        // Friction-free passthrough: the first non-Toven token ends the prefix, so a
+        // flag Toven does not own becomes the task's own argument.
         let invocation = parse_task(&tokens(&["test", "--allow-dirty"])).expect("parses");
         assert_eq!(invocation.task, "test");
         assert_eq!(invocation.passthrough, vec!["--allow-dirty"]);
@@ -512,8 +515,8 @@ mod tests {
         let invocation = parse_task(&tokens(&["test", "--color", "always"])).expect("parses");
         assert_eq!(invocation.task, "test");
         assert_eq!(invocation.flags.color, Some(ColorWhen::Always));
-        // `--color` is a Toven flag, so it is absorbed — never leaked into the
-        // task's own passthrough argv.
+        // `--color` is a Toven flag, so it is absorbed — never leaked into the task's
+        // own passthrough argv.
         assert!(invocation.passthrough.is_empty());
     }
 
@@ -529,8 +532,8 @@ mod tests {
         let invocation = parse_task(&tokens(&["test", "--view", "tiles"])).expect("parses");
         assert_eq!(invocation.task, "test");
         assert_eq!(invocation.flags.view, Some(ViewMode::Tiles));
-        // `--view` is a Toven flag, so it is absorbed — never leaked into the
-        // task's own passthrough argv.
+        // `--view` is a Toven flag, so it is absorbed — never leaked into the task's
+        // own passthrough argv.
         assert!(invocation.passthrough.is_empty());
     }
 

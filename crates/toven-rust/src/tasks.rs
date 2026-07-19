@@ -10,8 +10,8 @@ use toven_ports::{RunStrategy, TaskKind};
 /// The per-kind default wave-ordering policy.
 ///
 /// Compilation-bearing kinds (`build`/`check`/`test`/`doc`/`run`) respect the
-/// dependency graph; `format`/`lint`/`vuln` are independent and collapse into one
-/// wave.
+/// dependency graph; `format`/`lint`/`vuln` are independent and collapse into
+/// one wave.
 #[must_use]
 pub(crate) const fn default_run_strategy(kind: TaskKind) -> RunStrategy {
     match kind {

@@ -33,11 +33,11 @@ impl ProcessCommandRunner {
     /// Create a process runner rooted at `project_root`.
     #[must_use]
     pub fn new(project_root: impl Into<PathBuf>) -> Self {
-        // `ProcessConfig::default()` carries rskit-process's own 30s process
-        // timeout, but Toven owns the per-unit bound: it defaults to *unbounded*
-        // and is applied cooperatively in the APPLY pool only when the caller
-        // passes `--timeout`. Clear the inherited default so a long build/test
-        // unit is never silently killed at 30s behind Toven's back.
+        // `ProcessConfig::default()` carries rskit-process's own 30s process timeout,
+        // but Toven owns the per-unit bound: it defaults to *unbounded* and is applied
+        // cooperatively in the APPLY pool only when the caller passes `--timeout`.
+        // Clear the inherited default so a long build/test unit is never silently
+        // killed at 30s behind Toven's back.
         let process_config = ProcessConfig::default()
             .with_timeout(None)
             .with_io(ProcessIo::captured(CapturedIo::new()))
@@ -140,9 +140,9 @@ impl ProcessCommandRunner {
         ))
     }
 
-    /// Stream stdout/stderr through `observer` as the process runs (no capture),
-    /// returning an empty [`RunOutcome::output`] because the bytes were already
-    /// surfaced live. Used when no two units can run concurrently.
+    /// Stream stdout/stderr through `observer` as the process runs (no
+    /// capture), returning an empty [`RunOutcome::output`] because the bytes
+    /// were already surfaced live. Used when no two units can run concurrently.
     async fn run_streaming(
         &self,
         invocation: &Invocation,
@@ -170,8 +170,8 @@ impl ProcessCommandRunner {
 
     /// Stream stdout/stderr through a pseudoterminal so the child renders as it
     /// would in a real terminal, forwarding the merged stream through
-    /// `observer`. Like [`Self::run_streaming`], output is surfaced live and the
-    /// returned outcome carries no buffered bytes.
+    /// `observer`. Like [`Self::run_streaming`], output is surfaced live and
+    /// the returned outcome carries no buffered bytes.
     #[cfg(unix)]
     async fn run_streaming_pty(
         &self,
@@ -348,11 +348,11 @@ mod tests {
 
     #[test]
     fn runner_does_not_inherit_the_rskit_process_default_timeout() {
-        // Regression: `ProcessConfig::default()` carries a 30s process timeout.
-        // Toven owns the per-unit bound (unbounded unless `--timeout` is passed
-        // and enforced cooperatively in the APPLY pool), so the runner must clear
-        // the inherited default — otherwise any build/test unit longer than 30s is
-        // silently killed mid-run.
+        // Regression: `ProcessConfig::default()` carries a 30s process timeout. Toven
+        // owns the per-unit bound (unbounded unless `--timeout` is passed and enforced
+        // cooperatively in the APPLY pool), so the runner must clear the inherited
+        // default — otherwise any build/test unit longer than 30s is silently killed
+        // mid-run.
         let runner = ProcessCommandRunner::new(".");
         assert!(
             runner.process_config.timeout.is_none(),

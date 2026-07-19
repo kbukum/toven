@@ -2,8 +2,8 @@
 //!
 //! The strings below are the minimal Rust config and the task-override example
 //! shown verbatim in `README.md` / `docs/getting-started.md`. Loading them
-//! through the strict `Document` loader fails the build the moment a doc example
-//! drifts from the live schema.
+//! through the strict `Document` loader fails the build the moment a doc
+//! example drifts from the live schema.
 
 mod common;
 

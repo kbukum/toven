@@ -107,8 +107,8 @@ fn go_work_groups_members_into_one_workspace_with_an_edge() {
     assert_eq!(edge.to.module, module_ref("core"));
     assert_eq!(edge.kind, DepKind::Normal);
 
-    // A go.work grouping keys its blast radius off the workspace-level
-    // go.work / go.work.sum, not a (nonexistent) root go.sum.
+    // A go.work grouping keys its blast radius off the workspace-level go.work /
+    // go.work.sum, not a (nonexistent) root go.sum.
     let globs = &response.workspaces[0].blast_radius;
     assert_eq!(globs, &["go.work", "go.work.sum"]);
 }
@@ -123,8 +123,8 @@ fn nested_versioned_modules_are_named_by_directory_and_edges_resolve() {
         .map(|m| m.id.name.as_str())
         .collect();
     names.sort_unstable();
-    // Nested modules take their identity from the repo-relative directory, so
-    // two `/v2` modules stay distinct (`alpha`, `beta`) with no false collision.
+    // Nested modules take their identity from the repo-relative directory, so two
+    // `/v2` modules stay distinct (`alpha`, `beta`) with no false collision.
     assert_eq!(names, ["alpha", "beta"]);
 
     let mut packages: Vec<&str> = response

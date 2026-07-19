@@ -1,8 +1,8 @@
 //! Additive, idempotent fragment merge over an existing `toven.toml`.
 //!
 //! Re-running `toven init` against a document that already exists grows the
-//! polyglot config without disturbing hand edits: a missing section is added, an
-//! existing one is **left untouched** with a warning, and
+//! polyglot config without disturbing hand edits: a missing section is added,
+//! an existing one is **left untouched** with a warning, and
 //! `[project]`/`[toven]` are never modified. `--force <id>` regenerates exactly
 //! one section. Formatting and comments survive because the edit goes through
 //! `toml_edit`, not a destructive re-serialize.
@@ -22,15 +22,16 @@ pub(super) struct MergeResult {
     pub(super) added: Vec<EcosystemId>,
     /// Sections regenerated because `--force <id>` named them.
     pub(super) regenerated: Vec<EcosystemId>,
-    /// Human-facing diagnostics (an existing section skipped on a plain re-run).
+    /// Human-facing diagnostics (an existing section skipped on a plain
+    /// re-run).
     pub(super) warnings: Vec<String>,
 }
 
 /// Merge `fragments` into the existing `existing` document text.
 ///
 /// `force` names the single ecosystem id whose section should be regenerated
-/// even when it already exists. Every other already-present section is preserved
-/// and reported as a skip warning.
+/// even when it already exists. Every other already-present section is
+/// preserved and reported as a skip warning.
 ///
 /// # Errors
 /// Returns an error if `existing` is not valid TOML or a fragment table cannot

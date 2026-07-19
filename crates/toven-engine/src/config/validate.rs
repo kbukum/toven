@@ -1,10 +1,10 @@
 //! Structural validation of a parsed [`Document`].
 //!
 //! Structural = the Load-phase contract: the document is well-formed, reserved
-//! sections are typed (serde did that), and every `ecosystem:module` reference is
-//! *syntactically* valid against a canonical ecosystem. Semantic resolution —
-//! whether refs point at real modules and the graph is acyclic — is deferred to
-//! the engine Graph phase.
+//! sections are typed (serde did that), and every `ecosystem:module` reference
+//! is *syntactically* valid against a canonical ecosystem. Semantic resolution
+//! — whether refs point at real modules and the graph is acyclic — is deferred
+//! to the engine Graph phase.
 
 use rskit_errors::{AppError, AppResult};
 use rskit_validation::input::{
@@ -73,9 +73,10 @@ fn validate_project(project: &ProjectConfig) -> AppResult<()> {
 
 /// Validate the reserved `[toven]` settings.
 ///
-/// `[toven.cache].dir` is a workspace-relative cache-root override consumed later
-/// by the engine cache layer for filesystem paths, so it must be a safe relative
-/// path (no traversal/absolute escape) — validated here at the trust boundary.
+/// `[toven.cache].dir` is a workspace-relative cache-root override consumed
+/// later by the engine cache layer for filesystem paths, so it must be a safe
+/// relative path (no traversal/absolute escape) — validated here at the trust
+/// boundary.
 fn validate_settings(settings: &TovenConfig) -> AppResult<()> {
     if let Some(dir) = &settings.cache.dir {
         validate_safe_path(dir).map_err(|error| {
@@ -102,8 +103,8 @@ fn validate_member(index: usize, member: &MemberConfig) -> AppResult<()> {
 /// otherwise valid config.
 const UNIT_ID_SEPARATOR: char = '~';
 
-/// Reject the reserved [`UNIT_ID_SEPARATOR`] in a user identifier that is folded
-/// into a unit id (group and member names).
+/// Reject the reserved [`UNIT_ID_SEPARATOR`] in a user identifier that is
+/// folded into a unit id (group and member names).
 fn reject_unit_id_separator(field: &str, value: &str) -> AppResult<()> {
     if value.contains(UNIT_ID_SEPARATOR) {
         return Err(AppError::invalid_input(
@@ -168,8 +169,8 @@ fn validate_overlay(
     Ok(())
 }
 
-/// Validate a workspace-relative root: either `.` (the config-file directory) or
-/// a safe relative path with no traversal.
+/// Validate a workspace-relative root: either `.` (the config-file directory)
+/// or a safe relative path with no traversal.
 fn validate_relative_root(field: &str, root: &str) -> AppResult<()> {
     if root == "." {
         return Ok(());

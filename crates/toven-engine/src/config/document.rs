@@ -12,11 +12,11 @@ use super::{GroupConfig, MemberConfig, ModuleConfig, OverlayConfig, ProjectConfi
 /// The whole `toven.toml`, parsed strictly.
 ///
 /// `#[serde(deny_unknown_fields)]` rejects any stray top-level key for free:
-/// `ecosystems` is the only dynamic-keyed field, so a typo like `[porject]` or a
-/// stray `[rust]` table fails the parse. Each `[ecosystems.<id>]` subtree is kept
-/// verbatim as a [`RawValue`] so the owning adapter parses it later under its own
-/// `#[serde(deny_unknown_fields)]` schema (the engine never learns adapter field
-/// names).
+/// `ecosystems` is the only dynamic-keyed field, so a typo like `[porject]` or
+/// a stray `[rust]` table fails the parse. Each `[ecosystems.<id>]` subtree is
+/// kept verbatim as a [`RawValue`] so the owning adapter parses it later under
+/// its own `#[serde(deny_unknown_fields)]` schema (the engine never learns
+/// adapter field names).
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Document {

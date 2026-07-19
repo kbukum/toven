@@ -8,16 +8,16 @@ use serde::{Deserialize, Serialize};
 
 /// Prerelease channels and the branch→channel mapping.
 ///
-/// `channels` names the recognized prerelease trains (`rc`, `alpha`, `beta`) that
-/// `--pre <channel>` and release-branch workflows resolve against.
-/// `branch_channels` maps a release branch to the channel it cuts, so pushing to
-/// a `next` branch can imply a `beta` train without a per-run flag. Both are
+/// `channels` names the recognized prerelease trains (`rc`, `alpha`, `beta`)
+/// that `--pre <channel>` and release-branch workflows resolve against.
+/// `branch_channels` maps a release branch to the channel it cuts, so pushing
+/// to a `next` branch can imply a `beta` train without a per-run flag. Both are
 /// empty by default (stable-only releases).
 #[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PrereleaseConfig {
-    /// Recognized prerelease channel identifiers, each a valid semver prerelease
-    /// segment set (e.g. `rc`, `alpha`, `beta`).
+    /// Recognized prerelease channel identifiers, each a valid semver
+    /// prerelease segment set (e.g. `rc`, `alpha`, `beta`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub channels: Vec<String>,
     /// Optional map from release branch name to the channel it releases on.

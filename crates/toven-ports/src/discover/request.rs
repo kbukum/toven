@@ -6,8 +6,8 @@ use toven_model::AbsPath;
 
 /// Schema version of the discovery request/response envelope.
 ///
-/// Bumped when the serialized shape changes; the out-of-process driver transport
-/// validates it on both ends.
+/// Bumped when the serialized shape changes; the out-of-process driver
+/// transport validates it on both ends.
 pub const DISCOVERY_SCHEMA_VERSION: u16 = 1;
 
 /// Runtime context handed to a configured adapter's discovery pass.
@@ -41,7 +41,8 @@ impl DiscoverRequest {
 /// Optional, minimal discovery context.
 #[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize, Serialize)]
 pub struct DiscoverContext {
-    /// When non-empty, restrict discovery to these module names (an adapter hint).
+    /// When non-empty, restrict discovery to these module names (an adapter
+    /// hint).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub module_filter: Vec<String>,
 }

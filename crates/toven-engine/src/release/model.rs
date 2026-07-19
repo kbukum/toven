@@ -9,8 +9,8 @@ use toven_ports::{BaselineSpec, BumpLevel, Oid, ReleaseMutation};
 /// The bump surface is a single matrix, not a family of named strategies. The
 /// `[…release].strategy` config field is kept as a named selector so additional
 /// policies can be introduced later without a config break, but it currently
-/// resolves to exactly one policy: prerelease behavior is driven only by
-/// `--pre <channel>` / the `prerelease` config, never by a policy name.
+/// resolves to exactly one policy: prerelease behavior is driven only by `--pre
+/// <channel>` / the `prerelease` config, never by a policy name.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum BumpPolicy {
@@ -30,22 +30,22 @@ impl BumpPolicy {
     }
 }
 
-/// Which input decided a module's bump, under the documented precedence
-/// (argv > `[modules.<name>.release]` > `[ecosystems.<id>].release` > adapter
-/// default).
+/// Which input decided a module's bump, under the documented precedence (argv >
+/// `[modules.<name>.release]` > `[ecosystems.<id>].release` > adapter default).
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum BumpSource {
     /// An explicit `--set-version <module>=<x.y.z>` argv override pinned the
     /// target version.
     SetVersion,
-    /// An argv level override (`--patch`/`--minor`/`--major <module>`) forced the
-    /// level.
+    /// An argv level override (`--patch`/`--minor`/`--major <module>`) forced
+    /// the level.
     Argv,
     /// The resolved config level (`[modules.<name>.release]` or
     /// `[ecosystems.<id>].release`) selected the level.
     Config,
-    /// `Auto` resolved to a minor bump from a breaking changelog classification.
+    /// `Auto` resolved to a minor bump from a breaking changelog
+    /// classification.
     Changelog,
     /// `Auto` resolved to the patch default (no breaking signal).
     Default,
@@ -188,14 +188,15 @@ pub struct ReleaseEntry {
     /// Prerelease channel applied to the planned version, when cutting a
     /// prerelease.
     pub prerelease_channel: Option<String>,
-    /// Whether the planned version is already at/above the registry (or, offline,
-    /// the release tag), making a real publish a reported no-op.
+    /// Whether the planned version is already at/above the registry (or,
+    /// offline, the release tag), making a real publish a reported no-op.
     pub up_to_date: bool,
     /// Atomic mutation to pass back to the ecosystem release target.
     pub mutation: ReleaseMutation,
     /// Whether the publish loop must publish this module/version.
     pub publish_needed: bool,
-    /// Configured tag-format override used to build the target-owned tag scheme.
+    /// Configured tag-format override used to build the target-owned tag
+    /// scheme.
     pub tag_format: Option<String>,
     /// Topological rank used for deterministic publish ordering.
     pub topo_rank: usize,
@@ -253,8 +254,9 @@ pub struct ReleaseModuleStatus {
     pub is_published: bool,
 }
 
-/// A read-only projection of every releasable module's declared/published/tagged
-/// state. Produced without mutating any manifest, tag, or registry.
+/// A read-only projection of every releasable module's
+/// declared/published/tagged state. Produced without mutating any manifest,
+/// tag, or registry.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReleaseStatus {
     /// Per-module status, sorted in module-key order.
@@ -269,8 +271,8 @@ impl ReleaseStatus {
     }
 }
 
-/// The rehearsal verdict for one planned release: what a real publish loop would
-/// do, decided without any registry mutation.
+/// The rehearsal verdict for one planned release: what a real publish loop
+/// would do, decided without any registry mutation.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum PublishDecision {
@@ -320,9 +322,9 @@ pub struct HostRehearsal {
     pub assets: Vec<String>,
 }
 
-/// A read-only rehearsal of the release publish loop: the resolved publish order
-/// and per-module verdicts, computed without mutating manifests, tags, or the
-/// registry.
+/// A read-only rehearsal of the release publish loop: the resolved publish
+/// order and per-module verdicts, computed without mutating manifests, tags, or
+/// the registry.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReleaseRehearsal {
     /// Selected engine-owned bump policy.

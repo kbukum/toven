@@ -24,8 +24,9 @@ pub struct Invocation {
     pub readiness: ExecutionReadiness,
     /// Readiness timeout for persistent invocations.
     pub readiness_timeout: Duration,
-    /// Whether any stdout output turns a zero-exit run into a failure (a list-mode
-    /// verification such as `gofmt -l` sets this so it gates instead of passing).
+    /// Whether any stdout output turns a zero-exit run into a failure (a
+    /// list-mode verification such as `gofmt -l` sets this so it gates instead
+    /// of passing).
     pub fail_if_output: bool,
     /// Explicit environment policy for the invocation.
     pub environment: InvocationEnvironment,
@@ -46,8 +47,8 @@ impl Invocation {
         }
     }
 
-    /// Construct an invocation from a planned execution unit using a single, explicit
-    /// environment policy.
+    /// Construct an invocation from a planned execution unit using a single,
+    /// explicit environment policy.
     #[must_use]
     pub fn from_unit(unit: &ExecutionUnit, environment: InvocationEnvironment) -> Self {
         Self {

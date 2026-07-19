@@ -1,4 +1,5 @@
-//! Happy-path loading: every reserved section parses and structurally validates.
+//! Happy-path loading: every reserved section parses and structurally
+//! validates.
 
 mod common;
 
@@ -68,10 +69,10 @@ fn loads_multi_repo_members() {
 
 #[test]
 fn dotted_key_and_table_forms_load_to_the_same_document() {
-    // TOML lets the same data be written with dotted keys
-    // (`toven.cache.dir = …`, `ecosystems.rust.release.registry = …`) or with
-    // `[table]` headers. The strict loader must treat them as identical, so the
-    // two fixtures — one of each form, same data — parse to equal `Document`s.
+    // TOML lets the same data be written with dotted keys (`toven.cache.dir = …`,
+    // `ecosystems.rust.release.registry = …`) or with `[table]` headers. The strict
+    // loader must treat them as identical, so the two fixtures — one of each form,
+    // same data — parse to equal `Document`s.
     let dotted = load_fixture("valid/dotted-keys.toml", &["rust"]);
     let table = load_fixture("valid/table-form.toml", &["rust"]);
 

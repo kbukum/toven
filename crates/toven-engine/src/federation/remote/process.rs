@@ -2,8 +2,8 @@
 //!
 //! A driver is launched **argv-only** (`<program> __serve`) with piped
 //! stdin/stdout for framed RPC and inherited stderr for its own diagnostics —
-//! the driver boundary carries no child build output. stdin/stdout pipes are the
-//! transport; the umbrella never passes a shell string.
+//! the driver boundary carries no child build output. stdin/stdout pipes are
+//! the transport; the umbrella never passes a shell string.
 //!
 //! The transport keeps an interactive bidirectional pipe open across many
 //! request/response frames while staying argv-only and reusing rskit's error
@@ -38,7 +38,8 @@ pub(crate) struct SpawnedDriver {
     pub(crate) stdout: ChildStdout,
 }
 
-/// Spawn `program <subcommand>`, wiring piped stdin/stdout and inherited stderr.
+/// Spawn `program <subcommand>`, wiring piped stdin/stdout and inherited
+/// stderr.
 ///
 /// `subcommand` is the hidden driver entry to launch — `__serve` for the
 /// port-call protocol or `__init` for the config-less wizard exchange.
@@ -87,11 +88,13 @@ impl ChildHandle {
         Self { child }
     }
 
-    /// Arm a watchdog that kills the child if it is not disarmed within `timeout`.
+    /// Arm a watchdog that kills the child if it is not disarmed within
+    /// `timeout`.
     ///
-    /// The watchdog's deadline action is a child kill: killing the driver closes
-    /// its stdout, so a blocked umbrella read unblocks and the caller classifies
-    /// the fired timer as a [`DriverFault::Timeout`](super::super::protocol::handshake::DriverFault).
+    /// The watchdog's deadline action is a child kill: killing the driver
+    /// closes its stdout, so a blocked umbrella read unblocks and the caller
+    /// classifies the fired timer as a
+    /// [`DriverFault::Timeout`](super::super::protocol::handshake::DriverFault).
     pub(crate) fn arm_watchdog(&self, timeout: Duration) -> Watchdog {
         let child = Arc::clone(&self.child);
         Watchdog::arm(timeout, move || {
@@ -103,8 +106,8 @@ impl ChildHandle {
 
 impl Drop for ChildHandle {
     fn drop(&mut self) {
-        // The umbrella already dropped the stdin pipe (driver sees EOF and
-        // exits); kill + reap guards against a wedged child and zombies.
+        // The umbrella already dropped the stdin pipe (driver sees EOF and exits); kill
+        // + reap guards against a wedged child and zombies.
         let mut child = lock_child(&self.child);
         let _ = child.kill();
         let _ = child.wait();
@@ -115,13 +118,14 @@ impl Drop for ChildHandle {
 ///
 /// Armed around one blocking driver RPC and disarmed once it completes. If the
 /// deadline elapses first, the injected `on_timeout` action runs (in the driver
-/// transport, a child kill that unblocks the stalled read); [`Watchdog::disarm`]
-/// then reports that the timeout fired so the caller can classify it as
+/// transport, a child kill that unblocks the stalled read);
+/// [`Watchdog::disarm`] then reports that the timeout fired so the caller can
+/// classify it as
 /// [`DriverFault::Timeout`](super::super::protocol::handshake::DriverFault).
 ///
 /// The deadline action is injected so the same arm/disarm/classify machinery
-/// guards both a real subprocess (killing the child) and any other interruptible
-/// blocking read (a test transport unblocked by a signal).
+/// guards both a real subprocess (killing the child) and any other
+/// interruptible blocking read (a test transport unblocked by a signal).
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) struct Watchdog {
     disarm: mpsc::Sender<()>,
@@ -130,14 +134,15 @@ pub(crate) struct Watchdog {
 }
 
 impl Watchdog {
-    /// Spawn the watchdog timer for `timeout`, running `on_timeout` if it fires.
+    /// Spawn the watchdog timer for `timeout`, running `on_timeout` if it
+    /// fires.
     pub(crate) fn arm(timeout: Duration, on_timeout: impl FnOnce() + Send + 'static) -> Self {
         let (disarm, rx) = mpsc::channel();
         let fired = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let fired_timer = Arc::clone(&fired);
         let handle = thread::spawn(move || {
-            // Only a true timeout fires the action; an explicit disarm (Ok) or a
-            // dropped sender after disarm (Disconnected) must not.
+            // Only a true timeout fires the action; an explicit disarm (Ok) or a dropped
+            // sender after disarm (Disconnected) must not.
             if rx.recv_timeout(timeout) == Err(RecvTimeoutError::Timeout) {
                 fired_timer.store(true, std::sync::atomic::Ordering::SeqCst);
                 on_timeout();

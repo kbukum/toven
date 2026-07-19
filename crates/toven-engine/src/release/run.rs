@@ -2,12 +2,12 @@
 //! verb.
 //!
 //! [`release_plan`](super::release_plan) and the per-member APPLY are exposed
-//! separately so each phase is testable in isolation, but a one-shot
-//! `toven release` needs the discovered modules and resolved release targets that
-//! the PLAN cut computes internally. This facade prepares the front matter once,
+//! separately so each phase is testable in isolation, but a one-shot `toven
+//! release` needs the discovered modules and resolved release targets that the
+//! PLAN cut computes internally. This facade prepares the front matter once,
 //! reuses it for both the plan and the apply, and returns the terminal
-//! [`ReleaseStats`] — keeping the discovery/target wiring engine-owned so the CLI
-//! stays a thin caller.
+//! [`ReleaseStats`] — keeping the discovery/target wiring engine-owned so the
+//! CLI stays a thin caller.
 
 use rskit_errors::AppResult;
 use toven_ports::{Provider, Reporter};
@@ -25,14 +25,14 @@ use crate::plan::{PlanRequest, prepare_front};
 ///
 /// Prepares the shared PLAN front matter once, derives the release plan and
 /// targets from it, then runs the per-member release APPLY tail. `readers` are
-/// the per-member change seams and `repos` the per-member commit/tag/push ports;
-/// a single-repo project is the N=1 degenerate member. `overrides` carry the
-/// per-run bump argv (level flags, set-version, prerelease channel, base,
+/// the per-member change seams and `repos` the per-member commit/tag/push
+/// ports; a single-repo project is the N=1 degenerate member. `overrides` carry
+/// the per-run bump argv (level flags, set-version, prerelease channel, base,
 /// offline).
 ///
 /// When the run publishes and pushes, a config-gated hosted-release phase runs
-/// after APPLY: every tagged module whose `[…release].host` names a forge cuts a
-/// forge Release over the one topological order. `--no-push` (a non-pushing
+/// after APPLY: every tagged module whose `[…release].host` names a forge cuts
+/// a forge Release over the one topological order. `--no-push` (a non-pushing
 /// APPLY) skips the phase, consistent with the tag push it depends on.
 ///
 /// # Errors
@@ -171,8 +171,8 @@ mod tests {
         FakeProvider::new(eid()).with_adapter(adapter)
     }
 
-    // A configured hosted release must NOT be cut when the run does not push:
-    // the host phase depends on the pushed tag, so `--no-push` skips it.
+    // A configured hosted release must NOT be cut when the run does not push: the
+    // host phase depends on the pushed tag, so `--no-push` skips it.
     #[test]
     fn host_phase_is_skipped_when_the_run_does_not_push() {
         let provider = provider_with_host();

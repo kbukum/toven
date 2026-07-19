@@ -1,4 +1,5 @@
-//! Baseline specification — the typed output of the engine's `BaselineStrategy`.
+//! Baseline specification — the typed output of the engine's
+//! `BaselineStrategy`.
 
 use serde::{Deserialize, Serialize};
 
@@ -12,8 +13,8 @@ pub enum BaselineMode {
     MergeBase,
 }
 
-/// The typed baseline the engine's named `BaselineStrategy` resolves config + CLI
-/// flags into.
+/// The typed baseline the engine's named `BaselineStrategy` resolves config +
+/// CLI flags into.
 ///
 /// The git mechanism ([`VcsReader`](super::VcsReader)) stays policy-free: it
 /// consumes this spec via `changed_since`, while the *which-ref / merge-base*

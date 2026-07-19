@@ -7,10 +7,7 @@ use super::question::Question;
 
 /// The ordered questions one ecosystem adapter asks during the wizard.
 ///
-/// Built by [`Provider::questionnaire`](crate::provider::Provider::questionnaire)
-/// from a [`Detection`](super::Detection); may be empty (an ecosystem with
-/// nothing to ask still scaffolds a sane default fragment). Each [`Question`]
-/// maps one-to-one onto a [`Prompter`](rskit_cli::Prompter) method in the CLI.
+/// Built by [`Provider::questionnaire`](crate::provider::Provider::questionnaire) from a [`Detection`](super::Detection); may be empty (an ecosystem with nothing to ask still scaffolds a sane default fragment). Each [`Question`] maps one-to-one onto a [`Prompter`](rskit_cli::Prompter) method in the CLI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Questionnaire {
     /// The ecosystem these questions configure.
@@ -20,7 +17,8 @@ pub struct Questionnaire {
 }
 
 impl Questionnaire {
-    /// Construct a questionnaire for `ecosystem` with the given ordered questions.
+    /// Construct a questionnaire for `ecosystem` with the given ordered
+    /// questions.
     #[must_use]
     pub const fn new(ecosystem: EcosystemId, questions: Vec<Question>) -> Self {
         Self {

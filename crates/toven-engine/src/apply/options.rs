@@ -31,21 +31,21 @@ pub struct ApplyOptions {
     /// Persistent units can emit output indefinitely; a bounded channel keeps
     /// the bridge from growing without limit when the consumer (e.g. a slow
     /// [`RawOutputSink`](toven_ports::RawOutputSink)) falls behind. When the
-    /// channel is full the producing reader thread blocks, applying backpressure
-    /// down to the child process's pipe rather than buffering or dropping
-    /// output. The consumer drains the bridge continuously while units run and
-    /// concurrently during teardown, so a full channel never deadlocks a process
-    /// awaiting shutdown.
+    /// channel is full the producing reader thread blocks, applying
+    /// backpressure down to the child process's pipe rather than buffering or
+    /// dropping output. The consumer drains the bridge continuously while units
+    /// run and concurrently during teardown, so a full channel never deadlocks
+    /// a process awaiting shutdown.
     pub live_output_capacity: usize,
     /// Optional wall-clock bound on any single normal (non-persistent) unit.
     ///
     /// When set, a unit that runs longer than this is cooperatively cancelled
-    /// (the same SIGTERM-and-wait teardown as `--fail-fast`/Ctrl+C) and recorded
-    /// as [`UnitStatus::TimedOut`](toven_model::UnitStatus::TimedOut) — a failure
-    /// — rather than being allowed to run unbounded. `None` (the default) leaves
-    /// normal units unbounded. Persistent units are governed by their own
-    /// [`readiness_timeout`](toven_model::ExecutionUnit::readiness_timeout) probe,
-    /// not this bound.
+    /// (the same SIGTERM-and-wait teardown as `--fail-fast`/Ctrl+C) and
+    /// recorded as [`UnitStatus::TimedOut`](toven_model::UnitStatus::TimedOut)
+    /// — a failure — rather than being allowed to run unbounded. `None` (the
+    /// default) leaves normal units unbounded. Persistent units are governed by
+    /// their own [`readiness_timeout`](toven_model::ExecutionUnit::readiness_timeout)
+    /// probe, not this bound.
     pub unit_timeout: Option<Duration>,
 }
 
@@ -67,7 +67,8 @@ impl Default for ApplyOptions {
 /// cannot intermix on the same lines. That holds in two cases:
 ///
 /// - the sink de-interleaves output spatially (`sink_concurrent_live` — one
-///   visual region per `unit_id`), so any number of units can stream at once; or
+///   visual region per `unit_id`), so any number of units can stream at once;
+///   or
 /// - nothing else can emit concurrently on the single linear stream, which
 ///   requires both serial or single-unit execution (`max_parallel <= 1` or a
 ///   one-unit plan) and no held persistent unit (a persistent unit keeps

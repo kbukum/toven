@@ -1,8 +1,8 @@
 //! Aggregation: attribute emitted profile files to modules, fold each module's
 //! metrics, and gate them into a [`CoverageReport`].
 //!
-//! File attribution keys on the workspace-relative file path: an emitted path is
-//! normalized (an absolute path under the project root is made relative) and
+//! File attribution keys on the workspace-relative file path: an emitted path
+//! is normalized (an absolute path under the project root is made relative) and
 //! attributed to the module whose repo-relative `root` is its longest matching
 //! prefix. Files that match no module root are ignored. This composes with
 //! Toven's affected planning: under `--changed`, `changed` carries the changed
@@ -81,8 +81,8 @@ fn attribute(
     buckets
 }
 
-/// Make an absolute path under `project_root` workspace-relative; strip a leading
-/// `./`. A path already relative is returned as-is.
+/// Make an absolute path under `project_root` workspace-relative; strip a
+/// leading `./`. A path already relative is returned as-is.
 fn normalize(path: &Path, project_root: &Path) -> PathBuf {
     let stripped = path
         .strip_prefix(project_root)

@@ -1,10 +1,11 @@
 //! Shared driver-port doubles: [`FakeDriverLocator`] and [`FakeDriverWizard`].
 //!
 //! These substitute the out-of-process driver seams so federation/init tests
-//! stay deterministic without touching the real `PATH` or spawning a subprocess.
-//! The locator resolves only the names it was seeded with (and can be told to
-//! fail a lookup, modeling a filesystem error); the wizard returns canned
-//! fragments keyed by the probed program path, ignoring the injected answers.
+//! stay deterministic without touching the real `PATH` or spawning a
+//! subprocess. The locator resolves only the names it was seeded with (and can
+//! be told to fail a lookup, modeling a filesystem error); the wizard returns
+//! canned fragments keyed by the probed program path, ignoring the injected
+//! answers.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};

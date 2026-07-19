@@ -1,12 +1,13 @@
-//! `GithubReleaseHost` — the GitHub [`ReleaseHost`] adapter, argv-only via `gh`.
+//! `GithubReleaseHost` — the GitHub [`ReleaseHost`] adapter, argv-only via
+//! `gh`.
 //!
 //! Cuts a GitHub Release for a resolved tag by invoking the `gh` CLI as an
 //! argument vector (never a shell string) through `rskit-process`, with bounded
 //! output and a hard timeout. Idempotency is create-first: an "already exists"
-//! response falls through to an in-place edit plus a clobbering asset upload, so
-//! re-running a release updates the existing Release rather than duplicating it.
-//! The forge token is read from the ambient environment by `gh` itself and is
-//! never passed on the command line or logged.
+//! response falls through to an in-place edit plus a clobbering asset upload,
+//! so re-running a release updates the existing Release rather than duplicating
+//! it. The forge token is read from the ambient environment by `gh` itself and
+//! is never passed on the command line or logged.
 //!
 //! GitLab is a documented follow-up seam behind the same [`ReleaseHost`] port;
 //! only GitHub is implemented here.
@@ -55,9 +56,9 @@ impl ReleaseHost for GithubReleaseHost {
             created.check()?;
         }
 
-        // The Release already exists: update it in place, then re-upload assets
-        // with `--clobber`, overwriting any same-named asset instead of erroring
-        // on repeats. Assets dropped from config are not deleted from the Release.
+        // The Release already exists: update it in place, then re-upload assets with
+        // `--clobber`, overwriting any same-named asset instead of erroring on repeats.
+        // Assets dropped from config are not deleted from the Release.
         gh(root, edit_argv(release), notes)?.check()?;
         if let Some(argv) = upload_argv(release) {
             gh(root, argv, &[])?.check()?;
@@ -76,8 +77,8 @@ fn release_already_exists(output: &ProcessResult) -> bool {
 /// Build the `gh release create` argv for a hosted release.
 ///
 /// Release notes are piped through stdin via `--notes-file -`, never an argv
-/// value, so changelog-derived notes cannot leak through process listings or hit
-/// argv-length limits.
+/// value, so changelog-derived notes cannot leak through process listings or
+/// hit argv-length limits.
 fn create_argv(release: &HostedRelease) -> Vec<String> {
     let mut argv = vec![
         "release".to_string(),
@@ -116,11 +117,13 @@ fn edit_argv(release: &HostedRelease) -> Vec<String> {
     ]
 }
 
-/// Build the `gh release upload` argv, or `None` when the release has no assets.
+/// Build the `gh release upload` argv, or `None` when the release has no
+/// assets.
 ///
-/// `--clobber` overwrites an existing asset of the same name so a re-run replaces
-/// it in place instead of failing on a duplicate. Assets no longer configured are
-/// left on the Release; the upload adds and overwrites but never deletes.
+/// `--clobber` overwrites an existing asset of the same name so a re-run
+/// replaces it in place instead of failing on a duplicate. Assets no longer
+/// configured are left on the Release; the upload adds and overwrites but never
+/// deletes.
 fn upload_argv(release: &HostedRelease) -> Option<Vec<String>> {
     if release.assets.is_empty() {
         return None;
@@ -198,8 +201,8 @@ mod tests {
         assert!(argv.iter().any(|arg| arg == "--prerelease"));
         assert!(argv.iter().any(|arg| arg == "dist/core.cdx.json#SBOM"));
         assert!(argv.iter().any(|arg| arg == "dist/core.tgz"));
-        // Notes are piped through stdin (`--notes-file -`), never argv, so they
-        // cannot leak via process listings or hit argv-length limits.
+        // Notes are piped through stdin (`--notes-file -`), never argv, so they cannot
+        // leak via process listings or hit argv-length limits.
         assert!(argv.iter().any(|arg| arg == "--notes-file"));
         assert!(argv.iter().all(|arg| arg != "--notes"));
         assert!(argv.iter().all(|arg| arg != "the notes"));

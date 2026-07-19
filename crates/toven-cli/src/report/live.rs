@@ -4,10 +4,10 @@
 //! sink the engine writes through and the PTY sizing the process runner uses.
 //! The live tiles/panes area needs a pseudoterminal, so it is Unix-first: on a
 //! non-Unix target — or when the machine JSON projection is active, when stderr
-//! is not a terminal, or when `--view stream` is chosen — this falls back to the
-//! byte-stable [`WriterRawSink`] with live units still attached to a PTY
-//! matching the terminal (a no-op when stderr is redirected), preserving today's
-//! stream shape byte-for-byte.
+//! is not a terminal, or when `--view stream` is chosen — this falls back to
+//! the byte-stable [`WriterRawSink`] with live units still attached to a PTY
+//! matching the terminal (a no-op when stderr is redirected), preserving
+//! today's stream shape byte-for-byte.
 
 use std::path::Path;
 
@@ -22,8 +22,8 @@ use super::WriterRawSink;
 /// Configure `runner` and build the raw-output sink for the resolved view.
 ///
 /// Returns the (possibly PTY-enabled) runner and the sink the engine's
-/// [`UnitOutputChannel`](toven_engine::output::UnitOutputChannel) writes through.
-/// `force_stream` pins the log-friendly stream shape (set for the JSON
+/// [`UnitOutputChannel`](toven_engine::output::UnitOutputChannel) writes
+/// through. `force_stream` pins the log-friendly stream shape (set for the JSON
 /// projection); `unit_count` seeds the `auto` tiles-vs-panes choice; `pane_dir`
 /// is where the tmux launcher keeps its per-unit temp files.
 ///
@@ -51,11 +51,10 @@ pub(crate) fn configure_live_output(
     };
 
     Ok(match resolved {
-        // The stream fallback keeps today's shape. `force_stream` (the machine
-        // JSON projection) must stay byte-stable, so it keeps deterministic pipe
-        // capture with no PTY; an interactive `--view stream` still attaches a
-        // PTY matching the terminal (a no-op when stderr is redirected) so child
-        // colors are preserved.
+        // The stream fallback keeps today's shape. `force_stream` (the machine JSON projection)
+        // must stay byte-stable, so it keeps deterministic pipe capture with no PTY; an interactive
+        // `--view stream` still attaches a PTY matching the terminal (a no-op when stderr is
+        // redirected) so child colors are preserved.
         ResolvedView::Stream => {
             let runner = if force_stream {
                 runner
@@ -66,10 +65,10 @@ pub(crate) fn configure_live_output(
         }
         ResolvedView::Tiles { pty } => {
             let tiles = TilesRawSink::stderr(pty.cols as usize, palette);
-            // Size the child to the tile's inner grid, not the full tile width:
-            // a child told it is `pty.cols` wide wraps a full-width in-place
-            // progress redraw at the narrower grid edge, scrolling the short
-            // grid and leaking a stale frame to scrollback on every tick.
+            // Size the child to the tile's inner grid, not the full tile width: a child
+            // told it is `pty.cols` wide wraps a full-width in-place progress redraw at the
+            // narrower grid edge, scrolling the short grid and leaking a stale frame to
+            // scrollback on every tick.
             let child = grid_pty(pty, tiles.content_cols());
             (runner.with_pty(child), Box::new(tiles))
         }
@@ -133,9 +132,9 @@ mod tests {
 
     #[test]
     fn grid_pty_narrows_cols_to_the_content_width_keeping_rows() {
-        // A live child is sized to the tile's inner grid, not the full tile
-        // width, so its wrapping matches the grid and progress redraws don't
-        // scroll the short grid into scrollback.
+        // A live child is sized to the tile's inner grid, not the full tile width, so
+        // its wrapping matches the grid and progress redraws don't scroll the short
+        // grid into scrollback.
         let child = grid_pty(PtySize::new(6, 120), 118);
         assert_eq!(child.rows, 6);
         assert_eq!(child.cols, 118);

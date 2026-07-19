@@ -1,10 +1,10 @@
 //! Cache-root resolution shared by the run wiring and the `cache` CLI verbs.
 //!
-//! The on-disk [`FsContentCache`](super::FsContentCache) is rooted at a directory
-//! resolved by a fixed precedence so a run and `toven cache path` always agree on
-//! where records live. Resolution is pure orchestration (env + config + the
-//! platform user-cache directory), so it lives in the engine — the CLI only
-//! renders the result, it never re-derives the path.
+//! The on-disk [`FsContentCache`](super::FsContentCache) is rooted at a
+//! directory resolved by a fixed precedence so a run and `toven cache path`
+//! always agree on where records live. Resolution is pure orchestration (env +
+//! config + the platform user-cache directory), so it lives in the engine — the
+//! CLI only renders the result, it never re-derives the path.
 
 use std::path::PathBuf;
 
@@ -16,9 +16,9 @@ use toven_model::AbsPath;
 /// Environment override for the cache base directory (absolute path).
 pub const CACHE_DIR_ENV: &str = "TOVEN_CACHE_DIR";
 
-/// Task-cache record/key format version, isolated in its own directory segment so
-/// an incompatible future format starts a fresh tree instead of misreading old
-/// records.
+/// Task-cache record/key format version, isolated in its own directory segment
+/// so an incompatible future format starts a fresh tree instead of misreading
+/// old records.
 pub const CACHE_FORMAT_VERSION: &str = "v3";
 
 /// Application name used to derive the platform user-cache directory.
@@ -29,16 +29,16 @@ const APP_NAME: &str = "toven";
 /// Precedence (highest first):
 /// 1. the [`CACHE_DIR_ENV`] environment override (absolute base), then the
 ///    format-version segment;
-/// 2. a workspace-relative `[toven.cache].dir` (`configured_dir`), confined under
-///    `project_root`, then the format-version segment;
-/// 3. the platform user-cache directory for `toven`, namespaced by a stable hash
-///    of the workspace root so distinct workspaces never share records, then the
-///    format-version segment.
+/// 2. a workspace-relative `[toven.cache].dir` (`configured_dir`), confined
+///    under `project_root`, then the format-version segment;
+/// 3. the platform user-cache directory for `toven`, namespaced by a stable
+///    hash of the workspace root so distinct workspaces never share records,
+///    then the format-version segment.
 ///
 /// # Errors
-/// Propagates a relative [`CACHE_DIR_ENV`] override, malformed workspace-relative
-/// `configured_dir` (path traversal), or a platform user-cache-directory
-/// resolution failure.
+/// Propagates a relative [`CACHE_DIR_ENV`] override, malformed
+/// workspace-relative `configured_dir` (path traversal), or a platform
+/// user-cache-directory resolution failure.
 pub fn resolve_root(project_root: &AbsPath, configured_dir: Option<&str>) -> AppResult<PathBuf> {
     resolve_root_with(project_root, configured_dir, || {
         rskit_util::env::get_non_empty(CACHE_DIR_ENV)
@@ -47,8 +47,8 @@ pub fn resolve_root(project_root: &AbsPath, configured_dir: Option<&str>) -> App
 
 /// Resolve the cache root with an injected environment override accessor.
 ///
-/// Keeps the precedence logic deterministically testable without mutating process
-/// environment state.
+/// Keeps the precedence logic deterministically testable without mutating
+/// process environment state.
 fn resolve_root_with(
     project_root: &AbsPath,
     configured_dir: Option<&str>,

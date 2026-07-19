@@ -22,8 +22,8 @@ fn unknown_top_level_key_is_rejected() {
 
 #[test]
 fn duplicate_group_identity_is_rejected() {
-    // Single-file duplicate group: TOML itself rejects the redefined `[groups.core]`
-    // table header during decode.
+    // Single-file duplicate group: TOML itself rejects the redefined
+    // `[groups.core]` table header during decode.
     assert_rejected("invalid/duplicate-group.toml", &["rust"]);
 }
 
@@ -44,10 +44,10 @@ fn duplicate_overlay_identity_across_includes_is_rejected() {
 
 #[test]
 fn duplicate_member_identity_across_includes_is_rejected() {
-    // Cross-file duplicate member: the canonical file and an include both declare
-    // a `[[members]]` entry named `core`. The include-merge policy registers
-    // `members` with a `name` identity, so the collision is a hard error instead
-    // of a silently concatenated entry.
+    // Cross-file duplicate member: the canonical file and an include both declare a
+    // `[[members]]` entry named `core`. The include-merge policy registers
+    // `members` with a `name` identity, so the collision is a hard error instead of
+    // a silently concatenated entry.
     assert_rejected("invalid/duplicate-member-include.toml", &["rust"]);
 }
 
@@ -83,8 +83,8 @@ fn per_module_release_unknown_field_is_rejected() {
 
 #[test]
 fn per_module_release_bad_tag_template_is_rejected() {
-    // An unknown tag-template placeholder in a per-module override fails
-    // structural validation.
+    // An unknown tag-template placeholder in a per-module override fails structural
+    // validation.
     assert_rejected("invalid/release-module-bad-tag-template.toml", &["rust"]);
 }
 
@@ -97,9 +97,9 @@ fn per_module_coverage_out_of_range_is_rejected() {
 
 #[test]
 fn per_module_coverage_ecosystem_only_field_is_rejected() {
-    // `exclude`/`profiles` are ecosystem-level decisions that never affect
-    // gating inside a `[modules.<ref>.coverage]` block, so accepting them there
-    // is rejected rather than silently ignored.
+    // `exclude`/`profiles` are ecosystem-level decisions that never affect gating
+    // inside a `[modules.<ref>.coverage]` block, so accepting them there is
+    // rejected rather than silently ignored.
     assert_rejected(
         "invalid/coverage-module-ecosystem-only-field.toml",
         &["rust"],

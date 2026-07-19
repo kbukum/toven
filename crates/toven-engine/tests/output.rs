@@ -1,7 +1,7 @@
 //! Integration coverage for the per-unit raw-output channel under simulated
-//! parallel execution: buffered normal units flush a
-//! labeled block per unit (in `block` call order), while persistent units
-//! live-tail in arrival order, even when their chunks interleave.
+//! parallel execution: buffered normal units flush a labeled block per unit (in
+//! `block` call order), while persistent units live-tail in arrival order, even
+//! when their chunks interleave.
 
 use toven_engine::output::{OutputMode, UnitOutputChannel};
 use toven_model::{OutputStream, UnitOutput};

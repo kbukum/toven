@@ -6,8 +6,8 @@
 //! tag (via the module's target tag scheme), note body (changelog or override),
 //! draft/prerelease flags, and asset set, then hands a fully-resolved
 //! [`HostedRelease`] to the forge adapter. `--dry-run` rehearses this without
-//! invoking any forge (see [`rehearse`](super::rehearse)); `--no-push` skips the
-//! phase entirely, consistent with tag push.
+//! invoking any forge (see [`rehearse`](super::rehearse)); `--no-push` skips
+//! the phase entirely, consistent with tag push.
 
 use std::collections::BTreeMap;
 
@@ -72,14 +72,15 @@ fn build_host(forge: &str) -> AppResult<Box<dyn ReleaseHost>> {
     }
 }
 
-/// Resolve the hosted Releases a real run would cut, in the plan's publish order.
+/// Resolve the hosted Releases a real run would cut, in the plan's publish
+/// order.
 ///
 /// Only entries with a planned version whose settings name a forge participate.
 ///
 /// # Errors
-/// Propagates a module/target lookup failure or a tag-scheme construction error,
-/// and reports an internal error if a planned module has no resolved release
-/// settings (the plan and settings are derived from the same context).
+/// Propagates a module/target lookup failure or a tag-scheme construction
+/// error, and reports an internal error if a planned module has no resolved
+/// release settings (the plan and settings are derived from the same context).
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn planned_host_releases(
     plan: &ReleasePlan,
@@ -155,11 +156,13 @@ pub(crate) fn planned_host_releases(
     Ok(planned)
 }
 
-/// Cut every planned hosted Release through its forge host, accounting outcomes.
+/// Cut every planned hosted Release through its forge host, accounting
+/// outcomes.
 ///
-/// Each Release is cut from its member repo's root so a forge command targets the
-/// repository whose tags that member pushed; the degenerate single-repo project
-/// (and any member without a resolved repo) falls back to `project_root`.
+/// Each Release is cut from its member repo's root so a forge command targets
+/// the repository whose tags that member pushed; the degenerate single-repo
+/// project (and any member without a resolved repo) falls back to
+/// `project_root`.
 ///
 /// # Errors
 /// Returns a typed error when a forge host is missing or a forge Release fails.
@@ -321,8 +324,8 @@ mod tests {
         let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry("core", None)]);
         let modules = vec![module("core")];
 
-        // Settings resolved for a different module leave the planned module
-        // unresolved: an internal inconsistency, not a legitimate skip.
+        // Settings resolved for a different module leave the planned module unresolved:
+        // an internal inconsistency, not a legitimate skip.
         let result = planned_host_releases(
             &plan,
             &modules,
