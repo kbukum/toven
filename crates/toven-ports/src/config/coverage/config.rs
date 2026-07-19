@@ -108,6 +108,33 @@ impl CoverageConfig {
         }
         Ok(())
     }
+
+    /// Validate a per-module `[modules.<ref>.coverage]` override.
+    ///
+    /// A per-module override may set only the threshold floors and the
+    /// enforcement mode. `exclude` and `profiles` are ecosystem-level decisions
+    /// resolved from `[ecosystems.<id>].coverage` — they never affect gating
+    /// inside a single module's block, so accepting them silently would be a
+    /// footgun. They are rejected here rather than ignored.
+    ///
+    /// # Errors
+    /// Rejects a per-module `exclude` or `profiles`, then defers to
+    /// [`validate`](Self::validate) for the shared field checks.
+    pub fn validate_module_override(&self, field: &str) -> AppResult<()> {
+        if !self.exclude.is_empty() {
+            return Err(AppError::invalid_input(
+                format!("{field}.exclude"),
+                "exclude is an ecosystem-level setting; it has no effect in a per-module coverage override",
+            ));
+        }
+        if !self.profiles.is_empty() {
+            return Err(AppError::invalid_input(
+                format!("{field}.profiles"),
+                "profiles is an ecosystem-level setting; it has no effect in a per-module coverage override",
+            ));
+        }
+        self.validate(field)
+    }
 }
 
 #[cfg(test)]
@@ -182,5 +209,44 @@ mod tests {
         )
         .expect("parses");
         assert!(config.validate("ecosystems.rust.coverage").is_err());
+    }
+
+    #[test]
+    fn module_override_rejects_exclude() {
+        let config = parse(r#"exclude = ["toven-suite"]"#).expect("parses");
+        let error = config
+            .validate_module_override("modules.rust:core.coverage")
+            .expect_err("per-module exclude rejected");
+        assert!(error.to_string().contains("exclude"), "{error}");
+    }
+
+    #[test]
+    fn module_override_rejects_profiles() {
+        let config = parse(
+            r#"
+            [profiles.security]
+            line = 95.0
+            modules = ["toven-auth"]
+            "#,
+        )
+        .expect("parses");
+        let error = config
+            .validate_module_override("modules.rust:core.coverage")
+            .expect_err("per-module profiles rejected");
+        assert!(error.to_string().contains("profiles"), "{error}");
+    }
+
+    #[test]
+    fn module_override_accepts_thresholds_and_enforcement() {
+        let config = parse(
+            r#"
+            line = 85.0
+            enforcement = "advisory"
+            "#,
+        )
+        .expect("parses");
+        config
+            .validate_module_override("modules.rust:core.coverage")
+            .expect("threshold-only override is valid");
     }
 }

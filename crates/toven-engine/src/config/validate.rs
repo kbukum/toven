@@ -59,7 +59,7 @@ fn validate_module(
         .validate(&format!("modules.{reference}.release"))?;
     module
         .coverage
-        .validate(&format!("modules.{reference}.coverage"))
+        .validate_module_override(&format!("modules.{reference}.coverage"))
 }
 
 fn validate_project(project: &ProjectConfig) -> AppResult<()> {

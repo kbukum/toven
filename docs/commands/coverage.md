@@ -40,7 +40,7 @@ line = 80.0                 # Go emits line coverage only
 changed_line = 85.0
 ```
 
-Every field is optional with a validated default, and the block is `deny_unknown_fields`, so an existing `toven.toml` with no `[…coverage]` block keeps parsing and inherits the adapter default.
+Every field is optional with a validated default, and the block is `deny_unknown_fields`, so an existing `toven.toml` with no `[…coverage]` block keeps parsing and inherits the adapter default. A per-module `[modules.<ref>.coverage]` override may set only the threshold floors and `enforcement`; `exclude` and `profiles` are ecosystem-level decisions and are rejected inside a per-module block rather than silently ignored.
 
 ### Threshold dimensions
 

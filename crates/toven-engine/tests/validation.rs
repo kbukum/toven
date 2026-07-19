@@ -96,6 +96,17 @@ fn per_module_coverage_out_of_range_is_rejected() {
 }
 
 #[test]
+fn per_module_coverage_ecosystem_only_field_is_rejected() {
+    // `exclude`/`profiles` are ecosystem-level decisions that never affect
+    // gating inside a `[modules.<ref>.coverage]` block, so accepting them there
+    // is rejected rather than silently ignored.
+    assert_rejected(
+        "invalid/coverage-module-ecosystem-only-field.toml",
+        &["rust"],
+    );
+}
+
+#[test]
 fn per_module_release_unqualified_ref_is_rejected() {
     // A `[modules.<name>]` key must be a qualified `ecosystem:module` reference.
     assert_rejected("invalid/release-module-unqualified-ref.toml", &["rust"]);
