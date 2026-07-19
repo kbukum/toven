@@ -71,11 +71,11 @@ mod tests {
                 "cache",
                 "completions",
             ] {
+                let preview: String = script.chars().take(200).collect();
                 assert!(
                     script.contains(token),
-                    "{shell} completions omit `{token}` (script is {} bytes; head: {:?})",
-                    script.len(),
-                    &script[..script.len().min(200)]
+                    "{shell} completions omit `{token}` (script is {} bytes; head: {preview:?})",
+                    script.len()
                 );
             }
         }
