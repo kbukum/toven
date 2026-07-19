@@ -73,7 +73,9 @@ mod tests {
             ] {
                 assert!(
                     script.contains(token),
-                    "{shell} completions omit `{token}`:\n{script}"
+                    "{shell} completions omit `{token}` (script is {} bytes; head: {:?})",
+                    script.len(),
+                    &script[..script.len().min(200)]
                 );
             }
         }
