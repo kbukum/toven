@@ -1,8 +1,8 @@
 //! `toven-ports` — the port contracts every adapter (in-tree or 3rd-party)
 //! implements, plus the fat helpers that make implementing them easy.
 //!
-//! Layer 1 of the hexagonal architecture: the thin traits ecosystems implement
-//! + the shared surface behind them. Adapters build against `toven-ports`,
+//! Layer 1 of the hexagonal architecture: the thin traits ecosystems implement +
+//! the shared surface behind them. Adapters build against `toven-ports`,
 //! never against the engine. It depends only on [`toven_model`] (the shared
 //! vocabulary), the error contract ([`rskit_errors`]), and the reuse primitives
 //! it wraps ([`rskit_util`] templating, [`rskit_version`] semver).
