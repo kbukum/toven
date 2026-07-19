@@ -29,6 +29,8 @@ Examples:
   toven modules              List the discovered modules
   toven tasks                List every runnable task, per ecosystem
   toven graph --format dot   Emit the dependency graph as Graphviz DOT
+  toven coverage             Run coverage, aggregate profiles, and gate
+  toven release plan         Show the release cut (bumps, changelog, order)
   toven completions zsh      Print a zsh completion script
 
 Any non-reserved token is an argv-first task name. Run `toven <command> --help`
@@ -93,6 +95,76 @@ Examples:
   toven init --non-interactive   Take questionnaire defaults with no prompts (CI)
   toven init --print         Preview the rendered `toven.toml` on stdout without writing
   toven init --force rust    Regenerate just the `[ecosystems.rust]` block";
+
+/// `release` verb examples (the umbrella over the lifecycle action tree).
+const RELEASE_EXAMPLES: &str = "\
+Examples:
+  toven release plan               Show the release cut (bumps, changelog, order)
+  toven release status             Compare declared vs published/tagged versions
+  toven release readiness          Run the fail-closed preflight go/no-go checks
+  toven release publish --dry-run  Rehearse the full pipeline without mutating
+  toven release tag --minor rust:core  Cut a minor bump for one module";
+
+/// `release plan` action examples.
+const RELEASE_PLAN_EXAMPLES: &str = "\
+Examples:
+  toven release plan               Show the release cut (read-only)
+  toven release plan --output jsonl  Emit the plan as a machine-readable stream";
+
+/// `release status` action examples.
+const RELEASE_STATUS_EXAMPLES: &str = "\
+Examples:
+  toven release status             Show declared vs published/tagged versions";
+
+/// `release tag` action examples.
+const RELEASE_TAG_EXAMPLES: &str = "\
+Examples:
+  toven release tag                Bump, commit, tag, and push (no publish)
+  toven release tag --minor rust:core  Force a minor bump for one module
+  toven release tag --no-push      Cut the tag locally without pushing";
+
+/// `release publish` action examples.
+const RELEASE_PUBLISH_EXAMPLES: &str = "\
+Examples:
+  toven release publish            Run the full pipeline through the registry
+  toven release publish --dry-run  Rehearse the publish order without mutating
+  toven release publish --pre rc   Publish a prerelease on the rc channel";
+
+/// `release readiness` action examples.
+const RELEASE_READINESS_EXAMPLES: &str = "\
+Examples:
+  toven release readiness          Evaluate the fail-closed preflight checks";
+
+/// `release sbom` action examples.
+const RELEASE_SBOM_EXAMPLES: &str = "\
+Examples:
+  toven release sbom               Write a CycloneDX SBOM per releasable module
+  toven release sbom --out-dir target/sbom  Choose the artifact directory";
+
+/// `release depgraphs` action examples.
+const RELEASE_DEPGRAPHS_EXAMPLES: &str = "\
+Examples:
+  toven release depgraphs          Write a DOT dependency graph per module
+  toven release depgraphs --out-dir target/graphs  Choose the artifact directory";
+
+/// `driver` verb examples.
+const DRIVER_EXAMPLES: &str = "\
+Examples:
+  toven driver list                List the installed out-of-process drivers
+  toven driver install rust        Install the `rust` ecosystem driver";
+
+/// `federation` verb examples.
+const FEDERATION_EXAMPLES: &str = "\
+Examples:
+  toven federation status          Report federated member-repo status
+  toven federation sync            Synchronize federated member repositories";
+
+/// `cache` verb examples.
+const CACHE_EXAMPLES: &str = "\
+Examples:
+  toven cache path                 Print the resolved cache directory
+  toven cache stats                Summarize the local cache directory
+  toven cache clean                Remove the local cache directory";
 
 /// Parse a `--timeout` duration string (e.g. `30s`, `5m`) into a [`Duration`].
 ///
@@ -544,6 +616,7 @@ pub enum Command {
         task: String,
     },
     /// Plan, inspect, and publish a release through its lifecycle actions.
+    #[command(after_long_help = RELEASE_EXAMPLES)]
     Release {
         /// Release lifecycle action.
         #[command(subcommand)]
@@ -588,18 +661,21 @@ pub enum Command {
         shell: clap_complete::Shell,
     },
     /// Out-of-process driver management.
+    #[command(after_long_help = DRIVER_EXAMPLES)]
     Driver {
         /// Driver action.
         #[command(subcommand)]
         action: DriverAction,
     },
     /// Cross-repo federation management.
+    #[command(after_long_help = FEDERATION_EXAMPLES)]
     Federation {
         /// Federation action.
         #[command(subcommand)]
         action: FederationAction,
     },
     /// Task-cache maintenance.
+    #[command(after_long_help = CACHE_EXAMPLES)]
     Cache {
         /// Cache action.
         #[command(subcommand)]
@@ -622,26 +698,33 @@ pub enum Command {
 pub enum ReleaseAction {
     /// Show the release PLAN cut — bumped versions, changelog, and publish order
     /// — without mutating anything.
+    #[command(after_long_help = RELEASE_PLAN_EXAMPLES)]
     Plan,
     /// Show each module's declared version versus what is published and tagged
     /// (read-only).
+    #[command(after_long_help = RELEASE_STATUS_EXAMPLES)]
     Status,
     /// Cut the release: bump manifests, commit, tag, and push — without
     /// publishing to the registry.
+    #[command(after_long_help = RELEASE_TAG_EXAMPLES)]
     Tag,
     /// Run the full release pipeline (commit, tag, push, publish); `--dry-run`
     /// rehearses the publish order and per-module would-publish/already-published
     /// verdicts without mutating anything.
+    #[command(after_long_help = RELEASE_PUBLISH_EXAMPLES)]
     Publish,
     /// Evaluate the fail-closed release-readiness preflight (configured
     /// go/no-go checks) without mutating anything.
+    #[command(after_long_help = RELEASE_READINESS_EXAMPLES)]
     Readiness,
     /// Generate a CycloneDX SBOM per releasable module under `--out-dir`
     /// (read-only).
     #[allow(clippy::doc_markdown)]
+    #[command(after_long_help = RELEASE_SBOM_EXAMPLES)]
     Sbom,
     /// Render the dependency graph to a DOT artifact under `--out-dir`
     /// (read-only).
+    #[command(after_long_help = RELEASE_DEPGRAPHS_EXAMPLES)]
     Depgraphs,
 }
 
@@ -1422,6 +1505,12 @@ mod tests {
             top.contains("Examples:") && top.contains("toven tasks"),
             "top-level help is missing its examples block: {top}"
         );
+        // The top-level list advertises the coverage and release-lifecycle
+        // verbs alongside the task workflows.
+        assert!(
+            top.contains("toven coverage") && top.contains("toven release"),
+            "top-level examples omit the coverage/release surface: {top}"
+        );
         let tasks = command
             .get_subcommands_mut()
             .find(|sub| sub.get_name() == "tasks")
@@ -1432,6 +1521,75 @@ mod tests {
             tasks.contains("Examples:") && tasks.contains("argv template"),
             "tasks help is missing its examples block: {tasks}"
         );
+    }
+
+    #[test]
+    fn every_verb_help_carries_an_examples_block() {
+        use clap::CommandFactory;
+        let mut command = Cli::command();
+        // Every reserved verb the user can invoke reads coherently: its long help
+        // ends in a worked `Examples:` block. `help` is clap's built-in and
+        // `external` is the argv-first task escape hatch (no clap help of its own).
+        for sub in command.get_subcommands_mut() {
+            let name = sub.get_name().to_string();
+            if name == "help" {
+                continue;
+            }
+            let help = sub.render_long_help().to_string();
+            assert!(
+                help.contains("Examples:"),
+                "`toven {name} --help` is missing its examples block: {help}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_release_action_help_carries_an_examples_block() {
+        use clap::CommandFactory;
+        let mut command = Cli::command();
+        let release = command
+            .get_subcommands_mut()
+            .find(|sub| sub.get_name() == "release")
+            .expect("release subcommand");
+        for action in [
+            "plan",
+            "status",
+            "tag",
+            "publish",
+            "readiness",
+            "sbom",
+            "depgraphs",
+        ] {
+            let help = release
+                .get_subcommands_mut()
+                .find(|sub| sub.get_name() == action)
+                .unwrap_or_else(|| panic!("release {action} action"))
+                .render_long_help()
+                .to_string();
+            assert!(
+                help.contains("Examples:"),
+                "`toven release {action} --help` is missing its examples block: {help}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_subcommand_action_suggests_the_nearest_action() {
+        // argv stays sacred: an unrecognized lifecycle action is never rewritten,
+        // but clap surfaces the nearest real action so the typo is actionable.
+        for (args, suggestion) in [
+            (["release", "publsh"].as_slice(), "publish"),
+            (["cache", "statss"].as_slice(), "stats"),
+            (["driver", "instal"].as_slice(), "install"),
+            (["federation", "statuss"].as_slice(), "status"),
+        ] {
+            let error = parse(args).expect_err("unknown action must fail to parse");
+            let rendered = error.to_string();
+            assert!(
+                rendered.contains(suggestion),
+                "unknown action `{args:?}` should suggest `{suggestion}`, got: {rendered}"
+            );
+        }
     }
 
     #[test]
