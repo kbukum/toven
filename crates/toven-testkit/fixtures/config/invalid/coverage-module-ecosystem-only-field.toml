@@ -1,0 +1,12 @@
+# A per-module coverage override with an ecosystem-level `exclude`:
+# exclude/profiles do not affect gating inside a single module's block, so
+# structural validation must reject them rather than silently ignore them.
+[project]
+name = "coverage-module-ecosystem-only-field"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+
+[modules."rust:core".coverage]
+line = 85.0
+exclude = ["toven-suite"]

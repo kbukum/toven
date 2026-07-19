@@ -50,8 +50,8 @@ pub use doubles::{
     ReleaseCall, ScriptedAnswers, ScriptedWatchSource, VcsWrite, WatchCall,
 };
 pub use fixtures::{
-    FIXTURES_ROOT, document, document_path, document_string, ecosystem, ecosystem_string,
-    raw_subtree, repo_path,
+    FIXTURES_ROOT, coverage_profile_string, document, document_path, document_string, ecosystem,
+    ecosystem_string, raw_subtree, repo_path,
 };
 pub use repo::SampleRepo;
 pub use rskit_testutil::{CurrentDirGuard, TestWorkspace};

@@ -16,7 +16,10 @@ use rskit_cli::ChoiceId;
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use serde::Serialize;
 use toml::Table;
-use toven_ports::{Answers, Detection, EcosystemFragment, FanOut, Readiness, TaskEntry, TaskKind};
+use toven_ports::{
+    Answers, CoverageConfig, Detection, EcosystemFragment, Enforcement, FanOut, Readiness,
+    TaskEntry, TaskKind,
+};
 
 use crate::config::Modules;
 use crate::detect::GoFacts;
@@ -47,6 +50,8 @@ enum LintBackend {
 #[derive(Debug, Serialize)]
 struct GoFragmentBody {
     modules: Modules,
+    #[serde(skip_serializing_if = "CoverageConfig::is_default")]
+    coverage: CoverageConfig,
     tasks: BTreeMap<String, TaskEntry>,
 }
 
@@ -61,6 +66,7 @@ pub(crate) fn render(detection: &Detection, answers: &Answers) -> AppResult<Ecos
     let selections = Selections::from_answers(answers);
     let body = GoFragmentBody {
         modules: Modules::Auto,
+        coverage: starter_coverage(),
         tasks: task_table(&selections),
     };
     let table = Table::try_from(&body).map_err(|error| {
@@ -129,7 +135,44 @@ fn task_table(selections: &Selections) -> BTreeMap<String, TaskEntry> {
     tasks.insert("vuln".to_string(), vuln_entry());
     tasks.insert("test".to_string(), test_entry(selections));
     tasks.insert("run".to_string(), run_entry());
+    tasks.insert("coverage".to_string(), coverage_entry());
     tasks
+}
+
+/// The starter `[ecosystems.go].coverage` block onboarding authors.
+///
+/// Go's `-coverprofile` reports line coverage only, so the starter seeds the line
+/// and changed-scope line floors (never function/region) at conservative values
+/// under `advisory`, so a fresh `toven coverage` reports a verdict without failing
+/// CI until the user raises the floors and flips enforcement to `block`.
+fn starter_coverage() -> CoverageConfig {
+    CoverageConfig {
+        line: Some(80.0),
+        changed_line: Some(85.0),
+        enforcement: Some(Enforcement::Advisory),
+        ..CoverageConfig::default()
+    }
+}
+
+/// The `coverage` measurement entry: `go test -coverprofile` writes one workspace
+/// coverprofile into Toven's staging dir, which the coverage verb aggregates and
+/// gates. Tagged [`TaskKind::Coverage`] for cross-ecosystem recognition, and
+/// `cacheable = false` so every run re-measures.
+fn coverage_entry() -> TaskEntry {
+    let mut entry = base_entry(
+        vec![
+            "go".to_string(),
+            "test".to_string(),
+            "-coverprofile=target/toven/coverage/go-{module.name}.out".to_string(),
+            "{args}".to_string(),
+            PACKAGE_PATTERN.to_string(),
+        ],
+        Vec::new(),
+        FanOut::WholeWorkspace,
+    );
+    entry.kind = Some(TaskKind::Coverage);
+    entry.cacheable = false;
+    entry
 }
 
 /// The workspace-level shared cache inputs as an owned vector.
@@ -379,6 +422,7 @@ mod tests {
             [
                 "build",
                 "check",
+                "coverage",
                 "format",
                 "format-check",
                 "run",
@@ -389,6 +433,37 @@ mod tests {
             ]
         );
         assert_eq!(config.modules, Modules::Auto);
+    }
+
+    #[test]
+    fn authors_a_coverage_task_and_starter_block() {
+        let config = render_with(&Answers::new());
+        let coverage = config.common.tasks.get("coverage").expect("coverage task");
+        assert_eq!(coverage.argv[..2], ["go", "test"]);
+        assert!(
+            coverage
+                .argv
+                .iter()
+                .any(|arg| arg == "-coverprofile=target/toven/coverage/go-{module.name}.out")
+        );
+        assert_eq!(coverage.fan_out, FanOut::WholeWorkspace);
+        assert!(!coverage.cacheable, "coverage re-measures every run");
+        assert_eq!(coverage.resolved_kind("coverage"), TaskKind::Coverage);
+        // Go measures line coverage only: the starter seeds line/changed_line,
+        // never function/region, under advisory enforcement.
+        assert_eq!(config.common.coverage.line, Some(80.0));
+        assert_eq!(config.common.coverage.changed_line, Some(85.0));
+        assert_eq!(config.common.coverage.function, None);
+        assert_eq!(config.common.coverage.region, None);
+        assert_eq!(
+            config.common.coverage.enforcement,
+            Some(toven_ports::Enforcement::Advisory)
+        );
+        config
+            .common
+            .coverage
+            .validate("ecosystems.go.coverage")
+            .expect("starter coverage validates");
     }
 
     #[test]

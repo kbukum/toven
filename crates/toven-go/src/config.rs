@@ -94,7 +94,7 @@ impl<'de> Deserialize<'de> for Modules {
 /// the discovery driver is intentionally not exposed yet — the driver is
 /// isolated behind [`GoAdapter`](crate::GoAdapter) so a future `driver` knob is
 /// a localized addition.
-#[derive(Debug, Clone, Eq, PartialEq, Default, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GoConfig {
     /// The `go.mod` modules to discover. Defaults to `auto`.

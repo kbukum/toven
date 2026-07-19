@@ -184,6 +184,10 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
             let project = load(providers, cli, false)?;
             commands::release::execute(providers, &project, cli, *action)
         }
+        Command::Coverage => {
+            let project = load(providers, cli, true)?;
+            commands::coverage::execute(providers, &project, cli)
+        }
         Command::Explain { task } => {
             let project = load(providers, cli, false)?;
             let selection = global_selection(cli);

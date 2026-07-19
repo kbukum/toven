@@ -46,7 +46,8 @@ pub(super) fn structural(document: &Document, canonical: &CanonicalRegistry) -> 
 }
 
 /// Validate one `[modules.<ecosystem:module>]` override: the key is a canonical
-/// `ecosystem:module` reference and its release override is field-valid.
+/// `ecosystem:module` reference and its release and coverage overrides are
+/// field-valid.
 fn validate_module(
     reference: &str,
     module: &super::ModuleConfig,
@@ -55,7 +56,10 @@ fn validate_module(
     ModuleRefSyntax::validate_qualified(&format!("modules.{reference}"), reference, canonical)?;
     module
         .release
-        .validate(&format!("modules.{reference}.release"))
+        .validate(&format!("modules.{reference}.release"))?;
+    module
+        .coverage
+        .validate_module_override(&format!("modules.{reference}.coverage"))
 }
 
 fn validate_project(project: &ProjectConfig) -> AppResult<()> {
