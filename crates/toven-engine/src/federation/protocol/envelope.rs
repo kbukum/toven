@@ -52,7 +52,7 @@ impl Hello {
 }
 
 /// The server's handshake reply: protocol echo, capabilities, resolved common config.
-#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Welcome {
     /// Envelope schema version ([`ENVELOPE_SCHEMA_VERSION`]).
     pub schema_version: u16,

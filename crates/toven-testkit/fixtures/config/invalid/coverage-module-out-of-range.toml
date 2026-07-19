@@ -1,0 +1,10 @@
+# A per-module coverage override with an out-of-range line floor:
+# structural validation must reject it.
+[project]
+name = "coverage-module-out-of-range"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+
+[modules."rust:core".coverage]
+line = 140.0

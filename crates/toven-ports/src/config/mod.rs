@@ -2,12 +2,14 @@
 //! every adapter flattens into its own strict schema.
 
 mod common;
+mod coverage;
 mod release;
 mod run_strategy;
 mod task_entry;
 mod task_override;
 
 pub use common::CommonEcosystemConfig;
+pub use coverage::{CoverageConfig, CoverageProfile, CoverageThresholds, Enforcement};
 pub use release::{
     BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, HostConfig, PrereleaseConfig,
     ReleaseConfig, SignConfig,

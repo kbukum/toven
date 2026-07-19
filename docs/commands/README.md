@@ -6,6 +6,7 @@
 | [Running tasks](run.md) | `toven <task>`, `toven run <task>` |
 | [Inspecting work](inspect.md) | `plan`, `affected`, `explain`, `modules` (`list`, `ls`), `graph` (`deps`), `tasks`, `completions` |
 | [Releasing](release.md) | `release plan`, `release status`, `release tag`, `release publish` |
+| [Measuring coverage](coverage.md) | `coverage` |
 | [Managing cache](cache.md) | `cache path`, `cache stats`, `cache clean` |
 
 Advanced verbs: `toven release plan|status|tag|publish` walks a release through its lifecycle, `toven driver install|list` manages out-of-process ecosystem drivers, and `toven federation sync|status` manages federated member repos.

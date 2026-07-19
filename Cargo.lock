@@ -1292,7 +1292,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
 name = "rskit-cli"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.3"
 dependencies = [
  "console",
  "crossterm",
@@ -1331,7 +1331,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-config"
-version = "0.2.0-alpha.1"
+version = "0.2.0-alpha.2"
 dependencies = [
  "config",
  "dotenvy",
@@ -1351,7 +1351,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-errors"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.3"
 dependencies = [
  "http",
  "serde",
@@ -1360,7 +1360,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-fs"
-version = "0.2.0-alpha.4"
+version = "0.2.0-alpha.5"
 dependencies = [
  "futures",
  "ignore",
@@ -1374,7 +1374,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-git"
-version = "0.2.0-alpha.1"
+version = "0.2.0-alpha.2"
 dependencies = [
  "git2",
  "rskit-errors",
@@ -1403,7 +1403,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-process"
-version = "0.2.0-alpha.3"
+version = "0.2.0-alpha.4"
 dependencies = [
  "libc",
  "parking_lot",
@@ -1416,7 +1416,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-provider"
-version = "0.2.0-alpha.1"
+version = "0.2.0-alpha.2"
 dependencies = [
  "async-trait",
  "futures",
@@ -1428,7 +1428,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-stream"
-version = "0.2.0-alpha.3"
+version = "0.2.0-alpha.4"
 dependencies = [
  "async-stream",
  "futures",
@@ -1442,7 +1442,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-testutil"
-version = "0.2.0-alpha.1"
+version = "0.2.0-alpha.2"
 dependencies = [
  "async-trait",
  "parking_lot",
@@ -1461,7 +1461,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-util"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.3"
 dependencies = [
  "blake3",
  "serde",
@@ -1485,7 +1485,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-version"
-version = "0.2.0-alpha.1"
+version = "0.2.0-alpha.2"
 dependencies = [
  "rskit-errors",
  "rskit-util",
@@ -1495,7 +1495,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-worker"
-version = "0.2.0-alpha.1"
+version = "0.2.0-alpha.2"
 dependencies = [
  "async-trait",
  "chrono",

@@ -19,7 +19,8 @@ use crate::plan::discover::Federation;
 
 use super::entry::all_modules;
 
-pub(super) fn changed_for_members(
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn changed_for_members(
     readers: &MemberVcsReaders<'_>,
     fallback: Option<&BaselineSpec>,
 ) -> AppResult<Vec<ChangeRecord>> {

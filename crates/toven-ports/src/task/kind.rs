@@ -26,6 +26,10 @@ pub enum TaskKind {
     Lint,
     /// Run the test suite (the one kind with a runtime rule: dev-edge propagation).
     Test,
+    /// Measure test coverage. Runs the ecosystem's coverage argv per affected
+    /// scope; Toven aggregates the emitted profiles and gates them against the
+    /// configured `[…coverage]` thresholds.
+    Coverage,
     /// Build documentation.
     Doc,
     /// Scan dependencies for known security advisories (e.g. `govulncheck`,
@@ -51,6 +55,7 @@ impl TaskKind {
             "format" => Self::Format,
             "lint" => Self::Lint,
             "test" => Self::Test,
+            "coverage" => Self::Coverage,
             "doc" => Self::Doc,
             "vuln" => Self::Vuln,
             "run" => Self::Run,
@@ -67,6 +72,7 @@ impl TaskKind {
             Self::Format => "format",
             Self::Lint => "lint",
             Self::Test => "test",
+            Self::Coverage => "coverage",
             Self::Doc => "doc",
             Self::Vuln => "vuln",
             Self::Run => "run",
@@ -87,6 +93,7 @@ mod tests {
             TaskKind::Format,
             TaskKind::Lint,
             TaskKind::Test,
+            TaskKind::Coverage,
             TaskKind::Doc,
             TaskKind::Vuln,
             TaskKind::Run,

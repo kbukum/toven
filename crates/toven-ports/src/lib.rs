@@ -63,8 +63,9 @@ pub mod wizard;
 
 pub use cache::{CacheStore, CacheWriter};
 pub use config::{
-    BumpLevel, ChangelogConfig, CommonEcosystemConfig, DependentVersion, HooksConfig, HostConfig,
-    PrereleaseConfig, ReleaseConfig, RunStrategy, SignConfig, TaskEntry, TaskOverride,
+    BumpLevel, ChangelogConfig, CommonEcosystemConfig, CoverageConfig, CoverageProfile,
+    CoverageThresholds, DependentVersion, Enforcement, HooksConfig, HostConfig, PrereleaseConfig,
+    ReleaseConfig, RunStrategy, SignConfig, TaskEntry, TaskOverride,
 };
 pub use discover::{DISCOVERY_SCHEMA_VERSION, DiscoverContext, DiscoverRequest, DiscoverResponse};
 pub use driver::{DriverLocator, DriverWizard};
@@ -72,7 +73,7 @@ pub use exec::{
     CommandRunner, HeldProcess, Invocation, InvocationEnvPolicy, InvocationEnvironment,
     OutputObserver, RunOutcome, StartOutcome,
 };
-pub use merge::{merge_release, merge_task};
+pub use merge::{merge_coverage, merge_release, merge_task};
 pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
 pub use raw_output::RawOutputSink;
 pub use release::{

@@ -56,6 +56,13 @@ const AFFECTED_EXAMPLES: &str = "\
 Examples:
   toven affected test        Project the modules a `test` run would touch";
 
+/// `coverage` verb examples.
+const COVERAGE_EXAMPLES: &str = "\
+Examples:
+  toven coverage                 Run coverage, aggregate profiles, and gate
+  toven coverage --line 90       Override the line floor for this run
+  toven coverage --enforcement advisory  Report shortfalls without failing";
+
 /// `modules` verb examples.
 const MODULES_EXAMPLES: &str = "\
 Examples:
@@ -120,6 +127,20 @@ pub(crate) fn parse_jobs_arg(value: &str) -> Result<usize, String> {
     }
 }
 
+/// Parse a coverage threshold flag (`--line`/`--function`/`--region`/
+/// `--changed-line`): a percentage in `0..=100`.
+pub(crate) fn parse_percentage_arg(value: &str) -> Result<f64, String> {
+    match value.parse::<f64>() {
+        Ok(pct) if (0.0..=100.0).contains(&pct) => Ok(pct),
+        Ok(pct) => Err(format!(
+            "a coverage threshold must be a percentage in 0..=100 (got `{pct}`)"
+        )),
+        Err(error) => Err(format!(
+            "a coverage threshold requires a number like `90` or `85.5` (got `{value}`): {error}"
+        )),
+    }
+}
+
 /// Event-sink output format selected by `--output`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "lowercase")]
@@ -170,6 +191,28 @@ pub enum GraphFormat {
     Text,
     /// Graphviz DOT.
     Dot,
+}
+
+/// Coverage enforcement mode selected by `--enforcement`, mirroring
+/// [`Enforcement`](toven_ports::Enforcement) so the flag overrides the
+/// `[…coverage].enforcement` config default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[value(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum EnforcementArg {
+    /// Fail the gate closed on a below-threshold dimension.
+    Block,
+    /// Measure and report the shortfall without failing.
+    Advisory,
+}
+
+impl From<EnforcementArg> for toven_ports::Enforcement {
+    fn from(arg: EnforcementArg) -> Self {
+        match arg {
+            EnforcementArg::Block => Self::Block,
+            EnforcementArg::Advisory => Self::Advisory,
+        }
+    }
 }
 
 /// When to emit ANSI color in the human reporter, selected by `--color`.
@@ -432,6 +475,26 @@ pub struct Cli {
     /// (created if absent; defaults to `target/toven/release`).
     #[arg(long, global = true, value_name = "PATH", help_heading = "Release")]
     pub out_dir: Option<PathBuf>,
+    /// Coverage only: override the absolute line-coverage floor for this run
+    /// (percentage, `0..=100`); wins over the `[…coverage].line` config default.
+    #[arg(long, global = true, value_name = "PCT", value_parser = parse_percentage_arg, help_heading = "Coverage")]
+    pub line: Option<f64>,
+    /// Coverage only: override the function-coverage floor for this run
+    /// (percentage; gated only where the ecosystem measures functions).
+    #[arg(long, global = true, value_name = "PCT", value_parser = parse_percentage_arg, help_heading = "Coverage")]
+    pub function: Option<f64>,
+    /// Coverage only: override the region-coverage floor for this run
+    /// (percentage; gated only where the ecosystem measures regions).
+    #[arg(long, global = true, value_name = "PCT", value_parser = parse_percentage_arg, help_heading = "Coverage")]
+    pub region: Option<f64>,
+    /// Coverage only: override the changed-lines floor for this run (percentage;
+    /// applied to changed files under a changed selection).
+    #[arg(long = "changed-line", global = true, value_name = "PCT", value_parser = parse_percentage_arg, help_heading = "Coverage")]
+    pub changed_line: Option<f64>,
+    /// Coverage only: override how a below-threshold verdict is enforced
+    /// (`block` fails the gate; `advisory` reports without failing).
+    #[arg(long, global = true, value_name = "MODE", help_heading = "Coverage")]
+    pub enforcement: Option<EnforcementArg>,
     /// Init only: regenerate one `[ecosystems.<id>]` section.
     #[arg(long, global = true, value_name = "ID", help_heading = "Init")]
     pub force: Option<String>,
@@ -486,6 +549,10 @@ pub enum Command {
         #[command(subcommand)]
         action: ReleaseAction,
     },
+    /// Run the coverage task, aggregate the emitted profiles per module, and gate
+    /// them against the resolved `[…coverage]` thresholds.
+    #[command(after_long_help = COVERAGE_EXAMPLES)]
+    Coverage,
     /// Explain the PLAN cut for a task, optionally filtered to a `--module`
     /// selection.
     #[command(after_long_help = EXPLAIN_EXAMPLES)]
@@ -713,6 +780,7 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     let mutating_release = release_action(&cli.command).is_some_and(ReleaseAction::is_mutating);
     let is_init = matches!(cli.command, Command::Init);
     let is_graph = matches!(cli.command, Command::Graph);
+    let is_coverage = matches!(cli.command, Command::Coverage);
 
     // `--allow-dirty`/`--no-push` bypass a release guardrail, so they belong only
     // to the mutating release actions; the read-only projections (`release plan`/
@@ -730,6 +798,7 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     gate_out_dir_flag(cli, verb)?;
     gate_bump_flags(cli, verb, mutating_release)?;
     gate_init_flags(cli, verb, is_init)?;
+    gate_coverage_flags(cli, verb, is_coverage)?;
     if cli.format.is_some() && !is_graph {
         return Err(only_applies("--format", "toven graph", verb));
     }
@@ -933,6 +1002,27 @@ fn gate_init_flags(cli: &Cli, verb: &str, is_init: bool) -> AppResult<()> {
     Ok(())
 }
 
+/// Reject the coverage threshold-override flags (`--line`/`--function`/
+/// `--region`/`--changed-line`/`--enforcement`) on any verb but `coverage`,
+/// which is the only place a coverage gate runs.
+fn gate_coverage_flags(cli: &Cli, verb: &str, is_coverage: bool) -> AppResult<()> {
+    if is_coverage {
+        return Ok(());
+    }
+    for (present, flag) in [
+        (cli.line.is_some(), "--line"),
+        (cli.function.is_some(), "--function"),
+        (cli.region.is_some(), "--region"),
+        (cli.changed_line.is_some(), "--changed-line"),
+        (cli.enforcement.is_some(), "--enforcement"),
+    ] {
+        if present {
+            return Err(only_applies(flag, "toven coverage", verb));
+        }
+    }
+    Ok(())
+}
+
 /// Reject the selection flags (`--base`/`--merge-base`,
 /// `--module`/`--workspace`/`--dependents`/`--dependencies`) on a verb that
 /// performs no selection.
@@ -1079,18 +1169,21 @@ const fn accepts_explain(command: &Command) -> bool {
 }
 
 /// Whether `command` builds the human run reporter that `-v`/`-q`/`--color`
-/// shape: the execution verbs and the mutating release actions.
+/// shape: the execution verbs, the mutating release actions, and `coverage`
+/// (which runs the coverage task through a human reporter).
 const fn accepts_reporter_shaping(command: &Command) -> bool {
     match command {
-        Command::Run { .. } | Command::Plan { .. } | Command::External(_) => true,
+        Command::Run { .. } | Command::Plan { .. } | Command::External(_) | Command::Coverage => {
+            true
+        }
         Command::Release { action } => action.is_mutating(),
         _ => false,
     }
 }
 
 /// Whether `command` renders a projection whose format `--output` selects: the
-/// execution verbs, every release lifecycle action, and the `tasks`/`modules`
-/// listings.
+/// execution verbs, every release lifecycle action, `coverage`, and the
+/// `tasks`/`modules` listings.
 const fn accepts_output_format(command: &Command) -> bool {
     matches!(
         command,
@@ -1098,6 +1191,7 @@ const fn accepts_output_format(command: &Command) -> bool {
             | Command::Plan { .. }
             | Command::External(_)
             | Command::Release { .. }
+            | Command::Coverage
             | Command::Tasks { .. }
             | Command::Modules
     )
@@ -1132,6 +1226,7 @@ const fn accepts_baseline(command: &Command) -> bool {
         Command::Run { .. }
             | Command::Plan { .. }
             | Command::Affected { .. }
+            | Command::Coverage
             | Command::External(_)
     )
 }
@@ -1145,6 +1240,7 @@ const fn accepts_selection(command: &Command) -> bool {
             | Command::Plan { .. }
             | Command::Affected { .. }
             | Command::Explain { .. }
+            | Command::Coverage
             | Command::External(_)
     )
 }
@@ -1176,6 +1272,7 @@ fn verb_name(command: &Command) -> String {
         Command::Run { .. } => "run".to_string(),
         Command::Plan { .. } => "plan".to_string(),
         Command::Release { action } => format!("release {}", action.as_str()),
+        Command::Coverage => "coverage".to_string(),
         Command::Explain { .. } => "explain".to_string(),
         Command::Init => "init".to_string(),
         Command::Affected { .. } => "affected".to_string(),

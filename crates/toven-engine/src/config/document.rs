@@ -17,7 +17,7 @@ use super::{GroupConfig, MemberConfig, ModuleConfig, OverlayConfig, ProjectConfi
 /// verbatim as a [`RawValue`] so the owning adapter parses it later under its own
 /// `#[serde(deny_unknown_fields)]` schema (the engine never learns adapter field
 /// names).
-#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Document {
     /// Repo identity and change baseline.

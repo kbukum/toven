@@ -23,6 +23,7 @@ pub const RESERVED: &[&str] = &[
     "run",
     "plan",
     "release",
+    "coverage",
     "explain",
     "init",
     "affected",

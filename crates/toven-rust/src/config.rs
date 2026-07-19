@@ -93,7 +93,7 @@ const fn default_publish() -> bool {
 /// flattened remainder, so
 /// [`RustProvider::configure`](toven_ports::Provider::configure) surfaces
 /// section-level typos itself rather than relying on the document loader.
-#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RustConfig {
     /// The Cargo workspace roots to discover. Defaults to `auto`.

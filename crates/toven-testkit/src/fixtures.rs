@@ -96,6 +96,14 @@ pub fn ecosystem(id: &str, rel: impl AsRef<Path>) -> AppResult<PathBuf> {
     existing(Path::new("ecosystems").join(id).join(rel.as_ref()))
 }
 
+/// Read a UTF-8 coverage-profile fixture under `fixtures/coverage/<rel>`.
+///
+/// `rel` is relative to the `coverage/` subtree, e.g. `"rust.lcov"`.
+pub fn coverage_profile_string(rel: impl AsRef<Path>) -> AppResult<String> {
+    let resolved = existing(Path::new("coverage").join(rel.as_ref()))?;
+    file::read_string(&resolved)
+}
+
 /// Resolve the path to a sample repo tree under `fixtures/repos/<name>`.
 ///
 /// The returned directory is the source the [`SampleRepo`](crate::repo::SampleRepo)
@@ -116,7 +124,7 @@ pub fn repo_path(name: &str) -> AppResult<PathBuf> {
 mod tests {
     use rskit_errors::ErrorCode;
 
-    use super::{document, document_string, ecosystem, path, repo_path};
+    use super::{coverage_profile_string, document, document_string, ecosystem, path, repo_path};
 
     #[test]
     fn rejects_traversing_paths() {
@@ -147,5 +155,13 @@ mod tests {
     fn resolves_repo_directory() {
         let repo = repo_path("rust/single").expect("resolves repo");
         assert!(repo.join("toven.toml").exists());
+    }
+
+    #[test]
+    fn loads_coverage_profiles() {
+        let lcov = coverage_profile_string("rust.lcov").expect("loads lcov profile");
+        assert!(lcov.contains("end_of_record"));
+        let go = coverage_profile_string("go.out").expect("loads go profile");
+        assert!(go.starts_with("mode:"));
     }
 }

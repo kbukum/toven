@@ -10,7 +10,9 @@ use std::collections::BTreeMap;
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use serde::Serialize;
 use toml::Table;
-use toven_ports::{Answers, Detection, EcosystemFragment, FanOut, TaskEntry};
+use toven_ports::{
+    Answers, CoverageConfig, Detection, EcosystemFragment, Enforcement, FanOut, TaskEntry, TaskKind,
+};
 
 use crate::config::Manifests;
 use crate::detect::RustFacts;
@@ -22,6 +24,8 @@ use crate::questionnaire::{MANIFESTS, RUNNER_NEXTEST, TEST_RUNNER};
 #[derive(Debug, Serialize)]
 struct RustFragmentBody {
     manifests: Manifests,
+    #[serde(skip_serializing_if = "CoverageConfig::is_default")]
+    coverage: CoverageConfig,
     tasks: BTreeMap<String, TaskEntry>,
 }
 
@@ -46,6 +50,7 @@ pub(crate) fn render(detection: &Detection, answers: &Answers) -> AppResult<Ecos
     let shared_inputs = shared_lockfiles(&selected, &facts);
     let body = RustFragmentBody {
         manifests: manifests_for(&selected, &facts),
+        coverage: starter_coverage(),
         tasks: task_table(use_nextest, &shared_inputs),
     };
     let table = Table::try_from(&body).map_err(|error| {
@@ -169,7 +174,55 @@ fn task_table(use_nextest: bool, shared_inputs: &[String]) -> BTreeMap<String, T
         fan_out_entry("doc", FanOut::Batchable, shared_inputs),
     );
     tasks.insert("run".to_string(), run_entry(shared_inputs));
+    tasks.insert("coverage".to_string(), coverage_entry(shared_inputs));
     tasks
+}
+
+/// The starter `[ecosystems.rust].coverage` block onboarding authors.
+///
+/// It seeds the dimensions cargo-llvm-cov measures (line/function/region plus a
+/// changed-scope line floor) at conservative floors under `advisory` enforcement,
+/// so a fresh `toven coverage` reports a verdict without failing CI until the user
+/// raises the floors and flips enforcement to `block`.
+fn starter_coverage() -> CoverageConfig {
+    CoverageConfig {
+        line: Some(80.0),
+        function: Some(80.0),
+        region: Some(70.0),
+        changed_line: Some(85.0),
+        enforcement: Some(Enforcement::Advisory),
+        ..CoverageConfig::default()
+    }
+}
+
+/// The `coverage` measurement entry: `cargo llvm-cov` writes one workspace lcov
+/// tracefile into Toven's staging dir, which the coverage verb aggregates and
+/// gates. Tagged [`TaskKind::Coverage`](toven_ports::TaskKind::Coverage) for
+/// cross-ecosystem recognition, and `cacheable = false` so every run re-measures.
+fn coverage_entry(shared_inputs: &[String]) -> TaskEntry {
+    TaskEntry {
+        kind: Some(TaskKind::Coverage),
+        argv: vec![
+            "cargo".to_string(),
+            "llvm-cov".to_string(),
+            "--manifest-path".to_string(),
+            "{module.manifest}".to_string(),
+            "--workspace".to_string(),
+            "--lcov".to_string(),
+            "--output-path".to_string(),
+            "target/toven/coverage/rust-{module.name}.lcov".to_string(),
+            "{args}".to_string(),
+        ],
+        selector: Vec::new(),
+        fan_out: FanOut::WholeWorkspace,
+        persistent: false,
+        readiness: toven_ports::Readiness::Started,
+        readiness_timeout_secs: None,
+        cache_args: false,
+        cacheable: false,
+        fail_if_output: false,
+        shared_inputs: shared_inputs.to_vec(),
+    }
 }
 
 /// The per-module selector every fan-out cargo task shares.
@@ -392,6 +445,7 @@ mod tests {
             [
                 "build",
                 "check",
+                "coverage",
                 "doc",
                 "format",
                 "format-check",
@@ -432,6 +486,41 @@ mod tests {
         assert!(vuln.selector.is_empty());
         assert!(vuln.cacheable);
         assert_eq!(vuln.resolved_kind("vuln"), toven_ports::TaskKind::Vuln);
+    }
+
+    #[test]
+    fn authors_a_coverage_task_and_starter_block() {
+        let fragment = render(&detection(true), &Answers::new()).expect("render");
+        let config = parse(&fragment);
+        let coverage = config.common.tasks.get("coverage").expect("coverage task");
+        assert_eq!(coverage.argv[..2], ["cargo", "llvm-cov"]);
+        assert!(coverage.argv.iter().any(|arg| arg == "--lcov"));
+        assert!(
+            coverage
+                .argv
+                .contains(&"target/toven/coverage/rust-{module.name}.lcov".to_string())
+        );
+        assert_eq!(coverage.fan_out, FanOut::WholeWorkspace);
+        assert!(coverage.selector.is_empty());
+        assert!(!coverage.cacheable, "coverage re-measures every run");
+        assert_eq!(
+            coverage.resolved_kind("coverage"),
+            toven_ports::TaskKind::Coverage
+        );
+        // The starter block seeds the cargo-llvm-cov dimensions under advisory.
+        assert_eq!(config.common.coverage.line, Some(80.0));
+        assert_eq!(config.common.coverage.function, Some(80.0));
+        assert_eq!(config.common.coverage.region, Some(70.0));
+        assert_eq!(config.common.coverage.changed_line, Some(85.0));
+        assert_eq!(
+            config.common.coverage.enforcement,
+            Some(toven_ports::Enforcement::Advisory)
+        );
+        config
+            .common
+            .coverage
+            .validate("ecosystems.rust.coverage")
+            .expect("starter coverage validates");
     }
 
     #[test]
