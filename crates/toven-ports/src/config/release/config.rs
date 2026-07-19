@@ -20,8 +20,8 @@ use super::{
 /// `toven.toml` keeps parsing unchanged and an unset override field inherits
 /// the ecosystem default (and, in turn, the built-in adapter default). The
 /// engine folds ecosystem → per-module override into a resolved settings value
-/// with the precedence `[modules.<name>.release]` > `[ecosystems.<id>].release`
-/// > adapter default (the per-run bump argv layers on top).
+/// with the precedence `[modules.<name>.release]` > `[ecosystems.<id>].release` >
+/// adapter default (the per-run bump argv layers on top).
 #[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReleaseConfig {

@@ -1,5 +1,5 @@
-//! Umbrella `toven` introspection smokes: `modules`/`list`/`ls`, `graph` (text
-//! + dot), `affected`, and `explain` — all read-only, deterministic, and
+//! Umbrella `toven` introspection smokes: `modules`/`list`/`ls`, `graph` (text +
+//! dot), `affected`, and `explain` — all read-only, deterministic, and
 //! toolchain-independent. Introspection projections render to **stdout**.
 
 mod common;

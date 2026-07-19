@@ -5,8 +5,8 @@
 //! with `--print` it goes to **stdout** (writing nothing); otherwise it is
 //! written atomically to `toven.toml` and only a summary is emitted. Every
 //! diagnostic (an additive re-run skipping an existing section, an ineffective
-//! `--force`, a write confirmation) goes to **stderr**, so `toven init --print
-//! > toven.toml` captures only the document.
+//! `--force`, a write confirmation) goes to **stderr**, so `toven init --print >toven.toml`
+//! captures only the document.
 
 use std::path::{Path, PathBuf};
 

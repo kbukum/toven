@@ -132,8 +132,8 @@ pub(crate) fn release_targets(context: &PlanContext) -> AppResult<super::Release
 /// never joins a release plan, so its config must not force a plan-wide policy
 /// conflict. The ecosystem-level release config is validated once per
 /// configured adapter; the per-module override (validated structurally at load)
-/// is folded on top with the documented precedence (`[modules.<name>.release]`
-/// > `[ecosystems.<id>].release` > adapter default).
+/// is folded on top with the documented precedence (`[modules.<name>.release]` >
+/// `[ecosystems.<id>].release` > adapter default).
 ///
 /// # Errors
 /// Propagates an invalid ecosystem release config or an unknown bump policy.
