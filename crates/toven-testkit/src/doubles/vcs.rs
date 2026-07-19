@@ -4,8 +4,8 @@
 //! Affected/release tests script `changed_since`, tags, and status here instead
 //! of materializing a temp git repo. When a test needs a *real* repo (e.g. to
 //! exercise the rskit-git-backed adapter), use
-//! [`GitScenario`](crate::git::GitScenario) / [`SampleRepo`](crate::repo::SampleRepo)
-//! instead.
+//! [`GitScenario`](crate::git::GitScenario) /
+//! [`SampleRepo`](crate::repo::SampleRepo) instead.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -183,7 +183,8 @@ impl FakeVcsWriter {
         self
     }
 
-    /// Make `restore_worktree` fail with a typed internal error after recording the call.
+    /// Make `restore_worktree` fail with a typed internal error after recording
+    /// the call.
     #[must_use]
     pub fn with_restore_failure(mut self, message: impl Into<String>) -> Self {
         self.fail_restore = Some(message.into());

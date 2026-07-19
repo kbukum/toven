@@ -1,6 +1,7 @@
-//! The [`schedule`] driver: assemble the active module set into waves of rendered
-//! units by composing [`ordering`](super::ordering), [`task`](super::task),
-//! [`grouping`](super::grouping), and [`unit`](super::unit).
+//! The [`schedule`] driver: assemble the active module set into waves of
+//! rendered units by composing [`ordering`](super::ordering),
+//! [`task`](super::task), [`grouping`](super::grouping), and
+//! [`unit`](super::unit).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -30,12 +31,13 @@ pub(in crate::plan) struct Scheduled {
 
 /// Schedule the active module set into waves of rendered units.
 ///
-/// `overrides` carries any `[groups.*]` scope overrides: a group's `run_strategy`
-/// wins over the ecosystem default for its members, and a group's `tasks` entry
-/// field-merges onto the ecosystem/adapter default for the intent (marking the
-/// resolved task [`TaskOrigin::Group`](toven_ports::TaskOrigin::Group)). An
-/// overridden batch unit is kept distinct from the un-overridden default so
-/// members never collapse across differing argv.
+/// `overrides` carries any `[groups.*]` scope overrides: a group's
+/// `run_strategy` wins over the ecosystem default for its members, and a
+/// group's `tasks` entry field-merges onto the ecosystem/adapter default for
+/// the intent (marking the resolved task
+/// [`TaskOrigin::Group`](toven_ports::TaskOrigin::Group)). An overridden batch
+/// unit is kept distinct from the un-overridden default so members never
+/// collapse across differing argv.
 ///
 /// # Errors
 /// An active module with no configured adapter or no task for the intent, a
@@ -51,8 +53,8 @@ pub(in crate::plan) fn schedule(
     let active_modules = active_modules(federation, active);
     let effective = effective_tasks(&active_modules, adapters, &request.intent, overrides)?;
     // A `run`-kind task can only launch modules with an executable target; drop
-    // library-only modules from the schedule so `run` is offered where valid
-    // rather than failing at exec on a crate with no binary.
+    // library-only modules from the schedule so `run` is offered where valid rather
+    // than failing at exec on a crate with no binary.
     let (active_modules, effective) = retain_runnable(active_modules, effective);
     let strategies = strategies(&active_modules, adapters, overrides, &effective)?;
     let subgraph = active_subgraph(&active_modules, federation)?;
@@ -112,8 +114,9 @@ pub(in crate::plan) fn schedule(
     })
 }
 
-/// Drop modules whose resolved task is [`TaskKind::Run`](toven_ports::TaskKind::Run)
-/// but which expose no executable target ([`Module::runnable`] is `false`).
+/// Drop modules whose resolved task is
+/// [`TaskKind::Run`](toven_ports::TaskKind::Run) but which expose no executable
+/// target ([`Module::runnable`] is `false`).
 ///
 /// A persistent `run` on a library-only crate is invalid — `cargo run` has no
 /// binary to launch — so the schedule excludes it rather than emitting a unit

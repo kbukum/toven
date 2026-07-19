@@ -1,5 +1,5 @@
-//! The VCS port — the single git seam, split into a read side (everywhere) and a
-//! history-mutating write side (release APPLY only).
+//! The VCS port — the single git seam, split into a read side (everywhere) and
+//! a history-mutating write side (release APPLY only).
 
 mod baseline;
 mod change;

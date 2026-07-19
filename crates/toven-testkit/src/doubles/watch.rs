@@ -1,6 +1,6 @@
 //! Shared watch port double: [`ScriptedWatchSource`] replays scripted change
-//! batches so the engine's watch loop can be exercised deterministically without
-//! a real filesystem watcher.
+//! batches so the engine's watch loop can be exercised deterministically
+//! without a real filesystem watcher.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -17,10 +17,10 @@ use toven_ports::{ChangeBatch, ChangeBatchStream, WatchSource};
 /// Each scripted entry becomes one [`ChangeBatch`] the loop consumes as a
 /// separate rerun trigger. Use [`new`](ScriptedWatchSource::new) for plain path
 /// batches or [`from_batches`](ScriptedWatchSource::from_batches) to script
-/// batches that carry a rescan signal. By default the stream ends after the last
-/// scripted batch (modelling a torn-down watcher, so the loop exits on its own);
-/// enable [`stay_open`](ScriptedWatchSource::stay_open) to instead keep the
-/// stream pending after the script, so only cancellation ends the loop.
+/// batches that carry a rescan signal. By default the stream ends after the
+/// last scripted batch (modelling a torn-down watcher, so the loop exits on its
+/// own); enable [`stay_open`](ScriptedWatchSource::stay_open) to instead keep
+/// the stream pending after the script, so only cancellation ends the loop.
 #[derive(Debug, Clone, Default)]
 pub struct ScriptedWatchSource {
     batches: Vec<ChangeBatch>,
@@ -102,8 +102,8 @@ impl WatchSource for ScriptedWatchSource {
         let batches = self.batches.clone();
         let scripted = futures::stream::iter(batches);
         if self.stay_open {
-            // After the script, block on cancellation so the loop is driven to
-            // exit by its token rather than by a stream end.
+            // After the script, block on cancellation so the loop is driven to exit by its
+            // token rather than by a stream end.
             let tail = futures::stream::once(async move {
                 cancel.cancelled().await;
                 None

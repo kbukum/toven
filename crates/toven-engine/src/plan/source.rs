@@ -15,8 +15,8 @@ use rskit_util::hash::ContentHasher;
 use toven_model::{AbsPath, Module};
 use toven_ports::SourceDigest;
 
-/// Per-file read cap (16 MiB): large enough for any source/lock file, bounded so
-/// a pathological file cannot exhaust memory.
+/// Per-file read cap (16 MiB): large enough for any source/lock file, bounded
+/// so a pathological file cannot exhaust memory.
 const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Cap on the number of files hashed under a single module root, bounding the
@@ -56,9 +56,9 @@ impl FsSourceDigest {
     /// `content` field.
     fn hash_file_into(absolute: &Path, hasher: &mut ContentHasher) -> AppResult<()> {
         let bytes = file::read_bounded(absolute, MAX_FILE_BYTES).map_err(|error| {
-            // Only the size-cap breach gets the "likely a build artifact" hint;
-            // any other IO failure (missing file, permission denied, …) keeps its
-            // own accurate message and cause.
+            // Only the size-cap breach gets the "likely a build artifact" hint; any other
+            // IO failure (missing file, permission denied, …) keeps its own accurate
+            // message and cause.
             if file::is_file_too_large_error(&error) {
                 AppError::invalid_input(
                     "source_file",
@@ -80,8 +80,8 @@ impl FsSourceDigest {
 
     /// Hash a directory subtree as a stable, order-independent identity.
     fn hash_tree(root: &Path) -> AppResult<String> {
-        // Collect files relative to the root, sorted for a stable identity
-        // independent of directory-iteration order.
+        // Collect files relative to the root, sorted for a stable identity independent
+        // of directory-iteration order.
         let files = collect_files(root)?;
 
         let mut hasher = ContentHasher::new();
@@ -115,9 +115,9 @@ impl SourceDigest for FsSourceDigest {
         let absolute = safe_join(&self.project_root, repo_relative).map_err(|error| {
             AppError::invalid_input("shared_inputs", error.to_string()).with_cause(error)
         })?;
-        // A shared input may be a file or a directory; `file::exists` is true
-        // only for regular files, so directories are detected separately and
-        // hashed as a subtree, matching the documented file-or-directory shape.
+        // A shared input may be a file or a directory; `file::exists` is true only for
+        // regular files, so directories are detected separately and hashed as a
+        // subtree, matching the documented file-or-directory shape.
         if absolute.is_dir() {
             return Self::hash_tree(&absolute);
         }
@@ -231,8 +231,8 @@ mod tests {
 
     #[test]
     fn oversize_tracked_file_reports_the_source_digest_cap() {
-        // A large *tracked* file (not git-ignored) still trips the cap, and the
-        // error must carry the build-artifact hint so the fix is actionable.
+        // A large *tracked* file (not git-ignored) still trips the cap, and the error
+        // must carry the build-artifact hint so the fix is actionable.
         let workspace = TestWorkspace::new("source-digest-oversize");
         workspace.write_file("core/lib.rs", b"fn a() {}").unwrap();
         workspace
@@ -252,9 +252,8 @@ mod tests {
 
     #[test]
     fn non_oversize_read_failure_is_not_mislabeled_as_oversize() {
-        // A directory is not a regular file, so the bounded read fails with a
-        // distinct error that must surface as-is, never disguised as a size-cap
-        // breach.
+        // A directory is not a regular file, so the bounded read fails with a distinct
+        // error that must surface as-is, never disguised as a size-cap breach.
         use rskit_util::hash::ContentHasher;
 
         let workspace = TestWorkspace::new("source-digest-nonregular");
@@ -271,10 +270,10 @@ mod tests {
 
     #[test]
     fn missing_shared_input_cannot_alias_a_present_file() {
-        // A declared-but-missing shared input hashes to the empty digest. That
-        // absent state must stay distinct from every present state — including a
-        // present but empty file — so a vanished shared input can never collide
-        // with a real one and register a false cache hit.
+        // A declared-but-missing shared input hashes to the empty digest. That absent
+        // state must stay distinct from every present state — including a present but
+        // empty file — so a vanished shared input can never collide with a real one and
+        // register a false cache hit.
         let workspace = TestWorkspace::new("source-digest-missing-shared");
         let root = AbsPath::new(workspace.path()).unwrap();
         let digest = FsSourceDigest::new(&root);
@@ -313,8 +312,8 @@ mod tests {
         let root = AbsPath::new(workspace.path()).unwrap();
         let digest = FsSourceDigest::new(&root);
 
-        // A directory shared input is hashed as a subtree, so a change under it
-        // moves the digest (a regression for `file::exists` rejecting dirs).
+        // A directory shared input is hashed as a subtree, so a change under it moves
+        // the digest (a regression for `file::exists` rejecting dirs).
         let before = digest.path(std::path::Path::new("shared")).unwrap();
         let empty = digest.path(std::path::Path::new("absent")).unwrap();
         assert_ne!(before, empty, "a populated dir must not hash as empty");

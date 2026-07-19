@@ -2,17 +2,17 @@
 //! channel.
 //!
 //! Under a supported multiplexer (tmux, detected via `$TMUX`) this sink gives
-//! each of the first [`PANE_CAP`](super::view::PANE_CAP) in-flight units its own
-//! real pane with independent scrollback and selection, and renders any overflow
-//! units — plus every unit's fallback path — through an embedded
-//! [`TilesRawSink`]. It is the richest live view but only sensible for a handful
-//! of long-lived units (`--watch`, a few heavy crates), which is why it stays
-//! opt-in and capped.
+//! each of the first [`PANE_CAP`](super::view::PANE_CAP) in-flight units its
+//! own real pane with independent scrollback and selection, and renders any
+//! overflow units — plus every unit's fallback path — through an embedded
+//! [`TilesRawSink`]. It is the richest live view but only sensible for a
+//! handful of long-lived units (`--watch`, a few heavy crates), which is why it
+//! stays opt-in and capped.
 //!
 //! The multiplexer mechanics live behind the [`PaneLauncher`] port so the
-//! routing/cap policy is testable without spawning tmux; [`TmuxLauncher`] is the
-//! argv-only production launcher. If a pane cannot be opened the unit degrades to
-//! the embedded tiles renderer, so output is never lost.
+//! routing/cap policy is testable without spawning tmux; [`TmuxLauncher`] is
+//! the argv-only production launcher. If a pane cannot be opened the unit
+//! degrades to the embedded tiles renderer, so output is never lost.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -85,8 +85,8 @@ impl PaneLauncher for TmuxLauncher {
         let path = self.dir.join(format!("pane-{}.log", self.seq));
         self.seq += 1;
         // Any failure before the pane is live must not strand the temp file:
-        // `PaneRawSink` keeps retrying `open` (it never reaches the cap on a
-        // degrade), which would otherwise accumulate `pane-*.log` files.
+        // `PaneRawSink` keeps retrying `open` (it never reaches the cap on a degrade),
+        // which would otherwise accumulate `pane-*.log` files.
         self.open_pane(&path, id, label).inspect_err(|_| {
             let _ = fs_file::remove_if_exists(&path);
         })
@@ -160,8 +160,8 @@ impl PaneHandle for TmuxPane {
 
 impl Drop for TmuxPane {
     fn drop(&mut self) {
-        // Best-effort: the pane keeps the tailed content in its own scrollback,
-        // so removing the backing temp file on teardown leaks nothing visible.
+        // Best-effort: the pane keeps the tailed content in its own scrollback, so
+        // removing the backing temp file on teardown leaks nothing visible.
         let _ = fs_file::remove_if_exists(&self.path);
     }
 }
@@ -177,7 +177,8 @@ pub struct PaneRawSink {
 
 impl PaneRawSink {
     /// Create a pane sink driving `launcher` for up to `cap` concurrent panes,
-    /// tiling the overflow through `tiles`, and coloring verdicts per `palette`.
+    /// tiling the overflow through `tiles`, and coloring verdicts per
+    /// `palette`.
     #[must_use]
     pub fn new(
         launcher: Box<dyn PaneLauncher>,
@@ -212,8 +213,8 @@ impl RawOutputSink for PaneRawSink {
     }
 
     fn begin_unit(&mut self, unit_id: &str, label: &str) -> AppResult<()> {
-        // Reuse a unit's existing pane across watch reruns instead of opening a
-        // fresh one each iteration (which would leak panes for the session).
+        // Reuse a unit's existing pane across watch reruns instead of opening a fresh
+        // one each iteration (which would leak panes for the session).
         if let Some(pane) = self.panes.get_mut(unit_id) {
             return pane.reset(label);
         }
@@ -223,8 +224,8 @@ impl RawOutputSink for PaneRawSink {
                     self.panes.insert(unit_id.to_string(), pane);
                     return Ok(());
                 }
-                // A pane that will not open degrades to a tile so the unit still
-                // streams live rather than losing its output.
+                // A pane that will not open degrades to a tile so the unit still streams live
+                // rather than losing its output.
                 Err(_) => return self.tiles.begin_unit(unit_id, label),
             }
         }
@@ -232,8 +233,8 @@ impl RawOutputSink for PaneRawSink {
     }
 
     fn end_unit(&mut self, unit_id: &str, status: UnitStatus) -> AppResult<()> {
-        // Keep the pane open (and mapped) so a subsequent watch rerun reuses it;
-        // the pane's temp file is reclaimed when the sink is dropped.
+        // Keep the pane open (and mapped) so a subsequent watch rerun reuses it; the
+        // pane's temp file is reclaimed when the sink is dropped.
         if let Some(pane) = self.panes.get_mut(unit_id) {
             return pane.finish(&verdict_line(self.palette, unit_id, status, None));
         }
@@ -241,8 +242,8 @@ impl RawOutputSink for PaneRawSink {
     }
 
     fn finish_run(&mut self) -> AppResult<()> {
-        // Failures that fell back to a tile are re-surfaced by the inner tiles
-        // sink; a failure shown in its own persistent pane stays visible there.
+        // Failures that fell back to a tile are re-surfaced by the inner tiles sink; a
+        // failure shown in its own persistent pane stays visible there.
         self.tiles.finish_run()
     }
 }
@@ -341,16 +342,16 @@ mod tests {
 
     #[test]
     fn failed_pane_open_removes_the_temp_file() {
-        // Skip inside a live tmux client: there `split-window` could succeed and
-        // spawn a pane in the developer's own session. The degrade path this
-        // guards against (tmux absent or the split failing) is exercised
-        // everywhere else, including CI.
+        // Skip inside a live tmux client: there `split-window` could succeed and spawn
+        // a pane in the developer's own session. The degrade path this guards against
+        // (tmux absent or the split failing) is exercised everywhere else, including
+        // CI.
         if std::env::var_os("TMUX").is_some() {
             return;
         }
-        // Outside a live tmux client (or with tmux absent) `open` must fail —
-        // and it must not strand the backing `pane-*.log`, since a degrade keeps
-        // retrying `open` and would otherwise pile up temp files.
+        // Outside a live tmux client (or with tmux absent) `open` must fail — and it
+        // must not strand the backing `pane-*.log`, since a degrade keeps retrying
+        // `open` and would otherwise pile up temp files.
         let dir = std::env::temp_dir().join(format!(
             "toven-panes-test-{}-{}",
             std::process::id(),
@@ -407,8 +408,8 @@ mod tests {
 
     #[test]
     fn a_reused_unit_resets_its_pane_instead_of_reopening() {
-        // Across watch reruns the same unit must reuse its pane (reset), never
-        // open a second one — otherwise panes leak for the whole session.
+        // Across watch reruns the same unit must reuse its pane (reset), never open a
+        // second one — otherwise panes leak for the whole session.
         let launcher = FakeLauncher::default();
         let rec = launcher.rec.clone();
         let mut sink = PaneRawSink::new(

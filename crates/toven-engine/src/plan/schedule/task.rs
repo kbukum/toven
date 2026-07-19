@@ -1,9 +1,10 @@
 //! Resolve each active module's effective task for the plan intent.
 //!
 //! The config `tasks` table is the single source of runnable tasks. For each
-//! module the adapter default is selected by the intent's addressable name, then
-//! field-merged with any `[groups.*].tasks` override, yielding an
-//! [`EffectiveTask`] the scheduler consumes for ordering, grouping, and rendering.
+//! module the adapter default is selected by the intent's addressable name,
+//! then field-merged with any `[groups.*].tasks` override, yielding an
+//! [`EffectiveTask`] the scheduler consumes for ordering, grouping, and
+//! rendering.
 
 use std::collections::BTreeMap;
 
@@ -24,7 +25,8 @@ pub(super) struct EffectiveTask {
 }
 
 /// Resolve every active module's effective task for the intent: the adapter
-/// default, field-merged with the module's group task override when one applies.
+/// default, field-merged with the module's group task override when one
+/// applies.
 pub(super) fn effective_tasks(
     modules: &BTreeMap<ModuleKey, Module>,
     adapters: &MemberAdapters,
@@ -57,7 +59,8 @@ pub(super) fn effective_tasks(
     Ok(resolved)
 }
 
-/// Look up a module's resolved effective task, failing closed on an unknown key.
+/// Look up a module's resolved effective task, failing closed on an unknown
+/// key.
 pub(super) fn effective_for<'a>(
     key: &ModuleKey,
     effective: &'a BTreeMap<ModuleKey, EffectiveTask>,
@@ -75,8 +78,9 @@ pub(super) fn effective_for<'a>(
 /// [`ConfiguredAdapter::common`](toven_ports::ConfiguredAdapter::common)).
 ///
 /// The config is the single source of runnable tasks: an entry with an empty
-/// `argv` fails here with a typed error citing its `ecosystems.<id>.tasks.<name>`
-/// path (the same completeness check `configure` runs).
+/// `argv` fails here with a typed error citing its
+/// `ecosystems.<id>.tasks.<name>` path (the same completeness check `configure`
+/// runs).
 fn config_tasks(
     adapter: &dyn toven_ports::ConfiguredAdapter,
     ecosystem: &str,
@@ -130,10 +134,10 @@ fn task_addressable_name(task: &Task) -> String {
 
 /// Select the config task a user token resolves to by its addressable name.
 ///
-/// A task's addressable identity is its name (the table key). `intent.name()` is
-/// the exact token the user typed, so a direct name match resolves both a plain
-/// built-in (`test` → the `test` task) and a renamed/extra task (`my-test` → the
-/// `kind = "test"` entry) without collision.
+/// A task's addressable identity is its name (the table key). `intent.name()`
+/// is the exact token the user typed, so a direct name match resolves both a
+/// plain built-in (`test` → the `test` task) and a renamed/extra task
+/// (`my-test` → the `kind = "test"` entry) without collision.
 fn select_task(tasks: &[Task], intent: &TaskIntent) -> Option<Task> {
     let wanted = intent.name();
     tasks

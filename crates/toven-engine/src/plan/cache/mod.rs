@@ -1,4 +1,5 @@
-//! The Cache-decision surface: the content key, the lookup port, and the verdict.
+//! The Cache-decision surface: the content key, the lookup port, and the
+//! verdict.
 
 mod decision;
 mod key;

@@ -3,12 +3,13 @@
 //!
 //! `affected` and `explain` are thin projections over one immutable [`Plan`].
 //! The shared [`build_plan`] runs the PLAN spine once with caching disabled
-//! (introspection never executes, so cache verdicts are noise) and a reporter that
-//! keeps stdout reserved for the projection while still surfacing warnings, then
-//! the verb filters the resulting units.
+//! (introspection never executes, so cache verdicts are noise) and a reporter
+//! that keeps stdout reserved for the projection while still surfacing
+//! warnings, then the verb filters the resulting units.
 //!
-//! `modules` and `graph` project the validated discovered [`Graph`] directly, so
-//! they do not depend on any particular task kind being configured or schedulable.
+//! `modules` and `graph` project the validated discovered [`Graph`] directly,
+//! so they do not depend on any particular task kind being configured or
+//! schedulable.
 
 use std::collections::BTreeSet;
 
@@ -35,9 +36,9 @@ impl Reporter for QuietReporter {
     fn emit(&mut self, event: &Event) -> AppResult<()> {
         match event {
             Event::Warning { message } => eprintln!("warning: {message}"),
-            // An introspection projection is machine-readable stdout, so the
-            // full-activation reason rides the same stream as the projection it
-            // explains (the `affected` table), never mixed onto stderr.
+            // An introspection projection is machine-readable stdout, so the full-activation reason
+            // rides the same stream as the projection it explains (the `affected` table), never
+            // mixed onto stderr.
             Event::FullActivation { paths } => {
                 println!(
                     "full activation: {} (affects all modules)",
@@ -57,7 +58,8 @@ impl Reporter for QuietReporter {
 /// except for warnings.
 ///
 /// # Errors
-/// Propagates PLAN-spine failures (configuration, discovery, graph, scheduling).
+/// Propagates PLAN-spine failures (configuration, discovery, graph,
+/// scheduling).
 fn build_plan(
     providers: &[&dyn Provider],
     project: &Project,
@@ -73,8 +75,9 @@ fn build_plan(
 /// it to the module keys `explain` narrows its shown units to.
 ///
 /// Caching is disabled and the reporter is quiet except for warnings, matching
-/// [`build_plan`]. The `focus` selection never changes what is planned — the plan
-/// is always built over `selection`, so a focused unit is the real batched unit.
+/// [`build_plan`]. The `focus` selection never changes what is planned — the
+/// plan is always built over `selection`, so a focused unit is the real batched
+/// unit.
 ///
 /// # Errors
 /// Propagates PLAN-spine failures and any focus selector-resolution failure.
@@ -113,7 +116,8 @@ fn build_focused_plan(
     )
 }
 
-/// Build the validated discovered module graph for topology introspection verbs.
+/// Build the validated discovered module graph for topology introspection
+/// verbs.
 ///
 /// # Errors
 /// Propagates Configure/Discover/Graph failures.
@@ -129,11 +133,12 @@ fn build_graph(providers: &[&dyn Provider], project: &Project) -> AppResult<Grap
     )
 }
 
-/// `toven modules` / `list` / `ls`: the discovered module set with its workspace.
+/// `toven modules` / `list` / `ls`: the discovered module set with its
+/// workspace.
 ///
 /// Renders a human table (Module, Workspace) by default, or a stable JSON-lines
-/// projection under `--output jsonl` so tooling can consume the module set. Both
-/// projections land on stdout per the introspection stream convention.
+/// projection under `--output jsonl` so tooling can consume the module set.
+/// Both projections land on stdout per the introspection stream convention.
 ///
 /// # Errors
 /// Propagates [`build_graph`] failures, or a serialization failure in the jsonl
@@ -168,7 +173,8 @@ pub(crate) fn affected(
     Ok(ExitCode::Success)
 }
 
-/// `toven graph` / `deps`: the discovered dependency edges (`--format text|dot`).
+/// `toven graph` / `deps`: the discovered dependency edges (`--format
+/// text|dot`).
 ///
 /// # Errors
 /// Propagates [`build_graph`] failures.
@@ -186,19 +192,19 @@ pub(crate) fn graph(
     Ok(ExitCode::Success)
 }
 
-/// `toven explain <task>`: the planned units for `task`, optionally focused to a
-/// `--module`/`--workspace` selection.
+/// `toven explain <task>`: the planned units for `task`, optionally focused to
+/// a `--module`/`--workspace` selection.
 ///
-/// An explicit selection focuses the projection: the plan is built over the full
-/// active set (so each shown unit is the *real* batched unit) and only the units
-/// whose members include a focus target are rendered, with the target members
-/// marked and their co-batched siblings shown in full. Without an explicit
-/// selection every planned unit is shown.
+/// An explicit selection focuses the projection: the plan is built over the
+/// full active set (so each shown unit is the *real* batched unit) and only the
+/// units whose members include a focus target are rendered, with the target
+/// members marked and their co-batched siblings shown in full. Without an
+/// explicit selection every planned unit is shown.
 ///
 /// # Errors
 /// Returns a not-found error when the plan schedules no unit for the task, or a
-/// distinct not-found error when a focus target participates in no scheduled unit;
-/// else propagates [`build_focused_plan`] failures.
+/// distinct not-found error when a focus target participates in no scheduled
+/// unit; else propagates [`build_focused_plan`] failures.
 pub(crate) fn explain(
     providers: &[&dyn Provider],
     project: &Project,

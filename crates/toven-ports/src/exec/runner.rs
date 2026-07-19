@@ -9,27 +9,27 @@ use super::{Invocation, OutputObserver, RunOutcome, StartOutcome};
 /// Executes resolved [`Invocation`]s, cancellably and with bounded output.
 ///
 /// This is the APPLY seam mirroring the PLAN ports
-/// ([`VcsReader`](crate::VcsReader), [`ToolchainProber`](crate::ToolchainProber),
-/// …): the wave walk drives a `&dyn CommandRunner` so it is unit-tested against a
-/// scriptable runner with no real subprocess, while the concrete
-/// `rskit-process`-backed runner lives in the engine. Methods take a
-/// [`CancellationToken`] so `--fail-fast` (and persistent teardown) can stop
-/// in-flight work.
+/// ([`VcsReader`](crate::VcsReader),
+/// [`ToolchainProber`](crate::ToolchainProber), …): the wave walk drives a
+/// `&dyn CommandRunner` so it is unit-tested against a scriptable runner with
+/// no real subprocess, while the concrete `rskit-process`-backed runner lives
+/// in the engine. Methods take a [`CancellationToken`] so `--fail-fast` (and
+/// persistent teardown) can stop in-flight work.
 #[async_trait]
 pub trait CommandRunner: Send + Sync {
     /// Run a normal invocation to completion.
     ///
-    /// When `live` is `Some`, the runner streams stdout/stderr chunks through the
-    /// observer as they arrive and returns an empty [`RunOutcome::output`] — the
-    /// caller has already surfaced the bytes. When `live` is `None`, the runner
-    /// captures output and returns it in the [`RunOutcome`] for the caller to
-    /// buffer (the deterministic per-unit grouping used under parallelism). The
-    /// engine streams live only when no two units can run concurrently, so live
-    /// chunks never interleave.
+    /// When `live` is `Some`, the runner streams stdout/stderr chunks through
+    /// the observer as they arrive and returns an empty [`RunOutcome::output`]
+    /// — the caller has already surfaced the bytes. When `live` is `None`, the
+    /// runner captures output and returns it in the [`RunOutcome`] for the
+    /// caller to buffer (the deterministic per-unit grouping used under
+    /// parallelism). The engine streams live only when no two units can run
+    /// concurrently, so live chunks never interleave.
     ///
     /// # Errors
-    /// Propagates a spawn/IO failure. A non-zero exit is *not* an error: it is a
-    /// [`RunOutcome`] with `success = false` so the wave walk can gate on it.
+    /// Propagates a spawn/IO failure. A non-zero exit is *not* an error: it is
+    /// a [`RunOutcome`] with `success = false` so the wave walk can gate on it.
     async fn run(
         &self,
         invocation: &Invocation,
@@ -40,12 +40,13 @@ pub trait CommandRunner: Send + Sync {
     /// Start a persistent invocation and wait for its readiness policy.
     ///
     /// Returns once the process is ready (handing back a held handle) or once
-    /// readiness fails. The held process stays alive in the background until the
-    /// engine tears it down.
+    /// readiness fails. The held process stays alive in the background until
+    /// the engine tears it down.
     ///
     /// # Errors
-    /// Propagates a spawn/IO failure. A readiness timeout/early crash is *not* an
-    /// error: it is [`StartOutcome::FailedReadiness`] so gating fails closed.
+    /// Propagates a spawn/IO failure. A readiness timeout/early crash is *not*
+    /// an error: it is [`StartOutcome::FailedReadiness`] so gating fails
+    /// closed.
     async fn start_persistent(
         &self,
         invocation: &Invocation,

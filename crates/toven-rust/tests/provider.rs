@@ -31,8 +31,8 @@ fn configure_reads_the_authoritative_task_table() {
 #[test]
 fn configure_accepts_the_flattened_common_knobs() {
     // `deny_unknown_fields` on the outer struct must still admit the flattened
-    // engine-common knobs (`run_strategy`, `[release]`, `[tasks.*]`). This locks
-    // in the fragile serde flatten behavior the adapter relies on.
+    // engine-common knobs (`run_strategy`, `[release]`, `[tasks.*]`). This locks in
+    // the fragile serde flatten behavior the adapter relies on.
     let adapter = configure("adapter/cargo.toml");
     let common = adapter.common();
 

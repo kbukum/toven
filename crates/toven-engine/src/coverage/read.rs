@@ -1,11 +1,11 @@
 //! Read emitted coverage profiles from a directory.
 //!
 //! The coverage task writes its profile(s) into a Toven-owned staging directory
-//! (the user's argv chooses the output path; Toven reads whatever landed there),
-//! keeping the runner flags in argv and the aggregation in Toven. Every regular
-//! file in the directory is read (bounded) and parsed by content-detected format
-//! ([`CoverageFormat::detect`]), so a directory may mix an lcov tracefile and a
-//! Go coverprofile from a federated run.
+//! (the user's argv chooses the output path; Toven reads whatever landed
+//! there), keeping the runner flags in argv and the aggregation in Toven. Every
+//! regular file in the directory is read (bounded) and parsed by
+//! content-detected format ([`CoverageFormat::detect`]), so a directory may mix
+//! an lcov tracefile and a Go coverprofile from a federated run.
 
 use std::path::Path;
 
@@ -16,9 +16,9 @@ use rskit_fs::sync_io::file::read_string_bounded;
 use super::profile::{CoverageFormat, CoverageProfile};
 use super::{goprofile, lcov};
 
-/// The Toven-owned directory a coverage task stages its profiles in, relative to
-/// the project root. The coverage task's argv writes profiles here; Toven reads
-/// and aggregates them.
+/// The Toven-owned directory a coverage task stages its profiles in, relative
+/// to the project root. The coverage task's argv writes profiles here; Toven
+/// reads and aggregates them.
 pub const COVERAGE_DIR: &str = "target/toven/coverage";
 
 /// The maximum profile file size read, bounding untrusted input (64 MiB).
@@ -26,8 +26,8 @@ const MAX_PROFILE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Read and parse every coverage profile in `dir_path`.
 ///
-/// Returns an empty vector when the directory does not exist (a run that emitted
-/// nothing is a measured-nothing report, not an error).
+/// Returns an empty vector when the directory does not exist (a run that
+/// emitted nothing is a measured-nothing report, not an error).
 ///
 /// # Errors
 /// Propagates a directory-listing failure, a bounded-read failure, or a profile

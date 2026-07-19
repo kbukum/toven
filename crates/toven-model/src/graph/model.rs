@@ -1,7 +1,7 @@
 //! The validated [`Graph`] type: construction, validation, and accessors.
 //!
-//! Traversal algorithms (topo wave-leveling and reverse-dependents closure) live
-//! in [`topo`](crate::graph::topo).
+//! Traversal algorithms (topo wave-leveling and reverse-dependents closure)
+//! live in [`topo`](crate::graph::topo).
 
 use std::collections::BTreeMap;
 
@@ -16,8 +16,8 @@ use crate::{
 /// An immutable, validated module dependency graph.
 ///
 /// Built from a union of modules and edges (intra-ecosystem + cross-ecosystem
-/// overlay edges in one list). Construction validates that module identities are
-/// unique, every edge endpoint resolves, and the graph is acyclic — so all
+/// overlay edges in one list). Construction validates that module identities
+/// are unique, every edge endpoint resolves, and the graph is acyclic — so all
 /// downstream consumers (affected, scheduling) operate on a sound graph.
 ///
 /// Nodes are keyed by [`ModuleKey`]: a single-repo graph keys by bare

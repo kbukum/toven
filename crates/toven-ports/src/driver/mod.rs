@@ -3,8 +3,9 @@
 //! wizard.
 //!
 //! Both contracts keep PATH discovery and subprocess onboarding out of the pure
-//! resolution/init logic, so they stay testable without touching the real `PATH`
-//! or spawning a real driver. Their concrete adapters live in the engine.
+//! resolution/init logic, so they stay testable without touching the real
+//! `PATH` or spawning a real driver. Their concrete adapters live in the
+//! engine.
 
 mod locator;
 mod wizard;

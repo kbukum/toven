@@ -14,8 +14,8 @@ pub(super) fn to_oid(oid: &GitOid) -> Oid {
 ///
 /// A copy is a new path (`Added`); a type change is a content change
 /// (`Modified`). `Untracked` / `Ignored` / `Conflicted` do not appear in a
-/// committed `base..HEAD` diff but are mapped conservatively for totality, since
-/// [`FileStatus`] is `#[non_exhaustive]`.
+/// committed `base..HEAD` diff but are mapped conservatively for totality,
+/// since [`FileStatus`] is `#[non_exhaustive]`.
 pub(super) const fn map_diff_status(status: FileStatus) -> ChangeStatus {
     match status {
         FileStatus::Added | FileStatus::Copied | FileStatus::Untracked => ChangeStatus::Added,

@@ -62,10 +62,10 @@ impl RpcClient {
         let payload = self.recv_frame()?.ok_or_else(|| {
             DriverFault::Transport("driver closed the stream during handshake".to_string())
         })?;
-        // The server replies with a `Welcome` on success but a `Response::Error`
-        // on a rejected handshake (unknown ecosystem, incompatible protocol, bad
-        // config). Decode the same frame as either so a remote rejection keeps its
-        // typed code/message instead of collapsing into an opaque transport error.
+        // The server replies with a `Welcome` on success but a `Response::Error` on a
+        // rejected handshake (unknown ecosystem, incompatible protocol, bad config).
+        // Decode the same frame as either so a remote rejection keeps its typed
+        // code/message instead of collapsing into an opaque transport error.
         if let Ok(welcome) = codec::decode_value::<Welcome>(&payload) {
             return Ok(welcome);
         }
@@ -146,18 +146,18 @@ fn classify_frame_outcome(
     outcome: rskit_errors::AppResult<Option<Vec<u8>>>,
     timed_out: bool,
 ) -> Result<Option<Vec<u8>>, DriverFault> {
-    // A watchdog kill unblocks the read either as an error or as a clean EOF at
-    // the frame boundary (`Ok(None)`). If a complete frame was read at the timeout
+    // A watchdog kill unblocks the read either as an error or as a clean EOF at the
+    // frame boundary (`Ok(None)`). If a complete frame was read at the timeout
     // boundary, prefer the successful frame instead of reporting a false timeout.
     if timed_out && !matches!(outcome, Ok(Some(_))) {
         return Err(DriverFault::Timeout);
     }
     match outcome {
         Ok(value) => Ok(value),
-        // `read_frame` returns `InvalidInput` for a protocol-level malformed
-        // frame (e.g. an oversized length prefix) and `ServiceUnavailable` for
-        // a genuine transport failure (truncation, broken pipe). Preserve that
-        // distinction in the fault taxonomy instead of flattening both.
+        // `read_frame` returns `InvalidInput` for a protocol-level malformed frame (e.g. an
+        // oversized length prefix) and `ServiceUnavailable` for a genuine transport failure
+        // (truncation, broken pipe). Preserve that distinction in the fault taxonomy instead of
+        // flattening both.
         Err(error) => Err(if error.code() == ErrorCode::InvalidInput {
             DriverFault::Malformed(error.message().to_string())
         } else {

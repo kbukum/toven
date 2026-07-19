@@ -4,8 +4,8 @@
 //! header followed by one block record per instrumented statement span,
 //! `<file>:<startLine>.<col>,<endLine>.<col> <numStmts> <count>`. Go measures
 //! statement (line) coverage only, so function/region tallies stay `None` and
-//! the gate skips those dimensions for Go modules. Each statement span marks its
-//! covered lines, OR-merged across overlapping spans.
+//! the gate skips those dimensions for Go modules. Each statement span marks
+//! its covered lines, OR-merged across overlapping spans.
 
 use std::collections::BTreeMap;
 
@@ -149,8 +149,8 @@ mod tests {
 
     #[test]
     fn rejects_oversized_span() {
-        // A tiny record claiming a multi-billion-line span must not drive an
-        // unbounded per-line expansion — it is rejected as malformed.
+        // A tiny record claiming a multi-billion-line span must not drive an unbounded
+        // per-line expansion — it is rejected as malformed.
         let error =
             parse("mode: set\nf.go:1.1,4000000000.2 1 1\n").expect_err("oversized span rejected");
         assert!(error.to_string().contains("exceeds"), "{error}");

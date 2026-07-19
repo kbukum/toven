@@ -6,9 +6,10 @@ use serde::{Deserialize, Serialize};
 
 /// Optional pre/post release hooks, each a recognized task reference.
 ///
-/// Hooks are **task names** the engine already knows (argv-first, no shell unless
-/// a task opts in), so a user composes custom release steps from the same task
-/// model that drives every other verb. Both lists are empty by default.
+/// Hooks are **task names** the engine already knows (argv-first, no shell
+/// unless a task opts in), so a user composes custom release steps from the
+/// same task model that drives every other verb. Both lists are empty by
+/// default.
 #[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct HooksConfig {

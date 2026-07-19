@@ -1,6 +1,10 @@
 //! Go VCS-tag release target.
 //!
-//! Go modules have no manifest version and no registry publish step in Toven's release model. The git tag is the version: the root module uses `vX.Y.Z`, and submodules use `<repo-relative-module-root>/vX.Y.Z`. The Go module path convention fixes the tag grammar, so a configured `tag_format` is rejected as a misconfiguration rather than silently ignored.
+//! Go modules have no manifest version and no registry publish step in Toven's
+//! release model. The git tag is the version: the root module uses `vX.Y.Z`,
+//! and submodules use `<repo-relative-module-root>/vX.Y.Z`. The Go module path
+//! convention fixes the tag grammar, so a configured `tag_format` is rejected
+//! as a misconfiguration rather than silently ignored.
 
 use std::path::PathBuf;
 
@@ -13,18 +17,23 @@ use toven_ports::{Artifact, PublishOutcome, ReleaseMutation, ReleaseTarget, TagS
 /// Release target for Go modules released as git tags.
 #[derive(Debug, Clone, Default)]
 pub struct GoVcsTarget {
-    /// Explicit repository working root; `None` resolves the process working directory (the engine runs from the repo root), mirroring `CratesIoTarget`.
+    /// Explicit repository working root; `None` resolves the process working
+    /// directory (the engine runs from the repo root), mirroring
+    /// `CratesIoTarget`.
     root: Option<PathBuf>,
 }
 
 impl GoVcsTarget {
-    /// Construct the Go VCS-tag release target rooted at the process working directory.
+    /// Construct the Go VCS-tag release target rooted at the process working
+    /// directory.
     #[must_use]
     pub const fn new() -> Self {
         Self { root: None }
     }
 
-    /// Pin the repository working root instead of resolving the process working directory — the explicit seam tests inject to avoid mutating process-global state.
+    /// Pin the repository working root instead of resolving the process working
+    /// directory — the explicit seam tests inject to avoid mutating
+    /// process-global state.
     #[must_use]
     pub fn with_root(mut self, root: impl Into<PathBuf>) -> Self {
         self.root = Some(root.into());
@@ -138,7 +147,9 @@ mod tests {
 
     #[test]
     fn configured_tag_format_is_rejected() {
-        // The Go module tag convention fixes the grammar, so an explicit `tag_format` is a misconfiguration — surface it as a typed error rather than silently ignoring it.
+        // The Go module tag convention fixes the grammar, so an explicit `tag_format`
+        // is a misconfiguration — surface it as a typed error rather than silently
+        // ignoring it.
         let error = GoVcsTarget::new()
             .tag_scheme(
                 &module("cache-redis", "cache/redis"),

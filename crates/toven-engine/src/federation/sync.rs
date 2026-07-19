@@ -3,12 +3,12 @@
 //! Clones absent member repos and guards present ones — the cross-repo analogue
 //! of [`provision`](super::provision)'s explicit driver install.
 //!
-//! Provisioning is **never implicit during a run** (the same supply-chain purity
-//! rule as driver install): a normal PLAN treats an absent declared member as a
-//! hard error, and only a separate explicit member-repo provisioning surface
-//! clones or checks out member repos. Cloning reuses `rskit-git` directly rather
-//! than introducing a separate git path; the clean-tree guardrail per present
-//! member repo reuses
+//! Provisioning is **never implicit during a run** (the same supply-chain
+//! purity rule as driver install): a normal PLAN treats an absent declared
+//! member as a hard error, and only a separate explicit member-repo
+//! provisioning surface clones or checks out member repos. Cloning reuses
+//! `rskit-git` directly rather than introducing a separate git path; the
+//! clean-tree guardrail per present member repo reuses
 //! [`Repository::is_dirty`](rskit_git::Repository).
 
 use rskit_errors::{AppError, AppResult};
@@ -16,8 +16,8 @@ use toven_model::AbsPath;
 
 /// Where one declared member repo is provisioned from and to.
 ///
-/// The clone `url` is treated as untrusted input validated by `rskit-git` at the
-/// clone boundary; `root` is the confined absolute member root resolved by
+/// The clone `url` is treated as untrusted input validated by `rskit-git` at
+/// the clone boundary; `root` is the confined absolute member root resolved by
 /// [`enumerate_members`](super::members::enumerate_members).
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct MemberRemote {
@@ -77,19 +77,20 @@ impl MemberSyncReport {
     }
 }
 
-/// Provision every member in `remotes`: clone the absent ones, guard the present
-/// ones.
+/// Provision every member in `remotes`: clone the absent ones, guard the
+/// present ones.
 ///
-/// An absent member root is cloned from its `url` (and checked out at its pinned
-/// reference when one is given). A present member root must already be a git repo
-/// and — unless `allow_dirty` — must be clean: a dirty present member is a hard
-/// error so sync never silently disturbs local work. This function performs no
-/// implicit provisioning on a normal run; only the explicit sync verbs call it.
+/// An absent member root is cloned from its `url` (and checked out at its
+/// pinned reference when one is given). A present member root must already be a
+/// git repo and — unless `allow_dirty` — must be clean: a dirty present member
+/// is a hard error so sync never silently disturbs local work. This function
+/// performs no implicit provisioning on a normal run; only the explicit sync
+/// verbs call it.
 ///
 /// # Errors
-/// Returns a typed error when a present member root is not a git repo, a present
-/// member repo is dirty (without `allow_dirty`), a clone fails, or a post-clone
-/// checkout fails.
+/// Returns a typed error when a present member root is not a git repo, a
+/// present member repo is dirty (without `allow_dirty`), a clone fails, or a
+/// post-clone checkout fails.
 pub fn sync_members(remotes: &[MemberRemote], allow_dirty: bool) -> AppResult<MemberSyncReport> {
     let mut entries = Vec::with_capacity(remotes.len());
     for remote in remotes {
@@ -118,7 +119,8 @@ fn sync_one(remote: &MemberRemote, allow_dirty: bool) -> AppResult<MemberSyncSta
     Ok(MemberSyncStatus::Cloned)
 }
 
-/// Verify a present member root is a clean git repo before leaving it untouched.
+/// Verify a present member root is a clean git repo before leaving it
+/// untouched.
 fn guard_present(remote: &MemberRemote, allow_dirty: bool) -> AppResult<()> {
     // Anchor the check at the member directory itself with `open` rather than
     // `discover`: discovery walks up to parent directories, so a non-repo member

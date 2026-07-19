@@ -18,7 +18,8 @@ use crate::plan::{PlanRequest, prepare_front};
 
 /// Recognized check: every member working tree is clean.
 const CHECK_CLEAN_TREE: &str = "clean-tree";
-/// Recognized check: no releasable module declares a version behind the registry.
+/// Recognized check: no releasable module declares a version behind the
+/// registry.
 const CHECK_REGISTRY_IDEMPOTENT: &str = "registry-idempotent";
 /// Every recognized readiness check, for the actionable unknown-check error.
 const RECOGNIZED_CHECKS: [&str; 2] = [CHECK_CLEAN_TREE, CHECK_REGISTRY_IDEMPOTENT];

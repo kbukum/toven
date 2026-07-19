@@ -1,10 +1,10 @@
 //! Changed-path classification: map changed records to seed modules.
 //!
 //! The engine-owned longest-prefix change mapper attributes each changed
-//! workspace-relative path to the module whose root is its longest prefix, refined
-//! by adapter-declared workspace **blast-radius** globs (a `Cargo.lock` change
-//! activates its whole workspace). An unclassifiable path conservatively activates
-//! every module (fail-closed).
+//! workspace-relative path to the module whose root is its longest prefix,
+//! refined by adapter-declared workspace **blast-radius** globs (a `Cargo.lock`
+//! change activates its whole workspace). An unclassifiable path conservatively
+//! activates every module (fail-closed).
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -34,10 +34,10 @@ pub(crate) fn changed_for_members(
 /// Map one member's changed paths since its baseline.
 ///
 /// The member reader's own resolved baseline takes precedence; when it has none
-/// the request's [`Selection::Changed`](crate::plan::request::Selection::Changed)
-/// spec is the fallback, so the variant's payload stays meaningful and the
-/// single-repo / unconfigured-member case still resolves a baseline instead of
-/// failing.
+/// the request's
+/// [`Selection::Changed`](crate::plan::request::Selection::Changed) spec is the
+/// fallback, so the variant's payload stays meaningful and the single-repo /
+/// unconfigured-member case still resolves a baseline instead of failing.
 fn changed_for_member(
     reader: &MemberVcsReader<'_>,
     fallback: Option<&BaselineSpec>,
@@ -100,10 +100,10 @@ pub(crate) fn unclassified_paths(changed: &[ChangeRecord], federation: &Federati
 
 /// Return only records directly attributable to `module`.
 ///
-/// Module-root matches belong to that one module; workspace blast-radius matches
-/// belong to every module in that workspace. Unclassified records still fail
-/// closed for activation through [`changed_seeds`], but they are not assigned to
-/// a per-module changelog because no owner can be identified.
+/// Module-root matches belong to that one module; workspace blast-radius
+/// matches belong to every module in that workspace. Unclassified records still
+/// fail closed for activation through [`changed_seeds`], but they are not
+/// assigned to a per-module changelog because no owner can be identified.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn changed_records_for_module(
     module: &Module,

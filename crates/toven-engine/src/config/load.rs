@@ -1,10 +1,11 @@
 //! Load orchestration: strict parse → structural validation → dispatch check.
 //!
-//! A thin wrapper over `rskit-config`'s strict loader: the strict loader handles bounded
-//! reads, codec decode (honoring `deny_unknown_fields`), verbatim retention of the
-//! dynamic-keyed `[ecosystems.<id>]` subtrees, and identity-aware include-merge.
-//! This layer contributes only Toven's domain logic — resolving the include list,
-//! the structural-validation pass, and the ecosystem-id dispatch check.
+//! A thin wrapper over `rskit-config`'s strict loader: the strict loader
+//! handles bounded reads, codec decode (honoring `deny_unknown_fields`),
+//! verbatim retention of the dynamic-keyed `[ecosystems.<id>]` subtrees, and
+//! identity-aware include-merge. This layer contributes only Toven's domain
+//! logic — resolving the include list, the structural-validation pass, and the
+//! ecosystem-id dispatch check.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -23,19 +24,21 @@ use super::{CanonicalRegistry, Dispatch, Document, dispatch, validate};
 pub struct Loaded {
     /// The strict, structurally-validated document.
     pub document: Document,
-    /// The three-way ecosystem-id dispatch outcome (loaded / canonical-unloaded).
+    /// The three-way ecosystem-id dispatch outcome (loaded /
+    /// canonical-unloaded).
     pub dispatch: Dispatch,
 }
 
 /// Load, validate, and dispatch the `toven.toml` at `path`.
 ///
 /// Returns the strict [`Document`] and its [`Dispatch`] once the file parses,
-/// passes structural validation, and every `[ecosystems.<id>]` section dispatches
-/// cleanly (an unknown ecosystem id is a hard error; a canonical-but-unloaded one
-/// is accepted and surfaced in [`Dispatch::ignored`]). The dispatch is computed
-/// once here so callers reuse it rather than re-classifying. `loaded` is the set
-/// of ecosystem ids with an adapter compiled into this binary; `canonical` is the
-/// known-ecosystem registry.
+/// passes structural validation, and every `[ecosystems.<id>]` section
+/// dispatches cleanly (an unknown ecosystem id is a hard error; a
+/// canonical-but-unloaded one is accepted and surfaced in
+/// [`Dispatch::ignored`]). The dispatch is computed once here so callers reuse
+/// it rather than re-classifying. `loaded` is the set of ecosystem ids with an
+/// adapter compiled into this binary; `canonical` is the known-ecosystem
+/// registry.
 pub fn load(
     path: impl AsRef<Path>,
     loaded: &BTreeSet<EcosystemId>,
@@ -51,8 +54,8 @@ pub fn load(
 /// Parse the document, merging any `[toven].include` files beneath it.
 ///
 /// The canonical file is read once; its `[toven].include` list is resolved to
-/// confined paths and merged beneath the document as defaults (canonical wins on
-/// collisions). The merge policy hard-errors on duplicate `[[members]]`,
+/// confined paths and merged beneath the document as defaults (canonical wins
+/// on collisions). The merge policy hard-errors on duplicate `[[members]]`,
 /// `[[overlays]]`, and `[groups.<name>]` identities across files.
 fn read_document(path: &Path) -> AppResult<Document> {
     StrictLoader::new(path)
@@ -62,8 +65,9 @@ fn read_document(path: &Path) -> AppResult<Document> {
 
 /// Identity-aware merge policy for the reserved multi-entry sections.
 ///
-/// - `[[members]]` and `[[overlays]]` concatenate across files and hard-error on
-///   a duplicate identity (member `name`; the full overlay `from`/`to` edge);
+/// - `[[members]]` and `[[overlays]]` concatenate across files and hard-error
+///   on a duplicate identity (member `name`; the full overlay `from`/`to`
+///   edge);
 /// - `[groups.<name>]` is a table keyed by group name, so a name contributed by
 ///   two files is a duplicate identity, not a silent merge.
 fn include_merge() -> IncludeMerge {

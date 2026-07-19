@@ -16,15 +16,16 @@ use serde::{Deserialize, Serialize};
 /// engine Graph phase.
 ///
 /// A group may additionally carry **scope overrides** — a per-group `tasks` map
-/// and `run_strategy` that layer on top of the ecosystem/adapter defaults for the
-/// group's members only. The merge order is
-/// `adapter default → ecosystem [tasks] → group [tasks]`; a module reached by two
-/// groups that both override the same task (or `run_strategy`) is a hard error
-/// (see the Graph phase), so overrides stay explicit and fail closed.
+/// and `run_strategy` that layer on top of the ecosystem/adapter defaults for
+/// the group's members only. The merge order is `adapter default → ecosystem
+/// [tasks] → group [tasks]`; a module reached by two groups that both override
+/// the same task (or `run_strategy`) is a hard error (see the Graph phase), so
+/// overrides stay explicit and fail closed.
 #[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GroupConfig {
-    /// Optional default ecosystem, letting `modules` use bare (unqualified) names.
+    /// Optional default ecosystem, letting `modules` use bare (unqualified)
+    /// names.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ecosystem: Option<EcosystemId>,
     /// Member modules: bare names (with `ecosystem` set) or `ecosystem:module`.
@@ -55,7 +56,8 @@ pub struct Guardrails {
 }
 
 impl Guardrails {
-    /// Whether both lists are empty (so the section can be skipped on serialize).
+    /// Whether both lists are empty (so the section can be skipped on
+    /// serialize).
     #[must_use]
     pub const fn is_default(&self) -> bool {
         self.forbid.is_empty() && self.allow.is_empty()

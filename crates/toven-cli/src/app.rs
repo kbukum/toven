@@ -3,8 +3,8 @@
 //! dispatch the verb, and map any typed error to a process [`ExitCode`].
 //!
 //! This is the one place that ties the argv-first grammar to the engine spine.
-//! The three apps (`apps/{toven, toven-rs, toven-go}`) are thin: each builds its
-//! provider set and calls [`run`]. Everything user-facing is printed by the
+//! The three apps (`apps/{toven, toven-rs, toven-go}`) are thin: each builds
+//! its provider set and calls [`run`]. Everything user-facing is printed by the
 //! reporter sinks or the verb projections; this module prints only the final
 //! rendered error.
 
@@ -51,8 +51,8 @@ where
     if is_serve_invocation(&args) {
         return commands::driver::serve(providers);
     }
-    // The sibling `__init` entry runs the config-less wizard exchange so
-    // `toven init` can probe an out-of-process `toven-<eco>` driver.
+    // The sibling `__init` entry runs the config-less wizard exchange so `toven
+    // init` can probe an out-of-process `toven-<eco>` driver.
     if is_init_invocation(&args) {
         return commands::driver::init_wizard(providers);
     }
@@ -81,10 +81,10 @@ const INIT_SUBCOMMAND: &str = "__init";
 /// Whether the argv selects the hidden `__serve` port-server entry.
 ///
 /// Requires `__serve` to be the *sole* argument after the program name: the
-/// port-server loop takes no flags or positional arguments (everything is driven
-/// over the framed stdio transport), so `toven-<eco> __serve <anything else>`
-/// must fall through to clap and fail fast rather than silently starting the
-/// loop and blocking on stdin.
+/// port-server loop takes no flags or positional arguments (everything is
+/// driven over the framed stdio transport), so `toven-<eco> __serve <anything
+/// else>` must fall through to clap and fail fast rather than silently starting
+/// the loop and blocking on stdin.
 fn is_serve_invocation(args: &[std::ffi::OsString]) -> bool {
     is_sole_subcommand(args, SERVE_SUBCOMMAND)
 }
@@ -118,9 +118,9 @@ pub fn report_error(error: &AppError) -> ExitCode {
 /// everything else is a usage error).
 fn clap_exit(error: &clap::Error) -> ExitCode {
     // `error.print()` writes help/usage (or the parse error) to stderr/stdout as
-    // clap chooses. A failure to write that diagnostic is itself unrecoverable
-    // here — there is no second channel to report it on, and we still owe the
-    // caller the mapped exit code — so the write result is intentionally ignored.
+    // clap chooses. A failure to write that diagnostic is itself unrecoverable here
+    // — there is no second channel to report it on, and we still owe the caller the
+    // mapped exit code — so the write result is intentionally ignored.
     let _ = error.print();
     match error.kind() {
         ErrorKind::DisplayHelp
@@ -344,16 +344,18 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
 }
 
 /// When a bare-task dispatch fails because the token is not a resolvable task,
-/// add an advisory hint if the token is a near-miss of a reserved built-in verb.
+/// add an advisory hint if the token is a near-miss of a reserved built-in
+/// verb.
 ///
-/// argv stays sacred: a real task named `modual` still runs, so the hint is only
-/// appended *after* the token failed to resolve as a task, and never rewrites the
-/// invocation — it is advisory text on the already-typed error.
+/// argv stays sacred: a real task named `modual` still runs, so the hint is
+/// only appended *after* the token failed to resolve as a task, and never
+/// rewrites the invocation — it is advisory text on the already-typed error.
 ///
-/// The predicate matches only the specific missing-task message for the attempted
-/// token (`has no '<name>' task`, the canonical intent name the scheduler emits),
-/// so unrelated `InvalidInput` failures whose text happens to contain "has no"
-/// (for example a config "... has no parent ..." error) never pick up the hint.
+/// The predicate matches only the specific missing-task message for the
+/// attempted token (`has no '<name>' task`, the canonical intent name the
+/// scheduler emits), so unrelated `InvalidInput` failures whose text happens to
+/// contain "has no" (for example a config "... has no parent ..." error) never
+/// pick up the hint.
 fn advise_builtin_typo(task: &str, error: AppError) -> AppError {
     let missing_task = format!("has no '{}' task", intent_for(task).name());
     if error.code() != rskit_errors::ErrorCode::InvalidInput
@@ -379,7 +381,8 @@ fn global_watch(cli: &Cli) -> commands::run::WatchFlags {
     }
 }
 
-/// Bundle the pre-token global selection flags for the reserved execution verbs.
+/// Bundle the pre-token global selection flags for the reserved execution
+/// verbs.
 fn global_selection(cli: &Cli) -> commands::selection::TaskSelection {
     commands::selection::TaskSelection {
         baseline: cli.baseline_flags(),
@@ -403,7 +406,8 @@ fn load(
     )
 }
 
-/// Load the project at the resolved config path and optionally emit task-dispatch collision warnings.
+/// Load the project at the resolved config path and optionally emit
+/// task-dispatch collision warnings.
 fn load_with_config(
     providers: &[&dyn Provider],
     config: Option<&std::path::Path>,
@@ -417,7 +421,8 @@ fn load_with_config(
     Ok(project)
 }
 
-/// Emit a stderr warning for every argv-first task name that shadows a reserved verb.
+/// Emit a stderr warning for every argv-first task name that shadows a reserved
+/// verb.
 ///
 /// Only argv-first task dispatch surfaces (`toven <task>`, `toven run <task>`,
 /// and `toven plan <task>`) need this warning. Introspection/cache verbs do not
@@ -456,8 +461,8 @@ mod tests {
 
     #[test]
     fn serve_with_trailing_arguments_falls_through_to_clap() {
-        // `__serve --help` (or any extra token) must NOT start the loop: it should
-        // fall through to clap and fail fast rather than blocking on stdin.
+        // `__serve --help` (or any extra token) must NOT start the loop: it should fall
+        // through to clap and fail fast rather than blocking on stdin.
         assert!(!is_serve_invocation(&argv(&[
             "toven-go",
             SERVE_SUBCOMMAND,

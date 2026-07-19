@@ -4,18 +4,19 @@
 //! project root, answers its questionnaire locally, and collects the rendered
 //! [`EcosystemFragment`]s.
 //!
-//! This is the federated half of `toven init`. Unlike [`RemoteAdapter`](super::RemoteAdapter)
-//! it is a **two-round-trip** exchange: spawn, send a [`WizardProbe`], read a
-//! [`WizardOffer`], answer each offered [`Questionnaire`](toven_ports::Questionnaire) through the injected
+//! This is the federated half of `toven init`. Unlike
+//! [`RemoteAdapter`](super::RemoteAdapter) it is a **two-round-trip** exchange:
+//! spawn, send a [`WizardProbe`], read a [`WizardOffer`], answer each offered
+//! [`Questionnaire`](toven_ports::Questionnaire) through the injected
 //! [`AnswerProvider`], send a [`WizardAnswers`], read a [`WizardResult`], and
-//! tear the child down. **The driver stays alive across the prompt** so a single
-//! detection is answered and rendered without re-probing.
+//! tear the child down. **The driver stays alive across the prompt** so a
+//! single detection is answered and rendered without re-probing.
 //!
 //! Each driver round trip is bounded by a fresh kill-watchdog armed only around
 //! that RPC: the probe→offer read and the answers→result read. The local
-//! questionnaire between them — human think-time — runs **unbounded**, so a user
-//! taking their time answering never trips a driver timeout. A wedged driver
-//! read still unblocks via the watchdog and is classified as a
+//! questionnaire between them — human think-time — runs **unbounded**, so a
+//! user taking their time answering never trips a driver timeout. A wedged
+//! driver read still unblocks via the watchdog and is classified as a
 //! [`DriverFault::Timeout`]. The `ChildHandle` drop-kill remains the backstop
 //! against a zombie child.
 
@@ -37,9 +38,9 @@ use super::process::{self, ChildHandle, Watchdog};
 /// answering each questionnaire through `answers`.
 ///
 /// Each of the two driver round trips is bounded by a fresh watchdog armed only
-/// around that RPC; the local questionnaire between them runs unbounded. A fired
-/// watchdog is classified as a [`DriverFault::Timeout`], and the `ChildHandle`
-/// drop-kill reaps the child on the way out.
+/// around that RPC; the local questionnaire between them runs unbounded. A
+/// fired watchdog is classified as a [`DriverFault::Timeout`], and the
+/// `ChildHandle` drop-kill reaps the child on the way out.
 ///
 /// # Errors
 /// Returns a typed error if the driver cannot be spawned, either round trip
@@ -59,8 +60,8 @@ pub fn run_driver_wizard(
     let label = program.display().to_string();
     let mut stdin = driver.stdin;
     let mut stdout = driver.stdout;
-    // Arm a fresh per-RPC watchdog against the live child; the exchange leaves
-    // the answering phase unbounded on its own.
+    // Arm a fresh per-RPC watchdog against the live child; the exchange leaves the
+    // answering phase unbounded on its own.
     let result = run_wizard(
         &mut stdout,
         &mut stdin,
@@ -83,8 +84,8 @@ pub fn run_driver_wizard(
 /// same exchange with a per-RPC watchdog around the spawned child's stdio.
 ///
 /// # Errors
-/// Returns a typed error on a transport failure, a malformed reply, an answering
-/// failure, or a driver detect/render failure.
+/// Returns a typed error on a transport failure, a malformed reply, an
+/// answering failure, or a driver detect/render failure.
 pub fn wizard_io<R: Read, W: Write>(
     mut reader: R,
     mut writer: W,
@@ -134,10 +135,10 @@ fn run_wizard<R: Read, W: Write>(
 /// Run one guarded driver RPC: arm a watchdog, run the framed I/O, disarm, and
 /// classify a fired timer as a [`DriverFault::Timeout`].
 ///
-/// A fired watchdog means the blocking read was unblocked by the deadline action
-/// (a child kill in production), so any resulting transport error is reported as
-/// a timeout rather than an opaque transport failure. When `arm` yields `None`
-/// (the unbounded seam), the RPC runs without a deadline.
+/// A fired watchdog means the blocking read was unblocked by the deadline
+/// action (a child kill in production), so any resulting transport error is
+/// reported as a timeout rather than an opaque transport failure. When `arm`
+/// yields `None` (the unbounded seam), the RPC runs without a deadline.
 fn guarded<T>(
     arm: &mut dyn FnMut() -> Option<Watchdog>,
     program_label: &str,
@@ -209,7 +210,8 @@ fn decode_offer(program: &Path, offer: WizardOffer) -> AppResult<Vec<WizardOffer
     }
 }
 
-/// Map a driver's [`WizardResult`] into the rendered fragments or a typed error.
+/// Map a driver's [`WizardResult`] into the rendered fragments or a typed
+/// error.
 fn decode_result(program: &Path, result: WizardResult) -> AppResult<Vec<EcosystemFragment>> {
     match result {
         WizardResult::Fragments(fragments) => Ok(fragments),
@@ -276,8 +278,8 @@ mod tests {
 
     impl Read for WedgedReader {
         fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
-            // Park until the deadline action fires (or the sender is dropped),
-            // then report EOF so the framed read resolves to a closed stream.
+            // Park until the deadline action fires (or the sender is dropped), then report
+            // EOF so the framed read resolves to a closed stream.
             let _ = self.unblock.recv();
             Ok(0)
         }
@@ -295,10 +297,10 @@ mod tests {
 
     #[test]
     fn slow_local_answering_does_not_trip_the_per_rpc_watchdog() {
-        // The offer and result are pre-buffered so the two guarded driver reads
-        // return instantly; the only slow step is answering, which runs between
-        // them WITHOUT a watchdog. Answering for 200ms under a 20ms per-RPC
-        // timeout must still succeed: human think-time is unbounded by design.
+        // The offer and result are pre-buffered so the two guarded driver reads return
+        // instantly; the only slow step is answering, which runs between them WITHOUT a
+        // watchdog. Answering for 200ms under a 20ms per-RPC timeout must still
+        // succeed: human think-time is unbounded by design.
         let mut framed = offer_frame();
         codec::write_value(&mut framed, &WizardResult::Fragments(Vec::new()))
             .expect("encode result");
@@ -328,9 +330,9 @@ mod tests {
 
     #[test]
     fn a_wedged_driver_read_is_classified_as_a_timeout() {
-        // The driver never replies to the probe: the umbrella's offer read blocks
-        // until the watchdog's deadline action unblocks it (EOF). A fired watchdog
-        // must classify the resulting closed-stream error as a typed Timeout.
+        // The driver never replies to the probe: the umbrella's offer read blocks until
+        // the watchdog's deadline action unblocks it (EOF). A fired watchdog must
+        // classify the resulting closed-stream error as a typed Timeout.
         let (tx, rx) = mpsc::channel::<()>();
         let mut reader = WedgedReader { unblock: rx };
         let mut writer: Vec<u8> = Vec::new();

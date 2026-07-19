@@ -21,19 +21,22 @@ pub(super) const PANE_CAP: usize = 6;
 pub enum ResolvedView {
     /// Single linear stream with no live area. Normal-unit output that could
     /// interleave under parallelism is buffered into a deterministic per-unit
-    /// block; live-safe runs (serial/single-unit, no held persistent unit) still
-    /// stream inline. On a terminal live units attach a PTY so child colors are
-    /// preserved; a redirected or piped target keeps the byte-stable pipe shape.
+    /// block; live-safe runs (serial/single-unit, no held persistent unit)
+    /// still stream inline. On a terminal live units attach a PTY so child
+    /// colors are preserved; a redirected or piped target keeps the byte-stable
+    /// pipe shape.
     Stream,
     /// Live in-terminal tiles; each unit's PTY is sized to `pty`.
     Tiles {
-        /// PTY size each live unit is allocated (tile tail height × terminal width).
+        /// PTY size each live unit is allocated (tile tail height × terminal
+        /// width).
         pty: PtySize,
     },
-    /// One multiplexer pane per unit up to `cap`, the rest as tiles; each unit's
-    /// PTY is sized to `pty`.
+    /// One multiplexer pane per unit up to `cap`, the rest as tiles; each
+    /// unit's PTY is sized to `pty`.
     Panes {
-        /// Most units rendered as real panes before the rest fall back to tiles.
+        /// Most units rendered as real panes before the rest fall back to
+        /// tiles.
         cap: usize,
         /// PTY size each live unit is allocated (matches the terminal).
         pty: PtySize,
@@ -49,10 +52,11 @@ pub enum ResolvedView {
 /// `max_parallel` is the effective concurrency ceiling for the run.
 ///
 /// In `auto`, a run that cannot interleave — a serial ceiling (`max_parallel <=
-/// 1`) or a single unit — resolves to [`ResolvedView::Stream`]: live tiles/panes
-/// exist only to de-interleave concurrent output, so with one emitter at a time
-/// the inline stream is the cleaner, log-friendly shape. An explicit
-/// `tiles`/`panes`/`stream` is always honored regardless of concurrency.
+/// 1`) or a single unit — resolves to [`ResolvedView::Stream`]: live
+/// tiles/panes exist only to de-interleave concurrent output, so with one
+/// emitter at a time the inline stream is the cleaner, log-friendly shape. An
+/// explicit `tiles`/`panes`/`stream` is always honored regardless of
+/// concurrency.
 #[must_use]
 pub fn resolve_view(
     view: ViewMode,
@@ -68,22 +72,21 @@ pub fn resolve_view(
     };
     let tile_pty = PtySize::new(TILE_TAIL_LINES, term.cols.max(1));
     match view {
-        // Panes need a multiplexer host; inside one render real panes, otherwise
-        // (like plain tiles) render tiles rather than spawning a doomed
-        // `tmux split-window` once per unit.
+        // Panes need a multiplexer host; inside one render real panes, otherwise (like plain tiles)
+        // render tiles rather than spawning a doomed `tmux split-window` once per unit.
         ViewMode::Panes if in_multiplexer => ResolvedView::Panes {
             cap: PANE_CAP,
             pty: term,
         },
         ViewMode::Tiles | ViewMode::Panes => ResolvedView::Tiles { pty: tile_pty },
-        // A serial or single-unit run has no concurrent output to de-interleave,
-        // so live tiles/panes add nothing; stream inline instead.
+        // A serial or single-unit run has no concurrent output to de-interleave, so live
+        // tiles/panes add nothing; stream inline instead.
         ViewMode::Auto if max_parallel <= 1 || units == 1 => ResolvedView::Stream,
         ViewMode::Auto => {
-            // `auto` picks panes only for a known small run: a positive unit
-            // count within the cap. `units == 0` means the count is unknown
-            // (watch mode) or the plan is empty, which is not a "small run", so
-            // it uses tiles rather than defaulting to panes under tmux.
+            // `auto` picks panes only for a known small run: a positive unit count within
+            // the cap. `units == 0` means the count is unknown (watch mode) or the plan is
+            // empty, which is not a "small run", so it uses tiles rather than defaulting to
+            // panes under tmux.
             if in_multiplexer && (1..=PANE_CAP).contains(&units) {
                 ResolvedView::Panes {
                     cap: PANE_CAP,
@@ -93,8 +96,8 @@ pub fn resolve_view(
                 ResolvedView::Tiles { pty: tile_pty }
             }
         }
-        // `ViewMode::Stream`, plus any future `#[non_exhaustive]` mode, uses the
-        // deterministic stream renderer.
+        // `ViewMode::Stream`, plus any future `#[non_exhaustive]` mode, uses the deterministic
+        // stream renderer.
         _ => ResolvedView::Stream,
     }
 }
@@ -105,8 +108,8 @@ mod tests {
     use rskit_process::PtySize;
 
     const TERM: PtySize = PtySize::new(40, 120);
-    /// A parallel ceiling large enough that `auto` never collapses to the serial
-    /// stream, so a test exercises the terminal renderer it names.
+    /// A parallel ceiling large enough that `auto` never collapses to the
+    /// serial stream, so a test exercises the terminal renderer it names.
     const PARALLEL: usize = 8;
 
     #[test]
@@ -135,8 +138,8 @@ mod tests {
 
     #[test]
     fn auto_streams_a_serial_run_on_a_terminal() {
-        // `--jobs 1` (or `max_parallel = 1`): nothing can interleave, so `auto`
-        // uses the inline stream rather than a live tile per unit.
+        // `--jobs 1` (or `max_parallel = 1`): nothing can interleave, so `auto` uses
+        // the inline stream rather than a live tile per unit.
         assert_eq!(
             resolve_view(ViewMode::Auto, Some(TERM), true, PANE_CAP, 1),
             ResolvedView::Stream
@@ -185,8 +188,8 @@ mod tests {
 
     #[test]
     fn auto_uses_tiles_when_unit_count_is_unknown_or_empty_under_a_multiplexer() {
-        // `units == 0` (watch mode's unknown count, or an empty plan) must not
-        // satisfy the small-run pane rule; it resolves to tiles under tmux.
+        // `units == 0` (watch mode's unknown count, or an empty plan) must not satisfy
+        // the small-run pane rule; it resolves to tiles under tmux.
         match resolve_view(ViewMode::Auto, Some(TERM), true, 0, PARALLEL) {
             ResolvedView::Tiles { .. } => {}
             other => panic!("expected tiles for a 0 unit count, got {other:?}"),
@@ -211,8 +214,8 @@ mod tests {
 
     #[test]
     fn explicit_panes_outside_a_multiplexer_falls_back_to_tiles() {
-        // `--view panes` needs a multiplexer host; without one it degrades to
-        // tiles up front instead of spawning a doomed `tmux split-window` per unit.
+        // `--view panes` needs a multiplexer host; without one it degrades to tiles up
+        // front instead of spawning a doomed `tmux split-window` per unit.
         match resolve_view(ViewMode::Panes, Some(TERM), false, 3, PARALLEL) {
             ResolvedView::Tiles { .. } => {}
             other => panic!("expected tiles, got {other:?}"),

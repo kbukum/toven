@@ -28,8 +28,8 @@ impl CommandProvider {
     /// Construct the provider with the canonical `command` ecosystem id.
     ///
     /// # Errors
-    /// Returns an error only if the static `"command"` id ever fails validation,
-    /// which cannot happen for this constant.
+    /// Returns an error only if the static `"command"` id ever fails
+    /// validation, which cannot happen for this constant.
     pub fn new() -> AppResult<Self> {
         Ok(Self {
             ecosystem: EcosystemId::new("command")?,
@@ -47,11 +47,11 @@ impl Provider for CommandProvider {
         for (key, entry) in &config.common.tasks {
             entry.materialize("command", key)?;
         }
-        // A command project that declares modules but neither tasks nor an
-        // explicit `[toolchain]` has no probeable toolchain, yet its modules
-        // would still be probed during toolchain resolution (which runs before
-        // scheduling). Reject that at the config boundary with an actionable
-        // error instead of letting PLAN fail on an un-runnable degenerate probe.
+        // A command project that declares modules but neither tasks nor an explicit
+        // `[toolchain]` has no probeable toolchain, yet its modules would still be
+        // probed during toolchain resolution (which runs before scheduling). Reject
+        // that at the config boundary with an actionable error instead of letting PLAN
+        // fail on an un-runnable degenerate probe.
         if !config.modules.is_empty()
             && config.common.tasks.is_empty()
             && config.toolchain.is_none()

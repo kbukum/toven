@@ -9,9 +9,9 @@ use super::question::QuestionId;
 
 /// A single resolved answer, keyed in [`Answers`] by its [`QuestionId`].
 ///
-/// The variant matches the question's
-/// [`QuestionKind`](super::QuestionKind): the carried [`ChoiceId`]s are exactly
-/// those the adapter minted in its [`Choice`](rskit_cli::Choice)s, so
+/// The variant matches the question's [`QuestionKind`](super::QuestionKind):
+/// the carried [`ChoiceId`]s are exactly those the adapter minted in its
+/// [`Choice`](rskit_cli::Choice)s, so
 /// [`render`](crate::provider::Provider::render) matches them without
 /// stringly-typed lookups.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,7 +19,8 @@ use super::question::QuestionId;
 pub enum Answer {
     /// The chosen id for a [`Select`](super::QuestionKind::Select) question.
     Choice(ChoiceId),
-    /// The chosen ids for a [`MultiSelect`](super::QuestionKind::MultiSelect) question.
+    /// The chosen ids for a [`MultiSelect`](super::QuestionKind::MultiSelect)
+    /// question.
     MultiChoice(Vec<ChoiceId>),
     /// The answer to a [`Confirm`](super::QuestionKind::Confirm) question.
     Bool(bool),
@@ -27,12 +28,12 @@ pub enum Answer {
     Text(String),
 }
 
-/// The user's answers to one ecosystem's [`Questionnaire`](super::Questionnaire),
-/// keyed by [`QuestionId`].
+/// The user's answers to one ecosystem's
+/// [`Questionnaire`](super::Questionnaire), keyed by [`QuestionId`].
 ///
 /// Assembled by the CLI from prompt results (or by resolving
-/// [`PromptMode::NonInteractive`](rskit_cli::PromptMode) defaults) and handed to
-/// [`render`](crate::provider::Provider::render).
+/// [`PromptMode::NonInteractive`](rskit_cli::PromptMode) defaults) and handed
+/// to [`render`](crate::provider::Provider::render).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Answers {
     map: BTreeMap<QuestionId, Answer>,

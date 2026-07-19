@@ -13,16 +13,18 @@ use crate::plan::discover::Federation;
 /// Each selector is matched against the discovered graph: a bare name resolves
 /// across every ecosystem, an ecosystem/workspace-qualified name scopes the
 /// match, a glob expands to its explicit set, and a whole-workspace pattern
-/// activates every module its matching workspaces own. Canonical `ecosystem:name`
-/// identity is unchanged — only the accepted *input* is relaxed.
+/// activates every module its matching workspaces own. Canonical
+/// `ecosystem:name` identity is unchanged — only the accepted *input* is
+/// relaxed.
 ///
 /// # Errors
 /// - A target that resolves to no discovered module is an
 ///   [`AppError::invalid_input`] listing the available identities — Toven never
 ///   silently plans an empty run.
-/// - A bare exact name matching modules in more than one ecosystem is a distinct
-///   ambiguity error naming the qualified candidates; the user must qualify it. A
-///   glob is an explicit set, so multiple matches are the intent, never an error.
+/// - A bare exact name matching modules in more than one ecosystem is a
+///   distinct ambiguity error naming the qualified candidates; the user must
+///   qualify it. A glob is an explicit set, so multiple matches are the intent,
+///   never an error.
 pub(super) fn explicit_seeds(
     targets: &[ModuleSelector],
     graph: &Graph,

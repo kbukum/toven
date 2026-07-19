@@ -31,8 +31,8 @@ pub(crate) struct PlanContext {
 ///
 /// `project_root` is the umbrella project root; members (if any) resolve under
 /// it. Configure bakes every member's adapters, Discover unions every member's
-/// rebased discovery output into one federation, and Graph builds + semantically
-/// validates the result.
+/// rebased discovery output into one federation, and Graph builds +
+/// semantically validates the result.
 ///
 /// # Errors
 /// Propagates configuration, discovery, graph construction, or semantic
@@ -95,14 +95,15 @@ pub(crate) fn prepare(
     })
 }
 
-/// Build the validated discovered module dependency graph without scheduling a task.
+/// Build the validated discovered module dependency graph without scheduling a
+/// task.
 ///
-/// This runs the shared Configure → Discover → Graph front half and stops before
-/// affected selection, toolchain probing, scheduling, or cache decisions. Use it
-/// for introspection surfaces whose output is about the discovered topology rather
-/// than a task-specific PLAN cut. The injected `locator` resolves out-of-process
-/// drivers for canonical-but-unloaded ecosystems, so federation resolution stays
-/// deterministic in tests.
+/// This runs the shared Configure → Discover → Graph front half and stops
+/// before affected selection, toolchain probing, scheduling, or cache
+/// decisions. Use it for introspection surfaces whose output is about the
+/// discovered topology rather than a task-specific PLAN cut. The injected
+/// `locator` resolves out-of-process drivers for canonical-but-unloaded
+/// ecosystems, so federation resolution stays deterministic in tests.
 ///
 /// # Errors
 /// Propagates configuration, discovery, graph construction, or semantic

@@ -1,12 +1,12 @@
 //! The `toven coverage` engine entry: run-agnostic aggregation of the emitted
 //! coverage profiles into a gated [`CoverageReport`].
 //!
-//! Read-only over an already-run coverage task: the CLI verb runs the recognized
-//! coverage task (emitting profiles into [`COVERAGE_DIR`](super::read::COVERAGE_DIR)),
-//! then calls this to attribute the profiles to modules, fold each module's
-//! metrics, and gate them against the resolved `[…coverage]` thresholds. The
-//! measurement is the ecosystem tool's job; the aggregation and pass/fail verdict
-//! are Toven's.
+//! Read-only over an already-run coverage task: the CLI verb runs the
+//! recognized coverage task (emitting profiles into
+//! [`COVERAGE_DIR`](super::read::COVERAGE_DIR)), then calls this to attribute
+//! the profiles to modules, fold each module's metrics, and gate them against
+//! the resolved `[…coverage]` thresholds. The measurement is the ecosystem
+//! tool's job; the aggregation and pass/fail verdict are Toven's.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;

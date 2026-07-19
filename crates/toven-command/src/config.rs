@@ -7,9 +7,9 @@ use toven_ports::CommonEcosystemConfig;
 ///
 /// Unlike the tooling-backed adapters, the command ecosystem **declares** its
 /// modules (`[[modules]]`) and tasks (`[tasks.*]`, flattened via
-/// [`CommonEcosystemConfig`]) rather than probing anything. `deny_unknown_fields`
-/// rejects a typo anywhere in the section — the `toml` deserializer honors it
-/// across the flattened remainder, so
+/// [`CommonEcosystemConfig`]) rather than probing anything.
+/// `deny_unknown_fields` rejects a typo anywhere in the section — the `toml`
+/// deserializer honors it across the flattened remainder, so
 /// [`CommandProvider::configure`](toven_ports::Provider::configure) surfaces
 /// section-level typos itself.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]

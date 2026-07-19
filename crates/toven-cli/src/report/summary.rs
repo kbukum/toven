@@ -1,23 +1,23 @@
 //! Runner test-count summary parsing for the tiles verdict line.
 //!
-//! A succeeding `test` unit collapses to a single verdict line, and Toven — which
-//! owns runner semantics — folds the runner's own count summary into it (e.g.
-//! `ok rust:core#test · 987 passed, 3 skipped`). This module scans a unit's raw
-//! output for that summary as bytes arrive, so no full transcript is buffered:
-//! only the current partial line and the running tally are kept.
+//! A succeeding `test` unit collapses to a single verdict line, and Toven —
+//! which owns runner semantics — folds the runner's own count summary into it
+//! (e.g. `ok rust:core#test · 987 passed, 3 skipped`). This module scans a
+//! unit's raw output for that summary as bytes arrive, so no full transcript is
+//! buffered: only the current partial line and the running tally are kept.
 //!
 //! Two runner shapes are recognized after stripping ANSI styling:
-//! - `cargo-nextest`: `Summary [ … ] N tests run: N passed, M skipped` (one final
-//!   grand total, so it overwrites the tally).
-//! - `cargo test`: `test result: ok. N passed; M failed; K ignored; …` (one line
-//!   per test binary, so the counts accumulate).
+//! - `cargo-nextest`: `Summary [ … ] N tests run: N passed, M skipped` (one
+//!   final grand total, so it overwrites the tally).
+//! - `cargo test`: `test result: ok. N passed; M failed; K ignored; …` (one
+//!   line per test binary, so the counts accumulate).
 
 use std::fmt;
 
 /// Upper bound on the buffered unterminated-line tail in [`SummaryScanner`].
 ///
-/// Recognized runner count lines are well under a kilobyte, so an overlong
-/// tail is never a summary; capping it keeps a chatty or `\r`-only stream from
+/// Recognized runner count lines are well under a kilobyte, so an overlong tail
+/// is never a summary; capping it keeps a chatty or `\r`-only stream from
 /// growing the per-unit scanner without bound.
 const MAX_PENDING: usize = 64 * 1024;
 
@@ -43,7 +43,8 @@ impl fmt::Display for RunSummary {
 /// Scans a unit's raw output stream for its runner test-count summary.
 ///
 /// Feed raw output chunks with [`observe`](Self::observe) as they arrive; take
-/// the folded [`RunSummary`] with [`summary`](Self::summary) once the unit ends.
+/// the folded [`RunSummary`] with [`summary`](Self::summary) once the unit
+/// ends.
 #[derive(Debug, Default)]
 pub(crate) struct SummaryScanner {
     pending: String,
@@ -125,7 +126,8 @@ fn strip_ansi(line: &str) -> String {
     out
 }
 
-/// Parse a `cargo-nextest` grand-total line: `… N tests run: N passed, M skipped`.
+/// Parse a `cargo-nextest` grand-total line: `… N tests run: N passed, M
+/// skipped`.
 fn parse_nextest(line: &str) -> Option<RunSummary> {
     let tail = line.split("tests run:").nth(1)?;
     Some(RunSummary {

@@ -1,6 +1,6 @@
-//! The `[…coverage]` sub-config: the declarative coverage-gating surface, shared
-//! by the ecosystem default (`[ecosystems.<id>].coverage`) and the per-module
-//! override (`[modules.<name>.coverage]`).
+//! The `[…coverage]` sub-config: the declarative coverage-gating surface,
+//! shared by the ecosystem default (`[ecosystems.<id>].coverage`) and the
+//! per-module override (`[modules.<name>.coverage]`).
 
 use std::collections::BTreeMap;
 
@@ -12,15 +12,15 @@ use super::{CoverageProfile, CoverageThresholds, Enforcement};
 /// The declarative coverage surface: thresholds, enforcement, and scope inputs
 /// only — never the runner flags.
 ///
-/// Toven config owns the pass/fail verdict inputs (the per-dimension floors, the
-/// enforcement mode, and which modules to exclude or elevate); the *measurement*
-/// flags (`--html`, profraw cleanup, the tool's own `--jobs`, the profile output
-/// path) stay in the coverage **task's argv** the user authors. Every field is
-/// optional/defaulted, so an existing `toven.toml` with no `[…coverage]` block
-/// keeps parsing and inherits the adapter default. The engine folds ecosystem →
-/// profile → per-module override into a resolved settings value with the
-/// precedence `[modules.<name>.coverage]` > `profiles.<name>` >
-/// `[ecosystems.<id>].coverage` > adapter default.
+/// Toven config owns the pass/fail verdict inputs (the per-dimension floors,
+/// the enforcement mode, and which modules to exclude or elevate); the
+/// *measurement* flags (`--html`, profraw cleanup, the tool's own `--jobs`, the
+/// profile output path) stay in the coverage **task's argv** the user authors.
+/// Every field is optional/defaulted, so an existing `toven.toml` with no
+/// `[…coverage]` block keeps parsing and inherits the adapter default. The
+/// engine folds ecosystem → profile → per-module override into a resolved
+/// settings value with the precedence `[modules.<name>.coverage]` >
+/// `profiles.<name>` > `[ecosystems.<id>].coverage` > adapter default.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CoverageConfig {
@@ -48,7 +48,8 @@ pub struct CoverageConfig {
 }
 
 impl CoverageConfig {
-    /// Whether this config is entirely default (so it can be skipped on serialize).
+    /// Whether this config is entirely default (so it can be skipped on
+    /// serialize).
     #[must_use]
     pub fn is_default(&self) -> bool {
         self == &Self::default()

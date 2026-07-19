@@ -15,8 +15,8 @@ use crate::toolchain;
 /// The configured `go` adapter: a baked [`GoConfig`].
 ///
 /// Constructed by [`GoProvider::configure`](toven_ports::Provider::configure)
-/// and held by the engine as `dyn ConfiguredAdapter`. The runnable task table is
-/// read from the parsed config (`common().tasks`), not from the adapter.
+/// and held by the engine as `dyn ConfiguredAdapter`. The runnable task table
+/// is read from the parsed config (`common().tasks`), not from the adapter.
 #[derive(Debug, Clone)]
 pub struct GoAdapter {
     config: GoConfig,

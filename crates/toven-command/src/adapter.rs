@@ -12,16 +12,17 @@ use crate::tasks;
 
 /// The toolchain program/label for an empty (module-less) ecosystem. This is a
 /// stable placeholder, never executed: [`CommandProvider::configure`] rejects a
-/// config that declares modules without tasks or a `[toolchain]`, and the engine
-/// only probes a workspace that owns an active module — so the degenerate branch
-/// is unreachable for any probed workspace.
+/// config that declares modules without tasks or a `[toolchain]`, and the
+/// engine only probes a workspace that owns an active module — so the
+/// degenerate branch is unreachable for any probed workspace.
 const DEFAULT_TOOL: &str = "command";
 
 /// The configured command adapter: a baked [`CommandConfig`].
 ///
-/// Constructed by [`CommandProvider::configure`](toven_ports::Provider::configure)
-/// and held by the engine as `dyn ConfiguredAdapter`. The runnable task table is
-/// read from the parsed config (`common().tasks`), not from the adapter.
+/// Constructed by
+/// [`CommandProvider::configure`](toven_ports::Provider::configure) and held by
+/// the engine as `dyn ConfiguredAdapter`. The runnable task table is read from
+/// the parsed config (`common().tasks`), not from the adapter.
 #[derive(Debug, Clone)]
 pub struct CommandAdapter {
     config: CommandConfig,
@@ -43,9 +44,9 @@ impl ConfiguredAdapter for CommandAdapter {
     /// Resolve the toolchain probe with no inference beyond what's declared.
     ///
     /// Precedence: an explicit `[toolchain]` block wins; otherwise the first
-    /// declared task's program is probed with `--version`. The final
-    /// `command --version` placeholder is only reachable for an empty,
-    /// module-less ecosystem — which the engine never probes — because
+    /// declared task's program is probed with `--version`. The final `command
+    /// --version` placeholder is only reachable for an empty, module-less
+    /// ecosystem — which the engine never probes — because
     /// [`CommandProvider::configure`](toven_ports::Provider::configure) rejects
     /// modules declared without any task or `[toolchain]`.
     fn toolchain_probe(&self) -> ToolchainProbe {

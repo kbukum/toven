@@ -22,14 +22,15 @@ use toven_ports::{CacheStore, CacheWriter};
 /// Temp-file prefix used for the marker's atomic write.
 const MARKER_TEMP_PREFIX: &str = "toven-cache";
 
-/// Upper bound on a marker file read, guarding the key-collision check against a
-/// corrupt or hostile oversized file. Markers hold only a key, so this is ample.
+/// Upper bound on a marker file read, guarding the key-collision check against
+/// a corrupt or hostile oversized file. Markers hold only a key, so this is
+/// ample.
 const MAX_MARKER_BYTES: u64 = 64 * 1024;
 
 /// A filesystem-backed, content-addressed presence cache.
 ///
-/// Records live under `root` in a two-character shard directory derived from the
-/// key's own digest, keeping any single directory small.
+/// Records live under `root` in a two-character shard directory derived from
+/// the key's own digest, keeping any single directory small.
 #[derive(Debug, Clone)]
 pub struct FsContentCache {
     root: PathBuf,
@@ -59,9 +60,9 @@ impl CacheStore for FsContentCache {
         if !file::exists(&path)? {
             return Ok(false);
         }
-        // The marker records the key it was written for; a mismatch means two
-        // distinct keys digested to the same shard path (astronomically
-        // unlikely with BLAKE3) and must fail loudly rather than alias a HIT.
+        // The marker records the key it was written for; a mismatch means two distinct
+        // keys digested to the same shard path (astronomically unlikely with BLAKE3)
+        // and must fail loudly rather than alias a HIT.
         let stored = file::read_string_bounded(&path, MAX_MARKER_BYTES)?;
         if stored == key {
             Ok(true)

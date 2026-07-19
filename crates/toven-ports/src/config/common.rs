@@ -8,16 +8,17 @@ use super::{CoverageConfig, ReleaseConfig, RunStrategy, TaskEntry};
 
 /// The engine-common `[ecosystems.<id>]` knobs shared by every adapter config.
 ///
-/// Each adapter's typed config embeds this with `#[serde(flatten)]`, so a single
-/// deserialize covers the adapter's own fields plus these common ones and lets
-/// the adapter set ecosystem-aware defaults for both. Note serde cannot combine
-/// `deny_unknown_fields` with `#[serde(flatten)]`: unknown-key (typo) rejection
-/// for flattened ecosystem sections is therefore enforced by the strict
-/// `Document` loader, not by this parse. The engine reads the knobs back via
-/// [`ConfiguredAdapter::common`](crate::provider::ConfiguredAdapter::common).
+/// Each adapter's typed config embeds this with `#[serde(flatten)]`, so a
+/// single deserialize covers the adapter's own fields plus these common ones
+/// and lets the adapter set ecosystem-aware defaults for both. Note serde
+/// cannot combine `deny_unknown_fields` with `#[serde(flatten)]`: unknown-key
+/// (typo) rejection for flattened ecosystem sections is therefore enforced by
+/// the strict `Document` loader, not by this parse. The engine reads the knobs
+/// back via [`ConfiguredAdapter::common`](crate::provider::ConfiguredAdapter::common).
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 pub struct CommonEcosystemConfig {
-    /// Ecosystem-level wave-ordering override (else the per-kind adapter default).
+    /// Ecosystem-level wave-ordering override (else the per-kind adapter
+    /// default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_strategy: Option<RunStrategy>,
     /// Release sub-config (`release.strategy`, `release.registry`).
@@ -27,7 +28,8 @@ pub struct CommonEcosystemConfig {
     #[serde(default, skip_serializing_if = "CoverageConfig::is_default")]
     pub coverage: CoverageConfig,
     /// The complete ecosystem task table: one authored [`TaskEntry`] per task
-    /// name, the authoritative source of runnable tasks (`toven init` writes it).
+    /// name, the authoritative source of runnable tasks (`toven init` writes
+    /// it).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub tasks: BTreeMap<String, TaskEntry>,
 }
@@ -37,9 +39,9 @@ mod tests {
     use super::{CommonEcosystemConfig, RunStrategy};
     use serde::{Deserialize, Serialize};
 
-    /// A stand-in adapter config that flattens the common knobs alongside its own
-    /// ecosystem-specific fields. (Section-level `deny_unknown_fields` strictness
-    /// is the strict `Document` loader's job: serde does not enforce
+    /// A stand-in adapter config that flattens the common knobs alongside its
+    /// own ecosystem-specific fields. (Section-level `deny_unknown_fields`
+    /// strictness is the strict `Document` loader's job: serde does not enforce
     /// `deny_unknown_fields` together with `#[serde(flatten)]`.)
     #[derive(Debug, PartialEq, Deserialize, Serialize)]
     struct FakeAdapterConfig {

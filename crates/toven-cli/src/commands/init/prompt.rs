@@ -23,8 +23,8 @@ use toven_ports::{Answer, AnswerProvider, Answers, QuestionKind, Questionnaire, 
 /// The CLI's interactive [`AnswerProvider`].
 ///
 /// Wraps a single [`Prompter`] in a [`RefCell`] because the engine calls
-/// [`answers_for`](AnswerProvider::answers_for) through a shared reference while
-/// each prompt method needs `&mut` access to the terminal.
+/// [`answers_for`](AnswerProvider::answers_for) through a shared reference
+/// while each prompt method needs `&mut` access to the terminal.
 pub(super) struct PromptAnswers {
     prompter: RefCell<Prompter<Box<dyn Terminal>>>,
 }
@@ -35,8 +35,8 @@ impl PromptAnswers {
     /// When `non_interactive` is set the prompter is pinned to
     /// [`PromptMode::NonInteractive`] over a line terminal (every question
     /// resolves to its default); otherwise the mode follows the both-stream TTY
-    /// check via [`Prompter::from_env`], selecting rich raw-mode navigation when
-    /// available.
+    /// check via [`Prompter::from_env`], selecting rich raw-mode navigation
+    /// when available.
     pub(super) fn new(color: ColorChoice, non_interactive: bool) -> Self {
         let prompter = if non_interactive {
             let palette = Palette::for_stream(color, &stderr());
@@ -86,8 +86,8 @@ fn ask(
                     default.as_deref(),
                     &non_empty("a value is required"),
                 )?,
-                // `TextRule` is `#[non_exhaustive]`: an unmapped rule is a hard
-                // error rather than a silently unenforced validation.
+                // `TextRule` is `#[non_exhaustive]`: an unmapped rule is a hard error rather than a
+                // silently unenforced validation.
                 Some(other) => {
                     return Err(AppError::new(
                         ErrorCode::Internal,
@@ -97,8 +97,8 @@ fn ask(
             };
             Answer::Text(value)
         }
-        // `QuestionKind` is `#[non_exhaustive]`: a kind added upstream without a
-        // prompt mapping here is a hard error rather than a silent drop.
+        // `QuestionKind` is `#[non_exhaustive]`: a kind added upstream without a prompt mapping
+        // here is a hard error rather than a silent drop.
         _ => {
             return Err(AppError::new(
                 ErrorCode::Internal,

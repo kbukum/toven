@@ -12,7 +12,8 @@ use crate::identity::{RepoPath, WorkspaceId};
 /// workspace.
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub struct ToolchainTag {
-    /// Driver name (`cargo`, `pnpm`) — used for display and argv program choice.
+    /// Driver name (`cargo`, `pnpm`) — used for display and argv program
+    /// choice.
     pub tool: String,
     /// Opaque, adapter-composed version identity; `None` until resolved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -37,7 +38,8 @@ impl ToolchainTag {
     }
 }
 
-/// A discovery unit (one Cargo workspace, one `go.work`) that drives multi-tooling.
+/// A discovery unit (one Cargo workspace, one `go.work`) that drives
+/// multi-tooling.
 ///
 /// Promoted from a bare string to an object because the resolved driver+version
 /// is needed by argv rendering, the cache key, and resource grouping.
@@ -49,10 +51,10 @@ pub struct Workspace {
     pub root: RepoPath,
     /// Resolved driver identity for this workspace.
     pub toolchain: ToolchainTag,
-    /// Workspace-wide blast-radius input globs: a change to any path matching one
-    /// of these activates every member of the workspace (e.g. a shared
-    /// `Cargo.lock`). Adapter-set during discovery; empty leaves only per-module
-    /// source patterns to drive change detection.
+    /// Workspace-wide blast-radius input globs: a change to any path matching
+    /// one of these activates every member of the workspace (e.g. a shared
+    /// `Cargo.lock`). Adapter-set during discovery; empty leaves only
+    /// per-module source patterns to drive change detection.
     #[serde(default)]
     pub blast_radius: Vec<String>,
 }

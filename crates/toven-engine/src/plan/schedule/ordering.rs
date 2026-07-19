@@ -2,10 +2,10 @@
 //! topo-levelled wave order and the per-module dependency layer.
 //!
 //! Per-module `RunStrategy` decides whether an intra-ecosystem ordering edge is
-//! kept (`leaf-to-top`) or dropped (`unordered`); overlay edges are always kept.
-//! The residual active subgraph is levelled into waves by
-//! [`Graph::waves`](toven_model::Graph::waves), and each module's dependency layer
-//! is the wave index it first becomes ready in.
+//! kept (`leaf-to-top`) or dropped (`unordered`); overlay edges are always
+//! kept. The residual active subgraph is levelled into waves by
+//! [`Graph::waves`](toven_model::Graph::waves), and each module's dependency
+//! layer is the wave index it first becomes ready in.
 
 use std::collections::BTreeMap;
 
@@ -57,7 +57,8 @@ pub(super) fn strategies(
     Ok(strategies)
 }
 
-/// Build the validated subgraph spanning only the active modules and their edges.
+/// Build the validated subgraph spanning only the active modules and their
+/// edges.
 pub(super) fn active_subgraph(
     modules: &BTreeMap<ModuleKey, Module>,
     federation: &Federation,
@@ -87,7 +88,8 @@ pub(super) fn keep_edge(edge: &Edge, strategies: &BTreeMap<ModuleKey, RunStrateg
 ///
 /// The kept edges are exactly those that ordered the waves (overlay edges plus
 /// intra-ecosystem edges retained under `leaf-to-top`); they drive APPLY's
-/// fail-closed gating. All endpoints are active, so every id resolves to a unit.
+/// fail-closed gating. All endpoints are active, so every id resolves to a
+/// unit.
 pub(super) fn kept_dependencies(
     modules: &BTreeMap<ModuleKey, Module>,
     federation: &Federation,
@@ -118,8 +120,8 @@ pub(super) fn workspace_index(federation: &Federation) -> BTreeMap<WorkspaceId, 
 
 /// Map each active module to its dependency layer: the wave index it first
 /// becomes ready in under the kept-edge relaxation. Reuses the topo-levelled
-/// waves ([`Graph::waves`](toven_model::Graph::waves)) — the layer *is* the wave
-/// index — rather than re-deriving a topological order.
+/// waves ([`Graph::waves`](toven_model::Graph::waves)) — the layer *is* the
+/// wave index — rather than re-deriving a topological order.
 pub(super) fn layer_index(waves: &[Vec<ModuleKey>]) -> BTreeMap<ModuleKey, usize> {
     let mut layers = BTreeMap::new();
     for (index, wave) in waves.iter().enumerate() {

@@ -1,9 +1,9 @@
 //! Tag listing + glob filtering for the adapter's `list_tags`.
 //!
 //! rskit-git's [`RefManager::list_tags`](rskit_git::RefManager) returns every
-//! tag; release change-detection asks for `"<module>@*"`, so this filters with a
-//! minimal `*`/`?` glob (no glob crate in the dependency set) and maps survivors
-//! onto the ports' [`TagRef`].
+//! tag; release change-detection asks for `"<module>@*"`, so this filters with
+//! a minimal `*`/`?` glob (no glob crate in the dependency set) and maps
+//! survivors onto the ports' [`TagRef`].
 
 use rskit_errors::AppResult;
 use rskit_git::{RefManager, Repo};

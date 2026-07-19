@@ -1,13 +1,13 @@
 //! Shared content-digest port double: [`FakeSourceDigest`].
 //!
-//! Cache-key tests substitute this deterministic digest so hashes are controlled
-//! without touching the filesystem: each identity is derived from the queried
-//! module ref or path rather than real file content.
+//! Cache-key tests substitute this deterministic digest so hashes are
+//! controlled without touching the filesystem: each identity is derived from
+//! the queried module ref or path rather than real file content.
 //!
 //! To mirror the [`SourceDigest`] contract — where an absent module root or an
 //! absent shared input hashes to a single stable empty identity rather than
-//! erroring — entries marked absent via [`FakeSourceDigest::with_absent_path`] /
-//! [`FakeSourceDigest::with_absent_module`] all return the same
+//! erroring — entries marked absent via [`FakeSourceDigest::with_absent_path`]
+//! / [`FakeSourceDigest::with_absent_module`] all return the same
 //! [`EMPTY_IDENTITY`], so tests can model optional inputs that are not present.
 
 use std::collections::BTreeSet;
@@ -21,16 +21,17 @@ use toven_ports::SourceDigest;
 ///
 /// A distinct, opaque sentinel: per the [`SourceDigest`] contract, callers
 /// compare digests only for equality, so the double need not reproduce the
-/// production `FsSourceDigest` empty-content value — it only guarantees that all
-/// absent inputs share one stable identity that differs from any present one.
+/// production `FsSourceDigest` empty-content value — it only guarantees that
+/// all absent inputs share one stable identity that differs from any present
+/// one.
 pub const EMPTY_IDENTITY: &str = "empty";
 
 /// A deterministic [`SourceDigest`] for tests.
 ///
-/// A present module/path identity is derived from its own name, so tests control
-/// hashes without touching the filesystem, while entries registered as absent
-/// collapse to the shared [`EMPTY_IDENTITY`] — modeling the real planner's
-/// "absent optional input" behavior.
+/// A present module/path identity is derived from its own name, so tests
+/// control hashes without touching the filesystem, while entries registered as
+/// absent collapse to the shared [`EMPTY_IDENTITY`] — modeling the real
+/// planner's "absent optional input" behavior.
 #[derive(Debug, Default)]
 pub struct FakeSourceDigest {
     absent_modules: BTreeSet<ModuleRef>,
@@ -61,9 +62,9 @@ impl FakeSourceDigest {
 
     /// Make hashing `path` fail, modeling an unreadable shared input.
     ///
-    /// Lets tests assert that a digest read which *would* error is never reached
-    /// for an input the planner has no reason to hash (e.g. a unit whose cache
-    /// verdict is deterministically `Disabled`).
+    /// Lets tests assert that a digest read which *would* error is never
+    /// reached for an input the planner has no reason to hash (e.g. a unit
+    /// whose cache verdict is deterministically `Disabled`).
     #[must_use]
     pub fn with_failing_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.failing_paths.insert(path.into());
@@ -130,8 +131,8 @@ mod tests {
             .with_absent_path("optional/lock")
             .with_absent_path("optional/config");
 
-        // Absent module and both absent paths hash to the SAME empty identity,
-        // matching the production contract for absent optional inputs.
+        // Absent module and both absent paths hash to the SAME empty identity, matching
+        // the production contract for absent optional inputs.
         assert_eq!(digest.module(&module("gone")).unwrap(), EMPTY_IDENTITY);
         assert_eq!(
             digest.path(Path::new("optional/lock")).unwrap(),

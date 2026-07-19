@@ -4,8 +4,8 @@
 //!
 //! For each active workspace, resolve its canonical repo root, dedup by root,
 //! diff once per repo, then strip each workspace's prefix. The prefix-strip
-//! ([`rebase_records`]) and the dedup grouping are pure and unit-testable without
-//! a git repo; only [`VcsReaderSet::open`] touches the filesystem.
+//! ([`rebase_records`]) and the dedup grouping are pure and unit-testable
+//! without a git repo; only [`VcsReaderSet::open`] touches the filesystem.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -136,12 +136,12 @@ fn group_by_root(
 /// Strip a workspace `prefix` off repo-relative `records`, yielding
 /// workspace-relative records for those that intersect the workspace.
 ///
-/// A record whose new path is under `prefix` is rebased (and its `old_path` too,
-/// when also under `prefix`). A rename *into* the workspace from an outside
-/// source has no in-workspace `old_path`, so it is surfaced as an [`Added`] at
-/// the new path rather than a `Renamed` record missing its origin. A record
-/// whose *old* path alone is under `prefix` is a rename/delete out of the
-/// workspace, surfaced as a [`Deleted`] at the old path. An empty `prefix`
+/// A record whose new path is under `prefix` is rebased (and its `old_path`
+/// too, when also under `prefix`). A rename *into* the workspace from an
+/// outside source has no in-workspace `old_path`, so it is surfaced as an
+/// [`Added`] at the new path rather than a `Renamed` record missing its origin.
+/// A record whose *old* path alone is under `prefix` is a rename/delete out of
+/// the workspace, surfaced as a [`Deleted`] at the old path. An empty `prefix`
 /// denotes the repo root and rebases nothing.
 ///
 /// [`Added`]: toven_ports::ChangeStatus::Added
@@ -162,9 +162,9 @@ fn rebase_one(record: &ChangeRecord, prefix: &Path) -> Option<ChangeRecord> {
         .and_then(|old| strip(old, prefix));
 
     if let Some(path) = new_in {
-        // A rename whose source lies outside the workspace has no in-workspace
-        // origin: from this workspace's view the file simply appeared. Surface
-        // it as `Added` so we never emit a `Renamed` record without `old_path`.
+        // A rename whose source lies outside the workspace has no in-workspace origin:
+        // from this workspace's view the file simply appeared. Surface it as `Added` so
+        // we never emit a `Renamed` record without `old_path`.
         if record.status == ChangeStatus::Renamed && old_in.is_none() {
             return Some(ChangeRecord::new(path, ChangeStatus::Added));
         }
@@ -174,8 +174,8 @@ fn rebase_one(record: &ChangeRecord, prefix: &Path) -> Option<ChangeRecord> {
         }
         Some(rebased)
     } else {
-        // New path is outside the workspace; only an old path under the prefix
-        // remains — a rename/delete out of the workspace's view.
+        // New path is outside the workspace; only an old path under the prefix remains
+        // — a rename/delete out of the workspace's view.
         old_in.map(|path| ChangeRecord::new(path, ChangeStatus::Deleted))
     }
 }

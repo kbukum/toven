@@ -10,9 +10,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum FanOut {
-    /// Selector takes exactly one module → one process per module (`go test ./api`).
+    /// Selector takes exactly one module → one process per module (`go test
+    /// ./api`).
     PerModule,
-    /// Selector is repeatable → engine MAY collapse a ready wave (`cargo test -p a -p b`).
+    /// Selector is repeatable → engine MAY collapse a ready wave (`cargo test
+    /// -p a -p b`).
     Batchable,
     /// No selector; runs once per workspace (`cargo fmt --all`).
     WholeWorkspace,

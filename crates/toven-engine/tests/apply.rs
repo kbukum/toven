@@ -176,8 +176,8 @@ fn resource_groups_serialize_within_group_but_run_across_groups() {
 
 #[test]
 fn max_parallel_caps_peak_concurrency() {
-    // A single wave of independent units must never run more than `max_parallel`
-    // at once: the pool's bounded permits are the concurrency contract the shine
+    // A single wave of independent units must never run more than `max_parallel` at
+    // once: the pool's bounded permits are the concurrency contract the shine
     // points rest on. Four ready units at a cap of two overlap up to — but never
     // beyond — the cap.
     let plan = Plan::new(
@@ -295,12 +295,12 @@ fn fail_fast_cancels_in_flight_and_stops_later_waves() {
 
 #[test]
 fn external_cancel_tears_down_in_flight_and_stops_later_waves() {
-    // `a` blocks in its first wave; `b` sits in a later wave. Once `a` is
-    // in-flight an external cancel (the Ctrl+C wiring) fires, which must run the
-    // same cooperative teardown a `--fail-fast` failure does even though
-    // `fail_fast` is false here: SIGTERM the in-flight worker, stop scheduling
-    // later waves, drain held processes / shut the pool down (no orphan), and
-    // still return aggregated `RunStats` with terminal `Cancelled` events.
+    // `a` blocks in its first wave; `b` sits in a later wave. Once `a` is in-flight
+    // an external cancel (the Ctrl+C wiring) fires, which must run the same
+    // cooperative teardown a `--fail-fast` failure does even though `fail_fast` is
+    // false here: SIGTERM the in-flight worker, stop scheduling later waves, drain
+    // held processes / shut the pool down (no orphan), and still return aggregated
+    // `RunStats` with terminal `Cancelled` events.
     let a = unit("a");
     let b = unit("b");
     let plan = Plan::new(vec![a, b], vec![vec!["a".into()], vec!["b".into()]]);
@@ -317,9 +317,9 @@ fn external_cancel_tears_down_in_flight_and_stops_later_waves() {
         .expect("runtime");
 
     let stats = runtime.block_on(async {
-        // Fire the external cancel only once `a` is actually in-flight, so the
-        // run exercises the live-worker teardown branch rather than the
-        // pre-scheduling short-circuit.
+        // Fire the external cancel only once `a` is actually in-flight, so the run
+        // exercises the live-worker teardown branch rather than the pre-scheduling
+        // short-circuit.
         let watcher_token = cancel.clone();
         let watcher_runner = runner.clone();
         let watcher = tokio::spawn(async move {
@@ -354,8 +354,8 @@ fn external_cancel_tears_down_in_flight_and_stops_later_waves() {
     assert_eq!(runner.cancelled(), vec!["a".to_string()]);
     assert!(!runner.started().contains(&"b".to_string()));
 
-    // Both the in-flight-cancelled `a` and the never-scheduled `b` reach a
-    // terminal `Cancelled` event so the stream accounts for every planned unit.
+    // Both the in-flight-cancelled `a` and the never-scheduled `b` reach a terminal
+    // `Cancelled` event so the stream accounts for every planned unit.
     assert_eq!(stats.cancelled_units, 2);
     let cancelled: Vec<&String> = reporter
         .events()
@@ -370,8 +370,8 @@ fn external_cancel_tears_down_in_flight_and_stops_later_waves() {
         .collect();
     assert_eq!(cancelled, vec!["a", "b"]);
 
-    // Teardown completed and aggregated stats were emitted (the run returned
-    // rather than hanging on an orphaned worker).
+    // Teardown completed and aggregated stats were emitted (the run returned rather
+    // than hanging on an orphaned worker).
     assert!(
         reporter
             .events()
@@ -535,9 +535,9 @@ fn raw_output_routes_normal_as_block_and_persistent_as_live() {
 
 #[test]
 fn concurrent_live_sink_streams_parallel_normal_units_live_with_lifecycle() {
-    // A sink that de-interleaves concurrent output by unit (one region each)
-    // lets normal units stream live even under real parallelism, and wraps each
-    // executed unit in a paired begin_unit/end_unit lifecycle.
+    // A sink that de-interleaves concurrent output by unit (one region each) lets
+    // normal units stream live even under real parallelism, and wraps each executed
+    // unit in a paired begin_unit/end_unit lifecycle.
     let plan = Plan::new(
         vec![unit("first"), unit("second")],
         vec![vec!["first".into(), "second".into()]],
@@ -628,8 +628,8 @@ fn run_with_parallelism(
 
 #[test]
 fn single_unit_plan_streams_normal_output_live() {
-    // A single-unit plan can never interleave, so a normal unit streams live
-    // (each chunk surfaced as it arrives) rather than buffering a block.
+    // A single-unit plan can never interleave, so a normal unit streams live (each
+    // chunk surfaced as it arrives) rather than buffering a block.
     let plan = Plan::new(vec![unit("only")], vec![vec!["only".into()]]);
     let runner = Arc::new(FakeCommandRunner::new().with_output(
         "only",
@@ -686,10 +686,10 @@ fn serial_execution_streams_normal_output_live() {
 
 #[test]
 fn serial_run_with_a_persistent_unit_keeps_normal_output_buffered() {
-    // A held persistent unit keeps emitting live output across the later waves
-    // that run normal units, even at max_parallel == 1. Streaming the normal
-    // unit live would interleave with the persistent stream, so normal output
-    // must stay buffered into a deterministic per-unit block.
+    // A held persistent unit keeps emitting live output across the later waves that
+    // run normal units, even at max_parallel == 1. Streaming the normal unit live
+    // would interleave with the persistent stream, so normal output must stay
+    // buffered into a deterministic per-unit block.
     let normal = unit("normal");
     let mut service = unit("service");
     service.persistent = true;
@@ -1160,9 +1160,9 @@ fn process_command_runner_readiness_command_inherits_invocation_environment() {
 #[test]
 fn wave_error_still_tears_down_held_persistent_processes() {
     // A persistent service reaches readiness in wave 0 and is held; wave 1 then
-    // aborts with a propagated runner error. Teardown and pool shutdown must
-    // still run so the held process is not leaked, while the original error is
-    // surfaced to the caller.
+    // aborts with a propagated runner error. Teardown and pool shutdown must still
+    // run so the held process is not leaked, while the original error is surfaced
+    // to the caller.
     let mut service = unit("service");
     service.persistent = true;
     service.cache = CacheVerdict::Disabled;
@@ -1234,9 +1234,9 @@ fn run_backpressured_with_timeout(
                     ApplyOptions {
                         max_parallel: 2,
                         fail_fast: false,
-                        // One slot: a held process flushing more than one chunk
-                        // during teardown parks its reader thread until the
-                        // consumer drains, reproducing the deadlock shape.
+                        // One slot: a held process flushing more than one chunk during teardown
+                        // parks its reader thread until the consumer drains, reproducing the
+                        // deadlock shape.
                         live_output_capacity: 1,
                         ..ApplyOptions::default()
                     },
@@ -1274,9 +1274,9 @@ fn teardown_drains_live_output_under_backpressure_lifo_backstop() {
 
 #[test]
 fn teardown_drains_live_output_under_backpressure_dependent_drain() {
-    // A persistent service whose only dependent finishes is torn down mid-run
-    // via the per-unit teardown path. It flushes more output than the bridge
-    // holds during shutdown; the per-unit teardown must drain concurrently.
+    // A persistent service whose only dependent finishes is torn down mid-run via
+    // the per-unit teardown path. It flushes more output than the bridge holds
+    // during shutdown; the per-unit teardown must drain concurrently.
     let mut service = unit("service");
     service.persistent = true;
     service.cache = CacheVerdict::Disabled;
@@ -1298,8 +1298,8 @@ fn teardown_drains_live_output_under_backpressure_dependent_drain() {
 
 #[test]
 fn unit_exceeding_its_timeout_is_cancelled_and_recorded_as_timed_out() {
-    // A single unit that would run for 10s is bounded by a 50ms unit timeout.
-    // It must be cooperatively cancelled (observed by the runner), recorded as a
+    // A single unit that would run for 10s is bounded by a 50ms unit timeout. It
+    // must be cooperatively cancelled (observed by the runner), recorded as a
     // timeout failure, and never leak — apply still returns a normal RunStats.
     let plan = Plan::new(vec![unit("slow")], vec![vec!["slow".into()]]);
     let runner = Arc::new(FakeCommandRunner::new().with_blocking("slow"));
@@ -1308,9 +1308,9 @@ fn unit_exceeding_its_timeout_is_cancelled_and_recorded_as_timed_out() {
 
     let runner_port: Arc<dyn CommandRunner> = runner.clone();
     let mut output = UnitOutputChannel::new(RecordingRawOutputSink::new());
-    // Paused time: the runtime auto-advances to the next pending timer, so the
-    // 50ms bound fires deterministically against the (10s) blocking unit with no
-    // real wall-clock wait — no CI flakiness.
+    // Paused time: the runtime auto-advances to the next pending timer, so the 50ms
+    // bound fires deterministically against the (10s) blocking unit with no real
+    // wall-clock wait — no CI flakiness.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()
         .enable_io()
@@ -1351,8 +1351,8 @@ fn unit_exceeding_its_timeout_is_cancelled_and_recorded_as_timed_out() {
 
 #[test]
 fn a_fast_unit_completes_normally_under_a_generous_timeout() {
-    // The timeout only fires on overrun: a unit that finishes well within the
-    // bound runs to success and writes its cache record as usual.
+    // The timeout only fires on overrun: a unit that finishes well within the bound
+    // runs to success and writes its cache record as usual.
     let plan = Plan::new(vec![unit("quick")], vec![vec!["quick".into()]]);
     let runner = Arc::new(FakeCommandRunner::new());
     let cache = RecordingCacheWriter::new();
@@ -1360,8 +1360,8 @@ fn a_fast_unit_completes_normally_under_a_generous_timeout() {
 
     let runner_port: Arc<dyn CommandRunner> = runner;
     let mut output = UnitOutputChannel::new(RecordingRawOutputSink::new());
-    // Paused time keeps this deterministic too: the runner's scripted run window
-    // is the first pending timer, so the unit completes long before the 30s bound.
+    // Paused time keeps this deterministic too: the runner's scripted run window is
+    // the first pending timer, so the unit completes long before the 30s bound.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()
         .enable_io()
@@ -1392,9 +1392,9 @@ fn a_fast_unit_completes_normally_under_a_generous_timeout() {
 
 #[test]
 fn a_forced_verdict_unit_re_runs_and_writes_its_cache_record() {
-    // `--refresh` maps to CacheMode::Force, whose per-unit verdict is `Forced`.
-    // A forced unit is never skipped: it executes and still writes its record,
-    // so the fresh result replaces any prior cache entry.
+    // `--refresh` maps to CacheMode::Force, whose per-unit verdict is `Forced`. A
+    // forced unit is never skipped: it executes and still writes its record, so the
+    // fresh result replaces any prior cache entry.
     let mut forced = unit("forced");
     forced.cache = CacheVerdict::Forced;
     let plan = Plan::new(vec![forced], vec![vec!["forced".into()]]);

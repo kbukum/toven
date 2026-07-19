@@ -3,8 +3,9 @@
 //!
 //! The port is forge-facing, not ecosystem-facing: a single adapter cuts the
 //! Release for every target's tag over the one topological order. The engine
-//! owns tag resolution, note sourcing, asset selection, ordering, and reporting;
-//! the adapter owns only an idempotent create-or-update against one forge.
+//! owns tag resolution, note sourcing, asset selection, ordering, and
+//! reporting; the adapter owns only an idempotent create-or-update against one
+//! forge.
 
 use std::path::{Path, PathBuf};
 
@@ -128,18 +129,19 @@ impl HostReleaseOutcome {
     }
 }
 
-/// The hosted-release forge port: cut a Release for a resolved tag idempotently.
+/// The hosted-release forge port: cut a Release for a resolved tag
+/// idempotently.
 ///
-/// Object-safe so an engine host registry can hand back a `Box<dyn ReleaseHost>`
-/// keyed by the configured forge. Implementations invoke their forge CLI
-/// argv-only (never a shell string) and read any token from the ambient
-/// environment only — never logging it.
+/// Object-safe so an engine host registry can hand back a `Box<dyn
+/// ReleaseHost>` keyed by the configured forge. Implementations invoke their
+/// forge CLI argv-only (never a shell string) and read any token from the
+/// ambient environment only — never logging it.
 pub trait ReleaseHost {
     /// Create or update the hosted Release for `release.tag` idempotently.
     ///
     /// An existing Release for the tag is updated in place (notes, flags, and
-    /// assets), never duplicated. The working directory `root` locates the forge
-    /// repository the Release belongs to.
+    /// assets), never duplicated. The working directory `root` locates the
+    /// forge repository the Release belongs to.
     ///
     /// # Errors
     /// Propagates a forge CLI spawn/IO failure or a non-zero CLI exit.

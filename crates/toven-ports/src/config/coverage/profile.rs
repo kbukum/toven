@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{CoverageThresholds, Enforcement};
 
-/// One `[…coverage.profiles.<name>]` entry: an elevated threshold set applied to
-/// the listed modules.
+/// One `[…coverage.profiles.<name>]` entry: an elevated threshold set applied
+/// to the listed modules.
 ///
 /// A profile resolves **below** a per-module override and **above** the
 /// ecosystem default, so a module named in a profile inherits the profile's

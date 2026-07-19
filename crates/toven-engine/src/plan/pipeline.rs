@@ -1,9 +1,11 @@
-//! The PLAN pipeline: drive the Configure→Schedule phases and emit PHASE/PLAN events → immutable `Plan`.
+//! The PLAN pipeline: drive the Configure→Schedule phases and emit PHASE/PLAN
+//! events → immutable `Plan`.
 //!
 //! Load ran in [`config`](crate::config) before this entry. The pipeline
 //! configures adapters, discovers the full federation, builds + semantically
-//! validates the graph, resolves the active set and per-workspace toolchains, then
-//! schedules the federated waves and bakes a static cache verdict into every unit.
+//! validates the graph, resolves the active set and per-workspace toolchains,
+//! then schedules the federated waves and bakes a static cache verdict into
+//! every unit.
 
 use std::collections::BTreeSet;
 
@@ -22,9 +24,10 @@ use super::{affected, discover, front, schedule, toolchain};
 
 /// A plan projected for `explain`, paired with the resolved display focus.
 ///
-/// [`plan_focused`] builds `plan` over the request's scope selection and, when a
-/// `focus` selection is given, resolves it to the concrete module keys the CLI
-/// narrows the shown units to. `focus` is `None` for an unfocused projection.
+/// [`plan_focused`] builds `plan` over the request's scope selection and, when
+/// a `focus` selection is given, resolves it to the concrete module keys the
+/// CLI narrows the shown units to. `focus` is `None` for an unfocused
+/// projection.
 #[derive(Debug)]
 pub struct FocusedPlan {
     /// The immutable plan over the request's scope selection.
@@ -56,16 +59,17 @@ pub fn plan(
 /// the module keys an `explain --module`/`--workspace` projection filters to.
 ///
 /// The `plan` is always built over `request.selection` (the scope); the `focus`
-/// selection never changes what is planned or how units batch — it only resolves,
-/// against the same discovered graph, which modules the caller wants to inspect.
-/// This keeps `explain --module X` showing the *real* batched unit `X` belongs to
-/// rather than a synthetic single-module cut. Focus resolution reuses the recognized
-/// intent, so its dependency/dependents closures honor the same kind-aware edge rules.
+/// selection never changes what is planned or how units batch — it only
+/// resolves, against the same discovered graph, which modules the caller wants
+/// to inspect. This keeps `explain --module X` showing the *real* batched unit
+/// `X` belongs to rather than a synthetic single-module cut. Focus resolution
+/// reuses the recognized intent, so its dependency/dependents closures honor
+/// the same kind-aware edge rules.
 ///
 /// # Errors
 /// Propagates any phase failure (configure/discover/graph/affected/toolchain/
-/// schedule/cache) and any focus selector-resolution failure (unknown or ambiguous
-/// target).
+/// schedule/cache) and any focus selector-resolution failure (unknown or
+/// ambiguous target).
 pub fn plan_focused(
     request: &PlanRequest,
     focus: Option<&Selection>,
@@ -84,8 +88,8 @@ pub fn plan_focused(
     )?;
 
     // Recognition is config-authoritative: the addressed task's `kind` attribute
-    // supersedes the name-derived default so a renamed task (`my-test` with
-    // `kind = "test"`) drives the kind-aware dev-edge rule below.
+    // supersedes the name-derived default so a renamed task (`my-test` with `kind =
+    // "test"`) drives the kind-aware dev-edge rule below.
     let recognized = recognize_intent(request, &context.adapters)?;
     let request = recognized.as_ref().unwrap_or(request);
 
@@ -157,10 +161,10 @@ pub fn plan_focused(
 
 /// Resolve an `explain` display focus to concrete module keys.
 ///
-/// Reuses the same [`affected::active_modules`] resolution the scope uses, so an
-/// explicit focus selector (and its optional dependency/dependents closures) maps
-/// to modules exactly as a real selection would, including the typed unknown/
-/// ambiguous-target errors.
+/// Reuses the same [`affected::active_modules`] resolution the scope uses, so
+/// an explicit focus selector (and its optional dependency/dependents closures)
+/// maps to modules exactly as a real selection would, including the typed
+/// unknown/ ambiguous-target errors.
 fn resolve_focus(
     request: &PlanRequest,
     selection: &Selection,
@@ -180,19 +184,21 @@ fn resolve_focus(
 
 /// Resolve the run's recognized kind from the configured task tables.
 ///
-/// Returns a request with the addressed task's configured `kind` when it differs
-/// from the name-derived default (so `my-test` with `kind = "test"` is recognized
-/// as a Test run), or `None` when the token-derived kind already stands.
+/// Returns a request with the addressed task's configured `kind` when it
+/// differs from the name-derived default (so `my-test` with `kind = "test"` is
+/// recognized as a Test run), or `None` when the token-derived kind already
+/// stands.
 ///
-/// The recognized kind is the single non-[`Default`](toven_ports::TaskKind::Default)
-/// kind configured for the addressed name across every ecosystem. It is
-/// order-independent: all declaring ecosystems must agree. A cross-ecosystem
-/// conflict (one tags the name `test`, another `build`) is rejected with an
-/// actionable error rather than resolved by arbitrary iteration order.
+/// The recognized kind is the single
+/// non-[`Default`](toven_ports::TaskKind::Default) kind configured for the
+/// addressed name across every ecosystem. It is order-independent: all
+/// declaring ecosystems must agree. A cross-ecosystem conflict (one tags the
+/// name `test`, another `build`) is rejected with an actionable error rather
+/// than resolved by arbitrary iteration order.
 ///
 /// # Errors
-/// Returns [`AppError::invalid_input`] when two ecosystems configure the same task
-/// name with different recognized kinds.
+/// Returns [`AppError::invalid_input`] when two ecosystems configure the same
+/// task name with different recognized kinds.
 fn recognize_intent(
     request: &PlanRequest,
     adapters: &MemberAdapters,
@@ -267,11 +273,10 @@ fn decide_cache(
     let mut units = Vec::with_capacity(scheduled.units.len());
     for planned in &scheduled.units {
         // Persistent units never cache; neither do units whose task opted out
-        // (`cacheable = false`) — a mutating `*-fix` task, where a stale
-        // content-key hit would wrongly suppress the mutation. For the rest,
-        // `cache::verdict` derives the content key only when the verdict needs it
-        // (Force / ReadWrite), skipping wasted digest work and avoidable I/O
-        // errors for Disabled units.
+        // (`cacheable = false`) — a mutating `*-fix` task, where a stale content-key
+        // hit would wrongly suppress the mutation. For the rest, `cache::verdict`
+        // derives the content key only when the verdict needs it (Force / ReadWrite),
+        // skipping wasted digest work and avoidable I/O errors for Disabled units.
         let (verdict, key) = if planned.persistent || !planned.cacheable {
             (toven_model::CacheVerdict::Disabled, None)
         } else {

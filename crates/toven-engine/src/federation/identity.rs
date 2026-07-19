@@ -6,13 +6,14 @@
 //! that member's id so [`Module::key`](toven_model::Module::key) yields a
 //! member-scoped [`ModuleKey`](toven_model::ModuleKey).
 //!
-//! Stamping is what makes the model `member` slot load-bearing and what lets the
-//! union build at all: two members that each expose `rust:core` would otherwise
-//! produce a duplicate identity that [`Graph::build`](toven_model::Graph::build)
-//! rejects. Once stamped, their keys differ (`core/rust:core` vs
-//! `gateway/rust:core`). Auto-qualify-only-on-collision is not a stamping concern:
-//! every umbrella module carries its member qualifier on the key, and dropping the
-//! qualifier when a reference is unambiguous lives in graph resolution/display
+//! Stamping is what makes the model `member` slot load-bearing and what lets
+//! the union build at all: two members that each expose `rust:core` would
+//! otherwise produce a duplicate identity that
+//! [`Graph::build`](toven_model::Graph::build) rejects. Once stamped, their
+//! keys differ (`core/rust:core` vs `gateway/rust:core`).
+//! Auto-qualify-only-on-collision is not a stamping concern: every umbrella
+//! module carries its member qualifier on the key, and dropping the qualifier
+//! when a reference is unambiguous lives in graph resolution/display
 //! (`plan::graph`), never in the key itself.
 //!
 //! The degenerate single-repo member (a lone `[project]` with no `[[members]]`)
@@ -23,8 +24,8 @@ use toven_model::{MemberId, Module};
 
 /// Stamp every discovered module under a member with that member's id.
 ///
-/// Modules already carrying a different member are overwritten: the umbrella owns
-/// the member dimension for the union, and a member adapter never sets it.
+/// Modules already carrying a different member are overwritten: the umbrella
+/// owns the member dimension for the union, and a member adapter never sets it.
 pub(crate) fn stamp_modules(modules: &mut [Module], member: &MemberId) {
     for module in modules {
         module.member = Some(member.clone());

@@ -3,8 +3,8 @@
 //! A `toven-<eco> __serve` process runs this loop: it reads a [`Hello`], finds
 //! the matching in-proc [`Provider`], configures it, replies with a [`Welcome`]
 //! (protocol + capabilities + resolved common config), then answers one
-//! [`Request`] per port method until the umbrella sends [`Request::Shutdown`] or
-//! closes the stream.
+//! [`Request`] per port method until the umbrella sends [`Request::Shutdown`]
+//! or closes the stream.
 //!
 //! The server answers **port calls only** — it never runs builds and never
 //! writes child output. The frame stream owns `stdout`; all human-facing
@@ -24,7 +24,8 @@ use super::protocol::wizard::{
     WizardAnswers, WizardOffer, WizardOffering, WizardProbe, WizardResult,
 };
 
-/// Run the port-server loop over `reader`/`writer` using the in-proc `providers`.
+/// Run the port-server loop over `reader`/`writer` using the in-proc
+/// `providers`.
 ///
 /// Reads the opening [`Hello`], configures the requested ecosystem's provider,
 /// emits the [`Welcome`], then serves requests until shutdown or EOF.
@@ -46,9 +47,9 @@ pub fn serve<R: Read, W: Write>(
     let adapter = match handshake(providers, &hello) {
         Ok(adapter) => adapter,
         Err(wire) => {
-            // Best-effort: tell the umbrella why, then surface the failure,
-            // preserving the remote classification (e.g. a protocol-major
-            // mismatch stays a Conflict) instead of flattening to InvalidInput.
+            // Best-effort: tell the umbrella why, then surface the failure, preserving the
+            // remote classification (e.g. a protocol-major mismatch stays a Conflict)
+            // instead of flattening to InvalidInput.
             let _ = codec::write_value(&mut writer, &Response::Error(wire.clone()));
             let code = rskit_errors::ErrorCode::from_wire(&wire.code)
                 .unwrap_or(rskit_errors::ErrorCode::InvalidInput);
@@ -117,8 +118,8 @@ fn serve_requests<R: Read, W: Write>(
 ) -> AppResult<()> {
     while let Some(request) = codec::read_value::<_, Request>(reader, MAX_FRAME_BYTES)? {
         if matches!(request, Request::Shutdown) {
-            // The client is leaving; acknowledging is best-effort. It may have
-            // already closed its read end (a broken pipe here is not a failure).
+            // The client is leaving; acknowledging is best-effort. It may have already
+            // closed its read end (a broken pipe here is not a failure).
             let _ = codec::write_value(writer, &Response::Bye);
             break;
         }
@@ -133,11 +134,11 @@ fn serve_requests<R: Read, W: Write>(
 ///
 /// This is a **two-round-trip** exchange. First, read one [`WizardProbe`], ask
 /// every in-proc provider to self-detect under the named root and build its
-/// [`Questionnaire`](toven_ports::Questionnaire), and reply with a [`WizardOffer`]. The driver then stays
-/// alive holding its detections; it reads one [`WizardAnswers`], re-associates
-/// each answer set with the matching stored detection, renders, and replies with
-/// a [`WizardResult`]. A peer that closes before the probe (or before the
-/// answers) is a clean no-op.
+/// [`Questionnaire`](toven_ports::Questionnaire), and reply with a
+/// [`WizardOffer`]. The driver then stays alive holding its detections; it
+/// reads one [`WizardAnswers`], re-associates each answer set with the matching
+/// stored detection, renders, and replies with a [`WizardResult`]. A peer that
+/// closes before the probe (or before the answers) is a clean no-op.
 ///
 /// # Errors
 /// Returns an error only on a transport failure; a provider's own detect /
@@ -196,7 +197,8 @@ fn schema_mismatch(umbrella: u16) -> WireError {
     )
 }
 
-/// Detect + build a questionnaire for every provider that applies under the root.
+/// Detect + build a questionnaire for every provider that applies under the
+/// root.
 fn probe_offerings(
     providers: &[&dyn Provider],
     probe: &WizardProbe,

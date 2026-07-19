@@ -1,4 +1,5 @@
-//! `TaskOverride` — the user's per-task diff, field-merged over an adapter default.
+//! `TaskOverride` — the user's per-task diff, field-merged over an adapter
+//! default.
 
 use serde::{Deserialize, Serialize};
 
@@ -13,9 +14,9 @@ use crate::task::{FanOut, Readiness, TaskKind};
 /// **replace**; `shared_inputs` is the one **additive** list (it extends the
 /// cache-key footprint).
 ///
-/// Only fields that exist on the resolved [`Task`](crate::task::Task) live here.
-/// Per-task engine-schedule knobs (`run_strategy`, `resource_group`) are resolved
-/// by the strict config `Document`, not by this port-level merge.
+/// Only fields that exist on the resolved [`Task`](crate::task::Task) live
+/// here. Per-task engine-schedule knobs (`run_strategy`, `resource_group`) are
+/// resolved by the strict config `Document`, not by this port-level merge.
 #[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TaskOverride {

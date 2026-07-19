@@ -1,6 +1,6 @@
-//! Cargo-metadata discovery: run `cargo metadata` per configured manifest, parse
-//! the result, and fold it into the unified `{workspaces, modules, edges}`
-//! [`DiscoverResponse`].
+//! Cargo-metadata discovery: run `cargo metadata` per configured manifest,
+//! parse the result, and fold it into the unified `{workspaces, modules,
+//! edges}` [`DiscoverResponse`].
 //!
 //! `cargo metadata` is invoked through `rskit-process` (captured, bounded,
 //! timed-out — never a shell string) and the JSON is parsed with the
@@ -24,8 +24,8 @@ use crate::config::RustConfig;
 use crate::discovery::blast;
 use crate::manifests;
 
-/// Hard bound on retained `cargo metadata` output (16 MiB). Large enough for big
-/// polyglot workspaces, bounded so a runaway process cannot exhaust memory.
+/// Hard bound on retained `cargo metadata` output (16 MiB). Large enough for
+/// big polyglot workspaces, bounded so a runaway process cannot exhaust memory.
 const MAX_METADATA_BYTES: usize = 16 * 1024 * 1024;
 
 /// Wall-clock bound on a single `cargo metadata` invocation.
@@ -34,7 +34,8 @@ const METADATA_TIMEOUT: Duration = Duration::from_mins(2);
 /// The cargo driver name stamped on every discovered [`Workspace`].
 const CARGO_TOOL: &str = "cargo";
 
-/// Discover all Rust modules, workspaces, and edges under `request.project_root`.
+/// Discover all Rust modules, workspaces, and edges under
+/// `request.project_root`.
 pub(crate) fn discover(
     config: &RustConfig,
     request: &DiscoverRequest,
@@ -199,8 +200,8 @@ fn fold_metadata(
     Ok(())
 }
 
-/// Turn the collected path dependencies into intra-ecosystem edges, keeping only
-/// those whose target resolves to a discovered module (covers within- and
+/// Turn the collected path dependencies into intra-ecosystem edges, keeping
+/// only those whose target resolves to a discovered module (covers within- and
 /// cross-workspace path deps; ignores path deps to crates outside the project).
 fn build_edges(
     ecosystem: &EcosystemId,

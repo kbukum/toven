@@ -1,5 +1,5 @@
-//! Compile-time proof that every port trait is object-safe, with a trivial
-//! fake impl per trait so the engine can store them as trait objects.
+//! Compile-time proof that every port trait is object-safe, with a trivial fake
+//! impl per trait so the engine can store them as trait objects.
 
 use std::path::Path;
 
@@ -338,8 +338,8 @@ fn port_traits_are_object_safe() {
     );
     assert!(!cache.contains("any-key").expect("cache lookup"));
 
-    // Exercise the APPLY-side ports (cache writer, command runner, held
-    // process) enough to prove object-safety without spawning a runtime.
+    // Exercise the APPLY-side ports (cache writer, command runner, held process)
+    // enough to prove object-safety without spawning a runtime.
     cache_writer.record("any-key").expect("records");
     assert_eq!(held.unit_id(), "rust:fake#run");
     held.shutdown().expect("shuts down");

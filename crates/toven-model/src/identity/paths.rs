@@ -21,12 +21,12 @@ pub struct RepoPath(PathBuf);
 impl RepoPath {
     /// Validate and construct a repo-relative path.
     ///
-    /// `.` (`CurDir`) components are normalized away so semantically equal paths
-    /// (`core/errors` and `core/./errors`) share one canonical identity; a path
-    /// consisting only of `.` canonicalizes to the repo root (`.`).
+    /// `.` (`CurDir`) components are normalized away so semantically equal
+    /// paths (`core/errors` and `core/./errors`) share one canonical identity;
+    /// a path consisting only of `.` canonicalizes to the repo root (`.`).
     ///
-    /// Errors if the path is absolute, empty, or contains a `..` / root / prefix
-    /// component.
+    /// Errors if the path is absolute, empty, or contains a `..` / root /
+    /// prefix component.
     pub fn new(path: impl Into<PathBuf>) -> AppResult<Self> {
         let path = path.into();
         rskit_fs::normalize_repo_relative_path(&path)

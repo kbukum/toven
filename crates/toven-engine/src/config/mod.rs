@@ -1,17 +1,18 @@
 //! Strict configuration: the `toven.toml` [`Document`], its reserved-section
 //! schemas, structural validation, ecosystem-id dispatch, and the loader.
 //!
-//! Config is engine-owned orchestration (not a port): one canonical `toven.toml`
-//! is parsed once into a strict, typed [`Document`]. Reserved sections
-//! ([`ProjectConfig`], [`TovenConfig`], [`GroupConfig`], [`OverlayConfig`],
-//! [`MemberConfig`]) carry engine schemas; each dynamic-keyed `[ecosystems.<id>]`
-//! subtree is kept verbatim for the owning adapter's own strict parse.
+//! Config is engine-owned orchestration (not a port): one canonical
+//! `toven.toml` is parsed once into a strict, typed [`Document`]. Reserved
+//! sections ([`ProjectConfig`], [`TovenConfig`], [`GroupConfig`],
+//! [`OverlayConfig`], [`MemberConfig`]) carry engine schemas; each
+//! dynamic-keyed `[ecosystems.<id>]` subtree is kept verbatim for the owning
+//! adapter's own strict parse.
 //!
-//! The loader is a thin wrapper over `rskit-config`'s strict loader (bounded reads,
-//! `deny_unknown_fields`-honoring codec decode, verbatim raw subtrees,
+//! The loader is a thin wrapper over `rskit-config`'s strict loader (bounded
+//! reads, `deny_unknown_fields`-honoring codec decode, verbatim raw subtrees,
 //! identity-aware include-merge); the engine adds only Toven domain logic — the
-//! reserved schemas, the `ecosystem:module` ref grammar, the structural-vs-semantic
-//! split, and the two-registry ecosystem-id dispatch.
+//! reserved schemas, the `ecosystem:module` ref grammar, the
+//! structural-vs-semantic split, and the two-registry ecosystem-id dispatch.
 
 mod dispatch;
 mod document;

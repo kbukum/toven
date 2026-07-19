@@ -10,9 +10,10 @@ use super::{MemberId, ModuleRef};
 ///
 /// Module *identity* stays two-level `ecosystem:name` ([`ModuleRef`]); the
 /// optional `member` qualifier disambiguates the same `ecosystem:name` exposed
-/// by two different members of a cross-repo umbrella. The `member` is `None` for
-/// the single-repo case, so a bare key renders and orders byte-for-byte
-/// identically to its underlying `ModuleRef` — the degenerate path is unchanged.
+/// by two different members of a cross-repo umbrella. The `member` is `None`
+/// for the single-repo case, so a bare key renders and orders byte-for-byte
+/// identically to its underlying `ModuleRef` — the degenerate path is
+/// unchanged.
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Hash, Deserialize, Serialize)]
 pub struct ModuleKey {
     /// Federation member that owns the module, when member scoping is required.

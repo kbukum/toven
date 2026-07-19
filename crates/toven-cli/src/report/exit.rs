@@ -7,9 +7,9 @@ use toven_model::RunStats;
 ///
 /// Non-zero ([`ExitCode::Failure`]) if any unit ended `Failed`, `Blocked`,
 /// `FailedReadiness`, or `TimedOut`; otherwise zero ([`ExitCode::Success`]). An
-/// all-cached run and a persistent-goal run that held until signal and shut down
-/// cleanly both map to success; a held unit that crashed surfaces as a failure
-/// counter and therefore non-zero.
+/// all-cached run and a persistent-goal run that held until signal and shut
+/// down cleanly both map to success; a held unit that crashed surfaces as a
+/// failure counter and therefore non-zero.
 #[must_use]
 pub const fn exit_code(summary: &RunStats) -> ExitCode {
     if summary.has_failures() {
@@ -36,8 +36,8 @@ mod tests {
 
     #[test]
     fn clean_persistent_shutdown_exits_zero() {
-        // Persistent units that became ready and tore down cleanly leave no
-        // failure counters set.
+        // Persistent units that became ready and tore down cleanly leave no failure
+        // counters set.
         let stats = RunStats::new(1);
         assert_eq!(exit_code(&stats), ExitCode::Success);
     }

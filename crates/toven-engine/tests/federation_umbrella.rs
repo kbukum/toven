@@ -4,8 +4,8 @@
 //! `toven.toml` plus every member's own `toven.toml`) and drives it through the
 //! public discovery/plan front. The assertions prove that member composition,
 //! rebasing, cross-member overlays, group coordinate space, and per-member
-//! baselines fold into one federated graph keyed by `ModuleKey { member, module }`
-//! — no test reaches into the per-member composition helpers directly.
+//! baselines fold into one federated graph keyed by `ModuleKey { member, module
+//! }` — no test reaches into the per-member composition helpers directly.
 
 use std::collections::BTreeSet;
 
@@ -189,9 +189,9 @@ fn umbrella_overlay_links_modules_across_members() {
 #[test]
 fn umbrella_group_ambiguous_bare_ref_is_rejected_through_the_front() {
     // Two rust members both expose `rust:core`; an umbrella group naming the bare
-    // ref cannot bind it to a single member. The front must validate groups in
-    // the composed coordinate space and reject the ambiguity, not silently bind
-    // it against the umbrella document.
+    // ref cannot bind it to a single member. The front must validate groups in the
+    // composed coordinate space and reject the ambiguity, not silently bind it
+    // against the umbrella document.
     let ws = workspace("umbrella-ambiguous-group");
     ws.write_file(
         "repos/core/toven.toml",
@@ -257,8 +257,8 @@ fn declared_member_without_toven_toml_is_a_hard_error() {
 
 #[test]
 fn changed_selection_attributes_changes_to_the_owning_member() {
-    // Both members expose the same `rust:core` at the same repo-relative root.
-    // A change confined to the core member's repo must, after umbrella-relative
+    // Both members expose the same `rust:core` at the same repo-relative root. A
+    // change confined to the core member's repo must, after umbrella-relative
     // prefixing, activate only the core member's module — the services member's
     // identically-named module stays out of the cut.
     let ws = workspace("umbrella-changed");

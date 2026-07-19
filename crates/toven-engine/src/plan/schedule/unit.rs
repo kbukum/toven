@@ -1,5 +1,6 @@
-//! Render one collapsed module group into a [`PlannedUnit`]: its argv, the facts
-//! the Cache-decision phase folds into the content key, and the gating edges.
+//! Render one collapsed module group into a [`PlannedUnit`]: its argv, the
+//! facts the Cache-decision phase folds into the content key, and the gating
+//! edges.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -17,20 +18,21 @@ use crate::plan::request::PlanRequest;
 /// One scheduled, fully rendered unit awaiting its cache verdict.
 ///
 /// Carries the execution facts (`argv`, `persistent`, `workspace`) plus the
-/// keying facts (`base_argv`, `shared_inputs`, `cache_args`, `toolchain_identity`)
-/// the Cache-decision phase folds into the content key.
+/// keying facts (`base_argv`, `shared_inputs`, `cache_args`,
+/// `toolchain_identity`) the Cache-decision phase folds into the content key.
 #[derive(Debug, Clone)]
 #[allow(clippy::struct_excessive_bools)] // schedule facts are a set of independent flags
 pub(in crate::plan) struct PlannedUnit {
-    /// Stable unit id (`ecosystem:name#task`, member-prefixed under a federation;
-    /// batched/whole-workspace units drop the module name and key by workspace:
-    /// `ecosystem@workspace#task`, or `ecosystem#task` when workspace-less). A
-    /// batch base in a cross-group cycle is split per layer, each tagged
-    /// `~~L{layer}`.
+    /// Stable unit id (`ecosystem:name#task`, member-prefixed under a
+    /// federation; batched/whole-workspace units drop the module name and key
+    /// by workspace: `ecosystem@workspace#task`, or `ecosystem#task` when
+    /// workspace-less). A batch base in a cross-group cycle is split per layer,
+    /// each tagged `~~L{layer}`.
     pub(in crate::plan) id: String,
     /// Representative module the unit operates on.
     pub(in crate::plan) module: ModuleKey,
-    /// Every module collapsed into this unit (always non-empty, contains `module`).
+    /// Every module collapsed into this unit (always non-empty, contains
+    /// `module`).
     pub(in crate::plan) members: Vec<ModuleKey>,
     /// Name of the task this unit runs (its identity, the config table key).
     pub(in crate::plan) task: String,
@@ -52,8 +54,9 @@ pub(in crate::plan) struct PlannedUnit {
     pub(in crate::plan) shared_inputs: Vec<String>,
     /// Whether passthrough args enter the key.
     pub(in crate::plan) cache_args: bool,
-    /// Whether this unit's result may be cached (a mutating `*-fix` task authors
-    /// `false`, forcing a [`Disabled`](toven_model::CacheVerdict::Disabled) verdict).
+    /// Whether this unit's result may be cached (a mutating `*-fix` task
+    /// authors `false`, forcing a
+    /// [`Disabled`](toven_model::CacheVerdict::Disabled) verdict).
     pub(in crate::plan) cacheable: bool,
     /// Whether any stdout output turns a zero-exit run into a gate failure (a
     /// list-mode verification such as `gofmt -l` authors `true`).
@@ -68,12 +71,12 @@ pub(in crate::plan) struct PlannedUnit {
 
 /// Render a group of modules collapsed into one [`PlannedUnit`].
 ///
-/// `members` is the set of modules sharing the group `id` in first-seen wave order
-/// (a single module for `PerModule`, all same-ecosystem-and-workspace modules for
-/// `Batchable`/`WholeWorkspace`, further split by layer only when the base is in a
-/// cross-group cycle). Argv is rendered once from the representative member:
-/// `Batchable` repeats each member's selector fragment, `WholeWorkspace` omits the
-/// selector.
+/// `members` is the set of modules sharing the group `id` in first-seen wave
+/// order (a single module for `PerModule`, all same-ecosystem-and-workspace
+/// modules for `Batchable`/`WholeWorkspace`, further split by layer only when
+/// the base is in a cross-group cycle). Argv is rendered once from the
+/// representative member: `Batchable` repeats each member's selector fragment,
+/// `WholeWorkspace` omits the selector.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn plan_unit(
     request: &PlanRequest,
@@ -158,7 +161,8 @@ fn member_modules<'a>(
         .collect()
 }
 
-/// Resolve each module's owning workspace (none when the module is workspace-less).
+/// Resolve each module's owning workspace (none when the module is
+/// workspace-less).
 fn member_workspaces<'a>(
     modules: &[&Module],
     workspaces: &'a BTreeMap<WorkspaceId, Workspace>,
@@ -224,7 +228,8 @@ fn render_argv(
     template.render_batch(passthrough, &mut resolvers)
 }
 
-/// Convert the adapter task readiness vocabulary into immutable plan vocabulary.
+/// Convert the adapter task readiness vocabulary into immutable plan
+/// vocabulary.
 fn readiness(readiness: &Readiness) -> ExecutionReadiness {
     match readiness {
         Readiness::Started => ExecutionReadiness::Started,

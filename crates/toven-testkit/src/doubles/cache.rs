@@ -12,8 +12,8 @@ use toven_ports::{CacheStore, CacheWriter};
 
 /// A [`CacheStore`] backed by an explicit set of present keys.
 ///
-/// Every key added with [`with_key`](Self::with_key) reports as a hit; all other
-/// lookups miss.
+/// Every key added with [`with_key`](Self::with_key) reports as a hit; all
+/// other lookups miss.
 #[derive(Debug, Default)]
 pub struct FakeCacheStore {
     present: BTreeSet<String>,
@@ -40,8 +40,8 @@ impl CacheStore for FakeCacheStore {
     }
 }
 
-/// A [`CacheStore`] that records every queried key (and always misses), so a test
-/// can capture the deterministic content keys a plan produces.
+/// A [`CacheStore`] that records every queried key (and always misses), so a
+/// test can capture the deterministic content keys a plan produces.
 ///
 /// Interior mutability ([`Mutex`]) keeps it `&self`-callable and `Send + Sync`
 /// behind `dyn CacheStore`. Inspect the recorded keys with

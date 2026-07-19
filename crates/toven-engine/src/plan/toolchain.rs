@@ -1,10 +1,10 @@
 //! Toolchain: resolve `{tool, version}` once per active workspace.
 //!
-//! A workspace is *active* when it owns ≥1 active module. The engine probes each
-//! such workspace's toolchain exactly once (untouched ecosystems are never
+//! A workspace is *active* when it owns ≥1 active module. The engine probes
+//! each such workspace's toolchain exactly once (untouched ecosystems are never
 //! probed) and stamps the resolved version onto its [`ToolchainTag`]; a
-//! needed-but-failing probe is a hard PLAN error. Probing is an injected port so
-//! the planner stays pure and tests substitute a deterministic prober.
+//! needed-but-failing probe is a hard PLAN error. Probing is an injected port
+//! so the planner stays pure and tests substitute a deterministic prober.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -113,8 +113,8 @@ impl ToolchainProber for ProcessToolchainProber {
 
 /// Resolve the toolchain identity for every active workspace.
 ///
-/// Returns a map from workspace id to its version-stamped [`ToolchainTag`]; only
-/// workspaces owning an active module are probed.
+/// Returns a map from workspace id to its version-stamped [`ToolchainTag`];
+/// only workspaces owning an active module are probed.
 ///
 /// # Errors
 /// An active module referencing an unknown workspace or ecosystem adapter, or a

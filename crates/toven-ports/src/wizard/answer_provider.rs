@@ -15,8 +15,8 @@ use super::{Answers, Questionnaire};
 ///
 /// Implemented by the CLI (interactive prompting or non-interactive default
 /// resolution via [`rskit_cli::PromptMode`]) and by tests (canned answers). The
-/// engine calls it exactly once per detected ecosystem, between that ecosystem's
-/// `questionnaire` and `render` steps.
+/// engine calls it exactly once per detected ecosystem, between that
+/// ecosystem's `questionnaire` and `render` steps.
 pub trait AnswerProvider {
     /// Answer every question in `questionnaire`, returning the resolved set.
     ///

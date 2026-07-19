@@ -1,4 +1,5 @@
-//! Signing vocabulary: whether release artifacts are signed and by which signer.
+//! Signing vocabulary: whether release artifacts are signed and by which
+//! signer.
 
 use rskit_errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};

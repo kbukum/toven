@@ -3,8 +3,8 @@
 //! Composes the umbrella into its members, resolves each member's change
 //! baseline, and opens one deduped rskit-git reader/writer per distinct member
 //! repo root. Both PLAN (change selection) and release (change detection plus
-//! per-member commits) borrow this one opened set, so the single-repo project is
-//! simply the N=1 degenerate member at the umbrella root.
+//! per-member commits) borrow this one opened set, so the single-repo project
+//! is simply the N=1 degenerate member at the umbrella root.
 
 use rskit_errors::AppResult;
 use toven_model::AbsPath;

@@ -2,8 +2,8 @@
 //!
 //! These exercise the argv surface that resolves before any project load — clap
 //! help/usage outcomes and the flag-applicability gate — so they are fully
-//! deterministic and need no fixture repository. Project-execution paths (PLAN /
-//! APPLY against a real workspace) are covered by the in-tree app smokes
+//! deterministic and need no fixture repository. Project-execution paths (PLAN
+//! / APPLY against a real workspace) are covered by the in-tree app smokes
 //! (`apps/toven/tests/`, `apps/toven-rs/tests/`), and the
 //! projection/parse/collision logic by the crate's unit tests.
 
@@ -41,9 +41,9 @@ fn unknown_reserved_flag_is_a_usage_error() {
 
 #[test]
 fn release_only_flag_on_a_task_is_gated_to_usage() {
-    // `--allow-dirty` only applies to the mutating `toven release` actions;
-    // using it on `plan` is a typed InvalidInput error, which maps to the usage
-    // exit code.
+    // `--allow-dirty` only applies to the mutating `toven release` actions; using
+    // it on `plan` is a typed InvalidInput error, which maps to the usage exit
+    // code.
     assert_eq!(run(&["--allow-dirty", "plan", "test"]), ExitCode::Usage);
 }
 
@@ -73,9 +73,9 @@ fn execution_flags_on_introspection_verbs_are_gated_to_usage() {
 
 #[test]
 fn auto_install_on_no_op_provisioning_verbs_is_gated_to_usage() {
-    // `--auto-install` only acts on `driver list` / `federation sync`; on the
-    // verbs where it would be a silent no-op (an explicit install, or a
-    // read-only status) it is rejected rather than advertised.
+    // `--auto-install` only acts on `driver list` / `federation sync`; on the verbs
+    // where it would be a silent no-op (an explicit install, or a read-only status)
+    // it is rejected rather than advertised.
     assert_eq!(
         run(&["--auto-install", "driver", "install", "go"]),
         ExitCode::Usage
@@ -88,8 +88,8 @@ fn auto_install_on_no_op_provisioning_verbs_is_gated_to_usage() {
 
 #[test]
 fn explicit_selection_flags_on_a_non_selection_verb_are_gated_to_usage() {
-    // `--module`/`--workspace`/`--with-dependents` only shape selection, which
-    // the execution/`affected` verbs perform; on `modules` they are rejected.
+    // `--module`/`--workspace`/`--with-dependents` only shape selection, which the
+    // execution/`affected` verbs perform; on `modules` they are rejected.
     assert_eq!(run(&["--module", "rust:core", "modules"]), ExitCode::Usage);
     assert_eq!(run(&["--workspace", "rust", "modules"]), ExitCode::Usage);
     assert_eq!(run(&["--with-dependents", "modules"]), ExitCode::Usage);
@@ -97,9 +97,9 @@ fn explicit_selection_flags_on_a_non_selection_verb_are_gated_to_usage() {
 
 #[test]
 fn watch_with_a_plan_only_cut_on_a_bare_task_is_gated_to_usage() {
-    // Trailing task flags land in `Command::External`, so the pre-token gate
-    // never sees them; the merged watch-combination gate must still reject a
-    // watch loop paired with a PLAN-only cut, before any project load.
+    // Trailing task flags land in `Command::External`, so the pre-token gate never
+    // sees them; the merged watch-combination gate must still reject a watch loop
+    // paired with a PLAN-only cut, before any project load.
     assert_eq!(run(&["test", "--watch", "--dry-run"]), ExitCode::Usage);
     assert_eq!(run(&["test", "--watch", "--explain"]), ExitCode::Usage);
     // Mixed arrival: a global PLAN-only cut with a per-task `--watch` token.
@@ -122,8 +122,8 @@ fn completions_with_an_unknown_shell_is_a_usage_error() {
 
 #[test]
 fn color_flag_rejects_an_unknown_policy_as_a_usage_error() {
-    // The `--color` value set is closed; an unknown policy is a clap parse
-    // failure (usage), never a silent fallback to auto.
+    // The `--color` value set is closed; an unknown policy is a clap parse failure
+    // (usage), never a silent fallback to auto.
     assert_eq!(run(&["--color", "sometimes", "modules"]), ExitCode::Usage);
 }
 

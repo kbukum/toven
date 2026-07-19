@@ -2,8 +2,8 @@
 //!
 //! Thin bindings over [`rskit_codec::framing`]: the generic length-delimited
 //! frame transport carries one compact-JSON envelope per frame (see
-//! [`envelope`](super::envelope)). Reads are bounded by [`MAX_FRAME_BYTES`] so a
-//! malformed or hostile peer can never make a reader allocate without limit.
+//! [`envelope`](super::envelope)). Reads are bounded by [`MAX_FRAME_BYTES`] so
+//! a malformed or hostile peer can never make a reader allocate without limit.
 
 use std::io::{Read, Write};
 

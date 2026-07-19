@@ -1,12 +1,12 @@
 //! [`UnitOutputChannel`] — buffers normal units, live-tails persistent ones.
 //!
 //! The channel is the engine-owned policy layer between the APPLY exec loop and
-//! a [`RawOutputSink`]. It groups raw output deterministically under parallelism
-//! (Bazel/Nx-style per-unit blocks) while keeping persistent server/watch logs
-//! live, and caps each unit's buffered output so no single unit buffers without
-//! limit. The cap is *per unit*: total channel memory still scales with the
-//! number of units buffering concurrently, so a global ceiling (if needed) is
-//! the APPLY exec layer's concern, not this channel's.
+//! a [`RawOutputSink`]. It groups raw output deterministically under
+//! parallelism (Bazel/Nx-style per-unit blocks) while keeping persistent
+//! server/watch logs live, and caps each unit's buffered output so no single
+//! unit buffers without limit. The cap is *per unit*: total channel memory
+//! still scales with the number of units buffering concurrently, so a global
+//! ceiling (if needed) is the APPLY exec layer's concern, not this channel's.
 
 use std::collections::HashMap;
 
@@ -44,11 +44,11 @@ struct Buffer {
 /// Routes per-unit [`UnitOutput`] chunks to a [`RawOutputSink`] under the
 /// buffer-normal / live-persistent policy.
 ///
-/// Lifecycle: [`register`](Self::register) a unit with its mode, [`push`](Self::push)
-/// chunks as they arrive (any interleaving across units is fine), then
-/// [`finish`](Self::finish) to flush a buffered unit's block. Live units stream
-/// on each `push` and need no flush. An unregistered unit defaults to
-/// [`OutputMode::Buffered`] so output is never silently dropped.
+/// Lifecycle: [`register`](Self::register) a unit with its mode,
+/// [`push`](Self::push) chunks as they arrive (any interleaving across units is
+/// fine), then [`finish`](Self::finish) to flush a buffered unit's block. Live
+/// units stream on each `push` and need no flush. An unregistered unit defaults
+/// to [`OutputMode::Buffered`] so output is never silently dropped.
 pub struct UnitOutputChannel<S: RawOutputSink> {
     sink: S,
     modes: HashMap<String, OutputMode>,
@@ -65,10 +65,10 @@ impl<S: RawOutputSink> UnitOutputChannel<S> {
     /// Create a channel with an explicit per-unit buffer cap (in bytes).
     ///
     /// When a buffered unit accumulates more than `max_buffer_bytes` it spills
-    /// the accumulated chunks as a block immediately, bounding any single unit's
-    /// buffer at the cost of splitting that unit's output across more than one
-    /// block. The cap is per unit; total channel memory still scales with the
-    /// number of units buffering concurrently.
+    /// the accumulated chunks as a block immediately, bounding any single
+    /// unit's buffer at the cost of splitting that unit's output across more
+    /// than one block. The cap is per unit; total channel memory still scales
+    /// with the number of units buffering concurrently.
     #[must_use]
     pub fn with_max_buffer_bytes(sink: S, max_buffer_bytes: usize) -> Self {
         Self {
@@ -88,8 +88,8 @@ impl<S: RawOutputSink> UnitOutputChannel<S> {
         self.sink.supports_concurrent_live()
     }
 
-    /// Announce a live unit's start to the sink so a concurrent-live renderer can
-    /// allocate its region.
+    /// Announce a live unit's start to the sink so a concurrent-live renderer
+    /// can allocate its region.
     ///
     /// # Errors
     /// Propagates any [`RawOutputSink`] write failure.
@@ -137,18 +137,18 @@ impl<S: RawOutputSink> UnitOutputChannel<S> {
 
     /// Flush `unit_id`'s buffered block (no-op for live or output-free units).
     ///
-    /// Contract: the APPLY exec layer must drain a unit's output before
-    /// calling `finish` for it. `finish` clears the unit's registered mode, so a
-    /// chunk that arrives *after* finish is treated as a fresh unregistered
+    /// Contract: the APPLY exec layer must drain a unit's output before calling
+    /// `finish` for it. `finish` clears the unit's registered mode, so a chunk
+    /// that arrives *after* finish is treated as a fresh unregistered
     /// (buffered) unit and will only be flushed by a later `finish` — callers
     /// own the ordering, the channel does not buffer unboundedly to compensate.
     ///
     /// # Errors
     /// Propagates any [`RawOutputSink`] write failure.
     pub fn finish(&mut self, unit_id: &str) -> AppResult<()> {
-        // Flush before clearing state: if the sink write fails the buffered
-        // chunks and mode stay intact so the caller can retry without losing
-        // output (no success-shaped data loss).
+        // Flush before clearing state: if the sink write fails the buffered chunks and
+        // mode stay intact so the caller can retry without losing output (no
+        // success-shaped data loss).
         if let Some(buffer) = self.buffers.get(unit_id)
             && !buffer.chunks.is_empty()
         {
@@ -174,9 +174,9 @@ impl<S: RawOutputSink> UnitOutputChannel<S> {
         if buffer.bytes <= self.max_buffer_bytes {
             return Ok(());
         }
-        // Over cap: spill as a block. Write before clearing so a sink failure
-        // keeps the accumulated chunks buffered for retry rather than dropping
-        // them (no success-shaped data loss).
+        // Over cap: spill as a block. Write before clearing so a sink failure keeps the
+        // accumulated chunks buffered for retry rather than dropping them (no
+        // success-shaped data loss).
         self.sink.block(&unit_id, &self.buffers[&unit_id].chunks)?;
         self.buffers.remove(&unit_id);
         Ok(())

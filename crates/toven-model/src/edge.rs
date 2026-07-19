@@ -25,8 +25,9 @@ pub enum DepKind {
 /// A directed dependency edge: `from` depends on `to`.
 ///
 /// Endpoints are [`ModuleKey`]s so a cross-repo umbrella can carry the same
-/// `ecosystem:name` exposed by two members as distinct edges; an intra-repo edge
-/// constructed from bare [`ModuleRef`](crate::ModuleRef)s stays member-unscoped.
+/// `ecosystem:name` exposed by two members as distinct edges; an intra-repo
+/// edge constructed from bare [`ModuleRef`](crate::ModuleRef)s stays
+/// member-unscoped.
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Hash, Deserialize, Serialize)]
 pub struct Edge {
     /// Module that depends on `to`.

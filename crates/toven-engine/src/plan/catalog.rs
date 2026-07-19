@@ -1,14 +1,13 @@
 //! Task catalog: a typed projection of the resolved tasks per ecosystem.
 //!
 //! Discovery (`toven tasks`) and self-correcting suggestions both need the same
-//! answer to "what can I run?" — the fully resolved task set, keyed by ecosystem,
-//! carrying the canonical name a user must type. This module derives that
-//! projection from the already-configured adapters (materializing the same
+//! answer to "what can I run?" — the fully resolved task set, keyed by
+//! ecosystem, carrying the canonical name a user must type. This module derives
+//! that projection from the already-configured adapters (materializing the same
 //! authoritative config task table that the planner consumes, exposed via
 //! [`ConfiguredAdapter::common`](toven_ports::ConfiguredAdapter::common)),
-//! returning data only: the CLI renders it, and the
-//! scheduler reuses the candidate names for "did you mean?" enrichment. Nothing
-//! here prints.
+//! returning data only: the CLI renders it, and the scheduler reuses the
+//! candidate names for "did you mean?" enrichment. Nothing here prints.
 
 use std::collections::HashSet;
 
@@ -27,8 +26,8 @@ pub struct TaskCatalog {
 }
 
 impl TaskCatalog {
-    /// Every canonical task name across every ecosystem, de-duplicated in first-
-    /// seen order. The candidate set for nearest-match suggestions.
+    /// Every canonical task name across every ecosystem, de-duplicated in
+    /// first- seen order. The candidate set for nearest-match suggestions.
     #[must_use]
     pub fn names(&self) -> Vec<String> {
         let mut names: Vec<String> = Vec::new();
@@ -76,15 +75,16 @@ pub struct TaskSummary {
     pub shared_inputs: Vec<String>,
 }
 
-/// Build the [`TaskCatalog`] for `document` against the compiled-in `providers`.
+/// Build the [`TaskCatalog`] for `document` against the compiled-in
+/// `providers`.
 ///
 /// Reuses the Configure phase (`configure`) so the projected names match the
 /// tasks the planner actually resolves — no duplicate resolution. Ecosystems
 /// without a loaded provider are skipped exactly as they are during PLAN.
 ///
 /// # Errors
-/// Propagates `configure` failures (provider conflicts, subtree conversion, or a
-/// provider's `configure` rejection).
+/// Propagates `configure` failures (provider conflicts, subtree conversion, or
+/// a provider's `configure` rejection).
 pub fn task_catalog(document: &Document, providers: &[&dyn Provider]) -> AppResult<TaskCatalog> {
     let configured = configure(document, providers)?;
     let mut ecosystems = Vec::with_capacity(configured.len());
@@ -158,8 +158,8 @@ mod tests {
 
     #[test]
     fn projects_builtin_named_and_custom_tasks_with_origin() {
-        // A whole-workspace format default (canonical `format`, not `fmt`), a
-        // project override, and a custom task exercise the name/origin mapping.
+        // A whole-workspace format default (canonical `format`, not `fmt`), a project
+        // override, and a custom task exercise the name/origin mapping.
         let format = Task::new(
             "format",
             vec!["cargo".into(), "fmt".into()],
@@ -186,8 +186,8 @@ mod tests {
         let rust = &catalog.ecosystems[0];
         assert_eq!(rust.ecosystem, "rust");
         let names: Vec<&str> = rust.tasks.iter().map(|t| t.name.as_str()).collect();
-        // Tasks now materialize from the config task table, so they surface in
-        // the table's canonical (sorted) key order, not adapter insertion order.
+        // Tasks now materialize from the config task table, so they surface in the
+        // table's canonical (sorted) key order, not adapter insertion order.
         assert_eq!(names, ["bench", "format", "lint"]);
         // `bench` (a custom task) fans per module.
         assert_eq!(rust.tasks[0].fan_out, FanOut::PerModule);

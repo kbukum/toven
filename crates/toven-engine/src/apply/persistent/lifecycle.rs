@@ -87,10 +87,10 @@ fn readiness(invocation: &Invocation, project_root: &Path) -> AppResult<Persiste
             Ok(PersistentReadiness::OutputContains(value.clone()))
         }
         ExecutionReadiness::Command(argv) => {
-            // Run the readiness probe under the same explicit environment as the
-            // main invocation so it inherits the task's PATH allowlist and vars;
-            // otherwise common probe tools (`curl`, `sh`, …) may fail to spawn
-            // even when the persistent command itself runs fine.
+            // Run the readiness probe under the same explicit environment as the main
+            // invocation so it inherits the task's PATH allowlist and vars; otherwise
+            // common probe tools (`curl`, `sh`, …) may fail to spawn even when the
+            // persistent command itself runs fine.
             let probe = Invocation::new("readiness", argv.clone())
                 .with_environment(invocation.environment.clone());
             spec(&probe, project_root).map(PersistentReadiness::Command)

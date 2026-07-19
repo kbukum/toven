@@ -29,8 +29,8 @@ pub enum UnitStatus {
     FailedReadiness,
     /// Ran past its per-unit execution timeout and was cooperatively cancelled
     /// (a failure). Distinct from [`FailedReadiness`](Self::FailedReadiness),
-    /// which is a persistent unit's readiness-probe timeout, not a normal unit's
-    /// execution bound.
+    /// which is a persistent unit's readiness-probe timeout, not a normal
+    /// unit's execution bound.
     TimedOut,
 }
 

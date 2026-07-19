@@ -1,12 +1,12 @@
-//! Explicit driver provisioning — `toven driver install|list` and
-//! `toven federation sync|status`.
+//! Explicit driver provisioning — `toven driver install|list` and `toven
+//! federation sync|status`.
 //!
 //! A normal run **never installs**: an absent driver is warn + skip
 //! ([`resolve`](super::resolve)). Provisioning is this separate, opt-in surface
 //! so runs stay pure and reproducible and the network + supply-chain surface is
-//! isolated to an explicit action. Drivers are installed argv-only via
-//! `cargo install toven-<id>` through rskit-process; CI can pin an exact version
-//! in `[toven.drivers]`.
+//! isolated to an explicit action. Drivers are installed argv-only via `cargo
+//! install toven-<id>` through rskit-process; CI can pin an exact version in
+//! `[toven.drivers]`.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -82,7 +82,8 @@ pub fn install_driver(id: &EcosystemId, version: Option<&str>) -> AppResult<()> 
     }
 }
 
-/// Read an exact version pin for `id` from `[toven.drivers].<id> = { version = "…" }`.
+/// Read an exact version pin for `id` from `[toven.drivers].<id> = { version =
+/// "…" }`.
 #[must_use]
 pub fn version_pin(document: &Document, id: &EcosystemId) -> Option<String> {
     let raw = document.toven.drivers.get(id.as_str())?;
@@ -90,13 +91,13 @@ pub fn version_pin(document: &Document, id: &EcosystemId) -> Option<String> {
     Some(value.get("version")?.as_str()?.to_string())
 }
 
-/// The set of ecosystems this project references: every declared `[ecosystems.*]`
-/// section plus every `[toven.drivers]` pin.
+/// The set of ecosystems this project references: every declared
+/// `[ecosystems.*]` section plus every `[toven.drivers]` pin.
 ///
 /// Auto-install (`--auto-install`) is scoped to this set so it never provisions
 /// drivers for canonical ecosystems the project does not actually use, keeping
-/// network and toolchain work to what the config asks for. Invalid driver-pin ids
-/// are ignored here (the strict [`federation_sync`] path reports those).
+/// network and toolchain work to what the config asks for. Invalid driver-pin
+/// ids are ignored here (the strict [`federation_sync`] path reports those).
 #[must_use]
 pub fn referenced_ecosystems(document: &Document) -> BTreeSet<EcosystemId> {
     let mut ids: BTreeSet<EcosystemId> = document.ecosystems.keys().cloned().collect();
@@ -138,7 +139,8 @@ pub fn list_drivers(
     Ok(statuses)
 }
 
-/// Provision every driver pinned in `[toven.drivers]`, returning the installed ids.
+/// Provision every driver pinned in `[toven.drivers]`, returning the installed
+/// ids.
 ///
 /// Deterministic CI provisioning: one `toven federation sync` installs each
 /// pinned driver at its pinned version.
@@ -171,13 +173,15 @@ pub fn federation_sync(document: &Document) -> AppResult<Vec<EcosystemId>> {
     Ok(installed)
 }
 
-/// Whether `program` exists and is executable (used by provisioning status views).
+/// Whether `program` exists and is executable (used by provisioning status
+/// views).
 #[must_use]
 pub fn program_is_executable(program: &Path) -> bool {
     rskit_fs::sync_io::file::is_executable(program).unwrap_or(false)
 }
 
-/// Read a path pin from `[toven.drivers].<id>` as a bare string or `{ path = "..." }`.
+/// Read a path pin from `[toven.drivers].<id>` as a bare string or `{ path =
+/// "..." }`.
 fn path_pin(document: &Document, id: &EcosystemId) -> Option<PathBuf> {
     let raw = document.toven.drivers.get(id.as_str())?;
     let value = toml::Value::try_from(raw).ok()?;

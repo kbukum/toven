@@ -4,8 +4,8 @@
 //! [`ReleaseTarget`](toven_ports::ReleaseTarget), collecting the produced
 //! `CycloneDX` artifacts into a bounded output directory. Toven owns scope,
 //! ordering, and reporting; the ecosystem target owns the tool invocation. A
-//! module whose ecosystem has no SBOM tooling is recorded as skipped rather than
-//! failing the whole projection.
+//! module whose ecosystem has no SBOM tooling is recorded as skipped rather
+//! than failing the whole projection.
 
 use std::path::Path;
 
@@ -40,9 +40,9 @@ impl SbomReport {
 /// Generate a `CycloneDX` SBOM per releasable module under `out_dir`.
 ///
 /// A module is releasable when its ecosystem adapter exposes a release target.
-/// Each target's SBOM tool is invoked argv-first, bounded to `out_dir`; a target
-/// with no SBOM tooling contributes a skip. The output directory is created if
-/// missing; nothing outside it is touched.
+/// Each target's SBOM tool is invoked argv-first, bounded to `out_dir`; a
+/// target with no SBOM tooling contributes a skip. The output directory is
+/// created if missing; nothing outside it is touched.
 ///
 /// # Errors
 /// Propagates configuration/discovery/graph failures, output-directory I/O

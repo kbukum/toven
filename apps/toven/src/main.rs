@@ -1,10 +1,10 @@
 //! `toven` — the umbrella CLI bundling every first-party adapter.
 //!
-//! Explicit constructor wiring (no DI container): build the Rust, Go, and command
-//! providers, hand the bundled set to the shared [`toven_cli::run`] dispatcher,
-//! and exit with the resulting process code. A repository selects whichever
-//! ecosystems it declares in `toven.toml`; unused adapters simply contribute no
-//! configured sections.
+//! Explicit constructor wiring (no DI container): build the Rust, Go, and
+//! command providers, hand the bundled set to the shared [`toven_cli::run`]
+//! dispatcher, and exit with the resulting process code. A repository selects
+//! whichever ecosystems it declares in `toven.toml`; unused adapters simply
+//! contribute no configured sections.
 
 use std::process::ExitCode;
 

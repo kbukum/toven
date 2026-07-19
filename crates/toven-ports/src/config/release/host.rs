@@ -11,19 +11,21 @@ use crate::release::{SUPPORTED_FORGES, is_supported_forge};
 /// how to shape it.
 ///
 /// Every field is optional, but a Release-shaping field only takes effect once
-/// `forge` selects a hosted Release. With no `forge`, the release pipeline stops
-/// after tag and registry publish — a hosted Release is opt-in, and setting any
-/// shaping field without a forge is rejected. An unset `draft` / `prerelease`
-/// inherits the engine default (`prerelease` derives from the released version's
-/// prerelease channel), unset `notes` sources the release notes from the
-/// changelog, and unset `assets` uploads nothing.
+/// `forge` selects a hosted Release. With no `forge`, the release pipeline
+/// stops after tag and registry publish — a hosted Release is opt-in, and
+/// setting any shaping field without a forge is rejected. An unset `draft` /
+/// `prerelease` inherits the engine default (`prerelease` derives from the
+/// released version's prerelease channel), unset `notes` sources the release
+/// notes from the changelog, and unset `assets` uploads nothing.
 #[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct HostConfig {
-    /// Forge that hosts the Release (e.g. `"github"`); `None` = no hosted Release.
+    /// Forge that hosts the Release (e.g. `"github"`); `None` = no hosted
+    /// Release.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forge: Option<String>,
-    /// Whether the Release is cut as a draft; `None` = engine default (`false`).
+    /// Whether the Release is cut as a draft; `None` = engine default
+    /// (`false`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<bool>,
     /// Whether the Release is marked as a prerelease; `None` = derive from the
@@ -42,10 +44,10 @@ impl HostConfig {
     /// Validate every field value beyond serde's type checks.
     ///
     /// # Errors
-    /// Rejects a blank or unsupported forge, a blank notes value, any asset path
-    /// that is blank, absolute, or escapes the workspace via traversal, and any
-    /// Release-shaping field (`draft`/`prerelease`/`notes`/`assets`) set while
-    /// `forge` is unset.
+    /// Rejects a blank or unsupported forge, a blank notes value, any asset
+    /// path that is blank, absolute, or escapes the workspace via traversal,
+    /// and any Release-shaping field (`draft`/`prerelease`/`notes`/`assets`)
+    /// set while `forge` is unset.
     pub fn validate(&self, field: &str) -> AppResult<()> {
         if let Some(forge) = &self.forge {
             if forge.trim().is_empty() {
@@ -96,8 +98,8 @@ impl HostConfig {
 
     /// Name of the first Release-shaping field that is set, if any.
     ///
-    /// These fields only take effect once a `forge` selects a hosted Release, so
-    /// setting one without a forge is a configuration mistake rather than a
+    /// These fields only take effect once a `forge` selects a hosted Release,
+    /// so setting one without a forge is a configuration mistake rather than a
     /// silent no-op.
     const fn shaping_field(&self) -> Option<&'static str> {
         if self.draft.is_some() {

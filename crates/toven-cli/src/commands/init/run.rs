@@ -5,8 +5,8 @@
 //! with `--print` it goes to **stdout** (writing nothing); otherwise it is
 //! written atomically to `toven.toml` and only a summary is emitted. Every
 //! diagnostic (an additive re-run skipping an existing section, an ineffective
-//! `--force`, a write confirmation) goes to **stderr**, so `toven init --print >
-//! toven.toml` captures only the document.
+//! `--force`, a write confirmation) goes to **stderr**, so `toven init --print
+//! > toven.toml` captures only the document.
 
 use std::path::{Path, PathBuf};
 
@@ -19,7 +19,8 @@ use toven_ports::Provider;
 use super::prompt::PromptAnswers;
 use crate::flags::Cli;
 
-/// Run `toven init [--force <id>] [--root <path>] [--non-interactive] [--print]`.
+/// Run `toven init [--force <id>] [--root <path>] [--non-interactive]
+/// [--print]`.
 ///
 /// Detects the ecosystems present under the root, runs each provider's wizard
 /// (answered interactively, or from defaults with `--non-interactive`), then
@@ -91,7 +92,8 @@ fn defaults_reason(cli: &Cli) -> Option<DefaultsReason> {
 /// while every diagnostic — re-run/`--force` warnings and the write summary —
 /// goes to **stderr**.
 struct Report {
-    /// The document destined for stdout, present only when it was not persisted.
+    /// The document destined for stdout, present only when it was not
+    /// persisted.
     document: Option<String>,
     /// Diagnostics destined for stderr (warnings, then any write summary).
     diagnostics: Vec<String>,
@@ -101,10 +103,10 @@ impl Report {
     /// Route a finished [`InitOutcome`] into its stdout/stderr channels.
     ///
     /// When `defaults` is set and the run wrote a config, a one-line note is
-    /// prepended to the write summary telling the user prompts were skipped (and
-    /// why) and how to preview (`--print`) or regenerate (`--force <id>`) — so a
-    /// flagged or pipe/CI run never silently accepts every default without a
-    /// signal.
+    /// prepended to the write summary telling the user prompts were skipped
+    /// (and why) and how to preview (`--print`) or regenerate (`--force <id>`)
+    /// — so a flagged or pipe/CI run never silently accepts every default
+    /// without a signal.
     fn from_init_outcome(outcome: &InitOutcome, defaults: Option<DefaultsReason>) -> Self {
         if outcome.written {
             let touched = touched_sections(&outcome.added, &outcome.regenerated);
@@ -122,9 +124,9 @@ impl Report {
     }
 }
 
-/// Assemble the stderr diagnostics for a write run: existing `warnings`, then the
-/// "used defaults" note (only when `defaults` is set), then the write `summary`
-/// last as the closing confirmation.
+/// Assemble the stderr diagnostics for a write run: existing `warnings`, then
+/// the "used defaults" note (only when `defaults` is set), then the write
+/// `summary` last as the closing confirmation.
 fn write_diagnostics(
     warnings: &[String],
     defaults: Option<DefaultsReason>,

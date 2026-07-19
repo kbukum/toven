@@ -43,9 +43,9 @@ pub enum ExecutionReadiness {
 /// Provenance of a resolved task — where its command shape came from.
 ///
 /// Populated on each [`ExecutionUnit`] so plan output and reports can explain
-/// which config layer won during field-merge. The same vocabulary is re-exported
-/// by `toven-ports` and carried on the adapter-facing `Task`, so the ports layer
-/// and the plan artifact speak one origin type.
+/// which config layer won during field-merge. The same vocabulary is
+/// re-exported by `toven-ports` and carried on the adapter-facing `Task`, so
+/// the ports layer and the plan artifact speak one origin type.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Default, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
@@ -75,9 +75,9 @@ impl TaskOrigin {
 
 /// One schedulable unit of work in a [`Plan`].
 ///
-/// A unit carries the rendered invocation plus the planning facts the APPLY half
-/// and the report need. It is vocabulary: the engine populates it, adapters and
-/// reporters read it.
+/// A unit carries the rendered invocation plus the planning facts the APPLY
+/// half and the report need. It is vocabulary: the engine populates it,
+/// adapters and reporters read it.
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub struct ExecutionUnit {
     /// Stable unit identifier (referenced by the wave order and events).
@@ -110,10 +110,10 @@ pub struct ExecutionUnit {
     /// Bound on how long to wait for persistent readiness.
     #[serde(default = "default_readiness_timeout")]
     pub readiness_timeout: Duration,
-    /// Whether any stdout output turns a zero-exit run into a failure. Set for a
-    /// list-mode verification (e.g. `gofmt -l`) whose tool reports offenders on
-    /// stdout but still exits `0`, so APPLY treats a non-empty stdout as a gate
-    /// failure.
+    /// Whether any stdout output turns a zero-exit run into a failure. Set for
+    /// a list-mode verification (e.g. `gofmt -l`) whose tool reports offenders
+    /// on stdout but still exits `0`, so APPLY treats a non-empty stdout as a
+    /// gate failure.
     #[serde(default)]
     pub fail_if_output: bool,
     /// Cache outcome decided during PLAN.
@@ -128,9 +128,9 @@ pub struct ExecutionUnit {
     /// never runs. Empty for a leaf unit.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub depends_on: Vec<String>,
-    /// Optional within-wave serialization key (a shared resource such as a build
-    /// target directory). Units sharing a `resource_group` run serially; units in
-    /// different groups (or with none) may run in parallel.
+    /// Optional within-wave serialization key (a shared resource such as a
+    /// build target directory). Units sharing a `resource_group` run serially;
+    /// units in different groups (or with none) may run in parallel.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resource_group: Option<String>,
 }
@@ -145,9 +145,10 @@ const fn default_readiness_timeout() -> Duration {
 
 /// The immutable result of the PLAN half: units + federated wave order.
 ///
-/// `waves` lists [`ExecutionUnit::id`]s in dependency-respecting order; each inner
-/// vector is one ready wave. The plan fully determines APPLY (including which
-/// units are cache hits), so `--explain`/dry-run is just a PLAN-only projection.
+/// `waves` lists [`ExecutionUnit::id`]s in dependency-respecting order; each
+/// inner vector is one ready wave. The plan fully determines APPLY (including
+/// which units are cache hits), so `--explain`/dry-run is just a PLAN-only
+/// projection.
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub struct Plan {
     /// All execution units, keyed by `id`.

@@ -1,9 +1,10 @@
 //! Scriptable [`CommandRunner`] double for APPLY wave-walk tests.
 //!
-//! [`FakeCommandRunner`] runs no real subprocess: each unit's outcome is scripted
-//! (success / failure / readiness failure / cancel-aware blocking) and the runner
-//! records start order, peak concurrency, cancellations, and persistent-teardown
-//! (shutdown) order so tests can assert scheduling behavior deterministically.
+//! [`FakeCommandRunner`] runs no real subprocess: each unit's outcome is
+//! scripted (success / failure / readiness failure / cancel-aware blocking) and
+//! the runner records start order, peak concurrency, cancellations, and
+//! persistent-teardown (shutdown) order so tests can assert scheduling behavior
+//! deterministically.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -203,11 +204,11 @@ impl HeldProcess for FakeHeldProcess {
     }
 
     fn shutdown(self: Box<Self>) -> AppResult<()> {
-        // Mirror a real persistent process: a dedicated reader thread flushes
-        // final output (here via the live-output observer's `blocking_send`
-        // backpressure path) and shutdown joins it. If the APPLY consumer does
-        // not keep draining the bounded bridge concurrently with this blocking
-        // shutdown, the reader thread parks forever and teardown deadlocks.
+        // Mirror a real persistent process: a dedicated reader thread flushes final
+        // output (here via the live-output observer's `blocking_send` backpressure
+        // path) and shutdown joins it. If the APPLY consumer does not keep draining the
+        // bounded bridge concurrently with this blocking shutdown, the reader thread
+        // parks forever and teardown deadlocks.
         if self.teardown_chunks > 0 {
             let observer = self.observer.clone();
             let unit_id = self.unit_id.clone();
@@ -269,8 +270,8 @@ impl CommandRunner for FakeCommandRunner {
             .expect("log poisoned")
             .finished
             .push(unit_id.clone());
-        // Streaming mode mirrors the real runner: emit each chunk live through
-        // the observer and return an empty outcome rather than buffered chunks.
+        // Streaming mode mirrors the real runner: emit each chunk live through the
+        // observer and return an empty outcome rather than buffered chunks.
         let returned = if let Some(observer) = live {
             for chunk in output {
                 observer.emit(chunk);

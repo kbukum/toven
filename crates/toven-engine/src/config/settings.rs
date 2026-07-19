@@ -1,4 +1,5 @@
-//! `[toven]` — engine settings (reporting, concurrency, cache, include, drivers).
+//! `[toven]` — engine settings (reporting, concurrency, cache, include,
+//! drivers).
 
 use std::collections::BTreeMap;
 
@@ -25,7 +26,8 @@ pub struct TovenConfig {
     /// Task-cache settings.
     #[serde(default, skip_serializing_if = "CacheConfig::is_default")]
     pub cache: CacheConfig,
-    /// Optional include files merged beneath the canonical document as defaults.
+    /// Optional include files merged beneath the canonical document as
+    /// defaults.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub include: Vec<String>,
     /// Out-of-process driver settings, kept verbatim for the federation step.
@@ -49,23 +51,26 @@ pub enum ReportFormat {
 ///
 /// Only shapes the interactive rendering of live child output; it never changes
 /// the typed [`Event`](toven_model::Event) stream or the machine-readable JSON
-/// projection. When output is redirected, piped, or non-interactive the renderer
-/// always falls back to the linear `stream` shape regardless of this setting.
+/// projection. When output is redirected, piped, or non-interactive the
+/// renderer always falls back to the linear `stream` shape regardless of this
+/// setting.
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
 pub enum ViewMode {
     /// Pick the richest shape the environment supports: `panes` inside a
-    /// multiplexer, `tiles` on a plain terminal, `stream` otherwise (the default).
+    /// multiplexer, `tiles` on a plain terminal, `stream` otherwise (the
+    /// default).
     #[default]
     Auto,
     /// One live, content-sized tile per in-flight unit in a single terminal.
     Tiles,
-    /// One multiplexer pane per unit (opt-in; requires a supported multiplexer).
+    /// One multiplexer pane per unit (opt-in; requires a supported
+    /// multiplexer).
     Panes,
     /// A single linear stream with no live area: normal-unit output is buffered
-    /// into one labeled block when concurrency could interleave it, and streamed
-    /// inline for live-safe runs (the log-friendly fallback).
+    /// into one labeled block when concurrency could interleave it, and
+    /// streamed inline for live-safe runs (the log-friendly fallback).
     Stream,
 }
 
@@ -88,7 +93,8 @@ pub struct CacheConfig {
 }
 
 impl CacheConfig {
-    /// Whether this config is entirely default (so it can be skipped on serialize).
+    /// Whether this config is entirely default (so it can be skipped on
+    /// serialize).
     #[must_use]
     pub fn is_default(&self) -> bool {
         self == &Self::default()

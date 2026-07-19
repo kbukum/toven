@@ -6,9 +6,9 @@ use super::Oid;
 
 /// The write side of the git port — used **only** by release APPLY.
 ///
-/// Kept separate from [`VcsReader`](super::VcsReader) so read-only callers never
-/// carry history-mutating capability. Object-safe; one rskit-git-backed adapter
-/// implements both halves.
+/// Kept separate from [`VcsReader`](super::VcsReader) so read-only callers
+/// never carry history-mutating capability. Object-safe; one rskit-git-backed
+/// adapter implements both halves.
 pub trait VcsWriter {
     /// Create the single release commit; returns its object id.
     fn commit(&self, message: &str) -> AppResult<Oid>;

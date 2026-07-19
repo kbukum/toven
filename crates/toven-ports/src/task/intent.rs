@@ -9,9 +9,9 @@ use super::TaskKind;
 /// addressable name equals it. The kind is the recognition attribute: initially
 /// derived from the name (`test` → [`TaskKind::Test`]), it is superseded during
 /// planning by the addressed task's configured `kind` so a renamed task
-/// (`my-test` with `kind = "test"`) still drives kind-aware behavior such as the
-/// dev-edge rule in affected-set selection; an unrecognized name resolves to
-/// [`TaskKind::Default`].
+/// (`my-test` with `kind = "test"`) still drives kind-aware behavior such as
+/// the dev-edge rule in affected-set selection; an unrecognized name resolves
+/// to [`TaskKind::Default`].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct TaskIntent {
     /// The canonical task name the user typed (the identity).
@@ -29,8 +29,9 @@ impl TaskIntent {
         Self { name, kind }
     }
 
-    /// Override the recognized kind (the addressed config task's `kind` attribute
-    /// supersedes the name-derived default so recognition survives a rename).
+    /// Override the recognized kind (the addressed config task's `kind`
+    /// attribute supersedes the name-derived default so recognition survives a
+    /// rename).
     #[must_use]
     pub const fn with_kind(mut self, kind: TaskKind) -> Self {
         self.kind = kind;

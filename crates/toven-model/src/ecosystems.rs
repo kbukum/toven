@@ -1,10 +1,10 @@
 //! Canonical ecosystem registry.
 //!
-//! A static, curated list of known [`EcosystemId`](crate::EcosystemId)s embedded
-//! in *every* binary, independent of which adapters are linked. It exists so a
-//! standalone tool can tell a legitimate-but-unloaded ecosystem (warn + ignore)
-//! apart from a typo (hard error). Adding an ecosystem is one line here plus
-//! shipping its adapter.
+//! A static, curated list of known [`EcosystemId`](crate::EcosystemId)s
+//! embedded in *every* binary, independent of which adapters are linked. It
+//! exists so a standalone tool can tell a legitimate-but-unloaded ecosystem
+//! (warn + ignore) apart from a typo (hard error). Adding an ecosystem is one
+//! line here plus shipping its adapter.
 //!
 //! This is immutable data looked up by value, not a mutable global registry.
 

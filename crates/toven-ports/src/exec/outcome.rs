@@ -62,10 +62,11 @@ pub trait HeldProcess: Send + Sync {
 
 /// The result of starting a persistent invocation.
 ///
-/// Intentionally closed (not `#[non_exhaustive]`): a persistent start is a binary
-/// lifecycle outcome — it either reached readiness ([`StartOutcome::Ready`]) or it
-/// did not ([`StartOutcome::FailedReadiness`]). There is no third outcome, so
-/// callers (the engine work pool) match it exhaustively on purpose.
+/// Intentionally closed (not `#[non_exhaustive]`): a persistent start is a
+/// binary lifecycle outcome — it either reached readiness
+/// ([`StartOutcome::Ready`]) or it did not ([`StartOutcome::FailedReadiness`]).
+/// There is no third outcome, so callers (the engine work pool) match it
+/// exhaustively on purpose.
 pub enum StartOutcome {
     /// The process reached readiness; it is now held in the background.
     Ready {
@@ -74,7 +75,8 @@ pub enum StartOutcome {
         /// The held process handle the engine owns until teardown.
         process: Box<dyn HeldProcess>,
     },
-    /// The process never reached readiness (timeout or early crash) — a failure.
+    /// The process never reached readiness (timeout or early crash) — a
+    /// failure.
     FailedReadiness {
         /// Raw output captured before the readiness failure.
         output: Vec<UnitOutput>,

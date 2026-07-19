@@ -29,7 +29,8 @@ impl CoverageMetrics {
     /// Compute the metrics for a module from its files.
     ///
     /// `changed` is the set of changed file paths under `--changed`; `None`
-    /// leaves `changed_line` unset. Only files present in this module are folded.
+    /// leaves `changed_line` unset. Only files present in this module are
+    /// folded.
     #[must_use]
     pub fn compute(files: &[&FileCoverage], changed: Option<&BTreeSet<PathBuf>>) -> Self {
         let mut lines = Counts::default();

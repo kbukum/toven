@@ -9,11 +9,10 @@
 //! This module owns the concurrency-ordering *policy* and never prints: it
 //! buffers normal units and flushes a labeled block on finish (spilling extra
 //! blocks early if a unit exceeds the per-unit buffer cap, to bound any single
-//! unit's buffer),
-//! live-tails persistent units, and routes the bytes to an injected
-//! [`RawOutputSink`](toven_ports::RawOutputSink) adapter (the port lives in
-//! `toven-ports`, beside [`Reporter`](toven_ports::Reporter); the CLI provides
-//! the concrete, terminal-bound sink). The APPLY exec layer feeds it
+//! unit's buffer), live-tails persistent units, and routes the bytes to an
+//! injected [`RawOutputSink`](toven_ports::RawOutputSink) adapter (the port
+//! lives in `toven-ports`, beside [`Reporter`](toven_ports::Reporter); the CLI
+//! provides the concrete, terminal-bound sink). The APPLY exec layer feeds it
 //! `UnitOutput` chunks plus lifecycle signals.
 
 mod channel;

@@ -21,15 +21,16 @@ struct Recorded {
 ///
 /// Live chunks land in [`live_chunks`](Self::live_chunks) (arrival order) and
 /// flushed blocks in [`blocks`](Self::blocks) (`block` call order — one per
-/// finish, plus any early spill blocks), so tests can assert the
-/// buffer-normal / live-persistent policy without a terminal.
+/// finish, plus any early spill blocks), so tests can assert the buffer-normal
+/// / live-persistent policy without a terminal.
 ///
 /// The recorder shares its state through an [`Arc`] so a test can keep a handle
 /// to inspect after moving a [`clone`](Clone::clone) into the channel that owns
 /// the sink — no recover-by-value escape hatch on the channel is required.
 ///
 /// [`fail_blocks`](Self::fail_blocks) toggles a write failure on `block` so
-/// tests can assert the channel preserves buffered data when a sink write fails.
+/// tests can assert the channel preserves buffered data when a sink write
+/// fails.
 #[derive(Debug, Clone, Default)]
 pub struct RecordingRawOutputSink {
     inner: Arc<Mutex<Recorded>>,
@@ -46,8 +47,8 @@ impl RecordingRawOutputSink {
 
     /// Make subsequent `block` writes fail (`true`) or succeed (`false`).
     ///
-    /// A failing `block` records nothing, mirroring a real sink whose write
-    /// did not land, so a test can assert the channel kept the data and that a
+    /// A failing `block` records nothing, mirroring a real sink whose write did
+    /// not land, so a test can assert the channel kept the data and that a
     /// later retry (after toggling back to `false`) flushes it.
     pub fn fail_blocks(&self, fail: bool) {
         self.fail_block.store(fail, Ordering::SeqCst);
@@ -70,8 +71,8 @@ impl RecordingRawOutputSink {
             .clone()
     }
 
-    /// The flushed blocks as `(unit_id, chunks)`, in `block` call order (one per
-    /// finish, plus any early spill blocks).
+    /// The flushed blocks as `(unit_id, chunks)`, in `block` call order (one
+    /// per finish, plus any early spill blocks).
     #[must_use]
     pub fn blocks(&self) -> Vec<(String, Vec<UnitOutput>)> {
         self.inner

@@ -1,9 +1,9 @@
 //! Shared [`ReleaseHost`] double: [`FakeReleaseHost`].
 //!
-//! Release-engine tests configure a scripted create-or-update outcome and record
-//! every hosted-release call here instead of invoking a real forge CLI. It is
-//! `Clone` so a test can hold a recording handle while the engine drives a boxed
-//! copy.
+//! Release-engine tests configure a scripted create-or-update outcome and
+//! record every hosted-release call here instead of invoking a real forge CLI.
+//! It is `Clone` so a test can hold a recording handle while the engine drives
+//! a boxed copy.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};

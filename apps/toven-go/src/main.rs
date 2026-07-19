@@ -1,7 +1,7 @@
 //! `toven-go` — Toven specialized for Go workspaces.
 //!
-//! Explicit constructor wiring (no DI container): build the Go provider, hand it
-//! to the shared [`toven_cli::run`] dispatcher, and exit with the resulting
+//! Explicit constructor wiring (no DI container): build the Go provider, hand
+//! it to the shared [`toven_cli::run`] dispatcher, and exit with the resulting
 //! process code.
 
 use std::process::ExitCode;

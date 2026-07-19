@@ -5,9 +5,9 @@
 //! installs a driver (an absent driver is warn + skip in the engine's four-way
 //! dispatch), so installing/syncing is isolated here behind its own verbs. Each
 //! action is a thin caller over the engine's
-//! [`federation::provision`](toven_engine::federation::provision) functions; all
-//! human-facing lines go to **stderr** so `stdout` stays reserved for the JSONL
-//! machine stream and the `__serve` frame transport.
+//! [`federation::provision`](toven_engine::federation::provision) functions;
+//! all human-facing lines go to **stderr** so `stdout` stays reserved for the
+//! JSONL machine stream and the `__serve` frame transport.
 
 use rskit_cli::{ErrorRenderer, ExitCode};
 use rskit_errors::{AppError, AppResult, ErrorCode};
@@ -45,8 +45,9 @@ pub(crate) fn serve(providers: &[&dyn Provider]) -> ExitCode {
 ///
 /// Drives the engine's framed
 /// [`serve_wizard`](toven_engine::federation::serve_wizard) loop with the
-/// in-proc `providers`: stdin carries the umbrella's wizard probe/answers, stdout
-/// the reply frames, and any failure is rendered to stderr. Never panics.
+/// in-proc `providers`: stdin carries the umbrella's wizard probe/answers,
+/// stdout the reply frames, and any failure is rendered to stderr. Never
+/// panics.
 #[must_use]
 pub(crate) fn init_wizard(providers: &[&dyn Provider]) -> ExitCode {
     let stdin = std::io::stdin();
@@ -119,8 +120,8 @@ pub(crate) fn federation(
     }
 }
 
-/// Install (or update) the driver for `id`, pinning the `[toven.drivers]` version
-/// if one is configured.
+/// Install (or update) the driver for `id`, pinning the `[toven.drivers]`
+/// version if one is configured.
 fn install(project: &Project, id: &str) -> AppResult<ExitCode> {
     let ecosystem = parse_id(id)?;
     let version = version_pin(&project.document, &ecosystem);
@@ -132,9 +133,9 @@ fn install(project: &Project, id: &str) -> AppResult<ExitCode> {
 /// Install the driver for every **referenced** canonical ecosystem currently
 /// resolved as [`DriverState::Absent`].
 ///
-/// Scoped to ecosystems the project actually references (declared `[ecosystems.*]`
-/// sections and `[toven.drivers]` pins) so `--auto-install` never provisions
-/// drivers for canonical ecosystems this project does not use.
+/// Scoped to ecosystems the project actually references (declared
+/// `[ecosystems.*]` sections and `[toven.drivers]` pins) so `--auto-install`
+/// never provisions drivers for canonical ecosystems this project does not use.
 fn install_absent(providers: &[&dyn Provider], project: &Project) -> AppResult<()> {
     let referenced = provision::referenced_ecosystems(&project.document);
     for status in statuses(providers, project)? {

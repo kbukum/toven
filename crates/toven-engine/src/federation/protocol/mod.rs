@@ -5,9 +5,9 @@
 //! - [`codec`] — length-delimited frame read/write.
 //! - [`envelope`] — the [`Hello`]/[`Welcome`] handshake and the
 //!   [`Request`]/[`Response`] RPC mirror, built only from model/port types.
-//! - [`wizard`] — the config-less two-round-trip [`WizardProbe`]/[`WizardOffer`]
-//!   → [`WizardAnswers`]/[`WizardResult`] exchange that powers federated
-//!   `toven init`.
+//! - [`wizard`] — the config-less two-round-trip
+//!   [`WizardProbe`]/[`WizardOffer`] → [`WizardAnswers`]/[`WizardResult`]
+//!   exchange that powers federated `toven init`.
 //! - [`handshake`] — protocol-version negotiation and the typed [`DriverFault`]
 //!   classification.
 

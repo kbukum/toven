@@ -17,18 +17,19 @@ use super::{
 /// per-module `[modules.<name>.release]` override).
 ///
 /// Every field is optional with a documented default, so an existing
-/// `toven.toml` keeps parsing unchanged and an unset override field inherits the
-/// ecosystem default (and, in turn, the built-in adapter default). The engine
-/// folds ecosystem → per-module override into a resolved settings value with the
-/// precedence `[modules.<name>.release]` > `[ecosystems.<id>].release` >
-/// adapter default (the per-run bump argv layers on top).
+/// `toven.toml` keeps parsing unchanged and an unset override field inherits
+/// the ecosystem default (and, in turn, the built-in adapter default). The
+/// engine folds ecosystem → per-module override into a resolved settings value
+/// with the precedence `[modules.<name>.release]` > `[ecosystems.<id>].release`
+/// > adapter default (the per-run bump argv layers on top).
 #[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReleaseConfig {
     /// Named bump policy (e.g. `"semver-cascade"`); `None` = adapter default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy: Option<String>,
-    /// Default bump level applied to a changed module; `None` = adapter default.
+    /// Default bump level applied to a changed module; `None` = adapter
+    /// default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub level: Option<BumpLevel>,
     /// How a dependency-floor bump cascades into dependents; `None` = default.
@@ -55,10 +56,12 @@ pub struct ReleaseConfig {
     /// Git remote pushed to; `None` = adapter default (`origin`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<String>,
-    /// Allowed release branches; `Some([])` clears to any branch, `None` = inherit.
+    /// Allowed release branches; `Some([])` clears to any branch, `None` =
+    /// inherit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branches: Option<Vec<String>>,
-    /// Target registry identifier (e.g. `"crates-io"`); `None` = not publishable.
+    /// Target registry identifier (e.g. `"crates-io"`); `None` = not
+    /// publishable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry: Option<String>,
     /// Skip registry lookups and anchor idempotency on release tags only.
@@ -85,7 +88,8 @@ pub struct ReleaseConfig {
 }
 
 impl ReleaseConfig {
-    /// Whether this config is entirely default (so it can be skipped on serialize).
+    /// Whether this config is entirely default (so it can be skipped on
+    /// serialize).
     #[must_use]
     pub fn is_default(&self) -> bool {
         self == &Self::default()
@@ -97,10 +101,10 @@ impl ReleaseConfig {
     /// `ecosystems.rust.release` or `modules.rust:core.release`).
     ///
     /// # Errors
-    /// Rejects a malformed tag/commit template (unknown placeholder), an invalid
-    /// prerelease channel or branch mapping, an unsafe changelog path, a blank
-    /// strategy/registry/remote/token-env/branch/readiness/hook reference, and an
-    /// inconsistent signing selection.
+    /// Rejects a malformed tag/commit template (unknown placeholder), an
+    /// invalid prerelease channel or branch mapping, an unsafe changelog path,
+    /// a blank strategy/registry/remote/token-env/branch/readiness/hook
+    /// reference, and an inconsistent signing selection.
     pub fn validate(&self, field: &str) -> AppResult<()> {
         for (name, template) in [
             ("tag_format", &self.tag_format),

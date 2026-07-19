@@ -1,5 +1,5 @@
-//! `TaskEntry` — the complete config projection of a [`Task`], the authoritative
-//! source of an ecosystem's runnable tasks.
+//! `TaskEntry` — the complete config projection of a [`Task`], the
+//! authoritative source of an ecosystem's runnable tasks.
 
 use std::time::Duration;
 
@@ -16,15 +16,15 @@ use crate::task::{FanOut, Readiness, Task, TaskKind, TaskOrigin};
 /// name a user types); each entry carries the two-template command (`argv` +
 /// `selector`) plus the scheduling attributes the engine needs. Its
 /// [`kind`](Self::kind) is an optional recognition attribute: when omitted it
-/// defaults to the recognized kind matching the key (`test` → `Test`), and it can
-/// be set explicitly to preserve recognition across a rename (e.g. a `my-test`
-/// entry with `kind = "test"`).
+/// defaults to the recognized kind matching the key (`test` → `Test`), and it
+/// can be set explicitly to preserve recognition across a rename (e.g. a
+/// `my-test` entry with `kind = "test"`).
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 #[allow(clippy::struct_excessive_bools)] // a task schema is a set of independent flags
 pub struct TaskEntry {
-    /// Optional recognition attribute; when omitted it defaults to the recognized
-    /// kind matching the table key, else [`TaskKind::Default`].
+    /// Optional recognition attribute; when omitted it defaults to the
+    /// recognized kind matching the table key, else [`TaskKind::Default`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<TaskKind>,
     /// The base argv template, rendered once per unit. Must be non-empty.
@@ -53,10 +53,10 @@ pub struct TaskEntry {
     /// the mutation on a later run.
     #[serde(default = "default_cacheable", skip_serializing_if = "is_true")]
     pub cacheable: bool,
-    /// Whether any stdout output turns a zero-exit run into a failure. Defaults to
-    /// `false`. A list-mode verification whose tool reports offenders on stdout but
-    /// still exits `0` (e.g. `gofmt -l`) authors `fail_if_output = true` so it
-    /// becomes a real CI gate instead of a silent pass.
+    /// Whether any stdout output turns a zero-exit run into a failure. Defaults
+    /// to `false`. A list-mode verification whose tool reports offenders on
+    /// stdout but still exits `0` (e.g. `gofmt -l`) authors `fail_if_output =
+    /// true` so it becomes a real CI gate instead of a silent pass.
     #[serde(default, skip_serializing_if = "is_false")]
     pub fail_if_output: bool,
     /// Task-level extra cache inputs (workspace-relative plain paths).
@@ -88,8 +88,8 @@ const fn is_true(value: &bool) -> bool {
 
 impl TaskEntry {
     /// The recognized [`TaskKind`] this entry resolves to under `key`: the
-    /// explicit [`kind`](Self::kind) when set, else the recognized kind matching
-    /// `key`, else [`TaskKind::Default`].
+    /// explicit [`kind`](Self::kind) when set, else the recognized kind
+    /// matching `key`, else [`TaskKind::Default`].
     #[must_use]
     pub fn resolved_kind(&self, key: &str) -> TaskKind {
         self.kind
@@ -103,8 +103,8 @@ impl TaskEntry {
     ///
     /// # Errors
     /// Returns a typed error citing `ecosystems.<ecosystem>.tasks.<key>` when
-    /// `argv` is empty — the one completeness check the authoritative config must
-    /// satisfy (a task cannot run without a command).
+    /// `argv` is empty — the one completeness check the authoritative config
+    /// must satisfy (a task cannot run without a command).
     pub fn materialize(&self, ecosystem: &str, key: &str) -> AppResult<Task> {
         if self.argv.is_empty() {
             return Err(AppError::invalid_input(
@@ -131,8 +131,8 @@ impl TaskEntry {
 }
 
 impl Readiness {
-    /// Whether this is the default [`Started`](Readiness::Started) signal (so it
-    /// can be skipped on serialize).
+    /// Whether this is the default [`Started`](Readiness::Started) signal (so
+    /// it can be skipped on serialize).
     #[must_use]
     pub const fn is_started(&self) -> bool {
         matches!(self, Self::Started)

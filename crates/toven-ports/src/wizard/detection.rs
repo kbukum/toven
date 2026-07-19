@@ -4,17 +4,19 @@ use serde::{Deserialize, Serialize};
 use toml::Table;
 use toven_model::EcosystemId;
 
-/// The result of a [`Provider::detect`](crate::provider::Provider::detect) probe.
+/// The result of a [`Provider::detect`](crate::provider::Provider::detect)
+/// probe.
 ///
 /// Carries the ecosystem that applies under a project root plus the opaque,
 /// adapter-owned facts it needs later at
 /// [`render`](crate::provider::Provider::render) time.
 ///
-/// `facts` is the adapter's own serializable data (detected manifests, whether a
-/// preferred test runner is available, …), carried through the wizard unchanged;
-/// core never inspects it. Keeping it a raw [`Table`] means it survives the
-/// framed federation transport intact — a driver's detection crosses to the
-/// umbrella and its answers cross back without core knowing the shape.
+/// `facts` is the adapter's own serializable data (detected manifests, whether
+/// a preferred test runner is available, …), carried through the wizard
+/// unchanged; core never inspects it. Keeping it a raw [`Table`] means it
+/// survives the framed federation transport intact — a driver's detection
+/// crosses to the umbrella and its answers cross back without core knowing the
+/// shape.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Detection {
     /// The ecosystem this detection is for (`[ecosystems.<id>]` key).

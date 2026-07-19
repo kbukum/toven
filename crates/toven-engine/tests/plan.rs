@@ -461,7 +461,8 @@ fn uncacheable_task_is_statically_disabled_even_with_caching_active() {
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
-    // An active read/write cache mode: only the task's own opt-out should disable it.
+    // An active read/write cache mode: only the task's own opt-out should disable
+    // it.
     let request = request(TaskIntent::resolve("format-fix"));
     let plan = plan(&request, &document(), &providers, host, &mut reporter).expect("plan succeeds");
 
@@ -545,8 +546,8 @@ fn cache_keys_are_deterministic_and_drive_hits() {
     let keys = recording.queried();
     assert_eq!(keys.len(), 1, "one key per unit");
 
-    // Second run: seed one captured key — the same key must recur (determinism)
-    // and turn exactly that unit into a hit.
+    // Second run: seed one captured key — the same key must recur (determinism) and
+    // turn exactly that unit into a hit.
     let cache = FakeCacheStore::new().with_key(keys[0].clone());
     let mut reporter = RecordingReporter::new();
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
@@ -568,9 +569,9 @@ fn cache_keys_are_deterministic_and_drive_hits() {
     assert_eq!(hits, 1, "exactly one unit hits the seeded key");
 }
 
-/// A two-module rust workspace where `app` **dev**-depends on `errors`, exposing
-/// a renamed test task (`my-test`, `kind = "test"`) and a plain custom task
-/// (`deploy`, no recognized kind), each fanning per module.
+/// A two-module rust workspace where `app` **dev**-depends on `errors`,
+/// exposing a renamed test task (`my-test`, `kind = "test"`) and a plain custom
+/// task (`deploy`, no recognized kind), each fanning per module.
 fn dev_dep_provider() -> FakeProvider {
     let mut response = DiscoverResponse::new(eid("rust"));
     response.workspaces.push(Workspace::new(
@@ -603,9 +604,9 @@ fn dev_dep_provider() -> FakeProvider {
     FakeProvider::new(eid("rust")).with_adapter(adapter)
 }
 
-/// `--dependencies` on the renamed test task must pull the dev-only prerequisite
-/// into the plan: recognition reads the task's configured `kind = "test"`, not
-/// the typed token, so a renamed test still propagates dev edges.
+/// `--dependencies` on the renamed test task must pull the dev-only
+/// prerequisite into the plan: recognition reads the task's configured `kind =
+/// "test"`, not the typed token, so a renamed test still propagates dev edges.
 #[test]
 fn renamed_test_task_propagates_dev_edges_by_its_configured_kind() {
     let provider = dev_dep_provider();
@@ -720,9 +721,9 @@ fn conflicting_kind_providers() -> (FakeProvider, FakeProvider) {
     )
 }
 
-/// Recognition is order-independent: when two ecosystems configure the same task
-/// name with different kinds the plan fails closed with an actionable error,
-/// rather than resolving the kind by arbitrary adapter iteration order.
+/// Recognition is order-independent: when two ecosystems configure the same
+/// task name with different kinds the plan fails closed with an actionable
+/// error, rather than resolving the kind by arbitrary adapter iteration order.
 #[test]
 fn conflicting_task_kinds_across_ecosystems_are_rejected() {
     let (rust, go) = conflicting_kind_providers();

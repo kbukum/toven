@@ -1,6 +1,12 @@
 //! Per-run bump argv: the explicit overrides layered over resolved config.
 //!
-//! The overrides carry the mutating release actions' bump argv (`--patch`/`--minor`/`--major`/`--set-version`/`--pre`/`--base`/`--offline`) as typed, validated data. They layer over the resolved config with the documented precedence (**argv > `[modules.<name>.release]` > `[ecosystems.<id>].release` > adapter default**); the config side never rewrites user argv, and every override is validated at the CLI boundary before it reaches the bump planner.
+//! The overrides carry the mutating release actions' bump argv
+//! (`--patch`/`--minor`/`--major`/`--set-version`/`--pre`/`--base`/`--offline`)
+//! as typed, validated data. They layer over the resolved config with the
+//! documented precedence (**argv > `[modules.<name>.release]` >
+//! `[ecosystems.<id>].release` > adapter default**); the config side never
+//! rewrites user argv, and every override is validated at the CLI boundary
+//! before it reaches the bump planner.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -11,7 +17,9 @@ use toven_ports::BumpLevel;
 
 /// The explicit, validated per-run bump overrides.
 ///
-/// Built at the CLI boundary from the parsed argv; a conflicting combination (a module in two level flags, or in both a level flag and `--set-version`) is rejected as a typed error at construction time.
+/// Built at the CLI boundary from the parsed argv; a conflicting combination (a
+/// module in two level flags, or in both a level flag and `--set-version`) is
+/// rejected as a typed error at construction time.
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct BumpOverrides {
     module_levels: BTreeMap<ModuleRef, BumpLevel>,
@@ -31,7 +39,9 @@ impl BumpOverrides {
     /// Force `module` to bump at `level`.
     ///
     /// # Errors
-    /// Rejects `BumpLevel::Auto` (a per-run override is always an explicit `patch`/`minor`/`major`), a module already forced to a different level, or one pinned by `--set-version`.
+    /// Rejects `BumpLevel::Auto` (a per-run override is always an explicit
+    /// `patch`/`minor`/`major`), a module already forced to a different level,
+    /// or one pinned by `--set-version`.
     pub fn with_module_level(mut self, module: ModuleRef, level: BumpLevel) -> AppResult<Self> {
         if level == BumpLevel::Auto {
             return Err(AppError::invalid_input(
@@ -54,7 +64,8 @@ impl BumpOverrides {
     /// Pin `module` to an explicit target `version`.
     ///
     /// # Errors
-    /// Rejects a module already forced to a level or pinned to a different version.
+    /// Rejects a module already forced to a level or pinned to a different
+    /// version.
     pub fn with_set_version(mut self, module: ModuleRef, version: Version) -> AppResult<Self> {
         if self.module_levels.contains_key(&module) {
             return Err(conflict(&module));
@@ -120,7 +131,8 @@ impl BumpOverrides {
     /// Validate that every module named in an override is in the release scope.
     ///
     /// # Errors
-    /// Rejects an override naming a module absent from the release scope (either unknown or unchanged), so a typo can never silently no-op.
+    /// Rejects an override naming a module absent from the release scope
+    /// (either unknown or unchanged), so a typo can never silently no-op.
     pub(super) fn validate_known(&self, known: &BTreeSet<ModuleRef>) -> AppResult<()> {
         for module in self.module_levels.keys().chain(self.set_versions.keys()) {
             if !known.contains(module) {

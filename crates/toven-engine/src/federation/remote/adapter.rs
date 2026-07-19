@@ -1,13 +1,15 @@
 //! [`RemoteAdapter`] — a [`ConfiguredAdapter`] that proxies each port call to a
-//! driven `toven-<eco> __serve` subprocess (or, in tests, an in-process server).
+//! driven `toven-<eco> __serve` subprocess (or, in tests, an in-process
+//! server).
 //!
-//! Construction performs the handshake and **prefetches** every infallible query
-//! the planner later asks for (`toolchain_probe`, the per-kind `run_strategy`
-//! defaults, and the common config). Those trait methods cannot return errors,
-//! so they are resolved once up front where a transport failure *can* be
-//! surfaced; only the fallible [`discover`](ConfiguredAdapter::discover) stays a
-//! live RPC. The runnable task table is not an RPC — it is the driver's resolved
-//! config, carried in the [`Welcome`]'s common config.
+//! Construction performs the handshake and **prefetches** every infallible
+//! query the planner later asks for (`toolchain_probe`, the per-kind
+//! `run_strategy` defaults, and the common config). Those trait methods cannot
+//! return errors, so they are resolved once up front where a transport failure
+//! *can* be surfaced; only the fallible
+//! [`discover`](ConfiguredAdapter::discover) stays a live RPC. The runnable
+//! task table is not an RPC — it is the driver's resolved config, carried in
+//! the [`Welcome`]'s common config.
 //!
 //! Release is capability-gated off for driven ecosystems:
 //! [`release_target`](ConfiguredAdapter::release_target) returns `None`. The
@@ -60,13 +62,13 @@ pub struct RemoteAdapter {
 impl RemoteAdapter {
     /// Spawn `program __serve` and connect a [`RemoteAdapter`] for `ecosystem`.
     ///
-    /// `config` is the ecosystem's `[ecosystems.<id>]` raw subtree, handed to the
-    /// driver's own `configure`.
+    /// `config` is the ecosystem's `[ecosystems.<id>]` raw subtree, handed to
+    /// the driver's own `configure`.
     ///
     /// # Errors
-    /// Returns a typed PLAN error if the driver cannot be spawned, the handshake
-    /// is incompatible, or a prefetched port call fails. A resolved driver that
-    /// fails is always a hard error — never a silent skip.
+    /// Returns a typed PLAN error if the driver cannot be spawned, the
+    /// handshake is incompatible, or a prefetched port call fails. A resolved
+    /// driver that fails is always a hard error — never a silent skip.
     pub fn spawn(program: &Path, ecosystem: EcosystemId, config: RawValue) -> AppResult<Self> {
         let driver = process::spawn(program, "__serve")
             .map_err(|fault| fault.into_app_error(ecosystem.as_str()))?;
@@ -81,7 +83,8 @@ impl RemoteAdapter {
         Self::connect(client, ecosystem, config)
     }
 
-    /// Connect over an arbitrary framed reader/writer (the in-process test path).
+    /// Connect over an arbitrary framed reader/writer (the in-process test
+    /// path).
     ///
     /// # Errors
     /// Returns a typed PLAN error on an incompatible handshake or a failed
@@ -189,8 +192,8 @@ impl ConfiguredAdapter for RemoteAdapter {
     }
 
     fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseTarget>>> {
-        // Capability-gated: driven ecosystems are not publishable through the
-        // umbrella transport.
+        // Capability-gated: driven ecosystems are not publishable through the umbrella
+        // transport.
         Ok(None)
     }
 

@@ -2,8 +2,8 @@
 //!
 //! Detection is member-scoped: each member repo contributes its own worktree
 //! status, tag namespace, and configured baseline, while the changed seeds are
-//! still resolved against the one federated umbrella graph. A single-repo project
-//! is the N=1 degenerate member (no id, empty path prefix).
+//! still resolved against the one federated umbrella graph. A single-repo
+//! project is the N=1 degenerate member (no id, empty path prefix).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -25,7 +25,8 @@ pub(super) struct ReleaseChanges {
     pub(super) baselines: BTreeMap<ModuleKey, ReleaseBaseline>,
 }
 
-/// Detect modules changed since their release baseline across every member repo.
+/// Detect modules changed since their release baseline across every member
+/// repo.
 ///
 /// # Errors
 /// Propagates [`VcsReader`](toven_ports::VcsReader) failures (tag listing,
@@ -70,9 +71,9 @@ fn detect_member(
     let base_ref = member_base_ref(context, member);
     let worktree = reader.umbrella_records(&reader.reader().worktree_status()?);
     // List every tag once: the VCS adapter enumerates all tags and filters
-    // in-memory, so a per-module `list_tags(<glob>)` would re-scan the full tag
-    // set for each module (O(modules × tags)). `tag::latest` parses and filters
-    // by the module's prefix from this shared snapshot instead.
+    // in-memory, so a per-module `list_tags(<glob>)` would re-scan the full tag set
+    // for each module (O(modules × tags)). `tag::latest` parses and filters by the
+    // module's prefix from this shared snapshot instead.
     let tags = reader.reader().list_tags(None)?;
 
     for module in context
@@ -121,7 +122,8 @@ fn detect_member(
     Ok(())
 }
 
-/// The configured release baseline ref for `member`, from the composed federation.
+/// The configured release baseline ref for `member`, from the composed
+/// federation.
 fn member_base_ref<'a>(context: &'a PlanContext, member: Option<&MemberId>) -> Option<&'a str> {
     context
         .composed

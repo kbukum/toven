@@ -1,8 +1,8 @@
 //! Read-only release status projection.
 //!
 //! Reports, per releasable module, the version its manifest declares, the
-//! newest release tag cut for it, and the versions the registry already
-//! reports as published — all without mutating any manifest, tag, or registry.
+//! newest release tag cut for it, and the versions the registry already reports
+//! as published — all without mutating any manifest, tag, or registry.
 
 use std::collections::BTreeMap;
 
@@ -79,8 +79,8 @@ pub fn release_status(
 /// List every member repo's tags once, keyed by member.
 ///
 /// Mirrors change detection: each member's VCS adapter enumerates all tags and
-/// the per-module baseline resolves against that shared snapshot, so the tag set
-/// is fetched once per member rather than once per module.
+/// the per-module baseline resolves against that shared snapshot, so the tag
+/// set is fetched once per member rather than once per module.
 fn list_member_tags(
     readers: &MemberVcsReaders<'_>,
 ) -> AppResult<BTreeMap<Option<MemberId>, Vec<TagRef>>> {

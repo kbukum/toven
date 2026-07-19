@@ -7,8 +7,8 @@ use toven_ports::{BaselineSpec, TaskIntent};
 ///
 /// [`Selection::All`] activates every discovered module (a full `toven test`);
 /// [`Selection::Changed`] runs the change mapper against the per-member
-/// baselines resolved by the VCS reader set, falling back to the optional request
-/// spec for members without their own configured baseline;
+/// baselines resolved by the VCS reader set, falling back to the optional
+/// request spec for members without their own configured baseline;
 /// [`Selection::Explicit`] activates exactly the user-named modules/workspaces
 /// (`--module`/`--workspace`), optionally expanded to their reverse dependents
 /// (`--dependents`) and/or forward dependencies (`--dependencies`).
@@ -27,13 +27,16 @@ pub enum Selection {
     /// [`Selection::Changed`] but sources them from the filesystem watcher
     /// rather than a VCS baseline diff.
     ChangedPaths(Vec<String>),
-    /// Activate exactly the named modules/workspaces resolved against the graph.
+    /// Activate exactly the named modules/workspaces resolved against the
+    /// graph.
     Explicit {
         /// The user-named module/workspace targets to activate.
         targets: Vec<ModuleSelector>,
-        /// Whether to also activate the reverse-dependents closure of the targets.
+        /// Whether to also activate the reverse-dependents closure of the
+        /// targets.
         include_dependents: bool,
-        /// Whether to also activate the forward-dependencies closure of the targets.
+        /// Whether to also activate the forward-dependencies closure of the
+        /// targets.
         include_dependencies: bool,
     },
 }
@@ -45,7 +48,8 @@ pub enum CacheMode {
     /// Read existing records and write new ones (the default).
     #[default]
     ReadWrite,
-    /// Ignore existing records: every unit is [`Forced`](toven_model::CacheVerdict::Forced).
+    /// Ignore existing records: every unit is
+    /// [`Forced`](toven_model::CacheVerdict::Forced).
     Force,
     /// Bypass the cache entirely: every unit is
     /// [`Disabled`](toven_model::CacheVerdict::Disabled).
@@ -58,7 +62,8 @@ pub enum CacheMode {
 /// planner only validates and expands it at the `{args}` splice point.
 #[derive(Debug, Clone)]
 pub struct PlanRequest {
-    /// Stable run identifier, echoed into the emitted [`Event`](toven_model::Event)s.
+    /// Stable run identifier, echoed into the emitted
+    /// [`Event`](toven_model::Event)s.
     pub run_id: String,
     /// Human-facing project name (from `[project].name`), echoed into events.
     pub project: String,
@@ -75,8 +80,8 @@ pub struct PlanRequest {
 }
 
 impl PlanRequest {
-    /// Construct a request for `intent` rooted at `project_root`, defaulting to a
-    /// full [`Selection::All`] run with [`CacheMode::ReadWrite`].
+    /// Construct a request for `intent` rooted at `project_root`, defaulting to
+    /// a full [`Selection::All`] run with [`CacheMode::ReadWrite`].
     #[must_use]
     pub fn new(
         run_id: impl Into<String>,

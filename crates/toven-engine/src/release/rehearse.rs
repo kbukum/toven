@@ -21,15 +21,15 @@ use crate::plan::{PlanRequest, prepare_front};
 
 /// Rehearse the release publish loop without mutating anything.
 ///
-/// Reuses the release PLAN cut, whose per-entry `publish_needed` already folds in
-/// the publish loop's idempotency query
+/// Reuses the release PLAN cut, whose per-entry `publish_needed` already folds
+/// in the publish loop's idempotency query
 /// ([`ReleaseTarget::published_versions`](toven_ports::ReleaseTarget::published_versions)),
 /// to report what a real publish would do. It also resolves — but never cuts —
-/// the hosted forge Releases a real run would create, so `--dry-run` reports the
-/// hosted release plan (tag, flags, assets) while invoking no forge CLI. It never
-/// calls `apply_release`, `package`, `publish`, or any host, so no manifest, tag,
-/// commit, registry entry, or forge Release is touched. `overrides` carry the
-/// per-run bump argv.
+/// the hosted forge Releases a real run would create, so `--dry-run` reports
+/// the hosted release plan (tag, flags, assets) while invoking no forge CLI. It
+/// never calls `apply_release`, `package`, `publish`, or any host, so no
+/// manifest, tag, commit, registry entry, or forge Release is touched.
+/// `overrides` carry the per-run bump argv.
 ///
 /// # Errors
 /// Propagates configuration/discovery/graph failures and release-plan failures.
@@ -67,8 +67,8 @@ pub fn release_rehearse(
 }
 
 /// Classify every planned release (an entry with a planned version) against the
-/// plan's publish verdict, preserving the plan's deterministic publish order, and
-/// carry the hosted forge Releases a real run would cut.
+/// plan's publish verdict, preserving the plan's deterministic publish order,
+/// and carry the hosted forge Releases a real run would cut.
 ///
 /// A `publish_needed` entry is classified `would-publish`; one the planner
 /// already found on the registry is classified `already-published`.

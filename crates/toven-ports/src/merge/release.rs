@@ -6,12 +6,12 @@ use crate::config::ReleaseConfig;
 /// Field-merge a per-module release `over`ride onto an ecosystem `base` config.
 ///
 /// Every field is presence-aware: a `Some` override field **replaces** the base
-/// value for exactly that field, and a `None` inherits the base. So a per-module
-/// `[modules.<name>.release]` that only sets `level` flips one field while the
-/// rest carry over, and it can explicitly **clear** a base default — e.g.
-/// `branches = []` opts one module out of the ecosystem's branch restriction.
-/// This matches the documented precedence (per-module > ecosystem > adapter
-/// default).
+/// value for exactly that field, and a `None` inherits the base. So a
+/// per-module `[modules.<name>.release]` that only sets `level` flips one field
+/// while the rest carry over, and it can explicitly **clear** a base default —
+/// e.g. `branches = []` opts one module out of the ecosystem's branch
+/// restriction. This matches the documented precedence (per-module > ecosystem
+/// > adapter default).
 #[must_use]
 pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfig {
     let mut merged = base.clone();

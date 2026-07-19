@@ -1,9 +1,10 @@
 //! Per-member change baselines and VCS readers for umbrella planning.
 //!
-//! Each composed member can resolve its own baseline ref, while a caller-provided
-//! baseline flag applies the same ref name independently to every member repo.
-//! The reader set keeps the existing rskit-git-backed per-repo dedup: callers own
-//! the opened set and borrow a lightweight member-indexed view into PLAN.
+//! Each composed member can resolve its own baseline ref, while a
+//! caller-provided baseline flag applies the same ref name independently to
+//! every member repo. The reader set keeps the existing rskit-git-backed
+//! per-repo dedup: callers own the opened set and borrow a lightweight
+//! member-indexed view into PLAN.
 
 use std::path::{Path, PathBuf};
 
@@ -37,8 +38,8 @@ impl MemberBaselines {
     }
 }
 
-/// One member's resolved baseline spec, absent when neither the member config nor
-/// the caller's flags name a reference.
+/// One member's resolved baseline spec, absent when neither the member config
+/// nor the caller's flags name a reference.
 #[derive(Debug, Clone)]
 struct MemberBaseline {
     member: Option<MemberId>,
@@ -49,8 +50,9 @@ struct MemberBaseline {
 ///
 /// `flags.base` overrides each member's configured ref with the same ref name,
 /// while `flags.merge_base` only changes the mode. Without a flag ref, each
-/// member uses its effective composed `base_ref`; a member with neither resolves
-/// to `None` (a changed-selection over it then errors at consumption time).
+/// member uses its effective composed `base_ref`; a member with neither
+/// resolves to `None` (a changed-selection over it then errors at consumption
+/// time).
 #[must_use]
 pub fn resolve_baselines(composed: &ComposedFederation, flags: &BaselineFlags) -> MemberBaselines {
     let mut baselines = MemberBaselines {
@@ -121,8 +123,9 @@ struct OpenMemberVcsReader {
 /// Open one deduped reader set for every composed member repo.
 ///
 /// # Errors
-/// Propagates repository discovery/open failures or the impossible internal case
-/// where an opened reader group cannot be matched back to its member placement.
+/// Propagates repository discovery/open failures or the impossible internal
+/// case where an opened reader group cannot be matched back to its member
+/// placement.
 pub fn open_member_vcs_readers(
     umbrella_root: &AbsPath,
     composed: &ComposedFederation,
@@ -144,10 +147,10 @@ pub fn open_member_vcs_readers(
         })?;
         let baseline = baselines.get(member.member().id()).cloned();
         let group = &set.groups()[group_index];
-        // The opened repo group resolved the actual git repo root; the placement
-        // prefix is this member's discovery root *relative to that repo root*.
-        // Stripping it rebases repo-root-relative change records down to
-        // discovery-root-relative before the umbrella prefix is prepended.
+        // The opened repo group resolved the actual git repo root; the placement prefix
+        // is this member's discovery root *relative to that repo root*. Stripping it
+        // rebases repo-root-relative change records down to discovery-root-relative
+        // before the umbrella prefix is prepended.
         let repo_prefix = group
             .members()
             .iter()

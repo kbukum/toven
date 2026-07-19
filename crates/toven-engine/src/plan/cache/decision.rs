@@ -26,7 +26,8 @@ use super::super::request::CacheMode;
 /// key (when one was derived) so callers can store it without recomputing.
 ///
 /// # Errors
-/// Propagates a `compute_key` digest failure or a [`CacheStore`] lookup failure.
+/// Propagates a `compute_key` digest failure or a [`CacheStore`] lookup
+/// failure.
 pub(in crate::plan) fn verdict<F>(
     mode: CacheMode,
     cache_args: bool,

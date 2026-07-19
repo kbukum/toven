@@ -1,9 +1,10 @@
 //! The config-less wizard exchange — the federated half of `toven init`.
 //!
 //! Unlike the [`envelope`](super::envelope) RPC mirror (which configures an
-//! adapter from an `[ecosystems.<id>]` subtree before answering port calls), the
-//! wizard runs **before any config exists**. So it is a distinct, **two-round-trip**
-//! exchange over the same length-delimited [`codec`](super::codec) framing:
+//! adapter from an `[ecosystems.<id>]` subtree before answering port calls),
+//! the wizard runs **before any config exists**. So it is a distinct,
+//! **two-round-trip** exchange over the same length-delimited
+//! [`codec`](super::codec) framing:
 //!
 //! 1. The umbrella sends a [`WizardProbe`] naming the project root; the driven
 //!    `toven-<eco> __init` process self-detects every ecosystem it serves and
@@ -58,15 +59,15 @@ pub struct WizardOffering {
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[non_exhaustive]
 pub enum WizardOffer {
-    /// The detected ecosystems (possibly empty when the driver serves none under
-    /// the root), each with the questionnaire to answer before render.
+    /// The detected ecosystems (possibly empty when the driver serves none
+    /// under the root), each with the questionnaire to answer before render.
     Detected(Vec<WizardOffering>),
     /// The driver could not complete detection; carries a typed cause.
     Error(WireError),
 }
 
-/// One ecosystem's resolved answers, keyed so the driver re-associates them with
-/// the matching stored [`Detection`] before rendering.
+/// One ecosystem's resolved answers, keyed so the driver re-associates them
+/// with the matching stored [`Detection`] before rendering.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct WizardAnswerEntry {
     /// The ecosystem the answers are for (matches an offered detection).
@@ -95,7 +96,8 @@ impl WizardAnswers {
     }
 }
 
-/// A driven `__init` process's second reply: the rendered fragments, or a failure.
+/// A driven `__init` process's second reply: the rendered fragments, or a
+/// failure.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[non_exhaustive]
 pub enum WizardResult {

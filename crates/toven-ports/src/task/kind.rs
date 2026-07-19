@@ -5,13 +5,14 @@ use serde::{Deserialize, Serialize};
 /// A recognized task kind: an optional attribute that grants a named task a few
 /// kind-aware behaviors.
 ///
-/// A task's **identity** is its name (`[ecosystems.<id>.tasks.<name>]`), not its
-/// kind — `toven <name>` runs whatever the config defines, npm-scripts style.
-/// `kind` is a recognition tag that survives a rename: tag a task `kind = "test"`
-/// and it keeps the [`Test`](TaskKind::Test) dev-edge rule, cross-ecosystem
-/// fan-out matching, and the kind-aware run-strategy default even if the user
-/// renames it. A task with no recognized kind is [`Default`](TaskKind::Default) —
-/// a plain named task with none of those behaviors.
+/// A task's **identity** is its name (`[ecosystems.<id>.tasks.<name>]`), not
+/// its kind — `toven <name>` runs whatever the config defines, npm-scripts
+/// style. `kind` is a recognition tag that survives a rename: tag a task `kind
+/// = "test"` and it keeps the [`Test`](TaskKind::Test) dev-edge rule,
+/// cross-ecosystem fan-out matching, and the kind-aware run-strategy default
+/// even if the user renames it. A task with no recognized kind is
+/// [`Default`](TaskKind::Default) — a plain named task with none of those
+/// behaviors.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
@@ -24,7 +25,8 @@ pub enum TaskKind {
     Format,
     /// Lint sources.
     Lint,
-    /// Run the test suite (the one kind with a runtime rule: dev-edge propagation).
+    /// Run the test suite (the one kind with a runtime rule: dev-edge
+    /// propagation).
     Test,
     /// Measure test coverage. Runs the ecosystem's coverage argv per affected
     /// scope; Toven aggregates the emitted profiles and gates them against the
@@ -36,7 +38,8 @@ pub enum TaskKind {
     /// `cargo audit`). Reads the resolved dependency set, so it carries no
     /// build-order dependency and defaults to an unordered run strategy.
     Vuln,
-    /// Persistent / dev run (servers, watchers); seeds a persistent default at init.
+    /// Persistent / dev run (servers, watchers); seeds a persistent default at
+    /// init.
     Run,
     /// No recognized kind: a plain named task with no kind-aware behavior.
     Default,

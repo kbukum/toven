@@ -1,8 +1,8 @@
 //! Umbrella `toven` `init` smokes: `--print` preview and the default write +
 //! idempotent re-run. The rendered document goes to **stdout**; write
-//! diagnostics go to **stderr**. Driven against the `init-target` fixture, which
-//! ships a rust workspace deliberately *without* a `toven.toml`. Piped stdio
-//! resolves the wizard non-interactively, taking each question's default.
+//! diagnostics go to **stderr**. Driven against the `init-target` fixture,
+//! which ships a rust workspace deliberately *without* a `toven.toml`. Piped
+//! stdio resolves the wizard non-interactively, taking each question's default.
 
 mod common;
 

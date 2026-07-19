@@ -12,7 +12,8 @@
 //!   `UnitOutputChannel` writes through, and the
 //!   [`exit_code`](report::exit_code) mapping from a run summary to a process
 //!   [`ExitCode`](rskit_cli::ExitCode).
-//! - [`grammar`] — the reserved-word set and the argv-first bare-task tail parser.
+//! - [`grammar`] — the reserved-word set and the argv-first bare-task tail
+//!   parser.
 //! - [`flags`] — the clap surface (global flags + reserved-verb tree) and the
 //!   per-verb applicability gate.
 //! - [`collision`] — the load-time task-name / reserved-word collision warning.
@@ -21,11 +22,10 @@
 //! - The crate's [`run`] / [`run_from`] entry points tie argv → dispatch → exit
 //!   code (the dispatch internals live in private `app`/`host` modules).
 #![warn(missing_docs)]
-// The dispatch internals (host/app/commands) live in private modules but are
-// shared across sibling modules as `pub(crate)`. The `redundant_pub_crate`
-// (nursery) lint would rather they be plain `pub`, but `unreachable_pub` then
-// flags them as crate-internal — the two lints conflict for this shape. Allow the
-// nursery lint crate-wide (the structure guard forbids per-`mod.rs` attributes)
+// The dispatch internals (host/app/commands) live in private modules but are shared across sibling
+// modules as `pub(crate)`. The `redundant_pub_crate` (nursery) lint would rather they be plain
+// `pub`, but `unreachable_pub` then flags them as crate-internal — the two lints conflict for this
+// shape. Allow the nursery lint crate-wide (the structure guard forbids per-`mod.rs` attributes)
 // and keep the honest `pub(crate)` visibility.
 #![allow(clippy::redundant_pub_crate)]
 

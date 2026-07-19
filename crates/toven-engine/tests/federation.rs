@@ -1,12 +1,12 @@
 //! Federation integration tests: the umbrella-side transport against an
 //! in-process `__serve` double, plus the four-way driver dispatch semantics.
 //!
-//! No real subprocess is spawned for the transport tests: the
-//! `ServeDouble` runs the engine's [`serve`](toven_engine::federation::serve)
-//! loop on a thread connected by OS
-//! pipes, so a [`RemoteAdapter`](toven_engine::federation::RemoteAdapter)
-//! round-trips exactly as it would over a child's stdio. The dispatch tests drive
-//! the real spawn path with a *bogus* pinned driver to prove a resolved-but-broken
+//! No real subprocess is spawned for the transport tests: the `ServeDouble`
+//! runs the engine's [`serve`](toven_engine::federation::serve) loop on a
+//! thread connected by OS pipes, so a
+//! [`RemoteAdapter`](toven_engine::federation::RemoteAdapter) round-trips
+//! exactly as it would over a child's stdio. The dispatch tests drive the real
+//! spawn path with a *bogus* pinned driver to prove a resolved-but-broken
 //! driver is a hard error while an absent one warns and skips.
 
 use std::collections::BTreeSet;
@@ -38,7 +38,8 @@ fn eid(id: &str) -> EcosystemId {
 }
 
 /// The scripted adapter a driven `go` server answers with: a non-default run
-/// strategy, one task, and a recognizable probe, so the round-trip is observable.
+/// strategy, one task, and a recognizable probe, so the round-trip is
+/// observable.
 fn scripted_go_adapter() -> FakeConfiguredAdapter {
     FakeConfiguredAdapter::new(eid("go"))
         .with_run_strategy(RunStrategy::Unordered)
@@ -233,8 +234,8 @@ fn serve_rejects_a_mismatched_envelope_schema() {
     } = ServeDouble::spawn(|| vec![Box::new(FakeProvider::new(eid("go")))])
         .expect("serve double spawns");
 
-    // A hello carrying a future, breaking envelope schema must be rejected up
-    // front (a Conflict) rather than parsed against the current wire shape.
+    // A hello carrying a future, breaking envelope schema must be rejected up front
+    // (a Conflict) rather than parsed against the current wire shape.
     let hello = Hello {
         schema_version: ENVELOPE_SCHEMA_VERSION + 1,
         protocol: "1.0.0".to_string(),
@@ -370,9 +371,9 @@ fn absent_driver_warns_and_skips() {
 
 #[test]
 fn absent_driver_warning_is_surfaced_through_the_plan_front() {
-    // The data-layer warning above is only useful if a user observes it. Drive
-    // the same absent-driver document through the public PLAN front and assert
-    // the skip reaches the reporter as an `Event::Warning` (not silently dropped).
+    // The data-layer warning above is only useful if a user observes it. Drive the
+    // same absent-driver document through the public PLAN front and assert the skip
+    // reaches the reporter as an `Event::Warning` (not silently dropped).
     let document = load_document("valid/canonical-unloaded.toml", &["rust"]);
     let rust = FakeProvider::new(eid("rust")).with_adapter(FakeConfiguredAdapter::new(eid("rust")));
     let providers: Vec<&dyn Provider> = vec![&rust];
@@ -446,9 +447,9 @@ fn pipe_error(error: &std::io::Error) -> AppError {
 
 #[test]
 fn wizard_exchange_round_trips_over_the_framed_transport() {
-    // Drive the real config-less wizard wire (serve_wizard <-> wizard_io) over
-    // OS pipes -- no subprocess -- exactly as the federated `toven init` probe
-    // would over a `toven-<eco> __init` child's stdio.
+    // Drive the real config-less wizard wire (serve_wizard <-> wizard_io) over OS
+    // pipes -- no subprocess -- exactly as the federated `toven init` probe would
+    // over a `toven-<eco> __init` child's stdio.
     let (umbrella_reader, driver_out) = std::io::pipe().expect("pipe");
     let (driver_in, umbrella_writer) = std::io::pipe().expect("pipe");
 

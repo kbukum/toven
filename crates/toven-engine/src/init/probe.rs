@@ -1,10 +1,10 @@
-//! The bootstrap probe set: every in-proc provider plus any `toven-<eco>` driver
-//! on `PATH`, each running its onboarding wizard under the project root.
+//! The bootstrap probe set: every in-proc provider plus any `toven-<eco>`
+//! driver on `PATH`, each running its onboarding wizard under the project root.
 //!
 //! This is the **one** place init uses `PATH` discovery without config —
 //! precisely because config does not exist yet at init time (driver resolution
-//! normally keys off `toven.toml`). In-proc providers win over a PATH driver for
-//! the same ecosystem, so a linked adapter is never shadowed by an
+//! normally keys off `toven.toml`). In-proc providers win over a PATH driver
+//! for the same ecosystem, so a linked adapter is never shadowed by an
 //! out-of-process one.
 
 use std::collections::BTreeSet;
@@ -46,20 +46,20 @@ impl DriverWizard for ProcessDriverWizard {
 /// fragment, answering each provider's questionnaire through `answers`.
 ///
 /// In-proc providers are probed first (detect → questionnaire → answer →
-/// render); each canonical ecosystem with no in-proc provider is then driven via
-/// its `toven-<id>` driver if one is on `PATH`. A fragment from an in-proc
+/// render); each canonical ecosystem with no in-proc provider is then driven
+/// via its `toven-<id>` driver if one is on `PATH`. A fragment from an in-proc
 /// provider always wins over a driver's for the same ecosystem id.
 ///
-/// A `toven-<id>` driver may only render its **own** ecosystem: a located driver
-/// returning a fragment for any other ecosystem id is misbehavior across the
-/// `PATH`-discovery trust boundary and is rejected as a hard error rather than
-/// silently merged.
+/// A `toven-<id>` driver may only render its **own** ecosystem: a located
+/// driver returning a fragment for any other ecosystem id is misbehavior across
+/// the `PATH`-discovery trust boundary and is rejected as a hard error rather
+/// than silently merged.
 ///
 /// # Errors
-/// Propagates a provider's own detect/questionnaire/render failure, an answering
-/// failure, or a *located* driver that fails the wizard exchange or returns a
-/// fragment for an ecosystem other than the one it was probed for (an absent
-/// driver is simply not probed).
+/// Propagates a provider's own detect/questionnaire/render failure, an
+/// answering failure, or a *located* driver that fails the wizard exchange or
+/// returns a fragment for an ecosystem other than the one it was probed for (an
+/// absent driver is simply not probed).
 pub(super) fn probe(
     providers: &[&dyn Provider],
     wizard: &dyn DriverWizard,

@@ -26,8 +26,8 @@ pub enum Event {
     ///
     /// The process exit code is *not* a field: it is fully derived from
     /// `summary` by the single owner (`toven-cli`'s `exit_code`), so the event
-    /// vocabulary keeps one source of truth and cannot desync a stored exit from
-    /// the counters: the exit is derived from the summary.
+    /// vocabulary keeps one source of truth and cannot desync a stored exit
+    /// from the counters: the exit is derived from the summary.
     RunFinished {
         /// Aggregated run statistics.
         summary: RunStats,
@@ -47,16 +47,18 @@ pub enum Event {
 
     // ---- DIAGNOSTIC level ----
     /// A non-fatal diagnostic surfaced during a run (e.g. a canonical ecosystem
-    /// whose driver is absent was skipped). Advisory only — it never changes the
-    /// run outcome or exit code, but is always shown so the skip is not silent.
+    /// whose driver is absent was skipped). Advisory only — it never changes
+    /// the run outcome or exit code, but is always shown so the skip is not
+    /// silent.
     Warning {
         /// Human-readable, actionable warning text.
         message: String,
     },
     /// The changed-path selection could not attribute one or more paths to a
-    /// module, so every module was activated (fail-closed). Advisory: it explains
-    /// *why* a full run was planned and never changes the outcome. Empty `paths`
-    /// is never emitted — the event fires only when a full activation was forced.
+    /// module, so every module was activated (fail-closed). Advisory: it
+    /// explains *why* a full run was planned and never changes the outcome.
+    /// Empty `paths` is never emitted — the event fires only when a full
+    /// activation was forced.
     FullActivation {
         /// The changed paths that no module or workspace could claim.
         paths: Vec<String>,

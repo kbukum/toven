@@ -1,6 +1,6 @@
 //! Standalone `toven-rs` cache-maintenance smokes: `cache path`/`stats`/`clean`
-//! plus the `--no-cache` lifecycle. `path`/`stats` render to **stdout**; `clean`
-//! diagnostics render to **stderr**.
+//! plus the `--no-cache` lifecycle. `path`/`stats` render to **stdout**;
+//! `clean` diagnostics render to **stderr**.
 
 mod common;
 

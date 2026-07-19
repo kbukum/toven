@@ -4,10 +4,10 @@
 //! typed [`Event`](toven_model::Event) stream, this port carries the coarse,
 //! per-unit raw child output that deliberately never becomes per-line
 //! vocabulary. The engine's `UnitOutputChannel` decides *when* and *how* output
-//! is grouped (buffered block vs. live chunk); the sink decides *where* it lands
-//! and how it is labeled. Keeping the sink a port preserves the "libraries do
-//! not print" rule: the engine emits structured calls, the CLI adapter renders
-//! them to a terminal stream.
+//! is grouped (buffered block vs. live chunk); the sink decides *where* it
+//! lands and how it is labeled. Keeping the sink a port preserves the
+//! "libraries do not print" rule: the engine emits structured calls, the CLI
+//! adapter renders them to a terminal stream.
 
 use rskit_errors::AppResult;
 use toven_model::{UnitOutput, UnitStatus};
@@ -21,14 +21,16 @@ use toven_model::{UnitOutput, UnitStatus};
 /// finish) whenever the unit's buffer spills past the channel cap.
 ///
 /// A sink that can de-interleave concurrent output spatially (one visual region
-/// per unit) reports [`supports_concurrent_live`](Self::supports_concurrent_live)
-/// and receives a [`begin_unit`](Self::begin_unit)/[`end_unit`](Self::end_unit)
-/// lifecycle around each live unit; the engine then streams normal units through
-/// `live` even under parallelism instead of buffering them into blocks. Sinks
-/// that render to a single linear stream leave the default (`false`) and keep
-/// the buffer-normal / live-persistent behavior.
+/// per unit) reports
+/// [`supports_concurrent_live`](Self::supports_concurrent_live) and receives a
+/// [`begin_unit`](Self::begin_unit)/[`end_unit`](Self::end_unit) lifecycle
+/// around each live unit; the engine then streams normal units through `live`
+/// even under parallelism instead of buffering them into blocks. Sinks that
+/// render to a single linear stream leave the default (`false`) and keep the
+/// buffer-normal / live-persistent behavior.
 pub trait RawOutputSink: Send {
-    /// Render one live chunk from a persistent (live-tailed) unit, as it arrives.
+    /// Render one live chunk from a persistent (live-tailed) unit, as it
+    /// arrives.
     ///
     /// # Errors
     /// Propagates any sink write failure.
@@ -48,9 +50,9 @@ pub trait RawOutputSink: Send {
     ///
     /// When `true`, the engine may stream normal units live (through `live`)
     /// while they run in parallel, wrapping each in
-    /// [`begin_unit`](Self::begin_unit)/[`end_unit`](Self::end_unit). The default
-    /// is `false`: the sink renders to a single linear stream and normal units
-    /// are buffered into deterministic blocks.
+    /// [`begin_unit`](Self::begin_unit)/[`end_unit`](Self::end_unit). The
+    /// default is `false`: the sink renders to a single linear stream and
+    /// normal units are buffered into deterministic blocks.
     fn supports_concurrent_live(&self) -> bool {
         false
     }

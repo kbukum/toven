@@ -120,8 +120,8 @@ impl VcsWriter for RskitGitVcs {
     }
 
     fn create_tag(&self, name: &str, target_rev: &str, message: Option<&str>) -> AppResult<()> {
-        // Port contract maps straight onto rskit-git: `Some(_)` = annotated
-        // (empty message allowed), `None` = lightweight.
+        // Port contract maps straight onto rskit-git: `Some(_)` = annotated (empty
+        // message allowed), `None` = lightweight.
         self.repo.create_tag(name, target_rev, message)
     }
 

@@ -1,8 +1,8 @@
 //! Standalone `toven-go` repo-driven smokes: discovery, PLAN, and APPLY against
 //! real Go module fixtures, mirroring the Rust app's coverage. Go discovery
 //! shells out to the `go` toolchain, so every test is gated on [`go_available`]
-//! and skips (green) when no `go` is installed. Introspection projections render
-//! to **stdout**; the human run reporter renders to **stderr**.
+//! and skips (green) when no `go` is installed. Introspection projections
+//! render to **stdout**; the human run reporter renders to **stderr**.
 
 mod common;
 

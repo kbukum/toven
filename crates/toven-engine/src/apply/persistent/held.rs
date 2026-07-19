@@ -100,7 +100,8 @@ impl HeldSet {
         );
     }
 
-    /// Mark `unit_id` drained and return held units whose dependent sets are empty.
+    /// Mark `unit_id` drained and return held units whose dependent sets are
+    /// empty.
     pub(in crate::apply) fn dependent_finished(&mut self, unit_id: &str) -> Vec<String> {
         let mut ready = Vec::new();
         for (held_id, entry) in &mut self.entries {

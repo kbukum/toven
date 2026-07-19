@@ -78,8 +78,9 @@ fn build_module(
     Ok(module)
 }
 
-/// Turn each module's declared `depends_on` into intra-ecosystem edges, rejecting
-/// a dependency on an undeclared module (a typo at the trust boundary).
+/// Turn each module's declared `depends_on` into intra-ecosystem edges,
+/// rejecting a dependency on an undeclared module (a typo at the trust
+/// boundary).
 fn build_edges(
     ecosystem: &EcosystemId,
     declared: &[DeclaredModule],

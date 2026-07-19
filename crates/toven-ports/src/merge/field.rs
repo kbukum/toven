@@ -1,4 +1,5 @@
-//! Field-merge: resolve an adapter default [`Task`] against a user [`TaskOverride`].
+//! Field-merge: resolve an adapter default [`Task`] against a user
+//! [`TaskOverride`].
 
 use std::collections::HashSet;
 use std::time::Duration;
@@ -10,11 +11,12 @@ use crate::{
 
 /// Field-merge a user override onto an adapter default task.
 ///
-/// Set scalar/list fields in the override **replace** the default; `shared_inputs`
-/// is **unioned** (preserving order, de-duplicated) with the default's set. An
-/// unset override field inherits the default — so a bare `cache_args = true`
-/// flips exactly one field while `selector`, `fan_out`, and the rest carry over.
-/// The result's [`origin`](Task::origin) becomes [`TaskOrigin::Project`].
+/// Set scalar/list fields in the override **replace** the default;
+/// `shared_inputs` is **unioned** (preserving order, de-duplicated) with the
+/// default's set. An unset override field inherits the default — so a bare
+/// `cache_args = true` flips exactly one field while `selector`, `fan_out`, and
+/// the rest carry over. The result's [`origin`](Task::origin) becomes
+/// [`TaskOrigin::Project`].
 ///
 /// The default's `name` (its identity) and `kind` carry over unchanged:
 /// [`TaskOverride::kind`](crate::config::TaskOverride::kind) is a recognition

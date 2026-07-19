@@ -1,10 +1,10 @@
 //! `toven completions <shell>`: emit a shell completion script.
 //!
 //! Generates a static completion script for the derived clap command tree —
-//! reserved verbs, their subcommands, and global flags — for the user to install
-//! into their shell. It prints before any project load (like `--help`), so it
-//! needs no `toven.toml`. The script goes to stdout (machine-consumable); the CLI
-//! never rewrites user argv, so completion is purely advisory.
+//! reserved verbs, their subcommands, and global flags — for the user to
+//! install into their shell. It prints before any project load (like `--help`),
+//! so it needs no `toven.toml`. The script goes to stdout (machine-consumable);
+//! the CLI never rewrites user argv, so completion is purely advisory.
 
 use std::io;
 
@@ -49,9 +49,9 @@ mod tests {
 
     #[test]
     fn completions_cover_the_full_verb_and_action_tree_for_every_shell() {
-        // Completions are derived from the clap command tree, so every verb and
-        // release action appears for each supported shell — a regression that
-        // dropped one from the tree would surface here.
+        // Completions are derived from the clap command tree, so every verb and release
+        // action appears for each supported shell — a regression that dropped one from
+        // the tree would surface here.
         for shell in [
             Shell::Bash,
             Shell::Zsh,

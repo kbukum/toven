@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 /// Counters summarizing one run, serialized across the driver boundary.
 ///
 /// Pure data (no wall-clock handle) so it round-trips through serde; total wall
-/// time is recorded as a resolved `duration_ms` by the reporter, not an in-flight
-/// `Instant`.
+/// time is recorded as a resolved `duration_ms` by the reporter, not an
+/// in-flight `Instant`.
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Deserialize, Serialize)]
 pub struct RunStats {
     /// Execution units included in the plan.

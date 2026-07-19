@@ -2,7 +2,8 @@
 //!
 //! Toolchain-resolution tests substitute this deterministic prober instead of
 //! spawning a real subprocess, and assert how many times `probe` was invoked
-//! via [`CountingToolchainProber::calls`] (a total call count, not per-workspace).
+//! via [`CountingToolchainProber::calls`] (a total call count, not
+//! per-workspace).
 
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -12,8 +13,8 @@ use toven_ports::{ToolchainProbe, ToolchainProber};
 
 /// A [`ToolchainProber`] that counts invocations and returns a fixed version.
 ///
-/// Interior mutability ([`AtomicUsize`]) keeps it `&self`-callable and
-/// `Send + Sync` behind `dyn ToolchainProber`. Inspect the probe count with
+/// Interior mutability ([`AtomicUsize`]) keeps it `&self`-callable and `Send +
+/// Sync` behind `dyn ToolchainProber`. Inspect the probe count with
 /// [`calls`](Self::calls).
 #[derive(Debug, Default)]
 pub struct CountingToolchainProber {

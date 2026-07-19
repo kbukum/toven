@@ -7,12 +7,13 @@ use super::request::DISCOVERY_SCHEMA_VERSION;
 
 /// One ecosystem's contribution to the federated graph.
 ///
-/// Federation is a plain union of these across loaded ecosystems:
-/// `⋃ workspaces`, `⋃ modules`, `⋃ edges` (+ config overlay edges). Each
+/// Federation is a plain union of these across loaded ecosystems: `⋃
+/// workspaces`, `⋃ modules`, `⋃ edges` (+ config overlay edges). Each
 /// `module.workspace` references a [`Workspace::id`] in `workspaces`.
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub struct DiscoverResponse {
-    /// Envelope schema version ([`DISCOVERY_SCHEMA_VERSION`](super::DISCOVERY_SCHEMA_VERSION)).
+    /// Envelope schema version
+    /// ([`DISCOVERY_SCHEMA_VERSION`](super::DISCOVERY_SCHEMA_VERSION)).
     pub schema_version: u16,
     /// Ecosystem that produced this response.
     pub ecosystem: EcosystemId,

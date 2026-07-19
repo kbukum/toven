@@ -56,12 +56,13 @@ fn jsonl_output_streams_a_run_started_event_first() {
 
 #[test]
 fn jsonl_plan_stream_matches_the_deterministic_snapshot() {
-    // The harness pins the wall clock (see `toven_testkit::smoke::CLOCK_EPOCH_ENV`),
-    // so the machine-readable Event stream has no non-deterministic field left:
-    // no timestamps, paths, or hashes, and a fixed `run_id`. That makes the whole
-    // `jsonl` projection snapshot-stable, so this locks it byte-for-byte instead
-    // of probing individual substrings — any unintended change to the emitted
-    // event vocabulary or ordering fails here.
+    // The harness pins the wall clock (see
+    // `toven_testkit::smoke::CLOCK_EPOCH_ENV`), so the machine-readable Event
+    // stream has no non-deterministic field left: no timestamps, paths, or hashes,
+    // and a fixed `run_id`. That makes the whole `jsonl` projection
+    // snapshot-stable, so this locks it byte-for-byte instead of probing individual
+    // substrings — any unintended change to the emitted event vocabulary or
+    // ordering fails here.
     let sample = repo("rust/single");
     let expected = concat!(
         r#"{"event":"run-started","run_id":"run-1700000000","intent":"build","project":"single-rust"}"#,

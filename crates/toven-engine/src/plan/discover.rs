@@ -1,9 +1,10 @@
 //! Discover: full federation union across every loaded ecosystem.
 //!
-//! Discovery is **always full** — never pruned by changed paths. Each configured
-//! adapter returns its `{ workspaces, modules, edges }`; the engine unions them
-//! into one federated graph dataset and appends the config-declared overlay edges
-//! (`DepKind::Overlay`) so the result is a single graph spanning languages.
+//! Discovery is **always full** — never pruned by changed paths. Each
+//! configured adapter returns its `{ workspaces, modules, edges }`; the engine
+//! unions them into one federated graph dataset and appends the config-declared
+//! overlay edges (`DepKind::Overlay`) so the result is a single graph spanning
+//! languages.
 
 use rskit_errors::{AppError, AppResult};
 use toven_model::{AbsPath, DepKind, EcosystemId, Edge, Module, ModuleRef, Workspace};
@@ -11,7 +12,8 @@ use toven_ports::DiscoverRequest;
 
 use super::configure::ConfiguredSet;
 
-/// The unioned discovery output across all loaded ecosystems plus overlay edges.
+/// The unioned discovery output across all loaded ecosystems plus overlay
+/// edges.
 ///
 /// A plain union (`⋃ workspaces`, `⋃ modules`, `⋃ edges ++ overlay edges`); the
 /// `ecosystem:name` module identity guarantees no cross-ecosystem collision.
@@ -57,7 +59,8 @@ pub(crate) fn union(project_root: &AbsPath, adapters: &ConfiguredSet) -> AppResu
 /// Append the config-declared overlay edges as [`DepKind::Overlay`].
 ///
 /// Endpoints are built as bare (member-unscoped) [`ModuleRef`]s; the federation
-/// spine scopes them to a member when it rebases each member's discovery output.
+/// spine scopes them to a member when it rebases each member's discovery
+/// output.
 ///
 /// # Errors
 /// Propagates a malformed overlay endpoint.

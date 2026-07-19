@@ -1,25 +1,26 @@
 //! `toven-ports` — the port contracts every adapter (in-tree or 3rd-party)
 //! implements, plus the fat helpers that make implementing them easy.
 //!
-//! Layer 1 of the hexagonal architecture: the thin traits ecosystems implement +
-//! the shared surface behind them. Adapters build against `toven-ports`, never
-//! against the engine. It depends only on [`toven_model`] (the shared
+//! Layer 1 of the hexagonal architecture: the thin traits ecosystems implement
+//! + the shared surface behind them. Adapters build against `toven-ports`,
+//! never against the engine. It depends only on [`toven_model`] (the shared
 //! vocabulary), the error contract ([`rskit_errors`]), and the reuse primitives
 //! it wraps ([`rskit_util`] templating, [`rskit_version`] semver).
 //!
 //! All fallible methods return [`rskit_errors::AppResult`]. Port traits are
-//! object-safe so registries store trait objects (`dyn Provider`,
-//! `dyn ConfiguredAdapter`, `dyn ReleaseTarget`, `dyn Reporter`,
-//! `dyn RawOutputSink`, `dyn VcsReader`, `dyn VcsWriter`, `dyn ToolchainProber`,
+//! object-safe so registries store trait objects (`dyn Provider`, `dyn
+//! ConfiguredAdapter`, `dyn ReleaseTarget`, `dyn Reporter`, `dyn
+//! RawOutputSink`, `dyn VcsReader`, `dyn VcsWriter`, `dyn ToolchainProber`,
 //! `dyn SourceDigest`, `dyn CacheStore`).
 //!
 //! ## Ports
-//! - [`provider`] — [`Provider`]/[`ConfiguredAdapter`]: the raw-TOML → configured
-//!   adapter seam, plus the [`wizard`] onboarding steps.
-//! - [`release`] — [`ReleaseTarget`] and friends: the thin ecosystem release sliver.
+//! - [`provider`] — [`Provider`]/[`ConfiguredAdapter`]: the raw-TOML →
+//!   configured adapter seam, plus the [`wizard`] onboarding steps.
+//! - [`release`] — [`ReleaseTarget`] and friends: the thin ecosystem release
+//!   sliver.
 //! - [`reporter`] — [`Reporter`]: the observability output port.
-//! - [`raw_output`] — [`RawOutputSink`]: the raw child-output sink port (sibling
-//!   of [`Reporter`]; fed by the engine's `UnitOutputChannel`).
+//! - [`raw_output`] — [`RawOutputSink`]: the raw child-output sink port
+//!   (sibling of [`Reporter`]; fed by the engine's `UnitOutputChannel`).
 //! - [`vcs`] — [`VcsReader`]/[`VcsWriter`]: the single git seam.
 //! - [`watch`] — [`WatchSource`]: the injected filesystem-watch seam (concrete
 //!   rskit-fs adapter lives in the engine).
@@ -30,14 +31,16 @@
 //! - [`cache`] — [`CacheStore`] (read, PLAN) + [`CacheWriter`] (write, APPLY):
 //!   the injected cache-record seam (concrete backend lives in the engine).
 //! - [`exec`] — [`CommandRunner`]: the injected process-execution seam consumed
-//!   by the APPLY wave walk (concrete `rskit-process` runner lives in the engine).
+//!   by the APPLY wave walk (concrete `rskit-process` runner lives in the
+//!   engine).
 //! - [`discover`] — the discovery request/response vocabulary.
 //! - [`driver`] — [`DriverLocator`]/[`DriverWizard`]: the out-of-process
 //!   `toven-<eco>` driver seams (concrete adapters live in the engine).
 //!
 //! ## Shared surface
 //! - [`task`] — the tasks vocabulary ([`Task`], [`TaskKind`], [`FanOut`], …).
-//! - [`config`] — [`CommonEcosystemConfig`] (the `#[serde(flatten)]` target) + knobs.
+//! - [`config`] — [`CommonEcosystemConfig`] (the `#[serde(flatten)]` target) +
+//!   knobs.
 //! - [`wizard`] — the data-only onboarding vocabulary ([`Detection`],
 //!   [`Questionnaire`], [`Answers`]).
 //! - [`template`] — [`CommandTemplate`] argv rendering over rskit-util.

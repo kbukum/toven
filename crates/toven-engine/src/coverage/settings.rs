@@ -2,8 +2,9 @@
 //! elevated profile, and a per-module override into the typed value the gate
 //! consumes.
 //!
-//! Precedence (documented):
-//! `[modules.<name>.coverage]` > `profiles.<name>` > `[ecosystems.<id>].coverage` > adapter default. The structural twin of [`ResolvedReleaseSettings`](crate::release::ResolvedReleaseSettings).
+//! Precedence (documented): `[modules.<name>.coverage]` > `profiles.<name>` >
+//! `[ecosystems.<id>].coverage` > adapter default. The structural twin of
+//! [`ResolvedReleaseSettings`](crate::release::ResolvedReleaseSettings).
 
 use toven_ports::{CoverageConfig, CoverageThresholds, Enforcement, merge_coverage};
 
@@ -56,10 +57,10 @@ impl ResolvedCoverageSettings {
     /// Resolve settings for a module named `module` (its ecosystem-local name)
     /// from its ecosystem coverage default and optional per-module override.
     ///
-    /// The ecosystem default is layered first, then the matching profile (if the
-    /// module is named by one), then the per-module override — each folded with
-    /// [`merge_coverage`] so a later layer only replaces the fields it sets, which
-    /// realizes the documented precedence
+    /// The ecosystem default is layered first, then the matching profile (if
+    /// the module is named by one), then the per-module override — each folded
+    /// with [`merge_coverage`] so a later layer only replaces the fields it
+    /// sets, which realizes the documented precedence
     /// `[modules.<name>.coverage]` > `profiles.<name>` >
     /// `[ecosystems.<id>].coverage`. Exclusion is an ecosystem-level decision.
     #[must_use]
@@ -86,8 +87,8 @@ impl ResolvedCoverageSettings {
     /// Layer the per-run argv overrides over the resolved config.
     ///
     /// Each set override replaces the corresponding resolved floor (or the
-    /// enforcement mode), so argv wins over config; an empty override leaves the
-    /// resolved settings untouched.
+    /// enforcement mode), so argv wins over config; an empty override leaves
+    /// the resolved settings untouched.
     #[must_use]
     pub const fn with_overrides(mut self, overrides: &CoverageOverrides) -> Self {
         if let Some(line) = overrides.line {

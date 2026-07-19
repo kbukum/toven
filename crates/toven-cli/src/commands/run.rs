@@ -151,10 +151,10 @@ pub(crate) fn execute(
         options.max_parallel = max_parallel.max(1);
     }
 
-    // Bind the resolved live view (tiles/panes/stream) to a raw-output sink and
-    // the PTY sizing live units run under. The machine JSON projection, a
-    // non-terminal stderr, and `--view stream` all pin the byte-stable stream
-    // shape; tiles/panes require a Unix PTY (a no-op elsewhere).
+    // Bind the resolved live view (tiles/panes/stream) to a raw-output sink and the
+    // PTY sizing live units run under. The machine JSON projection, a non-terminal
+    // stderr, and `--view stream` all pin the byte-stable stream shape; tiles/panes
+    // require a Unix PTY (a no-op elsewhere).
     let (configured_runner, raw_sink) = configure_live_output(
         ProcessCommandRunner::new(project.project_root.as_path()),
         effective_view,
@@ -172,10 +172,10 @@ pub(crate) fn execute(
         .build()
         .map_err(AppError::internal)?;
     let summary = runtime.block_on(async {
-        // Install Ctrl+C → cooperative cancellation. The token is threaded into
-        // APPLY (not raced against it): on interrupt the engine SIGTERMs every
-        // in-flight worker, tears down held processes, and returns a normal
-        // `RunStats` instead of leaking child processes by dropping the future.
+        // Install Ctrl+C → cooperative cancellation. The token is threaded into APPLY
+        // (not raced against it): on interrupt the engine SIGTERMs every in-flight
+        // worker, tears down held processes, and returns a normal `RunStats` instead of
+        // leaking child processes by dropping the future.
         let cancel = on_ctrl_c();
         apply(&plan, runner, &cache, sink, &mut output, options, cancel).await
     });
@@ -187,10 +187,10 @@ pub(crate) fn execute(
 
 /// Synthesize the terminal [`RunStats`] from a PLAN-only [`Plan`].
 ///
-/// PLAN never executes, so the summary is purely the planned unit count plus the
-/// per-unit cache verdicts the planner already decided. The CLI emits this as the
-/// [`Event::RunFinished`] for dry-run/explain so the one exit-mapping path applies
-/// uniformly.
+/// PLAN never executes, so the summary is purely the planned unit count plus
+/// the per-unit cache verdicts the planner already decided. The CLI emits this
+/// as the [`Event::RunFinished`] for dry-run/explain so the one exit-mapping
+/// path applies uniformly.
 #[must_use]
 pub(crate) fn plan_summary(plan: &Plan) -> RunStats {
     let mut summary = RunStats::new(plan.units.len());

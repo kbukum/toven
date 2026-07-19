@@ -9,7 +9,8 @@ use crate::{
     task::{TaskKind, ToolchainProbe},
 };
 
-/// A configured ecosystem adapter — the baked config plus its resolved defaults.
+/// A configured ecosystem adapter — the baked config plus its resolved
+/// defaults.
 ///
 /// Produced on demand by [`Provider::configure`](super::Provider::configure);
 /// held as `dyn ConfiguredAdapter`. Every method is config-resolution or a
@@ -23,7 +24,8 @@ pub trait ConfiguredAdapter {
     /// toolchain version identity.
     fn toolchain_probe(&self) -> ToolchainProbe;
 
-    /// The default wave-ordering policy for `kind` (ecosystem override applied).
+    /// The default wave-ordering policy for `kind` (ecosystem override
+    /// applied).
     fn run_strategy_default(&self, kind: TaskKind) -> RunStrategy;
 
     /// The release target for this ecosystem, or `None` when not publishable
