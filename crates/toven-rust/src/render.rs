@@ -19,7 +19,7 @@ use toven_ports::{
 use crate::config::Manifests;
 use crate::detect::RustFacts;
 use crate::manifests::sibling_lockfile;
-use crate::questionnaire::{MANIFESTS, RELEASE_REGISTRY, RUNNER_NEXTEST, TEST_RUNNER};
+use crate::questionnaire::{CRATES_IO_REGISTRY, MANIFESTS, RUNNER_NEXTEST, TEST_RUNNER};
 
 /// The serializable `[ecosystems.rust]` body: the managed workspace roots plus
 /// the complete task table.
@@ -55,7 +55,7 @@ pub(crate) fn render(detection: &Detection, answers: &Answers) -> AppResult<Ecos
     let body = RustFragmentBody {
         manifests: manifests_for(&selected, &facts),
         coverage: starter_coverage(),
-        release: release_config(answers, Some(RELEASE_REGISTRY)),
+        release: release_config(answers, Some(CRATES_IO_REGISTRY)),
         tasks: task_table(use_nextest, &shared_inputs),
     };
     let table = Table::try_from(&body).map_err(|error| {

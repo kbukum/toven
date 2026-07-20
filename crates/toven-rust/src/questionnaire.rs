@@ -7,7 +7,7 @@ use toven_ports::{Detection, Question, QuestionKind, Questionnaire, release_ques
 use crate::detect::RustFacts;
 
 /// The registry releasable Rust crates publish to (crates.io).
-pub(crate) const RELEASE_REGISTRY: &str = "crates-io";
+pub(crate) const CRATES_IO_REGISTRY: &str = "crates-io";
 
 /// The question id for the cargo test-runner choice.
 pub(crate) const TEST_RUNNER: &str = "test-runner";
@@ -68,7 +68,7 @@ pub(crate) fn questionnaire(detection: &Detection) -> AppResult<Questionnaire> {
         ));
     }
 
-    questions.extend(release_questions(Some(RELEASE_REGISTRY)));
+    questions.extend(release_questions(Some(CRATES_IO_REGISTRY)));
 
     Ok(Questionnaire::new(detection.ecosystem.clone(), questions))
 }
