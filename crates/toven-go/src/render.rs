@@ -19,7 +19,7 @@ use serde::Serialize;
 use toml::Table;
 use toven_ports::{
     Answers, CoverageConfig, Detection, EcosystemFragment, Enforcement, FanOut, Readiness,
-    TaskEntry, TaskKind,
+    ReleaseConfig, TaskEntry, TaskKind, release_config,
 };
 
 use crate::config::Modules;
@@ -54,6 +54,8 @@ struct GoFragmentBody {
     modules: Modules,
     #[serde(skip_serializing_if = "CoverageConfig::is_default")]
     coverage: CoverageConfig,
+    #[serde(skip_serializing_if = "ReleaseConfig::is_default")]
+    release: ReleaseConfig,
     tasks: BTreeMap<String, TaskEntry>,
 }
 
@@ -69,6 +71,7 @@ pub(crate) fn render(detection: &Detection, answers: &Answers) -> AppResult<Ecos
     let body = GoFragmentBody {
         modules: Modules::Auto,
         coverage: starter_coverage(),
+        release: release_config(answers, None),
         tasks: task_table(&selections),
     };
     let table = Table::try_from(&body).map_err(|error| {
@@ -441,6 +444,54 @@ mod tests {
             ]
         );
         assert_eq!(config.modules, Modules::Auto);
+    }
+
+    #[test]
+    fn omits_the_release_block_when_not_opted_in() {
+        let fragment = render(&detection(), &Answers::new()).expect("render");
+        assert!(
+            !fragment.table.contains_key("release"),
+            "no release block is authored unless the user opts in",
+        );
+        assert!(parse(&fragment).common.release.is_default());
+    }
+
+    #[test]
+    fn opting_in_authors_a_tag_only_release_block() {
+        let answers = Answers::new()
+            .with(toven_ports::RELEASE_ENABLED, Answer::Bool(true))
+            .with(toven_ports::RELEASE_HOST, Answer::Bool(true));
+        let config = render_with(&answers);
+
+        assert!(
+            config.common.release.registry.is_none(),
+            "go module tags are registry-less",
+        );
+        assert_eq!(
+            config
+                .common
+                .release
+                .readiness
+                .as_deref()
+                .expect("readiness authored"),
+            ["clean-tree"],
+        );
+        assert_eq!(
+            config
+                .common
+                .release
+                .host
+                .as_ref()
+                .expect("host")
+                .forge
+                .as_deref(),
+            Some("github")
+        );
+        config
+            .common
+            .release
+            .validate("ecosystems.go.release")
+            .expect("authored release validates");
     }
 
     #[test]

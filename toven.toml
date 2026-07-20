@@ -7,4 +7,84 @@ base_ref = "origin/main"
 # Uncomment to override, e.g.:
 #   run_strategy = "leaf-to-top"
 [ecosystems.rust]
-manifests = ["Cargo.toml"]
+manifests = "auto"
+
+[ecosystems.rust.coverage]
+changed_line = 85.0
+enforcement = "advisory"
+function = 80.0
+line = 80.0
+region = 70.0
+
+# Toven ships signed, tagged build artifacts and never publishes to a registry
+# (every crate is `publish = false`): a release is tag-only, gated on a clean
+# tree, and cuts a hosted GitHub Release.
+[ecosystems.rust.release]
+readiness = ["clean-tree"]
+
+[ecosystems.rust.release.host]
+forge = "github"
+
+[ecosystems.rust.release.prerelease]
+channels = ["alpha"]
+
+[ecosystems.rust.tasks.build]
+argv = ["cargo", "build", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.check]
+argv = ["cargo", "check", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.coverage]
+argv = ["cargo", "llvm-cov", "--manifest-path", "{module.manifest}", "--workspace", "--lcov", "--output-path", "target/toven/coverage/rust-{module.name}.lcov", "{args}"]
+cacheable = false
+fan_out = "whole-workspace"
+kind = "coverage"
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.doc]
+argv = ["cargo", "doc", "--manifest-path", "{module.manifest}", "{module.selector}", "--no-deps", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.format]
+argv = ["cargo", "fmt", "--manifest-path", "{module.manifest}", "--all", "{args}"]
+cacheable = false
+fan_out = "whole-workspace"
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.format-check]
+argv = ["cargo", "fmt", "--manifest-path", "{module.manifest}", "--all", "--check", "{args}"]
+fan_out = "whole-workspace"
+kind = "format"
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.lint]
+argv = ["cargo", "clippy", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.run]
+argv = ["cargo", "run", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "per-module"
+persistent = true
+selector = ["-p", "{module.package}"]
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.test]
+argv = ["cargo", "nextest", "run", "--no-tests=pass", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.vuln]
+argv = ["cargo", "audit", "--file", "{workspace.root}/Cargo.lock", "{args}"]
+fan_out = "whole-workspace"
+shared_inputs = ["Cargo.lock"]

@@ -12,13 +12,14 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use serde::Serialize;
 use toml::Table;
 use toven_ports::{
-    Answers, CoverageConfig, Detection, EcosystemFragment, Enforcement, FanOut, TaskEntry, TaskKind,
+    Answers, CoverageConfig, Detection, EcosystemFragment, Enforcement, FanOut, ReleaseConfig,
+    TaskEntry, TaskKind, release_config,
 };
 
 use crate::config::Manifests;
 use crate::detect::RustFacts;
 use crate::manifests::sibling_lockfile;
-use crate::questionnaire::{MANIFESTS, RUNNER_NEXTEST, TEST_RUNNER};
+use crate::questionnaire::{MANIFESTS, RELEASE_REGISTRY, RUNNER_NEXTEST, TEST_RUNNER};
 
 /// The serializable `[ecosystems.rust]` body: the managed workspace roots plus
 /// the complete task table.
@@ -27,6 +28,8 @@ struct RustFragmentBody {
     manifests: Manifests,
     #[serde(skip_serializing_if = "CoverageConfig::is_default")]
     coverage: CoverageConfig,
+    #[serde(skip_serializing_if = "ReleaseConfig::is_default")]
+    release: ReleaseConfig,
     tasks: BTreeMap<String, TaskEntry>,
 }
 
@@ -52,6 +55,7 @@ pub(crate) fn render(detection: &Detection, answers: &Answers) -> AppResult<Ecos
     let body = RustFragmentBody {
         manifests: manifests_for(&selected, &facts),
         coverage: starter_coverage(),
+        release: release_config(answers, Some(RELEASE_REGISTRY)),
         tasks: task_table(use_nextest, &shared_inputs),
     };
     let table = Table::try_from(&body).map_err(|error| {
@@ -169,10 +173,7 @@ fn task_table(use_nextest: bool, shared_inputs: &[String]) -> BTreeMap<String, T
             shared_inputs: shared_inputs.to_vec(),
         },
     );
-    tasks.insert(
-        "doc".to_string(),
-        fan_out_entry("doc", FanOut::Batchable, shared_inputs),
-    );
+    tasks.insert("doc".to_string(), doc_entry(shared_inputs));
     tasks.insert("run".to_string(), run_entry(shared_inputs));
     tasks.insert("coverage".to_string(), coverage_entry(shared_inputs));
     tasks
@@ -233,14 +234,32 @@ fn fan_out_selector() -> Vec<String> {
 
 /// The argv for a cargo subcommand that fans out over modules.
 fn fan_out_argv(subcommand: &str) -> Vec<String> {
-    vec![
+    fan_out_argv_with(subcommand, &[])
+}
+
+/// Like [`fan_out_argv`], but inserts `extra` flags after the per-module
+/// selector and before the `{args}` passthrough.
+fn fan_out_argv_with(subcommand: &str, extra: &[&str]) -> Vec<String> {
+    let mut argv = vec![
         "cargo".to_string(),
         subcommand.to_string(),
         "--manifest-path".to_string(),
         "{module.manifest}".to_string(),
         "{module.selector}".to_string(),
-        "{args}".to_string(),
-    ]
+    ];
+    argv.extend(extra.iter().map(|flag| (*flag).to_string()));
+    argv.push("{args}".to_string());
+    argv
+}
+
+/// The `doc` entry: `cargo doc --no-deps` documents only the project's own
+/// crates. Dependency documentation is noise a user never wants from
+/// `toven doc`, so `--no-deps` is the natural default rather than something the
+/// author must add by hand.
+fn doc_entry(shared_inputs: &[String]) -> TaskEntry {
+    let mut entry = fan_out_entry("doc", FanOut::Batchable, shared_inputs);
+    entry.argv = fan_out_argv_with("doc", &["--no-deps"]);
+    entry
 }
 
 /// A fan-out cargo task entry (`-p {module.package}` selector, lockfile
@@ -490,6 +509,12 @@ mod tests {
         assert!(vuln.selector.is_empty());
         assert!(vuln.cacheable);
         assert_eq!(vuln.resolved_kind("vuln"), toven_ports::TaskKind::Vuln);
+        let doc = config.common.tasks.get("doc").expect("doc task");
+        assert_eq!(doc.argv[..2], ["cargo", "doc"]);
+        assert!(
+            doc.argv.contains(&"--no-deps".to_string()),
+            "doc documents only the project's own crates, never dependencies"
+        );
     }
 
     #[test]
@@ -525,6 +550,58 @@ mod tests {
             .coverage
             .validate("ecosystems.rust.coverage")
             .expect("starter coverage validates");
+    }
+
+    #[test]
+    fn omits_the_release_block_when_not_opted_in() {
+        let fragment = render(&detection(true), &Answers::new()).expect("render");
+        assert!(
+            !fragment.table.contains_key("release"),
+            "no release block is authored unless the user opts in",
+        );
+        let config = parse(&fragment);
+        assert!(config.common.release.is_default());
+    }
+
+    #[test]
+    fn opting_in_authors_a_crates_io_release_block() {
+        let answers = Answers::new()
+            .with(toven_ports::RELEASE_ENABLED, Answer::Bool(true))
+            .with(
+                toven_ports::RELEASE_PRERELEASE,
+                Answer::MultiChoice(vec![ChoiceId::new("alpha")]),
+            )
+            .with(toven_ports::RELEASE_HOST, Answer::Bool(true));
+        let fragment = render(&detection(true), &answers).expect("render");
+        let config = parse(&fragment);
+
+        assert_eq!(config.common.release.registry.as_deref(), Some("crates-io"));
+        assert_eq!(
+            config
+                .common
+                .release
+                .prerelease
+                .as_ref()
+                .expect("prerelease")
+                .channels,
+            ["alpha"]
+        );
+        assert_eq!(
+            config
+                .common
+                .release
+                .host
+                .as_ref()
+                .expect("host")
+                .forge
+                .as_deref(),
+            Some("github")
+        );
+        config
+            .common
+            .release
+            .validate("ecosystems.rust.release")
+            .expect("authored release validates");
     }
 
     #[test]

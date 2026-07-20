@@ -10,7 +10,7 @@
 
 use rskit_cli::Choice;
 use rskit_errors::AppResult;
-use toven_ports::{Detection, Question, QuestionKind, Questionnaire};
+use toven_ports::{Detection, Question, QuestionKind, Questionnaire, release_questions};
 
 use crate::detect::GoFacts;
 
@@ -65,12 +65,13 @@ pub(crate) const TEST_HARDENING: &str = "test-hardening";
 pub(crate) fn questionnaire(detection: &Detection) -> AppResult<Questionnaire> {
     let facts = GoFacts::from_detection(detection)?;
 
-    let questions = vec![
+    let mut questions = vec![
         lint_backend_question(&facts),
         formatter_question(),
         test_runner_question(),
         test_hardening_question(),
     ];
+    questions.extend(release_questions(None));
 
     Ok(Questionnaire::new(detection.ecosystem.clone(), questions))
 }
@@ -176,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn asks_four_questions() {
+    fn asks_the_tool_questions_then_the_release_section() {
         let questionnaire = questionnaire(&detection(false)).expect("questionnaire");
         let ids: Vec<&str> = questionnaire
             .questions
@@ -185,7 +186,16 @@ mod tests {
             .collect();
         assert_eq!(
             ids,
-            ["lint-backend", "formatter", "test-runner", "test-hardening"]
+            [
+                "lint-backend",
+                "formatter",
+                "test-runner",
+                "test-hardening",
+                "release-enabled",
+                "release-prerelease",
+                "release-host",
+            ],
+            "go is tag-only, so the release section omits the registry question",
         );
     }
 

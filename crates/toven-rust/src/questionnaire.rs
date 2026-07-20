@@ -2,9 +2,12 @@
 
 use rskit_cli::Choice;
 use rskit_errors::AppResult;
-use toven_ports::{Detection, Question, QuestionKind, Questionnaire};
+use toven_ports::{Detection, Question, QuestionKind, Questionnaire, release_questions};
 
 use crate::detect::RustFacts;
+
+/// The registry releasable Rust crates publish to (crates.io).
+pub(crate) const RELEASE_REGISTRY: &str = "crates-io";
 
 /// The question id for the cargo test-runner choice.
 pub(crate) const TEST_RUNNER: &str = "test-runner";
@@ -64,6 +67,8 @@ pub(crate) fn questionnaire(detection: &Detection) -> AppResult<Questionnaire> {
             QuestionKind::MultiSelect(choices),
         ));
     }
+
+    questions.extend(release_questions(Some(RELEASE_REGISTRY)));
 
     Ok(Questionnaire::new(detection.ecosystem.clone(), questions))
 }
@@ -130,16 +135,30 @@ mod tests {
     }
 
     #[test]
-    fn single_manifest_asks_only_the_runner() {
+    fn single_manifest_asks_the_runner_then_the_release_section() {
         let questionnaire = questionnaire(&detection(true)).expect("questionnaire");
-        assert_eq!(questionnaire.questions.len(), 1);
-        assert_eq!(questionnaire.questions[0].id.as_str(), TEST_RUNNER);
+        let ids: Vec<&str> = questionnaire
+            .questions
+            .iter()
+            .map(|q| q.id.as_str())
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                TEST_RUNNER,
+                "release-enabled",
+                "release-registry",
+                "release-prerelease",
+                "release-host",
+            ],
+            "rust publishes to a registry, so the release section asks about it",
+        );
     }
 
     #[test]
     fn multiple_manifests_add_a_preselected_multiselect() {
         let questionnaire = questionnaire(&multi_detection()).expect("questionnaire");
-        assert_eq!(questionnaire.questions.len(), 2);
+        assert_eq!(questionnaire.questions[0].id.as_str(), TEST_RUNNER);
         let question = &questionnaire.questions[1];
         assert_eq!(question.id.as_str(), MANIFESTS);
         let QuestionKind::MultiSelect(choices) = &question.kind else {

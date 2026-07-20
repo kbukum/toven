@@ -108,6 +108,16 @@ pub struct Question {
     pub prompt: String,
     /// What kind of answer this question expects.
     pub kind: QuestionKind,
+    /// An optional gate: this question is only asked when the referenced
+    /// [`Confirm`](QuestionKind::Confirm) question was answered `true`.
+    ///
+    /// The CLI evaluates the gate against the answers collected so far, so a
+    /// follow-up (e.g. a publish registry) is skipped entirely when the user
+    /// declined the opt-in that precedes it; a skipped question records no
+    /// answer, so [`render`](crate::provider::Provider::render) sees its
+    /// default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ask_if: Option<QuestionId>,
 }
 
 impl Question {
@@ -118,7 +128,16 @@ impl Question {
             id: id.into(),
             prompt: prompt.into(),
             kind,
+            ask_if: None,
         }
+    }
+
+    /// Gate this question on `gate`: it is only asked when the referenced
+    /// [`Confirm`](QuestionKind::Confirm) question was answered `true`.
+    #[must_use]
+    pub fn asked_when(mut self, gate: impl Into<QuestionId>) -> Self {
+        self.ask_if = Some(gate.into());
+        self
     }
 }
 
@@ -156,5 +175,20 @@ mod tests {
         let json = serde_json::to_string(&question).expect("serialize");
         let back: Question = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(question, back);
+    }
+
+    #[test]
+    fn gate_round_trips_and_is_omitted_when_absent() {
+        let ungated = Question::new("opt-in", "Enable?", QuestionKind::Confirm { default: false });
+        assert!(ungated.ask_if.is_none());
+        let json = serde_json::to_string(&ungated).expect("serialize");
+        assert!(!json.contains("ask_if"), "an absent gate is skipped in the wire form");
+
+        let gated = ungated.asked_when("opt-in");
+        assert_eq!(gated.ask_if.as_ref().map(super::QuestionId::as_str), Some("opt-in"));
+        let back: Question =
+            serde_json::from_str(&serde_json::to_string(&gated).expect("serialize"))
+                .expect("deserialize");
+        assert_eq!(gated, back);
     }
 }

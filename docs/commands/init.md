@@ -54,6 +54,32 @@ When you choose the `cargo-nextest` runner, the generated `test` task carries `-
 
 The Go wizard offers four selections that shape its task table: the **lint backend** (`go vet` — the default, folded into `check`; or the external `golangci-lint` / `staticcheck`), the **formatter** (`gofmt` default, or `gofumpt` / `goimports`), the **test runner** (`go test` default, or `gotestsum`), and whether to **harden tests** with `-race -shuffle=on`. When a `.golangci.yml` is present the wizard recommends `golangci-lint`; otherwise it defaults to the toolchain-native tools so onboarding never forces an external dependency. The generated Go catalog is `build`, `check` (`go vet`), `format` / `format-check`, `tidy` / `tidy-fix`, `test`, `vuln` (`govulncheck`), `run`, and — only when an external backend is chosen — a distinct `lint` (so `check` and `lint` never share a cache key). Each CI gate is a read-only verification and pairs with an explicit state-changing twin: `format-check` (`gofmt -l`) with `format` (`gofmt -w`), and `tidy` (`go mod tidy -diff`) with `tidy-fix` (`go mod tidy`). The `tidy` gate's `-diff` flag requires Go 1.23+; on an older toolchain run `tidy-fix` and check the working tree instead. List-mode formatters print offenders but exit `0`, so `format-check` is marked `fail_if_output` — the engine's executor fails the unit when the command emits any stdout, turning `gofmt -l` into a real CI gate. The state-changing twins are authored `cacheable = false` — a mutation must run every time, never be suppressed by an outdated content-key hit. When `golangci-lint` is the backend the `lint` argv carries `--allow-parallel-runners`, so Toven's per-module fan-out runs concurrently despite golangci-lint's shared-cache lock.
 
+## Release automation (opt-in)
+
+After the ecosystem questions the wizard asks a single confirm — *Configure release automation for this ecosystem?* — that defaults to **no**. Decline it (the default, and what every non-interactive run resolves to) and no `[ecosystems.<id>].release` block is authored at all; the repository stays release-free until you opt in. This keeps `toven init --non-interactive` from ever committing a repository to a release policy it did not ask for.
+
+Accept it and the wizard asks a few follow-ups, then writes a minimal, valid `[ecosystems.<id>].release` block from your answers:
+
+- **Registry** (registry-capable ecosystems only): which registry releasable modules publish to. Rust offers `crates-io` (recommended) or *no registry (tag-only)*; a tag-only ecosystem such as Go module tags skips this question entirely and is always registry-less.
+- **Prerelease channels**: any of `alpha`, `beta`, `rc` (choose none for stable-only). Selected channels are authored in menu order.
+- **Hosted Release**: whether to cut a GitHub Release after publishing.
+
+Every opted-in block also carries a `clean-tree` readiness check, and a `registry-idempotent` check is added whenever a registry is set. A Rust repository publishing to crates.io with an alpha channel and a hosted Release renders:
+
+```toml
+[ecosystems.rust.release]
+readiness = ["clean-tree", "registry-idempotent"]
+registry = "crates-io"
+
+[ecosystems.rust.release.host]
+forge = "github"
+
+[ecosystems.rust.release.prerelease]
+channels = ["alpha"]
+```
+
+A tag-only ecosystem (Go, or Rust with *no registry*) omits `registry` and drops the `registry-idempotent` check, leaving the release anchored on tags. The follow-up questions are gated on the opt-in confirm, so a non-interactive run never reaches them and never authors a release block.
+
 ## Re-running
 
 Re-running against an existing config adds only `[ecosystems.<id>]` sections that are missing. It warns on sections that already exist, leaves `[project]` and `[toven]` untouched, and preserves your formatting and comments. A re-run that adds nothing leaves the file byte-identical.

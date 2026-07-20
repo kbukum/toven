@@ -24,9 +24,14 @@ mod answers;
 mod detection;
 mod question;
 mod questionnaire;
+mod release;
 
 pub use answer_provider::AnswerProvider;
 pub use answers::{Answer, Answers};
 pub use detection::Detection;
 pub use question::{Question, QuestionId, QuestionKind, TextRule};
 pub use questionnaire::Questionnaire;
+pub use release::{
+    RELEASE_ENABLED, RELEASE_HOST, RELEASE_PRERELEASE, RELEASE_REGISTRY, REGISTRY_NONE,
+    release_config, release_questions,
+};

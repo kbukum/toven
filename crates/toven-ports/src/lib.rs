@@ -97,7 +97,8 @@ pub use vcs::{
 pub use watch::{ChangeBatch, ChangeBatchStream, WatchSource};
 pub use wizard::{
     Answer, AnswerProvider, Answers, Detection, Question, QuestionId, QuestionKind, Questionnaire,
-    TextRule,
+    REGISTRY_NONE, RELEASE_ENABLED, RELEASE_HOST, RELEASE_PRERELEASE, RELEASE_REGISTRY, TextRule,
+    release_config, release_questions,
 };
 
 #[cfg(test)]
