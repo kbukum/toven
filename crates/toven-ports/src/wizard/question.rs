@@ -179,13 +179,23 @@ mod tests {
 
     #[test]
     fn gate_round_trips_and_is_omitted_when_absent() {
-        let ungated = Question::new("opt-in", "Enable?", QuestionKind::Confirm { default: false });
+        let ungated = Question::new(
+            "opt-in",
+            "Enable?",
+            QuestionKind::Confirm { default: false },
+        );
         assert!(ungated.ask_if.is_none());
         let json = serde_json::to_string(&ungated).expect("serialize");
-        assert!(!json.contains("ask_if"), "an absent gate is skipped in the wire form");
+        assert!(
+            !json.contains("ask_if"),
+            "an absent gate is skipped in the wire form"
+        );
 
         let gated = ungated.asked_when("opt-in");
-        assert_eq!(gated.ask_if.as_ref().map(super::QuestionId::as_str), Some("opt-in"));
+        assert_eq!(
+            gated.ask_if.as_ref().map(super::QuestionId::as_str),
+            Some("opt-in")
+        );
         let back: Question =
             serde_json::from_str(&serde_json::to_string(&gated).expect("serialize"))
                 .expect("deserialize");

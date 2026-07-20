@@ -32,6 +32,6 @@ pub use detection::Detection;
 pub use question::{Question, QuestionId, QuestionKind, TextRule};
 pub use questionnaire::Questionnaire;
 pub use release::{
-    RELEASE_ENABLED, RELEASE_HOST, RELEASE_PRERELEASE, RELEASE_REGISTRY, REGISTRY_NONE,
+    REGISTRY_NONE, RELEASE_ENABLED, RELEASE_HOST, RELEASE_PRERELEASE, RELEASE_REGISTRY,
     release_config, release_questions,
 };

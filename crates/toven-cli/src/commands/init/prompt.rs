@@ -211,9 +211,17 @@ mod tests {
         Questionnaire::new(
             toven_model::EcosystemId::new("rust").expect("id"),
             vec![
-                Question::new("opt-in", "Enable?", QuestionKind::Confirm { default: false }),
-                Question::new("follow", "Follow-up?", QuestionKind::Confirm { default: false })
-                    .asked_when("opt-in"),
+                Question::new(
+                    "opt-in",
+                    "Enable?",
+                    QuestionKind::Confirm { default: false },
+                ),
+                Question::new(
+                    "follow",
+                    "Follow-up?",
+                    QuestionKind::Confirm { default: false },
+                )
+                .asked_when("opt-in"),
             ],
         )
     }
@@ -227,7 +235,9 @@ mod tests {
             PromptMode::NonInteractive,
             Palette::new(false),
         ));
-        let answers = provider.answers_for(&gated_questionnaire()).expect("answers");
+        let answers = provider
+            .answers_for(&gated_questionnaire())
+            .expect("answers");
         assert_eq!(answers.bool(&"opt-in".into()), Some(false));
         assert!(
             answers.get(&"follow".into()).is_none(),
@@ -245,7 +255,9 @@ mod tests {
             PromptMode::Interactive,
             Palette::new(false),
         ));
-        let answers = provider.answers_for(&gated_questionnaire()).expect("answers");
+        let answers = provider
+            .answers_for(&gated_questionnaire())
+            .expect("answers");
         assert_eq!(answers.bool(&"opt-in".into()), Some(true));
         assert_eq!(answers.bool(&"follow".into()), Some(true));
     }

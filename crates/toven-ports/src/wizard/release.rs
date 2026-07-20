@@ -264,7 +264,10 @@ mod tests {
     fn opting_out_of_the_registry_is_tag_only() {
         let answers = Answers::new()
             .with(RELEASE_ENABLED, Answer::Bool(true))
-            .with(RELEASE_REGISTRY, Answer::Choice(ChoiceId::new(REGISTRY_NONE)));
+            .with(
+                RELEASE_REGISTRY,
+                Answer::Choice(ChoiceId::new(REGISTRY_NONE)),
+            );
         let config = release_config(&answers, Some("crates-io"));
 
         assert!(config.registry.is_none());
@@ -287,7 +290,11 @@ mod tests {
         let config = release_config(&answers, None);
 
         let prerelease = config.prerelease.expect("prerelease authored");
-        assert_eq!(prerelease.channels, ["alpha", "rc"], "menu order, not click order");
+        assert_eq!(
+            prerelease.channels,
+            ["alpha", "rc"],
+            "menu order, not click order"
+        );
     }
 
     #[test]
@@ -298,7 +305,12 @@ mod tests {
         let config = release_config(&answers, None);
 
         assert_eq!(
-            config.host.as_ref().expect("host authored").forge.as_deref(),
+            config
+                .host
+                .as_ref()
+                .expect("host authored")
+                .forge
+                .as_deref(),
             Some("github")
         );
         config.validate("ecosystems.go.release").expect("valid");
@@ -309,6 +321,9 @@ mod tests {
         let answers = Answers::new().with(RELEASE_ENABLED, Answer::Bool(true));
         let config = release_config(&answers, None);
         assert!(config.registry.is_none());
-        assert_eq!(config.readiness.as_deref(), Some(["clean-tree".to_string()].as_slice()));
+        assert_eq!(
+            config.readiness.as_deref(),
+            Some(["clean-tree".to_string()].as_slice())
+        );
     }
 }
