@@ -5,7 +5,7 @@ PACKAGE_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head
 # the real-subprocess integration tests) by exporting NEXTEST_PROFILE=ci. The
 # value is read by nextest itself, so it flows through the `toven`-driven test
 # gate unchanged.
-NEXTEST_PROFILE ?= default
+export NEXTEST_PROFILE ?= default
 
 # Dogfood: the mapped task, coverage, affected, and release gates run through the
 # freshly built `toven` binary. CI-strength flags (`-D warnings`, `--all-targets`,

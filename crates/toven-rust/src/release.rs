@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use rskit_fs::safe_join;
+use rskit_fs::{canonicalize, safe_join};
 use rskit_fs::sync_io::dir::create_all;
 use rskit_fs::sync_io::file::{
     exists, move_file, read_string_bounded, remove_if_exists, write_atomic_replace,
@@ -233,7 +233,7 @@ impl ReleaseTarget for CratesIoTarget {
         // SBOM next to *every* member manifest, not just the requested one. Remove
         // those sibling copies so the manifest tree is left clean and only the
         // artifact under `out_dir` remains.
-        remove_sbom_strays(&manifest, &stem)?;
+        remove_sbom_strays(&manifest, &stem, Some(&artifact))?;
         Ok(Some(Artifact::new(artifact)))
     }
 }
@@ -330,18 +330,35 @@ fn first_existing(candidates: &[PathBuf]) -> AppResult<Option<PathBuf>> {
 /// workspace members. The requested module's own copy has already been moved
 /// into `out_dir`, so every remaining `<stem>.{cdx.json,json}` under a member
 /// directory is a redundant sibling copy safe to delete.
-fn remove_sbom_strays(manifest: &Path, stem: &str) -> AppResult<()> {
-    remove_stray_sbom_files(&workspace_member_dirs(manifest)?, stem)
+fn remove_sbom_strays(manifest: &Path, stem: &str, preserve: Option<&Path>) -> AppResult<()> {
+    remove_stray_sbom_files(&workspace_member_dirs(manifest)?, stem, preserve)
 }
 
 /// Delete every `<stem>.{cdx.json,json}` file found directly in `dirs`.
-fn remove_stray_sbom_files(dirs: &[PathBuf], stem: &str) -> AppResult<()> {
+fn remove_stray_sbom_files(
+    dirs: &[PathBuf],
+    stem: &str,
+    preserve: Option<&Path>,
+) -> AppResult<()> {
     for dir in dirs {
         for suffix in [SBOM_FILE_SUFFIX, "json"] {
-            remove_if_exists(&dir.join(format!("{stem}.{suffix}")))?;
+            let candidate = dir.join(format!("{stem}.{suffix}"));
+            if should_remove_sbom(&candidate, preserve)? {
+                remove_if_exists(&candidate)?;
+            }
         }
     }
     Ok(())
+}
+
+fn should_remove_sbom(candidate: &Path, preserve: Option<&Path>) -> AppResult<bool> {
+    if !exists(candidate)? {
+        return Ok(false);
+    }
+    let Some(preserve) = preserve else {
+        return Ok(true);
+    };
+    Ok(canonicalize(candidate)? != canonicalize(preserve)?)
 }
 
 /// The directory of each workspace member manifest, resolved via
@@ -363,10 +380,13 @@ fn workspace_member_dirs(manifest: &Path) -> AppResult<Vec<PathBuf>> {
         )
         .with_cause(error)
     })?;
+    let workspace_root = metadata.workspace_root.as_std_path();
     Ok(metadata
         .packages
         .iter()
+        .filter(|package| metadata.workspace_members.contains(&package.id))
         .filter_map(|package| package.manifest_path.parent())
+        .filter(|dir| dir.starts_with(workspace_root))
         .map(|dir| dir.as_std_path().to_path_buf())
         .collect())
 }
@@ -897,13 +917,31 @@ core = \"0.2.0\"
         }
         std::fs::write(member_a.join("core.cdx.json"), b"{}").expect("stray cdx");
 
-        remove_stray_sbom_files(&[member_a.clone(), member_b.clone()], "core").expect("cleanup");
+        remove_stray_sbom_files(&[member_a.clone(), member_b.clone()], "core", None)
+            .expect("cleanup");
 
         assert!(!exists(&member_a.join("core.json")).expect("a json"));
         assert!(!exists(&member_a.join("core.cdx.json")).expect("a cdx"));
         assert!(!exists(&member_b.join("core.json")).expect("b json"));
         assert!(exists(&member_a.join("keep.json")).expect("keep a"));
         assert!(exists(&member_b.join("keep.json")).expect("keep b"));
+    }
+
+    #[test]
+    fn remove_stray_sbom_files_preserves_the_final_artifact() {
+        use rskit_fs::TempDir;
+        use rskit_fs::sync_io::file::exists;
+
+        let root = TempDir::new().expect("temp dir");
+        let member = root.path().join("crates/core");
+        let output = member.join("core.cdx.json");
+        create_all(&member).expect("member");
+        std::fs::write(&output, b"{}").expect("artifact");
+
+        remove_stray_sbom_files(std::slice::from_ref(&member), "core", Some(&output))
+            .expect("cleanup");
+
+        assert!(exists(&output).expect("artifact exists"));
     }
 }
 
