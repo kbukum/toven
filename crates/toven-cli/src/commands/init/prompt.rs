@@ -52,6 +52,15 @@ impl PromptAnswers {
             prompter: RefCell::new(prompter),
         }
     }
+
+    /// Build the seam directly from a prompter, for tests that drive
+    /// [`answers_for`](AnswerProvider::answers_for) with a scripted terminal.
+    #[cfg(test)]
+    pub(super) fn from_prompter(prompter: Prompter<Box<dyn Terminal>>) -> Self {
+        Self {
+            prompter: RefCell::new(prompter),
+        }
+    }
 }
 
 impl AnswerProvider for PromptAnswers {
@@ -59,6 +68,13 @@ impl AnswerProvider for PromptAnswers {
         let mut prompter = self.prompter.borrow_mut();
         let mut answers = Answers::new();
         for question in &questionnaire.questions {
+            // A gated question is asked only when its referenced confirm was answered `true`;
+            // otherwise it records no answer, so the renderer falls back to that question's default.
+            if let Some(gate) = &question.ask_if
+                && answers.bool(gate) != Some(true)
+            {
+                continue;
+            }
             let answer = ask(&mut prompter, &question.prompt, &question.kind)?;
             answers.insert(question.id.clone(), answer);
         }
@@ -111,11 +127,11 @@ fn ask(
 
 #[cfg(test)]
 mod tests {
-    use super::{Answer, ask};
+    use super::{Answer, PromptAnswers, ask};
     use rskit_cli::{
         Choice, ChoiceId, Key, Palette, PromptMode, Prompter, ScriptedTerminal, Terminal,
     };
-    use toven_ports::{QuestionKind, TextRule};
+    use toven_ports::{AnswerProvider, Question, QuestionKind, Questionnaire, TextRule};
 
     fn keyed(keys: Vec<Key>) -> Prompter<Box<dyn Terminal>> {
         let terminal: Box<dyn Terminal> = Box::new(ScriptedTerminal::key_driven().with_keys(keys));
@@ -189,5 +205,60 @@ mod tests {
         ]);
         let answer = ask(&mut prompter, "Runner?", &kind).expect("answer");
         assert_eq!(answer, Answer::Choice(ChoiceId::new("cargo-test")));
+    }
+
+    fn gated_questionnaire() -> Questionnaire {
+        Questionnaire::new(
+            toven_model::EcosystemId::new("rust").expect("id"),
+            vec![
+                Question::new(
+                    "opt-in",
+                    "Enable?",
+                    QuestionKind::Confirm { default: false },
+                ),
+                Question::new(
+                    "follow",
+                    "Follow-up?",
+                    QuestionKind::Confirm { default: false },
+                )
+                .asked_when("opt-in"),
+            ],
+        )
+    }
+
+    #[test]
+    fn gated_follow_up_is_skipped_when_the_gate_is_declined() {
+        // Non-interactive: the opt-in confirm resolves to its `false` default, so the gate fails.
+        let terminal: Box<dyn Terminal> = Box::new(ScriptedTerminal::line_driven());
+        let provider = PromptAnswers::from_prompter(Prompter::new(
+            terminal,
+            PromptMode::NonInteractive,
+            Palette::new(false),
+        ));
+        let answers = provider
+            .answers_for(&gated_questionnaire())
+            .expect("answers");
+        assert_eq!(answers.bool(&"opt-in".into()), Some(false));
+        assert!(
+            answers.get(&"follow".into()).is_none(),
+            "a skipped question records no answer"
+        );
+    }
+
+    #[test]
+    fn gated_follow_up_is_asked_when_the_gate_is_accepted() {
+        // Opt in (`y`), then answer the now-reachable follow-up (`y`).
+        let terminal: Box<dyn Terminal> =
+            Box::new(ScriptedTerminal::line_driven().with_lines(vec!["y", "y"]));
+        let provider = PromptAnswers::from_prompter(Prompter::new(
+            terminal,
+            PromptMode::Interactive,
+            Palette::new(false),
+        ));
+        let answers = provider
+            .answers_for(&gated_questionnaire())
+            .expect("answers");
+        assert_eq!(answers.bool(&"opt-in".into()), Some(true));
+        assert_eq!(answers.bool(&"follow".into()), Some(true));
     }
 }

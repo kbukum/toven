@@ -2,29 +2,45 @@ PACKAGE_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head
 
 # nextest profile (see .config/nextest.toml). Local runs use `default`
 # (fail-fast, no retries); CI overrides this to `ci` (retries + slow-timeout for
-# the real-subprocess integration tests) by exporting NEXTEST_PROFILE=ci.
-NEXTEST_PROFILE ?= default
+# the real-subprocess integration tests) by exporting NEXTEST_PROFILE=ci. The
+# value is read by nextest itself, so it flows through the `toven`-driven test
+# gate unchanged.
+export NEXTEST_PROFILE ?= default
 
-.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc deny coverage smoke smoke-repo benchmark release-dry-run release-artifacts act-ci act-supply-chain act-release-readiness
+# Dogfood: the mapped task, coverage, affected, and release gates run through the
+# freshly built `toven` binary. CI-strength flags (`-D warnings`, `--all-targets`,
+# `--release`, `--no-deps`) are supplied at the gate as passthrough after `--`,
+# spliced verbatim at each task's `{args}` — the emitted task table stays minimal
+# and gate strength lives with the gate, not the config. Override to an installed
+# binary for speed with `make TOVEN=toven check`.
+TOVEN ?= cargo run --quiet --locked -p toven --
+
+.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc deny coverage affected smoke smoke-repo benchmark release-dry-run release-plan release-artifacts act-ci act-supply-chain act-release-readiness
 
 # Canonical local/CI gate for the virtual workspace.
 check: fmt-check lint test structure doc deny release-dry-run
 
+# rustfmt is intentionally native: `make check` gates the whole workspace in a
+# single fast rustfmt pass; the per-module `format`/`format-check` tasks remain
+# available through `toven`.
 fmt:
 	cargo fmt --all
 
 fmt-check:
 	cargo fmt --all --check
 
+# Toven-driven clippy. The passthrough carries the CI-strength target/feature
+# selection and the `-- -D warnings` deny level that the emitted `lint` task argv
+# deliberately does not encode.
 lint:
-	cargo clippy --workspace --all-targets --all-features -- -D warnings
+	$(TOVEN) lint -- --all-targets --all-features -- -D warnings
 
-# Tests run via nextest (fast, globally parallel across every test binary).
-# nextest does not execute doctests, so they run separately under `test-doc`.
+# Tests run via the Toven `test` task (nextest, fast, globally parallel). nextest
+# does not execute doctests, so they run separately and natively under `test-doc`.
 test: test-nextest test-doc
 
 test-nextest:
-	cargo nextest run --profile $(NEXTEST_PROFILE) --workspace --all-targets --all-features
+	$(TOVEN) test -- --all-targets --all-features
 
 test-doc:
 	cargo test --workspace --all-features --doc
@@ -34,14 +50,25 @@ structure:
 	@command -v ast-grep >/dev/null 2>&1 || { echo "structure: ast-grep not found — install with 'brew install ast-grep' or 'cargo install ast-grep --locked'"; exit 1; }
 	@ast-grep scan
 
+# Toven-driven rustdoc. RUSTDOCFLAGS supplies the deny-warnings gate and the
+# passthrough supplies `--all-features` (gate rustdoc across every feature); the
+# `doc` task already documents only the local crates (`--no-deps` is the
+# baked-in default), so it is not repeated here.
 doc:
-	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
+	RUSTDOCFLAGS="-D warnings" $(TOVEN) doc -- --all-features
 
 deny:
 	cargo deny check advisories bans licenses sources
 
+# Toven owns coverage aggregation and gates the emitted profiles against the
+# `[ecosystems.rust.coverage]` thresholds (line 80 / function 80 in toven.toml).
 coverage:
-	cargo llvm-cov --workspace --fail-under-lines 85 --fail-under-functions 80
+	$(TOVEN) coverage
+
+# Affected-only planning: exercise Toven's change-based module selection against
+# the configured base ref without running anything.
+affected:
+	$(TOVEN) affected test
 
 # In-tree app smoke: drive the freshly-built app binaries over the committed
 # fixtures via the `apps/*/tests` integration tests — `toven-rs` runs a full
@@ -64,10 +91,19 @@ benchmark:
 	./scripts/benchmark.sh "$(CASE)"
 
 # Every crate is currently an unpublished, path-dependent library, so there is
-# nothing to publish yet. Validate workspace metadata and a release build instead.
+# nothing to publish yet. Validate workspace metadata and a Toven-driven release
+# build instead.
 release-dry-run:
 	cargo metadata --format-version 1 --no-deps >/dev/null
-	cargo build --workspace --release --all-features
+	$(TOVEN) build -- --release --all-features
+
+# Mutation-free release preview: the version cascade, readiness preflight, SBOM,
+# and dependency graphs Toven would produce. Read-only, safe to run anywhere.
+release-plan:
+	$(TOVEN) release plan
+	$(TOVEN) release readiness
+	$(TOVEN) release sbom --out-dir target/toven/release/sbom
+	$(TOVEN) release depgraphs --out-dir target/toven/release/depgraphs
 
 # Ship a reproducible source tarball until publishable apps land.
 release-artifacts:
