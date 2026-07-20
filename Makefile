@@ -50,10 +50,11 @@ structure:
 	@command -v ast-grep >/dev/null 2>&1 || { echo "structure: ast-grep not found — install with 'brew install ast-grep' or 'cargo install ast-grep --locked'"; exit 1; }
 	@ast-grep scan
 
-# Toven-driven rustdoc. RUSTDOCFLAGS supplies the deny-warnings gate and the
-# passthrough supplies `--no-deps` (document only the local crates).
+# Toven-driven rustdoc. RUSTDOCFLAGS supplies the deny-warnings gate; the `doc`
+# task already documents only the local crates (`--no-deps` is the baked-in
+# default), so the gate adds no passthrough of its own.
 doc:
-	RUSTDOCFLAGS="-D warnings" $(TOVEN) doc -- --no-deps
+	RUSTDOCFLAGS="-D warnings" $(TOVEN) doc
 
 deny:
 	cargo deny check advisories bans licenses sources
