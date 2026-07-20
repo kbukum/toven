@@ -12,11 +12,11 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use rskit_fs::{canonicalize, safe_join};
 use rskit_fs::sync_io::dir::create_all;
 use rskit_fs::sync_io::file::{
     exists, move_file, read_string_bounded, remove_if_exists, write_atomic_replace,
 };
+use rskit_fs::{canonicalize, safe_join};
 use rskit_process::{
     CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessResult, ProcessSpec, run,
 };
@@ -335,11 +335,7 @@ fn remove_sbom_strays(manifest: &Path, stem: &str, preserve: Option<&Path>) -> A
 }
 
 /// Delete every `<stem>.{cdx.json,json}` file found directly in `dirs`.
-fn remove_stray_sbom_files(
-    dirs: &[PathBuf],
-    stem: &str,
-    preserve: Option<&Path>,
-) -> AppResult<()> {
+fn remove_stray_sbom_files(dirs: &[PathBuf], stem: &str, preserve: Option<&Path>) -> AppResult<()> {
     for dir in dirs {
         for suffix in [SBOM_FILE_SUFFIX, "json"] {
             let candidate = dir.join(format!("{stem}.{suffix}"));
