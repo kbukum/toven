@@ -37,7 +37,7 @@ pub fn release_plan(
         reporter,
     )?;
     let targets = release_targets(&context)?;
-    plan_with_context(&context, document, request, readers, overrides, &targets)
+    plan_with_context(&context, request, readers, overrides, &targets)
 }
 
 /// Build a [`ReleasePlan`] from an already-prepared [`PlanContext`] and its
@@ -53,13 +53,12 @@ pub fn release_plan(
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn plan_with_context(
     context: &PlanContext,
-    document: &Document,
     request: &PlanRequest,
     readers: &MemberVcsReaders<'_>,
     overrides: &BumpOverrides,
     targets: &super::ReleaseTargets,
 ) -> AppResult<ReleasePlan> {
-    let settings = resolve_release_settings(context, document, targets)?;
+    let settings = resolve_release_settings(context, targets)?;
     let changes = change::detect(
         context,
         &request.selection,
@@ -68,6 +67,7 @@ pub(crate) fn plan_with_context(
         targets,
         &settings,
     )?;
+    validate_required_changelogs(&changes, &settings)?;
     plan_with_changes(context, request, &changes, overrides, targets, &settings)
 }
 
@@ -140,7 +140,6 @@ pub(crate) fn release_targets(context: &PlanContext) -> AppResult<super::Release
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn resolve_release_settings(
     context: &PlanContext,
-    document: &Document,
     targets: &super::ReleaseTargets,
 ) -> AppResult<BTreeMap<ModuleKey, ResolvedReleaseSettings>> {
     for (_, ecosystem, adapter) in context.adapters.iter() {
@@ -169,7 +168,22 @@ pub(crate) fn resolve_release_settings(
             .common()
             .release
             .clone();
-        let over = document
+        let member_document = context
+            .composed
+            .members()
+            .iter()
+            .find(|member| member.member().id() == module.member.as_ref())
+            .map(crate::federation::compose::ComposedMember::document)
+            .ok_or_else(|| {
+                AppError::new(
+                    ErrorCode::Internal,
+                    format!(
+                        "module '{}' has no composed member configuration",
+                        module.key()
+                    ),
+                )
+            })?;
+        let over = member_document
             .modules
             .get(&module.id.to_string())
             .map(|entry| &entry.release);
@@ -210,6 +224,29 @@ fn reconcile_policy(
     Ok(selected.map_or(BumpPolicy::SemverCascade, |(_, policy)| policy))
 }
 
+fn validate_required_changelogs(
+    changes: &change::ReleaseChanges,
+    settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
+) -> AppResult<()> {
+    for module in &changes.changed {
+        let Some(resolved) = settings.get(module) else {
+            continue;
+        };
+        if resolved.changelog.required
+            && changes
+                .records
+                .get(module)
+                .is_none_or(std::vec::Vec::is_empty)
+        {
+            return Err(AppError::invalid_input(
+                "release.changelog.required",
+                format!("changed module '{module}' has no changelog entry"),
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -217,16 +254,22 @@ mod tests {
     use rskit_config::RawValue;
     use rskit_version::semver::Version;
     use serde_json::json;
-    use toven_model::{AbsPath, DepKind, EcosystemId, Edge, Module, ModuleRef, RepoPath};
+    use toven_model::{
+        AbsPath, DepKind, EcosystemId, Edge, Module, ModuleKey, ModuleRef, RepoPath,
+    };
     use toven_ports::{
-        BaselineSpec, BumpLevel, ChangeRecord, ChangeStatus, CommonEcosystemConfig,
-        DependentVersion, DiscoverResponse, PrereleaseConfig, Provider, TaskIntent,
+        BaselineSpec, BumpLevel, ChangeRecord, ChangeStatus, ChangelogConfig,
+        CommonEcosystemConfig, DependentVersion, DiscoverResponse, PrereleaseConfig, Provider,
+        TaskIntent,
     };
     use toven_testkit::{
         FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, RecordingReporter,
     };
 
-    use super::{BumpPolicy, ResolvedReleaseSettings, reconcile_policy, release_plan};
+    use super::{
+        BumpPolicy, ResolvedReleaseSettings, reconcile_policy, release_plan,
+        validate_required_changelogs,
+    };
     use crate::config::{Document, ProjectConfig, TovenConfig};
     use crate::federation::baseline::MemberVcsReaders;
     use crate::plan::{PlanRequest, Selection};
@@ -307,6 +350,31 @@ mod tests {
         let mut common = CommonEcosystemConfig::default();
         common.release.level = Some(level);
         common
+    }
+
+    #[test]
+    fn required_changelog_rejects_changed_module_without_records() {
+        let key = ModuleKey::bare(mref("core"));
+        let mut changed_modules = std::collections::BTreeSet::new();
+        changed_modules.insert(key.clone());
+        let changes = crate::release::change::ReleaseChanges {
+            changed: changed_modules,
+            records: BTreeMap::new(),
+            baselines: BTreeMap::new(),
+        };
+        let mut config = CommonEcosystemConfig::default();
+        config.release.changelog = Some(ChangelogConfig {
+            path: None,
+            required: true,
+        });
+        let resolved = ResolvedReleaseSettings::resolve(&config.release, None).unwrap();
+        let settings = BTreeMap::from([(key, resolved)]);
+
+        let error = validate_required_changelogs(&changes, &settings)
+            .expect_err("required changelog must reject missing records");
+
+        assert!(error.to_string().contains("release.changelog.required"));
+        assert!(error.to_string().contains("rust:core"));
     }
 
     #[test]

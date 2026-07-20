@@ -17,8 +17,8 @@ pub trait VcsWriter {
     /// `None` makes a lightweight tag.
     fn create_tag(&self, name: &str, target_rev: &str, message: Option<&str>) -> AppResult<()>;
 
-    /// Push the given refspecs (commit + tags); gated by `--no-push` upstream.
-    fn push(&self, refspecs: &[String]) -> AppResult<()>;
+    /// Push the given refspecs (commit + tags) to `remote`.
+    fn push(&self, remote: &str, refspecs: &[String]) -> AppResult<()>;
 
     /// Roll the working tree back to `HEAD` (pre-commit failure undo).
     fn restore_worktree(&self) -> AppResult<()>;

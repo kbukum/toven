@@ -120,7 +120,41 @@ pub fn release_apply_by_member(
         .map(|module| (module.key(), module))
         .collect();
     let shards = shard_plan(plan, modules)?;
-    guard_member_trees(&shards, repos, options)?;
+    let settings = shards
+        .iter()
+        .map(|shard| apply::reconcile_repo_settings(&shard.plan.entries))
+        .collect::<AppResult<Vec<_>>>()?;
+    guard_member_trees(&shards, &settings, repos, options)?;
+    for (shard, settings) in shards.iter().zip(&settings) {
+        apply::commit_message(
+            &shard.plan,
+            &module_by_ref,
+            targets,
+            settings.commit_message(),
+        )?;
+        for entry in &shard.plan.entries {
+            let Some(version) = &entry.planned_version else {
+                continue;
+            };
+            let module = module_by_ref.get(&entry.module).copied().ok_or_else(|| {
+                AppError::invalid_input(
+                    "release.modules",
+                    format!("unknown module '{}'", entry.module),
+                )
+            })?;
+            let target = targets
+                .get(&(module.member.clone(), module.id.ecosystem.clone()))
+                .map(Box::as_ref)
+                .ok_or_else(|| {
+                    AppError::invalid_input(
+                        "release.target",
+                        format!("module '{}' has no release target", module.key()),
+                    )
+                })?;
+            target.tag_scheme(module, entry.tag_format.as_deref())?;
+            apply::tag_message(entry, module, version)?;
+        }
+    }
 
     let mut prepared = Vec::with_capacity(shards.len());
     for shard in &shards {
@@ -131,23 +165,35 @@ pub fn release_apply_by_member(
     }
 
     let mut artifacts = BTreeMap::new();
-    for (shard, member_artifacts) in prepared {
-        commit_member_shard(shard, &module_by_ref, targets, repos, options, &mut stats)?;
+    for ((shard, member_artifacts), settings) in prepared.into_iter().zip(settings) {
+        commit_member_shard(
+            shard,
+            &module_by_ref,
+            targets,
+            repos,
+            options,
+            &settings,
+            &mut stats,
+        )?;
         artifacts.extend(member_artifacts);
     }
 
-    let items = apply::publish_items(plan, &module_by_ref, targets, &artifacts)?;
-    publish::run(&items, options.retry_budget, &mut stats)?;
+    if options.publish {
+        let items = apply::publish_items(plan, &module_by_ref, targets, &artifacts)?;
+        publish::run(&items, options.retry_budget, &mut stats)?;
+    }
     Ok(stats)
 }
 
 fn guard_member_trees(
     shards: &[MemberReleaseShard],
+    settings: &[apply::RepoReleaseSettings],
     repos: &MemberReleaseRepos<'_>,
     options: &ReleaseApplyOptions,
 ) -> AppResult<()> {
-    for shard in shards {
+    for (shard, settings) in shards.iter().zip(settings) {
         let repo = repo_for(repos, shard.member.as_ref())?;
+        apply::guard_release_branch(repo.reader(), settings.branches())?;
         apply::guard_clean_tree(repo.reader(), options)?;
     }
     Ok(())
@@ -171,10 +217,16 @@ fn commit_member_shard(
     targets: &crate::release::ReleaseTargets,
     repos: &MemberReleaseRepos<'_>,
     options: &ReleaseApplyOptions,
+    settings: &apply::RepoReleaseSettings,
     stats: &mut ReleaseStats,
 ) -> AppResult<()> {
     let repo = repo_for(repos, shard.member.as_ref())?;
-    let message = apply::commit_message(&shard.plan, module_by_ref, targets)?;
+    let message = apply::commit_message(
+        &shard.plan,
+        module_by_ref,
+        targets,
+        settings.commit_message(),
+    )?;
     let commit = match repo.writer().commit(&message) {
         Ok(commit) => commit,
         Err(error) => {
@@ -204,14 +256,17 @@ fn commit_member_shard(
                 })?;
             let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
             let name = crate::release::tag::format(&scheme, version);
+            let message = apply::tag_message(entry, module, version)?;
             repo.writer()
-                .create_tag(&name, commit.as_str(), Some(&message))?;
+                .create_tag(&name, commit.as_str(), message.as_deref())?;
             stats.tagged_modules += 1;
         }
     }
-    if options.push {
-        repo.writer()
-            .push(&apply::push_refspecs(&shard.plan, module_by_ref, targets)?)?;
+    if settings.pushes(options) {
+        repo.writer().push(
+            settings.remote(),
+            &apply::push_refspecs(&shard.plan, module_by_ref, targets)?,
+        )?;
     }
     Ok(())
 }
@@ -351,6 +406,11 @@ mod tests {
             mutation: ReleaseMutation::version(version),
             publish_needed: true,
             tag_format: None,
+            tag_message: None,
+            commit_message: None,
+            push: true,
+            remote: "origin".into(),
+            branches: Vec::new(),
             topo_rank: rank,
             baseline: None,
             changelog: ChangelogEntry::new(mkey(member, name), "changed", Vec::new()),
@@ -589,6 +649,6 @@ mod tests {
         .unwrap_err();
 
         assert!(error.to_string().contains("has no release target"));
-        assert_eq!(gateway_writer.writes(), vec![VcsWrite::RestoreWorktree]);
+        assert!(gateway_writer.writes().is_empty());
     }
 }

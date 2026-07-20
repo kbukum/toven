@@ -250,6 +250,11 @@ mod tests {
             mutation: ReleaseMutation::version(version),
             publish_needed: true,
             tag_format: None,
+            tag_message: None,
+            commit_message: None,
+            push: true,
+            remote: "origin".into(),
+            branches: Vec::new(),
             topo_rank: 0,
             baseline: None,
             changelog: ChangelogEntry::new(

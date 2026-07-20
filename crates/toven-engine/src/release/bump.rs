@@ -54,6 +54,7 @@ struct PreparedBump {
 /// direct dependency actually receives an own-version bump — a dependent whose
 /// dependencies stayed put (e.g. an `upgrade`-mode intermediate that raised a
 /// floor without republishing) is never given a bump that carries no change.
+#[allow(clippy::too_many_lines)]
 pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry>> {
     let active = input.graph.closure(input.changed, release_closure_edge)?;
     let module_by_ref = input
@@ -146,6 +147,26 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
                 .settings
                 .get(&reference)
                 .and_then(|resolved| resolved.tag_format.clone()),
+            tag_message: input
+                .settings
+                .get(&reference)
+                .and_then(|resolved| resolved.tag_message.clone()),
+            commit_message: input
+                .settings
+                .get(&reference)
+                .and_then(|resolved| resolved.commit_message.clone()),
+            push: input
+                .settings
+                .get(&reference)
+                .is_none_or(|resolved| resolved.push),
+            remote: input
+                .settings
+                .get(&reference)
+                .map_or_else(|| "origin".to_string(), |resolved| resolved.remote.clone()),
+            branches: input
+                .settings
+                .get(&reference)
+                .map_or_else(Vec::new, |resolved| resolved.branches.clone()),
             topo_rank: *ranks.get(&reference).unwrap_or(&usize::MAX),
             baseline: input.baselines.get(&reference).cloned(),
             changelog: input

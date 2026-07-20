@@ -1,8 +1,8 @@
 # Release configuration
 
-Toven's release behavior is declarative. You own it through the `[…release]` config block, so a release runs *your* way — bump defaults, prerelease channels, tag/commit templates, changelog, push/branch gating, registry, signing, and hooks — without a per-run flag for every choice.
+Toven's release behavior is declarative. You own it through the `[…release]` config block, so a release runs *your* way — bump defaults, prerelease channels, tag/commit templates, changelog requirements, push/branch gating, registry, signing, and hooks — without a per-run flag for every choice.
 
-> **Status:** the full block is parsed, validated, and resolved with the precedence below. The bump policy (`strategy`, `level`, `dependent_version`, `prerelease`), the per-run bump argv, and the `[…release.host]` hosted-forge Release settings are consumed by the release engine; the remaining target/signing/hooks fields are schema-and-resolution only for now.
+> **Status:** the full block is parsed, validated, and resolved with the precedence below. The bump policy (`strategy`, `level`, `dependent_version`, `prerelease`), tag/commit templates, push/remote/branch controls, changelog `required`, the per-run bump argv, and the `[…release.host]` hosted-forge Release settings are consumed by the release engine. `changelog.path`, `token_env`, signing, and hooks remain schema-and-resolution seams only; they do not read or write changelog files, select registry credentials, sign artifacts, or run tasks.
 
 The same block is available at two levels:
 
@@ -10,6 +10,8 @@ The same block is available at two levels:
 - `[modules.<ecosystem:module>.release]` — a per-module override whose set fields win over the ecosystem default.
 
 Both are strict (`deny_unknown_fields`) and every field defaults, so an existing `toven.toml` keeps parsing unchanged and an unset override field inherits the ecosystem default.
+
+In an umbrella, these blocks belong in each member repository's own `toven.toml`: each member resolves its ecosystem default and module overrides independently. The umbrella config composes members but does not override their release settings.
 
 ## Precedence
 
@@ -32,13 +34,13 @@ Every field is optional. The **Default** column is the built-in value applied wh
 | `dependent_version` | `bump` \| `upgrade` | `bump` | How a dependency-floor bump cascades: `bump` re-releases the dependent; `upgrade` only raises its floor. |
 | `tag_format` | template | target default | Optional release tag name template override. Placeholders: `{version}`, `{ecosystem}`, `{module}` (`{channel}` is rejected — the prerelease channel is already part of `{version}`); when unset, each release target owns its default grammar (Rust uses `{ecosystem}/{module}@{version}`, Go rejects overrides and uses Go module tags). |
 | `tag_message` | template | — | Annotated-tag message template; unset cuts a lightweight tag. |
-| `commit_message` | template | adapter default | Release commit message template. |
+| `commit_message` | template | Toven default | Release commit message template. |
 | `push` | bool | `true` | Whether the release commit and tags are pushed. |
 | `remote` | string | `origin` | Git remote pushed to. |
 | `branches` | list of string | any branch | Allowed release branches; empty allows any branch. |
 | `registry` | string | — | Target registry identifier (e.g. `crates-io`); unset means not publishable. |
 | `offline` | bool | `false` | Skip registry lookups and anchor idempotency on release tags only. |
-| `token_env` | string | — | Environment-variable **name** holding the registry token (never the secret itself). |
+| `token_env` | string | — | Schema-only environment-variable name for a future registry-auth seam; it is not currently read by Toven. |
 | `readiness` | list of string | — | Ordered checks composing `release readiness`; each must be a recognized name (`clean-tree`, `registry-idempotent`). |
 
 ### `[…release.prerelease]`
@@ -54,8 +56,8 @@ Prerelease channels and the optional branch→channel mapping.
 
 | Field | Type | Default | Purpose |
 |-------|------|---------|---------|
-| `path` | string | `CHANGELOG.md` | Workspace-relative changelog path (must stay inside the workspace). |
-| `required` | bool | `false` | Fail a release when a changed module has no changelog entry. |
+| `path` | string | `CHANGELOG.md` | Schema-only workspace-relative path reserved for future changelog-file integration (must stay inside the workspace). Hosted notes currently use generated changed-path summaries. |
+| `required` | bool | `false` | Fail PLAN when a changed module has no detected change records to use as its changelog entry. This checks release input; it does not edit the changelog file. |
 
 ### `[…release.host]`
 
@@ -93,7 +95,7 @@ strategy = "semver-cascade"
 level = "auto"
 tag_format = "{ecosystem}/{module}@{version}"
 registry = "crates-io"
-token_env = "CARGO_REGISTRY_TOKEN"
+# token_env is schema-only until registry authentication is wired.
 readiness = ["clean-tree", "registry-idempotent"]
 
 [ecosystems.rust.release.prerelease]
@@ -115,5 +117,7 @@ tag_format = "core-v{version}"
 ```
 
 Here `rust:core` releases with a `major` level and a `core-v{version}` tag, but still inherits the ecosystem `registry`, `readiness`, prerelease channels, and changelog settings. If `tag_format` is omitted, the Rust target uses its own default instead of an engine-wide default; the Go target rejects a configured `tag_format` and always uses Go module tag conventions.
+
+One member repository receives one release commit and one optional push. Consequently, its released modules must resolve the same `push`, `remote`, `branches`, and `commit_message` values; Toven rejects a conflict before changing a worktree. `tag_format` and `tag_message` stay module-scoped and may differ because each tag is created independently. A configured `commit_message` must also render to the same text for every tagged module in that member. `--no-push` suppresses every member push but does not bypass the branch allow-list.
 
 See [`toven release`](../commands/release.md) for the lifecycle actions these settings drive.

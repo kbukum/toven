@@ -120,16 +120,16 @@ Examples:
 /// `release tag` action examples.
 const RELEASE_TAG_EXAMPLES: &str = "\
 Examples:
-  toven release tag                Bump, commit, tag, and push (no publish)
-  toven release tag --minor rust:core  Force a minor bump for one module
-  toven release tag --no-push      Cut the tag locally without pushing";
+  toven release tag --yes          Bump, commit, tag, and push (no publish)
+  toven release tag --minor rust:core --yes  Force a minor bump for one module
+  toven release tag --no-push --yes  Cut the tag locally without pushing";
 
 /// `release publish` action examples.
 const RELEASE_PUBLISH_EXAMPLES: &str = "\
 Examples:
-  toven release publish            Run the full pipeline through the registry
+  toven release publish --yes      Run the full pipeline through the registry
   toven release publish --dry-run  Rehearse the publish order without mutating
-  toven release publish --pre rc   Publish a prerelease on the rc channel";
+  toven release publish --pre rc --yes  Publish a prerelease on the rc channel";
 
 /// `release readiness` action examples.
 const RELEASE_READINESS_EXAMPLES: &str = "\
@@ -578,8 +578,8 @@ pub struct Cli {
     /// Init only: project root to onboard against.
     #[arg(long, global = true, value_name = "PATH", help_heading = "Init")]
     pub root: Option<PathBuf>,
-    /// Init only: answer the wizard non-interactively (take questionnaire
-    /// defaults, never prompt).
+    /// Init only: answer the wizard non-interactively; for release tag/publish,
+    /// explicitly confirm the real mutation.
     #[arg(
         long = "non-interactive",
         visible_alias = "yes",
@@ -1078,13 +1078,17 @@ fn gate_bump_flags(cli: &Cli, verb: &str, mutating_release: bool) -> AppResult<(
 /// Reject the `init`-only wizard flags (`--force`/`--root`/`--non-interactive`/
 /// `--print`) on any other verb.
 fn gate_init_flags(cli: &Cli, verb: &str, is_init: bool) -> AppResult<()> {
+    let release_confirmation = matches!(
+        release_action(&cli.command),
+        Some(ReleaseAction::Tag | ReleaseAction::Publish)
+    );
     if cli.force.is_some() && !is_init {
         return Err(only_applies("--force", "toven init", verb));
     }
     if cli.root.is_some() && !is_init {
         return Err(only_applies("--root", "toven init", verb));
     }
-    if cli.non_interactive && !is_init {
+    if cli.non_interactive && !is_init && !release_confirmation {
         return Err(only_applies("--non-interactive", "toven init", verb));
     }
     if cli.print && !is_init {
@@ -1663,11 +1667,25 @@ mod tests {
             let cli = parse(&["--allow-dirty", "--no-push", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_ok(), "{action}");
         }
+
         for action in ["plan", "status", "readiness", "sbom", "depgraphs"] {
             let dirty = parse(&["--allow-dirty", "release", action]).expect("parses");
             assert!(super::gate(&dirty).is_err(), "allow-dirty {action}");
             let no_push = parse(&["--no-push", "release", action]).expect("parses");
             assert!(super::gate(&no_push).is_err(), "no-push {action}");
+        }
+    }
+
+    #[test]
+    fn yes_confirmation_only_applies_to_init_and_mutating_release_actions() {
+        for action in ["tag", "publish"] {
+            let cli = parse(&["--yes", "release", action]).expect("parses");
+            assert!(cli.non_interactive);
+            assert!(super::gate(&cli).is_ok(), "{action}");
+        }
+        for action in ["plan", "status", "readiness", "sbom", "depgraphs"] {
+            let cli = parse(&["--yes", "release", action]).expect("parses");
+            assert!(super::gate(&cli).is_err(), "{action}");
         }
     }
 

@@ -9,6 +9,8 @@
 //! [`ReleaseStats`] — keeping the discovery/target wiring engine-owned so the
 //! CLI stays a thin caller.
 
+use std::collections::BTreeSet;
+
 use rskit_errors::AppResult;
 use toven_ports::{Provider, Reporter};
 
@@ -59,14 +61,24 @@ pub fn release_run(
         reporter,
     )?;
     let targets = release_targets(&context)?;
-    let plan = plan_with_context(&context, document, request, readers, overrides, &targets)?;
+    let plan = plan_with_context(&context, request, readers, overrides, &targets)?;
     let mut stats =
         release_apply_by_member(&plan, &context.federation.modules, &targets, repos, options)?;
 
     // The hosted-release phase runs after a pushing publish: it needs the pushed
     // tag on the forge to cut a Release against.
-    if options.publish && options.push {
-        let settings = resolve_release_settings(&context, document, &targets)?;
+    if options.publish && !options.no_push {
+        let settings = resolve_release_settings(&context, &targets)?;
+        let pushed_members = plan
+            .entries
+            .iter()
+            .filter(|entry| {
+                settings
+                    .get(&entry.module)
+                    .is_some_and(|resolved| resolved.push)
+            })
+            .map(|entry| entry.module.member.clone())
+            .collect::<BTreeSet<_>>();
         let planned = host::planned_host_releases(
             &plan,
             &context.federation.modules,
@@ -74,6 +86,10 @@ pub fn release_run(
             &settings,
             request.project_root.as_path(),
         )?;
+        let planned = planned
+            .into_iter()
+            .filter(|entry| pushed_members.contains(&entry.member))
+            .collect::<Vec<_>>();
         if !planned.is_empty() {
             let hosts = host::build_hosts(&settings)?;
             host::run_host_phase(
@@ -151,7 +167,7 @@ mod tests {
         }
     }
 
-    fn provider_with_host() -> FakeProvider {
+    fn provider_with_host_and_push(push: bool) -> FakeProvider {
         let mut response = DiscoverResponse::new(eid());
         response.modules = vec![module("core")];
         let common = CommonEcosystemConfig {
@@ -160,6 +176,7 @@ mod tests {
                     forge: Some("github".into()),
                     ..HostConfig::default()
                 }),
+                push: Some(push),
                 ..ReleaseConfig::default()
             },
             ..CommonEcosystemConfig::default()
@@ -175,7 +192,7 @@ mod tests {
     // host phase depends on the pushed tag, so `--no-push` skips it.
     #[test]
     fn host_phase_is_skipped_when_the_run_does_not_push() {
-        let provider = provider_with_host();
+        let provider = provider_with_host_and_push(true);
         let providers: Vec<&dyn Provider> = vec![&provider];
         let plan_reader = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
             "crates/core/src/lib.rs",
@@ -201,7 +218,7 @@ mod tests {
             &BumpOverrides::new(),
             &mut reporter,
             &ReleaseApplyOptions {
-                push: false,
+                no_push: true,
                 publish: true,
                 ..ReleaseApplyOptions::default()
             },
@@ -210,5 +227,49 @@ mod tests {
 
         assert_eq!(stats.published_modules, 1);
         assert_eq!(stats.hosted_releases, 0);
+    }
+
+    #[test]
+    fn host_phase_is_skipped_when_member_config_disables_push() {
+        let provider = provider_with_host_and_push(false);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let plan_reader = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
+            "crates/core/src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+        let readers = MemberVcsReaders::single(&plan_reader, BaselineSpec::explicit("main"));
+        let apply_reader = FakeVcsReader::new();
+        let writer = FakeVcsWriter::new().with_commit_oid("c1");
+        let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
+            None,
+            AbsPath::new("/repo").unwrap().as_path().to_path_buf(),
+            &apply_reader,
+            &writer,
+        )]);
+        let mut reporter = RecordingReporter::new();
+
+        let stats = release_run(
+            &request(),
+            &document(),
+            &providers,
+            &readers,
+            &repos,
+            &BumpOverrides::new(),
+            &mut reporter,
+            &ReleaseApplyOptions {
+                no_push: false,
+                publish: true,
+                ..ReleaseApplyOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(stats.hosted_releases, 0);
+        assert!(
+            !writer
+                .writes()
+                .iter()
+                .any(|write| matches!(write, toven_testkit::VcsWrite::Push { .. }))
+        );
     }
 }

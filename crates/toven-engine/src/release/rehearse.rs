@@ -6,6 +6,8 @@
 //! verdict without applying any mutation, cutting any tag, or invoking any
 //! publish.
 
+use std::collections::BTreeSet;
+
 use rskit_errors::AppResult;
 use toven_ports::{Provider, Reporter};
 
@@ -40,6 +42,7 @@ pub fn release_rehearse(
     readers: &MemberVcsReaders<'_>,
     overrides: &BumpOverrides,
     reporter: &mut dyn Reporter,
+    no_push: bool,
 ) -> AppResult<ReleaseRehearsal> {
     let locator = PathDriverLocator::new();
     let context = prepare_front(
@@ -50,8 +53,21 @@ pub fn release_rehearse(
         reporter,
     )?;
     let targets = release_targets(&context)?;
-    let plan = plan_with_context(&context, document, request, readers, overrides, &targets)?;
-    let settings = resolve_release_settings(&context, document, &targets)?;
+    let plan = plan_with_context(&context, request, readers, overrides, &targets)?;
+    let settings = resolve_release_settings(&context, &targets)?;
+    let pushed_members = if no_push {
+        BTreeSet::new()
+    } else {
+        plan.entries
+            .iter()
+            .filter(|entry| {
+                settings
+                    .get(&entry.module)
+                    .is_some_and(|resolved| resolved.push)
+            })
+            .map(|entry| entry.module.member.clone())
+            .collect()
+    };
     let planned = host::planned_host_releases(
         &plan,
         &context.federation.modules,
@@ -59,6 +75,10 @@ pub fn release_rehearse(
         &settings,
         request.project_root.as_path(),
     )?;
+    let planned = planned
+        .into_iter()
+        .filter(|entry| pushed_members.contains(&entry.member))
+        .collect::<Vec<_>>();
     Ok(rehearse_plan(
         &plan,
         &planned,
@@ -222,6 +242,7 @@ mod tests {
             &readers,
             &BumpOverrides::new(),
             &mut reporter,
+            false,
         )
         .unwrap();
 
@@ -263,6 +284,7 @@ mod tests {
             &readers,
             &BumpOverrides::new(),
             &mut reporter,
+            false,
         )
         .unwrap();
 
@@ -299,6 +321,7 @@ mod tests {
             &readers,
             &BumpOverrides::new(),
             &mut reporter,
+            false,
         )
         .unwrap();
 
@@ -321,5 +344,43 @@ mod tests {
             )),
             "rehearsal must not mutate: {calls:?}"
         );
+    }
+
+    #[test]
+    fn rehearsal_omits_hosted_release_when_push_is_suppressed() {
+        for (push, no_push) in [(false, false), (true, true)] {
+            let common = CommonEcosystemConfig {
+                release: ReleaseConfig {
+                    push: Some(push),
+                    host: Some(HostConfig {
+                        forge: Some("github".into()),
+                        ..HostConfig::default()
+                    }),
+                    ..ReleaseConfig::default()
+                },
+                ..CommonEcosystemConfig::default()
+            };
+            let (provider, vcs) = setup_with_common(FakeReleaseTarget::new(), common);
+            let providers: Vec<&dyn Provider> = vec![&provider];
+            let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+            let mut reporter = RecordingReporter::new();
+
+            let rehearsal = release_rehearse(
+                &request(),
+                &document(),
+                &providers,
+                &readers,
+                &BumpOverrides::new(),
+                &mut reporter,
+                no_push,
+            )
+            .unwrap();
+
+            assert_eq!(rehearsal.verdicts.len(), 1);
+            assert!(
+                rehearsal.hosted.is_empty(),
+                "push={push}, no_push={no_push}"
+            );
+        }
     }
 }

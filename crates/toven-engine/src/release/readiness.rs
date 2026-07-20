@@ -100,7 +100,7 @@ pub fn release_readiness(
         reporter,
     )?;
     let targets = release_targets(&context)?;
-    let settings = resolve_release_settings(&context, document, &targets)?;
+    let settings = resolve_release_settings(&context, &targets)?;
 
     let mut checks = Vec::new();
     for name in composed_check_names(&settings) {
