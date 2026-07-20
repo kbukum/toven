@@ -9,11 +9,12 @@
 //! rolled back — a publish failure surfaces as a typed error and the operator
 //! resumes, relying on registry idempotency.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
+use rskit_util::Template;
 use toven_model::{Module, ModuleKey};
-use toven_ports::{Artifact, ReleaseTarget, VcsReader, VcsWriter};
+use toven_ports::{Artifact, ReleaseTarget, ReleaseVar, VcsReader, VcsWriter};
 
 use super::publish::{self, PublishItem};
 use super::{ReleasePlan, ReleaseStats, tag};
@@ -26,8 +27,8 @@ const DEFAULT_RETRY_BUDGET: usize = 5;
 pub struct ReleaseApplyOptions {
     /// Bypass the clean-tree guardrail (commit/tag a dirty working tree).
     pub allow_dirty: bool,
-    /// Push the release commit and tags after tagging.
-    pub push: bool,
+    /// Suppress every config-permitted member push after tagging.
+    pub no_push: bool,
     /// Publish the packaged artifacts to the registry after tagging. When
     /// false, the pipeline stops after commit/tag/push (the `release tag`
     /// surface).
@@ -40,11 +41,103 @@ impl Default for ReleaseApplyOptions {
     fn default() -> Self {
         Self {
             allow_dirty: false,
-            push: false,
+            no_push: true,
             publish: true,
             retry_budget: DEFAULT_RETRY_BUDGET,
         }
     }
+}
+
+/// Repository-scoped release settings reconciled from one member's plan entries.
+///
+/// A member release creates one commit and one push, so these settings cannot
+/// vary among the modules it contains.
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) struct RepoReleaseSettings {
+    push: bool,
+    remote: String,
+    branches: BTreeSet<String>,
+    commit_message: Option<String>,
+}
+
+impl RepoReleaseSettings {
+    /// Whether this repository pushes after accounting for CLI suppression.
+    #[must_use]
+    pub(crate) const fn pushes(&self, options: &ReleaseApplyOptions) -> bool {
+        self.push && !options.no_push
+    }
+
+    /// Configured remote selected for the repository push.
+    #[must_use]
+    pub(crate) fn remote(&self) -> &str {
+        &self.remote
+    }
+
+    /// Configured release-branch allow-list.
+    #[must_use]
+    pub(crate) const fn branches(&self) -> &BTreeSet<String> {
+        &self.branches
+    }
+
+    /// Configured release-commit template, if any.
+    #[must_use]
+    pub(crate) fn commit_message(&self) -> Option<&str> {
+        self.commit_message.as_deref()
+    }
+}
+
+/// Reconcile settings that govern a single commit/push from member plan entries.
+///
+/// # Errors
+/// Returns a typed configuration error when modules in the same repository
+/// disagree on a repository-scoped setting.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn reconcile_repo_settings(
+    entries: &[super::ReleaseEntry],
+) -> AppResult<RepoReleaseSettings> {
+    let Some(first) = entries.first() else {
+        return Err(AppError::new(
+            ErrorCode::Internal,
+            "cannot reconcile release settings for an empty repository plan",
+        ));
+    };
+    let branches = first.branches.iter().cloned().collect::<BTreeSet<_>>();
+    let settings = RepoReleaseSettings {
+        push: first.push,
+        remote: first.remote.clone(),
+        branches,
+        commit_message: first.commit_message.clone(),
+    };
+    for entry in entries.iter().skip(1) {
+        if entry.push != settings.push {
+            return repo_setting_conflict("push", first, entry);
+        }
+        if entry.remote != settings.remote {
+            return repo_setting_conflict("remote", first, entry);
+        }
+        if entry.branches.iter().cloned().collect::<BTreeSet<_>>() != settings.branches {
+            return repo_setting_conflict("branches", first, entry);
+        }
+        if entry.commit_message != settings.commit_message {
+            return repo_setting_conflict("commit_message", first, entry);
+        }
+    }
+    Ok(settings)
+}
+
+fn repo_setting_conflict(
+    field: &str,
+    first: &super::ReleaseEntry,
+    conflicting: &super::ReleaseEntry,
+) -> AppResult<RepoReleaseSettings> {
+    Err(AppError::invalid_input(
+        format!("release.{field}"),
+        format!(
+            "modules '{}' and '{}' resolve conflicting {field} settings in one repository",
+            first.module, conflicting.module
+        ),
+    ))
 }
 
 /// Execute a [`ReleasePlan`] against the ecosystem release targets and the VCS.
@@ -70,13 +163,18 @@ pub fn release_apply(
         return Ok(stats);
     }
 
-    // The clean-tree guardrail runs before any mutation.
+    let settings = reconcile_repo_settings(&plan.entries)?;
+    // The branch and clean-tree guardrails run before any mutation.
+    guard_release_branch(reader, settings.branches())?;
     guard_clean_tree(reader, options)?;
 
     let module_by_ref: BTreeMap<ModuleKey, &Module> = modules
         .iter()
         .map(|module| (module.key(), module))
         .collect();
+    // Resolve all pre-commit errors before mutating any manifest.
+    let message = commit_message(plan, &module_by_ref, targets, settings.commit_message())?;
+    preflight_tags(plan, &module_by_ref, targets)?;
 
     // Pre-commit phase (undoable): apply mutations, then package every module.
     let artifacts = match prepare(plan, &module_by_ref, targets, &mut stats) {
@@ -86,7 +184,6 @@ pub fn release_apply(
 
     // Commit boundary: if commit itself fails, no history was created yet, so the
     // pre-commit working tree mutations are still undoable.
-    let message = commit_message(plan, &module_by_ref, targets)?;
     let commit = match writer.commit(&message) {
         Ok(commit) => commit,
         Err(error) => return Err(restore_or_precommit_error(writer, "commit", error)),
@@ -99,12 +196,16 @@ pub fn release_apply(
             let target = target_for(targets, module)?;
             let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
             let name = tag::format(&scheme, version);
-            writer.create_tag(&name, commit.as_str(), Some(&message))?;
+            let message = tag_message(entry, module, version)?;
+            writer.create_tag(&name, commit.as_str(), message.as_deref())?;
             stats.tagged_modules += 1;
         }
     }
-    if options.push {
-        writer.push(&push_refspecs(plan, &module_by_ref, targets)?)?;
+    if settings.pushes(options) {
+        writer.push(
+            settings.remote(),
+            &push_refspecs(plan, &module_by_ref, targets)?,
+        )?;
     }
 
     if options.publish {
@@ -113,6 +214,28 @@ pub fn release_apply(
     }
 
     Ok(stats)
+}
+
+/// Reject a disallowed checked-out branch before release mutation.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn guard_release_branch(
+    reader: &dyn VcsReader,
+    branches: &BTreeSet<String>,
+) -> AppResult<()> {
+    if branches.is_empty() {
+        return Ok(());
+    }
+    let branch = reader.current_branch()?;
+    if branches.contains(&branch) {
+        return Ok(());
+    }
+    Err(AppError::invalid_input(
+        "release.branches",
+        format!(
+            "checked-out branch '{branch}' is not allowed to cut this release (allowed: {})",
+            branches.iter().cloned().collect::<Vec<_>>().join(", ")
+        ),
+    ))
 }
 
 #[allow(clippy::redundant_pub_crate)]
@@ -250,7 +373,41 @@ pub(crate) fn commit_message(
     plan: &ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
     targets: &super::ReleaseTargets,
+    template: Option<&str>,
 ) -> AppResult<String> {
+    if let Some(template) = template {
+        let mut messages = BTreeSet::new();
+        for entry in &plan.entries {
+            let Some(version) = &entry.planned_version else {
+                continue;
+            };
+            let module = module_for(module_by_ref, &entry.module)?;
+            messages.insert(render_template(
+                template,
+                "release.commit_message",
+                module,
+                version,
+                entry,
+            )?);
+        }
+
+        return match messages.len() {
+            1 => messages.into_iter().next().ok_or_else(|| {
+                AppError::new(
+                    ErrorCode::Internal,
+                    "release commit message was unexpectedly absent",
+                )
+            }),
+            0 => Err(AppError::invalid_input(
+                "release.commit_message",
+                "a configured commit_message requires at least one versioned release in the member",
+            )),
+            _ => Err(AppError::invalid_input(
+                "release.commit_message",
+                "the configured commit_message renders differently for modules in one repository",
+            )),
+        };
+    }
     let mut released = Vec::new();
     for entry in &plan.entries {
         if let Some(version) = &entry.planned_version {
@@ -261,6 +418,65 @@ pub(crate) fn commit_message(
         }
     }
     Ok(format!("release: {}", released.join(", ")))
+}
+
+fn preflight_tags(
+    plan: &ReleasePlan,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+    targets: &super::ReleaseTargets,
+) -> AppResult<()> {
+    for entry in &plan.entries {
+        let Some(version) = &entry.planned_version else {
+            continue;
+        };
+        let module = module_for(module_by_ref, &entry.module)?;
+        let target = target_for(targets, module)?;
+        target.tag_scheme(module, entry.tag_format.as_deref())?;
+        tag_message(entry, module, version)?;
+    }
+    Ok(())
+}
+
+fn render_template(
+    template: &str,
+    field: &str,
+    module: &Module,
+    version: &rskit_version::semver::Version,
+    entry: &super::ReleaseEntry,
+) -> AppResult<String> {
+    let parsed = Template::parse(template, ReleaseVar::ALL).map_err(|error| {
+        AppError::invalid_input(field, format!("invalid release template: {error}"))
+            .with_cause(error)
+    })?;
+    parsed
+        .render_with(|placeholder| match placeholder {
+            ReleaseVar::Version => Ok(version.to_string()),
+            ReleaseVar::Ecosystem => Ok(module.id.ecosystem.to_string()),
+            ReleaseVar::Module => Ok(module.id.name.clone()),
+            ReleaseVar::Channel => Ok(entry.prerelease_channel.clone().unwrap_or_default()),
+            _ => Err(AppError::new(
+                ErrorCode::Internal,
+                "unknown release template placeholder",
+            )),
+        })
+        .map_err(|error| {
+            AppError::invalid_input(field, format!("failed to render release template: {error}"))
+                .with_cause(error)
+        })
+}
+
+/// Render one module's optional annotation template.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn tag_message(
+    entry: &super::ReleaseEntry,
+    module: &Module,
+    version: &rskit_version::semver::Version,
+) -> AppResult<Option<String>> {
+    entry
+        .tag_message
+        .as_deref()
+        .map(|template| render_template(template, "release.tag_message", module, version, entry))
+        .transpose()
 }
 
 /// Refspecs pushed after tagging: the release commit plus every release tag.
@@ -291,7 +507,7 @@ mod tests {
     use toven_ports::{ChangeRecord, ChangeStatus, PublishOutcome, ReleaseMutation, TagScheme};
     use toven_testkit::{FakeReleaseTarget, FakeVcsReader, FakeVcsWriter, ReleaseCall, VcsWrite};
 
-    use super::{ReleaseApplyOptions, release_apply};
+    use super::{ReleaseApplyOptions, reconcile_repo_settings, release_apply};
     use crate::release::{
         BumpPolicy, BumpReason, BumpSource, ChangelogEntry, ReleaseEntry, ReleasePlan,
     };
@@ -325,6 +541,11 @@ mod tests {
             mutation: ReleaseMutation::version(version),
             publish_needed,
             tag_format: None,
+            tag_message: None,
+            commit_message: None,
+            push: true,
+            remote: "origin".into(),
+            branches: Vec::new(),
             topo_rank: rank,
             baseline: None,
             changelog: ChangelogEntry::new(mkey(name), "changed", Vec::new()),
@@ -385,7 +606,7 @@ mod tests {
         assert!(
             matches!(&recorded[2], VcsWrite::CreateTag { name, .. } if name == "rust/app@0.1.1")
         );
-        assert!(!recorded.iter().any(|w| matches!(w, VcsWrite::Push(_))));
+        assert!(!recorded.iter().any(|w| matches!(w, VcsWrite::Push { .. })));
 
         // Publish happens after the commit/tag writes (apply -> package -> publish).
         let calls = target.calls();
@@ -420,24 +641,186 @@ mod tests {
             &FakeVcsReader::new(),
             &writer,
             &ReleaseApplyOptions {
-                push: true,
+                no_push: false,
                 ..Default::default()
             },
         )
         .expect("release apply with push");
 
-        let push = writer
+        let (remote, push) = writer
             .writes()
             .into_iter()
             .find_map(|w| match w {
-                VcsWrite::Push(refspecs) => Some(refspecs),
+                VcsWrite::Push { remote, refspecs } => Some((remote, refspecs)),
                 _ => None,
             })
             .expect("push recorded");
+        assert_eq!(remote, "origin");
         assert_eq!(
             push,
             vec!["HEAD".to_string(), "refs/tags/rust/core@1.0.0".to_string()]
         );
+    }
+
+    #[test]
+    fn configured_remote_and_push_gate_control_the_member_push() {
+        let mut entry = entry("core", Version::new(1, 0, 0), true, 0);
+        entry.remote = "release".into();
+        entry.push = false;
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry.clone()]);
+        let writer = FakeVcsWriter::new();
+
+        release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions {
+                no_push: false,
+                ..Default::default()
+            },
+        )
+        .expect("config-gated local release");
+        assert!(
+            !writer
+                .writes()
+                .iter()
+                .any(|write| matches!(write, VcsWrite::Push { .. }))
+        );
+
+        entry.push = true;
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry]);
+        let writer = FakeVcsWriter::new();
+        release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions {
+                no_push: false,
+                ..Default::default()
+            },
+        )
+        .expect("configured remote push");
+        assert!(writer.writes().iter().any(|write| matches!(
+            write,
+            VcsWrite::Push { remote, .. } if remote == "release"
+        )));
+    }
+
+    #[test]
+    fn branch_restriction_rejects_before_any_release_write() {
+        let mut entry = entry("core", Version::new(1, 0, 0), true, 0);
+        entry.branches = vec!["release".into()];
+        let writer = FakeVcsWriter::new();
+
+        let error = release_apply(
+            &ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry]),
+            &[module("core")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new().with_current_branch("main"),
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("disallowed branch");
+
+        assert!(error.to_string().contains("release.branches"));
+        assert!(writer.writes().is_empty());
+    }
+
+    #[test]
+    fn configured_templates_render_commit_and_lightweight_tag() {
+        let mut entry = entry("core", Version::new(1, 2, 3), true, 0);
+        entry.commit_message = Some("release".into());
+        let lightweight = entry.clone();
+        let mut annotated = entry;
+        annotated.module = mkey("app");
+        annotated.tag_message = Some("tag {ecosystem}/{module} {version}".into());
+        let writer = FakeVcsWriter::new();
+
+        release_apply(
+            &ReleasePlan::new(BumpPolicy::SemverCascade, vec![lightweight, annotated]),
+            &[module("core"), module("app")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect("template release");
+
+        let recorded = writer.writes();
+        assert!(matches!(
+            &recorded[0],
+            VcsWrite::Commit(message) if message == "release"
+        ));
+        assert!(matches!(
+            &recorded[1],
+            VcsWrite::CreateTag { message: None, .. }
+        ));
+        assert!(matches!(
+            &recorded[2],
+            VcsWrite::CreateTag { message: Some(message), .. }
+                if message == "tag rust/app 1.2.3"
+        ));
+    }
+
+    #[test]
+    fn invalid_commit_template_does_not_mutate_or_restore() {
+        let mut entry = entry("core", Version::new(1, 2, 3), true, 0);
+        entry.commit_message = Some("{invalid}".into());
+        let writer = FakeVcsWriter::new();
+        let target = FakeReleaseTarget::new();
+
+        let error = release_apply(
+            &ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry]),
+            &[module("core")],
+            &targets(vec![("core", target.clone())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("invalid commit template");
+
+        assert!(error.to_string().contains("release.commit_message"));
+        assert!(writer.writes().is_empty());
+        assert!(target.calls().is_empty());
+    }
+
+    #[test]
+    fn repository_scoped_settings_must_agree_between_modules() {
+        let first = entry("core", Version::new(1, 0, 0), true, 0);
+        let cases = [
+            ("push", {
+                let mut second = entry("app", Version::new(1, 0, 0), true, 1);
+                second.push = false;
+                second
+            }),
+            ("remote", {
+                let mut second = entry("app", Version::new(1, 0, 0), true, 1);
+                second.remote = "release".into();
+                second
+            }),
+            ("branches", {
+                let mut second = entry("app", Version::new(1, 0, 0), true, 1);
+                second.branches = vec!["release".into()];
+                second
+            }),
+            ("commit_message", {
+                let mut second = entry("app", Version::new(1, 0, 0), true, 1);
+                second.commit_message = Some("release".into());
+                second
+            }),
+        ];
+        for (field, second) in cases {
+            let error = reconcile_repo_settings(&[first.clone(), second])
+                .expect_err("conflicting repository setting");
+            assert!(
+                error.to_string().contains(&format!("release.{field}")),
+                "{error}"
+            );
+        }
     }
 
     #[test]

@@ -174,6 +174,10 @@ impl CommandRunner for FakeCommandRunner {
 
 struct FakeVcs;
 impl VcsReader for FakeVcs {
+    fn current_branch(&self) -> AppResult<String> {
+        Ok("main".to_string())
+    }
+
     fn rev_parse(&self, _rev: &str) -> AppResult<Oid> {
         Ok(Oid::new("deadbeef"))
     }
@@ -200,7 +204,7 @@ impl VcsWriter for FakeVcs {
     fn create_tag(&self, _name: &str, _target_rev: &str, _message: Option<&str>) -> AppResult<()> {
         Ok(())
     }
-    fn push(&self, _refspecs: &[String]) -> AppResult<()> {
+    fn push(&self, _remote: &str, _refspecs: &[String]) -> AppResult<()> {
         Ok(())
     }
     fn restore_worktree(&self) -> AppResult<()> {
@@ -301,6 +305,7 @@ fn port_traits_are_object_safe() {
         .expect("block without error");
 
     // Exercise every VcsReader method.
+    assert_eq!(reader.current_branch().expect("branch"), "main");
     assert_eq!(reader.rev_parse("HEAD").expect("ok").as_str(), "deadbeef");
     assert_eq!(
         reader.merge_base("a", "b").expect("ok").as_str(),
@@ -315,7 +320,9 @@ fn port_traits_are_object_safe() {
     // Exercise every VcsWriter method.
     assert_eq!(writer.commit("msg").expect("ok").as_str(), "deadbeef");
     writer.create_tag("v1", "HEAD", Some("msg")).expect("tags");
-    writer.push(&["refs/heads/main".into()]).expect("pushes");
+    writer
+        .push("origin", &["refs/heads/main".into()])
+        .expect("pushes");
     writer.restore_worktree().expect("restores");
 
     // Exercise the injected IO ports (toolchain / source-digest / cache).

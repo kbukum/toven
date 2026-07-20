@@ -21,24 +21,19 @@ use super::convert::to_oid;
 use super::tags::list_tags;
 use super::worktree::{restore_worktree, worktree_status};
 
-/// Default push remote when none is configured on the adapter.
-const DEFAULT_REMOTE: &str = "origin";
-
 /// The one rskit-git-backed [`VcsReader`] + [`VcsWriter`] adapter.
 ///
 /// Holds an opened rskit-git [`Repo`] plus the canonical repo root (for the
-/// engine's prefix-strip) and the push remote release APPLY targets.
+/// engine's prefix-strip).
 pub struct RskitGitVcs {
     repo: Repo,
     root: PathBuf,
-    remote: String,
 }
 
 impl std::fmt::Debug for RskitGitVcs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RskitGitVcs")
             .field("root", &self.root)
-            .field("remote", &self.remote)
             .finish_non_exhaustive()
     }
 }
@@ -56,18 +51,7 @@ impl RskitGitVcs {
 
     fn from_repo(repo: Repo) -> Self {
         let root = repo.root().to_path_buf();
-        Self {
-            repo,
-            root,
-            remote: DEFAULT_REMOTE.to_string(),
-        }
-    }
-
-    /// Override the push remote (defaults to `origin`).
-    #[must_use]
-    pub fn with_remote(mut self, remote: impl Into<String>) -> Self {
-        self.remote = remote.into();
-        self
+        Self { repo, root }
     }
 
     /// The canonical repository root the engine strips workspace prefixes from.
@@ -83,6 +67,24 @@ impl RskitGitVcs {
 }
 
 impl VcsReader for RskitGitVcs {
+    fn current_branch(&self) -> AppResult<String> {
+        let head = self.repo.head()?;
+        if !head.is_branch {
+            return Err(AppError::invalid_input(
+                "git.head",
+                "HEAD is detached; a configured release branch requires a checked-out local branch",
+            ));
+        }
+        let branch = head.name.strip_prefix("refs/heads/").unwrap_or(&head.name);
+        if branch.is_empty() {
+            return Err(AppError::invalid_input(
+                "git.head",
+                "HEAD does not name a local branch",
+            ));
+        }
+        Ok(branch.to_string())
+    }
+
     fn rev_parse(&self, rev: &str) -> AppResult<Oid> {
         self.repo.rev_parse(rev).map(|oid| to_oid(&oid))
     }
@@ -125,15 +127,39 @@ impl VcsWriter for RskitGitVcs {
         self.repo.create_tag(name, target_rev, message)
     }
 
-    fn push(&self, refspecs: &[String]) -> AppResult<()> {
+    fn push(&self, remote: &str, refspecs: &[String]) -> AppResult<()> {
         let opts = PushOptions {
             refspecs: refspecs.to_vec(),
             ..PushOptions::default()
         };
-        self.repo.push(&self.remote, Some(&opts))
+        self.repo.push(remote, Some(&opts))
     }
 
     fn restore_worktree(&self) -> AppResult<()> {
         restore_worktree(&self.repo)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use toven_ports::VcsReader;
+    use toven_testkit::{TestWorkspace, git::GitScenario};
+
+    use super::RskitGitVcs;
+
+    #[test]
+    fn current_branch_returns_the_checked_out_local_branch() {
+        let workspace = TestWorkspace::new("vcs-current-branch");
+        let scenario = GitScenario::init(workspace.path()).expect("git init");
+        scenario
+            .commit_file("README.md", "release", "initial")
+            .expect("commit");
+
+        let branch = RskitGitVcs::open(workspace.path())
+            .expect("open")
+            .current_branch()
+            .expect("branch");
+
+        assert!(!branch.is_empty());
     }
 }

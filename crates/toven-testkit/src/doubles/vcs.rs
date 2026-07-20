@@ -20,6 +20,7 @@ use toven_ports::{BaselineSpec, ChangeRecord, Oid, TagRef, VcsReader, VcsWriter}
 /// baseline spec — baseline *policy* is the engine's job, not the port's.
 #[derive(Debug, Clone)]
 pub struct FakeVcsReader {
+    branch: String,
     rev_parse_oid: Oid,
     merge_base_oid: Oid,
     tags: Vec<TagRef>,
@@ -31,6 +32,7 @@ pub struct FakeVcsReader {
 impl Default for FakeVcsReader {
     fn default() -> Self {
         Self {
+            branch: "main".to_string(),
             rev_parse_oid: Oid::new("0000000"),
             merge_base_oid: Oid::new("0000000"),
             tags: Vec::new(),
@@ -46,6 +48,13 @@ impl FakeVcsReader {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Script the checked-out local branch returned by `current_branch`.
+    #[must_use]
+    pub fn with_current_branch(mut self, branch: impl Into<String>) -> Self {
+        self.branch = branch.into();
+        self
     }
 
     /// Script the `rev_parse` result.
@@ -92,6 +101,10 @@ impl FakeVcsReader {
 }
 
 impl VcsReader for FakeVcsReader {
+    fn current_branch(&self) -> AppResult<String> {
+        Ok(self.branch.clone())
+    }
+
     fn rev_parse(&self, _rev: &str) -> AppResult<Oid> {
         Ok(self.rev_parse_oid.clone())
     }
@@ -132,8 +145,13 @@ pub enum VcsWrite {
         /// Annotation message (`None` for a lightweight tag).
         message: Option<String>,
     },
-    /// A `push` call with its refspecs.
-    Push(Vec<String>),
+    /// A `push` call with its remote and refspecs.
+    Push {
+        /// Remote receiving the push.
+        remote: String,
+        /// Refspecs supplied to the push.
+        refspecs: Vec<String>,
+    },
     /// A `restore_worktree` call.
     RestoreWorktree,
 }
@@ -226,8 +244,11 @@ impl VcsWriter for FakeVcsWriter {
         Ok(())
     }
 
-    fn push(&self, refspecs: &[String]) -> AppResult<()> {
-        self.record(VcsWrite::Push(refspecs.to_vec()));
+    fn push(&self, remote: &str, refspecs: &[String]) -> AppResult<()> {
+        self.record(VcsWrite::Push {
+            remote: remote.to_string(),
+            refspecs: refspecs.to_vec(),
+        });
         Ok(())
     }
 
@@ -280,7 +301,9 @@ mod tests {
 
         let oid = writer.commit("release").expect("commit");
         writer.create_tag("v1", "HEAD", Some("rel")).expect("tag");
-        writer.push(&["refs/tags/v1".into()]).expect("push");
+        writer
+            .push("origin", &["refs/tags/v1".into()])
+            .expect("push");
 
         assert_eq!(oid.as_str(), "abc123");
         assert_eq!(
@@ -292,7 +315,10 @@ mod tests {
                     target_rev: "HEAD".into(),
                     message: Some("rel".into()),
                 },
-                VcsWrite::Push(vec!["refs/tags/v1".into()]),
+                VcsWrite::Push {
+                    remote: "origin".into(),
+                    refspecs: vec!["refs/tags/v1".into()],
+                },
             ]
         );
     }

@@ -1,6 +1,6 @@
 # Releasing
 
-`toven release <action>` walks a release through a reviewable lifecycle. The read-only actions preview what a release would do; the actions that change state drive the release pipeline over the federated dependency graph. `release tag` cuts the release (commit, tag, push); `release publish` continues through to the registry.
+`toven release <action>` walks a release through a reviewable lifecycle. The read-only actions preview what a release would do; the actions that change state drive the release pipeline over the federated dependency graph. `release tag` cuts the release commit and tags, then pushes each member permitted by its release config; `release publish` continues through to the registry.
 
 ```text
 toven release plan       # show the release PLAN cut, mutating nothing
@@ -8,13 +8,13 @@ toven release status     # declared vs published/tagged per module
 toven release readiness  # fail-closed go/no-go release preflight
 toven release sbom       # generate a CycloneDX SBOM per releasable module
 toven release depgraphs  # render the dependency graph to a DOT artifact
-toven release tag        # cut the release: commit, tag, push (no registry publish)
-toven release publish    # run the full pipeline through publish (--dry-run previews it)
+toven release tag --yes   # cut the release: commit, tag, push (no registry publish)
+toven release publish --yes # run the full pipeline through publish (--dry-run previews it)
 ```
 
 An action is required; `toven release` alone is a usage error.
 
-Release behavior is declarative: bump defaults, prerelease channels, tag/commit templates, changelog, push/branch gating, registry, signing, and hooks are owned through the `[…release]` config block, per ecosystem and per module. The full block is parsed, validated, and resolved with documented precedence; the bump policy and per-run bump argv are consumed by the release engine, while the remaining target/signing/hooks fields are schema-and-resolution only for now. See [release configuration](../config/release.md) for every field, its default, the per-module override, and precedence.
+Release behavior is declarative: bump defaults, prerelease channels, tag/commit templates, changelog, push/branch gating, registry, signing, and hooks are owned through the `[…release]` config block, per ecosystem and per module. The full block is parsed, validated, and resolved with documented precedence; bump policy, templates, push/remote/branch controls, per-run bump argv, and hosted releases are consumed by the engine, while the remaining target/signing/hooks fields are schema-and-resolution only for now. In an umbrella, each member repository resolves these settings from its own `toven.toml`. See [release configuration](../config/release.md) for every field, its default, the per-module override, and precedence.
 
 ## Read-only previews
 
@@ -77,23 +77,24 @@ toven release publish --dry-run --output jsonl
 
 ## Actions that change state
 
-`release tag` and `release publish` run the release pipeline and report progress through the human run reporter (or the `--output jsonl` event stream). `release tag` stops after the release commit, tags, and push; `release publish` also publishes the packaged artifacts to the registry. They accept the safety-bypass flags:
+`release tag` and `release publish` run the release pipeline and report progress through the human run reporter (or the `--output jsonl` event stream). Both require explicit confirmation with `--yes` immediately before mutation. `release tag` stops after the release commit, tags, and push; `release publish` also publishes the packaged artifacts to the registry. They accept the safety-bypass flags:
 
 - `--allow-dirty` — proceed even when the worktree has uncommitted changes.
-- `--no-push` — skip pushing commits and tags to the remote.
+- `--no-push` — force every member release to keep commits and tags local, even when its config permits pushing.
+- `--yes` — explicitly confirm the real commit/tag/push operation; without it, mutating release actions fail before opening the release pipeline.
 
 Both flags are rejected on every non-mutating action (`plan`, `status`, `readiness`, `sbom`, `depgraphs`) with a typed usage error.
 
 ```bash
-toven release tag
-toven release publish --allow-dirty --no-push
+toven release tag --yes
+toven release publish --allow-dirty --no-push --yes
 ```
 
 ## Hosted forge releases
 
-When a module's `[…release.host]` block names a `forge`, `release publish` cuts a Release on that forge after the tag is pushed and the registry publish succeeds. Only `github` is supported today; it shells out to the `gh` CLI argv-first (never passing a token on the command line — `gh` reads the ambient `GH_TOKEN`/`GITHUB_TOKEN`), so `gh` must be installed and authenticated. The hosted phase is idempotent: it creates the Release, and if one already exists for the tag it edits the Release and re-uploads assets with `--clobber` — overwriting a same-named asset in place. A re-run adds and overwrites the configured assets but does not delete assets that were dropped from config, so the Release asset list is a superset, not an exact mirror, of `assets`.
+When a module's `[…release.host]` block names a `forge`, `release publish` cuts a Release on that forge after that member's tag is pushed and the registry publish succeeds. A member configured with `push = false`, or any member under `--no-push`, skips this phase because its tag is local. Only `github` is supported today; it shells out to the `gh` CLI argv-first (never passing a token on the command line — `gh` reads the ambient `GH_TOKEN`/`GITHUB_TOKEN`), so `gh` must be installed and authenticated. The hosted phase is idempotent: it creates the Release, and if one already exists for the tag it edits the Release and re-uploads assets with `--clobber` — overwriting a same-named asset in place. A re-run adds and overwrites the configured assets but does not delete assets that were dropped from config, so the Release asset list is a superset, not an exact mirror, of `assets`.
 
-The Release title is the tag, its notes come from the module's changelog body (or the `notes` override), it is marked a prerelease when the plan cut a prerelease channel (or when `prerelease` overrides), and any configured `assets` are resolved relative to the project root and uploaded. The phase is skipped entirely under `--no-push` (a hosted Release needs the pushed tag) and under `--dry-run` (which only previews the Release). GitLab is a documented same-port seam; a non-`github` forge is a typed error.
+The Release title is the tag, its notes come from generated changed-path summaries (or the `notes` override), it is marked a prerelease when the plan cut a prerelease channel (or when `prerelease` overrides), and any configured `assets` are resolved relative to the project root and uploaded. `changelog.path` is currently schema-only and does not supply the notes body. The phase is skipped entirely under `--no-push` (a hosted Release needs the pushed tag) and under `--dry-run` (which only previews the Release). GitLab is a documented same-port seam; a non-`github` forge is a typed error.
 
 ```bash
 toven release publish              # tag, publish, then cut the hosted Release

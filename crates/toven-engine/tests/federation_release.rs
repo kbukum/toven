@@ -75,17 +75,17 @@ fn release_shards_history_mutations_per_member_repo() {
     let ws = workspace("umbrella-release-shard");
     ws.write_file(
         "repos/core/toven.toml",
-        b"[project]\nname = \"core\"\n[ecosystems.rust]\nmanifests = [\"Cargo.toml\"]\n",
+        b"[project]\nname = \"core\"\n[ecosystems.rust]\nmanifests = [\"Cargo.toml\"]\n\n[modules.\"rust:core\".release]\npush = true\nremote = \"core-release\"\nbranches = [\"main\"]\ncommit_message = \"core {module} {version}\"\ntag_message = \"tag {module} {version}\"\n",
     )
     .expect("core toml");
     ws.write_file(
         "repos/gateway/toven.toml",
-        b"[project]\nname = \"gateway\"\n[ecosystems.go]\nmodules = [\"api\"]\n",
+        b"[project]\nname = \"gateway\"\n[ecosystems.go]\nmodules = [\"api\"]\n\n[modules.\"go:api\".release]\npush = true\nremote = \"gateway-release\"\nbranches = [\"main\"]\n",
     )
     .expect("gateway toml");
     let (root, document) = load_umbrella(
         &ws,
-        "[project]\nname = \"umbrella\"\n\n[[members]]\nname = \"core\"\nroot = \"repos/core\"\n\n[[members]]\nname = \"gateway\"\nroot = \"repos/gateway\"\n",
+        "[project]\nname = \"umbrella\"\n\n[modules.\"rust:core\".release]\npush = false\nremote = \"umbrella-release\"\n\n[[members]]\nname = \"core\"\nroot = \"repos/core\"\n\n[[members]]\nname = \"gateway\"\nroot = \"repos/gateway\"\n",
     );
 
     let rust = publishable_provider("rust", "rust", "core", "crates/core", "cargo");
@@ -126,7 +126,10 @@ fn release_shards_history_mutations_per_member_repo() {
     ]);
 
     let request = PlanRequest::new("rel-1", "umbrella", TaskIntent::resolve("build"), root);
-    let options = ReleaseApplyOptions::default();
+    let options = ReleaseApplyOptions {
+        no_push: false,
+        ..ReleaseApplyOptions::default()
+    };
     let mut reporter = toven_testkit::RecordingReporter::new();
 
     let stats = release_run(
@@ -145,6 +148,22 @@ fn release_shards_history_mutations_per_member_repo() {
     let core_log = core_writer.writes();
     let gateway_log = gateway_writer.writes();
     assert_member_repos_isolated(&core_log, &gateway_log);
+    assert!(core_log.iter().any(|write| matches!(
+        write,
+        VcsWrite::Push { remote, .. } if remote == "core-release"
+    )));
+    assert!(gateway_log.iter().any(|write| matches!(
+        write,
+        VcsWrite::Push { remote, .. } if remote == "gateway-release"
+    )));
+    assert!(matches!(
+        &core_log[0],
+        VcsWrite::Commit(message) if message == "core core 0.1.1"
+    ));
+    assert!(core_log.iter().any(|write| matches!(
+        write,
+        VcsWrite::CreateTag { message: Some(message), .. } if message == "tag core 0.1.1"
+    )));
 
     // Publishing runs once across both members after the commit boundary.
     assert_eq!(stats.published_modules, 2, "both modules publish federated");

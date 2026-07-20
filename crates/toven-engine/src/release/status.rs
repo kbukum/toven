@@ -44,7 +44,7 @@ pub fn release_status(
         reporter,
     )?;
     let targets = release_targets(&context)?;
-    let settings = resolve_release_settings(&context, document, &targets)?;
+    let settings = resolve_release_settings(&context, &targets)?;
 
     let tags_by_member = list_member_tags(readers)?;
     let mut modules = Vec::new();

@@ -198,6 +198,16 @@ pub struct ReleaseEntry {
     /// Configured tag-format override used to build the target-owned tag
     /// scheme.
     pub tag_format: Option<String>,
+    /// Configured annotation template; `None` creates a lightweight tag.
+    pub tag_message: Option<String>,
+    /// Configured member release-commit message template.
+    pub commit_message: Option<String>,
+    /// Whether this module permits its member release refs to be pushed.
+    pub push: bool,
+    /// Remote the member release refs target.
+    pub remote: String,
+    /// Branches on which this module permits a release; empty permits any.
+    pub branches: Vec<String>,
     /// Topological rank used for deterministic publish ordering.
     pub topo_rank: usize,
     /// Baseline used for change detection.
@@ -431,6 +441,11 @@ mod tests {
             mutation: ReleaseMutation::version(Version::new(0, 2, 0)),
             publish_needed,
             tag_format: None,
+            tag_message: None,
+            commit_message: None,
+            push: true,
+            remote: "origin".into(),
+            branches: Vec::new(),
             topo_rank: 0,
             baseline: None,
             changelog: ChangelogEntry::new(module(name), "changed", Vec::new()),

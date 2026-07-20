@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use rskit_errors::AppResult;
+use rskit_errors::{AppError, AppResult};
 use rskit_fs::sync_io::dir;
 use rskit_fs::sync_io::file::read_string_bounded;
 
@@ -26,15 +26,12 @@ const MAX_PROFILE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Read and parse every coverage profile in `dir_path`.
 ///
-/// Returns an empty vector when the directory does not exist (a run that
-/// emitted nothing is a measured-nothing report, not an error).
-///
 /// # Errors
-/// Propagates a directory-listing failure, a bounded-read failure, or a profile
-/// parse error.
+/// Propagates a missing or empty profile directory, a directory-listing failure,
+/// a bounded-read failure, or a profile parse error.
 pub(super) fn read_profiles(dir_path: &Path) -> AppResult<Vec<CoverageProfile>> {
     if !dir::exists(dir_path)? {
-        return Ok(Vec::new());
+        return Err(no_profiles_error(dir_path));
     }
     let mut profiles = Vec::new();
     for entry in dir::list(dir_path)? {
@@ -48,7 +45,20 @@ pub(super) fn read_profiles(dir_path: &Path) -> AppResult<Vec<CoverageProfile>> 
         };
         profiles.push(profile);
     }
+    if profiles.is_empty() {
+        return Err(no_profiles_error(dir_path));
+    }
     Ok(profiles)
+}
+
+fn no_profiles_error(dir_path: &Path) -> AppError {
+    AppError::invalid_input(
+        "coverage profiles",
+        format!(
+            "no coverage profiles were emitted under {}",
+            dir_path.display()
+        ),
+    )
 }
 
 #[cfg(test)]
@@ -80,9 +90,25 @@ mod tests {
     }
 
     #[test]
-    fn missing_directory_is_an_empty_report() {
+    fn missing_directory_is_a_measurement_failure() {
         let temp = TempDir::new().expect("temp dir");
-        let profiles = read_profiles(&temp.path().join("absent")).expect("reads");
-        assert!(profiles.is_empty());
+        let error =
+            read_profiles(&temp.path().join("absent")).expect_err("missing profile rejected");
+        assert!(
+            error.to_string().contains("no coverage profiles"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn empty_directory_is_a_measurement_failure() {
+        let temp = TempDir::new().expect("temp dir");
+        let dir = temp.path().join("coverage");
+        create_all(&dir).expect("mkdir");
+        let error = read_profiles(&dir).expect_err("empty profile rejected");
+        assert!(
+            error.to_string().contains("no coverage profiles"),
+            "{error}"
+        );
     }
 }

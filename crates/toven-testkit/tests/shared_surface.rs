@@ -78,13 +78,18 @@ fn fake_vcs_reader_returns_scripted_changes() {
 fn fake_vcs_writer_records_calls() {
     let writer = FakeVcsWriter::new().with_commit_oid("feed");
     writer.commit("release").expect("commit");
-    writer.push(&["refs/tags/v1".into()]).expect("push");
+    writer
+        .push("origin", &["refs/tags/v1".into()])
+        .expect("push");
 
     assert_eq!(
         writer.writes(),
         vec![
             VcsWrite::Commit("release".into()),
-            VcsWrite::Push(vec!["refs/tags/v1".into()]),
+            VcsWrite::Push {
+                remote: "origin".into(),
+                refspecs: vec!["refs/tags/v1".into()],
+            },
         ]
     );
 }

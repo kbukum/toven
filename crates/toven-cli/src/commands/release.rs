@@ -261,6 +261,7 @@ fn rehearse(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRes
         &readers,
         &overrides,
         &mut reporter,
+        cli.no_push,
     )?;
     match resolve_output(cli.output, &project.document) {
         OutputKind::Jsonl => render_rehearsal_jsonl(&rehearsal)?,
@@ -277,6 +278,7 @@ fn run(
     cli: &Cli,
     action: ReleaseAction,
 ) -> AppResult<ExitCode> {
+    require_release_confirmation(cli.non_interactive)?;
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
@@ -293,7 +295,7 @@ fn run(
     let overrides = build_overrides(cli)?;
     let options = ReleaseApplyOptions {
         allow_dirty: cli.allow_dirty,
-        push: !cli.no_push,
+        no_push: cli.no_push,
         publish: matches!(action, ReleaseAction::Publish),
         ..ReleaseApplyOptions::default()
     };
@@ -308,6 +310,16 @@ fn run(
         &options,
     )?;
     Ok(ExitCode::Success)
+}
+
+fn require_release_confirmation(confirmed: bool) -> AppResult<()> {
+    if confirmed {
+        return Ok(());
+    }
+    Err(AppError::invalid_input(
+        "release.confirmation",
+        "real releases require explicit confirmation; pass --yes to proceed",
+    ))
 }
 
 /// A stable JSON-lines record for one `release plan` entry.
@@ -619,4 +631,21 @@ fn render_depgraphs_jsonl(report: &DepgraphReport) -> AppResult<()> {
         println!("{line}");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::require_release_confirmation;
+
+    #[test]
+    fn real_release_requires_explicit_confirmation() {
+        let error = require_release_confirmation(false).expect_err("confirmation is required");
+        assert!(error.to_string().contains("release.confirmation"));
+        assert!(error.to_string().contains("--yes"));
+    }
+
+    #[test]
+    fn explicit_confirmation_allows_real_release_to_continue() {
+        require_release_confirmation(true).expect("confirmation permits release");
+    }
 }
