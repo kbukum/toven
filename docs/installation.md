@@ -1,38 +1,52 @@
 # Installation
 
-Install the `toven` binary from a local checkout.
+Toven is currently installed from a source checkout. The planned distribution is a checksum-verified binary downloaded from a GitHub Release.
 
 ## Requirements
 
-- A Rust toolchain matching `rust-toolchain.toml` (the workspace `rust-version` sets the minimum).
-- Git — affected planning diffs your working tree against a git baseline.
-- The tools your tasks invoke (for example Cargo for Rust workspaces).
+- Git
+- The Rust toolchain pinned by `rust-toolchain.toml`
+- The tools used by repository tasks, such as Cargo or Go
 
 ## Install from source
 
 ```bash
-git submodule update --init --recursive
+git clone --recurse-submodules https://github.com/kbukum/toven.git
+cd toven
 cargo install --path apps/toven --locked --force
 ```
 
-Confirm the binary on your `PATH`:
+Verify the installation:
 
 ```bash
-which toven
 toven --version
 toven --help
 ```
 
-## Run from the checkout without installing
+Expected stdout:
 
-While developing Toven itself:
-
-```bash
-cargo run -p toven -- --help
+```text
+toven <version>
 ```
 
-Use the installed `toven` binary for adoption checks and benchmarks so evidence reflects a real install.
+Help is written to stdout. Installation or usage failures are written to stderr and return a non-zero exit status.
 
-## Next step
+## Run from a checkout
 
-Generate a config and run your first task with the [getting started guide](getting-started.md).
+Use the workspace binary without installing it:
+
+```bash
+cargo run --quiet --locked -p toven -- --help
+```
+
+## Upgrade
+
+Rebuild from the desired checkout:
+
+```bash
+git pull --ff-only
+git submodule update --init --recursive
+cargo install --path apps/toven --locked --force
+```
+
+Continue with [getting started](getting-started.md).

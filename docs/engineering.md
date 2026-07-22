@@ -1,72 +1,115 @@
-# Engineering
+# Engineering guide
 
-Standards for contributing to Toven.
+This guide defines the contribution baseline for Toven.
 
-## Principles
+## Development phases
 
-1. Discover before deciding; reuse rskit and existing project helpers where they fit.
-2. Prefer clean redesigns over compatibility detours — Toven and rskit are pre-stable.
-3. Cascade model changes through schema, normalization, planner, executor, output, tests, and docs together.
-4. Keep user-owned argv unchanged: Toven validates and expands selectors but never infers hidden flags or rewrites commands.
-5. Libraries return typed data and typed errors. Only the CLI/reporting layer prints, and it reserves stdout for the machine-readable stream.
-6. Performance claims require benchmark evidence (`make benchmark`).
-7. Place every injected contract in `toven-ports`, keep its concrete adapter in the consuming crate, and give it a `toven-testkit` double.
+1. Discover the current behavior and ownership boundaries.
+2. Decide whether to redesign, align, enhance, drop, or leave it.
+3. Implement the complete change across affected layers.
+4. Validate the smallest affected scope, then broader gates when required.
 
-## Module placement and layering
+Toven is pre-stable. Prefer root-cause redesigns over compatibility shims.
 
-Dependencies flow downward only:
+## Setup
 
-| Layer | Crate(s) | Owns |
-|-------|----------|------|
-| L0 | `toven-model` | pure vocabulary + graph/topo/wave algorithms (the dependency root) |
-| L1 | `toven-ports` | the port traits + the shared surface behind them |
-| L2 | `toven-engine`, adapter crates | coordination + concrete adapters over the ports |
-| L3 | `toven-cli` | CLI taxonomy, argv dispatch, stdio/Event projections |
-| L4 | `apps/*` | thin wiring binaries |
+```bash
+git submodule update --init --recursive
+make check
+```
 
-- **Ports live in `toven-ports`.** Any seam the engine injects as `&dyn`, or any contract an adapter implements, is a port trait here, as a declare-only folder per port (`vcs/`, `toolchain/`, `source/`, `cache/`, …).
-- **Concrete adapters live in the consuming crate.** rskit-backed IO adapters (`ProcessToolchainProber`, `FsSourceDigest`, `NullCache`) live in `toven-engine`; ecosystem adapters live in `toven-<eco>`. A port trait references only `toven-model` + rskit + std/ports value types.
-- **Every port has one shared double in `toven-testkit`** (`doubles/<port>.rs`), re-exported through the declare-only `doubles/mod.rs`.
-- **No test-only escape hatches on production surfaces.** A recover-the-inner accessor used only by tests is `#[cfg(test)]`-gated or removed; shared doubles expose recording accessors instead.
+The repository uses the Rust toolchain pinned by `rust-toolchain.toml`.
 
-See [architecture](architecture.md) for the runtime flow through these layers.
-
-## Local validation
+## Canonical commands
 
 | Command | Purpose |
-|---------|---------|
-| `make check` | Canonical full gate: fmt-check, lint, test, structure, doc, deny, release build. |
-| `make fmt` | Format code. |
-| `make fmt-check` | Check formatting without modifying files. |
-| `make lint` | Clippy with denied warnings. |
-| `make test` | Workspace tests via nextest, plus doctests. Requires `cargo-nextest`. |
-| `make structure` | `mod.rs` declare-only guard across `crates/*`. Requires `ast-grep`. |
-| `make doc` | Build docs with denied warnings. |
-| `make deny` | Dependency/license/advisory audit via `cargo-deny`. |
-| `make coverage` | Workspace coverage gate. Requires `cargo-llvm-cov`. |
-| `make smoke` | Run the in-tree app smokes over committed fixtures. |
-| `make smoke-repo REPO=<path> [TASK=<task>]` | Drive the `toven` app over a real repo (read-only PLAN cut). |
-| `make benchmark CASE=<case-file>` | Compare Toven against the native commands it runs. See [benchmarking](benchmarking.md). |
+|---|---|
+| `make fmt` | Format the workspace |
+| `make fmt-check` | Check formatting |
+| `make lint` | Run Clippy with warnings denied |
+| `make test` | Run nextest and doctests |
+| `make structure` | Enforce declare-only aggregators |
+| `make doc` | Build local crate documentation with warnings denied |
+| `make deny` | Check advisories, licenses, bans, and sources |
+| `make check` | Run the canonical full gate |
+| `make coverage` | Run configured coverage gates |
+| `make benchmark` | Run an evidence benchmark case |
+| `make docs-build` | Build this mdBook |
+| `make docs-serve` | Serve this mdBook locally |
 
-The shipping apps carry end-to-end smokes that drive the built binaries under `make test`/CI: `apps/toven-rs/tests/` and `apps/toven/tests/` each split a PLAN-cut smoke (`smoke_plan.rs`) from a real-subprocess APPLY smoke (`smoke_apply.rs`), and `apps/toven-go/tests/federation_smoke.rs` drives the real `toven-go` driver handshake.
+## Layering
 
-Prefer validating changed modules unless a broader gate is clearly necessary.
+Dependencies point from applications toward the model:
 
-## Testing
+```text
+model -> ports -> engine/adapters -> CLI -> apps
+```
 
-- Use reusable fixtures and declarative case files instead of embedding large config strings.
-- Keep tests deterministic and free of real network access.
-- Runtime paths surface typed errors, never panics.
-- Regression-test every fix.
+Lower layers never import higher layers. Ecosystem adapters do not import the engine or CLI.
+
+## Reuse rskit first
+
+Before adding shared errors, configuration, validation, filesystem, Git, process, or logging behavior, check [concern ownership](concern-owners.md). Improve rskit generically when its implementation is incomplete; do not fork a Toven-specific copy.
+
+## API and runtime rules
+
+- Use typed, minimal public APIs.
+- Preserve error causes with rskit `AppError` and `AppResult`.
+- Do not use `unwrap()` or `expect()` on runtime paths.
+- Do not swallow errors or return success-shaped fallbacks.
+- Keep user argv unchanged.
+- Keep libraries silent; only the CLI/reporting layer prints.
+- Keep `lib.rs` and `mod.rs` declare-only.
+- Document every public item.
+
+## Test-first changes
+
+Write a failing behavioral test before implementation. Cover success and failure paths. Use `toven-testkit` fixtures and shared doubles instead of large inline configuration strings.
+
+Run Rust tests through nextest:
+
+```bash
+cargo nextest run -p <crate>
+```
+
+Run doctests separately when affected:
+
+```bash
+cargo test -p <crate> --doc
+```
+
+## Security
+
+- Treat repository files and task commands as untrusted input.
+- Validate at every trust boundary.
+- Execute subprocesses as argv unless shell mode is explicitly selected.
+- Never log credentials or place tokens in argv.
+- Bound input, output, and process lifetime.
+- Require explicit approval before release mutation.
+
+## Supply chain
+
+- Pin GitHub Actions by commit SHA.
+- Keep `Cargo.lock` committed.
+- Enforce advisory, source, and license policy with `cargo-deny`.
+- Generate release SBOM and provenance.
+- Sign distributed artifacts.
 
 ## Documentation
 
-- Stable project documentation belongs in `docs/`; `tmp/` holds only active plans and handoff notes.
-- Write Markdown paragraphs as natural, continuous source lines. Do not hard-wrap prose to a column limit or insert source newlines for visual presentation; Markdown renderers handle viewport-aware wrapping. Keep intentional structure such as paragraph breaks, headings, lists, blockquotes, tables, mermaid diagrams, and fenced or indented code blocks.
+- Write one natural source line per Markdown paragraph.
+- Organize user docs by task and outcome.
+- Include exact syntax, options, stdout/stderr behavior, and failure conditions.
+- Keep committed docs free of migration-plan narration and `tmp/` references.
+- Keep `SUMMARY.md` paths aligned with the real mdBook tree.
+- Use relative links between documentation pages.
 
-## Release policy
+## Performance
 
-1. Remove publish-blocking local path dependency assumptions.
-2. Test installation through the intended release path.
-3. Use the installed `toven` binary for adoption and benchmarks.
-4. Produce checksums, release metadata, and signed/provenance-ready artifacts.
+Do not claim speedups without benchmark evidence:
+
+```bash
+make benchmark CASE=bench/cases/<case>.sh
+```
+
+Record the environment, native command, Toven command, cache state, and repeated measurements.

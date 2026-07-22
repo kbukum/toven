@@ -1,0 +1,25 @@
+[book]
+title = "Toven documentation"
+authors = ["Toven contributors"]
+language = "en"
+src = "."
+
+
+[build]
+build-dir = "../target/docs"
+
+[output.html]
+git-repository-url = "https://github.com/kbukum/toven"
+edit-url-template = "https://github.com/kbukum/toven/edit/main/{path}"
+site-url = "https://kbukum.github.io/toven/"
+default-theme = "rust"
+additional-css = ["theme/toven.css"]
+additional-js = ["theme/mermaid.min.js", "theme/mermaid-init.js"]
+
+[output.html.search]
+enable = true
+
+[preprocessor]
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"

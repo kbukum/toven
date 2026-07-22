@@ -15,7 +15,7 @@ export NEXTEST_PROFILE ?= default
 # binary for speed with `make TOVEN=toven check`.
 TOVEN ?= cargo run --quiet --locked -p toven --
 
-.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc deny coverage affected smoke smoke-repo benchmark release-dry-run release-plan release-artifacts act-ci act-supply-chain act-release-readiness
+.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark release-dry-run release-plan release-artifacts act-ci act-supply-chain act-release-readiness
 
 # Canonical local/CI gate for the virtual workspace.
 check: fmt-check lint test structure doc deny release-dry-run
@@ -56,6 +56,16 @@ structure:
 # baked-in default), so it is not repeated here.
 doc:
 	RUSTDOCFLAGS="-D warnings" $(TOVEN) doc -- --all-features
+
+docs-serve:
+	@command -v mdbook >/dev/null 2>&1 || { echo "docs-serve: mdbook not found — install with 'cargo install mdbook --locked'"; exit 1; }
+	@command -v mdbook-mermaid >/dev/null 2>&1 || { echo "docs-serve: mdbook-mermaid not found — install with 'cargo install mdbook-mermaid --locked'"; exit 1; }
+	mdbook serve docs --open
+
+docs-build:
+	@command -v mdbook >/dev/null 2>&1 || { echo "docs-build: mdbook not found — install with 'cargo install mdbook --locked'"; exit 1; }
+	@command -v mdbook-mermaid >/dev/null 2>&1 || { echo "docs-build: mdbook-mermaid not found — install with 'cargo install mdbook-mermaid --locked'"; exit 1; }
+	mdbook build docs
 
 deny:
 	cargo deny check advisories bans licenses sources

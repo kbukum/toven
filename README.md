@@ -68,7 +68,9 @@ toven cache stats                      # inspect the local cache
 
 ## Documentation
 
-Start with [`docs/`](docs/README.md): [installation](docs/installation.md), [getting started](docs/getting-started.md), and the [command reference](docs/commands/README.md).
+Start with the [documentation home](docs/README.md), then choose [installation](docs/installation.md), [getting started](docs/getting-started.md), [configuration](docs/config/README.md), [commands](docs/commands/README.md), or [release workflows](docs/commands/release.md). Every page renders directly on GitHub.
+
+Run `make docs-serve` to open the same documentation as a searchable local mdBook with sidebar navigation and live reload.
 
 ## Local development
 

@@ -1,66 +1,89 @@
-# Self-hosting: Toven runs its own gates
+# Self-hosting and CI
 
-Toven drives its own quality and release gates through the freshly built `toven` binary. The `Makefile` is a thin set of passthrough invocations, so the same argv-first planner that CI and downstream repositories use also gates Toven's own workspace. This document explains how the wiring works and why a few gates remain intentionally native.
+Toven uses its own planner for mapped development and release gates. The Makefile remains the stable local and CI entry point.
 
-## The `toven` entry point
+## Binary selection
 
-Every mapped gate goes through one variable:
+By default, Make targets run the freshly built workspace binary:
 
 ```makefile
 TOVEN ?= cargo run --quiet --locked -p toven --
 ```
 
-CI builds `toven` on the fly with `cargo run`, so a checkout needs no pre-installed binary. For faster local runs, point the variable at an installed binary:
+Use an installed binary:
 
-```sh
+```bash
 make TOVEN=toven check
 ```
 
-## Passthrough semantics
+## Canonical gate
 
-A gate invokes `toven <task> -- <underlying args>`. Toven splices whatever follows `--` verbatim at the task's `{args}` placeholder in `toven.toml`, so CI-strength flags live with the gate, not baked into the emitted task table. The emitted `lint`, `test`, and `build` tasks stay minimal; strength such as `-D warnings`, `--all-targets`, `--all-features`, and `--release` is supplied at the gate.
-
-Tools that themselves consume `--` need a second separator. Clippy is the clearest example — the first `--` ends Toven's passthrough, the second is handed to `cargo clippy` so `-D warnings` reaches the lint driver rather than Toven:
-
-```makefile
-lint:
-	$(TOVEN) lint -- --all-targets --all-features -- -D warnings
+```bash
+make check
 ```
 
-The `doc` task is different: `--no-deps` is the baked-in default of the emitted `doc` task (documenting dependencies is noise a user never wants from `toven doc`), so the gate adds no passthrough of its own and only supplies `RUSTDOCFLAGS="-D warnings"`.
+The gate includes formatting, linting, nextest, doctests, structure checks, rustdoc, dependency policy, and release build readiness.
 
-## The `make check` gate set
+Mapped task gates run through Toven. Native gates remain native when Toven does not own their concern:
 
-`make check` preserves the complete gate set and exit behavior:
+| Gate | Execution |
+|---|---|
+| Lint, nextest, rustdoc, release build | Toven task |
+| rustfmt workspace check | Native Cargo |
+| Rust doctests | Native Cargo |
+| Dependency policy | cargo-deny |
+| Declare-only structure | ast-grep |
 
-```makefile
-check: fmt-check lint test structure doc deny release-dry-run
+## Additional gates
+
+```bash
+make affected
+make coverage
+make release-plan
+make smoke
 ```
 
-- `lint`, `test`, `doc`, and the `release-dry-run` build run through `toven`.
-- `test` is `test-nextest` (the Toven `test` task, nextest, globally parallel) plus native doctests — nextest does not execute doctests, so they run separately under `test-doc`.
-- `fmt-check`, `structure`, and `deny` are intentionally native (see below).
+- `affected` previews changed test scope.
+- `coverage` measures and applies configured thresholds.
+- `release-plan` runs release plan, readiness, SBOM, and dependency graph previews.
+- `smoke` drives built application binaries over committed fixtures.
 
-## Extra Toven-driven targets
+## CI output
 
-- `make affected` runs `toven affected test` — change-based module selection against the configured `base_ref` without executing anything.
-- `make coverage` runs `toven coverage`, gating the emitted profiles against the `[ecosystems.rust.coverage]` thresholds in `toven.toml`.
-- `make release-plan` is the mutation-free release preview: `toven release plan`, `release readiness`, `release sbom`, and `release depgraphs`. It is read-only and safe to run anywhere; artifacts land under `target/toven/release/`.
+Human task progress and summaries use stderr. Read-only tables and JSONL use stdout. CI should capture both streams while parsing only stdout when machine-readable output is requested.
 
-## Intentionally native gates
+```bash
+toven release plan --output jsonl > release-plan.jsonl
+```
 
-A few gates deliberately stay on raw tooling because Toven does not replace them:
+## Release CI model
 
-- **`cargo fmt --all` / `--all --check`** — `make check` gates the whole workspace in one fast rustfmt pass. The per-module `format` / `format-check` tasks remain available through `toven`.
-- **Rust doctests (`cargo test --doc`)** — nextest does not run them, so `test-doc` invokes cargo directly.
-- **`cargo deny check`** — dependency advisory, license, and source policy is a supply-chain concern Toven does not own.
-- **`ast-grep scan` (`make structure`)** — the declare-only aggregator guard for `lib.rs` / `mod.rs`.
+Release CI should:
 
-## CI wiring
+1. Install a pinned Toven binary.
+2. Verify its checksum.
+3. Run plan, readiness, SBOM, dependency graph, and dry-run commands.
+4. Preserve machine-readable evidence.
+5. Require a protected environment approval.
+6. Run real publication with least-privilege permissions.
+7. Verify tags, registry state, hosted assets, signatures, SBOM, and provenance.
 
-- **`.github/workflows/ci.yml`** runs `make check` on the pinned toolchains, exercising the `toven`-driven mapped, structure, doc, and dependency gates.
-- **`.github/workflows/release-readiness.yml`** runs `make release-dry-run` (a `cargo metadata` sanity check plus a `toven build --release`) and a dedicated mutation-free `release-plan` job that previews the version cascade, readiness verdict, SBOM, and dependency graphs. It also builds the signed source tarball, SBOM, and provenance a tagged release ships.
+Until released binaries are available, Toven builds itself from the checkout. Downstream repositories must not depend on an unreleased binary.
 
-All actions are pinned by commit SHA. A release is a signed, provenance-attested build from a `v*` tag; Toven never publishes its crates to crates.io (every crate is `publish = false`).
+## GitHub Action direction
 
-The gate-by-gate mapping to raw commands is in [`release-migration.md`](release-migration.md).
+The planned `toven-action` is a thin installer and command forwarder. It downloads a selected Toven release, verifies integrity, optionally caches the binary, and forwards argv unchanged. Release policy remains in `toven.toml` and Toven itself.
+
+Pin the action to an immutable commit SHA and the binary to a version and checksum.
+
+## Local workflow reproduction
+
+When `act` is installed:
+
+```bash
+make act-ci
+make act-supply-chain
+make act-release-readiness
+```
+
+These commands reproduce workflow structure locally but do not replace GitHub-hosted release verification.
