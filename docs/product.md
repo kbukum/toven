@@ -1,83 +1,71 @@
-# What Toven does
+# Core concepts
 
-Toven is a task orchestrator for repositories with many modules. It keeps your commands, adds language-aware module discovery, plans affected work, schedules ready modules in parallel, and caches successful results.
+Toven is an argv-first planner and executor for repositories containing multiple modules. It adds repository discovery, graph-aware selection, scheduling, caching, coverage aggregation, and release coordination without taking ownership of the commands a repository runs.
 
-Toven answers five questions about any task:
+## Repository-owned commands
 
-1. What will run?
-2. Why will it run?
-3. Why was something skipped?
-4. What exact argv will execute?
-5. Which baseline and changed files made this affected?
+Tasks are named entries in `toven.toml`. Each task contains an argv template and scheduling policy. Toven validates and expands selectors but does not infer hidden flags or invoke a shell unless shell execution is explicitly configured.
 
-## A typical session
+```toml
+[ecosystems.rust.tasks.test]
+argv = ["cargo", "nextest", "run", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+selector = ["-p", "{module.package}"]
+fan_out = "batchable"
+```
+
+Running `toven test --nocapture` appends `--nocapture` at `{args}` unchanged.
+
+## Modules and workspaces
+
+A module is the smallest discovered unit Toven plans. Rust modules are Cargo packages. Go modules are identified by their repository-relative module roots. A workspace groups modules discovered from the same Cargo workspace or Go workspace.
+
+Canonical module references include the ecosystem:
+
+```text
+rust:toven-engine
+go:cache-redis
+```
+
+## Dependency graph
+
+Adapters derive native dependency edges from Cargo or Go metadata. Explicit overlays describe cross-ecosystem edges that native tools cannot prove. The resulting graph controls affected selection, dependency expansion, execution waves, and release cascades.
+
+## Plan and apply
+
+Every task follows two phases:
+
+1. **Plan:** load configuration, discover modules, build the graph, select scope, render argv, and decide cache use.
+2. **Apply:** execute planned units, observe readiness, update successful cache records, and report results.
+
+Read-only commands stop after planning. Task commands apply unless `--dry-run` or `--explain` is set.
+
+## Affected work
+
+With a Git baseline, Toven maps changed paths to modules and includes their dependents. Shared or repository-level inputs can activate the full graph because they may affect every module.
 
 ```bash
-toven init                                     # onboarding wizard writes toven.toml
-toven plan check --base origin/main --merge-base   # see what would run
-toven check                                    # run it
-toven test --nocapture                         # run with passthrough args
-toven explain test --module rust:core          # see the exact planned argv
+toven affected test --base origin/main --merge-base
 ```
 
-See the [getting started guide](getting-started.md) for a full walkthrough.
+## Execution waves
 
-## How a run flows
+Dependency-respecting tasks run dependencies before dependents. Independent units in one wave run concurrently. Tasks configured with `run_strategy = "unordered"` may run the selected scope in one wave.
 
-```mermaid
-flowchart LR
-    User[Developer command] --> CLI[toven CLI]
-    CLI --> Config[Load strict toven.toml]
-    Config --> Adapter[Adapter discovery]
-    Adapter --> Graph[Module dependency graph]
-    Graph --> Affected[Affected filter]
-    Affected --> Plan[Execution plan]
-    Plan --> Cache[Cache decision]
-    Cache --> Exec[Run or skip units]
-    Exec --> Report[Human / JSONL output]
-```
+## Cache
 
-Command ownership stays in your config. The CLI selects the task, adapters discover modules, the engine decides what runs together, and the execution layer renders only the argv you configured or the adapter provided. See [architecture](architecture.md) for the internals.
+Successful, cacheable units are reused only when source content, dependency results, task configuration, shared inputs, toolchain identity, and opted-in passthrough arguments still match. Persistent and state-changing tasks are not cached.
 
-## Configuration
+See [cache management](commands/cache.md).
 
-Toven uses one strict `toven.toml`:
+## Releases
 
-- `[project]` — project name, root, and default baseline (`base_ref`).
-- `[toven]` — report format, parallelism, and `[toven.cache]`.
-- `[ecosystems.<id>]` — per-ecosystem discovery, run strategy, release policy, and per-task argv under `[ecosystems.<id>.tasks.<name>]`.
-- `[groups.<name>]` — named module groupings with safety limits and optional group-scoped `run_strategy`/`tasks` overrides.
-- `[[overlays]]` — explicit cross-ecosystem dependency edges native metadata cannot prove.
-- `[[members]]` — multi-repo federation roots.
+Release planning uses the same module graph. Each changed module receives an independent version decision. Dependency requirements can cascade a release into dependents. Rust targets may publish to a registry; Go releases use root or path-prefixed Git tags.
 
-Share tasks, groups, or overlays across repos by factoring them into a file and pulling it in with `[toven].include = ["ci/shared-tasks.toml"]`. Included files must be committed. See [sharing task configuration](architecture.md#sharing-task-configuration).
+See [release workflow](commands/release.md) and [release configuration](config/release.md).
 
-## Multi-repo federation
+## Output contract
 
-A `toven.toml` can describe one repository or an umbrella that federates several. Each member is an independently runnable Toven project with its own `toven.toml`; the umbrella's `[[members]]` array names each member and its repo-relative root and composes them into one federated dependency graph. Affected planning and release both operate over that single graph. See [cross-repo federation](architecture.md#cross-repo-federation).
+- stdout: requested tables, generated projections, and JSONL
+- stderr: progress, child output, warnings, summaries, and errors
 
-## Command surface
-
-| Command | What it does |
-|---------|--------------|
-| `toven init` | Run the onboarding wizard to author a reviewable `toven.toml`. |
-| `toven <task>` | Run any task defined in the config task table. |
-| `toven <task> --watch` | Rerun the affected subgraph on every source change. |
-| `toven <task> --refresh` | Re-run every unit and refresh the cache. |
-| `toven <task> --timeout <duration>` | Bound each unit's runtime. |
-| `toven plan <task>` | Show what would run (unit and wave counts). |
-| `toven affected <task>` | List affected modules for a baseline (an unattributable change forces full activation with a diagnostic). |
-| `toven explain <task>` | Show the planned unit(s): argv, dependencies, persistence (filter with `--module`). |
-| `toven modules` | List discovered modules. |
-| `toven graph` | Show the dependency graph. |
-| `toven release plan` / `status` | Project the release cut or per-module publish/tag state (read-only). |
-| `toven release readiness` / `sbom` / `depgraphs` | Run the fail-closed release preflight, generate a per-module CycloneDX SBOM, or render the dependency graph to a DOT artifact (read-only). |
-| `toven release tag` / `publish` | Cut the release (commit/tag/push) or run the full pipeline through publish (`publish` rehearses under `--dry-run`). |
-| `toven coverage` | Run the coverage task, aggregate the emitted profiles per module, and gate them against the resolved `[…coverage]` thresholds. |
-| `toven cache stats` / `clean` / `path` | Inspect and manage the local cache. |
-
-See the [command reference](commands/README.md) for full flag detail.
-
-## Status
-
-Pre-alpha, installed from source. The current surface covers strict TOML config, Rust and Go discovery, selector placeholders, readiness planning, affected detection, result caching, persistent tasks, and `toven init`. Distributed execution, remote cache, and toolchain installation are planned but not yet available.
+This separation lets automation parse stdout without losing human diagnostics. See [command output](commands/README.md#output-streams).

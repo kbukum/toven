@@ -1,0 +1,8 @@
+.mermaid {
+    text-align: center;
+}
+
+.mermaid svg {
+    display: block;
+    margin-inline: auto;
+}

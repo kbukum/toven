@@ -1,151 +1,258 @@
-# Releasing
+# Release modules
 
-`toven release <action>` walks a release through a reviewable lifecycle. The read-only actions preview what a release would do; the actions that change state drive the release pipeline over the federated dependency graph. `release tag` cuts the release commit and tags, then pushes each member permitted by its release config; `release publish` continues through to the registry.
+`toven release <action>` plans, checks, and executes releases across the repository dependency graph.
 
-```text
-toven release plan       # show the release PLAN cut, mutating nothing
-toven release status     # declared vs published/tagged per module
-toven release readiness  # fail-closed go/no-go release preflight
-toven release sbom       # generate a CycloneDX SBOM per releasable module
-toven release depgraphs  # render the dependency graph to a DOT artifact
-toven release tag --yes   # cut the release: commit, tag, push (no registry publish)
-toven release publish --yes # run the full pipeline through publish (--dry-run previews it)
-```
-
-An action is required; `toven release` alone is a usage error.
-
-Release behavior is declarative: bump defaults, prerelease channels, tag/commit templates, changelog, push/branch gating, registry, signing, and hooks are owned through the `[…release]` config block, per ecosystem and per module. The full block is parsed, validated, and resolved with documented precedence; bump policy, templates, push/remote/branch controls, per-run bump argv, and hosted releases are consumed by the engine, while the remaining target/signing/hooks fields are schema-and-resolution only for now. In an umbrella, each member repository resolves these settings from its own `toven.toml`. See [release configuration](../config/release.md) for every field, its default, the per-module override, and precedence.
-
-## Read-only previews
-
-`release plan` and `release status` never change a manifest, tag, commit, or registry (though both may issue read-only registry queries to resolve published versions). `release readiness` is likewise read-only; `release sbom` and `release depgraphs` write generated artifacts only inside their `--out-dir` and touch nothing else. They all render on stdout (warnings go to stderr) and honor `--output human` (default) or `--output jsonl`.
-
-### `toven release plan`
-
-Shows the release PLAN cut: per releasable module, its current version, the version that would be released, the resolved bump level, why the module is bumped, which input won under precedence, whether a publish is needed, and the changelog summary — in deterministic publish order.
+## Lifecycle
 
 ```bash
 toven release plan
-toven release plan --output jsonl
+toven release status
+toven release readiness
+toven release sbom --out-dir target/toven/release/sbom
+toven release depgraphs --out-dir target/toven/release/depgraphs
+toven release publish --dry-run
+toven release publish --yes
 ```
 
-The human table carries `Level`, `Reason`, and `Input` columns; the `--output jsonl` record additionally exposes `cascade_origin` (the changed module that triggered a dependency cascade), `prerelease_channel`, and `up_to_date` (a planned version already at/above the registry — reported as a no-op instead of a re-publish).
+Run every preview before approving publication. See [release configuration](../config/release.md) for repository policy.
 
-### `toven release status`
+```mermaid
+flowchart TB
+    Request(["Release request"])
+    Plan[Plan selected modules,<br/>versions, reasons, and order]
+    Readiness[Run fail-closed<br/>readiness checks]
+    Evidence[Generate SBOM and<br/>dependency graph evidence]
+    Rehearse[Rehearse publication<br/>with --dry-run]
+    Approve{"Human approval?"}
+    Stop[Stop without mutation]
+    Commit[Create release commit]
+    Tags[Create immutable tags]
+    Publish[Publish configured targets]
+    Host[Create configured hosted releases]
+    Verify[Verify versions, tags,<br/>assets, signatures, and provenance]
 
-Shows each releasable module's declared version, whether that version is already published, and the newest release tag cut for it. The default human table carries a yes/no `Published` column; `--output jsonl` additionally lists the full set of versions the registry reports. Registry lookups are best-effort, so a partial published set still yields a status.
+    Request --> Plan --> Readiness --> Evidence --> Rehearse --> Approve
+    Approve -- No --> Stop
+    Approve -- Yes --> Commit --> Tags --> Publish --> Host --> Verify
+```
+
+Planning and readiness are separate from mutation. `release tag` follows the approved path through tags and stops before target publication. `release publish` continues through publication and configured hosted releases.
+
+## Rust and Go release outcomes
+
+The common release plan branches only where ecosystem release conventions differ.
+
+```mermaid
+flowchart TB
+    Unit(["Planned release unit"])
+    Target{"Release target"}
+
+    Rust[Update Rust package version<br/>and dependency requirements]
+    Package[Package crate]
+    Registry{"Registry configured?"}
+    CratePublish[Publish immutable crate version]
+    RustTag[Create module release tag]
+
+    Go[Keep go.mod module versioning<br/>in Git tags]
+    GoRoot{"Root module?"}
+    RootTag[Create vX.Y.Z tag]
+    ModuleTag[Create path/to/module/vX.Y.Z tag]
+
+    Hosted{"Hosted release configured?"}
+    Release[Create or update GitHub Release]
+    Complete[Verify released state]
+
+    Unit --> Target
+    Target -- Rust --> Rust --> Package --> Registry
+    Registry -- Yes --> CratePublish --> RustTag
+    Registry -- No, tag-only --> RustTag
+    Target -- Go --> Go --> GoRoot
+    GoRoot -- Yes --> RootTag
+    GoRoot -- No --> ModuleTag
+    RustTag --> Hosted
+    RootTag --> Hosted
+    ModuleTag --> Hosted
+    Hosted -- Yes --> Release --> Complete
+    Hosted -- No --> Complete
+```
+
+Dependency cascades are decided before this target-specific phase. A changed shared crate or module can bring dependents into the release plan when their dependency requirements must move.
+
+## Actions
+
+| Action | Purpose | Mutates external state |
+|---|---|---|
+| `plan` | Select modules, versions, reasons, and publication order | No |
+| `status` | Compare declared, tagged, and published versions | No |
+| `readiness` | Run configured go/no-go checks | No |
+| `sbom` | Generate module SBOM files under `--out-dir` | Local artifacts only |
+| `depgraphs` | Generate dependency graph files under `--out-dir` | Local artifacts only |
+| `tag` | Create the release commit and tags, then optionally push | Yes |
+| `publish` | Tag, publish, and create configured hosted releases | Yes |
+
+`toven release` without an action is a usage error.
+
+## Plan
+
+```text
+toven release plan [--output human|jsonl]
+```
+
+```bash
+toven release plan
+```
+
+Example stdout:
+
+```text
+Module       Current  Next   Level  Reason      Input    Publish
+rust:core    1.4.2    1.4.3  patch  changed     default  yes
+rust:cli     2.1.0    2.1.1  patch  dependency  cascade  yes
+```
+
+The plan is deterministic and ordered for publication. JSONL adds cascade origin, prerelease channel, and up-to-date state.
+
+## Status
 
 ```bash
 toven release status
 ```
 
-### `toven release readiness`
+Example stdout:
 
-Evaluates the fail-closed release preflight: each configured go/no-go check runs and reports pass/fail with a short detail, and the command exits non-zero the moment any check fails so CI gates on it. The checks are declared through `[…release.readiness]`; a `clean-tree` check fails when a member worktree is dirty, and a `registry-idempotent` check fails when a module declares a version behind what the registry already published. An unrecognized check name is a typed usage error rather than a silent pass. The default human table carries a `Result`/`Detail` column and a `go`/`no-go` verdict; `--output jsonl` emits one record per check.
+```text
+Module       Declared  Published  Latest tag
+rust:core    1.4.2     yes        rust/core@1.4.2
+```
+
+Registry lookup is read-only.
+
+## Readiness
 
 ```bash
 toven release readiness
-toven release readiness --output jsonl
 ```
 
-### `toven release sbom`
+Example stdout:
 
-Generates a [CycloneDX](https://cyclonedx.org/) SBOM per releasable module, orchestrating each ecosystem's SBOM tool argv-first and writing the artifacts into the directory named by `--out-dir` (default `target/toven/release`, created if absent). A module whose ecosystem has no SBOM tooling is reported as a skip on stderr rather than a failure. The command writes only inside the output directory and mutates nothing else. The human table lists each module and its artifact path; `--output jsonl` emits one record per artifact.
-
-```bash
-toven release sbom
-toven release sbom --out-dir dist/sbom --output jsonl
+```text
+Check                Result  Detail
+clean-tree           pass    worktree is clean
+registry-idempotent  pass    declared versions are publishable
+Verdict: go
 ```
 
-### `toven release depgraphs`
+Any failed check returns a non-zero exit status. Unknown readiness checks fail as invalid configuration.
 
-Renders the validated federation dependency graph to a Graphviz DOT artifact under `--out-dir` (default `target/toven/release`, created if absent), reusing the same DOT renderer as `toven graph`. It writes only inside the output directory and mutates nothing else. The human table lists the graph label and its artifact path; `--output jsonl` emits one record per artifact.
+## SBOM and dependency graphs
 
 ```bash
-toven release depgraphs
+toven release sbom --out-dir dist/sbom
 toven release depgraphs --out-dir dist/graphs
 ```
 
-## Dry run — `--dry-run`
+Artifact paths are written to stdout. Tool progress and unsupported-ecosystem skips use stderr. These commands write only under the selected output directory.
 
-For `release publish`, `--dry-run` is a real **dry run**: it resolves the same release plan a real run would and reports the resolved publish order and per-module `would-publish`/`already-published` verdicts, plus any hosted forge Releases it would cut, without changing any manifest, tag, or registry, without running any publish, and without calling the forge. `release plan` is already a preview, so `--dry-run` is a no-op there; it is rejected on `release status` and `release tag` (which never publishes).
+## Dry-run publication
+
+```text
+toven release publish --dry-run [--output human|jsonl]
+```
 
 ```bash
 toven release publish --dry-run
-toven release publish --dry-run --output jsonl
 ```
 
-## Actions that change state
+Example stdout:
 
-`release tag` and `release publish` run the release pipeline and report progress through the human run reporter (or the `--output jsonl` event stream). Both require explicit confirmation with `--yes` immediately before mutation. `release tag` stops after the release commit, tags, and push; `release publish` also publishes the packaged artifacts to the registry. They accept the safety-bypass flags:
+```text
+Module       Verdict             Target
+rust:core    would-publish       crates-io
+go:cache     would-tag           cache/v1.2.3
+```
 
-- `--allow-dirty` — proceed even when the worktree has uncommitted changes.
-- `--no-push` — force every member release to keep commits and tags local, even when its config permits pushing.
-- `--yes` — explicitly confirm the real commit/tag/push operation; without it, mutating release actions fail before opening the release pipeline.
+Dry-run resolves the real publication plan without changing manifests, commits, tags, registries, or hosted releases.
 
-Both flags are rejected on every non-mutating action (`plan`, `status`, `readiness`, `sbom`, `depgraphs`) with a typed usage error.
+## Approve mutation
 
 ```bash
 toven release tag --yes
-toven release publish --allow-dirty --no-push --yes
+toven release publish --yes
 ```
 
-## Hosted forge releases
+Mutating actions require `--yes`. Without it, Toven fails before opening the mutation pipeline.
 
-When a module's `[…release.host]` block names a `forge`, `release publish` cuts a Release on that forge after that member's tag is pushed and the registry publish succeeds. A member configured with `push = false`, or any member under `--no-push`, skips this phase because its tag is local. Only `github` is supported today; it shells out to the `gh` CLI argv-first (never passing a token on the command line — `gh` reads the ambient `GH_TOKEN`/`GITHUB_TOKEN`), so `gh` must be installed and authenticated. The hosted phase is idempotent: it creates the Release, and if one already exists for the tag it edits the Release and re-uploads assets with `--clobber` — overwriting a same-named asset in place. A re-run adds and overwrites the configured assets but does not delete assets that were dropped from config, so the Release asset list is a superset, not an exact mirror, of `assets`.
+Safety options:
 
-The Release title is the tag, its notes come from generated changed-path summaries (or the `notes` override), it is marked a prerelease when the plan cut a prerelease channel (or when `prerelease` overrides), and any configured `assets` are resolved relative to the project root and uploaded. `changelog.path` is currently schema-only and does not supply the notes body. The phase is skipped entirely under `--no-push` (a hosted Release needs the pushed tag) and under `--dry-run` (which only previews the Release). GitLab is a documented same-port seam; a non-`github` forge is a typed error.
+| Option | Effect |
+|---|---|
+| `--yes` | Confirm a real release |
+| `--no-push` | Keep release commits and tags local |
+| `--allow-dirty` | Bypass the clean-worktree guard |
+
+`--allow-dirty` is an explicit safety bypass and should not be used in release CI.
+
+## Version overrides
+
+Mutating actions accept per-run version decisions:
 
 ```bash
-toven release publish              # tag, publish, then cut the hosted Release
-toven release publish --dry-run    # preview the hosted Release without calling the forge
+toven release publish --minor rust:core --yes
+toven release publish --set-version rust:cli=2.0.0 --yes
+toven release tag --pre rc --base v1.4.0 --offline --yes
 ```
 
-## Go module tags
+| Option | Effect |
+|---|---|
+| `--patch <MODULE>` | Force a patch bump; repeatable |
+| `--minor <MODULE>` | Force a minor bump; repeatable |
+| `--major <MODULE>` | Force a major bump; repeatable |
+| `--set-version <MODULE>=<VERSION>` | Set an exact version; repeatable |
+| `--pre <CHANNEL>` | Use a configured prerelease channel |
+| `--base <REF>` | Select the change baseline |
+| `--offline` | Skip registry version queries and use tags for idempotency |
 
-Go releases are tag-only: there is no registry publish or manifest version rewrite, so Toven treats the git tag as the released version and the generic publish loop records the tag-only target as published after the release commit. The root Go module is tagged as `vX.Y.Z`; each submodule is tagged with its repo-relative module root followed by the version, for example `cache/redis/v1.2.3`. `--no-push` still skips pushing the release commit and all tags, and `--allow-dirty` is still required to bypass the clean-tree guardrail.
+Conflicting overrides fail before mutation.
 
-Go rejects a configured `tag_format` because the Go module tag convention fixes the grammar; Rust and other registry targets may honor `tag_format` overrides.
+## Rust releases
 
-## Bump policy and per-run bump flags
+Each Cargo package is versioned independently. A changed crate receives its configured bump. When a dependency requirement must change, Toven cascades a release into dependents and explains the origin in the plan. Registry-enabled crates publish in dependency order. Tag-only Rust modules skip registry publication.
 
-Each module bumps independently. By default a changed module takes a **patch** bump; a breaking signal forces a **minor** bump; a **major** bump is only ever explicit. A dependency-floor bump cascades into dependents, and a module already at/above the registry's max published version is a reported no-op ("up to date"), never re-published. "Breaking" is driven by an explicit signal only — a `--minor`/`--major` override or an explicit per-module config `level` — never inferred from raw argv.
+Rust repositories can configure:
 
-The mutating actions (`release tag`/`release publish`) accept per-run bump argv that layers over the config. Each flag is rejected on every non-mutating action (`plan`, `status`, `readiness`, `sbom`, `depgraphs`) with a typed usage error.
+- default and per-module bump levels
+- crates.io or tag-only release targets
+- prerelease channels
+- changelog and readiness policy
+- GitHub Release creation and assets
 
-- `--patch <module>` / `--minor <module>` / `--major <module>` (each repeatable) — force a module's bump level.
-- `--set-version <module>=<x.y.z>` (repeatable) — pin an explicit target version for a module.
-- `--pre <channel>` — cut a prerelease on a configured channel (`rc`/`alpha`/`beta`), validated against the `[…release.prerelease]` channels.
-- `--base <ref>` — git ref to diff against for change detection (default: the latest release tag).
-- `--offline` — skip registry `published_versions` lookups and anchor idempotency on the release tag only.
+## Go releases
 
-A module named in two level flags, or in both a level flag and `--set-version`, is a typed usage error; an override naming an unknown module is rejected with an error naming the module.
+Go releases are tag-based:
 
-### Precedence
+- root module: `v1.2.3`
+- nested module: `cache/redis/v1.2.3`
 
-Each module's bump resolves from highest to lowest precedence:
+Changed modules release independently unless dependency changes require a cascade. Test-only and benchmark modules should be explicitly excluded or made releasable in repository policy. Go tag grammar is fixed and rejects custom `tag_format`.
 
-```text
-per-run bump argv  >  [modules.<ecosystem:module>.release]  >  [ecosystems.<id>.release]  >  built-in adapter default
-```
+## Hosted GitHub Releases
 
-Per-run argv (`--patch`/`--minor`/`--major`/`--set-version`/`--pre`) wins over both config levels; the per-module override wins over the ecosystem default, which wins over the adapter default. The `release plan` `Input` column reports which input won for each module (`argv`, `set-version`, `config`, `changelog`, `default`, or `cascade`).
+When `[...release.host]` selects GitHub, Toven uses `gh` after the tag is pushed and registry publication succeeds.
+
+Requirements:
 
 ```bash
-toven release publish --minor rust:core --set-version rust:app=2.0.0
-toven release tag --pre rc --base v1.4.0 --offline
+gh auth status
 ```
 
-## Which flags apply
+`gh` reads `GH_TOKEN` or `GITHUB_TOKEN` from the environment. Toven does not place tokens in argv. Hosted release creation is skipped by `--dry-run` and `--no-push`.
 
-| Flag | plan | status | readiness | sbom | depgraphs | tag | publish |
-|------|:----:|:------:|:---------:|:----:|:---------:|:---:|:-------:|
-| `--dry-run` (preview) | no-op | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
-| `--allow-dirty` / `--no-push` | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | ✓ |
-| `--patch` / `--minor` / `--major` / `--set-version` / `--pre` / `--offline` | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | ✓ |
-| `--base` | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | ✓ |
-| `--out-dir` | ✗ | ✗ | ✗ | ✓ | ✓ | ✗ | ✗ |
-| `-v`/`-q` / `--color` | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | ✓ |
-| `--output human\|jsonl` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+## Output streams
 
-A rejected flag/action combination fails fast with a typed `InvalidInput` error, mapped to the usage exit code.
+- Read-only release tables and JSONL use stdout.
+- Mutating progress, warnings, summaries, and errors use stderr.
+- `--output jsonl` reserves stdout for records.
+
+## Recovery
+
+Published versions and pushed tags are immutable. Do not rewrite them after partial publication. Correct the repository state, produce a new plan, and publish a forward-fix version. `release status` identifies completed and pending modules before a retry.

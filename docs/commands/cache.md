@@ -1,86 +1,75 @@
-# Managing cache
+# Manage cache
 
-Toven caches successful task results locally and skips a module on the next run when its inputs still match.
+Toven caches successful, cacheable task units and skips them while all inputs still match.
 
-## Where records live
-
-The default path is workspace-specific and versioned:
-
-```text
-<platform-user-cache>/toven/<workspace-hash>/v3
-```
-
-The `v3` segment is the cache-record format version; a new format starts a new directory.
-
-Because the default location is the shared per-user cache namespaced by workspace identity, records persist across sessions and are reused by every checkout of the same workspace. A first run in a fresh clone can therefore report hits produced by an earlier run. Run `toven cache clean` for a clean baseline when you want to measure cold-cache behavior.
-
-Resolution precedence, highest first:
-
-1. `TOVEN_CACHE_DIR` — an absolute base, for CI or benchmark isolation.
-2. `[toven.cache].dir` — a workspace-relative path, to keep records in the repo.
-3. The platform user cache directory, namespaced by a hash of the workspace root.
-
-Each option appends the current format version.
+## Resolve the cache path
 
 ```bash
-TOVEN_CACHE_DIR=/absolute/path/to/toven-cache toven check
+toven cache path
 ```
 
-```powershell
-$Env:TOVEN_CACHE_DIR = "C:\cache\toven"; toven check
+Example stdout:
+
+```text
+/Users/example/Library/Caches/toven/<workspace-hash>/v3
 ```
 
-`TOVEN_CACHE_DIR` must be an absolute path. To keep records in the repository instead:
+Path precedence:
+
+1. `TOVEN_CACHE_DIR`, which must be absolute
+2. `[toven.cache].dir`, relative to the workspace
+3. Platform user cache, namespaced by workspace identity
+
+```bash
+TOVEN_CACHE_DIR=/tmp/toven-cache toven test
+```
 
 ```toml
 [toven.cache]
 dir = ".toven/cache"
 ```
 
-Records then live under `.toven/cache/v3`; do not commit them.
+Do not commit repository-local cache records.
 
-## What invalidates cache
-
-A module re-runs when any of these change since its last success:
-
-- module source files (git-ignored build output such as `target/` and the `.git` directory are excluded, so rebuilds do not churn the cache)
-- dependency results
-- task argv and task configuration
-- `shared_inputs` declared by the task
-- adapter toolchain version probes (Cargo and rustc for Rust)
-- passthrough args, when `cache_args = true`
-
-`shared_inputs` are task-owned, workspace-relative paths that invalidate every module using the task — lockfiles, toolchain files, lint config, CI config. Write plain paths inside the workspace (`Cargo.lock`, not `./Cargo.lock`); templates, globs, `.` components, parent paths, and absolute paths are rejected.
-
-Passthrough args disable caching unless the task opts in with `cache_args = true`, because arbitrary flags can change command semantics.
-
-Persistent tasks are never cached: readiness and process lifetime are runtime behavior, not reusable results.
-
-Tasks authored `cacheable = false` are never cached either: a state-changing task (Go's `format` / `tidy-fix`) must apply its change on every run, so it can never be satisfied by an outdated content-key hit.
-
-To force a re-run for one invocation, use [`--refresh` or `--no-cache`](run.md#cache-control---refresh-vs---no-cache).
-
-## `toven cache path`
-
-Prints the resolved cache directory — the default user cache, `TOVEN_CACHE_DIR`, or `[toven.cache].dir`:
-
-```bash
-toven cache path
-toven cache path --config path/to/toven.toml
-```
-
-## `toven cache stats`
-
-Reports the cache directory, entry count, and total bytes on disk. A `truncated` flag marks a scan that hit the size cap:
+## Inspect cache usage
 
 ```bash
 toven cache stats
 ```
 
-## `toven cache clean`
+Example stdout:
 
-Removes the workspace's cache directory. A missing directory counts as already clean:
+```text
+Path                                           Entries  Bytes  Truncated
+/Users/example/Library/Caches/toven/.../v3     24       18432  no
+```
+
+## Clear workspace cache
 
 ```bash
 toven cache clean
 ```
+
+Human confirmation is written to stderr. A missing cache directory is treated as already clean.
+
+## Cache inputs
+
+A unit re-runs when any of these change:
+
+- module source
+- dependency results
+- task argv or scheduling configuration
+- declared `shared_inputs`
+- adapter toolchain identity
+- passthrough arguments when `cache_args = true`
+
+Persistent tasks and tasks with `cacheable = false` are never cached.
+
+## Force execution
+
+```bash
+toven test --refresh
+toven test --no-cache
+```
+
+`--refresh` replaces records after success. `--no-cache` leaves cache state untouched. See [running tasks](run.md#cache-control).
