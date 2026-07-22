@@ -16,9 +16,9 @@ function = 80.0
 line = 80.0
 region = 70.0
 
-# Toven ships signed, tagged build artifacts and never publishes to a registry
-# (every crate is `publish = false`): a release is tag-only, gated on a clean
-# tree, and cuts a hosted GitHub Release.
+# Toven's release contract is a signed, tag-only hosted binary release; every
+# workspace crate remains `publish = false`. The current release command does
+# not yet execute that complete binary-distribution contract.
 [ecosystems.rust.release]
 readiness = ["clean-tree"]
 
