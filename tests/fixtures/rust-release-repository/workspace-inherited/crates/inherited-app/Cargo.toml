@@ -1,0 +1,4 @@
+[package]
+name = "inherited-app"
+version.workspace = true
+edition.workspace = true

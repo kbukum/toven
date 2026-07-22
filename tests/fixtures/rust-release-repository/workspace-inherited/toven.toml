@@ -1,0 +1,6 @@
+[project]
+name = "workspace-inherited-rust"
+root = "."
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]

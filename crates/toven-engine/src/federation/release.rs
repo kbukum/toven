@@ -263,9 +263,10 @@ fn commit_member_shard(
         }
     }
     if settings.pushes(options) {
+        let branch = repo.reader().current_branch()?;
         repo.writer().push(
             settings.remote(),
-            &apply::push_refspecs(&shard.plan, module_by_ref, targets)?,
+            &apply::push_refspecs(&shard.plan, module_by_ref, targets, &branch)?,
         )?;
     }
     Ok(())

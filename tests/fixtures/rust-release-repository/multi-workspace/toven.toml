@@ -1,0 +1,19 @@
+[project]
+name = "rust-release-repository"
+root = "."
+
+[ecosystems.rust]
+manifests = ["workspace-a/Cargo.toml", "workspace-b/Cargo.toml"]
+run_strategy = "leaf-to-top"
+
+[ecosystems.rust.tasks.build]
+argv = ["cargo", "build", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+shared_inputs = ["Cargo.lock"]
+
+[ecosystems.rust.tasks.test]
+argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+shared_inputs = ["Cargo.lock"]

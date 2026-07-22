@@ -1,0 +1,6 @@
+[project]
+name = "single-go"
+root = "."
+
+[ecosystems.go]
+modules = ["go.mod"]

@@ -202,9 +202,10 @@ pub fn release_apply(
         }
     }
     if settings.pushes(options) {
+        let branch = reader.current_branch()?;
         writer.push(
             settings.remote(),
-            &push_refspecs(plan, &module_by_ref, targets)?,
+            &push_refspecs(plan, &module_by_ref, targets, &branch)?,
         )?;
     }
 
@@ -485,8 +486,9 @@ pub(crate) fn push_refspecs(
     plan: &ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
     targets: &super::ReleaseTargets,
+    branch: &str,
 ) -> AppResult<Vec<String>> {
-    let mut refspecs = vec!["HEAD".to_string()];
+    let mut refspecs = vec![format!("refs/heads/{}", branch)];
     for entry in &plan.entries {
         if let Some(version) = &entry.planned_version {
             let module = module_for(module_by_ref, &entry.module)?;
@@ -658,7 +660,7 @@ mod tests {
         assert_eq!(remote, "origin");
         assert_eq!(
             push,
-            vec!["HEAD".to_string(), "refs/tags/rust/core@1.0.0".to_string()]
+            vec!["refs/heads/main".to_string(), "refs/tags/rust/core@1.0.0".to_string()]
         );
     }
 

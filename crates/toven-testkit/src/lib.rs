@@ -58,3 +58,6 @@ pub use repo::SampleRepo;
 pub use rskit_testutil::{CurrentDirGuard, TestWorkspace};
 pub use smoke::{CLOCK_EPOCH_ENV, CLOCK_EPOCH_VALUE, RunResult, program_on_path, run, run_ok};
 pub use workspace::fixtures_root;
+
+// Additional release-platform testing utilities.
+// This crate supports the release integration smoke tests and verification scripts.

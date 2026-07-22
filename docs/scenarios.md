@@ -55,3 +55,14 @@ toven release publish --dry-run
 ```
 
 The sequence inspects versions, runs release checks, creates local evidence artifacts, and previews publication without changing manifests, tags, registries, or hosted releases.
+
+## Verify release features end-to-end (dry-runs, cascades, and failure guards)
+
+To test the entire Toven release platform end-to-end under realistic local fixtures, use:
+
+```bash
+./scripts/verify-release-platform.sh
+./scripts/verify-real-repositories.sh
+```
+
+These scripts verify that previews do not mutate tags or files, cascading requirements are updated correctly, and bad states are caught before committing or pushing.

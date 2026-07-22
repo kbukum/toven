@@ -80,3 +80,14 @@ toven release status
 ```
 
 Correct the repository and publish a forward-fix version for incomplete or inconsistent release trains.
+
+## Verification scripts
+
+Run the following scripts locally to verify your release configuration against representative Rust and Go fixtures:
+
+```bash
+./scripts/verify-release-platform.sh
+./scripts/verify-real-repositories.sh
+```
+
+These scripts are offline-capable and use command doubles and bare Git remotes to ensure previews stay completely mutation-free and failure modes are explicitly guarded.

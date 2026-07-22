@@ -1,0 +1,20 @@
+[project]
+name = "go-release-repository"
+root = "."
+
+[ecosystems.go]
+modules = ["go.mod", "nested/go.mod", "testmod/go.mod"]
+run_strategy = "leaf-to-top"
+
+[ecosystems.go.tasks.build]
+argv = ["go", "-C", "{module.root}", "build", "{args}"]
+fan_out = "per-module"
+shared_inputs = ["go.sum", "go.work"]
+
+[ecosystems.go.tasks.test]
+argv = ["go", "-C", "{module.root}", "test", "{args}"]
+fan_out = "per-module"
+shared_inputs = ["go.sum", "go.work"]
+
+[modules."go:testmod".release]
+registry = "none"

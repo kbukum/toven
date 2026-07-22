@@ -1,0 +1,6 @@
+[project]
+name = "single-rust"
+root = "."
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
