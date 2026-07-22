@@ -1,8 +1,21 @@
 # Release modules
 
-`toven release <action>` plans, checks, and executes releases across the repository dependency graph.
+`toven release <action>` plans, inspects, rehearses, and applies dependency-aware releases across a repository.
 
-## Lifecycle
+## Maintainer journey
+
+Use the release lifecycle in this order:
+
+1. Run `toven release plan` and review every selected module, proposed version, reason, cascade origin, changelog summary, and publication order.
+2. Run `toven release status` to compare declared versions with release tags and versions reported by the ecosystem target.
+3. Run `toven release readiness` and stop unless every configured check passes.
+4. Generate review evidence with `toven release sbom` and `toven release depgraphs`.
+5. Run `toven release publish --dry-run` and preserve `--output jsonl` output in CI.
+6. Obtain human approval against that exact preview.
+7. Run one mutating command with `--yes` from a clean, protected release branch.
+8. Verify every expected tag, registry version, hosted asset, checksum, signature, SBOM, and provenance record.
+
+Planning, status, readiness, dependency graphs, and publication rehearsal do not modify manifests, commits, tags, registries, or hosted Releases. `sbom` writes local artifacts and may invoke ecosystem tooling. Only `tag` and non-dry-run `publish` enter the mutation pipeline.
 
 ```bash
 toven release plan
@@ -10,122 +23,37 @@ toven release status
 toven release readiness
 toven release sbom --out-dir target/toven/release/sbom
 toven release depgraphs --out-dir target/toven/release/depgraphs
-toven release publish --dry-run
+toven release publish --dry-run --output jsonl
 toven release publish --yes
 ```
 
-Run every preview before approving publication. See [release configuration](../config/release.md) for repository policy.
-
-```mermaid
-flowchart TB
-    Request(["Release request"])
-    Plan[Plan selected modules,<br/>versions, reasons, and order]
-    Readiness[Run fail-closed<br/>readiness checks]
-    Evidence[Generate SBOM and<br/>dependency graph evidence]
-    Rehearse[Rehearse publication<br/>with --dry-run]
-    Approve{"Human approval?"}
-    Stop[Stop without mutation]
-    Commit[Create release commit]
-    Tags[Create immutable tags]
-    Publish[Publish configured targets]
-    Host[Create configured hosted releases]
-    Verify[Verify versions, tags,<br/>assets, signatures, and provenance]
-
-    Request --> Plan --> Readiness --> Evidence --> Rehearse --> Approve
-    Approve -- No --> Stop
-    Approve -- Yes --> Commit --> Tags --> Publish --> Host --> Verify
-```
-
-Planning and readiness are separate from mutation. `release tag` follows the approved path through tags and stops before target publication. `release publish` continues through publication and configured hosted releases.
-
-## Rust and Go release outcomes
-
-The common release plan branches only where ecosystem release conventions differ.
-
-```mermaid
-flowchart TB
-    Unit(["Planned release unit"])
-    Target{"Release target"}
-
-    Rust[Update Rust package version<br/>and dependency requirements]
-    Package[Package crate]
-    Registry{"Registry configured?"}
-    CratePublish[Publish immutable crate version]
-    RustTag[Create module release tag]
-
-    Go[Keep go.mod module versioning<br/>in Git tags]
-    GoRoot{"Root module?"}
-    RootTag[Create vX.Y.Z tag]
-    ModuleTag[Create path/to/module/vX.Y.Z tag]
-
-    Hosted{"Hosted release configured?"}
-    Release[Create or update GitHub Release]
-    Complete[Verify released state]
-
-    Unit --> Target
-    Target -- Rust --> Rust --> Package --> Registry
-    Registry -- Yes --> CratePublish --> RustTag
-    Registry -- No, tag-only --> RustTag
-    Target -- Go --> Go --> GoRoot
-    GoRoot -- Yes --> RootTag
-    GoRoot -- No --> ModuleTag
-    RustTag --> Hosted
-    RootTag --> Hosted
-    ModuleTag --> Hosted
-    Hosted -- Yes --> Release --> Complete
-    Hosted -- No --> Complete
-```
-
-Dependency cascades are decided before this target-specific phase. A changed shared crate or module can bring dependents into the release plan when their dependency requirements must move.
+`toven release` without an action is a usage error.
 
 ## Actions
 
-| Action | Purpose | Mutates external state |
+| Action | Result | Mutation |
 |---|---|---|
-| `plan` | Select modules, versions, reasons, and publication order | No |
-| `status` | Compare declared, tagged, and published versions | No |
-| `readiness` | Run configured go/no-go checks | No |
-| `sbom` | Generate module SBOM files under `--out-dir` | Local artifacts only |
-| `depgraphs` | Generate dependency graph files under `--out-dir` | Local artifacts only |
-| `tag` | Create the release commit and tags, then optionally push | Yes |
-| `publish` | Tag, publish, and create configured hosted releases | Yes |
+| `plan` | Selected modules, independent versions, reasons, cascades, and order | None |
+| `status` | Declared versions, matching tags, and reported published versions | None |
+| `readiness` | Fail-closed go/no-go checks | None |
+| `sbom` | CycloneDX artifacts under `--out-dir` for supported targets | Local artifacts |
+| `depgraphs` | DOT dependency graphs under `--out-dir` | Local artifacts |
+| `tag` | Manifest changes, release commit, tags, and configured push | Repository and remote |
+| `publish --dry-run` | Registry and hosted-Release rehearsal | None |
+| `publish` | `tag` behavior followed by target publication and configured hosted Releases | Repository, remote, target, and forge |
 
-`toven release` without an action is a usage error.
+Read-only tables and JSONL records use stdout. Warnings, mutating progress, summaries, and errors use stderr.
 
-## Plan
+## Plan and status
 
 ```text
 toven release plan [--output human|jsonl]
+toven release status [--output human|jsonl]
 ```
 
-```bash
-toven release plan
-```
+The plan is deterministic and follows dependency order. Each entry reports the current and planned version, bump level, whether the module changed directly or joined through a dependency cascade, the winning version input, and whether publication is needed. JSONL additionally carries the cascade origin and prerelease channel.
 
-Example stdout:
-
-```text
-Module       Current  Next   Level  Reason      Input    Publish
-rust:core    1.4.2    1.4.3  patch  changed     default  yes
-rust:cli     2.1.0    2.1.1  patch  dependency  cascade  yes
-```
-
-The plan is deterministic and ordered for publication. JSONL adds cascade origin, prerelease channel, and up-to-date state.
-
-## Status
-
-```bash
-toven release status
-```
-
-Example stdout:
-
-```text
-Module       Declared  Published  Latest tag
-rust:core    1.4.2     yes        rust/core@1.4.2
-```
-
-Registry lookup is read-only.
+Status performs read-only tag and ecosystem-target lookups. A lookup failure is surfaced rather than converted into a successful empty result.
 
 ## Readiness
 
@@ -133,16 +61,14 @@ Registry lookup is read-only.
 toven release readiness
 ```
 
-Example stdout:
+Recognized checks are:
 
-```text
-Check                Result  Detail
-clean-tree           pass    worktree is clean
-registry-idempotent  pass    declared versions are publishable
-Verdict: go
-```
+| Check | Meaning |
+|---|---|
+| `clean-tree` | Every member repository has no uncommitted changes |
+| `registry-idempotent` | No module declares a version lower than the highest version reported by its release target |
 
-Any failed check returns a non-zero exit status. Unknown readiness checks fail as invalid configuration.
+Any failed check returns a non-zero exit status. An unknown check is invalid configuration. Readiness is evidence for approval; the mutating pipeline independently enforces its clean-tree guard.
 
 ## SBOM and dependency graphs
 
@@ -151,108 +77,84 @@ toven release sbom --out-dir dist/sbom
 toven release depgraphs --out-dir dist/graphs
 ```
 
-Artifact paths are written to stdout. Tool progress and unsupported-ecosystem skips use stderr. These commands write only under the selected output directory.
+Artifact paths are written to stdout. Unsupported-ecosystem skips are warnings on stderr. Rust SBOM generation currently requires `cargo-cyclonedx`; Go SBOM generation is not implemented.
 
-## Dry-run publication
-
-```text
-toven release publish --dry-run [--output human|jsonl]
-```
+## Mutation-free publication rehearsal
 
 ```bash
 toven release publish --dry-run
+toven release publish --dry-run --output jsonl > release-preview.jsonl
 ```
 
-Example stdout:
+The rehearsal resolves the same module order, versions, target idempotency verdicts, hosted tags, prerelease flags, and configured asset paths as a real publish. It does not call manifest mutation, packaging, publication, tag creation, push, or forge commands.
 
-```text
-Module       Verdict             Target
-rust:core    would-publish       crates-io
-go:cache     would-tag           cache/v1.2.3
+Version choices can be supplied to rehearsal and mutating actions:
+
+```bash
+toven release publish --dry-run --minor rust:core
+toven release publish --dry-run --set-version rust:cli=2.0.0
+toven release publish --dry-run --pre rc --base origin/main
 ```
 
-Dry-run resolves the real publication plan without changing manifests, commits, tags, registries, or hosted releases.
+| Option | Meaning |
+|---|---|
+| `--patch <MODULE>` | Force a patch bump; repeatable |
+| `--minor <MODULE>` | Force a minor bump; repeatable |
+| `--major <MODULE>` | Force a major bump; repeatable |
+| `--set-version <MODULE>=<VERSION>` | Set an exact version; repeatable |
+| `--pre <CHANNEL>` | Select a configured prerelease channel |
+| `--base <REF>` | Override the change baseline |
+| `--offline` | Skip target version queries and use release tags for idempotency |
 
-## Approve mutation
+Conflicting overrides fail before mutation.
+
+## Approval and clean-tree enforcement
 
 ```bash
 toven release tag --yes
 toven release publish --yes
 ```
 
-Mutating actions require `--yes`. Without it, Toven fails before opening the mutation pipeline.
+Mutating actions fail unless `--yes` is present. They check the allowed branch and reject a dirty worktree before changing a manifest. `--no-push` keeps the release commit and tags local and therefore skips hosted Release creation.
 
-Safety options:
+The current CLI still exposes `--allow-dirty` as an explicit bypass. It is not part of the supported release contract and must not be used by release automation. Removing this bypass from protected release execution is tracked as release-safety work.
 
-| Option | Effect |
-|---|---|
-| `--yes` | Confirm a real release |
-| `--no-push` | Keep release commits and tags local |
-| `--allow-dirty` | Bypass the clean-worktree guard |
+## Rust release policy
 
-`--allow-dirty` is an explicit safety bypass and should not be used in release CI.
+The supported Rust contract is:
 
-## Version overrides
+- Cargo packages receive independent semantic versions.
+- Changed crates use the configured or per-run bump.
+- Dependency requirement changes cascade into dependents according to `dependent_version`.
+- Registry-enabled crates publish in dependency order.
+- Tag-only crates stop after immutable Git tags and may still produce hosted assets.
+- Stable and configured prerelease channels use normal semantic-version precedence.
+- Required changelog evidence and readiness checks fail before mutation.
 
-Mutating actions accept per-run version decisions:
+The current implementation supports independent versions, Cargo manifest mutation, dependency-floor cascades, prereleases, deterministic order, and crates.io publication. It does not yet use `release.registry` to switch publication off, so tag-only Rust publication is contract-only and must not be attempted with `release publish`. `release tag` stops before target publication, but it also currently stops before hosted Release creation.
 
-```bash
-toven release publish --minor rust:core --yes
-toven release publish --set-version rust:cli=2.0.0 --yes
-toven release tag --pre rc --base v1.4.0 --offline --yes
-```
+## Go release policy
 
-| Option | Effect |
-|---|---|
-| `--patch <MODULE>` | Force a patch bump; repeatable |
-| `--minor <MODULE>` | Force a minor bump; repeatable |
-| `--major <MODULE>` | Force a major bump; repeatable |
-| `--set-version <MODULE>=<VERSION>` | Set an exact version; repeatable |
-| `--pre <CHANNEL>` | Use a configured prerelease channel |
-| `--base <REF>` | Select the change baseline |
-| `--offline` | Skip registry version queries and use tags for idempotency |
+The supported Go contract is:
 
-Conflicting overrides fail before mutation.
+- Only changed modules and required dependents join the release train.
+- The root module uses `vX.Y.Z`.
+- A nested module at `cache/redis` uses `cache/redis/vX.Y.Z`.
+- Go module tags are fixed; `tag_format` is rejected.
+- Prerelease versions use the same path prefix, for example `cache/redis/v1.2.0-alpha.1`.
+- Dependency cascades update dependent module requirements before tagging.
+- Test-only and benchmark modules must declare `release.publish = true` or `false`; Toven never infers policy from a module name or path.
 
-## Rust releases
+The current implementation supports changed-module planning, dependency-graph cascades, root and nested tags, and prerelease tags. It does not yet update Go dependency requirements or accept per-module `release.publish`, so explicit test/benchmark classification and complete Go cascade mutation are contract-only.
 
-Each Cargo package is versioned independently. A changed crate receives its configured bump. When a dependency requirement must change, Toven cascades a release into dependents and explains the origin in the plan. Registry-enabled crates publish in dependency order. Tag-only Rust modules skip registry publication.
+## Hosted assets and immutability
 
-Rust repositories can configure:
+When `release.host.forge = "github"`, publication invokes `gh` after tags are pushed and target publication succeeds. Authentication comes from ambient `gh` configuration, `GH_TOKEN`, or `GITHUB_TOKEN`; secrets are not placed in argv.
 
-- default and per-module bump levels
-- crates.io or tag-only release targets
-- prerelease channels
-- changelog and readiness policy
-- GitHub Release creation and assets
-
-## Go releases
-
-Go releases are tag-based:
-
-- root module: `v1.2.3`
-- nested module: `cache/redis/v1.2.3`
-
-Changed modules release independently unless dependency changes require a cascade. Test-only and benchmark modules should be explicitly excluded or made releasable in repository policy. Go tag grammar is fixed and rejects custom `tag_format`.
-
-## Hosted GitHub Releases
-
-When `[...release.host]` selects GitHub, Toven uses `gh` after the tag is pushed and registry publication succeeds.
-
-Requirements:
-
-```bash
-gh auth status
-```
-
-`gh` reads `GH_TOKEN` or `GITHUB_TOKEN` from the environment. Toven does not place tokens in argv. Hosted release creation is skipped by `--dry-run` and `--no-push`.
-
-## Output streams
-
-- Read-only release tables and JSONL use stdout.
-- Mutating progress, warnings, summaries, and errors use stderr.
-- `--output jsonl` reserves stdout for records.
+The supported contract treats a published tag, registry version, hosted Release, and same-named asset as immutable. A retry may skip an identical completed result but must not replace it. The current GitHub adapter instead edits an existing Release and uploads assets with `--clobber`; immutable hosted publication is therefore contract-only until the release-safety step replaces that behavior.
 
 ## Recovery
 
-Published versions and pushed tags are immutable. Do not rewrite them after partial publication. Correct the repository state, produce a new plan, and publish a forward-fix version. `release status` identifies completed and pending modules before a retry.
+Everything before a successful release commit is reversible and the implementation attempts to restore the worktree on failure. After a commit, tag, registry version, or hosted Release becomes externally visible, do not rewrite or delete it to make the run appear atomic. Inspect `release status`, correct the repository or release configuration, choose a new version where necessary, preview again, obtain approval again, and publish a forward fix.
+
+Never force-move a release tag, overwrite a published package version, or replace an asset attached to an approved immutable Release.

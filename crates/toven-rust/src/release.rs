@@ -389,9 +389,9 @@ fn workspace_member_dirs(manifest: &Path) -> AppResult<Vec<PathBuf>> {
 
 /// Build the argv-only `cargo cyclonedx` invocation for `manifest`.
 ///
-/// Invoked from `out_dir` (the process working directory), so the tool writes
-/// `<stem>.cdx.json` relative to that directory. `--override-filename` pins the
-/// output stem deterministically instead of relying on the crate name.
+/// cyclonedx ignores the process working directory and writes next to each
+/// member manifest, so `--override-filename` pins the output stem
+/// deterministically instead of relying on the crate name.
 fn sbom_argv(manifest: &Path, stem: &str) -> Vec<String> {
     vec![
         "cyclonedx".to_string(),

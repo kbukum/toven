@@ -127,7 +127,7 @@ Examples:
 /// `release publish` action examples.
 const RELEASE_PUBLISH_EXAMPLES: &str = "\
 Examples:
-  toven release publish --yes      Run the full pipeline through the registry
+  toven release publish --yes      Publish through each configured ecosystem target
   toven release publish --dry-run  Rehearse the publish order without mutating
   toven release publish --pre rc --yes  Publish a prerelease on the rc channel";
 
@@ -1586,6 +1586,25 @@ mod tests {
                 "`toven release {action} --help` is missing its examples block: {help}"
             );
         }
+    }
+
+    #[test]
+    fn release_publish_help_describes_ecosystem_targets() {
+        use clap::CommandFactory;
+        let mut command = Cli::command();
+        let release = command
+            .get_subcommands_mut()
+            .find(|sub| sub.get_name() == "release")
+            .expect("release subcommand");
+        let help = release
+            .get_subcommands_mut()
+            .find(|sub| sub.get_name() == "publish")
+            .expect("release publish action")
+            .render_long_help()
+            .to_string();
+
+        assert!(help.contains("configured ecosystem target"), "{help}");
+        assert!(!help.contains("through the registry"), "{help}");
     }
 
     #[test]
