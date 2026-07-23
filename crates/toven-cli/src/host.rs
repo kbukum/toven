@@ -11,7 +11,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rskit_errors::{AppError, AppResult};
+use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_util::time::{Clock, FixedClock, SharedClock, system_clock};
 use toven_engine::cache;
 use toven_engine::config::{CanonicalRegistry, Document, ReportFormat, load};
@@ -81,9 +81,14 @@ pub(crate) fn discover_config(explicit: Option<&Path>) -> AppResult<PathBuf> {
     }
     let cwd = std::env::current_dir().map_err(AppError::internal)?;
     rskit_fs::find_in_ancestors(&cwd, CONFIG_FILENAME).ok_or_else(|| {
-        AppError::not_found(
-            CONFIG_FILENAME,
-            Some("no toven.toml found in the current directory or any parent"),
+        // One clean sentence plus the recovery step. `AppError::not_found`'s
+        // `resource '<id>' not found` template would double-wrap this (the id
+        // slot is for a value, not a sentence), so build the message directly
+        // under the NotFound code — the renderer prefixes `error[NOT_FOUND]:`
+        // and the exit code stays 4.
+        AppError::new(
+            ErrorCode::NotFound,
+            "no toven.toml found in this directory or any parent — run `toven init` to create one",
         )
     })
 }

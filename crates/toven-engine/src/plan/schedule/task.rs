@@ -108,9 +108,13 @@ pub(super) fn unknown_task_error(
     available: &[Task],
 ) -> AppError {
     let wanted = intent.name();
+    // Built with `AppError::new` rather than `invalid_input` so the rendered line
+    // reads as one sentence (`error[INVALID_INPUT]: ecosystem 'rust' has no …`)
+    // instead of stuttering an `invalid tasks:` field prefix in front of a message
+    // that is already about tasks.
     if available.is_empty() {
-        return AppError::invalid_input(
-            "tasks",
+        return AppError::new(
+            rskit_errors::ErrorCode::InvalidInput,
             format!(
                 "ecosystem '{ecosystem}' defines no tasks. Run 'toven init' to author its task table in toven.toml."
             ),
@@ -119,8 +123,8 @@ pub(super) fn unknown_task_error(
     let names: Vec<String> = available.iter().map(task_addressable_name).collect();
     let suggestion = rskit_util::strings::nearest(wanted, names.iter().map(String::as_str))
         .map_or_else(String::new, |name| format!(" Did you mean '{name}'?"));
-    AppError::invalid_input(
-        "tasks",
+    AppError::new(
+        rskit_errors::ErrorCode::InvalidInput,
         format!(
             "ecosystem '{ecosystem}' has no '{wanted}' task.{suggestion} Run 'toven tasks' to list every runnable task."
         ),

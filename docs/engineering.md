@@ -18,7 +18,7 @@ git submodule update --init --recursive
 make check
 ```
 
-The repository uses the Rust toolchain pinned by `rust-toolchain.toml`.
+The repository uses the Rust toolchain pinned by `rust-toolchain.toml`. The language floor is **edition 2024** at a **minimum supported Rust version of 1.94**, declared once in the workspace `[workspace.package]` (`edition`, `rust-version`) and inherited by every crate; treat those two fields as the single source of truth and do not restate a different floor elsewhere.
 
 ## Canonical commands
 
@@ -84,8 +84,15 @@ cargo test -p <crate> --doc
 - Validate at every trust boundary.
 - Execute subprocesses as argv unless shell mode is explicitly selected.
 - Never log credentials or place tokens in argv.
-- Bound input, output, and process lifetime.
+- Bound input and output with hard caps. Bound process lifetime through cooperative cancellation (Ctrl+C tears down every in-flight child) and an opt-in per-unit `--timeout`; task processes carry no default wall-clock ceiling, because legitimate build/test tasks run arbitrarily long. Short-lived tool invocations (metadata probes, `gh`, VCS queries) keep their own fixed internal timeouts.
 - Require explicit approval before release mutation.
+
+## Observability
+
+- Emit user-facing progress, status, and summaries through the reporter sinks (human on stderr, JSONL on stdout) — never ad hoc prints from library code.
+- Route internal diagnostics through rskit-logging, not `println!`/`eprintln!`; keep libraries silent by default so a caller controls verbosity.
+- Keep the machine-readable Event stream (`--output jsonl`) the stable contract for tooling; treat human framing as diagnostics that may change.
+- Every run carries a `run_id` for correlation; it is observability-only and never a cache key or path.
 
 ## Supply chain
 
@@ -94,6 +101,7 @@ cargo test -p <crate> --doc
 - Enforce advisory, source, and license policy with `cargo-deny`.
 - Generate release SBOM and provenance.
 - Sign distributed artifacts.
+- Use Conventional Commits. The PR title is the squash-merge subject and is CI-enforced (`.github/workflows/pr-title.yml`), so a non-Conventional subject cannot land on `main`.
 
 ## Documentation
 

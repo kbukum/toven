@@ -80,19 +80,19 @@ The release matrix is:
 
 Every archive contains one directly runnable binary. The hosted Release contains `SHA256SUMS`, keyless Sigstore/cosign signature and certificate files, a CycloneDX SBOM, and GitHub build provenance. Release verification downloads each archive and checks that `toven --version` reports `0.1.0-alpha.1`.
 
-The current release-readiness workflow still builds a source archive rather than this matrix. The binary build, signing, publication, and download verification become executable in the bootstrap release step; they are not current capabilities.
+The current release-readiness workflow still builds a source archive rather than this matrix. The per-target binary build, signing, publication, and download verification are not yet executable capabilities; they land with the binary release pipeline.
 
 ## Immutability and recovery
 
 Release tags, registry versions, hosted Releases, and approved assets are immutable. CI must fail if any intended output already exists with different content. A partially completed release is not repaired by moving tags, deleting registry versions, editing release notes, or clobbering assets. Correct the source or workflow, select a forward-fix version, regenerate the preview, and obtain approval again.
 
-The current GitHub host adapter reconciles an existing Release in place. Protected release CI must not rely on that behavior; immutable host enforcement remains required before the first publication.
+The current GitHub host adapter is immutable create-or-verify: it creates the Release, or — when one already exists — reads it back and verifies it matches the intended Release exactly, hard-erroring on any divergence. It never edits release notes, moves tags, or clobbers assets (its argv never contains `edit` or `upload`). One caveat: an existing asset is verified by uploaded name and byte size only, so a divergent asset of identical size would pass verification. Treat published assets as immutable and forward-fix by cutting a new version rather than replacing an asset in place.
 
 ## GitHub Action direction
 
-The planned `toven-action` is a thin installer and argv forwarder. It downloads a selected Toven release, verifies integrity, optionally caches the binary, and forwards argv unchanged. Release policy remains in `toven.toml` and Toven itself.
+The current downstream install contract is a direct download of a released Toven binary, pinned by version and SHA-256 checksum — there is no required action.
 
-Pin the action to an immutable commit SHA and the binary to a version and checksum.
+A dedicated `toven-action` that installs and runs Toven inside a workflow is a candidate future mechanism to standardize that install-and-run step. It is explicitly deferred and out of scope: nothing in this repository or in rskit and gokit depends on it, and release policy stays in `toven.toml` and Toven itself. If such an action is built later, it would wrap the same version-and-checksum-pinned binary without changing release policy.
 
 ## Local workflow reproduction
 

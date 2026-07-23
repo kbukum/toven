@@ -43,6 +43,12 @@ pub struct RunStats {
     /// Total wall time in milliseconds, once the run completes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
+    /// Whether this summary is a PLAN-only cut (`--dry-run`/`--explain`) that
+    /// executed no units. Distinguishes a dry run from a real run in which every
+    /// unit was a cache hit — both leave `ran_units == 0`. Omitted from the
+    /// machine projection when `false` so a normal run's JSONL stays unchanged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dry_run: bool,
 }
 
 impl RunStats {

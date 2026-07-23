@@ -7,9 +7,6 @@ use toml_edit::{DocumentMut, Item, Table, value};
 use toven_model::EcosystemId;
 use toven_ports::EcosystemFragment;
 
-/// The default change baseline written into a fresh `[project]`.
-const DEFAULT_BASE_REF: &str = "origin/main";
-
 /// The generic, ecosystem-agnostic override hints prefixed to each scaffolded
 /// `[ecosystems.<id>]` section. Only the discovery hints are emitted live;
 /// everything else is filled by smart defaults, so these stay commented.
@@ -25,10 +22,14 @@ const SECTION_HINTS: &str = "\n# Smart defaults fill in tasks, run strategy, and
 /// Returns an error only if a fragment table cannot be re-encoded as TOML.
 pub(super) fn first_run(
     project_name: &str,
+    base_ref: &str,
     fragments: &[EcosystemFragment],
 ) -> AppResult<(String, Vec<EcosystemId>)> {
     let mut doc = DocumentMut::new();
-    doc.insert("project", Item::Table(project_table(project_name)));
+    doc.insert(
+        "project",
+        Item::Table(project_table(project_name, base_ref)),
+    );
 
     let mut added = Vec::with_capacity(fragments.len());
     for fragment in fragments {
@@ -40,12 +41,13 @@ pub(super) fn first_run(
 }
 
 /// Build the minimal `[project]` table: name, the conventional `.` root, and
-/// the default change baseline.
-fn project_table(project_name: &str) -> Table {
+/// the resolved change baseline (`base_ref`, detected from the repository's
+/// remotes/branches by the caller).
+fn project_table(project_name: &str, base_ref: &str) -> Table {
     let mut project = Table::new();
     project.insert("name", value(project_name));
     project.insert("root", value("."));
-    project.insert("base_ref", value(DEFAULT_BASE_REF));
+    project.insert("base_ref", value(base_ref));
     project
 }
 

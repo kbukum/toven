@@ -12,8 +12,11 @@ fn plan_reports_units_waves_and_zero_ran() {
     let sample = repo("cross-ecosystem/umbrella");
     let out = toven_ok(&sample, &["plan", "build"]);
     // Summary lines are on stderr (the human reporter stream).
+    // The plan line names units and waves; counts are pluralized, so match the
+    // stems that hold for both `1 unit in 1 wave` and `N units in M waves`.
     out.expect_stderr_contains("plan:")
-        .expect_stderr_contains("units in")
+        .expect_stderr_contains("unit")
+        .expect_stderr_contains("wave")
         .expect_stderr_contains("ran:  0");
 }
 
@@ -95,7 +98,7 @@ fn jsonl_plan_stream_matches_the_deterministic_snapshot() {
         "\n",
         r#"{"event":"plan-prepared","waves":1,"units":1}"#,
         "\n",
-        r#"{"event":"run-finished","summary":{"planned_units":1,"ran_units":0,"cached_units":0,"failed_units":0,"blocked_units":0,"cancelled_units":0,"failed_readiness_units":0,"timed_out_units":0,"cache_hits":0,"cache_misses":1,"cache_disabled":0,"cache_forced":0,"dropped_output_chunks":0}}"#,
+        r#"{"event":"run-finished","summary":{"planned_units":1,"ran_units":0,"cached_units":0,"failed_units":0,"blocked_units":0,"cancelled_units":0,"failed_readiness_units":0,"timed_out_units":0,"cache_hits":0,"cache_misses":1,"cache_disabled":0,"cache_forced":0,"dropped_output_chunks":0,"dry_run":true}}"#,
         "\n",
     );
     toven_ok(&sample, &["--output", "jsonl", "plan", "build"]).expect_stdout_eq(expected);

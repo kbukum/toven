@@ -1,0 +1,40 @@
+name: PR title
+
+# Enforce Conventional Commits on the pull-request title. Toven squash-merges, so
+# the PR title becomes the commit subject on `main`; gating it here keeps a
+# non-Conventional subject (e.g. "add claude skiils") from ever landing.
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+
+permissions:
+  contents: read
+
+jobs:
+  conventional-title:
+    name: Conventional Commit title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate title
+        env:
+          # Read the title through the environment, never interpolated into the
+          # script, so a crafted title cannot inject shell.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._-]+\))?!?: .+'
+          if [[ "$PR_TITLE" =~ $pattern ]]; then
+            echo "PR title is a valid Conventional Commit: $PR_TITLE"
+          else
+            echo "::error::PR title is not a Conventional Commit: '$PR_TITLE'"
+            echo "Expected '<type>(optional scope): summary', for example:"
+            echo "  feat(release): host the binary on GitHub Releases"
+            echo "  fix(cli): correct the config-not-found error"
+            echo "Allowed types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert."
+            exit 1
+          fi

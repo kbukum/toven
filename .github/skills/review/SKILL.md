@@ -2,16 +2,16 @@
 name: review
 description: >-
     Run Toven's standing engineering-baseline review over a change set (a branch, commit range,
-    or HEAD~1) or over a whole crate/area/tree. Sequences eight focused passes — structure &
+    or HEAD~1) or over a whole crate/area/tree. Sequences nine focused passes — structure &
     placement, rskit reuse, principles, security & privacy, quality, tests/TDD, docs & supply
-    chain, comments & rustdoc. Use before merging a change, when auditing a crate, or before a
-    release. Always run it in a fresh, clean-context reviewer.
+    chain, comments & rustdoc, CLI UX. Use before merging a change, when auditing a crate, or
+    before a release. Always run it in a fresh, clean-context reviewer.
 user-invocable: true
 ---
 
 # Reviewing Toven against its engineering baseline
 
-Toven is an argv-first task planner built on the vendored rskit foundation (a git submodule). A defect in a lower crate propagates up the hexagonal stack to the CLI and every generated command batch. This skill encodes Toven's permanent review baseline as eight focused passes plus orchestrators.
+Toven is an argv-first task planner built on the vendored rskit foundation (a git submodule). A defect in a lower crate propagates up the hexagonal stack to the CLI and every generated command batch. This skill encodes Toven's permanent review baseline as nine focused passes plus orchestrators.
 
 The authoritative baseline lives in [`docs/engineering.md`](../../../docs/engineering.md) (and [`docs/architecture.md`](../../../docs/architecture.md)); see also [`.github/copilot-instructions.md`](../../copilot-instructions.md). A plan, spec, issue, or roadmap may be passed in **as a scope checklist only** — it defines intended scope, never excuses a baseline violation. If the code diverges from the plan, report the divergence; the baseline wins.
 
@@ -33,7 +33,7 @@ git submodule update --init --recursive
 - **Whole tree / crate** → [`references/review-project.md`](references/review-project.md). A standing audit independent of any diff. Use periodically, before a release, or when onboarding.
 - **Review → fix in one pass** → [`references/review-details.md`](references/review-details.md). Fans the review into parallel subagent passes, then plans and applies fixes.
 
-## The eight focused passes (run in order)
+## The nine focused passes (run in order)
 
 Stop and reject as soon as a change fails pass `00` or `01` — misplaced or duplicated code makes every later pass moot. Each file can be run standalone when you need only one lens.
 
@@ -45,6 +45,7 @@ Stop and reject as soon as a change fails pass `00` or `01` — misplaced or dup
 6. [`references/05-tests-tdd.md`](references/05-tests-tdd.md) — TDD, fixtures, failure paths, shared doubles, determinism.
 7. [`references/06-docs-supply-chain.md`](references/06-docs-supply-chain.md) — docs policy, docs-match-the-live-schema, Conventional Commits, `Cargo.lock`, `cargo-deny`, SHA-pinned actions.
 8. [`references/07-comments-rustdoc.md`](references/07-comments-rustdoc.md) — comments and `///` docs describe the code as it is, not plans/history/process.
+9. [`references/08-cli-ux.md`](references/08-cli-ux.md) — the user-facing surface: actionable errors, parser-scoped flags, user vocabulary, documented+pinned exit codes, labeled dry-runs, first-run flow.
 
 ## Severity and finding format
 

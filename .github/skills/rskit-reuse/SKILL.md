@@ -39,7 +39,7 @@ Browse `rskit/core/rskit-*/` for the owning crate and study its public API, inva
 **Improve rskit generically — never fork a Toven-specific copy and never make rskit Toven-specific.**
 
 1. Confirm the gap: the capability genuinely isn't in rskit, or its shape is inadequate for a general consumer (not just for Toven's convenience).
-2. Design the enhancement as a **general-purpose** addition to the owning rskit crate — the kind any downstream (gokit/pykit consumers, other services) would want. rskit is in active development, so improving it is wanted; surface the change as an rskit improvement.
+2. Design the enhancement as a **general-purpose** addition to the owning rskit crate — the kind any downstream consumer would want. rskit is in active development, so improving it is wanted; surface the change as an rskit improvement.
 3. Make the change in the `rskit/` submodule against rskit's own baseline and skills, then consume it from Toven via the path dep. Do not vendor a divergent copy into a Toven crate.
 4. If the enhancement is out of scope for the current task, flag it clearly (an rskit issue/note, referenced by **full URL**, never a bare `#123`) rather than working around it with a local reimplementation.
 

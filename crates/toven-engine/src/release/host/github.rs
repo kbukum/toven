@@ -13,6 +13,15 @@
 //! read from the ambient environment by `gh` itself and is never passed on the
 //! command line or logged.
 //!
+//! Asset verification is by uploaded name and byte size only: `gh release view`
+//! does not return per-asset content digests, and this adapter never downloads
+//! remote asset bytes, so a divergent existing asset of identical size would
+//! pass verification. Published assets are therefore treated as immutable —
+//! forward-fix by cutting a new version rather than replacing an asset in place.
+//! (Content-digest verification would require downloading each asset or the
+//! `SHA256SUMS` body and hashing it locally, which the create-or-verify path
+//! deliberately does not do.)
+//!
 //! GitLab is a documented follow-up seam behind the same [`ReleaseHost`] port;
 //! only GitHub is implemented here.
 
@@ -239,6 +248,11 @@ fn parse_existing(json: &str) -> AppResult<ExistingRelease> {
 /// same byte size. Extra assets already present on the forge (for example a
 /// separately attached signature) are tolerated; a missing or size-mismatched
 /// intended asset is a conflict.
+///
+/// Asset matching is name + byte size only (the limitation documented on the
+/// module): `gh release view` carries no content digest, so a same-size but
+/// byte-divergent asset is not detected here. This is a deliberate bound of the
+/// no-download create-or-verify path, not a content-integrity guarantee.
 fn reconcile(
     intended: &HostedRelease,
     local_sizes: &BTreeMap<String, u64>,

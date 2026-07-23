@@ -25,13 +25,13 @@ pub const DEFAULT_WATCH_DEBOUNCE_MS: u64 = 200;
 const TOP_LEVEL_EXAMPLES: &str = "\
 Examples:
   toven test                 Run the `test` task across the affected modules
-  toven build --dry-run      Show the PLAN cut without executing anything
+  toven build --dry-run      Preview what would run, without executing anything
   toven test -- --nocapture  Splice passthrough args at each task's `{args}`
   toven modules              List the discovered modules
   toven tasks                List every runnable task, per ecosystem
   toven graph --format dot   Emit the dependency graph as Graphviz DOT
   toven coverage             Run coverage, aggregate profiles, and gate
-  toven release plan         Show the release cut (bumps, changelog, order)
+  toven release plan         Show the release plan (bumps, changelog, order)
   toven completions zsh      Print a zsh completion script
 
 Any non-reserved token is an argv-first task name. Run `toven <command> --help`
@@ -46,7 +46,7 @@ Examples:
 /// `plan` verb examples.
 const PLAN_EXAMPLES: &str = "\
 Examples:
-  toven plan build           Show the PLAN cut (waves + units) for `build`";
+  toven plan build           Preview what `build` would run (waves + units)";
 
 /// `explain` verb examples.
 const EXPLAIN_EXAMPLES: &str = "\
@@ -100,7 +100,7 @@ Examples:
 /// `release` verb examples (the umbrella over the lifecycle action tree).
 const RELEASE_EXAMPLES: &str = "\
 Examples:
-  toven release plan               Show the release cut (bumps, changelog, order)
+  toven release plan               Show the release plan (bumps, changelog, order)
   toven release status             Compare declared vs published/tagged versions
   toven release readiness          Run the fail-closed preflight go/no-go checks
   toven release publish --dry-run  Rehearse the full pipeline without mutating
@@ -109,7 +109,7 @@ Examples:
 /// `release plan` action examples.
 const RELEASE_PLAN_EXAMPLES: &str = "\
 Examples:
-  toven release plan               Show the release cut (read-only)
+  toven release plan               Show the release plan (read-only)
   toven release plan --output jsonl  Emit the plan as a machine-readable stream";
 
 /// `release status` action examples.
@@ -214,7 +214,7 @@ pub(crate) fn parse_percentage_arg(value: &str) -> Result<f64, String> {
     }
 }
 
-/// Event-sink output format selected by `--output`.
+/// Output format selected by `--output`: human tables or machine-readable JSONL.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "lowercase")]
 #[non_exhaustive]
@@ -387,28 +387,29 @@ pub struct Cli {
     /// cwd).
     #[arg(long, global = true, value_name = "PATH")]
     pub config: Option<PathBuf>,
-    /// Event-sink format (defaults to the `[toven].report` setting).
+    /// Output format: `human` tables or machine-readable `jsonl` (defaults to the
+    /// `[toven].report` setting).
     #[arg(long, global = true, value_name = "FORMAT")]
     pub output: Option<OutputKind>,
-    /// When to colorize the human reporter: `auto` (default), `always`, or
-    /// `never`. `NO_COLOR` always wins over `always`. Only the execution verbs
-    /// build a human reporter, so an explicit `--color` is rejected elsewhere.
+    /// When to colorize human output: `auto` (default), `always`, or `never`.
+    /// `NO_COLOR` always wins over `always`. Accepted on every command; commands
+    /// that produce no colorized output simply ignore it.
     #[arg(long, global = true, value_name = "WHEN")]
     pub color: Option<ColorWhen>,
     /// How live per-unit output renders while a task runs: `auto` (default),
-    /// `tiles`, `panes`, or `stream`. Applies only to the task-APPLY verbs
+    /// `tiles`, `panes`, or `stream`. Applies only when running tasks
     /// (`toven run` / `toven <task>`); overrides the `[toven].view` setting.
     /// Redirected, piped, `--output jsonl`, and non-interactive runs always use
     /// the linear `stream` shape regardless of this flag.
     #[arg(long, global = true, value_name = "MODE", help_heading = "Execution")]
     pub view: Option<ViewMode>,
-    /// Run the PLAN cut only, without APPLY.
+    /// Preview what would run, without executing anything.
     #[arg(long, global = true, help_heading = "Execution")]
     pub dry_run: bool,
-    /// Run the PLAN cut only, with reasoning detail.
+    /// Preview what would run, with the reasoning for each unit.
     #[arg(long, global = true, help_heading = "Execution")]
     pub explain: bool,
-    /// Stop scheduling after the first failure (task-APPLY verbs only).
+    /// Stop scheduling after the first failure (when running tasks only).
     #[arg(long, global = true, help_heading = "Execution")]
     pub fail_fast: bool,
     /// Execution verbs only: bypass the task cache (every unit re-runs; records
@@ -420,23 +421,23 @@ pub struct Cli {
     /// neither reads nor writes). Mutually exclusive with `--no-cache`.
     #[arg(long, global = true, help_heading = "Execution")]
     pub refresh: bool,
-    /// Task-APPLY verbs only: bound how long any single execution unit may run
+    /// When running tasks only: bound how long any single execution unit may run
     /// before it is cooperatively cancelled and reported as a timeout failure
     /// (duration string, e.g. `30s`, `5m`).
     #[arg(long, global = true, value_name = "DURATION", value_parser = parse_duration_arg, help_heading = "Execution")]
     pub timeout: Option<Duration>,
-    /// Task-APPLY verbs only: cap how many units run concurrently, overriding
+    /// When running tasks only: cap how many units run concurrently, overriding
     /// the `[toven].max_parallel` setting. `--jobs 1` forces strictly serial
     /// execution (one unit at a time), which streams each unit's output inline
     /// as a single continuous log instead of buffered per-unit blocks.
     #[arg(long, short = 'j', global = true, value_name = "N", value_parser = parse_jobs_arg, help_heading = "Execution")]
     pub jobs: Option<usize>,
-    /// Changed-selection verbs only: override the diff baseline reference
+    /// Change-selection commands only: override the diff baseline reference
     /// (per-member under a federation; falls back to `[[members]].base_ref` /
     /// `[project].base_ref`).
     #[arg(long, global = true, value_name = "REF", help_heading = "Selection")]
     pub base: Option<String>,
-    /// Changed-selection verbs only: diff against `merge-base(reference,
+    /// Change-selection commands only: diff against `merge-base(reference,
     /// HEAD)`.
     #[arg(long, global = true, help_heading = "Selection")]
     pub merge_base: bool,
@@ -476,7 +477,7 @@ pub struct Cli {
     /// (everything the selection needs).
     #[arg(long = "dependencies", global = true, help_heading = "Selection")]
     pub with_dependencies: bool,
-    /// Task-APPLY verbs only: keep running, re-executing the affected subgraph
+    /// When running tasks only: keep running, re-executing the affected subgraph
     /// each time a watched source file changes (Ctrl+C exits).
     #[arg(long, global = true, help_heading = "Execution")]
     pub watch: bool,
@@ -575,15 +576,14 @@ pub struct Cli {
     /// Init only: project root to onboard against.
     #[arg(long, global = true, value_name = "PATH", help_heading = "Init")]
     pub root: Option<PathBuf>,
-    /// Init only: answer the wizard non-interactively; for release tag/publish,
-    /// explicitly confirm the real mutation.
-    #[arg(
-        long = "non-interactive",
-        visible_alias = "yes",
-        global = true,
-        help_heading = "Init"
-    )]
+    /// Init only: answer the wizard non-interactively, accepting every default.
+    #[arg(long = "non-interactive", global = true, help_heading = "Init")]
     pub non_interactive: bool,
+    /// Release tag/publish only: confirm the real mutation. Kept separate from
+    /// `--non-interactive` so authorizing a release is always a deliberate flag,
+    /// never something learned as harmless on `init`.
+    #[arg(long = "yes", global = true, help_heading = "Release")]
+    pub confirm_release: bool,
     /// Init only: render the `toven.toml` to stdout and write nothing.
     #[arg(long, global = true, help_heading = "Init")]
     pub print: bool,
@@ -613,7 +613,7 @@ pub enum Command {
         #[arg(last = true)]
         passthrough: Vec<String>,
     },
-    /// Render the PLAN cut for a task (`run <task> --dry-run`).
+    /// Preview what a task would run, without executing it (`run <task> --dry-run`).
     #[command(after_long_help = PLAN_EXAMPLES)]
     Plan {
         /// Task to plan.
@@ -627,10 +627,10 @@ pub enum Command {
         action: ReleaseAction,
     },
     /// Run the coverage task, aggregate the emitted profiles per module, and
-    /// gate them against the resolved `[…coverage]` thresholds.
+    /// gate them against the resolved coverage thresholds.
     #[command(after_long_help = COVERAGE_EXAMPLES)]
     Coverage,
-    /// Explain the PLAN cut for a task, optionally filtered to a `--module`
+    /// Explain what a task would run, optionally filtered to a `--module`
     /// selection.
     #[command(after_long_help = EXPLAIN_EXAMPLES)]
     Explain {
@@ -701,8 +701,8 @@ pub enum Command {
 #[derive(Debug, Clone, Copy, Subcommand)]
 #[non_exhaustive]
 pub enum ReleaseAction {
-    /// Show the release PLAN cut — bumped versions, changelog, and publish
-    /// order — without mutating anything.
+    /// Show the release plan — bumped versions, changelog, and publish order —
+    /// without mutating anything.
     #[command(after_long_help = RELEASE_PLAN_EXAMPLES)]
     Plan,
     /// Show each module's declared version versus what is published and tagged
@@ -935,15 +935,10 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
             ),
         ));
     }
-    // `--color` shapes the same human reporter as `-v`/`-q`; only the verbs that
-    // build it consume it. An explicit `--color` elsewhere would be a silent no-op,
-    // so reject it rather than advertise one.
-    if cli.color.is_some() && !accepts_reporter_shaping(&cli.command) {
-        return Err(AppError::invalid_input(
-            "flags",
-            format!("`--color` does not apply to `toven {verb}`"),
-        ));
-    }
+    // `--color` is accepted on every verb (like `git`/`cargo`): the verbs that build
+    // a human reporter or colorized table honor it, and the rest treat it as a
+    // harmless no-op. Accepting it globally keeps a `alias toven='toven --color never'`
+    // / CI wrapper working regardless of the verb, rather than failing on some.
     // `--view` shapes only the live APPLY output rendering, so it is meaningful
     // only on the task-APPLY verbs that stream child output. On `plan` (PLAN-only),
     // `release`, and every introspection/maintenance verb it would be a silent
@@ -1006,7 +1001,7 @@ fn reject_apply_only_flag(
         return Err(AppError::invalid_input(
             "flags",
             format!(
-                "`{flag}` only applies to task-APPLY verbs (`toven run`/`toven <task>`); it has no effect on `toven {verb}`"
+                "`{flag}` only applies when running tasks (`toven run`/`toven <task>`); it has no effect on `toven {verb}`"
             ),
         ));
     }
@@ -1020,7 +1015,7 @@ fn gate_view_flag(cli: &Cli, verb: &str) -> AppResult<()> {
         return Err(AppError::invalid_input(
             "flags",
             format!(
-                "`--view` only applies to task-APPLY verbs (`toven run`/`toven <task>`); it has no effect on `toven {verb}`"
+                "`--view` only applies when running tasks (`toven run`/`toven <task>`); it has no effect on `toven {verb}`"
             ),
         ));
     }
@@ -1065,7 +1060,8 @@ fn gate_bump_flags(cli: &Cli, verb: &str, mutating_release: bool) -> AppResult<(
 }
 
 /// Reject the `init`-only wizard flags (`--force`/`--root`/`--non-interactive`/
-/// `--print`) on any other verb.
+/// `--print`) on any other verb, and the release-only `--yes` anywhere but a
+/// mutating release action.
 fn gate_init_flags(cli: &Cli, verb: &str, is_init: bool) -> AppResult<()> {
     let release_confirmation = matches!(
         release_action(&cli.command),
@@ -1077,8 +1073,11 @@ fn gate_init_flags(cli: &Cli, verb: &str, is_init: bool) -> AppResult<()> {
     if cli.root.is_some() && !is_init {
         return Err(only_applies("--root", "toven init", verb));
     }
-    if cli.non_interactive && !is_init && !release_confirmation {
+    if cli.non_interactive && !is_init {
         return Err(only_applies("--non-interactive", "toven init", verb));
+    }
+    if cli.confirm_release && !release_confirmation {
+        return Err(only_applies("--yes", "toven release tag/publish", verb));
     }
     if cli.print && !is_init {
         return Err(only_applies("--print", "toven init", verb));
@@ -1118,7 +1117,7 @@ fn gate_selection_flags(cli: &Cli, verb: &str) -> AppResult<()> {
         return Err(AppError::invalid_input(
             "flags",
             format!(
-                "`--base` only applies to changed-selection verbs (`toven run`/`toven plan`/`toven affected`/`toven <task>`) and `toven release tag/publish`; it has no effect on `toven {verb}`"
+                "`--base` only applies to change-selection commands (`toven run`/`toven plan`/`toven affected`/`toven <task>`) and `toven release tag/publish`; it has no effect on `toven {verb}`"
             ),
         ));
     }
@@ -1126,7 +1125,7 @@ fn gate_selection_flags(cli: &Cli, verb: &str) -> AppResult<()> {
         return Err(AppError::invalid_input(
             "flags",
             format!(
-                "`--merge-base` only applies to changed-selection verbs (`toven run`/`toven plan`/`toven affected`/`toven <task>`); it has no effect on `toven {verb}`"
+                "`--merge-base` only applies to change-selection commands (`toven run`/`toven plan`/`toven affected`/`toven <task>`); it has no effect on `toven {verb}`"
             ),
         ));
     }
@@ -1148,7 +1147,7 @@ fn gate_selection_flags(cli: &Cli, verb: &str) -> AppResult<()> {
         return Err(AppError::invalid_input(
             "flags",
             format!(
-                "`{flag}` only applies to selection verbs (`toven run`/`toven plan`/`toven affected`/`toven explain`/`toven <task>`); it has no effect on `toven {verb}`"
+                "`{flag}` only applies to selection commands (`toven run`/`toven plan`/`toven affected`/`toven explain`/`toven <task>`); it has no effect on `toven {verb}`"
             ),
         ));
     }
@@ -1163,7 +1162,7 @@ fn gate_watch_flags(cli: &Cli, verb: &str) -> AppResult<()> {
         return Err(AppError::invalid_input(
             "flags",
             format!(
-                "`--watch` only applies to task-APPLY verbs (`toven run`/`toven <task>`); it has no effect on `toven {verb}`"
+                "`--watch` only applies when running tasks (`toven run`/`toven <task>`); it has no effect on `toven {verb}`"
             ),
         ));
     }
@@ -1455,9 +1454,10 @@ mod tests {
     }
 
     #[test]
-    fn color_rejected_on_non_execution_verbs() {
-        // `--color` shapes the human reporter only the execution verbs build, so like
-        // `-v`/`-q` it is rejected on introspection/maintenance verbs.
+    fn color_accepted_on_every_verb_like_git_and_cargo() {
+        // `--color` is global and harmless where no human reporter is built (unlike
+        // `-v`/`-q`), so it must be accepted on every verb rather than failing a
+        // `--color never` CI wrapper on some of them.
         for args in [
             ["--color", "always", "modules"].as_slice(),
             ["--color", "never", "graph"].as_slice(),
@@ -1465,7 +1465,7 @@ mod tests {
             ["--color", "always", "tasks"].as_slice(),
         ] {
             let cli = parse(args).expect("parses");
-            assert!(super::gate(&cli).is_err(), "{args:?}");
+            assert!(super::gate(&cli).is_ok(), "{args:?}");
         }
     }
 
@@ -1690,16 +1690,30 @@ mod tests {
     }
 
     #[test]
-    fn yes_confirmation_only_applies_to_init_and_mutating_release_actions() {
+    fn yes_confirmation_only_applies_to_mutating_release_actions() {
         for action in ["tag", "publish"] {
             let cli = parse(&["--yes", "release", action]).expect("parses");
-            assert!(cli.non_interactive);
+            assert!(cli.confirm_release);
+            // `--yes` is release-only now, not an alias of init's `--non-interactive`.
+            assert!(!cli.non_interactive);
             assert!(super::gate(&cli).is_ok(), "{action}");
         }
         for action in ["plan", "status", "readiness", "sbom", "depgraphs"] {
             let cli = parse(&["--yes", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_err(), "{action}");
         }
+    }
+
+    #[test]
+    fn yes_and_non_interactive_are_decoupled_across_init_and_release() {
+        // `--yes` on init is rejected (release-only), and `--non-interactive` on a
+        // release action is rejected (init-only): authorizing a release can never be
+        // learned as a harmless init habit.
+        let yes_on_init = parse(&["--yes", "init"]).expect("parses");
+        assert!(super::gate(&yes_on_init).is_err());
+        let non_interactive_on_release =
+            parse(&["--non-interactive", "release", "tag"]).expect("parses");
+        assert!(super::gate(&non_interactive_on_release).is_err());
     }
 
     #[test]
@@ -1783,18 +1797,20 @@ mod tests {
     }
 
     #[test]
-    fn reporter_shaping_only_on_mutating_release_actions() {
+    fn verbosity_shaping_only_on_mutating_release_actions() {
+        // `-v`/`-q` shape the human run reporter that only the mutating actions build,
+        // so they stay gated. `--color`, by contrast, is now accepted on every action
+        // (like `git`/`cargo`) and is asserted separately below.
         for action in ["tag", "publish"] {
             let cli = parse(&["--verbose", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_ok(), "{action}");
-            let colored = parse(&["--color", "auto", "release", action]).expect("parses");
-            assert!(super::gate(&colored).is_ok(), "color {action}");
         }
         for action in ["plan", "status", "readiness", "sbom", "depgraphs"] {
             let cli = parse(&["--verbose", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_err(), "{action}");
+            // `--color` is accepted regardless — it is a harmless no-op here.
             let colored = parse(&["--color", "auto", "release", action]).expect("parses");
-            assert!(super::gate(&colored).is_err(), "color {action}");
+            assert!(super::gate(&colored).is_ok(), "color {action}");
         }
     }
 
@@ -1857,10 +1873,13 @@ mod tests {
     }
 
     #[test]
-    fn init_accepts_the_yes_alias() {
-        let cli = parse(&["--yes", "init"]).expect("parses");
-        assert!(cli.non_interactive);
-        assert!(super::gate(&cli).is_ok());
+    fn init_accepts_non_interactive_but_not_the_release_yes_flag() {
+        let non_interactive = parse(&["--non-interactive", "init"]).expect("parses");
+        assert!(non_interactive.non_interactive);
+        assert!(super::gate(&non_interactive).is_ok());
+        // `--yes` is release confirmation only and must not slip in on init.
+        let yes = parse(&["--yes", "init"]).expect("parses");
+        assert!(super::gate(&yes).is_err());
     }
 
     #[test]
