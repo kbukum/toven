@@ -172,6 +172,7 @@ mod tests {
         response.modules = vec![module("core")];
         let common = CommonEcosystemConfig {
             release: ReleaseConfig {
+                registry: Some("crates-io".into()),
                 host: Some(HostConfig {
                     forge: Some("github".into()),
                     ..HostConfig::default()

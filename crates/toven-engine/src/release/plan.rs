@@ -1,10 +1,13 @@
 //! Release PLAN tail orchestration.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
+use rskit_fs::safe_join;
+use rskit_fs::sync_io::file::read_string_bounded;
 use toven_model::ModuleKey;
-use toven_ports::{Provider, Reporter};
+use toven_ports::{Provider, PublicationPolicy, Reporter};
 
 use crate::config::Document;
 use crate::federation::baseline::MemberVcsReaders;
@@ -67,7 +70,7 @@ pub(crate) fn plan_with_context(
         targets,
         &settings,
     )?;
-    validate_required_changelogs(&changes, &settings)?;
+    validate_required_changelogs(request.project_root.as_path(), &changes, &settings)?;
     plan_with_changes(context, request, &changes, overrides, targets, &settings)
 }
 
@@ -187,12 +190,40 @@ pub(crate) fn resolve_release_settings(
             .modules
             .get(&module.id.to_string())
             .map(|entry| &entry.release);
-        resolved.insert(
-            module.key(),
-            ResolvedReleaseSettings::resolve(&ecosystem, over)?,
-        );
+        let resolved_settings = ResolvedReleaseSettings::resolve(&ecosystem, over)?;
+        validate_ecosystem_publication(module, &resolved_settings)?;
+        resolved.insert(module.key(), resolved_settings);
     }
     Ok(resolved)
+}
+
+fn validate_ecosystem_publication(
+    module: &toven_model::Module,
+    resolved: &ResolvedReleaseSettings,
+) -> AppResult<()> {
+    if module.id.ecosystem.as_str() == "go"
+        && matches!(resolved.publication, PublicationPolicy::Registry { .. })
+    {
+        return Err(AppError::invalid_input(
+            "release.registry",
+            format!(
+                "Go module '{}' cannot declare a registry publication target; Go releases are tag-only",
+                module.key()
+            ),
+        ));
+    }
+    if matches!(resolved.publication, PublicationPolicy::Excluded)
+        && !resolved.host.assets.is_empty()
+    {
+        return Err(AppError::invalid_input(
+            "release.exclude",
+            format!(
+                "excluded module '{}' cannot declare hosted release assets",
+                module.key()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// Reconcile the single plan-wide bump policy from per-module resolved
@@ -224,27 +255,76 @@ fn reconcile_policy(
     Ok(selected.map_or(BumpPolicy::SemverCascade, |(_, policy)| policy))
 }
 
+/// Fail closed when a directly changed release unit lacks its required,
+/// file-backed changelog evidence.
+///
+/// The configured changelog is read from its project-relative path and must
+/// carry a documented `## [Unreleased]` section (see
+/// [`changelog::unreleased_documented`]). A missing, unreadable, or
+/// undocumented changelog is a typed configuration failure surfaced before any
+/// mutation. Modules selected only through a dependency cascade are not directly
+/// changed and are exempt — their release reason is the cascade explanation
+/// carried by their [`ChangelogEntry`](super::ChangelogEntry).
 fn validate_required_changelogs(
+    project_root: &Path,
     changes: &change::ReleaseChanges,
     settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
 ) -> AppResult<()> {
+    /// Upper bound on a changelog read; a document larger than this is treated
+    /// as malformed rather than loaded unbounded.
+    const MAX_CHANGELOG_BYTES: u64 = 4 * 1024 * 1024;
+
+    let mut documented: BTreeMap<String, bool> = BTreeMap::new();
     for module in &changes.changed {
         let Some(resolved) = settings.get(module) else {
             continue;
         };
-        if resolved.changelog.required
-            && changes
-                .records
-                .get(module)
-                .is_none_or(std::vec::Vec::is_empty)
-        {
-            return Err(AppError::invalid_input(
+        if !resolved.changelog.required {
+            continue;
+        }
+        let relative = resolved.changelog.path.as_deref().unwrap_or("CHANGELOG.md");
+        if let Some(has_entry) = documented.get(relative) {
+            if !*has_entry {
+                return Err(undocumented_changelog_error(module, relative));
+            }
+            continue;
+        }
+        let absolute = safe_join(project_root, relative).map_err(|error| {
+            AppError::invalid_input(
+                "release.changelog.path",
+                format!("changelog path '{relative}' is not a safe project-relative path"),
+            )
+            .with_cause(error)
+        })?;
+        let text = read_string_bounded(&absolute, MAX_CHANGELOG_BYTES).map_err(|error| {
+            AppError::invalid_input(
                 "release.changelog.required",
-                format!("changed module '{module}' has no changelog entry"),
-            ));
+                format!(
+                    "required changelog '{relative}' for changed module '{module}' could not be \
+                     read; create it and document the change before releasing"
+                ),
+            )
+            .with_cause(error)
+        })?;
+        let has_entry = changelog::unreleased_documented(&text);
+        documented.insert(relative.to_string(), has_entry);
+        if !has_entry {
+            return Err(undocumented_changelog_error(module, relative));
         }
     }
     Ok(())
+}
+
+/// The typed failure for a changed module whose required changelog has no
+/// documented `[Unreleased]` entry.
+fn undocumented_changelog_error(module: &ModuleKey, relative: &str) -> AppError {
+    AppError::invalid_input(
+        "release.changelog.required",
+        format!(
+            "changed module '{module}' requires a documented '[Unreleased]' entry in \
+             '{relative}', but none was found; record the change before releasing"
+        ),
+    )
 }
 
 #[cfg(test)]
@@ -260,7 +340,7 @@ mod tests {
     use toven_ports::{
         BaselineSpec, BumpLevel, ChangeRecord, ChangeStatus, ChangelogConfig,
         CommonEcosystemConfig, DependentVersion, DiscoverResponse, PrereleaseConfig, Provider,
-        TaskIntent,
+        PublicationPolicy, ReleaseConfig, TaskIntent,
     };
     use toven_testkit::{
         FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, RecordingReporter,
@@ -287,9 +367,37 @@ mod tests {
         Module::new(mref(name), RepoPath::new(root).unwrap())
     }
 
+    fn module_for_ecosystem(ecosystem: &str, name: &str, root: &str) -> Module {
+        Module::new(
+            ModuleRef::new(eid(ecosystem), name).unwrap(),
+            RepoPath::new(root).unwrap(),
+        )
+    }
+
     fn document() -> Document {
         let mut ecosystems = BTreeMap::new();
         ecosystems.insert(eid("rust"), RawValue::from(json!({ "release": {} })));
+        Document {
+            project: ProjectConfig {
+                name: "t".to_string(),
+                root: ".".to_string(),
+                base_ref: None,
+            },
+            toven: TovenConfig::default(),
+            groups: BTreeMap::new(),
+            overlays: Vec::new(),
+            ecosystems,
+            modules: std::collections::BTreeMap::new(),
+            members: Vec::new(),
+        }
+    }
+
+    fn document_for_ecosystem(ecosystem: &str, release: &serde_json::Value) -> Document {
+        let mut ecosystems = BTreeMap::new();
+        ecosystems.insert(
+            eid(ecosystem),
+            RawValue::from(json!({ "release": release.clone() })),
+        );
         Document {
             project: ProjectConfig {
                 name: "t".to_string(),
@@ -352,29 +460,130 @@ mod tests {
         common
     }
 
+    fn common_with_registry() -> CommonEcosystemConfig {
+        CommonEcosystemConfig {
+            release: ReleaseConfig {
+                registry: Some("crates-io".into()),
+                ..ReleaseConfig::default()
+            },
+            ..CommonEcosystemConfig::default()
+        }
+    }
+
     #[test]
-    fn required_changelog_rejects_changed_module_without_records() {
+    fn go_registry_publication_is_rejected_during_release_resolution() {
+        let module = module_for_ecosystem("go", "app", ".");
+        let mut response = DiscoverResponse::new(eid("go"));
+        response.modules = vec![module];
+        let common = CommonEcosystemConfig {
+            release: ReleaseConfig {
+                registry: Some("goproxy".into()),
+                ..ReleaseConfig::default()
+            },
+            ..CommonEcosystemConfig::default()
+        };
+        let adapter = FakeConfiguredAdapter::new(eid("go"))
+            .with_response(response)
+            .with_common(common)
+            .with_release_target(FakeReleaseTarget::new());
+        let provider = FakeProvider::new(eid("go")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let request = PlanRequest::new(
+            "r1",
+            "t",
+            TaskIntent::resolve("release"),
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+        let vcs = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let error = release_plan(
+            &request,
+            &document_for_ecosystem("go", &json!({ "registry": "goproxy" })),
+            &providers,
+            &readers,
+            &BumpOverrides::new(),
+            &mut reporter,
+        )
+        .expect_err("Go registry publication is invalid");
+
+        assert!(error.to_string().contains("Go module"));
+        assert!(error.to_string().contains("registry"));
+    }
+
+    #[test]
+    fn required_changelog_rejects_a_missing_file() {
+        let temp = rskit_fs::TempDir::new().expect("temp dir");
+        let error =
+            validate_required_changelogs(temp.path(), &changes_for("core"), &required_core())
+                .expect_err("a missing required changelog must fail closed");
+
+        assert!(error.to_string().contains("release.changelog.required"));
+        assert!(error.to_string().contains("rust:core"));
+    }
+
+    #[test]
+    fn required_changelog_rejects_an_empty_unreleased_section() {
+        let temp = rskit_fs::TempDir::new().expect("temp dir");
+        std::fs::write(
+            temp.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## [Unreleased]\n\n### Added\n\n## [1.0.0]\n\n- Shipped\n",
+        )
+        .expect("write changelog");
+
+        let error =
+            validate_required_changelogs(temp.path(), &changes_for("core"), &required_core())
+                .expect_err("an undocumented Unreleased section must fail closed");
+
+        assert!(error.to_string().contains("Unreleased"));
+        assert!(error.to_string().contains("rust:core"));
+    }
+
+    #[test]
+    fn required_changelog_accepts_a_documented_unreleased_section() {
+        let temp = rskit_fs::TempDir::new().expect("temp dir");
+        std::fs::write(
+            temp.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- Reworked the release planner\n",
+        )
+        .expect("write changelog");
+
+        validate_required_changelogs(temp.path(), &changes_for("core"), &required_core())
+            .expect("a documented Unreleased section satisfies the requirement");
+    }
+
+    #[test]
+    fn changelog_not_required_skips_the_file_check() {
+        // No changelog file exists, but the module does not require one.
+        let temp = rskit_fs::TempDir::new().expect("temp dir");
         let key = ModuleKey::bare(mref("core"));
-        let mut changed_modules = std::collections::BTreeSet::new();
-        changed_modules.insert(key.clone());
-        let changes = crate::release::change::ReleaseChanges {
-            changed: changed_modules,
+        let resolved = ResolvedReleaseSettings::resolve(&ReleaseConfig::default(), None).unwrap();
+        let settings = BTreeMap::from([(key, resolved)]);
+
+        validate_required_changelogs(temp.path(), &changes_for("core"), &settings)
+            .expect("an unrequired changelog is not read");
+    }
+
+    fn changes_for(name: &str) -> crate::release::change::ReleaseChanges {
+        let mut changed = std::collections::BTreeSet::new();
+        changed.insert(ModuleKey::bare(mref(name)));
+        crate::release::change::ReleaseChanges {
+            changed,
             records: BTreeMap::new(),
             baselines: BTreeMap::new(),
-        };
+        }
+    }
+
+    fn required_core() -> BTreeMap<ModuleKey, ResolvedReleaseSettings> {
         let mut config = CommonEcosystemConfig::default();
         config.release.changelog = Some(ChangelogConfig {
             path: None,
             required: true,
         });
         let resolved = ResolvedReleaseSettings::resolve(&config.release, None).unwrap();
-        let settings = BTreeMap::from([(key, resolved)]);
-
-        let error = validate_required_changelogs(&changes, &settings)
-            .expect_err("required changelog must reject missing records");
-
-        assert!(error.to_string().contains("release.changelog.required"));
-        assert!(error.to_string().contains("rust:core"));
+        BTreeMap::from([(ModuleKey::bare(mref("core")), resolved)])
     }
 
     #[test]
@@ -387,6 +596,7 @@ mod tests {
 
         let adapter = FakeConfiguredAdapter::new(eid("rust"))
             .with_response(response)
+            .with_common(common_with_registry())
             .with_release_target(FakeReleaseTarget::new());
         let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
         let providers: Vec<&dyn Provider> = vec![&provider];
@@ -416,6 +626,12 @@ mod tests {
         .unwrap();
 
         assert_eq!(plan.publish_count(), 2);
+        assert_eq!(
+            plan.entries[0].publication,
+            PublicationPolicy::Registry {
+                registry: "crates-io".into()
+            }
+        );
         assert_eq!(plan.entries[0].module, core.key());
         assert_eq!(plan.entries[0].planned_version, Some(Version::new(0, 1, 1)));
         assert_eq!(plan.entries[0].reason, BumpReason::Changed);
@@ -446,6 +662,7 @@ mod tests {
 
         let adapter = FakeConfiguredAdapter::new(eid("rust"))
             .with_response(response)
+            .with_common(common_with_registry())
             .with_release_target(FakeReleaseTarget::new());
         let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
         let providers: Vec<&dyn Provider> = vec![&provider];
@@ -645,11 +862,7 @@ mod tests {
     #[test]
     fn module_at_registry_max_is_a_reported_no_op() {
         let target = FakeReleaseTarget::new().with_published_versions(vec![Version::new(0, 1, 1)]);
-        let plan = plan_core(
-            CommonEcosystemConfig::default(),
-            target,
-            &BumpOverrides::new(),
-        );
+        let plan = plan_core(common_with_registry(), target, &BumpOverrides::new());
         // Patch of 0.1.0 → 0.1.1 which the registry already has: up to date.
         assert_eq!(plan.entries[0].planned_version, Some(Version::new(0, 1, 1)));
         assert!(plan.entries[0].up_to_date);
@@ -663,9 +876,21 @@ mod tests {
         // idempotency is not anchored on it and a publish is still proposed.
         let target = FakeReleaseTarget::new().with_published_versions(vec![Version::new(0, 1, 1)]);
         let overrides = BumpOverrides::new().with_offline(true);
-        let plan = plan_core(CommonEcosystemConfig::default(), target, &overrides);
+        let plan = plan_core(common_with_registry(), target, &overrides);
         assert!(!plan.entries[0].up_to_date);
         assert!(plan.entries[0].publish_needed);
+    }
+
+    #[test]
+    fn default_publication_policy_is_tag_only() {
+        let plan = plan_core(
+            CommonEcosystemConfig::default(),
+            FakeReleaseTarget::new(),
+            &BumpOverrides::new(),
+        );
+
+        assert!(!plan.entries[0].publish_needed);
+        assert_eq!(plan.entries[0].publication, PublicationPolicy::TagOnly);
     }
 
     #[test]

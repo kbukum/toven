@@ -109,13 +109,19 @@ impl HostedRelease {
 }
 
 /// The outcome of ensuring a hosted Release exists on the forge.
+///
+/// Hosted publication is immutable: a Release is either newly created or an
+/// identical one already existed and was verified. A conflicting existing
+/// Release is never edited in place — the adapter fails instead, so this enum
+/// has no "updated" outcome.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum HostReleaseOutcome {
     /// No Release existed for the tag, so a new one was created.
     Created,
-    /// A Release already existed for the tag and was updated in place.
-    Updated,
+    /// A Release already existed for the tag and was verified byte-identical to
+    /// the intended one (an idempotent re-run), so nothing was mutated.
+    AlreadyComplete,
 }
 
 impl HostReleaseOutcome {
@@ -124,27 +130,34 @@ impl HostReleaseOutcome {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Created => "created",
-            Self::Updated => "updated",
+            Self::AlreadyComplete => "already-complete",
         }
     }
 }
 
-/// The hosted-release forge port: cut a Release for a resolved tag
-/// idempotently.
+/// The hosted-release forge port: cut a Release for a resolved tag immutably.
 ///
 /// Object-safe so an engine host registry can hand back a `Box<dyn
 /// ReleaseHost>` keyed by the configured forge. Implementations invoke their
 /// forge CLI argv-only (never a shell string) and read any token from the
 /// ambient environment only — never logging it.
 pub trait ReleaseHost {
-    /// Create or update the hosted Release for `release.tag` idempotently.
+    /// Create the hosted Release for `release.tag`, or verify an identical one
+    /// already exists (immutable create-or-verify).
     ///
-    /// An existing Release for the tag is updated in place (notes, flags, and
-    /// assets), never duplicated. The working directory `root` locates the
-    /// forge repository the Release belongs to.
+    /// If no Release exists for the tag, one is created. If a Release already
+    /// exists, it is compared field-by-field (title, notes, draft/prerelease
+    /// flags, and every asset's name and size) against the intended release: an
+    /// exact match reports [`HostReleaseOutcome::AlreadyComplete`]; any
+    /// divergence is a typed conflict error with forward-fix guidance. An
+    /// existing Release is never edited, and assets are never clobbered. The
+    /// working directory `root` locates the forge repository the Release
+    /// belongs to.
     ///
     /// # Errors
-    /// Propagates a forge CLI spawn/IO failure or a non-zero CLI exit.
+    /// Propagates a forge CLI spawn/IO failure or a non-zero CLI exit, and
+    /// returns a typed conflict error when an existing Release diverges from the
+    /// intended one.
     fn ensure_release(&self, root: &Path, release: &HostedRelease)
     -> AppResult<HostReleaseOutcome>;
 }
@@ -183,6 +196,9 @@ mod tests {
     #[test]
     fn outcome_names_are_stable() {
         assert_eq!(HostReleaseOutcome::Created.as_str(), "created");
-        assert_eq!(HostReleaseOutcome::Updated.as_str(), "updated");
+        assert_eq!(
+            HostReleaseOutcome::AlreadyComplete.as_str(),
+            "already-complete"
+        );
     }
 }

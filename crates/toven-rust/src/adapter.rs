@@ -47,11 +47,7 @@ impl ConfiguredAdapter for RustAdapter {
     }
 
     fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseTarget>>> {
-        if self.config.publish {
-            Ok(Some(Box::new(CratesIoTarget::new())))
-        } else {
-            Ok(None)
-        }
+        Ok(Some(Box::new(CratesIoTarget::new())))
     }
 
     fn common(&self) -> &CommonEcosystemConfig {

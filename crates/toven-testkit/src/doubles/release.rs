@@ -67,6 +67,7 @@ struct FakeReleaseState {
     fail_apply: Option<String>,
     fail_package: Option<String>,
     fail_publish: Option<String>,
+    fail_version_read: Option<String>,
     sbom_artifact: Option<String>,
     fail_sbom: Option<String>,
     calls: Vec<ReleaseCall>,
@@ -85,6 +86,7 @@ impl Default for FakeReleaseTarget {
                 fail_apply: None,
                 fail_package: None,
                 fail_publish: None,
+                fail_version_read: None,
                 sbom_artifact: Some("sbom/fake.cdx.json".to_string()),
                 fail_sbom: None,
                 calls: Vec::new(),
@@ -185,6 +187,15 @@ impl FakeReleaseTarget {
         self
     }
 
+    /// Make the version-read calls (`declared_version` and `published_versions`)
+    /// fail with a typed internal error — e.g. to model a target that cannot
+    /// resolve a version for a module that has never been released.
+    #[must_use]
+    pub fn with_version_read_failure(self, message: impl Into<String>) -> Self {
+        self.state().fail_version_read = Some(message.into());
+        self
+    }
+
     /// Snapshot the recorded release calls in call order.
     #[must_use]
     pub fn calls(&self) -> Vec<ReleaseCall> {
@@ -203,12 +214,20 @@ impl FakeReleaseTarget {
 impl ReleaseTarget for FakeReleaseTarget {
     fn declared_version(&self, module: &Module) -> AppResult<Version> {
         self.record(ReleaseCall::DeclaredVersion(module.id.clone()));
-        Ok(self.state().declared.clone())
+        let state = self.state();
+        if let Some(message) = &state.fail_version_read {
+            return Err(fake_error(message));
+        }
+        Ok(state.declared.clone())
     }
 
     fn published_versions(&self, module: &Module) -> AppResult<Vec<Version>> {
         self.record(ReleaseCall::PublishedVersions(module.id.clone()));
-        Ok(self.state().published.clone())
+        let state = self.state();
+        if let Some(message) = &state.fail_version_read {
+            return Err(fake_error(message));
+        }
+        Ok(state.published.clone())
     }
 
     fn tag_scheme(&self, module: &Module, tag_format: Option<&str>) -> AppResult<TagScheme> {

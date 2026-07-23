@@ -106,14 +106,14 @@ mod tests {
 
     #[test]
     fn records_calls_and_returns_scripted_outcome() {
-        let host = FakeReleaseHost::new().with_outcome(HostReleaseOutcome::Updated);
+        let host = FakeReleaseHost::new().with_outcome(HostReleaseOutcome::AlreadyComplete);
         let release = HostedRelease::new("rust/core@1.2.3", "core 1.2.3", "notes");
 
         let outcome = host
             .ensure_release(Path::new("/repo"), &release)
             .expect("ok");
 
-        assert_eq!(outcome, HostReleaseOutcome::Updated);
+        assert_eq!(outcome, HostReleaseOutcome::AlreadyComplete);
         let calls = host.calls();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].release.tag, "rust/core@1.2.3");

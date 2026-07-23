@@ -23,7 +23,7 @@ use toven_engine::release::{
 };
 use toven_engine::vcs::BaselineFlags;
 use toven_model::{Event, ModuleRef};
-use toven_ports::{BumpLevel, Provider, Reporter, TaskIntent};
+use toven_ports::{BumpLevel, Provider, PublicationPolicy, Reporter, TaskIntent};
 
 use crate::flags::{Cli, OutputKind, ReleaseAction};
 use crate::host::{Project, Report, new_run_id, resolve_output};
@@ -294,7 +294,6 @@ fn run(
 
     let overrides = build_overrides(cli)?;
     let options = ReleaseApplyOptions {
-        allow_dirty: cli.allow_dirty,
         no_push: cli.no_push,
         publish: matches!(action, ReleaseAction::Publish),
         ..ReleaseApplyOptions::default()
@@ -334,13 +333,23 @@ struct PlanRecord {
     cascade_origin: Option<String>,
     prerelease_channel: Option<String>,
     up_to_date: bool,
+    publication: String,
+    registry: Option<String>,
     publish_needed: bool,
     summary: String,
 }
 
 fn render_plan_human(plan: &ReleasePlan) {
     let mut table = OutputTable::new(vec![
-        "Module", "Current", "Planned", "Level", "Reason", "Input", "Publish", "Summary",
+        "Module",
+        "Current",
+        "Planned",
+        "Level",
+        "Reason",
+        "Input",
+        "Publication",
+        "Publish",
+        "Summary",
     ])
     .with_title(format!("Release plan ({})", plan.policy.as_str()));
     for entry in &plan.entries {
@@ -358,6 +367,7 @@ fn render_plan_human(plan: &ReleasePlan) {
             },
             entry.reason.as_str().to_string(),
             entry.winning_input.as_str().to_string(),
+            publication_label(&entry.publication),
             if entry.up_to_date {
                 "up to date".to_string()
             } else if entry.publish_needed {
@@ -386,6 +396,8 @@ fn render_plan_jsonl(plan: &ReleasePlan) -> AppResult<()> {
             cascade_origin: entry.cascade_origin.as_ref().map(ToString::to_string),
             prerelease_channel: entry.prerelease_channel.clone(),
             up_to_date: entry.up_to_date,
+            publication: entry.publication.as_str().to_string(),
+            registry: entry.publication.registry().map(str::to_string),
             publish_needed: entry.publish_needed,
             summary: entry.changelog.summary.clone(),
         };
@@ -399,6 +411,8 @@ fn render_plan_jsonl(plan: &ReleasePlan) -> AppResult<()> {
 #[derive(Serialize)]
 struct StatusRecord {
     module: String,
+    publication: String,
+    registry: Option<String>,
     declared_version: String,
     latest_tag: Option<String>,
     published_versions: Vec<String>,
@@ -406,11 +420,18 @@ struct StatusRecord {
 }
 
 fn render_status_human(status: &ReleaseStatus) {
-    let mut table = OutputTable::new(vec!["Module", "Declared", "Latest tag", "Published"])
-        .with_title("Release status");
+    let mut table = OutputTable::new(vec![
+        "Module",
+        "Publication",
+        "Declared",
+        "Latest tag",
+        "Published",
+    ])
+    .with_title("Release status");
     for module in &status.modules {
         table.add_row(vec![
             module.module.to_string(),
+            publication_label(&module.publication),
             module.declared_version.to_string(),
             module.latest_tag.clone().unwrap_or_else(|| "-".to_string()),
             if module.is_published { "yes" } else { "no" }.to_string(),
@@ -423,6 +444,8 @@ fn render_status_jsonl(status: &ReleaseStatus) -> AppResult<()> {
     for module in &status.modules {
         let record = StatusRecord {
             module: module.module.to_string(),
+            publication: module.publication.as_str().to_string(),
+            registry: module.publication.registry().map(str::to_string),
             declared_version: module.declared_version.to_string(),
             latest_tag: module.latest_tag.clone(),
             published_versions: module
@@ -443,6 +466,8 @@ fn render_status_jsonl(status: &ReleaseStatus) -> AppResult<()> {
 struct RehearsalRecord {
     kind: &'static str,
     module: String,
+    publication: String,
+    registry: Option<String>,
     version: String,
     decision: String,
 }
@@ -464,19 +489,26 @@ fn render_rehearsal_human(rehearsal: &ReleaseRehearsal) {
         .iter()
         .filter(|verdict| verdict.decision == PublishDecision::WouldPublish)
         .count();
-    let already_published = rehearsal.verdicts.len() - would_publish;
+    let tag_only = rehearsal
+        .verdicts
+        .iter()
+        .filter(|verdict| verdict.decision == PublishDecision::TagOnly)
+        .count();
+    let already_published = rehearsal.verdicts.len() - would_publish - tag_only;
     let mut summary = OutputKV::new();
     summary
         .add("policy", rehearsal.policy.as_str().to_string())
         .add("would_publish", would_publish.to_string())
         .add("already_published", already_published.to_string())
+        .add("tag_only", tag_only.to_string())
         .add("hosted_releases", rehearsal.hosted.len().to_string());
     println!("{summary}");
-    let mut table = OutputTable::new(vec!["Module", "Version", "Decision"])
+    let mut table = OutputTable::new(vec!["Module", "Publication", "Version", "Decision"])
         .with_title("Release rehearsal (no mutation)");
     for verdict in &rehearsal.verdicts {
         table.add_row(vec![
             verdict.module.to_string(),
+            publication_label(&verdict.publication),
             verdict.version.to_string(),
             verdict.decision.as_str().to_string(),
         ]);
@@ -504,6 +536,8 @@ fn render_rehearsal_jsonl(rehearsal: &ReleaseRehearsal) -> AppResult<()> {
         let record = RehearsalRecord {
             kind: "publish",
             module: verdict.module.to_string(),
+            publication: verdict.publication.as_str().to_string(),
+            registry: verdict.publication.registry().map(str::to_string),
             version: verdict.version.to_string(),
             decision: verdict.decision.as_str().to_string(),
         };
@@ -523,6 +557,13 @@ fn render_rehearsal_jsonl(rehearsal: &ReleaseRehearsal) -> AppResult<()> {
         println!("{line}");
     }
     Ok(())
+}
+
+fn publication_label(publication: &PublicationPolicy) -> String {
+    publication.registry().map_or_else(
+        || publication.as_str().to_string(),
+        |registry| format!("{} ({registry})", publication.as_str()),
+    )
 }
 
 /// A stable JSON-lines record for one readiness check.

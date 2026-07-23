@@ -3,23 +3,31 @@
 //!
 //! Cuts a GitHub Release for a resolved tag by invoking the `gh` CLI as an
 //! argument vector (never a shell string) through `rskit-process`, with bounded
-//! output and a hard timeout. Idempotency is create-first: an "already exists"
-//! response falls through to an in-place edit plus a clobbering asset upload,
-//! so re-running a release updates the existing Release rather than duplicating
-//! it. The forge token is read from the ambient environment by `gh` itself and
-//! is never passed on the command line or logged.
+//! output and a hard timeout. Publication is immutable create-or-verify: every
+//! project-relative asset is validated and fingerprinted before any external
+//! mutation, then a Release is created; an "already exists" response triggers a
+//! read-only verification of the existing Release against the intended one
+//! rather than an in-place edit. An identical Release reports
+//! [`HostReleaseOutcome::AlreadyComplete`]; any divergence is a typed conflict
+//! that must be forward-fixed with a new version and tag. The forge token is
+//! read from the ambient environment by `gh` itself and is never passed on the
+//! command line or logged.
 //!
 //! GitLab is a documented follow-up seam behind the same [`ReleaseHost`] port;
 //! only GitHub is implemented here.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use rskit_errors::AppResult;
+use rskit_errors::{AppError, AppResult, ErrorCode};
+use rskit_fs::path::safe_join;
+use rskit_fs::sync_io::file;
 use rskit_process::{
     CapturedIo, InputPolicy, OutputPolicy, ProcessConfig, ProcessIo, ProcessResult, ProcessSpec,
     run,
 };
+use serde::Deserialize;
 use toven_ports::{HostReleaseOutcome, HostedRelease, ReleaseHost};
 
 /// Maximum retained stdout/stderr for a `gh` command (64 KiB each).
@@ -46,6 +54,11 @@ impl ReleaseHost for GithubReleaseHost {
         root: &Path,
         release: &HostedRelease,
     ) -> AppResult<HostReleaseOutcome> {
+        // Validate and fingerprint every project-relative asset before any
+        // external mutation, so a bad asset fails the run before it touches the
+        // forge.
+        let local = fingerprint_assets(root, release)?;
+
         let notes = release.notes.as_bytes();
         let created = gh(root, create_argv(release), notes)?;
         if created.success() {
@@ -56,14 +69,16 @@ impl ReleaseHost for GithubReleaseHost {
             created.check()?;
         }
 
-        // The Release already exists: update it in place, then re-upload assets with
-        // `--clobber`, overwriting any same-named asset instead of erroring on repeats.
-        // Assets dropped from config are not deleted from the Release.
-        gh(root, edit_argv(release), notes)?.check()?;
-        if let Some(argv) = upload_argv(release) {
-            gh(root, argv, &[])?.check()?;
-        }
-        Ok(HostReleaseOutcome::Updated)
+        // The Release already exists. Hosted publication is immutable: read the
+        // existing Release and verify it matches the intended one exactly. An
+        // identical Release is an idempotent re-run; any divergence is a
+        // conflict the operator forward-fixes with a new version — never an edit
+        // or a clobbering re-upload.
+        let viewed = gh(root, view_argv(&release.tag), &[])?;
+        viewed.check()?;
+        let existing = parse_existing(&viewed.stdout)?;
+        reconcile(release, &local, &existing)?;
+        Ok(HostReleaseOutcome::AlreadyComplete)
     }
 }
 
@@ -72,6 +87,56 @@ impl ReleaseHost for GithubReleaseHost {
 fn release_already_exists(output: &ProcessResult) -> bool {
     let combined = format!("{}\n{}", output.stdout, output.stderr).to_ascii_lowercase();
     combined.contains("already exists")
+}
+
+/// Validate and fingerprint every asset by uploaded name and byte size.
+///
+/// Rejects an asset path that escapes the repository root or is not a regular
+/// file, and rejects two assets that would upload under the same name. Runs
+/// before any `gh` invocation so an invalid asset set never partially mutates
+/// the forge.
+fn fingerprint_assets(root: &Path, release: &HostedRelease) -> AppResult<BTreeMap<String, u64>> {
+    let mut sizes = BTreeMap::new();
+    for asset in &release.assets {
+        let joined = safe_join(root, &asset.path).map_err(|error| {
+            AppError::invalid_input(
+                "release.host.assets",
+                format!(
+                    "asset path '{}' escapes the repository root",
+                    asset.path.display()
+                ),
+            )
+            .with_cause(error)
+        })?;
+        let meta = file::metadata(&joined)?;
+        if !meta.is_file {
+            return Err(AppError::invalid_input(
+                "release.host.assets",
+                format!("asset '{}' is not a regular file", asset.path.display()),
+            ));
+        }
+        let name = asset_name(&asset.path)?;
+        if sizes.insert(name.clone(), meta.len).is_some() {
+            return Err(AppError::invalid_input(
+                "release.host.assets",
+                format!("two assets upload under the same name '{name}'"),
+            ));
+        }
+    }
+    Ok(sizes)
+}
+
+/// The uploaded asset name GitHub derives from a path (its file name).
+fn asset_name(path: &Path) -> AppResult<String> {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            AppError::invalid_input(
+                "release.host.assets",
+                format!("asset path '{}' has no file name", path.display()),
+            )
+        })
 }
 
 /// Build the `gh release create` argv for a hosted release.
@@ -99,51 +164,22 @@ fn create_argv(release: &HostedRelease) -> Vec<String> {
     argv
 }
 
-/// Build the `gh release edit` argv that reconciles an existing Release's
-/// metadata (title, notes, draft/prerelease flags) with the resolved release.
-///
-/// Notes are piped through stdin via `--notes-file -`, matching `create_argv`.
-fn edit_argv(release: &HostedRelease) -> Vec<String> {
+/// Build the read-only `gh release view` argv that fetches the existing
+/// Release's metadata and assets as JSON for verification.
+fn view_argv(tag: &str) -> Vec<String> {
     vec![
         "release".to_string(),
-        "edit".to_string(),
-        release.tag.clone(),
-        "--title".to_string(),
-        release.title.clone(),
-        "--notes-file".to_string(),
-        "-".to_string(),
-        format!("--draft={}", release.draft),
-        format!("--prerelease={}", release.prerelease),
+        "view".to_string(),
+        tag.to_string(),
+        "--json".to_string(),
+        "name,body,isDraft,isPrerelease,assets".to_string(),
     ]
 }
 
-/// Build the `gh release upload` argv, or `None` when the release has no
-/// assets.
-///
-/// `--clobber` overwrites an existing asset of the same name so a re-run
-/// replaces it in place instead of failing on a duplicate. Assets no longer
-/// configured are left on the Release; the upload adds and overwrites but never
-/// deletes.
-fn upload_argv(release: &HostedRelease) -> Option<Vec<String>> {
-    if release.assets.is_empty() {
-        return None;
-    }
-    let mut argv = vec![
-        "release".to_string(),
-        "upload".to_string(),
-        release.tag.clone(),
-    ];
-    argv.extend(asset_args(release));
-    argv.push("--clobber".to_string());
-    Some(argv)
-}
-
-/// The positional asset arguments for a `gh release` command.
+/// The positional asset arguments for a `gh release create` command.
 ///
 /// A labeled asset uses `gh`'s `<path>#<label>` syntax; an unlabeled one is the
-/// bare path. Both `create` and `upload` accept this form, so a clobbering
-/// re-upload overwrites the same-named asset while keeping its label instead of
-/// stripping it.
+/// bare path.
 fn asset_args(release: &HostedRelease) -> Vec<String> {
     release
         .assets
@@ -157,8 +193,121 @@ fn asset_args(release: &HostedRelease) -> Vec<String> {
         .collect()
 }
 
+/// An existing forge Release as reported by `gh release view --json`.
+#[derive(Debug, Deserialize)]
+struct ExistingRelease {
+    /// Release title (`gh`'s `name`).
+    #[serde(default)]
+    name: String,
+    /// Release note body.
+    #[serde(default)]
+    body: String,
+    /// Whether the Release is a draft.
+    #[serde(rename = "isDraft", default)]
+    draft: bool,
+    /// Whether the Release is a prerelease.
+    #[serde(rename = "isPrerelease", default)]
+    prerelease: bool,
+    /// Uploaded assets (name and byte size).
+    #[serde(default)]
+    assets: Vec<ExistingAsset>,
+}
+
+/// One asset on an existing forge Release.
+#[derive(Debug, Deserialize)]
+struct ExistingAsset {
+    /// Uploaded asset name.
+    name: String,
+    /// Asset size in bytes.
+    #[serde(default)]
+    size: u64,
+}
+
+/// Parse the JSON body of `gh release view --json` into an [`ExistingRelease`].
+fn parse_existing(json: &str) -> AppResult<ExistingRelease> {
+    serde_json::from_str(json.trim()).map_err(|error| {
+        AppError::invalid_format("gh release view output", "release metadata JSON")
+            .with_cause(error)
+    })
+}
+
+/// Verify an existing Release matches the intended one exactly, or fail with a
+/// typed conflict carrying forward-fix guidance.
+///
+/// Compares title, notes, the draft/prerelease flags, and — for every intended
+/// asset — that the existing Release carries an identically named asset of the
+/// same byte size. Extra assets already present on the forge (for example a
+/// separately attached signature) are tolerated; a missing or size-mismatched
+/// intended asset is a conflict.
+fn reconcile(
+    intended: &HostedRelease,
+    local_sizes: &BTreeMap<String, u64>,
+    existing: &ExistingRelease,
+) -> AppResult<()> {
+    let mut diffs = Vec::new();
+    if existing.name != intended.title {
+        diffs.push(format!(
+            "title (existing '{}' vs intended '{}')",
+            existing.name, intended.title
+        ));
+    }
+    if normalize_line_endings(&existing.body) != normalize_line_endings(&intended.notes) {
+        diffs.push("release notes".to_string());
+    }
+    if existing.draft != intended.draft {
+        diffs.push(format!(
+            "draft flag (existing {} vs intended {})",
+            existing.draft, intended.draft
+        ));
+    }
+    if existing.prerelease != intended.prerelease {
+        diffs.push(format!(
+            "prerelease flag (existing {} vs intended {})",
+            existing.prerelease, intended.prerelease
+        ));
+    }
+    let remote: BTreeMap<&str, u64> = existing
+        .assets
+        .iter()
+        .map(|asset| (asset.name.as_str(), asset.size))
+        .collect();
+    for (name, size) in local_sizes {
+        match remote.get(name.as_str()) {
+            None => diffs.push(format!("missing asset '{name}'")),
+            Some(remote_size) if remote_size != size => diffs.push(format!(
+                "asset '{name}' size (existing {remote_size} vs intended {size})"
+            )),
+            Some(_) => {}
+        }
+    }
+    if diffs.is_empty() {
+        return Ok(());
+    }
+    Err(AppError::new(
+        ErrorCode::Conflict,
+        format!(
+            "hosted release '{}' already exists and differs from the intended release ({}); \
+             hosted releases are immutable — forward-fix by cutting a new version and tag rather \
+             than editing the existing release",
+            intended.tag,
+            diffs.join("; ")
+        ),
+    ))
+}
+
 fn display(path: &Path) -> String {
     path.display().to_string()
+}
+
+/// Normalize release-note line endings to `\n` for comparison.
+///
+/// The forge normalizes a submitted note body's line endings server-side (LF is
+/// returned as CRLF by `gh release view --json body`), so an idempotent re-run
+/// of a byte-identical multi-line release would otherwise report a spurious
+/// notes conflict. Comparing on a canonical `\n` form keeps create-or-verify
+/// idempotent without weakening the immutability check.
+fn normalize_line_endings(text: &str) -> String {
+    text.replace("\r\n", "\n")
 }
 
 fn gh(root: &Path, args: Vec<String>, stdin: &[u8]) -> AppResult<ProcessResult> {
@@ -175,9 +324,11 @@ fn gh(root: &Path, args: Vec<String>, stdin: &[u8]) -> AppResult<ProcessResult> 
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use toven_ports::{HostedRelease, ReleaseAsset};
 
-    use super::{create_argv, edit_argv, upload_argv};
+    use super::{ExistingRelease, create_argv, parse_existing, reconcile, view_argv};
 
     fn release() -> HostedRelease {
         HostedRelease::new("rust/core@1.2.3", "core 1.2.3", "the notes")
@@ -218,27 +369,119 @@ mod tests {
     }
 
     #[test]
-    fn edit_argv_sets_explicit_flag_values() {
-        let argv = edit_argv(&release().with_prerelease(true));
-        assert_eq!(&argv[0..3], &["release", "edit", "rust/core@1.2.3"]);
-        assert!(argv.iter().any(|arg| arg == "--draft=false"));
-        assert!(argv.iter().any(|arg| arg == "--prerelease=true"));
+    fn view_argv_is_read_only_json() {
+        let argv = view_argv("rust/core@1.2.3");
+        assert_eq!(&argv[0..3], &["release", "view", "rust/core@1.2.3"]);
+        assert!(argv.iter().any(|arg| arg == "--json"));
+        // No mutating verb ever appears.
+        assert!(argv.iter().all(|arg| arg != "edit" && arg != "upload"));
+    }
+
+    fn parsed(json: &str) -> ExistingRelease {
+        parse_existing(json).expect("parse gh json")
     }
 
     #[test]
-    fn upload_argv_is_none_without_assets_and_clobbers_with_them() {
-        assert!(upload_argv(&release()).is_none());
+    fn parse_existing_maps_gh_field_names() {
+        let existing = parsed(
+            r#"{"name":"core 1.2.3","body":"the notes","isDraft":false,
+                "isPrerelease":true,"assets":[{"name":"core.tgz","size":42}]}"#,
+        );
+        assert_eq!(existing.name, "core 1.2.3");
+        assert_eq!(existing.body, "the notes");
+        assert!(!existing.draft);
+        assert!(existing.prerelease);
+        assert_eq!(existing.assets.len(), 1);
+        assert_eq!(existing.assets[0].name, "core.tgz");
+        assert_eq!(existing.assets[0].size, 42);
+    }
 
-        let with_assets = release().with_assets(vec![
-            ReleaseAsset::new("dist/core.cdx.json").with_label("SBOM"),
-            ReleaseAsset::new("dist/core.tgz"),
-        ]);
-        let argv = upload_argv(&with_assets).expect("assets present");
-        assert_eq!(&argv[0..3], &["release", "upload", "rust/core@1.2.3"]);
-        // The clobbering re-upload keeps the label so it does not regress to an
-        // unlabeled asset.
-        assert!(argv.iter().any(|arg| arg == "dist/core.cdx.json#SBOM"));
-        assert!(argv.iter().any(|arg| arg == "dist/core.tgz"));
-        assert!(argv.iter().any(|arg| arg == "--clobber"));
+    #[test]
+    fn reconcile_accepts_a_byte_identical_existing_release() {
+        let intended = release().with_assets(vec![ReleaseAsset::new("dist/core.tgz")]);
+        let local = BTreeMap::from([("core.tgz".to_string(), 42_u64)]);
+        let existing = parsed(
+            r#"{"name":"core 1.2.3","body":"the notes","isDraft":false,
+                "isPrerelease":false,"assets":[{"name":"core.tgz","size":42}]}"#,
+        );
+        reconcile(&intended, &local, &existing).expect("identical release verified");
+    }
+
+    #[test]
+    fn reconcile_treats_crlf_normalized_notes_as_identical() {
+        // The forge returns a submitted LF note body with CRLF line endings, so
+        // an idempotent re-run must still verify as complete rather than report a
+        // spurious notes conflict.
+        let intended = HostedRelease::new("rust/core@1.2.3", "core 1.2.3", "line one\nline two\n");
+        let local = BTreeMap::new();
+        let existing = parsed(
+            r#"{"name":"core 1.2.3","body":"line one\r\nline two\r\n","isDraft":false,
+                "isPrerelease":false,"assets":[]}"#,
+        );
+        reconcile(&intended, &local, &existing).expect("CRLF-normalized notes verified");
+    }
+
+    #[test]
+    fn reconcile_rejects_notes_that_differ_beyond_line_endings() {
+        let intended = HostedRelease::new("rust/core@1.2.3", "core 1.2.3", "line one\nline two\n");
+        let local = BTreeMap::new();
+        let existing = parsed(
+            r#"{"name":"core 1.2.3","body":"line one\r\ndifferent\r\n","isDraft":false,
+                "isPrerelease":false,"assets":[]}"#,
+        );
+        let error = reconcile(&intended, &local, &existing).expect_err("notes conflict");
+        assert!(error.to_string().contains("release notes"), "{error}");
+    }
+
+    #[test]
+    fn reconcile_tolerates_extra_remote_assets() {
+        let intended = release().with_assets(vec![ReleaseAsset::new("dist/core.tgz")]);
+        let local = BTreeMap::from([("core.tgz".to_string(), 42_u64)]);
+        let existing = parsed(
+            r#"{"name":"core 1.2.3","body":"the notes","isDraft":false,"isPrerelease":false,
+                "assets":[{"name":"core.tgz","size":42},{"name":"core.tgz.sig","size":9}]}"#,
+        );
+        reconcile(&intended, &local, &existing).expect("extra signature asset tolerated");
+    }
+
+    #[test]
+    fn reconcile_rejects_conflicting_metadata_with_forward_fix_guidance() {
+        let intended = release();
+        let local = BTreeMap::new();
+        let existing = parsed(
+            r#"{"name":"different title","body":"the notes","isDraft":false,"isPrerelease":false,"assets":[]}"#,
+        );
+        let error = reconcile(&intended, &local, &existing).expect_err("metadata conflict");
+        let message = error.to_string();
+        assert!(message.contains("title"), "{message}");
+        assert!(message.contains("immutable"), "{message}");
+        assert!(message.contains("forward-fix"), "{message}");
+    }
+
+    #[test]
+    fn reconcile_rejects_a_missing_or_resized_asset() {
+        let intended = release().with_assets(vec![ReleaseAsset::new("dist/core.tgz")]);
+        let local = BTreeMap::from([("core.tgz".to_string(), 42_u64)]);
+
+        let missing = parsed(
+            r#"{"name":"core 1.2.3","body":"the notes","isDraft":false,"isPrerelease":false,"assets":[]}"#,
+        );
+        assert!(
+            reconcile(&intended, &local, &missing)
+                .expect_err("missing asset")
+                .to_string()
+                .contains("missing asset 'core.tgz'")
+        );
+
+        let resized = parsed(
+            r#"{"name":"core 1.2.3","body":"the notes","isDraft":false,"isPrerelease":false,
+                "assets":[{"name":"core.tgz","size":7}]}"#,
+        );
+        assert!(
+            reconcile(&intended, &local, &resized)
+                .expect_err("resized asset")
+                .to_string()
+                .contains("size")
+        );
     }
 }

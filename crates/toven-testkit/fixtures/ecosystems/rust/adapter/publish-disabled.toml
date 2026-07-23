@@ -1,0 +1,7 @@
+# Rust adapter config with registry publication disabled (`publish = false`).
+# The adapter still exposes a release target — publishability is a release-policy
+# decision (tag-only vs. registry), not the absence of a target.
+manifests = ["Cargo.toml"]
+
+[release]
+publish = false

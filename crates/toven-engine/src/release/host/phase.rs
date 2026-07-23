@@ -248,6 +248,9 @@ mod tests {
             prerelease_channel: prerelease.map(str::to_string),
             up_to_date: false,
             mutation: ReleaseMutation::version(version),
+            publication: toven_ports::PublicationPolicy::Registry {
+                registry: "crates-io".into(),
+            },
             publish_needed: true,
             tag_format: None,
             tag_message: None,
@@ -409,7 +412,7 @@ mod tests {
         let planned =
             planned_host_releases(&plan, &modules, &targets(), &all, Path::new("/repo")).unwrap();
 
-        let host = FakeReleaseHost::new().with_outcome(HostReleaseOutcome::Updated);
+        let host = FakeReleaseHost::new().with_outcome(HostReleaseOutcome::AlreadyComplete);
         let mut hosts = super::ReleaseHosts::new();
         hosts.insert("github".to_string(), Box::new(host.clone()));
         let mut stats = ReleaseStats::new(2);
@@ -446,7 +449,7 @@ mod tests {
         )
         .unwrap();
 
-        let host = FakeReleaseHost::new().with_outcome(HostReleaseOutcome::Updated);
+        let host = FakeReleaseHost::new().with_outcome(HostReleaseOutcome::AlreadyComplete);
         let mut hosts = super::ReleaseHosts::new();
         hosts.insert("github".to_string(), Box::new(host.clone()));
         let mut stats = ReleaseStats::new(1);

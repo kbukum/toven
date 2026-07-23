@@ -22,6 +22,7 @@ push = true
 remote = "origin"
 branches = ["main"]
 registry = "crates-io"
+exclude = false
 offline = false
 token_env = "CARGO_REGISTRY_TOKEN"
 readiness = ["clean-tree", "registry-idempotent"]
@@ -54,7 +55,9 @@ assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
 | `push` | Permit release commit and tag push | `true` |
 | `remote` | Git remote for release pushes | `origin` |
 | `branches` | Allowed release branches; an empty list permits any branch | Any branch |
-| `registry` | Intended registry selection | No registry |
+| `registry` | Registry selection for Rust crate publication; invalid for Go | No registry, tag-only |
+| `publish` | `false` selects tag-only publication when no registry is declared | Inherit / registry-driven |
+| `exclude` | Exclude the module from release planning, tagging, registry publication, and hosted releases | `false` |
 | `offline` | Use tags rather than target queries for idempotency | `false` |
 | `token_env` | Name of the registry-token environment variable, never the token | None |
 | `readiness` | Named fail-closed checks | None |
@@ -92,7 +95,7 @@ path = "CHANGELOG.md"
 required = true
 ```
 
-The contract requires a maintainer-readable entry for every directly changed release unit and a dependency-cascade explanation for every indirectly selected unit. The current planner produces deterministic changed-path summaries and rejects a required directly changed module when it has no change records. It does not yet parse, update, or verify an entry in the configured changelog file; file-backed changelog enforcement remains release-correctness work.
+When `required = true`, every directly changed release unit must have a documented entry in the configured changelog before the release proceeds. The check is file-backed: Toven resolves the project-relative `path` (default `CHANGELOG.md`), reads it, and requires a non-empty [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) `## [Unreleased]` section — at least one bullet or prose line under the heading, not just empty `### Added`/`### Fixed` subsections. A missing, unreadable, unsafe, or undocumented changelog fails validation before any mutation. Modules selected only through a dependency cascade are exempt; their release reason is the deterministic dependency-cascade explanation carried in the plan. Toven verifies the changelog but never rewrites it; authoring the `[Unreleased]` entry stays a maintainer action.
 
 ## Readiness
 
@@ -101,7 +104,7 @@ The contract requires a maintainer-readable entry for every directly changed rel
 readiness = ["clean-tree", "registry-idempotent"]
 ```
 
-`clean-tree` and `registry-idempotent` are currently executable. A protected publication policy should configure both for registry releases and at least `clean-tree` for tag-only releases.
+`clean-tree` and `registry-idempotent` are currently executable. `registry-idempotent` only evaluates registry-published modules; tag-only and excluded modules are ignored by that registry check. A protected publication policy should configure both for registry releases and at least `clean-tree` for tag-only releases.
 
 ## Hosted GitHub Releases
 
@@ -126,9 +129,16 @@ The contract distinguishes:
 | Tag-only | Create the immutable tag without registry publication | The tag is the release |
 | Excluded module | Do not version, tag, publish, or host | Do not version or tag |
 
-The typed configuration currently accepts `registry`, but publication does not yet branch on it. The planned per-module `publish = true|false` field is not accepted yet. Do not add that field to a repository configuration until the release-correctness step implements it.
+Toven resolves publication into a typed policy before planning:
 
-For Go test-only and benchmark modules, the policy is intentionally explicit: each such module must eventually set `release.publish = true` or `false`; path and name heuristics are forbidden.
+- `registry = "crates-io"` selects Rust registry publication.
+- No `registry` selects tag-only publication; Rust crates are not published by default.
+- `publish = false` is an explicit tag-only declaration when no registry is declared.
+- `exclude = true` removes the module from release planning entirely.
+
+Contradictory combinations fail validation: Go cannot declare a registry, a registry target cannot be combined with `publish = false`, and an excluded module cannot declare registry publication or hosted assets. Registry-published Rust crates are packaged and published during `release publish`; tag-only modules are versioned and tagged but never sent to a package registry.
+
+For Go test-only and benchmark modules, the policy is intentionally explicit: use tag-only release policy or `exclude = true`; path and name heuristics are forbidden. Go registry publication is rejected because Go releases are immutable Git tags.
 
 ## Signing
 
@@ -147,4 +157,4 @@ The typed configuration validates signing intent and an optional non-secret sign
 - Tokens remain in environment variables or credential stores.
 - Partial publication is recovered by a newly previewed and approved forward fix.
 
-The current `--allow-dirty` bypass and mutable GitHub Release reconciliation do not satisfy the final contract and must not be used in protected release automation.
+The clean-tree guardrail has no bypass, and hosted GitHub Releases are immutable create-or-verify: an existing Release is verified byte-identical to the intended one or the run fails with a conflict, never edited in place.

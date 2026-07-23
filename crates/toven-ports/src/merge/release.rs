@@ -52,6 +52,12 @@ pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfi
     if over.registry.is_some() {
         merged.registry.clone_from(&over.registry);
     }
+    if over.publish.is_some() {
+        merged.publish = over.publish;
+    }
+    if over.exclude.is_some() {
+        merged.exclude = over.exclude;
+    }
     if over.offline.is_some() {
         merged.offline = over.offline;
     }

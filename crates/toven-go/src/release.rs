@@ -9,10 +9,14 @@
 use std::path::PathBuf;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use rskit_git::RefManager;
+use rskit_fs::safe_join;
+use rskit_git::{Inspector, LogReader, RefManager};
+use rskit_process::ProcessSpec;
 use rskit_version::semver::Version;
 use toven_model::Module;
 use toven_ports::{Artifact, PublishOutcome, ReleaseMutation, ReleaseTarget, TagScheme};
+
+use crate::exec::run_go_json;
 
 /// Release target for Go modules released as git tags.
 #[derive(Debug, Clone, Default)]
@@ -40,9 +44,18 @@ impl GoVcsTarget {
         self
     }
 
-    fn tags_for(&self) -> AppResult<Vec<String>> {
+    fn reachable_tags_for(&self) -> AppResult<Vec<String>> {
         let repo = rskit_git::discover(self.working_root()?)?;
-        Ok(repo.list_tags()?.into_iter().map(|tag| tag.name).collect())
+        let head = repo.rev_parse("HEAD")?;
+        let mut tags = Vec::new();
+        for tag in repo.list_tags()? {
+            let peeled = format!("refs/tags/{}^{{}}", tag.name);
+            let tagged = repo.rev_parse(&peeled)?;
+            if tagged == head || repo.is_ancestor(&tagged.to_string(), "HEAD")? {
+                tags.push(tag.name);
+            }
+        }
+        Ok(tags)
     }
 
     fn working_root(&self) -> AppResult<PathBuf> {
@@ -60,17 +73,21 @@ impl GoVcsTarget {
 
 impl ReleaseTarget for GoVcsTarget {
     fn declared_version(&self, module: &Module) -> AppResult<Version> {
-        Ok(self
-            .published_versions(module)?
-            .into_iter()
-            .max()
-            .unwrap_or_else(|| Version::new(0, 0, 0)))
+        self.published_versions(module)?.into_iter().max().ok_or_else(|| {
+            AppError::invalid_input(
+                "release.tags",
+                format!(
+                    "Go module '{}' has no reachable release tag; set an explicit release version before the first Go release",
+                    module.key()
+                ),
+            )
+        })
     }
 
     fn published_versions(&self, module: &Module) -> AppResult<Vec<Version>> {
         let scheme = self.tag_scheme(module, None)?;
         let mut versions = self
-            .tags_for()?
+            .reachable_tags_for()?
             .into_iter()
             .filter_map(|tag| scheme.parse(&tag))
             .collect::<Vec<_>>();
@@ -100,7 +117,34 @@ impl ReleaseTarget for GoVcsTarget {
         Ok(Artifact::new(module.root.as_path()))
     }
 
-    fn apply_release(&self, _module: &Module, _mutation: &ReleaseMutation) -> AppResult<()> {
+    fn apply_release(&self, module: &Module, mutation: &ReleaseMutation) -> AppResult<()> {
+        if mutation.dep_floor_updates.len() != mutation.dep_floor_import_updates.len() {
+            return Err(AppError::invalid_input(
+                "release.go_mod",
+                format!(
+                    "Go dependency rewrites require Go import paths, but module '{}' has {} \
+                     dependency floor update(s) without a matching import path",
+                    module.key(),
+                    mutation.dep_floor_updates.len() - mutation.dep_floor_import_updates.len()
+                ),
+            ));
+        }
+        let manifest = module.manifest.as_ref().map_or_else(
+            || module.root.as_path().join("go.mod"),
+            |path| path.as_path().to_path_buf(),
+        );
+        let manifest = safe_join(&self.working_root()?, &manifest).map_err(|error| {
+            AppError::invalid_input("release.go_mod", error.to_string()).with_cause(error)
+        })?;
+        for (import_path, version) in &mutation.dep_floor_import_updates {
+            let spec = ProcessSpec::new("go")
+                .arg("mod")
+                .arg("edit")
+                .arg(format!("-require={import_path}@v{version}"))
+                .arg(&manifest)
+                .dir(self.working_root()?);
+            run_go_json(&spec, "go mod edit dependency floor")?;
+        }
         Ok(())
     }
 
@@ -113,7 +157,7 @@ impl ReleaseTarget for GoVcsTarget {
 mod tests {
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
-    use toven_ports::ReleaseTarget;
+    use toven_ports::{ReleaseMutation, ReleaseTarget};
     use toven_testkit::git::GitScenario;
 
     use super::GoVcsTarget;
@@ -181,5 +225,59 @@ mod tests {
             .expect("versions");
 
         assert_eq!(versions, vec![Version::new(1, 2, 0)]);
+    }
+
+    #[test]
+    fn published_versions_ignore_unreachable_tags() {
+        let workspace = toven_testkit::TestWorkspace::new("go-release-reachable-tags");
+        let scenario = GitScenario::init(workspace.path()).expect("git init");
+        let main = scenario
+            .commit_file("go.mod", "module example.com/root\n", "initial")
+            .expect("commit root")
+            .to_string();
+        scenario.tag("v1.0.0", "root").expect("root tag");
+        scenario.branch_and_checkout("side").expect("side branch");
+        scenario
+            .commit_file("side.txt", "side\n", "side")
+            .expect("side commit");
+        scenario.tag("v9.9.9", "side").expect("side tag");
+        scenario.checkout(&main).expect("return to main commit");
+        let target = GoVcsTarget::new().with_root(workspace.path());
+
+        let versions = target
+            .published_versions(&module("root", "."))
+            .expect("versions");
+
+        assert_eq!(versions, vec![Version::new(1, 0, 0)]);
+    }
+
+    #[test]
+    fn declared_version_rejects_a_module_without_a_reachable_release_tag() {
+        let workspace = toven_testkit::TestWorkspace::new("go-release-no-tags");
+        let scenario = GitScenario::init(workspace.path()).expect("git init");
+        scenario
+            .commit_file("go.mod", "module example.com/root\n", "initial")
+            .expect("commit root");
+        let target = GoVcsTarget::new().with_root(workspace.path());
+
+        let error = target
+            .declared_version(&module("root", "."))
+            .expect_err("missing tag rejected");
+
+        assert!(error.to_string().contains("reachable release tag"));
+    }
+
+    #[test]
+    fn apply_release_rejects_dependency_rewrites_without_import_paths() {
+        let mut mutation = ReleaseMutation::version(Version::new(1, 1, 0));
+        mutation
+            .dep_floor_updates
+            .insert(module("core", "core").id, Version::new(1, 1, 0));
+
+        let error = GoVcsTarget::new()
+            .apply_release(&module("app", "app"), &mutation)
+            .expect_err("missing Go import-path mapping rejected");
+
+        assert!(error.to_string().contains("Go import paths"));
     }
 }

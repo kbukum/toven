@@ -7,7 +7,7 @@
 use rskit_errors::AppResult;
 use toven_ports::{
     BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, HostConfig, PrereleaseConfig,
-    ReleaseConfig, SignConfig, merge_release,
+    PublicationPolicy, ReleaseConfig, SignConfig, merge_release,
 };
 
 use super::{BumpPolicy, strategy};
@@ -85,8 +85,9 @@ pub struct ResolvedReleaseSettings {
     pub remote: String,
     /// Allowed release branches; empty = any branch.
     pub branches: Vec<String>,
-    /// Target registry identifier; `None` = not publishable.
-    pub registry: Option<String>,
+    /// Typed publication policy resolved from `registry`/`publish`/`exclude`:
+    /// registry publication, tag-only, or excluded from the release.
+    pub publication: PublicationPolicy,
     /// Whether registry lookups are skipped (idempotency anchored on tags
     /// only).
     pub offline: bool,
@@ -118,6 +119,12 @@ impl ResolvedReleaseSettings {
     /// Apply defaults and resolve the bump policy over an already-merged
     /// config.
     fn from_merged(config: &ReleaseConfig) -> AppResult<Self> {
+        PublicationPolicy::validate_fields(
+            "release",
+            config.registry.as_deref(),
+            config.publish,
+            config.exclude,
+        )?;
         Ok(Self {
             policy: strategy::resolve(config.strategy.as_deref())?,
             level: config.level.unwrap_or(BumpLevel::Auto),
@@ -133,7 +140,11 @@ impl ResolvedReleaseSettings {
                 .clone()
                 .unwrap_or_else(|| DEFAULT_REMOTE.to_string()),
             branches: config.branches.clone().unwrap_or_default(),
-            registry: config.registry.clone(),
+            publication: PublicationPolicy::resolve(
+                config.registry.as_deref(),
+                config.publish,
+                config.exclude.unwrap_or(false),
+            ),
             offline: config.offline.unwrap_or(false),
             token_env: config.token_env.clone(),
             sign: config.sign.clone().unwrap_or_default(),
@@ -156,7 +167,7 @@ fn resolve_changelog(mut changelog: ChangelogConfig) -> ChangelogConfig {
 mod tests {
     use super::ResolvedReleaseSettings;
     use crate::release::BumpPolicy;
-    use toven_ports::{BumpLevel, ReleaseConfig};
+    use toven_ports::{BumpLevel, PublicationPolicy, ReleaseConfig};
 
     #[test]
     fn empty_config_yields_documented_defaults() {
@@ -180,7 +191,12 @@ mod tests {
         };
         let resolved = ResolvedReleaseSettings::resolve(&ecosystem, None).unwrap();
         assert_eq!(resolved.level, BumpLevel::Minor);
-        assert_eq!(resolved.registry.as_deref(), Some("crates-io"));
+        assert_eq!(
+            resolved.publication,
+            PublicationPolicy::Registry {
+                registry: "crates-io".into()
+            }
+        );
         assert!(resolved.offline);
     }
 
@@ -198,7 +214,12 @@ mod tests {
         let resolved = ResolvedReleaseSettings::resolve(&ecosystem, Some(&module)).unwrap();
         // per-module override wins on level, inherits ecosystem registry:
         assert_eq!(resolved.level, BumpLevel::Major);
-        assert_eq!(resolved.registry.as_deref(), Some("crates-io"));
+        assert_eq!(
+            resolved.publication,
+            PublicationPolicy::Registry {
+                registry: "crates-io".into()
+            }
+        );
     }
 
     #[test]

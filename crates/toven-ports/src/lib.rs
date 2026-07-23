@@ -68,7 +68,7 @@ pub use cache::{CacheStore, CacheWriter};
 pub use config::{
     BumpLevel, ChangelogConfig, CommonEcosystemConfig, CoverageConfig, CoverageProfile,
     CoverageThresholds, DependentVersion, Enforcement, HooksConfig, HostConfig, PrereleaseConfig,
-    ReleaseConfig, RunStrategy, SignConfig, TaskEntry, TaskOverride,
+    PublicationPolicy, ReleaseConfig, RunStrategy, SignConfig, TaskEntry, TaskOverride,
 };
 pub use discover::{DISCOVERY_SCHEMA_VERSION, DiscoverContext, DiscoverRequest, DiscoverResponse};
 pub use driver::{DriverLocator, DriverWizard};

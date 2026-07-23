@@ -4,8 +4,8 @@
 //! public [`release_run`] facade with per-member VCS doubles. The assertions
 //! prove the federated release plan shards its history mutations per member
 //! repo — one release commit and its own module tags land in each member's
-//! writer — while publishing still runs as one federated pass across both
-//! registries.
+//! writer — while registry-enabled modules still publish after the commit
+//! boundary.
 
 use std::collections::BTreeSet;
 
@@ -75,7 +75,7 @@ fn release_shards_history_mutations_per_member_repo() {
     let ws = workspace("umbrella-release-shard");
     ws.write_file(
         "repos/core/toven.toml",
-        b"[project]\nname = \"core\"\n[ecosystems.rust]\nmanifests = [\"Cargo.toml\"]\n\n[modules.\"rust:core\".release]\npush = true\nremote = \"core-release\"\nbranches = [\"main\"]\ncommit_message = \"core {module} {version}\"\ntag_message = \"tag {module} {version}\"\n",
+        b"[project]\nname = \"core\"\n[ecosystems.rust]\nmanifests = [\"Cargo.toml\"]\n\n[modules.\"rust:core\".release]\nregistry = \"crates-io\"\npush = true\nremote = \"core-release\"\nbranches = [\"main\"]\ncommit_message = \"core {module} {version}\"\ntag_message = \"tag {module} {version}\"\n",
     )
     .expect("core toml");
     ws.write_file(
@@ -165,8 +165,12 @@ fn release_shards_history_mutations_per_member_repo() {
         VcsWrite::CreateTag { message: Some(message), .. } if message == "tag core 0.1.1"
     )));
 
-    // Publishing runs once across both members after the commit boundary.
-    assert_eq!(stats.published_modules, 2, "both modules publish federated");
+    // Registry publishing runs after the commit boundary for registry-enabled
+    // members; Go remains tag-only.
+    assert_eq!(
+        stats.published_modules, 1,
+        "registry module publishes federated"
+    );
 }
 
 fn assert_member_repos_isolated(core_log: &[VcsWrite], gateway_log: &[VcsWrite]) {
