@@ -28,3 +28,67 @@ pub(super) fn entry(module: &Module, changes: &[ChangeRecord]) -> ChangelogEntry
     };
     ChangelogEntry::new(module.key(), summary, lines)
 }
+
+/// Whether a [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) document
+/// carries a documented `## [Unreleased]` section.
+///
+/// A section counts as documented when at least one non-blank, non-heading line
+/// (a bullet or prose entry) appears under the `## [Unreleased]` level-2 heading
+/// before the next level-2 heading. An absent `[Unreleased]` section, or one
+/// that holds only empty subsection headings such as `### Added`, is treated as
+/// undocumented so a required-changelog release fails closed.
+#[must_use]
+pub(super) fn unreleased_documented(text: &str) -> bool {
+    let mut in_unreleased = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(heading) = trimmed.strip_prefix("## ") {
+            let heading = heading.trim();
+            in_unreleased =
+                heading.contains('[') && heading.to_ascii_lowercase().contains("unreleased");
+            continue;
+        }
+        if in_unreleased && !trimmed.is_empty() && !trimmed.starts_with('#') {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unreleased_documented;
+
+    #[test]
+    fn a_populated_unreleased_section_is_documented() {
+        let text = "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- A new feature\n\n## \
+                    [1.0.0]\n\n- Older change\n";
+        assert!(unreleased_documented(text));
+    }
+
+    #[test]
+    fn prose_under_unreleased_counts_as_documented() {
+        let text = "## [Unreleased]\nReworked the planner end to end.\n";
+        assert!(unreleased_documented(text));
+    }
+
+    #[test]
+    fn an_empty_unreleased_section_is_not_documented() {
+        // Only subsection headings, no entries: nothing was actually recorded.
+        let text = "## [Unreleased]\n\n### Added\n\n### Fixed\n\n## [1.0.0]\n\n- Shipped\n";
+        assert!(!unreleased_documented(text));
+    }
+
+    #[test]
+    fn a_missing_unreleased_section_is_not_documented() {
+        let text = "# Changelog\n\n## [1.0.0]\n\n- Shipped\n";
+        assert!(!unreleased_documented(text));
+    }
+
+    #[test]
+    fn entries_only_under_a_released_section_do_not_count() {
+        // A bullet after Unreleased closes belongs to the released section.
+        let text = "## [Unreleased]\n\n## [1.0.0]\n\n- Shipped\n";
+        assert!(!unreleased_documented(text));
+    }
+}

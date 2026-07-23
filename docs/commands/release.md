@@ -6,8 +6,8 @@
 
 Use the release lifecycle in this order:
 
-1. Run `toven release plan` and review every selected module, proposed version, reason, cascade origin, changelog summary, and publication order.
-2. Run `toven release status` to compare declared versions with release tags and versions reported by the ecosystem target.
+1. Run `toven release plan` and review every selected module, proposed version, reason, cascade origin, changelog summary, publication policy, and publication order.
+2. Run `toven release status` to compare publication policy, declared versions, release tags, and versions reported by the ecosystem target.
 3. Run `toven release readiness` and stop unless every configured check passes.
 4. Generate review evidence with `toven release sbom` and `toven release depgraphs`.
 5. Run `toven release publish --dry-run` and preserve `--output jsonl` output in CI.
@@ -33,8 +33,8 @@ toven release publish --yes
 
 | Action | Result | Mutation |
 |---|---|---|
-| `plan` | Selected modules, independent versions, reasons, cascades, and order | None |
-| `status` | Declared versions, matching tags, and reported published versions | None |
+| `plan` | Selected modules, publication policies, independent versions, reasons, cascades, and order | None |
+| `status` | Publication policies, declared versions, matching tags, and reported published versions | None |
 | `readiness` | Fail-closed go/no-go checks | None |
 | `sbom` | CycloneDX artifacts under `--out-dir` for supported targets | Local artifacts |
 | `depgraphs` | DOT dependency graphs under `--out-dir` | Local artifacts |
@@ -51,9 +51,9 @@ toven release plan [--output human|jsonl]
 toven release status [--output human|jsonl]
 ```
 
-The plan is deterministic and follows dependency order. Each entry reports the current and planned version, bump level, whether the module changed directly or joined through a dependency cascade, the winning version input, and whether publication is needed. JSONL additionally carries the cascade origin and prerelease channel.
+The plan is deterministic and follows dependency order. Each entry reports the current and planned version, bump level, whether the module changed directly or joined through a dependency cascade, the winning version input, the resolved publication policy, and whether registry publication is needed. JSONL additionally carries the cascade origin, prerelease channel, publication policy, and registry identifier when one exists.
 
-Status performs read-only tag and ecosystem-target lookups. A lookup failure is surfaced rather than converted into a successful empty result.
+Status performs read-only tag and ecosystem-target lookups and reports the resolved publication policy for each releasable module. A lookup failure is surfaced rather than converted into a successful empty result.
 
 ## Readiness
 
@@ -66,7 +66,7 @@ Recognized checks are:
 | Check | Meaning |
 |---|---|
 | `clean-tree` | Every member repository has no uncommitted changes |
-| `registry-idempotent` | No module declares a version lower than the highest version reported by its release target |
+| `registry-idempotent` | No registry-published module declares a version lower than the highest version reported by its release target |
 
 Any failed check returns a non-zero exit status. An unknown check is invalid configuration. Readiness is evidence for approval; the mutating pipeline independently enforces its clean-tree guard.
 
@@ -86,7 +86,7 @@ toven release publish --dry-run
 toven release publish --dry-run --output jsonl > release-preview.jsonl
 ```
 
-The rehearsal resolves the same module order, versions, target idempotency verdicts, hosted tags, prerelease flags, and configured asset paths as a real publish. It does not call manifest mutation, packaging, publication, tag creation, push, or forge commands.
+The rehearsal resolves the same module order, versions, publication policies, target idempotency verdicts, hosted tags, prerelease flags, and configured asset paths as a real publish. Registry entries report `would-publish` or `already-published`; tag-only entries report `tag-only`. It does not call manifest mutation, packaging, publication, tag creation, push, or forge commands.
 
 Version choices can be supplied to rehearsal and mutating actions:
 
@@ -115,9 +115,7 @@ toven release tag --yes
 toven release publish --yes
 ```
 
-Mutating actions fail unless `--yes` is present. They check the allowed branch and reject a dirty worktree before changing a manifest. `--no-push` keeps the release commit and tags local and therefore skips hosted Release creation.
-
-The current CLI still exposes `--allow-dirty` as an explicit bypass. It is not part of the supported release contract and must not be used by release automation. Removing this bypass from protected release execution is tracked as release-safety work.
+Mutating actions fail unless `--yes` is present. They check the allowed branch and reject a dirty worktree before changing a manifest — the clean-tree guardrail has no bypass. `--no-push` keeps the release commit and tags local and therefore skips hosted Release creation.
 
 ## Rust release policy
 
@@ -126,12 +124,12 @@ The supported Rust contract is:
 - Cargo packages receive independent semantic versions.
 - Changed crates use the configured or per-run bump.
 - Dependency requirement changes cascade into dependents according to `dependent_version`.
-- Registry-enabled crates publish in dependency order.
+- Registry-enabled crates publish in dependency order when `registry = "crates-io"` is configured.
 - Tag-only crates stop after immutable Git tags and may still produce hosted assets.
 - Stable and configured prerelease channels use normal semantic-version precedence.
 - Required changelog evidence and readiness checks fail before mutation.
 
-The current implementation supports independent versions, Cargo manifest mutation, dependency-floor cascades, prereleases, deterministic order, and crates.io publication. It does not yet use `release.registry` to switch publication off, so tag-only Rust publication is contract-only and must not be attempted with `release publish`. `release tag` stops before target publication, but it also currently stops before hosted Release creation.
+The current implementation supports independent versions, Cargo manifest mutation, dependency-floor cascades, prereleases, deterministic order, crates.io publication for registry-enabled crates, and tag-only Rust releases by default. `release tag` stops before target publication and hosted Release creation.
 
 ## Go release policy
 
@@ -142,16 +140,16 @@ The supported Go contract is:
 - A nested module at `cache/redis` uses `cache/redis/vX.Y.Z`.
 - Go module tags are fixed; `tag_format` is rejected.
 - Prerelease versions use the same path prefix, for example `cache/redis/v1.2.0-alpha.1`.
-- Dependency cascades update dependent module requirements before tagging.
-- Test-only and benchmark modules must declare `release.publish = true` or `false`; Toven never infers policy from a module name or path.
+- Dependency cascades that require `go.mod` requirement rewrites are rejected before mutation until the release mutation carries Go import paths; Toven does not rewrite requirements by module-name or path heuristics.
+- Test-only and benchmark modules must declare tag-only release policy or `exclude = true`; Toven never infers policy from a module name or path.
 
-The current implementation supports changed-module planning, dependency-graph cascades, root and nested tags, and prerelease tags. It does not yet update Go dependency requirements or accept per-module `release.publish`, so explicit test/benchmark classification and complete Go cascade mutation are contract-only.
+The current implementation supports changed-module planning, dependency-graph cascades, reachable root and nested tag discovery, and prerelease tags. Go releases are tag-only; `registry` is rejected for Go. A module with no reachable release tag fails closed instead of using a synthetic `0.0.0` version, so the first Go release needs an explicit versioning path before mutation.
 
 ## Hosted assets and immutability
 
 When `release.host.forge = "github"`, publication invokes `gh` after tags are pushed and target publication succeeds. Authentication comes from ambient `gh` configuration, `GH_TOKEN`, or `GITHUB_TOKEN`; secrets are not placed in argv.
 
-The supported contract treats a published tag, registry version, hosted Release, and same-named asset as immutable. A retry may skip an identical completed result but must not replace it. The current GitHub adapter instead edits an existing Release and uploads assets with `--clobber`; immutable hosted publication is therefore contract-only until the release-safety step replaces that behavior.
+The supported contract treats a published tag, registry version, hosted Release, and same-named asset as immutable. A retry may verify an identical completed result as already complete, but a conflicting tag, hosted Release, or same-named asset fails with forward-fix guidance. The GitHub adapter uses create-or-verify behavior and never edits an existing Release or uploads assets with clobber semantics.
 
 ## Recovery
 

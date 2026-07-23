@@ -2088,6 +2088,7 @@ dependencies = [
  "rskit-fs",
  "rskit-git",
  "rskit-testutil",
+ "rskit-util",
  "rskit-version",
  "tokio",
  "tokio-util",

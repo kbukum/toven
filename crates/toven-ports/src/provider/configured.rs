@@ -28,8 +28,9 @@ pub trait ConfiguredAdapter {
     /// applied).
     fn run_strategy_default(&self, kind: TaskKind) -> RunStrategy;
 
-    /// The release target for this ecosystem, or `None` when not publishable
-    /// (`publish = false` / no registry).
+    /// The ecosystem release target when the adapter supports release mechanics.
+    /// Publication policy (`registry`, tag-only, excluded) is resolved by the
+    /// engine from configuration.
     fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseTarget>>>;
 
     /// The resolved engine-common knobs (`run_strategy`, `release`, `tasks`).

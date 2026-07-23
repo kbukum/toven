@@ -79,21 +79,17 @@ impl<'de> Deserialize<'de> for Manifests {
     }
 }
 
-/// Crates are publishable by default; `publish = false` opts a project out.
-const fn default_publish() -> bool {
-    true
-}
-
 /// The strict, parsed `[ecosystems.rust]` configuration.
 ///
-/// `manifests`, `exclude`, and `publish` are the adapter-owned knobs; the
-/// engine-common knobs (`run_strategy`, `release`, per-task overrides) are
-/// flattened in via [`CommonEcosystemConfig`]. `deny_unknown_fields` rejects a
-/// typo anywhere in the section — the `toml` deserializer honors it across the
-/// flattened remainder, so
+/// `manifests` and `exclude` are the adapter-owned knobs; release publication
+/// is configured through the flattened `[release]` policy. The engine-common
+/// knobs (`run_strategy`, `release`, per-task overrides) are flattened in via
+/// [`CommonEcosystemConfig`]. `deny_unknown_fields` rejects a typo anywhere in
+/// the section — the `toml` deserializer honors it across the flattened
+/// remainder, so
 /// [`RustProvider::configure`](toven_ports::Provider::configure) surfaces
 /// section-level typos itself rather than relying on the document loader.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RustConfig {
     /// The Cargo workspace roots to discover. Defaults to `auto`.
@@ -103,25 +99,10 @@ pub struct RustConfig {
     /// `auto`. Ignored for an explicit manifest list.
     #[serde(default)]
     pub exclude: Vec<String>,
-    /// Whether modules in this ecosystem are publishable to crates.io. `false`
-    /// makes [`release_target`](crate::RustAdapter) hand back `None`.
-    #[serde(default = "default_publish")]
-    pub publish: bool,
     /// Engine-common knobs shared by every adapter (`run_strategy`, `release`,
     /// `tasks`), flattened into the same section.
     #[serde(flatten)]
     pub common: CommonEcosystemConfig,
-}
-
-impl Default for RustConfig {
-    fn default() -> Self {
-        Self {
-            manifests: Manifests::default(),
-            exclude: Vec::new(),
-            publish: default_publish(),
-            common: CommonEcosystemConfig::default(),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -135,7 +116,6 @@ mod tests {
             .expect("empty section parses with defaults");
         assert_eq!(config.manifests, Manifests::Auto);
         assert!(config.exclude.is_empty());
-        assert!(config.publish);
     }
 
     #[test]

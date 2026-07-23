@@ -41,10 +41,9 @@ fn unknown_reserved_flag_is_a_usage_error() {
 
 #[test]
 fn release_only_flag_on_a_task_is_gated_to_usage() {
-    // `--allow-dirty` only applies to the mutating `toven release` actions; using
-    // it on `plan` is a typed InvalidInput error, which maps to the usage exit
-    // code.
-    assert_eq!(run(&["--allow-dirty", "plan", "test"]), ExitCode::Usage);
+    // `--no-push` only applies to the mutating `toven release` actions; using it on
+    // `plan` is a typed InvalidInput error, which maps to the usage exit code.
+    assert_eq!(run(&["--no-push", "plan", "test"]), ExitCode::Usage);
 }
 
 #[test]

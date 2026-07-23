@@ -90,8 +90,8 @@ pub fn release_rehearse(
 /// plan's publish verdict, preserving the plan's deterministic publish order,
 /// and carry the hosted forge Releases a real run would cut.
 ///
-/// A `publish_needed` entry is classified `would-publish`; one the planner
-/// already found on the registry is classified `already-published`.
+/// Registry entries are classified by `publish_needed`; tag-only entries are
+/// reported separately because they never publish to a package registry.
 fn rehearse_plan(
     plan: &ReleasePlan,
     planned: &[host::PlannedHostRelease],
@@ -106,8 +106,11 @@ fn rehearse_plan(
                 .as_ref()
                 .map(|version| RehearsalVerdict {
                     module: entry.module.clone(),
+                    publication: entry.publication.clone(),
                     version: version.clone(),
-                    decision: if entry.publish_needed {
+                    decision: if !entry.publication.publishes_to_registry() {
+                        PublishDecision::TagOnly
+                    } else if entry.publish_needed {
                         PublishDecision::WouldPublish
                     } else {
                         PublishDecision::AlreadyPublished
@@ -205,7 +208,17 @@ mod tests {
     }
 
     fn setup(target: FakeReleaseTarget) -> (FakeProvider, FakeVcsReader) {
-        setup_with_common(target, CommonEcosystemConfig::default())
+        setup_with_common(target, registry_common())
+    }
+
+    fn registry_common() -> CommonEcosystemConfig {
+        CommonEcosystemConfig {
+            release: ReleaseConfig {
+                registry: Some("crates-io".into()),
+                ..ReleaseConfig::default()
+            },
+            ..CommonEcosystemConfig::default()
+        }
     }
 
     fn setup_with_common(
@@ -291,6 +304,32 @@ mod tests {
         assert_eq!(
             rehearsal.verdicts[0].decision,
             PublishDecision::AlreadyPublished
+        );
+    }
+
+    #[test]
+    fn rehearsal_reports_tag_only_entries_without_registry_publication() {
+        let target = FakeReleaseTarget::new();
+        let (provider, vcs) = setup_with_common(target, CommonEcosystemConfig::default());
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let rehearsal = release_rehearse(
+            &request(),
+            &document(),
+            &providers,
+            &readers,
+            &BumpOverrides::new(),
+            &mut reporter,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(rehearsal.verdicts[0].decision, PublishDecision::TagOnly);
+        assert_eq!(
+            rehearsal.verdicts[0].publication,
+            toven_ports::PublicationPolicy::TagOnly
         );
     }
 

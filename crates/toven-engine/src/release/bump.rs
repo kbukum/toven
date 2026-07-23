@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use rskit_errors::{AppError, AppResult};
 use rskit_version::semver::Version;
 use toven_model::{DepKind, Edge, Graph, Module, ModuleKey, ModuleRef};
-use toven_ports::{BumpLevel, DependentVersion, ReleaseMutation, ReleaseTarget};
+use toven_ports::{BumpLevel, DependentVersion, PublicationPolicy, ReleaseMutation, ReleaseTarget};
 
 use super::strategy::{self, EffectiveLevel};
 use super::{
@@ -122,14 +122,40 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
         if decision.planned.is_none() && dep_floor_updates.is_empty() {
             continue;
         }
+        // An excluded module never participates in the release: no version change, no
+        // tag, no target call, no hosted release. It is dropped before an entry exists.
+        let publication = input
+            .settings
+            .get(&reference)
+            .map_or(PublicationPolicy::TagOnly, |resolved| {
+                resolved.publication.clone()
+            });
+        if !publication.releases() {
+            continue;
+        }
         let module = lookup(&module_by_ref, &reference)?;
         let target = target_for(input.targets, module)?;
-        let (up_to_date, publish_needed) =
+        let (up_to_date, registry_publish_needed) =
             idempotency(input, module, target, &reference, decision.planned.as_ref());
+        // Only registry-published modules invoke the publish loop; a tag-only module
+        // is still versioned and tagged but never packaged/published to a registry.
+        let publish_needed = registry_publish_needed && publication.publishes_to_registry();
         let cascade_origin = origin.filter(|_| decision.reason == BumpReason::DependencyCascade);
+        let dep_floor_import_updates = dep_floor_updates
+            .iter()
+            .filter_map(|(dependency, version)| {
+                input
+                    .modules
+                    .iter()
+                    .find(|module| module.id == *dependency)
+                    .and_then(|module| module.package.clone())
+                    .map(|package| (package, version.clone()))
+            })
+            .collect();
         let mutation = ReleaseMutation {
             new_version: decision.planned.clone(),
             dep_floor_updates,
+            dep_floor_import_updates,
         };
         entries.push(ReleaseEntry {
             module: reference.clone(),
@@ -142,6 +168,7 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
             prerelease_channel: decision.prerelease_channel,
             up_to_date,
             mutation,
+            publication,
             publish_needed,
             tag_format: input
                 .settings
@@ -689,8 +716,12 @@ mod tests {
         let graph = Graph::build(modules.clone(), edges.clone()).unwrap();
 
         let mut settings = BTreeMap::new();
+        let registry = ReleaseConfig {
+            registry: Some("crates-io".into()),
+            ..ReleaseConfig::default()
+        };
         for key in [&base_key, &lib_key, &app_key] {
-            settings.insert(key.clone(), settings_for(&ReleaseConfig::default()));
+            settings.insert(key.clone(), settings_for(&registry));
         }
 
         let changed: BTreeSet<_> = std::iter::once(base_key.clone()).collect();

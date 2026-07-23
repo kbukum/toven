@@ -490,9 +490,6 @@ pub struct Cli {
     /// Decrease reporter verbosity (repeatable; execution verbs only).
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub quiet: u8,
-    /// Release only: commit/tag a dirty working tree.
-    #[arg(long, global = true, help_heading = "Release")]
-    pub allow_dirty: bool,
     /// Release only: skip pushing the release commit and tags.
     #[arg(long, global = true, help_heading = "Release")]
     pub no_push: bool,
@@ -751,8 +748,7 @@ impl ReleaseAction {
         }
     }
 
-    /// Whether the action mutates history/registry (accepts `--allow-dirty` /
-    /// `--no-push`).
+    /// Whether the action mutates history/registry (accepts `--no-push`).
     #[must_use]
     pub const fn is_mutating(self) -> bool {
         matches!(self, Self::Tag | Self::Publish)
@@ -873,16 +869,9 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     let is_graph = matches!(cli.command, Command::Graph);
     let is_coverage = matches!(cli.command, Command::Coverage);
 
-    // `--allow-dirty`/`--no-push` bypass a release guardrail, so they belong only
-    // to the mutating release actions; the read-only projections (`release plan`/
-    // `release status`) never touch history, and no other verb releases at all.
-    if cli.allow_dirty && !mutating_release {
-        return Err(only_applies(
-            "--allow-dirty",
-            "toven release tag/publish",
-            verb,
-        ));
-    }
+    // `--no-push` is a mutating-release rehearsal flag, so it belongs only to the
+    // mutating release actions; the read-only projections (`release plan`/`release
+    // status`) never touch history, and no other verb releases at all.
     if cli.no_push && !mutating_release {
         return Err(only_applies("--no-push", "toven release tag/publish", verb));
     }
@@ -1634,13 +1623,20 @@ mod tests {
 
     #[test]
     fn release_only_flag_on_other_reserved_verb_is_gated() {
-        let cli = parse(&["--allow-dirty", "plan", "test"]).expect("parses");
+        let cli = parse(&["--no-push", "plan", "test"]).expect("parses");
         assert!(super::gate(&cli).is_err());
     }
 
     #[test]
+    fn allow_dirty_is_no_longer_a_flag() {
+        // The clean-tree guardrail has no bypass; `--allow-dirty` was removed and is
+        // now an unknown flag on the mutating release actions.
+        assert!(parse(&["--allow-dirty", "release", "publish"]).is_err());
+    }
+
+    #[test]
     fn release_accepts_its_own_flags() {
-        let cli = parse(&["--allow-dirty", "--no-push", "release", "publish"]).expect("parses");
+        let cli = parse(&["--no-push", "release", "publish"]).expect("parses");
         assert!(super::gate(&cli).is_ok());
     }
 
@@ -1681,15 +1677,13 @@ mod tests {
     }
 
     #[test]
-    fn dirty_and_no_push_only_on_mutating_release_actions() {
+    fn no_push_only_on_mutating_release_actions() {
         for action in ["tag", "publish"] {
-            let cli = parse(&["--allow-dirty", "--no-push", "release", action]).expect("parses");
+            let cli = parse(&["--no-push", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_ok(), "{action}");
         }
 
         for action in ["plan", "status", "readiness", "sbom", "depgraphs"] {
-            let dirty = parse(&["--allow-dirty", "release", action]).expect("parses");
-            assert!(super::gate(&dirty).is_err(), "allow-dirty {action}");
             let no_push = parse(&["--no-push", "release", action]).expect("parses");
             assert!(super::gate(&no_push).is_err(), "no-push {action}");
         }

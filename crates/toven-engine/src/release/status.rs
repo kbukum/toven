@@ -53,20 +53,28 @@ pub fn release_status(
         let Some(target) = targets.get(&key) else {
             continue;
         };
+        let Some(resolved) = settings.get(&module.key()) else {
+            continue;
+        };
+        if !resolved.publication.releases() {
+            continue;
+        }
         let declared = target.declared_version(module)?;
         let published = target.published_versions(module)?;
-        let latest_tag = if let Some(resolved) = settings.get(&module.key()) {
-            let scheme = target.tag_scheme(module, resolved.tag_format.as_deref())?;
-            tags_by_member
-                .get(&module.member)
-                .and_then(|tags| tag::latest(&scheme, tags))
-                .map(|(_, tag)| tag.name)
+        let scheme = target.tag_scheme(module, resolved.tag_format.as_deref())?;
+        let latest_tag = tags_by_member
+            .get(&module.member)
+            .and_then(|tags| tag::latest(&scheme, tags))
+            .map(|(_, tag)| tag.name);
+        let is_published = if resolved.publication.publishes_to_registry() {
+            published.contains(&declared)
         } else {
-            None
+            false
         };
         modules.push(ReleaseModuleStatus {
             module: module.key(),
-            is_published: published.contains(&declared),
+            publication: resolved.publication.clone(),
+            is_published,
             declared_version: declared,
             latest_tag,
             published_versions: published,
@@ -99,7 +107,10 @@ mod tests {
     use rskit_version::semver::Version;
     use serde_json::json;
     use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
-    use toven_ports::{BaselineSpec, DiscoverResponse, Oid, Provider, TagRef, TaskIntent};
+    use toven_ports::{
+        BaselineSpec, CommonEcosystemConfig, DiscoverResponse, Oid, Provider, ReleaseConfig,
+        TagRef, TaskIntent,
+    };
     use toven_testkit::{
         FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, RecordingReporter,
     };
@@ -175,6 +186,7 @@ mod tests {
         assert_eq!(status.modules.len(), 1);
         let entry = &status.modules[0];
         assert_eq!(entry.module, core.key());
+        assert_eq!(entry.publication, toven_ports::PublicationPolicy::TagOnly);
         assert_eq!(entry.declared_version, Version::new(0, 2, 0));
         assert_eq!(entry.latest_tag.as_deref(), Some("rust/core@0.1.0"));
         assert_eq!(entry.published_versions, vec![Version::new(0, 1, 0)]);
@@ -190,8 +202,16 @@ mod tests {
         let target = FakeReleaseTarget::new()
             .with_declared_version(Version::new(0, 1, 0))
             .with_published_versions(vec![Version::new(0, 1, 0)]);
+        let common = CommonEcosystemConfig {
+            release: ReleaseConfig {
+                registry: Some("crates-io".into()),
+                ..ReleaseConfig::default()
+            },
+            ..CommonEcosystemConfig::default()
+        };
         let adapter = FakeConfiguredAdapter::new(eid("rust"))
             .with_response(response)
+            .with_common(common)
             .with_release_target(target);
         let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
         let providers: Vec<&dyn Provider> = vec![&provider];
@@ -205,6 +225,12 @@ mod tests {
 
         let entry = &status.modules[0];
         assert!(entry.is_published);
+        assert_eq!(
+            entry.publication,
+            toven_ports::PublicationPolicy::Registry {
+                registry: "crates-io".into()
+            }
+        );
         assert_eq!(entry.latest_tag, None);
     }
 }

@@ -124,7 +124,7 @@ pub fn release_apply_by_member(
         .iter()
         .map(|shard| apply::reconcile_repo_settings(&shard.plan.entries))
         .collect::<AppResult<Vec<_>>>()?;
-    guard_member_trees(&shards, &settings, repos, options)?;
+    guard_member_trees(&shards, &settings, repos)?;
     for (shard, settings) in shards.iter().zip(&settings) {
         apply::commit_message(
             &shard.plan,
@@ -189,12 +189,11 @@ fn guard_member_trees(
     shards: &[MemberReleaseShard],
     settings: &[apply::RepoReleaseSettings],
     repos: &MemberReleaseRepos<'_>,
-    options: &ReleaseApplyOptions,
 ) -> AppResult<()> {
     for (shard, settings) in shards.iter().zip(settings) {
         let repo = repo_for(repos, shard.member.as_ref())?;
         apply::guard_release_branch(repo.reader(), settings.branches())?;
-        apply::guard_clean_tree(repo.reader(), options)?;
+        apply::guard_clean_tree(repo.reader())?;
     }
     Ok(())
 }
@@ -263,9 +262,10 @@ fn commit_member_shard(
         }
     }
     if settings.pushes(options) {
+        let branch = repo.reader().current_branch()?;
         repo.writer().push(
             settings.remote(),
-            &apply::push_refspecs(&shard.plan, module_by_ref, targets)?,
+            &apply::push_refspecs(&shard.plan, module_by_ref, targets, &branch)?,
         )?;
     }
     Ok(())
@@ -404,6 +404,9 @@ mod tests {
             prerelease_channel: None,
             up_to_date: false,
             mutation: ReleaseMutation::version(version),
+            publication: toven_ports::PublicationPolicy::Registry {
+                registry: "crates-io".into(),
+            },
             publish_needed: true,
             tag_format: None,
             tag_message: None,

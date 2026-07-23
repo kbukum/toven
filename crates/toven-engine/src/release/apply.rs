@@ -25,8 +25,6 @@ const DEFAULT_RETRY_BUDGET: usize = 5;
 /// Runtime options for the release APPLY transaction.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReleaseApplyOptions {
-    /// Bypass the clean-tree guardrail (commit/tag a dirty working tree).
-    pub allow_dirty: bool,
     /// Suppress every config-permitted member push after tagging.
     pub no_push: bool,
     /// Publish the packaged artifacts to the registry after tagging. When
@@ -40,7 +38,6 @@ pub struct ReleaseApplyOptions {
 impl Default for ReleaseApplyOptions {
     fn default() -> Self {
         Self {
-            allow_dirty: false,
             no_push: true,
             publish: true,
             retry_budget: DEFAULT_RETRY_BUDGET,
@@ -166,7 +163,7 @@ pub fn release_apply(
     let settings = reconcile_repo_settings(&plan.entries)?;
     // The branch and clean-tree guardrails run before any mutation.
     guard_release_branch(reader, settings.branches())?;
-    guard_clean_tree(reader, options)?;
+    guard_clean_tree(reader)?;
 
     let module_by_ref: BTreeMap<ModuleKey, &Module> = modules
         .iter()
@@ -202,9 +199,10 @@ pub fn release_apply(
         }
     }
     if settings.pushes(options) {
+        let branch = reader.current_branch()?;
         writer.push(
             settings.remote(),
-            &push_refspecs(plan, &module_by_ref, targets)?,
+            &push_refspecs(plan, &module_by_ref, targets, &branch)?,
         )?;
     }
 
@@ -257,15 +255,9 @@ pub(crate) fn restore_or_precommit_error(
     }
 }
 
-/// Reject a dirty working tree unless `--allow-dirty` was requested.
+/// Reject a dirty working tree — the release transaction requires a clean tree.
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) fn guard_clean_tree(
-    reader: &dyn VcsReader,
-    options: &ReleaseApplyOptions,
-) -> AppResult<()> {
-    if options.allow_dirty {
-        return Ok(());
-    }
+pub(crate) fn guard_clean_tree(reader: &dyn VcsReader) -> AppResult<()> {
     let status = reader.worktree_status()?;
     if status.is_empty() {
         return Ok(());
@@ -273,7 +265,7 @@ pub(crate) fn guard_clean_tree(
     Err(AppError::invalid_input(
         "release.worktree",
         format!(
-            "the working tree has {} uncommitted change(s); commit, stash, or pass --allow-dirty",
+            "the working tree has {} uncommitted change(s); commit or stash them before releasing",
             status.len()
         ),
     ))
@@ -479,14 +471,22 @@ pub(crate) fn tag_message(
         .transpose()
 }
 
-/// Refspecs pushed after tagging: the release commit plus every release tag.
+/// Refspecs pushed after tagging: the release commit's branch plus every
+/// release tag.
+///
+/// The branch is pushed by its fully-qualified name (`refs/heads/<branch>`)
+/// rather than `HEAD`: an ambiguous `HEAD` refspec depends on the remote's
+/// `push.default` and silently fails to update the intended branch on a bare
+/// remote, so the caller resolves the checked-out branch and pushes it
+/// explicitly.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn push_refspecs(
     plan: &ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
     targets: &super::ReleaseTargets,
+    branch: &str,
 ) -> AppResult<Vec<String>> {
-    let mut refspecs = vec!["HEAD".to_string()];
+    let mut refspecs = vec![format!("refs/heads/{branch}")];
     for entry in &plan.entries {
         if let Some(version) = &entry.planned_version {
             let module = module_for(module_by_ref, &entry.module)?;
@@ -539,6 +539,13 @@ mod tests {
             prerelease_channel: None,
             up_to_date: false,
             mutation: ReleaseMutation::version(version),
+            publication: if publish_needed {
+                toven_ports::PublicationPolicy::Registry {
+                    registry: "crates-io".into(),
+                }
+            } else {
+                toven_ports::PublicationPolicy::TagOnly
+            },
             publish_needed,
             tag_format: None,
             tag_message: None,
@@ -658,7 +665,10 @@ mod tests {
         assert_eq!(remote, "origin");
         assert_eq!(
             push,
-            vec!["HEAD".to_string(), "refs/tags/rust/core@1.0.0".to_string()]
+            vec![
+                "refs/heads/main".to_string(),
+                "refs/tags/rust/core@1.0.0".to_string()
+            ]
         );
     }
 
@@ -1022,7 +1032,7 @@ mod tests {
     }
 
     #[test]
-    fn dirty_worktree_is_rejected_without_allow_dirty() {
+    fn dirty_worktree_is_rejected() {
         let plan = ReleasePlan::new(
             BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(0, 1, 1), true, 0)],
@@ -1046,26 +1056,33 @@ mod tests {
     }
 
     #[test]
-    fn allow_dirty_bypasses_the_clean_tree_guardrail() {
+    fn no_option_bypasses_the_clean_tree_guardrail() {
+        // The clean-tree guardrail has no bypass: a dirty tree is always rejected,
+        // regardless of options. This regression-tests the removal of `--allow-dirty`.
         let plan = ReleasePlan::new(
             BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(0, 1, 1), true, 0)],
         );
-        let writer = FakeVcsWriter::new();
-
-        let stats = release_apply(
-            &plan,
-            &[module("core")],
-            &targets(vec![("core", FakeReleaseTarget::new())]),
-            &dirty(),
-            &writer,
-            &ReleaseApplyOptions {
-                allow_dirty: true,
-                ..Default::default()
+        for options in [
+            ReleaseApplyOptions::default(),
+            ReleaseApplyOptions {
+                no_push: false,
+                publish: true,
+                ..ReleaseApplyOptions::default()
             },
-        )
-        .expect("allow-dirty bypasses the guardrail");
-        assert_eq!(stats.published_modules, 1);
+        ] {
+            let writer = FakeVcsWriter::new();
+            let error = release_apply(
+                &plan,
+                &[module("core")],
+                &targets(vec![("core", FakeReleaseTarget::new())]),
+                &dirty(),
+                &writer,
+                &options,
+            )
+            .expect_err("dirty worktree must always be rejected");
+            assert!(error.to_string().contains("uncommitted change"));
+        }
     }
 
     #[test]
@@ -1223,5 +1240,160 @@ mod tests {
                 .iter()
                 .any(|c| matches!(c, ReleaseCall::Publish(_)))
         );
+    }
+
+    /// Build the `module_by_ref` map the push helper expects from a module set.
+    fn module_by_ref(modules: &[Module]) -> std::collections::BTreeMap<ModuleKey, &Module> {
+        modules
+            .iter()
+            .map(|module| (module.key(), module))
+            .collect()
+    }
+
+    #[test]
+    fn standalone_push_lands_named_branch_and_tags_on_a_real_bare_remote() {
+        use crate::vcs::RskitGitVcs;
+        use rskit_git::RefManager;
+        use toven_ports::VcsWriter;
+        use toven_testkit::TestWorkspace;
+        use toven_testkit::git::{GitScenario, ref_map_at};
+
+        let workspace = TestWorkspace::new("release-standalone-real-push");
+        let work = workspace.child("work").expect("work dir");
+        let bare = workspace.child("remote.git").expect("bare dir");
+
+        // A real working repo, committed on a named, non-`main` branch.
+        let scenario = GitScenario::init(&work).expect("init work");
+        scenario
+            .commit_file("Cargo.toml", "name=core\n", "import")
+            .expect("initial commit");
+        scenario
+            .branch_and_checkout("release-train")
+            .expect("named branch");
+        GitScenario::init_bare(&bare).expect("init bare remote");
+        scenario.add_remote("origin", &bare).expect("wire remote");
+
+        // Lightweight release tag the plan pushes (target oid == commit oid, so
+        // local and remote ref-maps compare directly with no peel ambiguity).
+        scenario
+            .repo()
+            .create_tag("rust/core@1.0.0", "HEAD", None)
+            .expect("release tag");
+        let local = scenario.ref_map().expect("local refs");
+
+        // The exact refspecs the standalone push uses for this branch.
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", Version::new(1, 0, 0), true, 0)],
+        );
+        let modules = [module("core")];
+        let targets = targets(vec![("core", FakeReleaseTarget::new())]);
+        let refspecs =
+            super::push_refspecs(&plan, &module_by_ref(&modules), &targets, "release-train")
+                .expect("refspecs");
+        assert_eq!(
+            refspecs,
+            vec![
+                "refs/heads/release-train".to_string(),
+                "refs/tags/rust/core@1.0.0".to_string(),
+            ]
+        );
+
+        // Push through the real rskit-git-backed writer to the real bare remote.
+        RskitGitVcs::open(&work)
+            .expect("open work")
+            .push("origin", &refspecs)
+            .expect("push to bare remote");
+
+        // The bare remote received exactly the named branch and the tag, at the
+        // same oids as the local repo — the `HEAD` refspec never created these.
+        let remote = ref_map_at(&bare).expect("remote refs");
+        assert_eq!(
+            remote.get("refs/heads/release-train"),
+            local.get("refs/heads/release-train"),
+        );
+        assert_eq!(
+            remote.get("refs/tags/rust/core@1.0.0"),
+            local.get("refs/tags/rust/core@1.0.0"),
+        );
+        assert!(!remote.contains_key("refs/heads/HEAD"));
+        assert!(!remote.contains_key("refs/heads/main"));
+    }
+
+    #[test]
+    fn federated_style_multi_module_push_lands_every_tag_on_a_real_bare_remote() {
+        // The federated member push (federation::release::commit_member_shard)
+        // shares `push_refspecs` and the same rskit-git writer as the standalone
+        // path, adding only `reader().current_branch()`. This proves that shared
+        // mechanism pushes the resolved branch plus every module tag to a real
+        // custom-named remote for a multi-module member shard.
+        use crate::vcs::RskitGitVcs;
+        use rskit_git::RefManager;
+        use toven_ports::{VcsReader, VcsWriter};
+        use toven_testkit::TestWorkspace;
+        use toven_testkit::git::{GitScenario, ref_map_at};
+
+        let workspace = TestWorkspace::new("release-federated-real-push");
+        let work = workspace.child("work").expect("work dir");
+        let bare = workspace.child("upstream.git").expect("bare dir");
+
+        let scenario = GitScenario::init(&work).expect("init work");
+        scenario
+            .commit_file("Cargo.toml", "name=member\n", "import")
+            .expect("initial commit");
+        scenario
+            .branch_and_checkout("member-release")
+            .expect("named branch");
+        GitScenario::init_bare(&bare).expect("init bare remote");
+        scenario.add_remote("upstream", &bare).expect("wire remote");
+
+        for tag in ["rust/core@1.0.0", "rust/app@1.0.0"] {
+            scenario
+                .repo()
+                .create_tag(tag, "HEAD", None)
+                .expect("release tag");
+        }
+        let local = scenario.ref_map().expect("local refs");
+
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![
+                entry("core", Version::new(1, 0, 0), true, 0),
+                entry("app", Version::new(1, 0, 0), true, 1),
+            ],
+        );
+        let modules = [module("core"), module("app")];
+
+        // Resolve the branch exactly as the federated push does.
+        let reader = RskitGitVcs::open(&work).expect("open reader");
+        let branch = reader.current_branch().expect("current branch");
+        assert_eq!(branch, "member-release");
+
+        let targets = targets(vec![("core", FakeReleaseTarget::new())]);
+        let refspecs = super::push_refspecs(&plan, &module_by_ref(&modules), &targets, &branch)
+            .expect("refspecs");
+        assert_eq!(
+            refspecs,
+            vec![
+                "refs/heads/member-release".to_string(),
+                "refs/tags/rust/core@1.0.0".to_string(),
+                "refs/tags/rust/app@1.0.0".to_string(),
+            ]
+        );
+
+        RskitGitVcs::open(&work)
+            .expect("open writer")
+            .push("upstream", &refspecs)
+            .expect("push to bare remote");
+
+        let remote = ref_map_at(&bare).expect("remote refs");
+        for refname in [
+            "refs/heads/member-release",
+            "refs/tags/rust/core@1.0.0",
+            "refs/tags/rust/app@1.0.0",
+        ] {
+            assert_eq!(remote.get(refname), local.get(refname), "{refname}");
+        }
+        assert!(!remote.contains_key("refs/heads/HEAD"));
     }
 }

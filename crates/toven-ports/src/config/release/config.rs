@@ -10,7 +10,7 @@ use crate::template::ReleaseVar;
 
 use super::{
     BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, HostConfig, PrereleaseConfig,
-    SignConfig,
+    PublicationPolicy, SignConfig,
 };
 
 /// The declarative release surface (`[ecosystems.<id>].release` and the
@@ -64,6 +64,15 @@ pub struct ReleaseConfig {
     /// publishable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry: Option<String>,
+    /// Whether the module publishes to its registry; `publish = false` makes a
+    /// registry-less release tag-only. `None` = default (publishes when a
+    /// `registry` is set).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publish: Option<bool>,
+    /// Whether the module is excluded from the release entirely (no version
+    /// change, tag, target call, or hosted release). `None` = not excluded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclude: Option<bool>,
     /// Skip registry lookups and anchor idempotency on release tags only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offline: Option<bool>,
@@ -132,6 +141,25 @@ impl ReleaseConfig {
         }
         validate_optional_nonblank(&format!("{field}.strategy"), self.strategy.as_deref())?;
         validate_optional_nonblank(&format!("{field}.registry"), self.registry.as_deref())?;
+        PublicationPolicy::validate_fields(
+            field,
+            self.registry.as_deref(),
+            self.publish,
+            self.exclude,
+        )?;
+        if self.exclude == Some(true)
+            && let Some(host) = &self.host
+            && host
+                .assets
+                .as_ref()
+                .is_some_and(|assets| !assets.is_empty())
+        {
+            return Err(AppError::invalid_input(
+                format!("{field}.exclude"),
+                "an excluded module cannot declare hosted release assets; remove the host assets \
+                 or set exclude = false",
+            ));
+        }
         validate_optional_nonblank(&format!("{field}.remote"), self.remote.as_deref())?;
         validate_optional_nonblank(&format!("{field}.token_env"), self.token_env.as_deref())?;
         if let Some(branches) = &self.branches {

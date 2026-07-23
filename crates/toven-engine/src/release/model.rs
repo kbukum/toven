@@ -2,7 +2,7 @@
 
 use rskit_version::semver::Version;
 use toven_model::ModuleKey;
-use toven_ports::{BaselineSpec, BumpLevel, Oid, ReleaseMutation};
+use toven_ports::{BaselineSpec, BumpLevel, Oid, PublicationPolicy, ReleaseMutation};
 
 /// The engine-owned named bump policy.
 ///
@@ -193,6 +193,9 @@ pub struct ReleaseEntry {
     pub up_to_date: bool,
     /// Atomic mutation to pass back to the ecosystem release target.
     pub mutation: ReleaseMutation,
+    /// Typed publication policy: registry publication or tag-only. (Excluded
+    /// modules never produce a plan entry.)
+    pub publication: PublicationPolicy,
     /// Whether the publish loop must publish this module/version.
     pub publish_needed: bool,
     /// Configured tag-format override used to build the target-owned tag
@@ -254,6 +257,8 @@ impl ReleasePlan {
 pub struct ReleaseModuleStatus {
     /// Module the status describes.
     pub module: ModuleKey,
+    /// Typed publication policy resolved for this module.
+    pub publication: PublicationPolicy,
     /// Version the module's manifest currently declares.
     pub declared_version: Version,
     /// Newest release tag cut for the module, if any.
@@ -290,6 +295,8 @@ pub enum PublishDecision {
     WouldPublish,
     /// The registry already reports this version; a real run would skip it.
     AlreadyPublished,
+    /// This module is tag-only and never publishes to a package registry.
+    TagOnly,
 }
 
 impl PublishDecision {
@@ -299,6 +306,7 @@ impl PublishDecision {
         match self {
             Self::WouldPublish => "would-publish",
             Self::AlreadyPublished => "already-published",
+            Self::TagOnly => "tag-only",
         }
     }
 }
@@ -309,6 +317,8 @@ impl PublishDecision {
 pub struct RehearsalVerdict {
     /// Module being rehearsed.
     pub module: ModuleKey,
+    /// Typed publication policy resolved for this module.
+    pub publication: PublicationPolicy,
     /// Version that would be published.
     pub version: Version,
     /// Whether a real run would publish this version or find it already
@@ -439,6 +449,13 @@ mod tests {
             prerelease_channel: None,
             up_to_date: false,
             mutation: ReleaseMutation::version(Version::new(0, 2, 0)),
+            publication: if publish_needed {
+                toven_ports::PublicationPolicy::Registry {
+                    registry: "crates-io".into(),
+                }
+            } else {
+                toven_ports::PublicationPolicy::TagOnly
+            },
             publish_needed,
             tag_format: None,
             tag_message: None,

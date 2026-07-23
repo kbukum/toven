@@ -18,6 +18,11 @@ pub struct ReleaseMutation {
     /// Sibling deps whose declared version floor this manifest must rewrite
     /// (the cascade: when a dep bumps, every dependent re-floors).
     pub dep_floor_updates: BTreeMap<ModuleRef, Version>,
+    /// Go import paths whose required versions must be raised in this manifest.
+    ///
+    /// Ecosystem adapters use this normalized projection when a model-level
+    /// dependency reference does not contain the package's import path.
+    pub dep_floor_import_updates: BTreeMap<String, Version>,
 }
 
 impl ReleaseMutation {
@@ -27,6 +32,7 @@ impl ReleaseMutation {
         Self {
             new_version: Some(new_version),
             dep_floor_updates: BTreeMap::new(),
+            dep_floor_import_updates: BTreeMap::new(),
         }
     }
 }

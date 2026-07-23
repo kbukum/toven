@@ -1,5 +1,5 @@
 //! Behavioral tests for the provider surface: configure, the init wizard
-//! (detect → questionnaire → render), and release-target gating. Configs come
+//! (detect → questionnaire → render), and release-target exposure. Configs come
 //! from testkit fixtures.
 
 use rskit_fs::TempDir;
@@ -66,9 +66,9 @@ fn publishable_config_exposes_a_release_target() {
 }
 
 #[test]
-fn unpublished_config_has_no_release_target() {
-    let adapter = configure("adapter/unpublished.toml");
-    assert!(adapter.release_target().expect("release target").is_none());
+fn release_publish_policy_does_not_remove_the_release_target() {
+    let adapter = configure("adapter/publish-disabled.toml");
+    assert!(adapter.release_target().expect("release target").is_some());
 }
 
 #[test]

@@ -104,7 +104,9 @@ pub fn release_readiness(
 
     let mut checks = Vec::new();
     for name in composed_check_names(&settings) {
-        checks.push(evaluate_check(&name, &context, &targets, readers)?);
+        checks.push(evaluate_check(
+            &name, &context, &targets, &settings, readers,
+        )?);
     }
     Ok(ReadinessReport::new(checks))
 }
@@ -129,11 +131,12 @@ fn evaluate_check(
     name: &str,
     context: &crate::plan::PlanContext,
     targets: &super::ReleaseTargets,
+    settings: &std::collections::BTreeMap<toven_model::ModuleKey, super::ResolvedReleaseSettings>,
     readers: &MemberVcsReaders<'_>,
 ) -> AppResult<ReadinessCheck> {
     match name {
         CHECK_CLEAN_TREE => check_clean_tree(readers),
-        CHECK_REGISTRY_IDEMPOTENT => check_registry_idempotent(context, targets),
+        CHECK_REGISTRY_IDEMPOTENT => check_registry_idempotent(context, targets, settings),
         other => Err(AppError::invalid_input(
             "release.readiness",
             format!(
@@ -166,9 +169,16 @@ fn check_clean_tree(readers: &MemberVcsReaders<'_>) -> AppResult<ReadinessCheck>
 fn check_registry_idempotent(
     context: &crate::plan::PlanContext,
     targets: &super::ReleaseTargets,
+    settings: &std::collections::BTreeMap<toven_model::ModuleKey, super::ResolvedReleaseSettings>,
 ) -> AppResult<ReadinessCheck> {
     let mut behind = Vec::new();
     for module in &context.federation.modules {
+        let Some(resolved) = settings.get(&module.key()) else {
+            continue;
+        };
+        if !resolved.publication.publishes_to_registry() {
+            continue;
+        }
         let key = (module.member.clone(), module.id.ecosystem.clone());
         let Some(target) = targets.get(&key) else {
             continue;
@@ -255,8 +265,12 @@ mod tests {
     fn providers_with(target: FakeReleaseTarget, checks: &[&str]) -> FakeProvider {
         let mut response = DiscoverResponse::new(eid("rust"));
         response.modules = vec![module("core")];
+        let registry = checks
+            .contains(&super::CHECK_REGISTRY_IDEMPOTENT)
+            .then_some("crates-io".to_string());
         let common = CommonEcosystemConfig {
             release: ReleaseConfig {
+                registry,
                 readiness: Some(checks.iter().map(ToString::to_string).collect()),
                 ..ReleaseConfig::default()
             },
