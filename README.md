@@ -39,7 +39,7 @@ root = "."
 base_ref = "origin/main"
 
 [ecosystems.rust]
-manifests = ["Cargo.toml"]
+manifests = "auto"
 ```
 
 `init` seeds starter tasks for each ecosystem (`build`, `check`, `test`, `lint`, `format`, `doc`, `run`). They work like npm scripts: `toven <name>` runs the matching entry, and you add, rename, or remove them freely. Edit or add one under `[ecosystems.<id>.tasks.<name>]`:

@@ -73,8 +73,14 @@ pub(crate) fn execute(
     let run_id = new_run_id()?;
     let intent_name = intent.name().to_string();
     let effective_view = view.unwrap_or(project.document.toven.view);
-    let pane_dir =
-        std::env::temp_dir().join(format!("toven-panes-{run_id}-{}", std::process::id()));
+    // Per-run scratch for the tmux pane launcher. A randomized, 0700, owned
+    // `TempDir` (rather than a predictable `toven-panes-{run_id}-{pid}` path in
+    // the world-writable system temp dir) closes the pre-create/read/interfere
+    // window a local attacker could otherwise exploit against a guessable path.
+    // The guard owns the directory for the whole run and removes it on drop,
+    // however the run exits, so no manual reclaim is needed.
+    let pane_scratch = rskit_fs::TempDir::new()?;
+    let pane_dir = pane_scratch.path().to_path_buf();
     let mut request = PlanRequest::new(
         run_id.clone(),
         project.document.project.name.clone(),
@@ -179,9 +185,9 @@ pub(crate) fn execute(
         let cancel = on_ctrl_c();
         apply(&plan, runner, &cache, sink, &mut output, options, cancel).await
     });
-    // Reclaim the per-run pane scratch dir (created only under `--view panes`),
-    // regardless of how the run exited.
-    let _ = rskit_fs::sync_io::dir::remove_all_if_exists(&pane_dir);
+    // `pane_scratch` (the owned `TempDir`) removes the pane scratch dir on drop,
+    // however the run exited — no manual reclaim needed.
+    drop(pane_scratch);
     Ok(exit_code(&summary?))
 }
 
@@ -194,6 +200,9 @@ pub(crate) fn execute(
 #[must_use]
 pub(crate) fn plan_summary(plan: &Plan) -> RunStats {
     let mut summary = RunStats::new(plan.units.len());
+    // A PLAN-only cut executes nothing; mark it so the summary reads as a dry run
+    // rather than a real run in which every unit happened to be a cache hit.
+    summary.dry_run = true;
     for unit in &plan.units {
         match unit.cache {
             CacheVerdict::Hit => {

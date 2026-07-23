@@ -23,6 +23,9 @@
   - [Manage cache](commands/cache.md)
   - [Measure coverage](commands/coverage.md)
   - [Release modules](commands/release.md)
+  - [Manage drivers](commands/driver.md)
+  - [Manage federation](commands/federation.md)
+  - [Shell completions](commands/completions.md)
 
 ## Operate
 

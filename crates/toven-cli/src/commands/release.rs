@@ -278,7 +278,7 @@ fn run(
     cli: &Cli,
     action: ReleaseAction,
 ) -> AppResult<ExitCode> {
-    require_release_confirmation(cli.non_interactive)?;
+    require_release_confirmation(cli.confirm_release)?;
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();

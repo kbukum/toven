@@ -56,7 +56,7 @@ assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
 | `remote` | Git remote for release pushes | `origin` |
 | `branches` | Allowed release branches; an empty list permits any branch | Any branch |
 | `registry` | Registry selection for Rust crate publication; invalid for Go | No registry, tag-only |
-| `publish` | `false` selects tag-only publication when no registry is declared | Inherit / registry-driven |
+| `publish` | `false` selects tag-only publication; in a per-module block it also narrows an inherited registry to tag-only | Inherit / registry-driven |
 | `exclude` | Exclude the module from release planning, tagging, registry publication, and hosted releases | `false` |
 | `offline` | Use tags rather than target queries for idempotency | `false` |
 | `token_env` | Name of the registry-token environment variable, never the token | None |
@@ -133,10 +133,10 @@ Toven resolves publication into a typed policy before planning:
 
 - `registry = "crates-io"` selects Rust registry publication.
 - No `registry` selects tag-only publication; Rust crates are not published by default.
-- `publish = false` is an explicit tag-only declaration when no registry is declared.
-- `exclude = true` removes the module from release planning entirely.
+- `publish = false` is an explicit tag-only declaration; in the same block it requires no `registry`, and in a per-module override it narrows an inherited ecosystem registry to tag-only for that one module.
+- `exclude = true` removes the module from release planning entirely; in a per-module override it also narrows an inherited registry to excluded for that one module.
 
-Contradictory combinations fail validation: Go cannot declare a registry, a registry target cannot be combined with `publish = false`, and an excluded module cannot declare registry publication or hosted assets. Registry-published Rust crates are packaged and published during `release publish`; tag-only modules are versioned and tagged but never sent to a package registry.
+Contradictions are rejected **within a single block**: Go cannot declare a registry, a `registry` target cannot be combined with `publish = false` in the same block, and an excluded module cannot declare registry publication or hosted assets. These same-block rules do not block a more-specific **per-module override from narrowing an inherited policy**: a module that inherits a registry from its ecosystem may set `publish = false` to become tag-only, or `exclude = true` to drop out of the release, without tripping a contradiction. The override merges field-by-field and the resolved policy is recomputed from the merged fields (`exclude` wins, then `publish = false`, then `registry`), so the per-module block that narrows an inherited registry never re-triggers the same-block contradiction check. Registry-published Rust crates are packaged and published during `release publish`; tag-only modules are versioned and tagged but never sent to a package registry.
 
 For Go test-only and benchmark modules, the policy is intentionally explicit: use tag-only release policy or `exclude = true`; path and name heuristics are forbidden. Go registry publication is rejected because Go releases are immutable Git tags.
 

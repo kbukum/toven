@@ -521,4 +521,29 @@ mod tests {
         assert!(!is_init_invocation(&argv(&[])));
         assert!(!is_init_invocation(&argv(&["toven-go"])));
     }
+
+    #[test]
+    fn exit_code_taxonomy_matches_the_documented_contract() {
+        use rskit_cli::ExitCode;
+        use rskit_errors::ErrorCode;
+
+        // Pins the exit-code contract published in docs/commands/README.md so a change
+        // to the numeric values (or the error-class mapping the CLI relies on) fails
+        // here — automation authors branch on these numbers.
+        assert_eq!(ExitCode::Success.as_i32(), 0);
+        assert_eq!(ExitCode::Failure.as_i32(), 1);
+        assert_eq!(ExitCode::Usage.as_i32(), 2);
+        assert_eq!(ExitCode::Permission.as_i32(), 3);
+        assert_eq!(ExitCode::NotFound.as_i32(), 4);
+        assert_eq!(ExitCode::Conflict.as_i32(), 5);
+        assert_eq!(ExitCode::Unavailable.as_i32(), 69);
+        assert_eq!(ExitCode::RateLimited.as_i32(), 75);
+        assert_eq!(ExitCode::Timeout.as_i32(), 124);
+        assert_eq!(ExitCode::Cancelled.as_i32(), 130);
+
+        // The error classes the CLI produces map to the documented codes.
+        assert_eq!(ExitCode::from(ErrorCode::InvalidInput).as_i32(), 2);
+        assert_eq!(ExitCode::from(ErrorCode::NotFound).as_i32(), 4);
+        assert_eq!(ExitCode::from(ErrorCode::Conflict).as_i32(), 5);
+    }
 }

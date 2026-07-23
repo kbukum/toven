@@ -118,13 +118,15 @@ impl ResolvedReleaseSettings {
 
     /// Apply defaults and resolve the bump policy over an already-merged
     /// config.
+    ///
+    /// The `registry`/`publish`/`exclude` fields are **not** re-validated here:
+    /// each raw block (ecosystem default and per-module override) is checked for
+    /// same-block contradictions at load, and [`PublicationPolicy::resolve`] is
+    /// total, so a more-specific per-module override may legitimately narrow the
+    /// inherited publication (an inherited registry with `exclude = true`
+    /// resolves to `Excluded`, and with `publish = false` to `TagOnly`) without
+    /// tripping a false merged-level contradiction.
     fn from_merged(config: &ReleaseConfig) -> AppResult<Self> {
-        PublicationPolicy::validate_fields(
-            "release",
-            config.registry.as_deref(),
-            config.publish,
-            config.exclude,
-        )?;
         Ok(Self {
             policy: strategy::resolve(config.strategy.as_deref())?,
             level: config.level.unwrap_or(BumpLevel::Auto),
@@ -220,6 +222,41 @@ mod tests {
                 registry: "crates-io".into()
             }
         );
+    }
+
+    #[test]
+    fn module_override_excludes_under_a_registry_ecosystem() {
+        // A registry ecosystem (crates.io) with a per-module `exclude = true`
+        // override must resolve to `Excluded` — the inherited registry does not
+        // make the combination contradictory, because exclusion is a
+        // deliberate, more-specific narrowing (e.g. an example or fuzz crate).
+        let ecosystem = ReleaseConfig {
+            registry: Some("crates-io".into()),
+            ..ReleaseConfig::default()
+        };
+        let module = ReleaseConfig {
+            exclude: Some(true),
+            ..ReleaseConfig::default()
+        };
+        let resolved = ResolvedReleaseSettings::resolve(&ecosystem, Some(&module)).unwrap();
+        assert_eq!(resolved.publication, PublicationPolicy::Excluded);
+        assert!(!resolved.publication.releases());
+    }
+
+    #[test]
+    fn module_override_makes_one_module_tag_only_under_a_registry_ecosystem() {
+        // A per-module `publish = false` narrows a single crate to a tag-only
+        // release while its siblings keep publishing to the inherited registry.
+        let ecosystem = ReleaseConfig {
+            registry: Some("crates-io".into()),
+            ..ReleaseConfig::default()
+        };
+        let module = ReleaseConfig {
+            publish: Some(false),
+            ..ReleaseConfig::default()
+        };
+        let resolved = ResolvedReleaseSettings::resolve(&ecosystem, Some(&module)).unwrap();
+        assert_eq!(resolved.publication, PublicationPolicy::TagOnly);
     }
 
     #[test]

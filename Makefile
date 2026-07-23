@@ -111,6 +111,7 @@ release-dry-run:
 # and dependency graphs Toven would produce. Read-only, safe to run anywhere.
 release-plan:
 	$(TOVEN) release plan
+	$(TOVEN) release status
 	$(TOVEN) release readiness
 	$(TOVEN) release sbom --out-dir target/toven/release/sbom
 	$(TOVEN) release depgraphs --out-dir target/toven/release/depgraphs

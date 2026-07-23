@@ -16,11 +16,23 @@ function = 80.0
 line = 80.0
 region = 70.0
 
-# Toven's release contract is a signed, tag-only hosted binary release; every
-# workspace crate remains `publish = false`. The current release command does
-# not yet execute that complete binary-distribution contract.
+# Toven ships as a single, signed, tag-only hosted binary release — not a set of
+# per-crate registry packages. Every workspace crate is `publish = false` and,
+# because no `registry` is set here, resolves to the tag-only publication policy
+# (versioned and tagged, never published to crates.io). The whole workspace
+# shares one version, so `tag_format = "v{version}"` collapses the crates onto a
+# single repository tag (e.g. `v0.1.0`) — the one release train for the binary —
+# instead of the per-crate `{ecosystem}/{module}@{version}` default.
+#
+# The hosted GitHub Release carries the per-target `toven` binary archives, their
+# checksums, signatures, SBOM, and provenance. Those assets are not declared here
+# (`host.assets` stays unset); the archives are produced by the release build and
+# attached at publish time. This block drives the mutation-free previews (`release
+# plan` / `status` / `readiness`); release execution runs once the build produces
+# the assets and the immutable host path resolves.
 [ecosystems.rust.release]
 readiness = ["clean-tree"]
+tag_format = "v{version}"
 
 [ecosystems.rust.release.host]
 forge = "github"

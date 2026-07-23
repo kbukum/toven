@@ -108,19 +108,44 @@ impl Report {
     /// — so a flagged or pipe/CI run never silently accepts every default
     /// without a signal.
     fn from_init_outcome(outcome: &InitOutcome, defaults: Option<DefaultsReason>) -> Self {
+        // The detected-ecosystems line leads the stderr diagnostics in both write and
+        // `--print` modes, so a `--print` run (stdout reserved for the TOML) still tells
+        // the user what was detected instead of appearing to do nothing.
+        let detected = detected_line(&outcome.detected);
         if outcome.written {
             let touched = touched_sections(&outcome.added, &outcome.regenerated);
             let summary = write_summary(&outcome.path, outcome.created, &touched);
+            let mut diagnostics = write_diagnostics(&outcome.warnings, defaults, summary);
+            prepend(&mut diagnostics, detected);
             Self {
                 document: None,
-                diagnostics: write_diagnostics(&outcome.warnings, defaults, summary),
+                diagnostics,
             }
         } else {
+            let mut diagnostics = outcome.warnings.clone();
+            prepend(&mut diagnostics, detected);
             Self {
                 document: Some(outcome.rendered.clone()),
-                diagnostics: outcome.warnings.clone(),
+                diagnostics,
             }
         }
+    }
+}
+
+/// The `detected: <ecosystems>` stderr line, or `None` when nothing was detected
+/// (the engine already emits a dedicated no-ecosystem hint in that case).
+fn detected_line(detected: &[EcosystemId]) -> Option<String> {
+    if detected.is_empty() {
+        return None;
+    }
+    let names: Vec<&str> = detected.iter().map(EcosystemId::as_str).collect();
+    Some(format!("detected: {}", names.join(", ")))
+}
+
+/// Insert `line` (when present) at the front of the diagnostics.
+fn prepend(diagnostics: &mut Vec<String>, line: Option<String>) {
+    if let Some(line) = line {
+        diagnostics.insert(0, line);
     }
 }
 

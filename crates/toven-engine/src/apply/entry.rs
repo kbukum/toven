@@ -50,7 +50,13 @@ pub async fn apply<S: RawOutputSink>(
             // to a non-blocking send and account for any drop instead of deadlocking the
             // runtime.
             if tokio::runtime::Handle::try_current().is_err() {
-                let _ = live_tx.blocking_send(chunk);
+                // Blocking send applies lossless backpressure when the bridge is full,
+                // and only errors once the receiver is gone (the APPLY consumer has
+                // torn down). Such a chunk is genuinely undeliverable, so count it —
+                // keeping the "loss is never silent" contract honest on this path too.
+                if live_tx.blocking_send(chunk).is_err() {
+                    dropped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
             } else if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) =
                 live_tx.try_send(chunk)
             {

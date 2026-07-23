@@ -20,7 +20,7 @@ use crate::flags::Verbosity;
 /// bespoke plan-dump. A [`Verbosity`] level filters how much of the stream is
 /// shown (quiet collapses to the run summary; verbose adds the per-phase,
 /// cache-decision, and unit-lifecycle detail). A [`Palette`] colorizes the
-/// status labels and the summary's exit line; it defaults to disabled (verbatim
+/// status labels and the summary's status line; it defaults to disabled (verbatim
 /// text) so a piped or `--color never` run is byte-stable. Generic over the
 /// writer for testability; [`HumanReporter::stderr`] binds the process stderr
 /// (progress and status are diagnostics, so stdout stays reserved for the
@@ -46,7 +46,7 @@ impl<W: Write> HumanReporter<W> {
         }
     }
 
-    /// Attach a resolved [`Palette`] so status labels and the summary exit line
+    /// Attach a resolved [`Palette`] so status labels and the summary status line
     /// are colorized; a disabled palette leaves the output verbatim.
     #[must_use]
     pub const fn with_palette(mut self, palette: Palette) -> Self {
@@ -142,19 +142,26 @@ impl<W: Write> HumanReporter<W> {
         if summary.dropped_output_chunks > 0 {
             kv.add("dropped-output", summary.dropped_output_chunks.to_string());
         }
-        // The displayed exit is derived from the summary by the single owner, so it can
-        // never disagree with the actual process exit (event-report C). Colorized by
-        // outcome (green success / red failure); a disabled palette leaves it verbatim
-        // so the projection stays byte-stable.
-        let exit = exit_code(summary).as_i32();
-        let exit_text = exit.to_string();
-        let exit_value = if exit == 0 {
-            self.palette.success(&exit_text)
+        // The displayed status is derived from the summary by the single owner, so it
+        // can never disagree with the actual process exit (event-report C). Rendered as
+        // a human word (`ok`/`failed`) rather than a bare exit number, colorized by
+        // outcome (green success / red failure); a disabled palette leaves it verbatim.
+        let ok = exit_code(summary).as_i32() == 0;
+        let status_text = if ok { "ok" } else { "failed" };
+        let status_value = if ok {
+            self.palette.success(status_text)
         } else {
-            self.palette.error(&exit_text)
+            self.palette.error(status_text)
         };
-        kv.add("exit", exit_value.into_owned());
-        write!(self.writer, "summary\n{kv}").map_err(AppError::internal)?;
+        kv.add("status", status_value.into_owned());
+        // A dry run executed nothing; say so explicitly so a glance at the summary
+        // never reads like a real run in which every unit was a cache hit.
+        let header = if summary.dry_run {
+            "summary (dry run — no tasks executed)"
+        } else {
+            "summary"
+        };
+        write!(self.writer, "{header}\n{kv}").map_err(AppError::internal)?;
         // Flush the final summary so a piped/redirected consumer receives it promptly
         // and it is not lost in a buffer on an abrupt exit.
         self.writer.flush().map_err(AppError::internal)
@@ -184,7 +191,17 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
                 run_id,
                 intent,
                 project,
-            } => self.write_line(&format!("run {run_id}: {intent} on {project}")),
+            } => {
+                // The run-id is log/JSONL correlation noise for an interactive reader, so
+                // it is shown only at `-v`; the default line reads `run <intent> on
+                // <project>`. The machine JSONL projection always carries the id.
+                let line = if matches!(self.level, Verbosity::Verbose) {
+                    format!("run {run_id}: {intent} on {project}")
+                } else {
+                    format!("run {intent} on {project}")
+                };
+                self.write_line(&line)
+            }
             Event::RunFinished { summary } => self.write_summary(summary),
             Event::Warning { message } => {
                 let line = format!("warning: {message}");
@@ -203,9 +220,11 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
             Event::PhaseFinished { phase } => {
                 self.write_line(&format!("  phase {}: done", phase_label(*phase)))
             }
-            Event::PlanPrepared { waves, units } => {
-                self.write_line(&format!("plan: {units} units in {waves} waves"))
-            }
+            Event::PlanPrepared { waves, units } => self.write_line(&format!(
+                "plan: {} in {}",
+                plural(*units, "unit"),
+                plural(*waves, "wave")
+            )),
             Event::CacheDecided { unit_id, verdict } => {
                 self.write_line(&format!("  cache {unit_id}: {}", verdict_label(*verdict)))
             }
@@ -227,6 +246,18 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
             }
             Event::WatchStopped => self.write_line("watch: stopped"),
         }
+    }
+}
+
+/// Render `count` with a naive-pluralized noun: `1 unit`, `2 units`.
+///
+/// The nouns used here (`unit`, `wave`) pluralize by appending `s`, so a simple
+/// suffix rule is correct and keeps the human summary grammatical.
+fn plural(count: usize, singular: &str) -> String {
+    if count == 1 {
+        format!("{count} {singular}")
+    } else {
+        format!("{count} {singular}s")
     }
 }
 
@@ -305,6 +336,7 @@ mod tests {
         // entering APPLY: no UnitStarted/UnitFinished. Asserted as an exact golden so a
         // layout/ordering regression in the summary block fails.
         let mut summary = RunStats::new(2);
+        summary.dry_run = true;
         summary.cached_units = 1;
         summary.cache_hits = 1;
         summary.cache_misses = 1;
@@ -337,10 +369,10 @@ mod tests {
 run r1: test on toven
   phase schedule: started
   phase schedule: done
-plan: 2 units in 1 waves
+plan: 2 units in 1 wave
   cache rust:errors#test: hit
   cache rust:core#test: miss
-summary
+summary (dry run — no tasks executed)
            planned:  2
                ran:  0
             cached:  1
@@ -349,7 +381,7 @@ summary
          cancelled:  0
   failed-readiness:  0
          timed-out:  0
-              exit:  0
+            status:  ok
 ";
         assert_eq!(output, expected);
         // The PLAN-only projection carries no unit-exec lines.
@@ -373,14 +405,14 @@ summary
         ];
         let output = render(&events);
 
-        let expected = "  start u1\n  ok u1\nsummary\n           planned:  1\n               ran:  1\n            cached:  0\n            failed:  0\n           blocked:  0\n         cancelled:  0\n  failed-readiness:  0\n         timed-out:  0\n              exit:  0\n";
+        let expected = "  start u1\n  ok u1\nsummary\n           planned:  1\n               ran:  1\n            cached:  0\n            failed:  0\n           blocked:  0\n         cancelled:  0\n  failed-readiness:  0\n         timed-out:  0\n            status:  ok\n";
         assert_eq!(output, expected);
     }
 
     #[test]
     fn failed_run_summary_derives_non_zero_exit_from_counters() {
-        // The summary's `exit` line is derived from the counters by the single owner,
-        // never trusted from the event — a failure forces a non-zero exit.
+        // The summary's `status` line is derived from the counters by the single owner,
+        // never trusted from the event — a failure forces the `failed` status.
         let mut summary = RunStats::new(1);
         summary.failed_units = 1;
         let output = render(&[Event::RunFinished { summary }]);
@@ -395,7 +427,7 @@ summary
          cancelled:  0
   failed-readiness:  0
          timed-out:  0
-              exit:  1
+            status:  failed
 ";
         assert_eq!(output, expected);
     }
@@ -426,7 +458,7 @@ summary
   planned:  2
       ran:  0
    cached:  0
-     exit:  0
+   status:  ok
 ";
         assert_eq!(output, expected);
     }
@@ -446,7 +478,7 @@ summary
    cached:  0
    failed:  1
   blocked:  2
-     exit:  1
+   status:  failed
 ";
         assert_eq!(output, expected);
     }
@@ -471,7 +503,7 @@ summary
          cancelled:  0
   failed-readiness:  0
          timed-out:  0
-              exit:  0
+            status:  ok
 ";
         assert_eq!(output, expected);
     }
@@ -546,10 +578,14 @@ summary
     }
 
     #[test]
-    fn palette_colorizes_the_summary_exit_line_by_outcome() {
-        // The summary exit value is painted green on success and red on failure; a
-        // disabled palette (covered above) leaves it verbatim for byte-stability.
-        let cases = [(0, "\u{1b}[32m0\u{1b}[0m"), (1, "\u{1b}[31m1\u{1b}[0m")];
+    fn palette_colorizes_the_summary_status_line_by_outcome() {
+        // The summary status word is painted green on success (`ok`) and red on failure
+        // (`failed`); a disabled palette (covered above) leaves it verbatim for
+        // byte-stability.
+        let cases = [
+            (0, "\u{1b}[32mok\u{1b}[0m"),
+            (1, "\u{1b}[31mfailed\u{1b}[0m"),
+        ];
         for (failed, painted) in cases {
             let mut summary = RunStats::new(1);
             summary.failed_units = failed;
@@ -560,8 +596,8 @@ summary
                 .expect("emit");
             let output = String::from_utf8(reporter.into_inner()).expect("utf8");
             assert!(
-                output.contains(&format!("exit:  {painted}\n")),
-                "failed={failed} exit not colorized: {output:?}"
+                output.contains(&format!("status:  {painted}\n")),
+                "failed={failed} status not colorized: {output:?}"
             );
         }
     }
@@ -616,8 +652,9 @@ summary
     #[test]
     fn quiet_collapses_to_the_run_lines_and_summary() {
         let output = render_at(Verbosity::Quiet, &full_stream());
-        // Run start + summary survive; everything in between is suppressed.
-        assert!(output.starts_with("run r1: build on toven\n"), "{output}");
+        // Run start + summary survive; everything in between is suppressed. The run-id
+        // is verbose-only, so the non-verbose line omits it.
+        assert!(output.starts_with("run build on toven\n"), "{output}");
         assert!(output.contains("summary\n"), "{output}");
         for noise in ["phase ", "plan:", "cache ", "  start ", "  ok "] {
             assert!(!output.contains(noise), "quiet leaked {noise:?}: {output}");
@@ -627,8 +664,8 @@ summary
     #[test]
     fn normal_shows_plan_and_terminal_results_but_not_intermediate_noise() {
         let output = render_at(Verbosity::Normal, &full_stream());
-        assert!(output.contains("run r1: build on toven\n"), "{output}");
-        assert!(output.contains("plan: 1 units in 1 waves\n"), "{output}");
+        assert!(output.contains("run build on toven\n"), "{output}");
+        assert!(output.contains("plan: 1 unit in 1 wave\n"), "{output}");
         assert!(output.contains("  ok rust:core#build\n"), "{output}");
         assert!(output.contains("summary\n"), "{output}");
         // Per-phase, cache-decision, and unit-start lines are verbose-only.
@@ -643,7 +680,7 @@ summary
         for line in [
             "run r1: build on toven\n",
             "  phase schedule: started\n",
-            "plan: 1 units in 1 waves\n",
+            "plan: 1 unit in 1 wave\n",
             "  cache rust:core#build: miss\n",
             "  start rust:core#build\n",
             "  ok rust:core#build\n",

@@ -11,7 +11,8 @@ fn plan_reports_units_waves_and_zero_ran() {
     let sample = repo("rust/multi-module");
     toven_rs_ok(&sample, &["plan", "build"])
         .expect_stderr_contains("plan:")
-        .expect_stderr_contains("units in")
+        .expect_stderr_contains("unit")
+        .expect_stderr_contains("wave")
         .expect_stderr_contains("ran:  0");
 }
 

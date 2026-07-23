@@ -13,6 +13,9 @@ Toven accepts reserved commands and repository-defined task names.
 | Inspect or clear cache records | [`cache`](cache.md) |
 | Measure and gate coverage | [`coverage`](coverage.md) |
 | Plan or execute a release | [`release`](release.md) |
+| Provision ecosystem drivers | [`driver`](driver.md) |
+| Provision drivers across composed repos | [`federation`](federation.md) |
+| Generate shell completion scripts | [`completions`](completions.md) |
 
 Run command help:
 
@@ -71,6 +74,25 @@ JSONL mode reserves stdout for one JSON object per line. Human framing remains o
 | `-q` | Reduce human verbosity |
 
 `NO_COLOR` disables color when set to a non-empty value.
+
+## Exit codes
+
+Every command maps its outcome to a stable process exit code so automation can branch on the class of failure without parsing text. The taxonomy is pinned by a test.
+
+| Code | Meaning |
+|---|---|
+| 0 | Success |
+| 1 | Unclassified failure (including a task/unit that ran and failed) |
+| 2 | Usage error — invalid input, invalid format, or a missing required argument |
+| 3 | Permission — authentication or authorization failure |
+| 4 | Not found — a required resource is missing (for example, no `toven.toml`) |
+| 5 | Conflict — the request conflicts with immutable state (for example, a divergent existing release) |
+| 69 | Unavailable — a remote dependency or service failed |
+| 75 | Rate limited |
+| 124 | Timed out |
+| 130 | Cancelled (for example, Ctrl+C) |
+
+A failing task run exits non-zero; a clean run exits 0. Clap usage errors (unknown flags, bad subcommands) exit 2.
 
 ## Baseline selection
 

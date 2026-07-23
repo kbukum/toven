@@ -18,7 +18,7 @@ fn unordered_variant_collapses_waves_into_one() {
         &sample,
         &["--config", "variant-unordered.toml", "plan", "build"],
     )
-    .expect_stderr_contains("in 1 waves");
+    .expect_stderr_contains("in 1 wave");
 }
 
 #[test]
