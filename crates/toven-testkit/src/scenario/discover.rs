@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use rskit_errors::{AppError, AppResult};
@@ -33,7 +34,7 @@ pub fn discover_scenarios(root: &Path) -> AppResult<Vec<PathBuf>> {
         if entry
             .path
             .file_name()
-            .is_some_and(|name| name == SCENARIO_FILENAME)
+            .is_some_and(|name| name == OsStr::new(SCENARIO_FILENAME))
             && let Some(parent) = entry.path.parent()
         {
             dirs.push(parent.to_path_buf());

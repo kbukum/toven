@@ -114,8 +114,10 @@ fn count_files(root: &Path) -> AppResult<u64> {
         return Ok(0);
     }
     let mut count = 0_u64;
-    walk_tree_ignoring(root, WALK, |_entry| {
-        count += 1;
+    walk_tree_ignoring(root, WALK, |entry| {
+        if entry.is_file {
+            count += 1;
+        }
         Ok(WalkControl::Continue)
     })?;
     Ok(count)
