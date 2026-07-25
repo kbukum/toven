@@ -1,0 +1,8 @@
+
+Release SBOM artifacts
+┌─────────────────┬──────────────────────────────┐
+│ Module          │ Artifact                     │
+├─────────────────┼──────────────────────────────┤
+│ rust:train-cli  │ out/sbom/train-cli.cdx.json  │
+│ rust:train-core │ out/sbom/train-core.cdx.json │
+└─────────────────┴──────────────────────────────┘

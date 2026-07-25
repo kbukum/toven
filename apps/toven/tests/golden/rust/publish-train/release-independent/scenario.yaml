@@ -1,0 +1,12 @@
+# Independent release policy with an explicitly non-publishable module.
+repo: rust/publish-train
+steps:
+  - id: 01-release-plan
+    argv: [release, plan, --output, jsonl]
+    config: toven.independent.toml
+    stdout: { match: normalized }
+  - id: 02-release-publish-dry-run
+    argv: [release, publish, --dry-run, --output, jsonl]
+    config: toven.independent.toml
+    stdout: { match: normalized }
+

@@ -1,6 +1,3 @@
-# A release-configured train (`train-cli -> train-core`): ecosystem-level
-# registry publication with a per-module override, for release plan/status
-# scenarios (semver cascade, tag formats, publication mix).
 [project]
 name = "publish-train-rust"
 
@@ -21,10 +18,5 @@ commit_message = "chore: release {version}"
 push = false
 registry = "crates-io"
 token_env = "CARGO_REGISTRY_TOKEN"
+readiness = ["clean-tree"
 
-[ecosystems.rust.release.prerelease]
-channels = ["alpha", "beta", "rc"]
-
-[modules."rust:train-core".release]
-level = "major"
-tag_format = "core-v{version}"

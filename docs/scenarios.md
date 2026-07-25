@@ -55,3 +55,15 @@ toven release publish --dry-run
 ```
 
 The sequence inspects versions, runs release checks, creates local evidence artifacts, and previews publication without changing manifests, tags, registries, or hosted releases.
+
+For a deterministic representative fixture go/no-go across Rust and Go release trains (plan/status/readiness/SBOM/depgraphs/dry-run plus independent-policy and failure matrices), run:
+
+```bash
+scripts/verify-release-platform.sh
+```
+
+For isolated real-repository rehearsals with local bare remotes and controlled forge/registry command doubles, run:
+
+```bash
+scripts/verify-real-repositories.sh
+```

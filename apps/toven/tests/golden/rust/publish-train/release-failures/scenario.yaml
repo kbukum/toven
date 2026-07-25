@@ -1,0 +1,32 @@
+# Failure matrix: malformed config, missing changelog, invalid version input,
+# and clean-tree enforcement.
+repo: rust/publish-train
+git:
+  commits:
+    - msg: "touch train-core and train-cli"
+      touch:
+        - crates/train-core/src/lib.rs
+        - crates/train-cli/src/main.rs
+steps:
+  - id: 01-malformed-config
+    argv: [release, plan]
+    config: toven.malformed.toml
+    exit: 2
+    stderr: { match: normalized }
+  - id: 02-missing-changelog
+    argv: [release, publish, --dry-run]
+    config: toven.missing-changelog.toml
+    exit: 2
+    stderr: { match: normalized }
+  - id: 03-invalid-version-input
+    argv: [release, publish, --dry-run, --set-version, "rust:train-core=not-a-semver"]
+    exit: 2
+    stderr: { match: normalized }
+  - id: 04-dirty-tree-artifact
+    argv: [release, sbom, --out-dir, out/sbom]
+    stdout: { match: normalized }
+  - id: 05-dirty-tree-readiness-rejected
+    argv: [release, readiness]
+    config: toven.clean-tree.toml
+    exit: 1
+    stdout: { match: normalized }

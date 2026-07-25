@@ -1,0 +1,4 @@
+name=rust-publish-train
+fixture=rust/publish-train
+config=toven.local-doubles.toml
+mode=publish-doubles

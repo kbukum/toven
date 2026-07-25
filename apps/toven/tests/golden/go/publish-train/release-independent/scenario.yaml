@@ -1,0 +1,17 @@
+# Independent Go release policy with an explicitly non-publishable module.
+repo: go/publish-train
+requires: [go]
+git:
+  tags:
+    - v0.1.0
+    - core/v0.1.0
+steps:
+  - id: 01-release-plan
+    argv: [release, plan, --output, jsonl]
+    config: toven.independent.toml
+    stdout: { match: normalized }
+  - id: 02-release-publish-dry-run
+    argv: [release, publish, --dry-run, --output, jsonl]
+    config: toven.independent.toml
+    stdout: { match: normalized }
+

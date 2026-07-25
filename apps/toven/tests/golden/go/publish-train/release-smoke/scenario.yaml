@@ -1,0 +1,31 @@
+# Representative Go release smoke over a root+nested module train: plan, status,
+# readiness, local evidence artifacts, dry-run, and publish approval guard.
+repo: go/publish-train
+requires: [go]
+git:
+  tags:
+    - v0.1.0
+    - core/v0.1.0
+steps:
+  - id: 01-release-plan-jsonl
+    argv: [release, plan, --output, jsonl]
+    stdout: { match: normalized }
+  - id: 02-release-status
+    argv: [release, status]
+    stdout: { match: normalized }
+  - id: 03-release-readiness
+    argv: [release, readiness]
+    stdout: { match: normalized }
+  - id: 04-release-sbom
+    argv: [release, sbom, --out-dir, out/sbom]
+    stdout: { match: normalized }
+  - id: 05-release-depgraphs
+    argv: [release, depgraphs, --out-dir, out/depgraphs]
+    stdout: { match: normalized }
+  - id: 06-release-publish-dry-run
+    argv: [release, publish, --dry-run, --output, jsonl, --pre, alpha]
+    stdout: { match: normalized }
+  - id: 07-release-publish-requires-yes
+    argv: [release, publish]
+    exit: 2
+    stderr: { match: normalized }

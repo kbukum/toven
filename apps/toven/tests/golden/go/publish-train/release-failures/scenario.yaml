@@ -1,0 +1,29 @@
+# Failure matrix: invalid Go tag format, invalid version input, and clean-tree
+# enforcement.
+repo: go/publish-train
+requires: [go]
+git:
+  commits:
+    - msg: "touch core"
+      touch:
+        - core/core.go
+  tags:
+    - v0.1.0
+    - core/v0.1.0
+steps:
+  - id: 01-go-tag-format-rejected
+    argv: [release, plan]
+    config: toven.invalid-tag-format.toml
+    exit: 2
+    stderr: { match: normalized }
+  - id: 02-invalid-version-input
+    argv: [release, publish, --dry-run, --set-version, "go:train=invalid"]
+    exit: 2
+    stderr: { match: normalized }
+  - id: 03-dirty-tree-artifact
+    argv: [release, depgraphs, --out-dir, out/depgraphs]
+    stdout: { match: normalized }
+  - id: 04-dirty-tree-readiness-rejected
+    argv: [release, readiness]
+    exit: 1
+    stdout: { match: normalized }

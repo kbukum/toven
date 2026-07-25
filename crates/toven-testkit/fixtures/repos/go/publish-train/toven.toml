@@ -1,0 +1,22 @@
+# A release-configured Go train (`root -> core`) with path-based Go tags and
+# prerelease channels, for release plan/readiness/publish dry-run scenarios.
+[project]
+name = "publish-train-go"
+
+[toven]
+include = ["_profiles/go-tasks.toml"]
+
+[ecosystems.go]
+modules = ["go.mod", "core/go.mod"]
+run_strategy = "leaf-to-top"
+
+[ecosystems.go.release]
+strategy = "semver-cascade"
+level = "minor"
+dependent_version = "bump"
+push = false
+readiness = ["clean-tree"]
+
+[ecosystems.go.release.prerelease]
+channels = ["alpha", "rc"]
+

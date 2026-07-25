@@ -1,0 +1,1 @@
+error[INVALID_INPUT]: invalid release.set-version: invalid version 'not-a-semver': unexpected character 'n' while parsing major version number
