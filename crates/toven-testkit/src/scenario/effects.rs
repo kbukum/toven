@@ -36,7 +36,8 @@ pub(super) struct EffectContext<'a> {
 pub(super) fn check(step: &Step, cx: &EffectContext<'_>) -> AppResult<bool> {
     let mut blessed = false;
     for effect in &step.effects {
-        blessed |= check_one(effect, cx).map_err(|err| err.context(format!("step '{}'", step.id)))?;
+        blessed |=
+            check_one(effect, cx).map_err(|err| err.context(format!("step '{}'", step.id)))?;
     }
     Ok(blessed)
 }
