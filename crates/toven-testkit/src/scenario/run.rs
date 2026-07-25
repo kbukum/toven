@@ -262,18 +262,13 @@ fn run_step(cx: &StepContext<'_>, step: &Step) -> AppResult<StepStatus> {
         scenario_dir: cx.scenario_dir,
         mode: cx.mode,
     };
-    if let Err(err) = effects::check(step, &effect_cx) {
-        return Ok(StepStatus::Failed {
-            message: err.to_string(),
-        });
-    }
-    // Effect goldens bless silently inside `check`; in bless mode report the
-    // step blessed whenever any of its goldens could have been rewritten.
-    if cx.mode == GoldenMode::Bless && !blessed {
-        blessed = step
-            .effects
-            .iter()
-            .any(|effect| matches!(effect, super::model::Effect::FileMatches { .. }));
+    match effects::check(step, &effect_cx) {
+        Ok(effects_blessed) => blessed |= effects_blessed,
+        Err(err) => {
+            return Ok(StepStatus::Failed {
+                message: err.to_string(),
+            });
+        }
     }
     Ok(if blessed {
         StepStatus::Blessed

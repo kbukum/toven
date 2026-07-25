@@ -31,10 +31,11 @@ pub fn discover_scenarios(root: &Path) -> AppResult<Vec<PathBuf>> {
     }
     let mut dirs = Vec::new();
     walk_tree_ignoring(root, WALK, |entry| {
-        if entry
-            .path
-            .file_name()
-            .is_some_and(|name| name == OsStr::new(SCENARIO_FILENAME))
+        if entry.is_file
+            && entry
+                .path
+                .file_name()
+                .is_some_and(|name| name == OsStr::new(SCENARIO_FILENAME))
             && let Some(parent) = entry.path.parent()
         {
             dirs.push(parent.to_path_buf());

@@ -4,7 +4,7 @@ use rskit_errors::{AppError, AppResult};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::tree::{IgnoreWalkOptions, WalkControl, walk_tree_ignoring};
 use rskit_fs::sync_io::{dir, file};
-use rskit_testutil::{Golden, GoldenMode, Match};
+use rskit_testutil::{Golden, GoldenMode, GoldenOutcome, Match};
 
 use crate::git::GitScenario;
 
@@ -25,18 +25,23 @@ pub(super) struct EffectContext<'a> {
 
 /// Evaluate every effect of `step`, in order.
 ///
+/// Returns whether any effect golden was regenerated (bless mode), so the
+/// caller can report the step [`Blessed`](crate::scenario::StepStatus::Blessed)
+/// only when a golden actually changed.
+///
 /// # Errors
 ///
 /// The first failing effect returns a typed [`AppError`] naming the step and
 /// the specific effect.
-pub(super) fn check(step: &Step, cx: &EffectContext<'_>) -> AppResult<()> {
+pub(super) fn check(step: &Step, cx: &EffectContext<'_>) -> AppResult<bool> {
+    let mut blessed = false;
     for effect in &step.effects {
-        check_one(effect, cx).map_err(|err| err.context(format!("step '{}'", step.id)))?;
+        blessed |= check_one(effect, cx).map_err(|err| err.context(format!("step '{}'", step.id)))?;
     }
-    Ok(())
+    Ok(blessed)
 }
 
-fn check_one(effect: &Effect, cx: &EffectContext<'_>) -> AppResult<()> {
+fn check_one(effect: &Effect, cx: &EffectContext<'_>) -> AppResult<bool> {
     match effect {
         Effect::CacheEntries(cmp) => {
             let count = count_files(cx.cache_dir)?;
@@ -45,6 +50,7 @@ fn check_one(effect: &Effect, cx: &EffectContext<'_>) -> AppResult<()> {
                     "cache_entries: expected {cmp}, found {count}"
                 )));
             }
+            Ok(false)
         }
         Effect::FileExists(rel) => {
             if !path_exists(&repo_path(cx, rel)?)? {
@@ -52,6 +58,7 @@ fn check_one(effect: &Effect, cx: &EffectContext<'_>) -> AppResult<()> {
                     "file_exists: '{rel}' does not exist in the repo"
                 )));
             }
+            Ok(false)
         }
         Effect::PathAbsent(rel) => {
             if path_exists(&repo_path(cx, rel)?)? {
@@ -59,6 +66,7 @@ fn check_one(effect: &Effect, cx: &EffectContext<'_>) -> AppResult<()> {
                     "path_absent: '{rel}' exists in the repo"
                 )));
             }
+            Ok(false)
         }
         Effect::FileMatches { path, golden } => {
             let actual = file::read_string(&repo_path(cx, path)?)
@@ -67,9 +75,10 @@ fn check_one(effect: &Effect, cx: &EffectContext<'_>) -> AppResult<()> {
             // keeps bless-mode writes confined even so.
             let golden_path = safe_join(cx.scenario_dir, golden)
                 .map_err(|err| AppError::invalid_input("effect golden", err.to_string()))?;
-            Golden::new(golden_path, Match::Exact)
+            let outcome = Golden::new(golden_path, Match::Exact)
                 .run(&actual, cx.mode)
                 .map_err(|err| err.context(format!("file_matches: '{path}' vs '{golden}'")))?;
+            Ok(matches!(outcome, GoldenOutcome::Blessed))
         }
         Effect::GitTagExists(tag) => {
             let git = GitScenario::open(cx.repo_root)?;
@@ -78,9 +87,9 @@ fn check_one(effect: &Effect, cx: &EffectContext<'_>) -> AppResult<()> {
                     "git_tag_exists: tag '{tag}' does not exist"
                 )));
             }
+            Ok(false)
         }
     }
-    Ok(())
 }
 
 /// Resolve an effect's repo-relative path, rejecting traversal.
