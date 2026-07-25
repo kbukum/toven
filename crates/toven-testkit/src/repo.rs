@@ -26,7 +26,13 @@ pub struct SampleRepo {
 }
 
 impl SampleRepo {
-    /// Copy `fixtures/repos/<name>` into a fresh temp workspace.
+    /// Copy `fixtures/repos/<name>` into a fresh temp workspace, injecting the
+    /// shared task profiles.
+    ///
+    /// Fixture `toven.toml`s include `_profiles/<eco>-tasks.toml` instead of
+    /// restating the task grammar; config includes may not traverse above the
+    /// config root, so the shared `fixtures/repos/_profiles/` tree is copied
+    /// into the materialized repo root.
     ///
     /// Returns an error if the named repo fixture does not exist.
     pub fn materialize(name: &str) -> AppResult<Self> {
@@ -34,6 +40,14 @@ impl SampleRepo {
         let workspace = TestWorkspace::new(&format!("sample-repo:{name}"));
         let root = workspace.child("repo")?;
         copy_tree(&source, &root, CopyTreeOptions::default())?;
+        let profiles = fixtures::path("repos/_profiles")?;
+        if profiles.is_dir() {
+            copy_tree(
+                &profiles,
+                &root.join("_profiles"),
+                CopyTreeOptions::default(),
+            )?;
+        }
         Ok(Self { workspace, root })
     }
 

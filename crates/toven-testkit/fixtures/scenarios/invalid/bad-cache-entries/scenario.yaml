@@ -1,0 +1,6 @@
+repo: r/x
+steps:
+  - id: a
+    argv: [plan]
+    effects:
+      - cache_entries: ">abc"

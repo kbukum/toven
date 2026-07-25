@@ -1,0 +1,12 @@
+# `modules` (and its `list`/`ls` aliases) project the discovered module set.
+repo: rust/workspace-linear
+steps:
+  - id: 01-modules
+    argv: [modules]
+    stdout: { match: normalized }
+  - id: 02-list-alias
+    argv: [list]
+    stdout: { match: normalized }
+  - id: 03-ls-alias
+    argv: [ls]
+    stdout: { match: normalized }

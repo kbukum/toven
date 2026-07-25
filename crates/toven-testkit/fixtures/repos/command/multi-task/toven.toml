@@ -1,0 +1,19 @@
+# Two command modules sharing the echo grammar, with one per-repo task
+# override, for multi-module command PLAN/APPLY and `--module` selection.
+[project]
+name = "multi-task-command"
+
+[toven]
+include = ["_profiles/command-tasks.toml"]
+
+[[ecosystems.command.modules]]
+name = "web"
+root = "web"
+
+[[ecosystems.command.modules]]
+name = "worker"
+root = "worker"
+
+# Overrides the shared grammar for this repo's test task.
+[ecosystems.command.tasks.test]
+argv = ["echo", "multi-task test override"]

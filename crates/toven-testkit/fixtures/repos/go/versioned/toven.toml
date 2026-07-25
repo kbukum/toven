@@ -1,0 +1,11 @@
+# A single Go module carrying a `/v2` major-version suffix in its module path,
+# for discovery and release scenarios over versioned module identities.
+[project]
+name = "versioned-go"
+
+[toven]
+include = ["_profiles/go-tasks.toml"]
+
+[ecosystems.go]
+modules = ["go.mod"]
+run_strategy = "leaf-to-top"

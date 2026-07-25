@@ -1,0 +1,7 @@
+# Real go APPLY across a go.work module set, gated on a `go` toolchain.
+repo: go/work-linear
+requires: [go]
+steps:
+  - id: 01-build
+    argv: [build]
+    stderr: { match: normalized }

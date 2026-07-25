@@ -1,0 +1,6 @@
+# `cache path` prints the scenario-scoped cache directory (scrubbed to <CACHE>).
+repo: rust/workspace-linear
+steps:
+  - id: 01-cache-path
+    argv: [cache, path]
+    stdout: { match: normalized }

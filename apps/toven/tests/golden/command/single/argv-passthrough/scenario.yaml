@@ -1,0 +1,10 @@
+# The `--` tail reaches the tool verbatim. The local `test` task carries an
+# `{args}` splice point, so a real APPLY of `run test -- --flag value` renders
+# `echo passthrough --flag value` and the tool's echoed output line proves the
+# tail arrived byte-for-byte — observed directly, not inferred from a cache
+# verdict. Echo is toolchain-independent, so the run stays deterministic.
+repo: command/single
+steps:
+  - id: 01-passthrough
+    argv: [run, test, --, --flag, value]
+    stderr: { match: normalized }

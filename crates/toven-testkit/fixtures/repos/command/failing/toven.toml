@@ -1,0 +1,19 @@
+# A repo whose declared `check` task deliberately fails, for `--fail-fast`,
+# non-zero exit propagation, and failure rendering. Uses the `command`
+# ecosystem so the failure is deterministic and toolchain-independent.
+[project]
+name = "failing-command"
+
+[toven]
+include = ["_profiles/command-tasks.toml"]
+
+[[ecosystems.command.modules]]
+name = "boom"
+root = "."
+
+# Overrides the shared echo grammar: this shape exists to fail.
+[ecosystems.command.tasks.check]
+argv = ["false"]
+
+[ecosystems.command.tasks.build]
+argv = ["true"]

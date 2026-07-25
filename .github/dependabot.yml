@@ -31,7 +31,7 @@ updates:
       time: "09:00"
       timezone: "Etc/UTC"
     commit-message:
-      prefix: "deps"
+      prefix: "build"
       include: "scope"
     labels:
       - "dependencies"

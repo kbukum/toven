@@ -1,0 +1,11 @@
+# The engine passes argv verbatim (spaces preserved, nothing rewritten) and
+# injects --config only when the step declares a variant.
+repo: edge/no-ecosystem
+steps:
+  - id: 01-args
+    argv: [args, "--name=weird value", trailing]
+    stdout: { match: exact }
+  - id: 02-config
+    argv: [args]
+    config: toven.warm.toml
+    stdout: { match: exact }

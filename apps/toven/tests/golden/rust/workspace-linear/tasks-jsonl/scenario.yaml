@@ -1,0 +1,6 @@
+# `tasks --output jsonl` is the machine surface: one stable record per task.
+repo: rust/workspace-linear
+steps:
+  - id: 01-tasks-jsonl
+    argv: [tasks, --output, jsonl]
+    stdout: { match: normalized }

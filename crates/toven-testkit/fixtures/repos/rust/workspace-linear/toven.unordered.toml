@@ -1,0 +1,12 @@
+# `--config` variant over the same tree: wave ordering collapses to
+# `unordered` (all modules in one wave). Selected via
+# `--config toven.unordered.toml`; shares the canonical task grammar.
+[project]
+name = "workspace-linear-rust"
+
+[toven]
+include = ["_profiles/rust-tasks.toml"]
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "unordered"

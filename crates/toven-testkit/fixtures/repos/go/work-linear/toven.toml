@@ -1,0 +1,11 @@
+# Two Go modules grouped by a root `go.work` with a real dependency edge
+# (`app -> core`), for Go graph ordering, waves, and `--module` selection.
+[project]
+name = "work-linear-go"
+
+[toven]
+include = ["_profiles/go-tasks.toml"]
+
+[ecosystems.go]
+modules = ["core/go.mod", "app/go.mod"]
+run_strategy = "leaf-to-top"

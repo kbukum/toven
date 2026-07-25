@@ -1,0 +1,6 @@
+# A `[[members]]` federation composes each member's modules into one graph.
+repo: federation/cross-repo
+steps:
+  - id: 01-modules
+    argv: [modules]
+    stdout: { match: normalized }

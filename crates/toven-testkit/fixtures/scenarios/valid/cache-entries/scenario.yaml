@@ -1,0 +1,8 @@
+# Comparison forms the cache_entries effect accepts: ">N" and exact "N".
+repo: r/x
+steps:
+  - id: a
+    argv: [plan]
+    effects:
+      - cache_entries: ">0"
+      - cache_entries: "2"

@@ -1,0 +1,14 @@
+run build on umbrella-multi-eco
+plan: 3 units in 1 wave
+   Compiling app v0.1.0 (<REPO>/crates/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in <DUR>
+  ok rust@rust#build
+command tools built
+  ok command:tools#build
+  ok go:services-api#build
+summary
+      planned:  3
+          ran:  3
+       cached:  0
+  duration-ms:  <DUR>
+       status:  ok

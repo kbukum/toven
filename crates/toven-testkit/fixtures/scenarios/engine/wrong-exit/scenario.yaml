@@ -1,0 +1,6 @@
+# The binary exits 3 but the step expects 0; the report must name the step
+# and the exit drift.
+repo: edge/no-ecosystem
+steps:
+  - id: 01-boom
+    argv: [fail]

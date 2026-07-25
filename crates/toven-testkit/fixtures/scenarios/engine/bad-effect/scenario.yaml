@@ -1,0 +1,7 @@
+# The declared effect cannot hold; the report must name the step and effect.
+repo: edge/no-ecosystem
+steps:
+  - id: 01-noop
+    argv: [args]
+    effects:
+      - file_exists: nope.txt

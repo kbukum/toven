@@ -1,0 +1,28 @@
+# A single project spanning three ecosystems (rust + go + command) under one
+# `toven.toml`, for the umbrella `toven` binary: cross-ecosystem discovery,
+# graph projection, PLAN, and APPLY.
+[project]
+name = "umbrella-multi-eco"
+
+[toven]
+include = [
+  "_profiles/rust-tasks.toml",
+  "_profiles/go-tasks.toml",
+  "_profiles/command-tasks.toml",
+]
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"
+
+[ecosystems.go]
+modules = ["services/api/go.mod"]
+run_strategy = "leaf-to-top"
+
+[[ecosystems.command.modules]]
+name = "tools"
+root = "tools"
+
+# Overrides the shared grammar to keep the historical umbrella output.
+[ecosystems.command.tasks.build]
+argv = ["echo", "command tools built"]

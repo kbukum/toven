@@ -1,0 +1,19 @@
+# `completions <shell>` is a pure projection: it prints the shell script and
+# exits success for every supported shell.
+repo: rust/workspace-linear
+steps:
+  - id: 01-bash
+    argv: [completions, bash]
+    stdout: { match: exact }
+  - id: 02-zsh
+    argv: [completions, zsh]
+    stdout: { match: exact }
+  - id: 03-fish
+    argv: [completions, fish]
+    stdout: { match: exact }
+  - id: 04-powershell
+    argv: [completions, powershell]
+    stdout: { match: exact }
+  - id: 05-elvish
+    argv: [completions, elvish]
+    stdout: { match: exact }

@@ -1,0 +1,6 @@
+# The polyglot umbrella lists modules from every linked ecosystem.
+repo: polyglot/umbrella
+steps:
+  - id: 01-modules
+    argv: [modules]
+    stdout: { match: normalized }

@@ -52,6 +52,18 @@ fn sample_repo_materializes_and_git_inits() {
 }
 
 #[test]
+fn sample_repo_injects_shared_task_profiles() {
+    // Fixture `toven.toml`s include `_profiles/<eco>-tasks.toml`; includes may
+    // not traverse above the config root, so materialization must place the
+    // shared profiles inside the materialized tree.
+    let repo = SampleRepo::materialize("rust/single").expect("materializes seed repo");
+    assert!(
+        repo.child("_profiles/rust-tasks.toml").exists(),
+        "shared profiles are injected into the materialized repo"
+    );
+}
+
+#[test]
 fn fake_vcs_reader_returns_scripted_changes() {
     let reader = FakeVcsReader::new()
         .with_changed_since(vec![ChangeRecord::new(

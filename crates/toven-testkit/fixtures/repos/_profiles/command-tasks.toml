@@ -1,0 +1,11 @@
+# The canonical command-ecosystem task grammar: echo-only, deterministic, and
+# toolchain-independent. Repos override individual tasks when a shape needs a
+# different behavior (e.g. a deliberately failing check).
+[ecosystems.command.tasks.build]
+argv = ["echo", "command build"]
+
+[ecosystems.command.tasks.check]
+argv = ["echo", "command check"]
+
+[ecosystems.command.tasks.test]
+argv = ["echo", "command test"]

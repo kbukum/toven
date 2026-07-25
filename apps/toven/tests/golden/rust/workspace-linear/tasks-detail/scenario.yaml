@@ -1,0 +1,6 @@
+# `tasks <name>` shows one task's argv template and inputs.
+repo: rust/workspace-linear
+steps:
+  - id: 01-tasks-format
+    argv: [tasks, format]
+    stdout: { match: normalized }

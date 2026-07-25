@@ -1,0 +1,11 @@
+run check on single-rust
+plan: 1 unit in 1 wave
+    Checking app v0.1.0 (<REPO>/crates/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in <DUR>
+  ok rust@rust#check
+summary
+      planned:  1
+          ran:  1
+       cached:  0
+  duration-ms:  <DUR>
+       status:  ok

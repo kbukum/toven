@@ -1,0 +1,6 @@
+# `explain <task> --module` renders the planned unit (modules, task, argv).
+repo: rust/workspace-linear
+steps:
+  - id: 01-explain-corelib
+    argv: [explain, build, --module, "rust:corelib"]
+    stdout: { match: normalized }

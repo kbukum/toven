@@ -1,0 +1,68 @@
+[project]
+name = "repo"
+root = "."
+base_ref = "master"
+
+# Smart defaults fill in tasks, run strategy, and toolchain probes.
+# Uncomment to override, e.g.:
+#   run_strategy = "leaf-to-top"
+[ecosystems.rust]
+manifests = "auto"
+
+[ecosystems.rust.coverage]
+changed_line = 85.0
+enforcement = "advisory"
+function = 80.0
+line = 80.0
+region = 70.0
+
+[ecosystems.rust.tasks.build]
+argv = ["cargo", "build", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+
+[ecosystems.rust.tasks.check]
+argv = ["cargo", "check", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+
+[ecosystems.rust.tasks.coverage]
+argv = ["cargo", "llvm-cov", "--manifest-path", "{module.manifest}", "--workspace", "--lcov", "--output-path", "target/toven/coverage/rust-{module.name}.lcov", "{args}"]
+cacheable = false
+fan_out = "whole-workspace"
+kind = "coverage"
+
+[ecosystems.rust.tasks.doc]
+argv = ["cargo", "doc", "--manifest-path", "{module.manifest}", "{module.selector}", "--no-deps", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+
+[ecosystems.rust.tasks.format]
+argv = ["cargo", "fmt", "--manifest-path", "{module.manifest}", "--all", "{args}"]
+cacheable = false
+fan_out = "whole-workspace"
+
+[ecosystems.rust.tasks.format-check]
+argv = ["cargo", "fmt", "--manifest-path", "{module.manifest}", "--all", "--check", "{args}"]
+fan_out = "whole-workspace"
+kind = "format"
+
+[ecosystems.rust.tasks.lint]
+argv = ["cargo", "clippy", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+
+[ecosystems.rust.tasks.run]
+argv = ["cargo", "run", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "per-module"
+persistent = true
+selector = ["-p", "{module.package}"]
+
+[ecosystems.rust.tasks.test]
+argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+selector = ["-p", "{module.package}"]
+
+[ecosystems.rust.tasks.vuln]
+argv = ["cargo", "audit", "--file", "{workspace.root}/Cargo.lock", "{args}"]
+fan_out = "whole-workspace"

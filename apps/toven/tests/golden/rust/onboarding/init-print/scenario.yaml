@@ -1,0 +1,8 @@
+# `init --print` previews the generated config without writing it.
+repo: rust/onboarding
+steps:
+  - id: 01-init-print
+    argv: [init, --print]
+    stdout: { match: normalized }
+    effects:
+      - path_absent: toven.toml

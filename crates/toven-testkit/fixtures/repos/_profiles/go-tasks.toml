@@ -1,0 +1,43 @@
+# The canonical Go task grammar shared by every Go fixture repo.
+# Included beneath each repo's toven.toml ([toven].include).
+
+[ecosystems.go.tasks.build]
+argv = ["go", "-C", "{module.root}", "build", "{args}", "{module.selector}"]
+fan_out = "per-module"
+selector = ["./..."]
+shared_inputs = ["go.sum", "go.work", "go.work.sum"]
+
+[ecosystems.go.tasks.check]
+argv = ["go", "-C", "{module.root}", "vet", "{args}", "{module.selector}"]
+fan_out = "per-module"
+selector = ["./..."]
+shared_inputs = ["go.sum", "go.work", "go.work.sum"]
+
+[ecosystems.go.tasks.doc]
+argv = ["go", "-C", "{module.root}", "doc", "{args}"]
+fan_out = "per-module"
+shared_inputs = ["go.sum", "go.work", "go.work.sum"]
+
+[ecosystems.go.tasks.format]
+argv = ["go", "-C", "{module.root}", "fmt", "{args}", "{module.selector}"]
+fan_out = "per-module"
+selector = ["./..."]
+shared_inputs = ["go.sum", "go.work", "go.work.sum"]
+
+[ecosystems.go.tasks.lint]
+argv = ["go", "-C", "{module.root}", "vet", "{args}", "{module.selector}"]
+fan_out = "per-module"
+selector = ["./..."]
+shared_inputs = ["go.sum", "go.work", "go.work.sum"]
+
+[ecosystems.go.tasks.run]
+argv = ["go", "-C", "{module.root}", "run", ".", "{args}"]
+fan_out = "per-module"
+persistent = true
+shared_inputs = ["go.sum", "go.work", "go.work.sum"]
+
+[ecosystems.go.tasks.test]
+argv = ["go", "-C", "{module.root}", "test", "{args}", "{module.selector}"]
+fan_out = "per-module"
+selector = ["./..."]
+shared_inputs = ["go.sum", "go.work", "go.work.sum"]

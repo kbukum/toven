@@ -1,0 +1,7 @@
+# An unsupported completions shell is a usage error (exit 2) on stderr.
+repo: rust/workspace-linear
+steps:
+  - id: 01-bad-shell
+    argv: [completions, bogus]
+    exit: 2
+    stderr: { match: normalized }

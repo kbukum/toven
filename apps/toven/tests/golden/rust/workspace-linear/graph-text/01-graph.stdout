@@ -1,0 +1,5 @@
+rust:app
+  -> rust:corelib
+rust:corelib
+  -> rust:util
+rust:util

@@ -1,0 +1,7 @@
+# `release plan --output jsonl` projects the config-derived release plan
+# (semver bumps, tag formats, order) as a machine stream — network-free.
+repo: rust/publish-train
+steps:
+  - id: 01-release-plan
+    argv: [release, plan, --output, jsonl]
+    stdout: { match: normalized }

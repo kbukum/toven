@@ -1,0 +1,7 @@
+# The golden purposely disagrees with the binary's output; the report must
+# name the step and the stream.
+repo: edge/no-ecosystem
+steps:
+  - id: 01-echo
+    argv: [warm]
+    stdout: { match: exact }

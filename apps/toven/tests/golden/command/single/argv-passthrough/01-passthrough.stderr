@@ -1,0 +1,10 @@
+run test on single-command
+plan: 1 unit in 1 wave
+passthrough --flag value
+  ok command:app#test
+summary
+      planned:  1
+          ran:  1
+       cached:  0
+  duration-ms:  <DUR>
+       status:  ok

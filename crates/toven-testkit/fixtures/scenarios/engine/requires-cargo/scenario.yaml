@@ -1,0 +1,6 @@
+# Toolchain gate: with cargo absent this scenario must skip green.
+repo: edge/no-ecosystem
+requires: [cargo]
+steps:
+  - id: 01-noop
+    argv: [args]

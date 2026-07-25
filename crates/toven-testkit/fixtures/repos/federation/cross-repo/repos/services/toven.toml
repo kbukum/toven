@@ -1,3 +1,7 @@
+# Federation member 'services'. Members cannot reach the umbrella's shared
+# `_profiles` (includes may not traverse above the member's config root), and
+# they exist to exercise federation status/sync — so the task surface stays a
+# deliberate minimum instead of restating the full shared grammar.
 [project]
 name = "services"
 
@@ -13,36 +17,6 @@ shared_inputs = ["Cargo.lock"]
 
 [ecosystems.rust.tasks.check]
 argv = ["cargo", "check", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
-fan_out = "batchable"
-selector = ["-p", "{module.package}"]
-shared_inputs = ["Cargo.lock"]
-
-[ecosystems.rust.tasks.doc]
-argv = ["cargo", "doc", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
-fan_out = "batchable"
-selector = ["-p", "{module.package}"]
-shared_inputs = ["Cargo.lock"]
-
-[ecosystems.rust.tasks.format]
-argv = ["cargo", "fmt", "--manifest-path", "{module.manifest}", "--all", "{args}"]
-fan_out = "whole-workspace"
-shared_inputs = ["Cargo.lock"]
-
-[ecosystems.rust.tasks.lint]
-argv = ["cargo", "clippy", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
-fan_out = "batchable"
-selector = ["-p", "{module.package}"]
-shared_inputs = ["Cargo.lock"]
-
-[ecosystems.rust.tasks.run]
-argv = ["cargo", "run", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
-fan_out = "per-module"
-persistent = true
-selector = ["-p", "{module.package}"]
-shared_inputs = ["Cargo.lock"]
-
-[ecosystems.rust.tasks.test]
-argv = ["cargo", "test", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
 fan_out = "batchable"
 selector = ["-p", "{module.package}"]
 shared_inputs = ["Cargo.lock"]

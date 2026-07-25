@@ -21,25 +21,10 @@
 //! status lines, and `cache clean` diagnostics go to **stderr**. Assertions
 //! must target the correct stream, so both are captured verbatim.
 
+use std::collections::BTreeMap;
 use std::path::Path;
-use std::process::{Command, Stdio};
 
-/// Environment variable that pins the CLI's wall clock to a fixed epoch second.
-///
-/// Mirrors `toven_cli::host::RUN_CLOCK_EPOCH_ENV` (kept as a literal here
-/// because the dev-only testkit does not depend on the CLI crate). The shared
-/// [`run`] harness sets it on every spawned binary so the machine-readable
-/// Event stream — whose only wall-clock field is the `run_id` — is
-/// byte-for-byte deterministic, which is what makes snapshotting the `jsonl`
-/// projection sound. The demonstrative jsonl snapshot smokes fail loudly if
-/// this drifts from the CLI-side constant.
-pub const CLOCK_EPOCH_ENV: &str = "TOVEN_CLOCK_EPOCH";
-
-/// The fixed epoch second the harness pins the clock to.
-///
-/// Any stable value works; this one keeps the derived `run_id` (`run-<epoch>`)
-/// obvious in snapshots.
-pub const CLOCK_EPOCH_VALUE: &str = "1700000000";
+pub use crate::exec::{CLOCK_EPOCH_ENV, CLOCK_EPOCH_VALUE, program_on_path};
 
 /// The captured result of running an app binary once.
 ///
@@ -139,31 +124,29 @@ impl RunResult {
 
 /// Run `binary <args>` in `cwd`, capturing both streams and the exit code.
 ///
-/// The process inherits no stdin. Panics only if the binary cannot be spawned
-/// at all (a genuine test-setup failure); a non-zero exit is returned as data
-/// so callers can assert on failure paths too.
+/// Delegates to the shared [`crate::exec`] spawn path (rskit-process): stdin
+/// is closed, and the wall clock is pinned via [`CLOCK_EPOCH_ENV`] so the
+/// emitted `run_id` (the only clock-derived field in the Event stream) is
+/// deterministic. Panics only when the spawn path itself fails — the binary
+/// cannot be run, or a stream exceeded the capture bound (both genuine
+/// test-setup failures); a non-zero exit is returned as data so callers can
+/// assert on failure paths too.
 #[must_use]
 pub fn run(binary: &Path, cwd: &Path, args: &[&str]) -> RunResult {
-    let output = Command::new(binary)
-        .args(args)
-        .current_dir(cwd)
-        // Detach stdin explicitly so any tool that reads it sees EOF instead of blocking on the test runner's stdin; keeps the "inherits no stdin" guarantee true even if this ever moves off `Command::output()`.
-        .stdin(Stdio::null())
-        // Pin the wall clock so the emitted `run_id` (the only clock-derived field in the Event stream) is deterministic; see `CLOCK_EPOCH_ENV`.
-        .env(CLOCK_EPOCH_ENV, CLOCK_EPOCH_VALUE)
-        .output()
-        .unwrap_or_else(|error| {
-            panic!(
-                "failed to spawn {} in {} with args {args:?}: {error}",
-                binary.display(),
-                cwd.display(),
-            )
-        });
+    let owned_args: Vec<String> = args.iter().map(|arg| (*arg).to_string()).collect();
+    let env = BTreeMap::from([(CLOCK_EPOCH_ENV.to_owned(), CLOCK_EPOCH_VALUE.to_owned())]);
+    let capture = crate::exec::capture(binary, cwd, &owned_args, &env).unwrap_or_else(|error| {
+        panic!(
+            "failed to run {} in {} with args {args:?}: {error}",
+            binary.display(),
+            cwd.display(),
+        )
+    });
     RunResult {
-        args: args.iter().map(|arg| (*arg).to_string()).collect(),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        code: output.status.code(),
+        args: owned_args,
+        stdout: capture.stdout,
+        stderr: capture.stderr,
+        code: capture.code,
     }
 }
 
@@ -176,27 +159,4 @@ pub fn run_ok(binary: &Path, cwd: &Path, args: &[&str]) -> RunResult {
     let result = run(binary, cwd, args);
     result.expect_success();
     result
-}
-
-/// Whether `program` is discoverable as an executable on `PATH`.
-///
-/// Used to gate toolchain-dependent APPLY smokes (e.g. skip the `go` APPLY when
-/// no `go` toolchain is installed) so a runner without that toolchain stays
-/// green instead of failing.
-///
-/// The probe uses Unix executable-bit semantics (via `rskit_fs`), matching
-/// Toven's currently Unix-only runtime stack (`rskit-process` does not yet
-/// build on Windows). A cross-platform PATH lookup — honouring Windows
-/// `PATHEXT` / `.exe` — belongs in a future generic `which`-style helper in
-/// rskit rather than a bespoke branch here, and lands with the tracked Windows
-/// port.
-#[must_use]
-pub fn program_on_path(program: &str) -> bool {
-    let Some(path) = std::env::var_os("PATH") else {
-        return false;
-    };
-    std::env::split_paths(&path).any(|dir| {
-        let candidate = dir.join(program);
-        rskit_fs::sync_io::file::is_executable(&candidate).unwrap_or(false)
-    })
 }

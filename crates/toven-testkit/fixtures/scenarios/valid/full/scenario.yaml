@@ -1,0 +1,26 @@
+# A well-formed scenario exercising every schema surface: repo, requires, env,
+# a git script, and steps with matchers, a config variant, and effects.
+repo: rust/workspace-linear
+requires: [cargo]
+env:
+  color: never
+
+git:
+  commits:
+    - msg: import
+      touch: [crates/app/src/main.rs]
+
+steps:
+  - id: 01-plan-build
+    argv: [--output, jsonl, plan, build]
+    exit: 0
+    stdout: { match: exact }
+    # stderr omitted => not asserted
+
+  - id: 02-run-build-cold
+    argv: [run, build, --jobs, "1"]
+    config: toven.warm.toml
+    stderr: { match: normalized }
+    effects:
+      - cache_entries: ">0"
+      - file_exists: target

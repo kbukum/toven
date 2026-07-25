@@ -1,0 +1,6 @@
+# PLAN across two command modules: the jsonl event stream carries both units.
+repo: command/multi-task
+steps:
+  - id: 01-plan-build
+    argv: [--output, jsonl, plan, build]
+    stdout: { match: exact }

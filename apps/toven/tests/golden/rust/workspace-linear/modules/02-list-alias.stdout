@@ -1,0 +1,9 @@
+
+Modules
+┌──────────────┬───────────┐
+│ Module       │ Workspace │
+├──────────────┼───────────┤
+│ rust:app     │ rust      │
+│ rust:corelib │ rust      │
+│ rust:util    │ rust      │
+└──────────────┴───────────┘

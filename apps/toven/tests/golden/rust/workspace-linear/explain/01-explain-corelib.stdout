@@ -1,0 +1,10 @@
+            unit:  rust@rust#build
+  representative:  rust:util
+         modules:  rust:util, rust:corelib, rust:app
+          target:  rust:corelib
+            task:  build
+          origin:  project
+            argv:  ["cargo", "build", "--manifest-path", "crates/util/Cargo.toml", "-p", "util", "-p", "corelib", "-p", "app"]
+      persistent:  false
+      depends_on:  
+

@@ -1,0 +1,6 @@
+repo: r/x
+steps:
+  - id: a
+    argv: [plan]
+    effects:
+      - file_matches: { path: out.txt, golden: "../escape.golden" }

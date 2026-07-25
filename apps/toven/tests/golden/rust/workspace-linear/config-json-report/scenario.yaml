@@ -1,0 +1,8 @@
+# `--config toven.json-report.toml` bakes the json report mode into config
+# (instead of `--output`); the run renders the machine report.
+repo: rust/workspace-linear
+steps:
+  - id: 01-plan-json-report
+    argv: [plan, build]
+    config: toven.json-report.toml
+    stdout: { match: normalized }

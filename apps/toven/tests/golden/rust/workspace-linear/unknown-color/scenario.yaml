@@ -1,0 +1,7 @@
+# An invalid `--color` value is a usage error (exit 2) rendered to stderr.
+repo: rust/workspace-linear
+steps:
+  - id: 01-bad-color
+    argv: [--color, bogus, modules]
+    exit: 2
+    stderr: { match: normalized }

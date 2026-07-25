@@ -1,0 +1,7 @@
+# The human PLAN reporter (stderr) summarizes units, waves, and a zero-ran
+# dry-run cut; durations are scrubbed by the normalizer.
+repo: rust/workspace-linear
+steps:
+  - id: 01-plan-build
+    argv: [plan, build]
+    stderr: { match: normalized }

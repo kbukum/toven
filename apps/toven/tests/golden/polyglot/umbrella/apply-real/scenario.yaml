@@ -1,0 +1,10 @@
+# Multi-ecosystem APPLY: the umbrella runs every linked adapter (rust + go +
+# command) in one session. The three units share a wave, so `--jobs 1` pins a
+# deterministic completion order for byte-stable goldens; the normalizer scrubs
+# paths and durations. Gated on a `go` toolchain (rust and command always run).
+repo: polyglot/umbrella
+requires: [go]
+steps:
+  - id: 01-build-all
+    argv: [--jobs, "1", build]
+    stderr: { match: normalized }

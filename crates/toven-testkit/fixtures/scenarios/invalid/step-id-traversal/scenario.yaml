@@ -1,0 +1,4 @@
+repo: r/x
+steps:
+  - id: "../escape"
+    argv: [plan]

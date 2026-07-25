@@ -15,7 +15,7 @@ export NEXTEST_PROFILE ?= default
 # binary for speed with `make TOVEN=toven check`.
 TOVEN ?= cargo run --quiet --locked -p toven --
 
-.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark release-dry-run release-plan release-artifacts act-ci act-supply-chain act-release-readiness
+.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark golden bless release-dry-run release-plan release-artifacts act-ci act-supply-chain act-release-readiness
 
 # Canonical local/CI gate for the virtual workspace.
 check: fmt-check lint test structure doc deny release-dry-run
@@ -66,6 +66,20 @@ docs-build:
 	@command -v mdbook >/dev/null 2>&1 || { echo "docs-build: mdbook not found — install with 'cargo install mdbook --locked'"; exit 1; }
 	@command -v mdbook-mermaid >/dev/null 2>&1 || { echo "docs-build: mdbook-mermaid not found — install with 'cargo install mdbook-mermaid --locked'"; exit 1; }
 	mdbook build docs
+
+# Scenario-driven golden matrix: every `scenario.yaml` under
+# `apps/toven/tests/golden/` is one reported case (zero per-case code; see
+# docs/testing.md). The matrix also runs inside the canonical gate — `make
+# check` → `test` → nextest `--all-targets` picks up the `golden` harness — so
+# this target is the focused inner loop.
+golden:
+	cargo test --locked -p toven --test golden
+
+# Regenerate goldens from live output (RSKIT_BLESS=1), then run the matrix in
+# check mode to prove the regenerated tree is clean and deterministic.
+bless:
+	RSKIT_BLESS=1 cargo test --locked -p toven --test golden
+	$(MAKE) golden
 
 deny:
 	cargo deny check advisories bans licenses sources

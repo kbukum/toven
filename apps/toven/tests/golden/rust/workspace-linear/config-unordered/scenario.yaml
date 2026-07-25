@@ -1,0 +1,8 @@
+# `--config toven.unordered.toml` selects the unordered run strategy; the jsonl
+# plan stream captures the resulting wave shape.
+repo: rust/workspace-linear
+steps:
+  - id: 01-plan-unordered
+    argv: [--output, jsonl, plan, build]
+    config: toven.unordered.toml
+    stdout: { match: exact }

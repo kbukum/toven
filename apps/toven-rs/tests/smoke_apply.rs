@@ -8,7 +8,7 @@ use common::{repo, toven_rs_ok};
 
 #[test]
 fn bare_task_dispatch_applies_a_workspace() {
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     toven_rs_ok(&sample, &["check"])
         .expect_stderr_contains("  ok ")
         .expect_stderr_contains("ran:  1");
@@ -25,7 +25,7 @@ fn plan_only_cut_then_full_apply_of_the_single_crate_baseline() {
 fn argv_passthrough_splices_into_cargo_verbatim() {
     // `format -- --check` proves the `--` tail reaches `cargo fmt --check`
     // unchanged; the fixtures are rustfmt-clean, so it stays green.
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     toven_rs_ok(&sample, &["format", "--", "--check"]).expect_stderr_contains("  ok ");
 }
 

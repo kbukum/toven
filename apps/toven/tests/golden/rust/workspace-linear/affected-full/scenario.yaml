@@ -1,0 +1,6 @@
+# `affected` with no diff reports the full module set.
+repo: rust/workspace-linear
+steps:
+  - id: 01-affected-full
+    argv: [affected, build]
+    stdout: { match: normalized }

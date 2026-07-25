@@ -1,0 +1,10 @@
+run build on work-linear-go
+plan: 2 units in 2 waves
+  ok go:core#build
+  ok go:app#build
+summary
+      planned:  2
+          ran:  2
+       cached:  0
+  duration-ms:  <DUR>
+       status:  ok

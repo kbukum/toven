@@ -1,0 +1,7 @@
+# `release status` compares declared versions against tags (network-free);
+# before any tag exists it reports the untagged baseline.
+repo: rust/publish-train
+steps:
+  - id: 01-release-status
+    argv: [release, status]
+    stdout: { match: normalized }

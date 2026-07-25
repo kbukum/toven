@@ -3,3 +3,6 @@
 /tmp/*
 !/tmp/.keep
 target-*/
+
+# Editor-local settings
+/.vscode/
