@@ -1,0 +1,9 @@
+run build on failing-command
+plan: 1 unit in 1 wave
+  ok command:boom#build
+summary
+      planned:  1
+          ran:  1
+       cached:  0
+  duration-ms:  <DUR>
+       status:  ok

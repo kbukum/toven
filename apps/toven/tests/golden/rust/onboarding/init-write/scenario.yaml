@@ -1,0 +1,13 @@
+# `init` writes toven.toml, then a second run is idempotent (skips existing).
+repo: rust/onboarding
+steps:
+  - id: 01-init-write
+    argv: [init]
+    stderr: { match: normalized }
+    effects:
+      - file_exists: toven.toml
+  - id: 02-init-idempotent
+    argv: [init]
+    stderr: { match: normalized }
+    effects:
+      - file_exists: toven.toml

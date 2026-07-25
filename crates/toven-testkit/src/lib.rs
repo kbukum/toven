@@ -16,6 +16,12 @@
 //!   dir and optionally `git init` it.
 //! - [`git`] — git-scenario helpers ([`GitScenario`](git::GitScenario)) over
 //!   `rskit-git`.
+//! - [`scenario`] — the data-driven golden system: the declarative scenario
+//!   schema ([`Scenario`]), typed loader, discovery, and the engine
+//!   ([`scenario::run_scenario`]) that materializes, git-scripts, runs, and
+//!   verifies a whole session.
+//! - [`exec`] — the one shared blocking spawn path (rskit-process) under both
+//!   the smoke and scenario harnesses.
 //! - [`smoke`] — the shared end-to-end smoke harness ([`RunResult`], [`run`],
 //!   [`run_ok`]) every app's `tests/smoke*.rs` drives the real binary through.
 //! - [`doubles`] — the shared port doubles ([`FakeProvider`],
@@ -34,9 +40,11 @@
 
 pub mod assertions;
 pub mod doubles;
+pub mod exec;
 pub mod fixtures;
 pub mod git;
 pub mod repo;
+pub mod scenario;
 pub mod smoke;
 pub mod workspace;
 
@@ -52,9 +60,10 @@ pub use doubles::{
 };
 pub use fixtures::{
     FIXTURES_ROOT, coverage_profile_string, document, document_path, document_string, ecosystem,
-    ecosystem_string, raw_subtree, repo_path,
+    ecosystem_string, raw_subtree, repo_path, scenario_path,
 };
 pub use repo::SampleRepo;
 pub use rskit_testutil::{CurrentDirGuard, TestWorkspace};
+pub use scenario::{Effect, Scenario, Step};
 pub use smoke::{CLOCK_EPOCH_ENV, CLOCK_EPOCH_VALUE, RunResult, program_on_path, run, run_ok};
 pub use workspace::fixtures_root;

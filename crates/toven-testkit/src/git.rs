@@ -12,10 +12,30 @@ use rskit_errors::AppResult;
 use rskit_fs::sync_io::file;
 use rskit_fs::sync_io::tree::{IgnoreWalkOptions, WalkControl, walk_tree_ignoring};
 use rskit_git::{
-    BranchFilter, Committer, ConfigReader, Differ, IndexManager, Oid, PushOptions, RefManager,
-    RemoteManager, Repo,
+    BranchFilter, CommitOptions, Committer, ConfigReader, Differ, IndexManager, Oid, PushOptions,
+    RefManager, RemoteManager, Repo, Signature,
 };
 use rskit_util::hash::hash_hex;
+use std::time::SystemTime;
+
+/// The deterministic author name every test commit uses.
+const TEST_IDENTITY_NAME: &str = "Toven Test";
+/// The deterministic author email every test commit uses.
+const TEST_IDENTITY_EMAIL: &str = "test@toven.dev";
+
+/// The deterministic test signature at a pinned timestamp.
+///
+/// Pinning both identity and date makes commit/tag SHAs byte-stable across
+/// runs and machines — the precondition for golden-testing any SHA-bearing
+/// output.
+#[must_use]
+pub fn pinned_signature(when: SystemTime) -> Signature {
+    Signature {
+        name: TEST_IDENTITY_NAME.to_owned(),
+        email: TEST_IDENTITY_EMAIL.to_owned(),
+        when,
+    }
+}
 
 /// A git repository under test, with helpers for common scenarios.
 ///
@@ -53,8 +73,8 @@ impl GitScenario {
     /// Set a deterministic user identity so commits never depend on host
     /// config.
     fn configure_identity(repo: &Repo) -> AppResult<()> {
-        repo.config_set("user.name", "Toven Test")?;
-        repo.config_set("user.email", "test@toven.dev")?;
+        repo.config_set("user.name", TEST_IDENTITY_NAME)?;
+        repo.config_set("user.email", TEST_IDENTITY_EMAIL)?;
         Ok(())
     }
 
@@ -104,6 +124,19 @@ impl GitScenario {
         self.repo.commit(message, None)
     }
 
+    /// Stage all changes and commit with the pinned test signature at `when`
+    /// (author *and* committer), so the resulting SHA is byte-stable.
+    pub fn commit_all_pinned(&self, message: &str, when: SystemTime) -> AppResult<Oid> {
+        self.stage_all()?;
+        let signature = pinned_signature(when);
+        let opts = CommitOptions {
+            author: Some(signature.clone()),
+            committer: Some(signature),
+            ..CommitOptions::default()
+        };
+        self.repo.commit(message, Some(&opts))
+    }
+
     /// Write a file, stage it, and commit — the common "one change" scenario.
     pub fn commit_file(
         &self,
@@ -136,6 +169,14 @@ impl GitScenario {
     /// Create an annotated tag at the current `HEAD`.
     pub fn tag(&self, name: &str, message: &str) -> AppResult<()> {
         self.repo.create_tag(name, "HEAD", Some(message))
+    }
+
+    /// Create a lightweight tag at the current `HEAD`.
+    ///
+    /// Lightweight tags carry no tagger signature (and therefore no wall-clock
+    /// timestamp), so scripted scenario history stays byte-stable.
+    pub fn tag_lightweight(&self, name: &str) -> AppResult<()> {
+        self.repo.create_tag(name, "HEAD", None)
     }
 
     /// Short helper: assert a tag exists by name.

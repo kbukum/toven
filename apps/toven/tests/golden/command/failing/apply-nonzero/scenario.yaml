@@ -1,0 +1,12 @@
+# A deliberately failing `check` task (`false`) propagates a non-zero exit and
+# renders the failure; the green `build` (`true`) proves the shape is otherwise
+# healthy. APPLY status/summary lines render to stderr.
+repo: command/failing
+steps:
+  - id: 01-build-ok
+    argv: [build]
+    stderr: { match: normalized }
+  - id: 02-check-fails
+    argv: [check]
+    exit: 1
+    stderr: { match: normalized }

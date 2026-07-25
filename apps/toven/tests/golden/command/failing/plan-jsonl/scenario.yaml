@@ -1,0 +1,8 @@
+# Seed scenario proving zero-code discovery: PLAN a command-ecosystem task and
+# lock the machine-readable jsonl event stream byte-for-byte under the pinned
+# clock. Toolchain-independent (`command` ecosystem), so no `requires` gate.
+repo: command/failing
+steps:
+  - id: 01-plan-build-jsonl
+    argv: [--output, jsonl, plan, build]
+    stdout: { match: exact }

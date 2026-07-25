@@ -1,0 +1,5 @@
+driver: command -> linked (in this binary)
+driver: go -> linked (in this binary)
+driver: python -> absent (run `toven driver install <id>`)
+driver: rust -> linked (in this binary)
+driver: ts -> absent (run `toven driver install <id>`)

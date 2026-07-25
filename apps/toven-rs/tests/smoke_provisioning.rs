@@ -17,7 +17,7 @@ fn driver_list_shows_only_rust_linked() {
 
 #[test]
 fn init_print_renders_without_writing() {
-    let sample = repo("rust/init-target");
+    let sample = repo("rust/onboarding");
     toven_rs_ok(&sample, &["init", "--print"])
         .expect_stdout_contains("[project]")
         .expect_stdout_contains("[ecosystems.rust]");
@@ -29,7 +29,7 @@ fn init_print_renders_without_writing() {
 
 #[test]
 fn init_writes_then_is_idempotent() {
-    let sample = repo("rust/init-target");
+    let sample = repo("rust/onboarding");
     toven_rs_ok(&sample, &["init"]).expect_stderr_contains("wrote");
     assert!(sample.child("toven.toml").exists());
     toven_rs_ok(&sample, &["init"]).expect_stderr_contains("already exists; skipping");

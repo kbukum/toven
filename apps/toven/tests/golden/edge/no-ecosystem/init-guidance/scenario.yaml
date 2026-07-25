@@ -1,0 +1,8 @@
+# `init --print` on a repo with no detectable ecosystem renders a project-only
+# document (stdout) and the no-ecosystem guidance (stderr).
+repo: edge/no-ecosystem
+steps:
+  - id: 01-init-guidance
+    argv: [init, --print]
+    stdout: { match: normalized }
+    stderr: { match: normalized }

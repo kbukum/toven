@@ -1,0 +1,9 @@
+      ecosystem:  rust
+           task:  format
+           kind:  format
+         origin:  project
+        fan-out:  whole-workspace
+     persistent:  false
+           argv:  ["cargo", "fmt", "--manifest-path", "{module.manifest}", "--all", "{args}"]
+  shared-inputs:  Cargo.lock
+

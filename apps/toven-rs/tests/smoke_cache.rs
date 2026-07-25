@@ -17,7 +17,7 @@ fn stats_entries(stdout: &str) -> u64 {
 
 #[test]
 fn cache_path_prints_an_absolute_path() {
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     let out = toven_rs_ok(&sample, &["cache", "path"]);
     assert!(
         std::path::Path::new(out.stdout.trim()).is_absolute(),
@@ -28,7 +28,7 @@ fn cache_path_prints_an_absolute_path() {
 
 #[test]
 fn cache_stats_grow_after_apply_and_reset_after_clean() {
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     toven_rs_ok(&sample, &["cache", "clean"]);
     assert_eq!(
         stats_entries(&toven_rs_ok(&sample, &["cache", "stats"]).stdout),
@@ -47,7 +47,7 @@ fn cache_stats_grow_after_apply_and_reset_after_clean() {
 
 #[test]
 fn no_cache_apply_neither_reads_nor_writes() {
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     toven_rs_ok(&sample, &["cache", "clean"]);
     toven_rs_ok(&sample, &["--no-cache", "check"]);
     assert_eq!(

@@ -1,0 +1,13 @@
+
+rust tasks
+┌────────┬─────────┬─────────────────┬────────────┐
+│ Task   │ Origin  │ Fan-out         │ Persistent │
+├────────┼─────────┼─────────────────┼────────────┤
+│ build  │ project │ batchable       │ no         │
+│ check  │ project │ batchable       │ no         │
+│ doc    │ project │ batchable       │ no         │
+│ format │ project │ whole-workspace │ no         │
+│ lint   │ project │ batchable       │ no         │
+│ run    │ project │ per-module      │ yes        │
+│ test   │ project │ batchable       │ no         │
+└────────┴─────────┴─────────────────┴────────────┘

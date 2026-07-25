@@ -1,0 +1,9 @@
+
+Modules
+┌─────────────────┬─────────────────┐
+│ Module          │ Workspace       │
+├─────────────────┼─────────────────┤
+│ command:tools   │ command         │
+│ go:services-api │ go:services/api │
+│ rust:app        │ rust            │
+└─────────────────┴─────────────────┘

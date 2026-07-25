@@ -1,0 +1,8 @@
+[package]
+name = "diamond-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+diamond-liba = { path = "../liba" }
+diamond-libb = { path = "../libb" }

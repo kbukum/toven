@@ -1,0 +1,15 @@
+# `--config` variant over the same tree: a repo-local cache directory
+# (`.toven/cache`) instead of the user-level default. Selected via
+# `--config toven.custom-cache-dir.toml`; shares the canonical task grammar.
+[project]
+name = "workspace-linear-rust"
+
+[toven]
+include = ["_profiles/rust-tasks.toml"]
+
+[toven.cache]
+dir = ".toven/cache"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"

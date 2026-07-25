@@ -1,0 +1,6 @@
+# A line-set stream expectation with an explicit positional frame.
+repo: r/x
+steps:
+  - id: a
+    argv: [run, build]
+    stdout: { match: line-set, frame_prefix: 1, frame_suffix: 1 }

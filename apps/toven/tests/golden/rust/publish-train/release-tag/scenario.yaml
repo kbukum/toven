@@ -1,0 +1,6 @@
+# `release readiness` runs the fail-closed preflight go/no-go checks.
+repo: rust/publish-train
+steps:
+  - id: 01-release-readiness
+    argv: [release, readiness]
+    stdout: { match: normalized }

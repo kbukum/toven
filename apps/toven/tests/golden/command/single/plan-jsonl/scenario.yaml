@@ -1,0 +1,7 @@
+# PLAN a command-ecosystem task and lock the machine-readable jsonl event
+# stream byte-for-byte under the pinned clock. Toolchain-independent.
+repo: command/single
+steps:
+  - id: 01-plan-build
+    argv: [--output, jsonl, plan, build]
+    stdout: { match: exact }

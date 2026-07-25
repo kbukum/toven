@@ -1,0 +1,7 @@
+# PLAN a single-crate Rust repo; the jsonl event stream is exact under the
+# pinned clock (planning only — no cargo toolchain needed).
+repo: rust/single
+steps:
+  - id: 01-plan-build
+    argv: [--output, jsonl, plan, build]
+    stdout: { match: exact }

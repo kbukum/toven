@@ -37,4 +37,5 @@
 
 - [Architecture](architecture.md)
 - [Engineering guide](engineering.md)
+- [Testing](testing.md)
 - [Concern ownership](concern-owners.md)

@@ -15,7 +15,7 @@ fn modules_lists_the_single_crate_baseline() {
 
 #[test]
 fn modules_aliases_project_the_same_set() {
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     let canonical = toven_rs_ok(&sample, &["modules"]).stdout;
     for alias in ["list", "ls"] {
         assert_eq!(
@@ -28,7 +28,7 @@ fn modules_aliases_project_the_same_set() {
 
 #[test]
 fn graph_text_and_dot_render_the_dependency_chain() {
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     toven_rs_ok(&sample, &["graph"])
         .expect_stdout_contains("rust:app")
         .expect_stdout_contains("  -> rust:corelib")
@@ -42,7 +42,7 @@ fn graph_text_and_dot_render_the_dependency_chain() {
 
 #[test]
 fn affected_without_a_diff_reports_the_full_set() {
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     toven_rs_ok(&sample, &["affected", "build"])
         .expect_stdout_contains("rust:app")
         .expect_stdout_contains("rust:corelib")
@@ -52,7 +52,7 @@ fn affected_without_a_diff_reports_the_full_set() {
 #[test]
 fn affected_resolves_a_bare_module_name() {
     // A bare, unambiguous name resolves to its canonical `ecosystem:module`.
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     let out = toven_rs_ok(&sample, &["affected", "build", "--module", "corelib"]);
     out.expect_stdout_contains("rust:corelib");
     assert!(!out.stdout.contains("rust:app"), "{}", out.stdout);
@@ -60,7 +60,7 @@ fn affected_resolves_a_bare_module_name() {
 
 #[test]
 fn affected_resolves_a_glob_selector_to_an_explicit_set() {
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     toven_rs_ok(&sample, &["affected", "build", "--module", "rust:*"])
         .expect_stdout_contains("rust:app")
         .expect_stdout_contains("rust:corelib")
@@ -70,7 +70,7 @@ fn affected_resolves_a_glob_selector_to_an_explicit_set() {
 #[test]
 fn affected_dependencies_closure_adds_prerequisites() {
     // `rust:app -> rust:corelib -> rust:util`; `--dependencies` pulls the chain.
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     toven_rs_ok(
         &sample,
         &[
@@ -88,7 +88,7 @@ fn affected_dependencies_closure_adds_prerequisites() {
 
 #[test]
 fn affected_dependents_closure_adds_reverse_dependents() {
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     toven_rs_ok(
         &sample,
         &["affected", "build", "--module", "rust:util", "--dependents"],
@@ -102,7 +102,7 @@ fn affected_dependents_closure_adds_reverse_dependents() {
 fn affected_combined_closures_union_dependencies_and_dependents() {
     // `--dependencies --dependents` unions both closures over the seed: corelib
     // pulls its dependency (util) and its dependent (app).
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     toven_rs_ok(
         &sample,
         &[
@@ -121,7 +121,7 @@ fn affected_combined_closures_union_dependencies_and_dependents() {
 
 #[test]
 fn affected_rejects_a_selector_that_matches_nothing() {
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     let out = toven_rs(&sample, &["affected", "build", "--module", "rust:ghost"]);
     assert!(!out.success(), "{}", out.stdout);
     out.expect_stderr_contains("no module matches");
@@ -132,7 +132,7 @@ fn affected_reports_full_activation_for_an_unattributable_root_change() {
     // A root `toven.toml` edit cannot be attributed to any module, so the whole set
     // activates (fail-closed) — the diagnostic names the offending path on stdout
     // so the full run is never silent.
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     let scenario = toven_testkit::git::GitScenario::open(sample.root()).expect("open git tree");
     scenario
         .commit_file(
@@ -156,7 +156,7 @@ fn affected_reports_full_activation_for_an_unattributable_root_change() {
 fn affected_reports_no_full_activation_for_a_precise_change() {
     // A change confined to one crate is precisely attributed, so no full-activation
     // diagnostic is emitted.
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     let scenario = toven_testkit::git::GitScenario::open(sample.root()).expect("open git tree");
     scenario
         .commit_file(
@@ -181,7 +181,7 @@ fn explain_module_projects_the_real_batched_unit() {
     // batches with its whole cargo workspace (`util`, `corelib`, `app`), so the
     // rendered unit is that real batched argv — never a synthetic single-`-p` cut —
     // with the focused member marked and its co-batched siblings shown in full.
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     toven_rs(&sample, &["explain", "build", "--module", "rust:corelib"])
         .expect_success()
         .expect_stdout_contains("modules:  rust:util, rust:corelib, rust:app")

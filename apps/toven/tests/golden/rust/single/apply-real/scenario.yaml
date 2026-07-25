@@ -1,0 +1,11 @@
+# Real cargo APPLY, gated on a `cargo` toolchain (skips green without it). The
+# normalizer scrubs the repo path, compile duration, and the summary duration
+# line, so the toven reporter stream is stable under the pinned toolchain.
+repo: rust/single
+requires: [cargo]
+steps:
+  - id: 01-check
+    argv: [check]
+    stderr: { match: normalized }
+    effects:
+      - cache_entries: ">0"

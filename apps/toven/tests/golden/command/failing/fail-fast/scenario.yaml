@@ -1,0 +1,7 @@
+# `--fail-fast` stops on the first failing unit with a non-zero exit.
+repo: command/failing
+steps:
+  - id: 01-fail-fast
+    argv: [--fail-fast, check]
+    exit: 1
+    stderr: { match: normalized }

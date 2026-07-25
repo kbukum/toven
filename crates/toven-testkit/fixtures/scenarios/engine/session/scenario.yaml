@@ -1,0 +1,28 @@
+# Full ordered session against the fake binary: cold run populates the cache
+# and the worktree, warm run proves state persists between steps, the failing
+# step proves non-zero exits are assertable. Git script exercises pinned
+# commits, a branch, and a lightweight tag.
+repo: edge/no-ecosystem
+git:
+  commits:
+    - msg: change app
+      touch: [src/app.txt]
+  tags: [v1]
+  branches: [feature]
+steps:
+  - id: 01-cold
+    argv: [cold]
+    stdout: { match: exact }
+    effects:
+      - cache_entries: ">0"
+      - file_exists: out.txt
+      - path_absent: missing.txt
+      - git_tag_exists: v1
+      - file_matches: { path: out.txt, golden: out.golden }
+  - id: 02-warm
+    argv: [warm]
+    stdout: { match: exact }
+  - id: 03-fail
+    argv: [fail]
+    exit: 3
+    stderr: { match: subset }

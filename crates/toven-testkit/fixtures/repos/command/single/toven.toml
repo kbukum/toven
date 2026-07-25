@@ -1,0 +1,16 @@
+# The minimal command-ecosystem repo: one module, the shared echo grammar,
+# fully deterministic and toolchain-independent — the exact-golden APPLY world.
+[project]
+name = "single-command"
+
+[toven]
+include = ["_profiles/command-tasks.toml"]
+
+[[ecosystems.command.modules]]
+name = "app"
+root = "."
+
+# Overrides the shared echo grammar with an `{args}` splice point, so a real APPLY
+# proves the `--` passthrough tail reaches the tool verbatim (see argv-passthrough).
+[ecosystems.command.tasks.test]
+argv = ["echo", "passthrough", "{args}"]

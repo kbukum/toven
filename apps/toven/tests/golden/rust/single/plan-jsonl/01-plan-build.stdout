@@ -1,0 +1,16 @@
+{"event":"run-started","run_id":"run-1700000000","intent":"build","project":"single-rust"}
+{"event":"phase-started","phase":"configure"}
+{"event":"phase-finished","phase":"configure"}
+{"event":"phase-started","phase":"discover"}
+{"event":"phase-finished","phase":"discover"}
+{"event":"phase-started","phase":"graph"}
+{"event":"phase-finished","phase":"graph"}
+{"event":"phase-started","phase":"affected"}
+{"event":"phase-finished","phase":"affected"}
+{"event":"phase-started","phase":"toolchain"}
+{"event":"phase-finished","phase":"toolchain"}
+{"event":"phase-started","phase":"schedule"}
+{"event":"cache-decided","unit_id":"rust@rust#build","verdict":"miss"}
+{"event":"phase-finished","phase":"schedule"}
+{"event":"plan-prepared","waves":1,"units":1}
+{"event":"run-finished","summary":{"planned_units":1,"ran_units":0,"cached_units":0,"failed_units":0,"blocked_units":0,"cancelled_units":0,"failed_readiness_units":0,"timed_out_units":0,"cache_hits":0,"cache_misses":1,"cache_disabled":0,"cache_forced":0,"dropped_output_chunks":0,"dry_run":true}}

@@ -8,7 +8,7 @@ use common::{repo, toven_rs, toven_rs_ok};
 
 #[test]
 fn plan_reports_units_waves_and_zero_ran() {
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     toven_rs_ok(&sample, &["plan", "build"])
         .expect_stderr_contains("plan:")
         .expect_stderr_contains("unit")
@@ -18,7 +18,7 @@ fn plan_reports_units_waves_and_zero_ran() {
 
 #[test]
 fn run_dry_run_does_not_apply() {
-    let sample = repo("rust/multi-module");
+    let sample = repo("rust/workspace-linear");
     let out = toven_rs(&sample, &["run", "build", "--dry-run"]);
     out.expect_success().expect_stderr_contains("ran:  0");
     assert!(

@@ -1,0 +1,6 @@
+# `graph` renders the dependency edges of the linear chain app->corelib->util.
+repo: rust/workspace-linear
+steps:
+  - id: 01-graph
+    argv: [graph]
+    stdout: { match: normalized }

@@ -1,0 +1,7 @@
+# `--module` narrows the plan to the selected module's subgraph; the jsonl
+# stream proves only the selected unit is scheduled.
+repo: command/multi-task
+steps:
+  - id: 01-plan-web-only
+    argv: [--output, jsonl, --module, "command:web", plan, build]
+    stdout: { match: exact }

@@ -1,0 +1,9 @@
+run build on single-command
+plan: 1 unit in 1 wave
+  cached command:app#build
+summary
+      planned:  1
+          ran:  0
+       cached:  1
+  duration-ms:  <DUR>
+       status:  ok

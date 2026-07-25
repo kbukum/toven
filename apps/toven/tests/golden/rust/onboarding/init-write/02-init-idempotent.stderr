@@ -1,0 +1,4 @@
+detected: rust
+[ecosystems.rust] already exists; skipping (use `--force rust` to regenerate it)
+no terminal detected; used the default answer for every prompt. Preview with `toven init --print`; regenerate a section with `toven init --force <ecosystem>`.
+./toven.toml is up to date; no sections added

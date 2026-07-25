@@ -25,7 +25,13 @@ rskit-errors.workspace = true
 
 [dev-dependencies]
 toven-testkit.workspace = true
-serde_json.workspace = true
+libtest-mimic.workspace = true
+
+# The zero-code golden suite: a libtest-mimic main that turns every
+# `scenario.yaml` under `tests/golden/` into one reported test.
+[[test]]
+name = "golden"
+harness = false
 
 [lints]
 workspace = true

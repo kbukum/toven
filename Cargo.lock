@@ -507,6 +507,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "escape8259"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5692dd7b5a1978a5aeb0ce83b7655c58ca8efdcb79d21036ea249da95afec2c6"
+
+[[package]]
 name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1022,6 +1028,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "libtest-mimic"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14e6ba06f0ade6e504aff834d7c34298e5155c6baca353cc6a4aaff2f9fd7f33"
+dependencies = [
+ "anstream",
+ "anstyle",
+ "clap",
+ "escape8259",
+]
+
+[[package]]
 name = "libz-sys"
 version = "1.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1313,6 +1331,7 @@ dependencies = [
  "rskit-errors",
  "serde",
  "serde_json",
+ "serde_norway",
  "toml",
 ]
 
@@ -1446,12 +1465,14 @@ version = "0.2.0-alpha.3"
 dependencies = [
  "async-trait",
  "parking_lot",
+ "regex",
  "rskit-component",
  "rskit-config",
  "rskit-errors",
  "rskit-fs",
  "rskit-hook",
  "rskit-provider",
+ "rskit-util",
  "rskit-validation",
  "serde",
  "tokio",
@@ -1902,9 +1923,9 @@ checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 name = "toven"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "libtest-mimic",
  "rskit-cli",
  "rskit-errors",
- "serde_json",
  "toven-cli",
  "toven-command",
  "toven-go",
@@ -2087,9 +2108,11 @@ dependencies = [
  "rskit-errors",
  "rskit-fs",
  "rskit-git",
+ "rskit-process",
  "rskit-testutil",
  "rskit-util",
  "rskit-version",
+ "serde",
  "tokio",
  "tokio-util",
  "toml",

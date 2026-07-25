@@ -1,0 +1,13 @@
+# `--config` variant over the same tree: machine-readable `json` report mode
+# baked into config instead of `--output`. Selected via
+# `--config toven.json-report.toml`; shares the canonical task grammar.
+[project]
+name = "workspace-linear-rust"
+
+[toven]
+report = "json"
+include = ["_profiles/rust-tasks.toml"]
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"

@@ -14,6 +14,7 @@ Toven plans and runs development, CI, coverage, and release work across multi-mo
 | Integrate Toven into CI | [Self-hosting and CI](self-hosting.md) |
 | Understand the implementation | [Architecture](architecture.md) |
 | Contribute to Toven | [Engineering guide](engineering.md) |
+| Add end-to-end test coverage | [Testing](testing.md) |
 
 ## Five-minute path
 

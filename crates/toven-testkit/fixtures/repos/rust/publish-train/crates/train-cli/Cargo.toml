@@ -1,0 +1,7 @@
+[package]
+name = "train-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+train-core = { path = "../train-core", version = "0.1.0" }

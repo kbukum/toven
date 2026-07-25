@@ -1,0 +1,4 @@
+error: invalid value 'bogus' for '--color <WHEN>'
+  [possible values: auto, always, never]
+
+For more information, try '--help'.

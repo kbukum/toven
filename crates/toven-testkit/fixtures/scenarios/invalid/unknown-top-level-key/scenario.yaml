@@ -1,0 +1,5 @@
+repo: r/x
+bogus: 1
+steps:
+  - id: a
+    argv: [plan]

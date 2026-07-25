@@ -106,6 +106,22 @@ pub fn coverage_profile_string(rel: impl AsRef<Path>) -> AppResult<String> {
     file::read_string(&resolved)
 }
 
+/// Resolve the path to a scenario directory under `fixtures/scenarios/<name>`.
+///
+/// The returned directory holds a `scenario.yaml` (plus any goldens); it is the
+/// input [`Scenario::load`](crate::scenario::Scenario::load) reads.
+pub fn scenario_path(name: &str) -> AppResult<PathBuf> {
+    let resolved = existing(Path::new("scenarios").join(name))?;
+    if dir::exists(&resolved)? {
+        Ok(resolved)
+    } else {
+        Err(AppError::invalid_input(
+            "fixture_scenario",
+            format!("scenario fixture '{name}' is not a directory"),
+        ))
+    }
+}
+
 /// Resolve the path to a sample repo tree under `fixtures/repos/<name>`.
 ///
 /// The returned directory is the source the

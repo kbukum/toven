@@ -1,0 +1,12 @@
+# With a scripted commit touching only `app` (the top of the chain, with no
+# dependents), `affected --base HEAD~1` narrows to just that module — proving
+# change-selection is dependency-aware, not the full set.
+repo: rust/workspace-linear
+git:
+  commits:
+    - msg: touch app
+      touch: [crates/app/src/main.rs]
+steps:
+  - id: 01-affected-base
+    argv: [affected, build, --base, "HEAD~1"]
+    stdout: { match: normalized }

@@ -1,0 +1,8 @@
+# A near-miss of a built-in verb fails to resolve as a task (argv stays sacred),
+# then the advisory points at the built-in. Error surface renders to stderr.
+repo: rust/workspace-linear
+steps:
+  - id: 01-modual
+    argv: [modual]
+    exit: 2
+    stderr: { match: normalized }

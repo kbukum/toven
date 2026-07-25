@@ -1,0 +1,177 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "toven-scenario.schema.json",
+  "title": "Toven scenario",
+  "description": "A declarative Toven golden-test scenario: one session of toven invocations run inside a materialized fixture repo. Mirrors toven-testkit's scenario model (crates/toven-testkit/src/scenario/model.rs), which remains the source of truth.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["repo", "steps"],
+  "properties": {
+    "repo": {
+      "type": "string",
+      "description": "Fixture repo id — a path under the shared fixtures/repos/ tree."
+    },
+    "requires": {
+      "type": "array",
+      "description": "Toolchain gates; empty or omitted means planning-only.",
+      "items": { "enum": ["cargo", "go"] }
+    },
+    "env": {
+      "type": "object",
+      "description": "Deterministic environment overrides applied to every step.",
+      "additionalProperties": { "type": "string" }
+    },
+    "git": {
+      "type": "object",
+      "description": "Scripted git history applied with pinned identity and dates.",
+      "additionalProperties": false,
+      "properties": {
+        "commits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["msg"],
+            "properties": {
+              "msg": { "type": "string", "description": "Commit message." },
+              "touch": {
+                "type": "array",
+                "description": "Repo-relative files created or appended to before committing.",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "branches": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "description": "Ordered toven invocations; ordering exercises caching and idempotency.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "argv"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable id; golden files are named <id>.stdout / <id>.stderr.",
+            "pattern": "^[A-Za-z0-9._-]+$",
+            "not": { "enum": [".", ".."] }
+          },
+          "argv": {
+            "type": "array",
+            "description": "Arguments passed to toven verbatim.",
+            "minItems": 1,
+            "items": { "type": "string" }
+          },
+          "config": {
+            "type": "string",
+            "description": "Config-variant filename inside the repo (passed as --config); TOML only.",
+            "pattern": "^[^/\\\\]+\\.toml$"
+          },
+          "exit": {
+            "type": "integer",
+            "description": "Expected exit code (default 0)."
+          },
+          "stdout": { "$ref": "#/definitions/stream" },
+          "stderr": { "$ref": "#/definitions/stream" },
+          "effects": {
+            "type": "array",
+            "description": "Declarative side-effect assertions checked after the invocation.",
+            "items": { "$ref": "#/definitions/effect" }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "stream": {
+      "type": "object",
+      "description": "How one captured stream is compared against its golden file.",
+      "additionalProperties": false,
+      "required": ["match"],
+      "properties": {
+        "match": {
+          "enum": ["exact", "normalized", "line-set", "subset"],
+          "description": "Matcher tier, strictest that is sound for this stream."
+        },
+        "frame_prefix": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Leading lines matched positionally — line-set only."
+        },
+        "frame_suffix": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Trailing lines matched positionally — line-set only."
+        }
+      }
+    },
+    "effect": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cache_entries"],
+          "properties": {
+            "cache_entries": {
+              "description": "Scenario-scoped cache entry count: N, \">N\", \">=N\", \"<N\", or \"<=N\".",
+              "oneOf": [
+                { "type": "integer", "minimum": 0 },
+                { "type": "string", "pattern": "^(>=|<=|==|>|<)?\\s*\\d+$" }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file_exists"],
+          "properties": {
+            "file_exists": { "type": "string", "description": "Repo-relative path that must exist." }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file_matches"],
+          "properties": {
+            "file_matches": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "golden"],
+              "properties": {
+                "path": { "type": "string", "description": "Repo-relative file to check." },
+                "golden": {
+                  "type": "string",
+                  "description": "Golden filename inside the scenario directory (bare filename, no path).",
+                  "pattern": "^[^/\\\\]+$",
+                  "not": { "enum": [".", ".."] }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path_absent"],
+          "properties": {
+            "path_absent": { "type": "string", "description": "Repo-relative path that must not exist." }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["git_tag_exists"],
+          "properties": {
+            "git_tag_exists": { "type": "string", "description": "Git tag that must exist in the materialized repo." }
+          }
+        }
+      ]
+    }
+  }
+}

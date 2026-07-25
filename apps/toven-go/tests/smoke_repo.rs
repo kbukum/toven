@@ -27,7 +27,7 @@ fn modules_lists_the_single_module_baseline() {
 #[test]
 fn graph_renders_the_go_dependency_edge() {
     require_go!();
-    let sample = repo("go/multi-module");
+    let sample = repo("go/work-linear");
     toven_go_ok(&sample, &["graph"])
         .expect_stdout_contains("go:app")
         .expect_stdout_contains("  -> go:core");
@@ -36,7 +36,7 @@ fn graph_renders_the_go_dependency_edge() {
 #[test]
 fn explain_renders_the_planned_go_unit() {
     require_go!();
-    let sample = repo("go/multi-module");
+    let sample = repo("go/work-linear");
     toven_go(&sample, &["explain", "build", "--module", "go:core"])
         .expect_success()
         .expect_stdout_contains("go:core")
@@ -47,7 +47,7 @@ fn explain_renders_the_planned_go_unit() {
 #[test]
 fn plan_and_dry_run_stay_read_only() {
     require_go!();
-    let sample = repo("go/multi-module");
+    let sample = repo("go/work-linear");
     toven_go_ok(&sample, &["plan", "build"])
         .expect_stderr_contains("plan:")
         .expect_stderr_contains("ran:  0");
@@ -71,7 +71,7 @@ fn jsonl_output_streams_valid_json_lines() {
 #[test]
 fn bare_task_dispatch_applies_go_modules() {
     require_go!();
-    let sample = repo("go/multi-module");
+    let sample = repo("go/work-linear");
     toven_go_ok(&sample, &["build"])
         .expect_stderr_contains("ok go:core#build")
         .expect_stderr_contains("ok go:app#build")
@@ -81,7 +81,7 @@ fn bare_task_dispatch_applies_go_modules() {
 #[test]
 fn module_selection_limits_apply_to_the_selected_subgraph() {
     require_go!();
-    let sample = repo("go/multi-module");
+    let sample = repo("go/work-linear");
     toven_go_ok(&sample, &["--module", "go:core", "build"])
         .expect_stderr_contains("ok go:core#build")
         .expect_stderr_contains("ran:  1");

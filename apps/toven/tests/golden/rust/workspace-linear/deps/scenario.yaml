@@ -1,0 +1,6 @@
+# `deps` is the graph alias; it projects the same dependency edges.
+repo: rust/workspace-linear
+steps:
+  - id: 01-deps
+    argv: [deps]
+    stdout: { match: normalized }

@@ -1,0 +1,8 @@
+# `--config toven.custom-cache-dir.toml` points the cache at a repo-local
+# directory; `cache path` reflects the configured location.
+repo: rust/workspace-linear
+steps:
+  - id: 01-cache-path
+    argv: [cache, path]
+    config: toven.custom-cache-dir.toml
+    stdout: { match: normalized }

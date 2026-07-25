@@ -1,0 +1,7 @@
+# `modules` discovers every member of a go.work workspace (planning only, no
+# toolchain required).
+repo: go/work-linear
+steps:
+  - id: 01-modules
+    argv: [modules]
+    stdout: { match: normalized }

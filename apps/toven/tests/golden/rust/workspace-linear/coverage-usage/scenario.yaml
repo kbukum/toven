@@ -1,0 +1,9 @@
+# The `coverage` command resolves the reserved coverage task; a repo whose
+# ecosystem declares no `coverage` task fails closed (exit 2) with actionable
+# guidance rather than silently doing nothing. Deterministic, no toolchain.
+repo: rust/workspace-linear
+steps:
+  - id: 01-coverage-no-task
+    argv: [coverage]
+    exit: 2
+    stderr: { match: normalized }

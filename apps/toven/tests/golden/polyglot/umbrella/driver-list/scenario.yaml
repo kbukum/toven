@@ -1,0 +1,6 @@
+# `driver list` reports each bundled adapter as linked (stderr).
+repo: polyglot/umbrella
+steps:
+  - id: 01-driver-list
+    argv: [driver, list]
+    stderr: { match: normalized }

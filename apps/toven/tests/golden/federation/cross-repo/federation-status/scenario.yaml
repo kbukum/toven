@@ -1,0 +1,6 @@
+# `federation status` reports the linked drivers across the member repos.
+repo: federation/cross-repo
+steps:
+  - id: 01-federation-status
+    argv: [federation, status]
+    stderr: { match: normalized }

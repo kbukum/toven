@@ -1,0 +1,12 @@
+# One cargo workspace with a real linear dependency chain
+# (`app -> corelib -> util`), exercising graph ordering, waves,
+# `--module`/`--workspace`, `affected`, and `explain`.
+[project]
+name = "workspace-linear-rust"
+
+[toven]
+include = ["_profiles/rust-tasks.toml"]
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"

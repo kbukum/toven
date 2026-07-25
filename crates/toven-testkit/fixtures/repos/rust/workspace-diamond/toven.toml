@@ -1,0 +1,12 @@
+# One cargo workspace with a diamond dependency graph
+# (`app -> {liba, libb} -> core`), exercising wave computation where two
+# modules share one prerequisite and one dependent.
+[project]
+name = "workspace-diamond-rust"
+
+[toven]
+include = ["_profiles/rust-tasks.toml"]
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"

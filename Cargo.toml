@@ -55,6 +55,8 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "macros", 
 tokio-util = { version = "0.7", features = ["rt"] }
 futures = "0.3"
 async-trait = "0.1"
+# Dev-only: custom test harness for the zero-code golden scenario suite.
+libtest-mimic = "0.8"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

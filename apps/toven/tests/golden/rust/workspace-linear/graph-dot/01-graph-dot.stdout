@@ -1,0 +1,7 @@
+digraph toven {
+  "rust:app";
+  "rust:corelib";
+  "rust:util";
+  "rust:app" -> "rust:corelib";
+  "rust:corelib" -> "rust:util";
+}
