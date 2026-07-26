@@ -82,6 +82,7 @@ mod tests {
             Event::UnitFinished {
                 unit_id: "rust:errors#test".into(),
                 status: UnitStatus::Succeeded,
+                exit_code: None,
             },
             Event::RunFinished {
                 summary: RunStats::new(1),

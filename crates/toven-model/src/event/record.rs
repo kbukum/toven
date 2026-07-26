@@ -97,6 +97,13 @@ pub enum Event {
         unit_id: String,
         /// Final status.
         status: UnitStatus,
+        /// Process exit code, populated only for a unit that ran a command and
+        /// exited non-zero. `None` for a success or a terminal state that never
+        /// ran a process (cached, blocked, cancelled, torn-down). The unit's
+        /// captured stdout/stderr is surfaced on the separate raw-output
+        /// channel, so this names the failure without duplicating that stream.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exit_code: Option<i32>,
     },
 
     // ---- WATCH level ----
@@ -155,6 +162,12 @@ mod tests {
         round_trip(&Event::UnitFinished {
             unit_id: "u1".into(),
             status: UnitStatus::Succeeded,
+            exit_code: None,
+        });
+        round_trip(&Event::UnitFinished {
+            unit_id: "u2".into(),
+            status: UnitStatus::Failed,
+            exit_code: Some(2),
         });
         round_trip(&Event::RunFinished {
             summary: RunStats::new(3),

@@ -15,10 +15,10 @@ export NEXTEST_PROFILE ?= default
 # binary for speed with `make TOVEN=toven check`.
 TOVEN ?= cargo run --quiet --locked -p toven --
 
-.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark golden bless release-dry-run release-plan release-artifacts act-ci act-supply-chain act-release-readiness
+.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark golden bless verify-release-platform-filter release-dry-run release-plan release-artifacts act-ci act-supply-chain act-release-readiness
 
 # Canonical local/CI gate for the virtual workspace.
-check: fmt-check lint test structure doc deny release-dry-run
+check: fmt-check lint test structure doc deny verify-release-platform-filter release-dry-run
 
 # rustfmt is intentionally native: `make check` gates the whole workspace in a
 # single fast rustfmt pass; the per-module `format`/`format-check` tasks remain
@@ -80,6 +80,17 @@ golden:
 bless:
 	RSKIT_BLESS=1 cargo test --locked -p toven --test golden
 	$(MAKE) golden
+
+# Prove the release fixture wrapper fails closed when its filter matches no
+# scenarios. Match the diagnostic as well as the nonzero exit so an unrelated
+# cargo failure cannot satisfy the regression.
+verify-release-platform-filter:
+	@output="$$(TOVEN_RELEASE_SCENARIO_FILTER='no-such-release-scenario' ./scripts/verify-release-platform.sh 2>&1)"; status=$$?; \
+	if [ "$$status" -eq 0 ] || ! printf '%s\n' "$$output" | grep -F "matched no release scenarios" >/dev/null; then \
+		printf '%s\n' "$$output"; \
+		echo "verify-release-platform-filter: expected a fail-closed zero-match result" >&2; \
+		exit 1; \
+	fi
 
 deny:
 	cargo deny check advisories bans licenses sources

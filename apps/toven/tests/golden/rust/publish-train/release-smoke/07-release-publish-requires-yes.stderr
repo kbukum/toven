@@ -1,0 +1,1 @@
+error[INVALID_INPUT]: invalid release.confirmation: real releases require explicit confirmation; pass --yes to proceed

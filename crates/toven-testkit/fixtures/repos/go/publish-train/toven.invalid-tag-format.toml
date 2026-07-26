@@ -1,0 +1,17 @@
+[project]
+name = "publish-train-go"
+
+[toven]
+include = ["_profiles/go-tasks.toml"]
+
+[ecosystems.go]
+modules = ["go.mod", "core/go.mod"]
+run_strategy = "leaf-to-top"
+
+[ecosystems.go.release]
+strategy = "semver-cascade"
+level = "minor"
+dependent_version = "bump"
+tag_format = "{module}/v{version}"
+push = false
+

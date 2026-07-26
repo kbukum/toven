@@ -1,7 +1,7 @@
 [project]
 name = "repo"
 root = "."
-base_ref = "master"
+base_ref = "main"
 
 # Smart defaults fill in tasks, run strategy, and toolchain probes.
 # Uncomment to override, e.g.:

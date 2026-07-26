@@ -5,9 +5,12 @@
 //! installs a driver (an absent driver is warn + skip in the engine's four-way
 //! dispatch), so installing/syncing is isolated here behind its own verbs. Each
 //! action is a thin caller over the engine's
-//! [`federation::provision`](toven_engine::federation::provision) functions;
-//! all human-facing lines go to **stderr** so `stdout` stays reserved for the
-//! JSONL machine stream and the `__serve` frame transport.
+//! [`federation::provision`](toven_engine::federation::provision) functions.
+//! The `list`/`status` **listing bodies** print to **stdout** (they are query
+//! output a user pipes, like `modules`/`tasks`), while provisioning progress
+//! (`install`/`sync`) and errors stay on **stderr**, and `stdout` otherwise
+//! stays reserved for the JSONL machine stream and the `__serve` frame
+//! transport.
 
 use rskit_cli::{ErrorRenderer, ExitCode};
 use rskit_errors::{AppError, AppResult, ErrorCode};
@@ -114,6 +117,7 @@ pub(crate) fn federation(
             Ok(ExitCode::Success)
         }
         FederationAction::Status => {
+            report_members(project);
             report_statuses("federation", providers, project)?;
             Ok(ExitCode::Success)
         }
@@ -148,12 +152,23 @@ fn install_absent(providers: &[&dyn Provider], project: &Project) -> AppResult<(
     Ok(())
 }
 
-/// Render every canonical ecosystem's provisioning state to stderr.
+/// Render every canonical ecosystem's provisioning state to stdout — the
+/// listing body a user pipes, distinct from provisioning progress on stderr.
 fn report_statuses(verb: &str, providers: &[&dyn Provider], project: &Project) -> AppResult<()> {
     for status in statuses(providers, project)? {
-        eprintln!("{verb}: {} -> {}", status.id, describe(&status.state));
+        println!("{verb}: {} -> {}", status.id, describe(&status.state));
     }
     Ok(())
+}
+
+/// Render the umbrella's per-repo member linkage to stdout — the federation
+/// context that distinguishes `federation status` from the flat `driver list`.
+/// A degenerate single-repo project declares no `[[members]]`, so this prints
+/// nothing and `federation status` collapses to the shared driver view.
+fn report_members(project: &Project) {
+    for member in &project.document.members {
+        println!("member: {} -> {}", member.name, member.root);
+    }
 }
 
 /// The provisioning status of every canonical ecosystem for this project.

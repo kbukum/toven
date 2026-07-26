@@ -1,6 +1,7 @@
-# `driver list` reports each bundled adapter as linked (stderr).
+# `driver list` reports each bundled adapter's link state — a query body on
+# stdout (pipeable, like `modules`/`tasks`).
 repo: polyglot/umbrella
 steps:
   - id: 01-driver-list
     argv: [driver, list]
-    stderr: { match: normalized }
+    stdout: { match: normalized }

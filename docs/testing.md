@@ -6,7 +6,7 @@ The engine that discovers, materializes, runs, normalizes, matches, and (on dema
 
 ## The scenario model
 
-A scenario is a directory containing a `scenario.yaml` and its golden files. The YAML names a fixture repo, an optional scripted git history, a required-toolchain gate, deterministic environment overrides, and an ordered list of **steps**. Each step is one `toven` invocation with its expected exit code, per-stream golden references plus a **matcher**, and declarative **effects**.
+A scenario is a directory containing a `scenario.yaml` and its golden files. The YAML names a fixture repo, an optional scripted git history, a required-toolchain gate, deterministic environment overrides, and an ordered list of **steps**. Each step is one `toven` invocation with its expected exit code, per-stream golden references plus a **matcher**, and declarative **effects**. A step may add its own `requires:` gate for tools beyond the scenario-level gate (for example `requires: [cargo-cyclonedx]` on a step that shells out to the plugin): a step whose toolchain is absent is skipped green and later steps still run.
 
 ```yaml
 # apps/toven/tests/golden/command/single/apply-cache-session/scenario.yaml
@@ -35,7 +35,7 @@ Ordering is first-class: it is how cold → warm caching, idempotency, and "affe
 
 ### Effects
 
-Effects assert side-effects after a step runs: `cache_entries` (a count comparison like `3`, `">0"`, `">=2"`), `file_exists` / `path_absent` (any repo-relative path), `file_matches` (a repo file against a golden in the scenario directory), and `git_tag_exists`.
+Effects assert side-effects after a step runs: `cache_entries` (a count comparison like `3`, `">0"`, `">=2"`), `file_exists` / `path_absent` (any repo-relative path), `file_matches` (a repo file against a golden in the scenario directory), and `git_tag_exists` / `git_tag_absent` (a release tag that must be present or, for rehearsals and rejected mutations, must not exist).
 
 ## The fixture catalog
 
@@ -67,7 +67,7 @@ Because `line-set` does not normalize and every APPLY summary carries a `duratio
 
 ## Determinism
 
-The engine pins everything a scenario needs to be reproducible and safe under the harness's own parallelism: a fixed wall clock (`TOVEN_CLOCK_EPOCH`, so the only wall-clock field — the `run_id` — is stable), pinned git identity and commit dates, `LC_ALL=C`, `TERM=dumb`, a **scenario-scoped cache dir**, and **per-scenario toolchain homes** (`CARGO_HOME`/`GOCACHE`/`GOPATH`) so concurrent real-toolchain steps never contend on a shared package-cache lock. Prefer the toolchain-independent `command` ecosystem for exact APPLY goldens; gate real `cargo`/`go` steps with `requires:` so a runner without that toolchain skips the scenario green.
+The engine pins everything a scenario needs to be reproducible and safe under the harness's own parallelism: a fixed wall clock (`TOVEN_CLOCK_EPOCH`, so the only wall-clock field — the `run_id` — is stable), pinned git identity and commit dates, `LC_ALL=C`, `TERM=dumb`, a **scenario-scoped cache dir**, and **per-scenario toolchain homes** (`CARGO_HOME`/`GOCACHE`/`GOPATH`) so concurrent real-toolchain steps never contend on a shared package-cache lock. Prefer the toolchain-independent `command` ecosystem for exact APPLY goldens; gate real `cargo`/`go` scenarios with `requires:` so a runner without that toolchain skips the scenario green, and gate steps needing an extra plugin (such as `cargo-cyclonedx`) with a step-level `requires:` so only that step skips.
 
 ## The check / bless loop
 

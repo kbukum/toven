@@ -1,0 +1,21 @@
+[project]
+name = "publish-train-rust"
+
+[toven]
+include = ["_profiles/rust-tasks.toml"]
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"
+
+[ecosystems.rust.release]
+strategy = "semver-cascade"
+level = "minor"
+dependent_version = "upgrade"
+tag_format = "{module}/v{version}"
+tag_message = "release {module} {version}"
+commit_message = "chore: release {version}"
+push = false
+publish = false
+readiness = ["clean-tree"]
+

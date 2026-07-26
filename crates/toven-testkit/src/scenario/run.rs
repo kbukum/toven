@@ -117,7 +117,16 @@ pub fn run_scenario_with(
 
     let mut steps = Vec::with_capacity(scenario.steps.len());
     for step in &scenario.steps {
-        let status = run_step(&cx, step)?;
+        let status = match step
+            .requires
+            .iter()
+            .find(|tool| !toolchain_present(tool.program()))
+        {
+            Some(missing) => StepStatus::Skipped {
+                tool: missing.program().to_owned(),
+            },
+            None => run_step(&cx, step)?,
+        };
         let failed = matches!(status, StepStatus::Failed { .. });
         steps.push(StepOutcome {
             id: step.id.clone(),

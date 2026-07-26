@@ -1,0 +1,4 @@
+name=go-publish-train
+fixture=go/publish-train
+config=toven.local-remote.toml
+mode=tag

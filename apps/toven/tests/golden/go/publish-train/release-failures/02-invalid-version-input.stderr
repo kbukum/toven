@@ -1,0 +1,1 @@
+error[INVALID_INPUT]: invalid release.set-version: invalid version 'invalid': unexpected character 'i' while parsing major version number

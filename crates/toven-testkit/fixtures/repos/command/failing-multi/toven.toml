@@ -1,0 +1,35 @@
+# Three command modules used to prove `--fail-fast` cancels a *pending* sibling
+# while a default run still reaches it. The shared `check` task passes only when
+# a `<module>.ok` marker exists in the repo root (the cwd of every command
+# unit): `anchor.ok` and `sibling.ok` are present, while `boom` has no marker
+# and deliberately fails.
+#
+# Waves (serialized with `--jobs 1`):
+#   wave 1: `anchor` (passes, sorts before `boom`) then `boom` (fails)
+#   wave 2: `sibling` (passes) — depends on `anchor`, independent of `boom`
+#
+# Under `--fail-fast`, `boom` fails in wave 1 and wave 2 never launches, so the
+# still-pending `sibling` is cancelled. Without it, wave 2 runs and `sibling`
+# passes — `anchor` insulates `sibling` from `boom`'s failure either way.
+[project]
+name = "failing-multi-command"
+
+[toven]
+include = ["_profiles/command-tasks.toml"]
+
+[[ecosystems.command.modules]]
+name = "anchor"
+root = "."
+
+[[ecosystems.command.modules]]
+name = "boom"
+root = "."
+
+[[ecosystems.command.modules]]
+name = "sibling"
+root = "."
+depends_on = ["anchor"]
+
+# Overrides the shared echo grammar: pass iff a `<module>.ok` marker is present.
+[ecosystems.command.tasks.check]
+argv = ["test", "-f", "{module.name}.ok"]

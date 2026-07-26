@@ -83,7 +83,7 @@ pub use release::{
     Artifact, HostReleaseOutcome, HostedRelease, PublishOutcome, RegistryCadence, ReleaseAsset,
     ReleaseHost, ReleaseMutation, ReleaseTarget, SUPPORTED_FORGES, TagScheme, is_supported_forge,
 };
-pub use reporter::Reporter;
+pub use reporter::{PlanReporter, Reporter};
 pub use source::SourceDigest;
 pub use task::{
     DEFAULT_READINESS_TIMEOUT, FanOut, Readiness, Task, TaskIntent, TaskKind, TaskOrigin,

@@ -22,6 +22,9 @@ push = false
 registry = "crates-io"
 token_env = "CARGO_REGISTRY_TOKEN"
 
+[ecosystems.rust.release.prerelease]
+channels = ["alpha", "beta", "rc"]
+
 [modules."rust:train-core".release]
 level = "major"
 tag_format = "core-v{version}"

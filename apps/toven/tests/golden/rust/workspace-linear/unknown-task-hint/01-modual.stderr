@@ -1,2 +1,1 @@
-run modual on workspace-linear-rust
 error[INVALID_INPUT]: ecosystem 'rust' has no 'modual' task. Run 'toven tasks' to list every runnable task. If you meant the built-in, run 'toven modules'.

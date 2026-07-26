@@ -45,6 +45,18 @@ toven release publish --dry-run --output jsonl
 
 Compare selected modules, target versions, cascade reasons, tags, order, prerelease classification, and hosted assets.
 
+Run the representative fixture matrix with one deterministic command before any real-repository parity check:
+
+```bash
+scripts/verify-release-platform.sh
+```
+
+Then run isolated real-repository rehearsals with local bare remotes and controlled forge/registry doubles:
+
+```bash
+scripts/verify-real-repositories.sh
+```
+
 ## Isolation
 
 Use temporary clones or worktrees with local Git remotes and controlled registry or forge doubles. Preview verification must not mutate source repositories, manifests, tags, registries, or hosted releases.

@@ -167,6 +167,36 @@ fn missing_toolchain_skips_green() {
 }
 
 #[test]
+fn step_gate_skips_only_the_gated_step() {
+    let dir = TempDir::new().unwrap();
+    let binary = fake_toven(&dir);
+    let scenario = scenario_path("engine/step-requires").unwrap();
+
+    let report = run_scenario_with(&binary, &scenario, GoldenMode::Verify, |tool| {
+        tool != "cargo-cyclonedx"
+    })
+    .unwrap();
+
+    let steps = step_statuses(&report);
+    assert_eq!(
+        steps.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+        ["01-before", "02-gated", "03-after"],
+        "a skipped step does not stop the session"
+    );
+    assert!(matches!(steps[0].1, StepStatus::Passed));
+    let StepStatus::Skipped { tool } = steps[1].1 else {
+        panic!("expected a skipped step, got {:?}", steps[1].1);
+    };
+    assert_eq!(tool, "cargo-cyclonedx");
+    assert!(
+        matches!(steps[2].1, StepStatus::Passed),
+        "later steps still run: {:?}",
+        steps[2].1
+    );
+    assert!(report.is_green());
+}
+
+#[test]
 fn bless_regenerates_goldens_then_verify_passes() {
     let source = scenario_path("engine/session").unwrap();
     let workdir = TempDir::new().unwrap();

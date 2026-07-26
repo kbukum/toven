@@ -70,5 +70,9 @@ jobs:
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked --version 0.19.0
 
+      # The rust publish-train golden scenarios shell out to the plugin.
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --locked --version 0.5.9
+
       - name: Run checks
         run: make check

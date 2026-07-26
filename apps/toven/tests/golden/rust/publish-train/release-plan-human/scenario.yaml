@@ -1,0 +1,7 @@
+# The human (default, no `--output`) `release plan` renders a table of the
+# planned module bumps on stdout — the primary human release surface.
+repo: rust/publish-train
+steps:
+  - id: 01-release-plan-human
+    argv: [release, plan]
+    stdout: { match: normalized }

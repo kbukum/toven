@@ -14,7 +14,7 @@
     "requires": {
       "type": "array",
       "description": "Toolchain gates; empty or omitted means planning-only.",
-      "items": { "enum": ["cargo", "go"] }
+      "items": { "enum": ["cargo", "go", "cargo-cyclonedx"] }
     },
     "env": {
       "type": "object",
@@ -75,6 +75,11 @@
           "exit": {
             "type": "integer",
             "description": "Expected exit code (default 0)."
+          },
+          "requires": {
+            "type": "array",
+            "description": "Per-step toolchain gates; a step whose toolchain is absent is skipped green and later steps still run.",
+            "items": { "enum": ["cargo", "go", "cargo-cyclonedx"] }
           },
           "stdout": { "$ref": "#/definitions/stream" },
           "stderr": { "$ref": "#/definitions/stream" },
@@ -169,6 +174,14 @@
           "required": ["git_tag_exists"],
           "properties": {
             "git_tag_exists": { "type": "string", "description": "Git tag that must exist in the materialized repo." }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["git_tag_absent"],
+          "properties": {
+            "git_tag_absent": { "type": "string", "description": "Git tag that must not exist in the materialized repo." }
           }
         }
       ]

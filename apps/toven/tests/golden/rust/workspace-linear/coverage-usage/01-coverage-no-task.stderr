@@ -1,2 +1,1 @@
-run coverage on workspace-linear-rust
 error[INVALID_INPUT]: ecosystem 'rust' has no 'coverage' task. Run 'toven tasks' to list every runnable task.

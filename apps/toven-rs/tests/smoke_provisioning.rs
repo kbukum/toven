@@ -10,9 +10,9 @@ use common::{repo, toven_rs_ok};
 fn driver_list_shows_only_rust_linked() {
     let sample = repo("rust/single");
     toven_rs_ok(&sample, &["driver", "list"])
-        .expect_stderr_contains("driver: rust -> linked")
-        .expect_stderr_contains("driver: go -> absent")
-        .expect_stderr_contains("driver: command -> absent");
+        .expect_stdout_contains("driver: rust -> linked")
+        .expect_stdout_contains("driver: go -> absent")
+        .expect_stdout_contains("driver: command -> absent");
 }
 
 #[test]

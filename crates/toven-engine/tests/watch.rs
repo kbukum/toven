@@ -123,6 +123,20 @@ fn drive_batches_with_readers(
     batches: Vec<toven_ports::ChangeBatch>,
     readers: &MemberVcsReaders<'_>,
 ) -> (Vec<Event>, Vec<toven_testkit::WatchCall>) {
+    let (result, events, calls) = drive_request_with_readers(request(), batches, readers);
+    result.expect("watch loop");
+    (events, calls)
+}
+
+fn drive_request_with_readers(
+    request: PlanRequest,
+    batches: Vec<toven_ports::ChangeBatch>,
+    readers: &MemberVcsReaders<'_>,
+) -> (
+    rskit_errors::AppResult<toven_model::RunStats>,
+    Vec<Event>,
+    Vec<toven_testkit::WatchCall>,
+) {
     let provider = rust_provider();
     let providers: Vec<&dyn Provider> = vec![&provider];
     let digest = FakeSourceDigest::new();
@@ -140,30 +154,28 @@ fn drive_batches_with_readers(
         .build()
         .expect("runtime");
     let document = document();
-    runtime
-        .block_on(
-            WatchSession {
-                request: request(),
-                document: &document,
-                providers: &providers,
-                readers,
-                digest: &digest,
-                prober: &prober,
-                cache_store: &cache_store,
-                cache_writer: &cache_writer,
-                runner,
-                apply_options: ApplyOptions::default(),
-                watch: &watch,
-                debounce: Duration::from_millis(200),
-                reporter: &mut reporter,
-                output: &mut output,
-                cancel: tokio_util::sync::CancellationToken::new(),
-            }
-            .run(),
-        )
-        .expect("watch loop");
+    let result = runtime.block_on(
+        WatchSession {
+            request,
+            document: &document,
+            providers: &providers,
+            readers,
+            digest: &digest,
+            prober: &prober,
+            cache_store: &cache_store,
+            cache_writer: &cache_writer,
+            runner,
+            apply_options: ApplyOptions::default(),
+            watch: &watch,
+            debounce: Duration::from_millis(200),
+            reporter: &mut reporter,
+            output: &mut output,
+            cancel: tokio_util::sync::CancellationToken::new(),
+        }
+        .run(),
+    );
 
-    (reporter.events().to_vec(), watch.calls())
+    (result, reporter.events().to_vec(), watch.calls())
 }
 
 #[test]
@@ -183,6 +195,35 @@ fn baseline_run_then_watch_started_and_stopped_bracket_the_loop() {
     // WatchStarted precedes the baseline run; WatchStopped is last.
     assert!(matches!(events.first(), Some(Event::WatchStarted { .. })));
     assert!(matches!(events.last(), Some(Event::WatchStopped)));
+}
+
+#[test]
+fn failed_baseline_plan_does_not_emit_a_run_header() {
+    let vcs = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let invalid = PlanRequest::new(
+        "run-watch",
+        "toven",
+        TaskIntent::resolve("unknown"),
+        AbsPath::new("/repo").expect("absolute"),
+    )
+    .with_selection(Selection::All);
+
+    let (result, events, _calls) = drive_request_with_readers(invalid, Vec::new(), &readers);
+
+    assert!(result.is_err(), "an unknown watched task must fail PLAN");
+    assert!(matches!(events.first(), Some(Event::WatchStarted { .. })));
+    assert_eq!(
+        count_run_started(&events),
+        0,
+        "failed PLAN never starts a run"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::PhaseStarted { .. })),
+        "failed PLAN lifecycle framing is discarded"
+    );
 }
 
 #[test]

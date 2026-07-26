@@ -1,4 +1,4 @@
 detected: rust
-no git remote detected; wrote `base_ref = "master"` (a local branch). Changed-selection commands (`affected`, `--base`) compare against it — set `[project].base_ref` to your upstream branch once a remote is configured.
+no git remote detected; wrote `base_ref = "main"` (a local branch). Changed-selection commands (`affected`, `--base`) compare against it — set `[project].base_ref` to your upstream branch once a remote is configured.
 no terminal detected; used the default answer for every prompt. Preview with `toven init --print`; regenerate a section with `toven init --force <ecosystem>`.
 wrote ./toven.toml (rust)

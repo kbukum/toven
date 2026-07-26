@@ -230,9 +230,20 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
             }
             Event::UnitStarted { unit_id } => self.write_line(&format!("  start {unit_id}")),
             Event::UnitReady { unit_id } => self.write_line(&format!("  ready {unit_id}")),
-            Event::UnitFinished { unit_id, status } => {
+            Event::UnitFinished {
+                unit_id,
+                status,
+                exit_code,
+            } => {
                 let label = self.paint_status(*status);
-                self.write_line(&format!("  {label} {unit_id}"))
+                // Name the non-zero exit on the failure line so a reader sees *why* the
+                // unit failed without correlating against the separate output stream; the
+                // captured stdout/stderr already surfaced there.
+                let line = exit_code.as_ref().map_or_else(
+                    || format!("  {label} {unit_id}"),
+                    |code| format!("  {label} {unit_id} (exit {code})"),
+                );
+                self.write_line(&line)
             }
             Event::WatchStarted { debounce_ms } => self.write_line(&format!(
                 "watch: waiting for changes ({debounce_ms}ms debounce)"
@@ -400,6 +411,7 @@ summary (dry run — no tasks executed)
             Event::UnitFinished {
                 unit_id: "u1".into(),
                 status: UnitStatus::Succeeded,
+                exit_code: None,
             },
             Event::RunFinished { summary },
         ];
@@ -527,9 +539,23 @@ summary
             let output = render(&[Event::UnitFinished {
                 unit_id: "u".into(),
                 status,
+                exit_code: None,
             }]);
             assert_eq!(output, expected, "status {status:?}");
         }
+    }
+
+    #[test]
+    fn a_failed_unit_names_its_non_zero_exit_code() {
+        // The exit code annotates the failure line so a reader sees *why* a unit failed
+        // without correlating against the separate raw-output stream; a success (`None`)
+        // stays unannotated.
+        let output = render(&[Event::UnitFinished {
+            unit_id: "command:boom#check".into(),
+            status: UnitStatus::Failed,
+            exit_code: Some(3),
+        }]);
+        assert_eq!(output, "  failed command:boom#check (exit 3)\n");
     }
 
     #[test]
@@ -549,6 +575,7 @@ summary
                 .emit(&Event::UnitFinished {
                     unit_id: "u".into(),
                     status,
+                    exit_code: None,
                 })
                 .expect("emit");
             let output = String::from_utf8(reporter.into_inner()).expect("utf8");
@@ -569,6 +596,7 @@ summary
                 .emit(&Event::UnitFinished {
                     unit_id: "u".into(),
                     status: UnitStatus::Succeeded,
+                    exit_code: None,
                 })
                 .expect("emit");
             let output = String::from_utf8(reporter.into_inner()).expect("utf8");
@@ -611,6 +639,7 @@ summary
             Event::UnitFinished {
                 unit_id: "srv".into(),
                 status: UnitStatus::TornDown,
+                exit_code: None,
             },
         ];
         let output = render(&events);
@@ -642,6 +671,7 @@ summary
             Event::UnitFinished {
                 unit_id: "rust:core#build".into(),
                 status: UnitStatus::Succeeded,
+                exit_code: None,
             },
             Event::RunFinished {
                 summary: RunStats::new(1),
