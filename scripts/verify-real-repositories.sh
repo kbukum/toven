@@ -9,7 +9,7 @@ cases_dir="${repo_root}/scripts/cases/release-platform"
 bin="${repo_root}/target/debug/toven"
 
 echo "verify-real-repositories: building toven" >&2
-cargo build --manifest-path "${repo_root}/Cargo.toml" -p toven >/dev/null
+cargo build --locked --manifest-path "${repo_root}/Cargo.toml" -p toven >/dev/null
 [ -x "${bin}" ] || { echo "verify-real-repositories: missing binary ${bin}" >&2; exit 1; }
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/toven-real-repo-XXXXXX")"
