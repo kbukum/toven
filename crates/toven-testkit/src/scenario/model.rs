@@ -154,6 +154,10 @@ pub enum Effect {
     PathAbsent(String),
     /// The git tag exists in the materialized repo.
     GitTagExists(String),
+    /// The git tag does not exist in the materialized repo — the tag-absence
+    /// mirror of [`GitTagExists`](Self::GitTagExists) that proves a rehearsal
+    /// or rejected mutation created no release tag.
+    GitTagAbsent(String),
 }
 
 /// A count comparison: `3`, `">0"`, `">=2"`, `"<5"`, or `"<=1"`.

@@ -1,5 +1,3 @@
-  verdict:  go
-
 
 Release readiness
 ┌────────────┬────────┬───────────────────────┐
@@ -7,3 +5,4 @@ Release readiness
 ├────────────┼────────┼───────────────────────┤
 │ clean-tree │ pass   │ working tree is clean │
 └────────────┴────────┴───────────────────────┘
+  verdict:  go

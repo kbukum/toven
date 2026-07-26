@@ -20,7 +20,7 @@ use toven_engine::plan::{
     CacheMode, FsSourceDigest, PlanHost, PlanRequest, ProcessToolchainProber, plan,
 };
 use toven_model::{CacheVerdict, Event, Plan, RunStats};
-use toven_ports::{CommandRunner, Provider, Reporter, TaskIntent};
+use toven_ports::{CommandRunner, PlanReporter, Provider, Reporter, TaskIntent};
 
 use crate::commands::selection::TaskSelection;
 use crate::host::{Project, Report, new_run_id};
@@ -130,14 +130,25 @@ pub(crate) fn execute(
         );
     }
 
-    sink.emit(&Event::RunStarted {
+    // Defer the run header (and the PLAN-phase events) into a buffer until PLAN
+    // commits: an unresolvable task fails during scheduling, and emitting the
+    // `run <task> on <repo>` header first would leave it above the error for a
+    // run that never started. On success the buffer replays in emission order,
+    // so a healthy run reads exactly as before.
+    let mut buffered = PlanReporter::new(sink);
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let plan = match plan(&request, &project.document, providers, host, &mut buffered) {
+        Ok(plan) => plan,
+        Err(error) => {
+            buffered.abort()?;
+            return Err(error);
+        }
+    };
+    buffered.commit(&Event::RunStarted {
         run_id,
         intent: intent_name,
         project: project.document.project.name.clone(),
     })?;
-
-    let host = PlanHost::new(&readers, &digest, &prober, &cache);
-    let plan = plan(&request, &project.document, providers, host, sink)?;
 
     if plan_only {
         let summary = plan_summary(&plan);

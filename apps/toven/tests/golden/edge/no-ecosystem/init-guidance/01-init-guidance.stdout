@@ -1,4 +1,4 @@
 [project]
 name = "repo"
 root = "."
-base_ref = "master"
+base_ref = "main"

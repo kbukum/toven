@@ -1,0 +1,12 @@
+run check on failing-multi-command
+plan: 3 units in 2 waves
+  ok command:anchor#check
+  failed command:boom#check (exit 1)
+  ok command:sibling#check
+summary
+      planned:  3
+          ran:  2
+       cached:  0
+       failed:  1
+  duration-ms:  <DUR>
+       status:  failed

@@ -59,6 +59,7 @@ mod tests {
             Event::UnitFinished {
                 unit_id: "u1".into(),
                 status: UnitStatus::Succeeded,
+                exit_code: None,
             },
         ]
     }
@@ -80,6 +81,7 @@ mod tests {
                 Event::UnitFinished {
                     unit_id: "u1".into(),
                     status: UnitStatus::Succeeded,
+                    exit_code: None,
                 },
             ],
         );
@@ -95,6 +97,7 @@ mod tests {
                 Event::UnitFinished {
                     unit_id: "u1".into(),
                     status: UnitStatus::Succeeded,
+                    exit_code: None,
                 },
                 Event::PlanPrepared { waves: 1, units: 1 },
             ],

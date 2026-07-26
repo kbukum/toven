@@ -35,7 +35,7 @@ Ordering is first-class: it is how cold → warm caching, idempotency, and "affe
 
 ### Effects
 
-Effects assert side-effects after a step runs: `cache_entries` (a count comparison like `3`, `">0"`, `">=2"`), `file_exists` / `path_absent` (any repo-relative path), `file_matches` (a repo file against a golden in the scenario directory), and `git_tag_exists`.
+Effects assert side-effects after a step runs: `cache_entries` (a count comparison like `3`, `">0"`, `">=2"`), `file_exists` / `path_absent` (any repo-relative path), `file_matches` (a repo file against a golden in the scenario directory), and `git_tag_exists` / `git_tag_absent` (a release tag that must be present or, for rehearsals and rejected mutations, must not exist).
 
 ## The fixture catalog
 

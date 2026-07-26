@@ -1,5 +1,11 @@
 # Representative Rust release smoke over a dependency train: plan, status,
 # readiness, local evidence artifacts, dry-run, and publish approval guard.
+#
+# Fixture divergence (intentional): the Rust publish-train carries NO git tags,
+# so every module reads as never-released and is always planned. The Go twin is
+# pre-tagged at v0.1.0 (see its `git.tags`), so its baseline reads as
+# up-to-date — the two ecosystems deliberately exercise opposite release
+# baselines.
 repo: rust/publish-train
 steps:
   - id: 01-release-plan-jsonl
@@ -14,12 +20,23 @@ steps:
   - id: 04-release-sbom
     argv: [release, sbom, --out-dir, out/sbom]
     stdout: { match: normalized }
+    # The command prints artifact paths; assert each file is actually written.
+    effects:
+      - file_exists: out/sbom/train-cli.cdx.json
+      - file_exists: out/sbom/train-core.cdx.json
   - id: 05-release-depgraphs
     argv: [release, depgraphs, --out-dir, out/depgraphs]
     stdout: { match: normalized }
+    effects:
+      - file_exists: out/depgraphs/publish-train-rust.dot
   - id: 06-release-publish-dry-run
     argv: [release, publish, --dry-run, --output, jsonl, --pre, alpha]
     stdout: { match: normalized }
+    # --dry-run rehearses only: it must create no release tag. Assert the tags a
+    # real publish of this cut would push are absent after the rehearsal.
+    effects:
+      - git_tag_absent: rust/train-core@1.0.0-alpha.1
+      - git_tag_absent: rust/train-cli@0.2.0-alpha.1
   - id: 07-release-publish-requires-yes
     argv: [release, publish]
     exit: 2

@@ -20,6 +20,9 @@ pub(super) enum WorkOutcome {
     Normal {
         /// Whether it succeeded.
         success: bool,
+        /// Process exit code (`None` when the platform reported no code, e.g.
+        /// signal termination). Carried so a failure can name the exit.
+        exit_code: Option<i32>,
         /// Raw output chunks.
         output: Vec<UnitOutput>,
     },
@@ -109,6 +112,7 @@ impl Handler<WorkItem, WorkOutcome> for WorkHandler {
                         let outcome = result?;
                         Ok(WorkOutcome::Normal {
                             success: outcome.success,
+                            exit_code: outcome.exit_code,
                             output: outcome.output,
                         })
                     }
@@ -127,6 +131,7 @@ impl Handler<WorkItem, WorkOutcome> for WorkHandler {
                 let outcome = self.runner.run(&invocation, cancel, live).await?;
                 Ok(WorkOutcome::Normal {
                     success: outcome.success,
+                    exit_code: outcome.exit_code,
                     output: outcome.output,
                 })
             }

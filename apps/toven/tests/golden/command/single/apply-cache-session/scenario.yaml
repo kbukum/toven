@@ -8,23 +8,27 @@ steps:
     argv: [build]
     stderr: { match: normalized }
     effects:
-      - cache_entries: ">0"
+      - cache_entries: "==1"
   - id: 02-warm
     argv: [build]
     stderr: { match: normalized }
     effects:
-      - cache_entries: ">0"
+      - cache_entries: "==1"
   - id: 03-stats
     argv: [cache, stats]
     stdout: { match: normalized }
   - id: 04-no-cache
     argv: [--no-cache, build]
     stderr: { match: normalized }
+    # `--no-cache` neither reads nor writes: the store stays at the single entry
+    # the cold/warm builds established, proving no entry was written.
+    effects:
+      - cache_entries: "==1"
   - id: 05-refresh
     argv: [--refresh, build]
     stderr: { match: normalized }
     effects:
-      - cache_entries: ">0"
+      - cache_entries: "==1"
   - id: 06-clean
     argv: [cache, clean]
     stderr: { match: normalized }

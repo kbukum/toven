@@ -90,6 +90,15 @@ fn check_one(effect: &Effect, cx: &EffectContext<'_>) -> AppResult<bool> {
             }
             Ok(false)
         }
+        Effect::GitTagAbsent(tag) => {
+            let git = GitScenario::open(cx.repo_root)?;
+            if git.has_tag(tag)? {
+                return Err(AppError::conflict(format!(
+                    "git_tag_absent: tag '{tag}' exists"
+                )));
+            }
+            Ok(false)
+        }
     }
 }
 

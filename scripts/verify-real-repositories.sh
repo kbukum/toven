@@ -95,7 +95,16 @@ run_case() {
       echo "{\"case\":\"${case_name}\",\"status\":\"fail\",\"reason\":\"unguarded publish unexpectedly succeeded\"}"
       return 1
     fi
+    if [[ "$(git --git-dir "${remote_dir}" tag | wc -l | tr -d ' ')" -ne 0 ]]; then
+      echo "verify-real-repositories: rejected unguarded publish pushed a tag to the remote" >&2
+      exit 1
+    fi
+
     "${bin}" release publish --dry-run --config "${case_config}" --output jsonl >"${artifacts_dir}/release-publish-dry-run.jsonl"
+    if [[ "$(git --git-dir "${remote_dir}" tag | wc -l | tr -d ' ')" -ne 0 ]]; then
+      echo "verify-real-repositories: dry-run publish pushed a tag to the remote" >&2
+      exit 1
+    fi
 
     if [[ "${case_mode}" == "tag" ]]; then
       "${bin}" release tag --yes --config "${case_config}" >"${artifacts_dir}/release-tag.stdout" 2>"${artifacts_dir}/release-tag.stderr"

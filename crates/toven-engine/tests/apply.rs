@@ -225,7 +225,8 @@ fn keep_going_blocks_reverse_dependents_but_runs_independents() {
             event,
             Event::UnitFinished {
                 unit_id,
-                status: UnitStatus::Blocked
+                status: UnitStatus::Blocked,
+                ..
             } if unit_id == "b"
         )
     }));
@@ -286,6 +287,7 @@ fn fail_fast_cancels_in_flight_and_stops_later_waves() {
             Event::UnitFinished {
                 unit_id,
                 status: UnitStatus::Cancelled,
+                ..
             } => Some(unit_id),
             _ => None,
         })
@@ -364,6 +366,7 @@ fn external_cancel_tears_down_in_flight_and_stops_later_waves() {
             Event::UnitFinished {
                 unit_id,
                 status: UnitStatus::Cancelled,
+                ..
             } => Some(unit_id),
             _ => None,
         })
@@ -457,13 +460,13 @@ fn failed_dependent_drains_persistent_service_immediately() {
     let test_failed = events
         .iter()
         .position(|event| {
-            matches!(event, Event::UnitFinished { unit_id, status: UnitStatus::Failed } if unit_id == "test")
+            matches!(event, Event::UnitFinished { unit_id, status: UnitStatus::Failed, .. } if unit_id == "test")
         })
         .expect("test failed event");
     let service_torn_down = events
         .iter()
         .position(|event| {
-            matches!(event, Event::UnitFinished { unit_id, status: UnitStatus::TornDown } if unit_id == "service")
+            matches!(event, Event::UnitFinished { unit_id, status: UnitStatus::TornDown, .. } if unit_id == "service")
         })
         .expect("service torn down event");
     assert!(service_torn_down > test_failed);
@@ -839,7 +842,7 @@ fn persistent_service_waits_until_all_dependents_are_terminal() {
     let service_torn_down = events
         .iter()
         .position(|event| {
-            matches!(event, Event::UnitFinished { unit_id, status: UnitStatus::TornDown } if unit_id == "service")
+            matches!(event, Event::UnitFinished { unit_id, status: UnitStatus::TornDown, .. } if unit_id == "service")
         })
         .expect("service torn down");
     assert!(service_torn_down > b_finished);
@@ -867,13 +870,13 @@ fn persistent_goal_without_dependents_is_held_until_run_end_backstop() {
     let normal_finished = events
         .iter()
         .position(|event| {
-            matches!(event, Event::UnitFinished { unit_id, status: UnitStatus::Succeeded } if unit_id == "normal")
+            matches!(event, Event::UnitFinished { unit_id, status: UnitStatus::Succeeded, .. } if unit_id == "normal")
         })
         .expect("normal finished");
     let service_torn_down = events
         .iter()
         .position(|event| {
-            matches!(event, Event::UnitFinished { unit_id, status: UnitStatus::TornDown } if unit_id == "service")
+            matches!(event, Event::UnitFinished { unit_id, status: UnitStatus::TornDown, .. } if unit_id == "service")
         })
         .expect("service torn down");
     assert!(service_torn_down > normal_finished);

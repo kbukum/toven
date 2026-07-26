@@ -170,6 +170,14 @@
           "properties": {
             "git_tag_exists": { "type": "string", "description": "Git tag that must exist in the materialized repo." }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["git_tag_absent"],
+          "properties": {
+            "git_tag_absent": { "type": "string", "description": "Git tag that must not exist in the materialized repo." }
+          }
         }
       ]
     }

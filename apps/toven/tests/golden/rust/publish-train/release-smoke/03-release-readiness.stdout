@@ -1,8 +1,4 @@
-  verdict:  go
-
 
 Release readiness
-┌───────┬────────┬────────┐
-│ Check │ Result │ Detail │
-├───────┼────────┼────────┤
-└───────┴────────┴────────┘
+  no readiness checks configured
+  verdict:  go

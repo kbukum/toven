@@ -1,5 +1,11 @@
 # Representative Go release smoke over a root+nested module train: plan, status,
 # readiness, local evidence artifacts, dry-run, and publish approval guard.
+#
+# Fixture divergence (intentional): this Go publish-train is pre-tagged at
+# v0.1.0 (root `v0.1.0` + nested `core/v0.1.0` below), so its baseline reads as
+# up-to-date and the plan reflects only bumps beyond it. The Rust twin carries
+# NO tags, so every module there is always planned — the two ecosystems
+# deliberately exercise opposite release baselines.
 repo: go/publish-train
 requires: [go]
 git:
@@ -22,9 +28,17 @@ steps:
   - id: 05-release-depgraphs
     argv: [release, depgraphs, --out-dir, out/depgraphs]
     stdout: { match: normalized }
+    # The go train is up to date, so `sbom` writes no per-module artifacts; the
+    # depgraph is still emitted — assert the printed path is a real file.
+    effects:
+      - file_exists: out/depgraphs/publish-train-go.dot
   - id: 06-release-publish-dry-run
     argv: [release, publish, --dry-run, --output, jsonl, --pre, alpha]
     stdout: { match: normalized }
+    # --dry-run rehearses only: it must create no release tag. The root module
+    # would tag `v0.2.0-alpha.1`; assert it is absent after the rehearsal.
+    effects:
+      - git_tag_absent: v0.2.0-alpha.1
   - id: 07-release-publish-requires-yes
     argv: [release, publish]
     exit: 2

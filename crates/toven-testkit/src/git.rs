@@ -12,8 +12,8 @@ use rskit_errors::AppResult;
 use rskit_fs::sync_io::file;
 use rskit_fs::sync_io::tree::{IgnoreWalkOptions, WalkControl, walk_tree_ignoring};
 use rskit_git::{
-    BranchFilter, CommitOptions, Committer, ConfigReader, Differ, IndexManager, Oid, PushOptions,
-    RefManager, RemoteManager, Repo, Signature,
+    BranchFilter, CommitOptions, Committer, ConfigReader, Differ, IndexManager, InitOptions, Oid,
+    PushOptions, RefManager, RemoteManager, Repo, Signature,
 };
 use rskit_util::hash::hash_hex;
 use std::time::SystemTime;
@@ -22,6 +22,8 @@ use std::time::SystemTime;
 const TEST_IDENTITY_NAME: &str = "Toven Test";
 /// The deterministic author email every test commit uses.
 const TEST_IDENTITY_EMAIL: &str = "test@toven.dev";
+/// The deterministic initial branch used by every test repository.
+const TEST_INITIAL_BRANCH: &str = "main";
 
 /// The deterministic test signature at a pinned timestamp.
 ///
@@ -58,7 +60,8 @@ impl GitScenario {
     /// Initialize a new git repo at `root` with a deterministic test identity.
     pub fn init(root: impl AsRef<Path>) -> AppResult<Self> {
         let root = root.as_ref().to_path_buf();
-        let repo = rskit_git::init(&root)?;
+        let options = InitOptions::default().with_initial_branch(TEST_INITIAL_BRANCH);
+        let repo = rskit_git::init_with(&root, &options)?;
         Self::configure_identity(&repo)?;
         Ok(Self { repo, root })
     }
@@ -289,4 +292,19 @@ fn ref_map_of(repo: &Repo) -> AppResult<BTreeMap<String, String>> {
         map.insert(format!("refs/tags/{}", tag.name), tag.target.to_string());
     }
     Ok(map)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GitScenario, TEST_INITIAL_BRANCH};
+
+    #[test]
+    fn init_uses_the_deterministic_test_branch() {
+        let root = rskit_fs::TempDir::new().expect("temp dir");
+
+        GitScenario::init(root.path()).expect("init scenario");
+
+        let head = std::fs::read_to_string(root.path().join(".git/HEAD")).expect("read HEAD");
+        assert_eq!(head, format!("ref: refs/heads/{TEST_INITIAL_BRANCH}\n"));
+    }
 }

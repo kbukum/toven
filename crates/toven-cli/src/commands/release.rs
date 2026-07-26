@@ -340,6 +340,12 @@ struct PlanRecord {
 }
 
 fn render_plan_human(plan: &ReleasePlan) {
+    let title = format!("Release plan ({})", plan.policy.as_str());
+    if plan.entries.is_empty() {
+        println!("\n{title}");
+        println!("  nothing to release: all modules are up to date");
+        return;
+    }
     let mut table = OutputTable::new(vec![
         "Module",
         "Current",
@@ -351,7 +357,7 @@ fn render_plan_human(plan: &ReleasePlan) {
         "Publish",
         "Summary",
     ])
-    .with_title(format!("Release plan ({})", plan.policy.as_str()));
+    .with_title(title);
     for entry in &plan.entries {
         table.add_row(vec![
             entry.module.to_string(),
@@ -575,22 +581,30 @@ struct ReadinessRecord {
 }
 
 fn render_readiness_human(report: &ReadinessReport) {
-    let mut summary = OutputKV::new();
-    summary.add(
+    if report.checks.is_empty() {
+        // An empty-bordered table reads as broken output and a "go" with zero
+        // rows is false confidence; state the absence explicitly instead.
+        println!("\nRelease readiness");
+        println!("  no readiness checks configured");
+    } else {
+        let mut table =
+            OutputTable::new(vec!["Check", "Result", "Detail"]).with_title("Release readiness");
+        for check in &report.checks {
+            table.add_row(vec![
+                check.name.clone(),
+                if check.passed { "pass" } else { "fail" }.to_string(),
+                check.detail.clone(),
+            ]);
+        }
+        println!("{table}");
+    }
+    // Verdict last: the go/no-go conclusion reads after the evidence it summarizes.
+    let mut verdict = OutputKV::new();
+    verdict.add(
         "verdict",
         if report.is_go() { "go" } else { "no-go" }.to_string(),
     );
-    println!("{summary}");
-    let mut table =
-        OutputTable::new(vec!["Check", "Result", "Detail"]).with_title("Release readiness");
-    for check in &report.checks {
-        table.add_row(vec![
-            check.name.clone(),
-            if check.passed { "pass" } else { "fail" }.to_string(),
-            check.detail.clone(),
-        ]);
-    }
-    println!("{table}");
+    print!("{verdict}");
 }
 
 fn render_readiness_jsonl(report: &ReadinessReport) -> AppResult<()> {

@@ -1,6 +1,8 @@
-# `federation status` reports the linked drivers across the member repos.
+# `federation status` reports the umbrella's per-repo member linkage plus the
+# shared driver states — a query body on stdout, distinct from `driver list` by
+# the `member:` lines.
 repo: federation/cross-repo
 steps:
   - id: 01-federation-status
     argv: [federation, status]
-    stderr: { match: normalized }
+    stdout: { match: normalized }

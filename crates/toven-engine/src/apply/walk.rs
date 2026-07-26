@@ -353,7 +353,11 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         live_output: &mut Receiver<toven_model::UnitOutput>,
     ) -> AppResult<bool> {
         match result {
-            WorkOutcome::Normal { success, output } => {
+            WorkOutcome::Normal {
+                success,
+                exit_code,
+                output,
+            } => {
                 if self.stream_normal_live {
                     // Output streamed live through the observer bridge; the returned `output` is
                     // empty. Drain any chunks still queued (the runner returns only after its
@@ -368,7 +372,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                     self.succeeded(unit_id, live_output).await?;
                     Ok(false)
                 } else {
-                    self.failed(unit_id, UnitStatus::Failed, live_output)
+                    self.failed(unit_id, UnitStatus::Failed, exit_code, live_output)
                         .await?;
                     Ok(true)
                 }
@@ -383,7 +387,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 } else {
                     self.route_output(unit_id, output)?;
                 }
-                self.failed(unit_id, UnitStatus::TimedOut, live_output)
+                self.failed(unit_id, UnitStatus::TimedOut, None, live_output)
                     .await?;
                 Ok(true)
             }
@@ -404,7 +408,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 // chunks the failed process already emitted are still flushed by a later
                 // `drain_live_output` instead of being dropped as a fresh unregistered unit.
                 self.route_output_chunks(output)?;
-                self.failed(unit_id, UnitStatus::FailedReadiness, live_output)
+                self.failed(unit_id, UnitStatus::FailedReadiness, None, live_output)
                     .await?;
                 Ok(true)
             }
@@ -443,6 +447,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         &mut self,
         unit_id: &str,
         status: UnitStatus,
+        exit_code: Option<i32>,
         live_output: &mut Receiver<toven_model::UnitOutput>,
     ) -> AppResult<()> {
         match status {
@@ -451,7 +456,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             UnitStatus::TimedOut => self.stats.timed_out_units += 1,
             _ => {}
         }
-        self.finish_unit_event(unit_id, status)?;
+        self.emit_finish(unit_id, status, exit_code)?;
         self.drain_dependents(unit_id, live_output).await?;
         for blocked in self.gate.fail_and_block_dependents(unit_id) {
             self.stats.blocked_units += 1;
@@ -539,12 +544,22 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
     /// every terminal path (success, failure, timeout, blocked, cancelled, torn
     /// down).
     fn finish_unit_event(&mut self, unit_id: &str, status: UnitStatus) -> AppResult<()> {
+        self.emit_finish(unit_id, status, None)
+    }
+
+    fn emit_finish(
+        &mut self,
+        unit_id: &str,
+        status: UnitStatus,
+        exit_code: Option<i32>,
+    ) -> AppResult<()> {
         if self.regioned.remove(unit_id) {
             self.output.end_unit(unit_id, status)?;
         }
         self.reporter.emit(&Event::UnitFinished {
             unit_id: unit_id.to_string(),
             status,
+            exit_code,
         })
     }
 

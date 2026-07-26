@@ -1,0 +1,9 @@
+# Without `--fail-fast` the run continues past the failing `boom` unit: wave 2
+# still launches and the independent `sibling` runs. Serialized with `--jobs 1`
+# for a deterministic order — summary `ran: 2`, `failed: 1`.
+repo: command/failing-multi
+steps:
+  - id: 01-continue-on-error
+    argv: [--jobs, "1", check]
+    exit: 1
+    stderr: { match: normalized }

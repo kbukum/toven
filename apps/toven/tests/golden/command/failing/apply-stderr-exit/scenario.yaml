@@ -1,0 +1,11 @@
+# A failing `check` task writes one deterministic line to stderr and exits 3.
+# The reporter surfaces the captured child output *and* names the non-zero exit
+# on the failing unit line (`failed command:boom#check (exit 3)`), so a reader
+# sees both what the tool said and why the unit failed — observed directly, not
+# inferred. `sh -c` keeps the failure toolchain-independent and byte-stable.
+repo: command/stderr-fail
+steps:
+  - id: 01-check-stderr-exit
+    argv: [check]
+    exit: 1
+    stderr: { match: normalized }

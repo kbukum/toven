@@ -1,0 +1,19 @@
+# A repo whose declared `check` task writes a deterministic line to stderr and
+# exits with a known non-zero code (3), used to prove failure reporting surfaces
+# both the captured child output and the exit code on the failing unit. Uses the
+# `command` ecosystem (via a real `sh -c`) so the failure stays toolchain-
+# independent and byte-stable.
+[project]
+name = "stderr-fail-command"
+
+[toven]
+include = ["_profiles/command-tasks.toml"]
+
+[[ecosystems.command.modules]]
+name = "boom"
+root = "."
+
+# Overrides the shared echo grammar: emit one deterministic stderr line, then
+# exit 3 so the reporter names the non-zero exit on the failure line.
+[ecosystems.command.tasks.check]
+argv = ["sh", "-c", "echo 'boom: deliberate failure' 1>&2; exit 3"]

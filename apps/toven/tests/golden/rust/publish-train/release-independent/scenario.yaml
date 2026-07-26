@@ -1,4 +1,10 @@
 # Independent release policy with an explicitly non-publishable module.
+#
+# Fixture divergence (intentional): the Rust publish-train carries NO git tags,
+# so every module reads as never-released and is always planned. The Go twin is
+# pre-tagged at v0.1.0 (see its `git.tags`), so its baseline reads as
+# up-to-date — the two ecosystems deliberately exercise opposite release
+# baselines.
 repo: rust/publish-train
 steps:
   - id: 01-release-plan

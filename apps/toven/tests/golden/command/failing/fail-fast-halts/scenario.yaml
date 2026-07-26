@@ -1,0 +1,10 @@
+# `--fail-fast` cancels a pending sibling. Serialized with `--jobs 1`: wave 1
+# runs `anchor` (ok) then `boom` (fails) and trips fail-fast, so wave 2 never
+# launches and the still-pending `sibling` is cancelled — summary `ran: 1`,
+# `failed: 1`, `cancelled: 1`.
+repo: command/failing-multi
+steps:
+  - id: 01-fail-fast-halts
+    argv: [--jobs, "1", --fail-fast, check]
+    exit: 1
+    stderr: { match: normalized }

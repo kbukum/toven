@@ -22,7 +22,8 @@ use rskit_errors::AppResult;
 use tokio_util::sync::CancellationToken;
 use toven_model::{AbsPath, Event, RunStats};
 use toven_ports::{
-    ChangeBatch, CommandRunner, Provider, Reporter, SourceDigest, ToolchainProber, WatchSource,
+    ChangeBatch, CommandRunner, PlanReporter, Provider, Reporter, SourceDigest, ToolchainProber,
+    WatchSource,
 };
 
 use crate::apply::{ApplyOptions, apply};
@@ -153,13 +154,20 @@ impl<S: RawOutputSink> WatchSession<'_, S> {
     /// Run one PLAN→APPLY iteration, emitting the run's lifecycle events.
     #[allow(clippy::future_not_send)]
     async fn iterate(&mut self, request: &PlanRequest) -> AppResult<RunStats> {
-        self.reporter.emit(&Event::RunStarted {
+        let host = PlanHost::new(self.readers, self.digest, self.prober, self.cache_store);
+        let mut buffered = PlanReporter::new(self.reporter);
+        let plan = match plan(request, self.document, self.providers, host, &mut buffered) {
+            Ok(plan) => plan,
+            Err(error) => {
+                buffered.abort()?;
+                return Err(error);
+            }
+        };
+        buffered.commit(&Event::RunStarted {
             run_id: request.run_id.clone(),
             intent: request.intent.name().to_string(),
             project: request.project.clone(),
         })?;
-        let host = PlanHost::new(self.readers, self.digest, self.prober, self.cache_store);
-        let plan = plan(request, self.document, self.providers, host, self.reporter)?;
         apply(
             &plan,
             Arc::clone(&self.runner),

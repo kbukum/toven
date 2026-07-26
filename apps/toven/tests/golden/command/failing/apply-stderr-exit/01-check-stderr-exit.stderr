@@ -1,0 +1,11 @@
+run check on stderr-fail-command
+plan: 1 unit in 1 wave
+boom: deliberate failure
+  failed command:boom#check (exit 3)
+summary
+      planned:  1
+          ran:  0
+       cached:  0
+       failed:  1
+  duration-ms:  <DUR>
+       status:  failed
