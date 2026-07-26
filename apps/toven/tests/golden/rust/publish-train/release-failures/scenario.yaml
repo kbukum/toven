@@ -24,6 +24,9 @@ steps:
     stderr: { match: normalized }
   - id: 04-dirty-tree-artifact
     argv: [release, sbom, --out-dir, out/sbom]
+    # The rust adapter shells out to the cargo-cyclonedx plugin; runners
+    # without it skip just this step green.
+    requires: [cargo-cyclonedx]
     stdout: { match: normalized }
   - id: 05-dirty-tree-readiness-rejected
     argv: [release, readiness]

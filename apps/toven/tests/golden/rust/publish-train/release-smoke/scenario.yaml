@@ -19,6 +19,9 @@ steps:
     stdout: { match: normalized }
   - id: 04-release-sbom
     argv: [release, sbom, --out-dir, out/sbom]
+    # The rust adapter shells out to the cargo-cyclonedx plugin; runners
+    # without it skip just this step green.
+    requires: [cargo-cyclonedx]
     stdout: { match: normalized }
     # The command prints artifact paths; assert each file is actually written.
     effects:

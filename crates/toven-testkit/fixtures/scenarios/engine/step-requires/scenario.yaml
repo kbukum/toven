@@ -1,0 +1,13 @@
+# Per-step toolchain gate: with cargo-cyclonedx absent the gated step skips
+# green (its would-be failing argv never runs) and later steps still run.
+repo: edge/no-ecosystem
+steps:
+  - id: 01-before
+    argv: [warm]
+    stdout: { match: exact }
+  - id: 02-gated
+    argv: [fail]
+    requires: [cargo-cyclonedx]
+  - id: 03-after
+    argv: [warm]
+    stdout: { match: exact }

@@ -64,6 +64,10 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov --locked --version 0.8.5
 
+      # The rust publish-train golden scenarios shell out to the plugin.
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --locked --version 0.5.9
+
       - name: Run coverage gate
         run: make coverage
 

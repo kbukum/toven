@@ -28,7 +28,7 @@ pub struct Scenario {
     pub steps: Vec<Step>,
 }
 
-/// A toolchain a scenario requires; absent toolchains skip the scenario green.
+/// A toolchain a scenario or step requires; absent toolchains skip green.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
@@ -37,6 +37,9 @@ pub enum Requires {
     Cargo,
     /// The Go toolchain (`go`).
     Go,
+    /// The `cargo-cyclonedx` SBOM plugin, probed as a binary on `PATH`.
+    #[serde(rename = "cargo-cyclonedx")]
+    CargoCyclonedx,
 }
 
 impl Requires {
@@ -46,6 +49,7 @@ impl Requires {
         match self {
             Self::Cargo => "cargo",
             Self::Go => "go",
+            Self::CargoCyclonedx => "cargo-cyclonedx",
         }
     }
 }
@@ -92,6 +96,11 @@ pub struct Step {
     /// Expected exit code (default `0`).
     #[serde(default)]
     pub exit: i32,
+    /// Per-step toolchain gates, probed like [`Scenario::requires`]: a step
+    /// whose toolchain is absent is skipped green and later steps still run.
+    /// Use for steps that shell out to a tool beyond the scenario-level gate.
+    #[serde(default)]
+    pub requires: Vec<Requires>,
     /// Golden expectation for stdout; omitted means the stream is not asserted.
     #[serde(default)]
     pub stdout: Option<StreamExpectation>,

@@ -55,6 +55,12 @@ pub enum StepStatus {
     Passed,
     /// At least one golden was regenerated (bless mode); everything else held.
     Blessed,
+    /// The step's required toolchain was absent; the step was skipped green
+    /// and later steps still ran.
+    Skipped {
+        /// The first missing toolchain program (e.g. `cargo-cyclonedx`).
+        tool: String,
+    },
     /// The step failed; `message` carries the diff or drift, naming the step
     /// and the surface that failed.
     Failed {
