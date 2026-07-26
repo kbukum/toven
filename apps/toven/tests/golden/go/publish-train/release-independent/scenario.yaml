@@ -12,6 +12,8 @@ git:
     - v0.1.0
     - core/v0.1.0
 steps:
+  # The train is pre-tagged and up to date, so JSONL plan/dry-run output is
+  # zero lines — the empty goldens are the assertion, not placeholders.
   - id: 01-release-plan
     argv: [release, plan, --output, jsonl]
     config: toven.independent.toml
