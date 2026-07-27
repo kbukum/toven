@@ -161,14 +161,17 @@ release-artifacts:
 	cargo build --locked --release -p toven --target $(HOST_TARGET)
 	./scripts/package-release-binary.sh "$(HOST_TARGET)" "target/$(HOST_TARGET)/release/$(if $(findstring windows,$(HOST_TARGET)),toven.exe,toven)"
 
-# Combine every per-target archive already staged under dist/ (downloaded
-# from the build matrix) into the immutable SHA256SUMS the hosted Release
-# publishes and signs. Fails closed when no archives are staged: with
-# nullglob an empty match would leave the checksum tool reading stdin and
-# hang CI. Uses shasum when present, sha256sum otherwise (same fallback as
+# Combine every unsigned asset staged under dist/ — the per-target archives
+# (downloaded from the build matrix) and the CycloneDX SBOM (staged by
+# release-sbom-binary, which the workflow runs before this target) — into
+# the immutable SHA256SUMS the hosted Release publishes and signs. Fails
+# closed when an input is missing: with nullglob an empty archive match
+# would leave the checksum tool reading stdin and hang CI, and a silently
+# omitted SBOM would leave a published asset outside the signed checksum
+# set. Uses shasum when present, sha256sum otherwise (same fallback as
 # scripts/verify-release-binary.sh); both emit the same SHA256SUMS format.
 release-checksums:
-	cd dist && bash -c 'shopt -s nullglob; archives=(toven-*.tar.gz toven-*.zip); if (( $${#archives[@]} == 0 )); then echo "release-checksums: no toven-* archives staged under dist/" >&2; exit 1; fi; if command -v shasum >/dev/null; then shasum -a 256 "$${archives[@]}" > SHA256SUMS; elif command -v sha256sum >/dev/null; then sha256sum "$${archives[@]}" > SHA256SUMS; else echo "release-checksums: neither shasum nor sha256sum is available" >&2; exit 1; fi'
+	cd dist && bash -c 'shopt -s nullglob; archives=(toven-*.tar.gz toven-*.zip); if (( $${#archives[@]} == 0 )); then echo "release-checksums: no toven-* archives staged under dist/" >&2; exit 1; fi; if [[ ! -f toven-sbom.cdx.json ]]; then echo "release-checksums: dist/toven-sbom.cdx.json is missing (run release-sbom-binary first)" >&2; exit 1; fi; if command -v shasum >/dev/null; then shasum -a 256 "$${archives[@]}" toven-sbom.cdx.json > SHA256SUMS; elif command -v sha256sum >/dev/null; then sha256sum "$${archives[@]}" toven-sbom.cdx.json > SHA256SUMS; else echo "release-checksums: neither shasum nor sha256sum is available" >&2; exit 1; fi'
 
 # Copy the umbrella app's CycloneDX SBOM (already produced by `release-plan`'s
 # `toven release sbom`) to the fixed dist/ path release.host.assets declares.

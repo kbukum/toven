@@ -152,9 +152,10 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # Assemble every per-target archive into one dist/, then produce the
-  # combined SHA256SUMS, its keyless Sigstore/cosign signature, and the
-  # umbrella app's CycloneDX SBOM — the exact fixed-name file set toven.toml's
+  # Assemble every per-target archive into one dist/, stage the umbrella
+  # app's CycloneDX SBOM alongside, then produce the combined SHA256SUMS
+  # (covering every archive and the SBOM) and its keyless Sigstore/cosign
+  # signature — the exact fixed-name file set toven.toml's
   # `release.host.assets` declares.
   assemble:
     name: Assemble release assets
@@ -185,13 +186,13 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Generate combined checksums
-        run: make release-checksums
-
       - name: Generate the umbrella app's CycloneDX SBOM
         run: |
           cargo run --locked -p toven -- release sbom --out-dir target/toven/release/sbom
           make release-sbom-binary
+
+      - name: Generate combined checksums
+        run: make release-checksums
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
