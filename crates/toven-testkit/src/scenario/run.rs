@@ -81,9 +81,9 @@ pub fn run_scenario_with(
 
     let repo = SampleRepo::materialize(&scenario.repo)?;
     let git = GitScenario::init(repo.root())?;
-    git.commit_all_pinned("import fixture repo", commit_epoch(0))?;
+    let import = git.commit_all_pinned("import fixture repo", commit_epoch(0))?;
     if let Some(script) = &scenario.git {
-        apply_git_script(&git, script)?;
+        apply_git_script(&git, script, &import)?;
     }
 
     let cache_dir = repo.workspace().child("cache")?;
@@ -150,26 +150,51 @@ struct StepContext<'a> {
     mode: GoldenMode,
 }
 
-/// Apply a scenario git script deterministically: each commit touches its
-/// files then commits with a pinned signature; branches and lightweight tags
-/// are created at the final `HEAD`.
+/// Apply a scenario git script deterministically.
+///
+/// Each commit touches its files then commits with a pinned signature;
+/// branches are created at the final `HEAD`, and each lightweight tag points
+/// at the final `HEAD` or at the scripted commit its `at` index names (`0` =
+/// `import`, the import commit).
 ///
 /// # Errors
 ///
-/// Returns a typed [`AppError`] on a traversing touch path or any git failure.
-pub fn apply_git_script(git: &GitScenario, script: &GitScript) -> AppResult<()> {
+/// Returns a typed [`AppError`] on a traversing touch path, a tag pinned
+/// beyond the scripted history, or any git failure.
+pub fn apply_git_script(
+    git: &GitScenario,
+    script: &GitScript,
+    import: &rskit_git::Oid,
+) -> AppResult<()> {
+    let mut commits = vec![*import];
     for (index, commit) in script.commits.iter().enumerate() {
         for rel in &commit.touch {
             touch(git.root(), rel)?;
         }
         // Index 0 is the import commit, so scripted commits start at 1.
-        git.commit_all_pinned(&commit.msg, commit_epoch(index + 1))?;
+        commits.push(git.commit_all_pinned(&commit.msg, commit_epoch(index + 1))?);
     }
     for branch in &script.branches {
         git.branch(branch)?;
     }
     for tag in &script.tags {
-        git.tag_lightweight(tag)?;
+        match tag.at {
+            None => git.tag_lightweight(&tag.name)?,
+            Some(index) => {
+                let target = commits.get(index).ok_or_else(|| {
+                    AppError::invalid_input(
+                        "git tag",
+                        format!(
+                            "tag '{}' pins commit index {index}, which is out of range; valid \
+                             indices are 0..={} (0 = the import commit)",
+                            tag.name,
+                            commits.len() - 1
+                        ),
+                    )
+                })?;
+                git.tag_lightweight_at(&tag.name, target)?;
+            }
+        }
     }
     Ok(())
 }

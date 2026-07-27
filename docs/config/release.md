@@ -24,19 +24,14 @@ branches = ["main"]
 registry = "crates-io"
 exclude = false
 offline = false
-token_env = "CARGO_REGISTRY_TOKEN"
 readiness = ["clean-tree", "registry-idempotent"]
 
 [ecosystems.rust.release.prerelease]
 channels = ["alpha", "beta", "rc"]
-branch_channels = { next = "beta" }
 
 [ecosystems.rust.release.changelog]
 path = "CHANGELOG.md"
 required = true
-
-[ecosystems.rust.release.sign]
-enabled = true
 
 [ecosystems.rust.release.host]
 forge = "github"
@@ -58,9 +53,10 @@ assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
 | `registry` | Registry selection for Rust crate publication; invalid for Go | No registry, tag-only |
 | `publish` | `false` selects tag-only publication; in a per-module block it also narrows an inherited registry to tag-only | Inherit / registry-driven |
 | `exclude` | Exclude the module from release planning, tagging, registry publication, and hosted releases | `false` |
-| `offline` | Use tags rather than target queries for idempotency | `false` |
-| `token_env` | Name of the registry-token environment variable, never the token | None |
+| `offline` | Use tags rather than target queries for idempotency; `release status` skips registry lookups too | `false` |
+| `token_env` | Reserved. **Rejected** for registry-published modules: not yet honored — the credential reaches the publishing toolchain through its ambient environment (e.g. `CARGO_REGISTRY_TOKEN` for cargo) | None |
 | `readiness` | Named fail-closed checks | None |
+| `hooks` | Reserved pre/post task references. **Rejected** when non-empty: release hooks are not yet executable — run such tasks explicitly around the release command | None |
 
 Templates accept the documented release variables such as `{ecosystem}`, `{module}`, and `{version}`. Unknown placeholders, blank names, unsafe paths, and unsupported readiness checks fail validation.
 
@@ -85,7 +81,7 @@ channels = ["alpha", "rc"]
 toven release publish --dry-run --pre alpha
 ```
 
-An undeclared channel is rejected. The channel becomes part of the semantic version and therefore part of the Rust or Go tag.
+An undeclared channel is rejected. The channel becomes part of the semantic version and therefore part of the Rust or Go tag. The reserved `branch_channels` map (a release branch to the channel it cuts) is **rejected** when non-empty: branch-driven prereleases are not yet executable — select the channel explicitly with `--pre`.
 
 ## Changelogs
 
@@ -147,7 +143,7 @@ For Go test-only and benchmark modules, the policy is intentionally explicit: us
 enabled = true
 ```
 
-The typed configuration validates signing intent and an optional non-secret signer identifier. Artifact signing is not yet executed by `toven release`. Toven's own distribution contract uses keyless Sigstore/cosign signing in GitHub Actions with OIDC; no private key is stored in Toven configuration.
+Artifact signing is **not yet executable** by `toven release`: the typed configuration validates signing intent and an optional non-secret signer identifier, and release resolution then rejects `enabled = true` with an actionable error rather than letting a maintainer believe artifacts ship signed. Keep signing in the native CI gate until Toven executes it. Toven's own distribution contract uses keyless Sigstore/cosign signing in GitHub Actions with OIDC; no private key is stored in Toven configuration.
 
 ## Safety
 
@@ -155,6 +151,7 @@ The typed configuration validates signing intent and an optional non-secret sign
 - Real publication requires `--yes`, an allowed branch, and a clean tree.
 - Release tags, registry versions, hosted Releases, and hosted assets are immutable.
 - Tokens remain in environment variables or credential stores.
+- Settings that name capabilities Toven does not execute — release `hooks`, `sign.enabled = true`, `prerelease.branch_channels`, and `token_env` on a registry-published module — are rejected with actionable errors rather than silently ignored.
 - Partial publication is recovered by a newly previewed and approved forward fix.
 
 The clean-tree guardrail has no bypass, and hosted GitHub Releases are immutable create-or-verify: an existing Release is verified byte-identical to the intended one or the run fails with a conflict, never edited in place.

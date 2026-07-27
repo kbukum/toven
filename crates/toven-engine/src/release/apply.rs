@@ -17,7 +17,7 @@ use toven_model::{Module, ModuleKey};
 use toven_ports::{Artifact, ReleaseTarget, ReleaseVar, VcsReader, VcsWriter};
 
 use super::publish::{self, PublishItem};
-use super::{ReleasePlan, ReleaseStats, tag};
+use super::{ReleasePlan, ReleaseStats};
 
 /// Default rate-limit retry budget for the publish loop.
 const DEFAULT_RETRY_BUDGET: usize = 5;
@@ -170,8 +170,9 @@ pub fn release_apply(
         .map(|module| (module.key(), module))
         .collect();
     // Resolve all pre-commit errors before mutating any manifest.
-    let message = commit_message(plan, &module_by_ref, targets, settings.commit_message())?;
-    preflight_tags(plan, &module_by_ref, targets)?;
+    preflight_targets(plan, &module_by_ref, targets)?;
+    let message = commit_message(plan, &module_by_ref, settings.commit_message())?;
+    preflight_tags(plan, &module_by_ref, reader)?;
 
     // Pre-commit phase (undoable): apply mutations, then package every module.
     let artifacts = match prepare(plan, &module_by_ref, targets, &mut stats) {
@@ -186,32 +187,92 @@ pub fn release_apply(
         Err(error) => return Err(restore_or_precommit_error(writer, "commit", error)),
     };
 
-    // Post-commit phase (no rollback): tag, optionally push, publish.
-    for entry in &plan.entries {
-        if let Some(version) = &entry.planned_version {
-            let module = module_for(&module_by_ref, &entry.module)?;
-            let target = target_for(targets, module)?;
-            let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
-            let name = tag::format(&scheme, version);
-            let message = tag_message(entry, module, version)?;
-            writer.create_tag(&name, commit.as_str(), message.as_deref())?;
-            stats.tagged_modules += 1;
-        }
-    }
+    // Post-commit phase (no rollback): tag, optionally push, publish. A failure
+    // here cannot undo the commit — it surfaces with forward-only recovery
+    // guidance instead of pretending the run was atomic.
+    let committed = || format!("release commit {} was created", commit.as_str());
+    tag_releases(plan, &module_by_ref, writer, &commit, &mut stats)
+        .map_err(|error| forward_recovery_error(&committed(), "tagging", error))?;
     if settings.pushes(options) {
-        let branch = reader.current_branch()?;
-        writer.push(
-            settings.remote(),
-            &push_refspecs(plan, &module_by_ref, targets, &branch)?,
-        )?;
+        // Every push-phase step — resolving the branch, computing refspecs, and
+        // the push itself — runs after the commit and tags exist, so any
+        // failure carries forward-only recovery guidance rather than surfacing
+        // raw.
+        let push = || -> AppResult<()> {
+            let branch = reader.current_branch()?;
+            let refspecs = push_refspecs(plan, &branch)?;
+            writer.push(settings.remote(), &refspecs)
+        };
+        push().map_err(|error| forward_recovery_error(&committed(), "push", error))?;
     }
 
     if options.publish {
         let items = publish_items(plan, &module_by_ref, targets, &artifacts)?;
-        publish::run(&items, options.retry_budget, &mut stats)?;
+        publish::run(&items, options.retry_budget, &mut stats)
+            .map_err(|error| forward_recovery_error(&committed(), "publication", error))?;
     }
 
     Ok(stats)
+}
+
+/// The exact release tag string resolved for `entry` during planning. Apply,
+/// preflight, the commit message, and the pushed refspecs all anchor on this
+/// single planned value instead of re-deriving the tag from the scheme, so a
+/// run creates, validates, names, and pushes precisely the tag the plan showed
+/// — no second computation that could drift. A planned-version entry always
+/// carries a planned tag (both are resolved together during planning); the
+/// typed error guards that invariant without a panic.
+fn planned_tag_name(entry: &super::ReleaseEntry) -> AppResult<&str> {
+    entry.planned_tag.as_deref().ok_or_else(|| {
+        AppError::new(
+            ErrorCode::Internal,
+            format!(
+                "module '{}' has a planned version but no planned tag; the release plan is \
+                 internally inconsistent",
+                entry.module
+            ),
+        )
+    })
+}
+
+/// Create every planned release tag against the release commit.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn tag_releases(
+    plan: &ReleasePlan,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+    writer: &dyn VcsWriter,
+    commit: &toven_ports::Oid,
+    stats: &mut ReleaseStats,
+) -> AppResult<()> {
+    for entry in &plan.entries {
+        if let Some(version) = &entry.planned_version {
+            let module = module_for(module_by_ref, &entry.module)?;
+            let name = planned_tag_name(entry)?;
+            let message = tag_message(entry, module, version)?;
+            writer.create_tag(name, commit.as_str(), message.as_deref())?;
+            stats.tagged_modules += 1;
+        }
+    }
+    Ok(())
+}
+
+/// Wrap a failure that happens after externally visible release state exists
+/// (`state` says what) with forward-only recovery guidance, preserving the
+/// original error code and cause. Past that point the run cannot be made to
+/// look atomic: the operator inspects the partially released state and
+/// forward-fixes — never rewrites or deletes published state.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn forward_recovery_error(state: &str, phase: &str, error: AppError) -> AppError {
+    AppError::new(
+        error.code(),
+        format!(
+            "release {phase} failed after {state}: {error}. Release tags, registry versions, \
+             and hosted releases are immutable — inspect `toven release status`, resolve the \
+             cause, preview again, and publish a forward fix; never rewrite or delete published \
+             state"
+        ),
+    )
+    .with_cause(error)
 }
 
 /// Reject a disallowed checked-out branch before release mutation.
@@ -364,7 +425,6 @@ fn target_for<'a>(
 pub(crate) fn commit_message(
     plan: &ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
-    targets: &super::ReleaseTargets,
     template: Option<&str>,
 ) -> AppResult<String> {
     if let Some(template) = template {
@@ -402,29 +462,70 @@ pub(crate) fn commit_message(
     }
     let mut released = Vec::new();
     for entry in &plan.entries {
-        if let Some(version) = &entry.planned_version {
-            let module = module_for(module_by_ref, &entry.module)?;
-            let target = target_for(targets, module)?;
-            let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
-            released.push(tag::format(&scheme, version));
+        if entry.planned_version.is_some() {
+            released.push(planned_tag_name(entry)?.to_string());
         }
     }
     Ok(format!("release: {}", released.join(", ")))
 }
 
-fn preflight_tags(
+/// Pre-commit target preflight: every planned entry must resolve a release
+/// target for its (member, ecosystem) pair. A member without a target fails
+/// closed here, before any mutation, instead of being discovered mid-apply.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn preflight_targets(
     plan: &ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
     targets: &super::ReleaseTargets,
 ) -> AppResult<()> {
     for entry in &plan.entries {
+        let module = module_for(module_by_ref, &entry.module)?;
+        target_for(targets, module)?;
+    }
+    Ok(())
+}
+
+/// Pre-commit tag preflight: every planned tag scheme and annotation must
+/// resolve, no planned tag may already exist, and no two modules in the plan
+/// may render the same tag. Release tags are immutable — a collision means the
+/// version was already tagged (manually or by an interrupted run), so the run
+/// fails closed with forward-fix guidance rather than reusing or moving a tag.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn preflight_tags(
+    plan: &ReleasePlan,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+    reader: &dyn VcsReader,
+) -> AppResult<()> {
+    let existing = reader.list_tags(None)?;
+    let names: BTreeSet<&str> = existing.iter().map(|tag| tag.name.as_str()).collect();
+    let mut planned = BTreeSet::new();
+    for entry in &plan.entries {
         let Some(version) = &entry.planned_version else {
             continue;
         };
         let module = module_for(module_by_ref, &entry.module)?;
-        let target = target_for(targets, module)?;
-        target.tag_scheme(module, entry.tag_format.as_deref())?;
         tag_message(entry, module, version)?;
+        let name = planned_tag_name(entry)?;
+        if names.contains(name) {
+            return Err(AppError::invalid_input(
+                "release.tags",
+                format!(
+                    "release tag '{name}' already exists; release tags are immutable — \
+                     forward-fix with a new version instead of reusing '{version}'"
+                ),
+            ));
+        }
+        if !planned.insert(name.to_string()) {
+            return Err(AppError::invalid_input(
+                "release.tags",
+                format!(
+                    "module '{}' plans release tag '{name}', which another module in this \
+                     release already plans; release tags must be unique per repository — give \
+                     each module a distinct tag_format",
+                    entry.module
+                ),
+            ));
+        }
     }
     Ok(())
 }
@@ -480,19 +581,11 @@ pub(crate) fn tag_message(
 /// remote, so the caller resolves the checked-out branch and pushes it
 /// explicitly.
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) fn push_refspecs(
-    plan: &ReleasePlan,
-    module_by_ref: &BTreeMap<ModuleKey, &Module>,
-    targets: &super::ReleaseTargets,
-    branch: &str,
-) -> AppResult<Vec<String>> {
+pub(crate) fn push_refspecs(plan: &ReleasePlan, branch: &str) -> AppResult<Vec<String>> {
     let mut refspecs = vec![format!("refs/heads/{branch}")];
     for entry in &plan.entries {
-        if let Some(version) = &entry.planned_version {
-            let module = module_for(module_by_ref, &entry.module)?;
-            let target = target_for(targets, module)?;
-            let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
-            refspecs.push(format!("refs/tags/{}", tag::format(&scheme, version)));
+        if entry.planned_version.is_some() {
+            refspecs.push(format!("refs/tags/{}", planned_tag_name(entry)?));
         }
     }
     Ok(refspecs)
@@ -504,7 +597,9 @@ mod tests {
     use rskit_errors::ErrorCode;
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleKey, ModuleRef, RepoPath};
-    use toven_ports::{ChangeRecord, ChangeStatus, PublishOutcome, ReleaseMutation, TagScheme};
+    use toven_ports::{
+        ChangeRecord, ChangeStatus, Oid, PublishOutcome, ReleaseMutation, TagRef, TagScheme,
+    };
     use toven_testkit::{FakeReleaseTarget, FakeVcsReader, FakeVcsWriter, ReleaseCall, VcsWrite};
 
     use super::{ReleaseApplyOptions, reconcile_repo_settings, release_apply};
@@ -532,6 +627,7 @@ mod tests {
             module: mkey(name),
             current_version: Version::new(0, 1, 0),
             planned_version: Some(version.clone()),
+            planned_tag: Some(format!("rust/{name}@{version}")),
             level: BumpLevel::Patch,
             reason: BumpReason::Changed,
             winning_input: BumpSource::Default,
@@ -741,12 +837,195 @@ mod tests {
     }
 
     #[test]
+    fn two_modules_planning_the_same_tag_are_rejected_before_any_mutation() {
+        let mut core = entry("core", Version::new(0, 2, 0), true, 0);
+        core.tag_format = Some("v{version}".into());
+        // Plan-time tag resolution renders both modules to the same tag.
+        core.planned_tag = Some("v0.2.0".into());
+        let mut app = entry("app", Version::new(0, 2, 0), true, 1);
+        app.tag_format = Some("v{version}".into());
+        app.planned_tag = Some("v0.2.0".into());
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![core, app]);
+        let writer = FakeVcsWriter::new();
+
+        let error = release_apply(
+            &plan,
+            &[module("core"), module("app")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("an in-plan tag collision must fail closed before mutation");
+
+        let message = error.to_string();
+        assert!(message.contains("v0.2.0"), "{message}");
+        assert!(message.contains("unique"), "{message}");
+        assert!(writer.writes().is_empty());
+    }
+
+    #[test]
+    fn a_module_without_a_release_target_is_rejected_before_any_mutation() {
+        // The go module has no registered target; the failure must surface
+        // before the rust module's mutation, not inside `prepare`.
+        let go_ref = ModuleRef::new(EcosystemId::new("go").unwrap(), "cache-redis").unwrap();
+        let mut go_module = Module::new(go_ref.clone(), RepoPath::new("cache/redis").unwrap());
+        go_module.manifest = Some(RepoPath::new("cache/redis/go.mod").unwrap());
+        let mut go_entry = entry("core", Version::new(2, 0, 0), true, 1);
+        go_entry.module = ModuleKey::bare(go_ref);
+        go_entry.planned_tag = Some("cache/redis/v2.0.0".into());
+
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", Version::new(0, 1, 1), true, 0), go_entry],
+        );
+        let target = FakeReleaseTarget::new();
+        let writer = FakeVcsWriter::new();
+
+        let error = release_apply(
+            &plan,
+            &[module("core"), go_module],
+            &targets(vec![("core", target.clone())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("a missing release target must fail closed before mutation");
+
+        assert!(error.to_string().contains("has no release target"));
+        assert!(writer.writes().is_empty(), "no VCS write may happen");
+        assert!(
+            target.calls().is_empty(),
+            "no target mutation/package may happen: {:?}",
+            target.calls()
+        );
+    }
+
+    #[test]
+    fn a_publish_failure_after_the_commit_carries_forward_only_recovery_guidance() {
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", Version::new(0, 2, 0), true, 0)],
+        );
+        let target = FakeReleaseTarget::new().with_publish_failure("registry unavailable");
+        let writer = FakeVcsWriter::new();
+
+        let error = release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", target)]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("a post-commit publish failure must surface recovery guidance");
+
+        let message = error.to_string();
+        assert!(message.contains("publication"), "{message}");
+        assert!(message.contains("registry unavailable"), "{message}");
+        assert!(message.contains("toven release status"), "{message}");
+        assert!(message.contains("forward fix"), "{message}");
+        // The commit is past the rollback boundary: it happened, and no
+        // worktree restore may be attempted for a post-commit failure.
+        assert!(
+            writer
+                .writes()
+                .iter()
+                .any(|write| matches!(write, VcsWrite::Commit(_)))
+        );
+        assert!(
+            !writer
+                .writes()
+                .iter()
+                .any(|write| matches!(write, VcsWrite::RestoreWorktree))
+        );
+    }
+
+    #[test]
+    fn a_push_failure_after_the_commit_carries_forward_only_recovery_guidance() {
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", Version::new(0, 2, 0), true, 0)],
+        );
+        let writer = FakeVcsWriter::new().with_push_failure("remote rejected");
+
+        let error = release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions {
+                no_push: false,
+                ..Default::default()
+            },
+        )
+        .expect_err("a post-commit push failure must surface recovery guidance");
+
+        let message = error.to_string();
+        assert!(message.contains("push"), "{message}");
+        assert!(message.contains("remote rejected"), "{message}");
+        assert!(message.contains("toven release status"), "{message}");
+        assert!(message.contains("forward fix"), "{message}");
+        // The commit and tag are past the rollback boundary: no worktree
+        // restore may be attempted for a post-commit push failure.
+        assert!(
+            writer
+                .writes()
+                .iter()
+                .any(|write| matches!(write, VcsWrite::Commit(_)))
+        );
+        assert!(
+            !writer
+                .writes()
+                .iter()
+                .any(|write| matches!(write, VcsWrite::RestoreWorktree))
+        );
+    }
+
+    #[test]
+    fn a_planned_tag_that_already_exists_is_rejected_before_any_mutation() {
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", Version::new(0, 2, 0), true, 0)],
+        );
+        let target = FakeReleaseTarget::new();
+        let writer = FakeVcsWriter::new();
+        let reader = FakeVcsReader::new()
+            .with_tags(vec![TagRef::new("rust/core@0.2.0", Oid::new("deadbee"))]);
+
+        let error = release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", target.clone())]),
+            &reader,
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("an existing release tag must fail closed before mutation");
+
+        let message = error.to_string();
+        assert!(message.contains("rust/core@0.2.0"), "{message}");
+        assert!(message.contains("immutable"), "{message}");
+        assert!(writer.writes().is_empty(), "no VCS write may happen");
+        assert!(
+            target.calls().iter().all(|call| matches!(
+                call,
+                ReleaseCall::TagScheme { .. } | ReleaseCall::DeclaredVersion { .. }
+            )),
+            "no target mutation/package/publish may happen: {:?}",
+            target.calls()
+        );
+    }
+
+    #[test]
     fn configured_templates_render_commit_and_lightweight_tag() {
         let mut entry = entry("core", Version::new(1, 2, 3), true, 0);
         entry.commit_message = Some("release".into());
         let lightweight = entry.clone();
         let mut annotated = entry;
         annotated.module = mkey("app");
+        annotated.planned_tag = Some("rust/app@1.2.3".into());
         annotated.tag_message = Some("tag {ecosystem}/{module} {version}".into());
         let writer = FakeVcsWriter::new();
 
@@ -882,6 +1161,8 @@ mod tests {
         go_module.manifest = Some(RepoPath::new("cache/redis/go.mod").unwrap());
         let mut go_entry = entry("core", Version::new(2, 0, 0), true, 1);
         go_entry.module = go_key;
+        // Plan-time tag resolution uses the go target's path-based scheme.
+        go_entry.planned_tag = Some("cache/redis/v2.0.0".into());
 
         let plan = ReleasePlan::new(
             BumpPolicy::SemverCascade,
@@ -1242,14 +1523,6 @@ mod tests {
         );
     }
 
-    /// Build the `module_by_ref` map the push helper expects from a module set.
-    fn module_by_ref(modules: &[Module]) -> std::collections::BTreeMap<ModuleKey, &Module> {
-        modules
-            .iter()
-            .map(|module| (module.key(), module))
-            .collect()
-    }
-
     #[test]
     fn standalone_push_lands_named_branch_and_tags_on_a_real_bare_remote() {
         use crate::vcs::RskitGitVcs;
@@ -1286,11 +1559,7 @@ mod tests {
             BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(1, 0, 0), true, 0)],
         );
-        let modules = [module("core")];
-        let targets = targets(vec![("core", FakeReleaseTarget::new())]);
-        let refspecs =
-            super::push_refspecs(&plan, &module_by_ref(&modules), &targets, "release-train")
-                .expect("refspecs");
+        let refspecs = super::push_refspecs(&plan, "release-train").expect("refspecs");
         assert_eq!(
             refspecs,
             vec![
@@ -1362,16 +1631,13 @@ mod tests {
                 entry("app", Version::new(1, 0, 0), true, 1),
             ],
         );
-        let modules = [module("core"), module("app")];
 
         // Resolve the branch exactly as the federated push does.
         let reader = RskitGitVcs::open(&work).expect("open reader");
         let branch = reader.current_branch().expect("current branch");
         assert_eq!(branch, "member-release");
 
-        let targets = targets(vec![("core", FakeReleaseTarget::new())]);
-        let refspecs = super::push_refspecs(&plan, &module_by_ref(&modules), &targets, &branch)
-            .expect("refspecs");
+        let refspecs = super::push_refspecs(&plan, &branch).expect("refspecs");
         assert_eq!(
             refspecs,
             vec![

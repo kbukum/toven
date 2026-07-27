@@ -12,7 +12,7 @@ use toven_ports::{BumpLevel, DependentVersion, PublicationPolicy, ReleaseMutatio
 use super::strategy::{self, EffectiveLevel};
 use super::{
     BumpOverrides, BumpPolicy, BumpReason, BumpSource, ChangelogEntry, ReleaseBaseline,
-    ReleaseEntry, ResolvedReleaseSettings,
+    ReleaseEntry, ResolvedReleaseSettings, tag,
 };
 
 /// Inputs required to build release entries.
@@ -141,6 +141,22 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
         // is still versioned and tagged but never packaged/published to a registry.
         let publish_needed = registry_publish_needed && publication.publishes_to_registry();
         let cascade_origin = origin.filter(|_| decision.reason == BumpReason::DependencyCascade);
+        let tag_format = input
+            .settings
+            .get(&reference)
+            .and_then(|resolved| resolved.tag_format.clone());
+        // Resolve the planned tag now so the plan explains the exact tag a
+        // mutating run would create — and so a tag-scheme failure surfaces at
+        // plan time rather than mid-mutation.
+        let planned_tag = decision
+            .planned
+            .as_ref()
+            .map(|version| {
+                target
+                    .tag_scheme(module, tag_format.as_deref())
+                    .map(|scheme| tag::format(&scheme, version))
+            })
+            .transpose()?;
         let dep_floor_import_updates = dep_floor_updates
             .iter()
             .filter_map(|(dependency, version)| {
@@ -161,6 +177,7 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
             module: reference.clone(),
             current_version: current,
             planned_version: decision.planned,
+            planned_tag,
             level: decision.level,
             reason: decision.reason,
             winning_input: decision.winning_input,
@@ -170,10 +187,7 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
             mutation,
             publication,
             publish_needed,
-            tag_format: input
-                .settings
-                .get(&reference)
-                .and_then(|resolved| resolved.tag_format.clone()),
+            tag_format,
             tag_message: input
                 .settings
                 .get(&reference)

@@ -42,7 +42,28 @@
             }
           }
         },
-        "tags": { "type": "array", "items": { "type": "string" } },
+        "tags": {
+          "type": "array",
+          "description": "Tags created after all commits: a plain name tags the final HEAD; a { name, at } table pins the tag to a scripted commit (0 = the import commit).",
+          "items": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string", "description": "Tag name." },
+                  "at": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Scripted commit the tag points at (0 = the import commit); omitted = the final HEAD."
+                  }
+                }
+              }
+            ]
+          }
+        },
         "branches": { "type": "array", "items": { "type": "string" } }
       }
     },

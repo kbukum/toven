@@ -176,6 +176,10 @@ pub struct ReleaseEntry {
     pub current_version: Version,
     /// Version to release, if this module receives an own-version bump.
     pub planned_version: Option<Version>,
+    /// The release tag a mutating run would create for the planned version,
+    /// resolved through the target-owned tag scheme; `None` when the module
+    /// receives no own-version bump (a dependency-floor-only entry).
+    pub planned_tag: Option<String>,
     /// The effective bump level applied to reach the planned version.
     pub level: BumpLevel,
     /// Why this module is being bumped.
@@ -265,7 +269,10 @@ pub struct ReleaseModuleStatus {
     pub latest_tag: Option<String>,
     /// Versions the registry reports as already published (best-effort).
     pub published_versions: Vec<Version>,
-    /// Whether the declared version is already among the published versions.
+    /// Whether the declared version is already released. Online, the registry
+    /// reports it among the published versions (tag-only modules never publish,
+    /// so they always report `false` online); offline, where release tags
+    /// anchor idempotency, the newest release tag is at/above it.
     pub is_published: bool,
 }
 
@@ -442,6 +449,7 @@ mod tests {
             module: module(name),
             current_version: Version::new(0, 1, 0),
             planned_version: Some(Version::new(0, 2, 0)),
+            planned_tag: Some(format!("rust/{name}@0.2.0")),
             level: BumpLevel::Minor,
             reason: BumpReason::Changed,
             winning_input: BumpSource::Default,

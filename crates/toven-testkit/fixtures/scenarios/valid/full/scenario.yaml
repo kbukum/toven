@@ -9,6 +9,9 @@ git:
   commits:
     - msg: import
       touch: [crates/app/src/main.rs]
+  tags:
+    - v1.0.0
+    - { name: v0.9.0, at: 0 }
 
 steps:
   - id: 01-plan-build

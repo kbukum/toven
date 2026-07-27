@@ -324,9 +324,12 @@ fn require_release_confirmation(confirmed: bool) -> AppResult<()> {
 /// A stable JSON-lines record for one `release plan` entry.
 #[derive(Serialize)]
 struct PlanRecord {
+    /// 1-based position in the deterministic publication order.
+    order: usize,
     module: String,
     current_version: String,
     planned_version: Option<String>,
+    tag: Option<String>,
     level: Option<String>,
     reason: String,
     winning_input: String,
@@ -347,9 +350,11 @@ fn render_plan_human(plan: &ReleasePlan) {
         return;
     }
     let mut table = OutputTable::new(vec![
+        "#",
         "Module",
         "Current",
         "Planned",
+        "Tag",
         "Level",
         "Reason",
         "Input",
@@ -358,14 +363,16 @@ fn render_plan_human(plan: &ReleasePlan) {
         "Summary",
     ])
     .with_title(title);
-    for entry in &plan.entries {
+    for (index, entry) in plan.entries.iter().enumerate() {
         table.add_row(vec![
+            (index + 1).to_string(),
             entry.module.to_string(),
             entry.current_version.to_string(),
             entry
                 .planned_version
                 .as_ref()
                 .map_or_else(|| "-".to_string(), ToString::to_string),
+            entry.planned_tag.clone().unwrap_or_else(|| "-".to_string()),
             if entry.planned_version.is_some() {
                 entry.level.as_str().to_string()
             } else {
@@ -388,11 +395,13 @@ fn render_plan_human(plan: &ReleasePlan) {
 }
 
 fn render_plan_jsonl(plan: &ReleasePlan) -> AppResult<()> {
-    for entry in &plan.entries {
+    for (index, entry) in plan.entries.iter().enumerate() {
         let record = PlanRecord {
+            order: index + 1,
             module: entry.module.to_string(),
             current_version: entry.current_version.to_string(),
             planned_version: entry.planned_version.as_ref().map(ToString::to_string),
+            tag: entry.planned_tag.clone(),
             level: entry
                 .planned_version
                 .as_ref()

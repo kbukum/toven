@@ -1,0 +1,31 @@
+# Variant with `dependent_version = "bump"`: a changed shared crate releases,
+# and its dependent joins the train through a dependency cascade bump rather
+# than a floor-only upgrade.
+[project]
+name = "publish-train-rust"
+
+[toven]
+include = ["_profiles/rust-tasks.toml"]
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"
+
+[ecosystems.rust.release]
+strategy = "semver-cascade"
+level = "minor"
+dependent_version = "bump"
+tag_format = "{module}/v{version}"
+tag_message = "release {module} {version}"
+push = false
+registry = "crates-io"
+# Golden scenarios must stay network-free: idempotency anchors on release
+# tags rather than live crates.io queries.
+offline = true
+
+[ecosystems.rust.release.prerelease]
+channels = ["alpha", "beta", "rc"]
+
+[modules."rust:train-core".release]
+level = "major"
+tag_format = "core-v{version}"

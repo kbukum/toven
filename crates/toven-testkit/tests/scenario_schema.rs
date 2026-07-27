@@ -10,7 +10,7 @@ use rskit_errors::AppResult;
 use rskit_fs::TempDir;
 use toven_testkit::fixtures::scenario_path;
 use toven_testkit::scenario::{
-    Effect, MatcherKind, NormalizeScope, Requires, Scenario, default_normalizer,
+    Effect, GitTag, MatcherKind, NormalizeScope, Requires, Scenario, default_normalizer,
 };
 
 fn load(name: &str) -> AppResult<Scenario> {
@@ -29,6 +29,10 @@ fn loads_well_formed_scenario() {
     assert_eq!(git.commits.len(), 1);
     assert_eq!(git.commits[0].msg, "import");
     assert_eq!(git.commits[0].touch, vec!["crates/app/src/main.rs"]);
+    assert_eq!(
+        git.tags,
+        vec![GitTag::head("v1.0.0"), GitTag::at("v0.9.0", 0)]
+    );
 
     assert_eq!(scenario.steps.len(), 2);
     let first = &scenario.steps[0];

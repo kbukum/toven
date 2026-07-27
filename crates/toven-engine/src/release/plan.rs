@@ -192,9 +192,65 @@ pub(crate) fn resolve_release_settings(
             .map(|entry| &entry.release);
         let resolved_settings = ResolvedReleaseSettings::resolve(&ecosystem, over)?;
         validate_ecosystem_publication(module, &resolved_settings)?;
+        validate_executable_settings(module, &resolved_settings)?;
         resolved.insert(module.key(), resolved_settings);
     }
     Ok(resolved)
+}
+
+/// Fail closed on resolved settings that name release capabilities the engine
+/// does not execute. A configured-but-ignored setting is a safety hazard: a
+/// maintainer believes a hook gated the release, artifacts ship signed, or a
+/// credential is injected — while none of it happens. Until the engine
+/// executes these, the honest behavior is an actionable typed rejection.
+fn validate_executable_settings(
+    module: &toven_model::Module,
+    resolved: &ResolvedReleaseSettings,
+) -> AppResult<()> {
+    if !resolved.hooks.pre.is_empty() || !resolved.hooks.post.is_empty() {
+        return Err(AppError::invalid_input(
+            "release.hooks",
+            format!(
+                "module '{}' configures release hooks, which are not yet executable; remove \
+                 the […release.hooks] block and run any pre/post tasks explicitly around the \
+                 release command",
+                module.key()
+            ),
+        ));
+    }
+    if resolved.sign.enabled {
+        return Err(AppError::invalid_input(
+            "release.sign",
+            format!(
+                "module '{}' enables artifact signing, which is not yet executable; remove \
+                 […release.sign] or set enabled = false and keep signing in the native CI gate",
+                module.key()
+            ),
+        ));
+    }
+    if !resolved.prerelease.branch_channels.is_empty() {
+        return Err(AppError::invalid_input(
+            "release.prerelease.branch_channels",
+            format!(
+                "module '{}' maps release branches to prerelease channels, which is not yet \
+                 executable; select the channel explicitly with `--pre <channel>`",
+                module.key()
+            ),
+        ));
+    }
+    if resolved.publication.publishes_to_registry() && resolved.token_env.is_some() {
+        return Err(AppError::invalid_input(
+            "release.token_env",
+            format!(
+                "module '{}' configures token_env, which is not yet honored: the registry \
+                 credential reaches the publishing toolchain only through its ambient \
+                 environment (e.g. CARGO_REGISTRY_TOKEN for cargo); remove token_env from the \
+                 release configuration",
+                module.key()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_ecosystem_publication(
@@ -511,6 +567,155 @@ mod tests {
 
         assert!(error.to_string().contains("Go module"));
         assert!(error.to_string().contains("registry"));
+    }
+
+    /// Drive `release_plan` against one rust `core` module whose ecosystem
+    /// release config is `release`, returning the resolution error.
+    fn plan_error_with_release_config(release: ReleaseConfig) -> rskit_errors::AppError {
+        let core = module("core", "crates/core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+        let common = CommonEcosystemConfig {
+            release,
+            ..CommonEcosystemConfig::default()
+        };
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_common(common)
+            .with_release_target(FakeReleaseTarget::new());
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let request = PlanRequest::new(
+            "r1",
+            "t",
+            TaskIntent::resolve("release"),
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+        let vcs = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+        release_plan(
+            &request,
+            &document(),
+            &providers,
+            &readers,
+            &BumpOverrides::new(),
+            &mut reporter,
+        )
+        .expect_err("the configured setting must fail closed")
+    }
+
+    #[test]
+    fn configured_release_hooks_are_rejected_as_not_yet_executable() {
+        // A silently ignored pre-release hook (e.g. a test gate) would let a
+        // maintainer believe the release was gated when nothing ran — fail
+        // closed until the engine actually executes hooks.
+        let error = plan_error_with_release_config(ReleaseConfig {
+            hooks: Some(toven_ports::HooksConfig {
+                pre: vec!["test".into()],
+                post: Vec::new(),
+            }),
+            ..ReleaseConfig::default()
+        });
+
+        let message = error.to_string();
+        assert!(message.contains("release.hooks"), "{message}");
+        assert!(message.contains("not yet executable"), "{message}");
+    }
+
+    #[test]
+    fn enabled_artifact_signing_is_rejected_as_not_yet_executable() {
+        // `sign.enabled = true` promises signed artifacts Toven cannot produce;
+        // shipping unsigned artifacts under that belief is a safety failure.
+        let error = plan_error_with_release_config(ReleaseConfig {
+            sign: Some(toven_ports::SignConfig {
+                enabled: true,
+                signer: None,
+            }),
+            ..ReleaseConfig::default()
+        });
+
+        let message = error.to_string();
+        assert!(message.contains("release.sign"), "{message}");
+        assert!(message.contains("not yet executable"), "{message}");
+    }
+
+    #[test]
+    fn branch_channel_mappings_are_rejected_as_not_yet_executable() {
+        // A branch→channel map promises prereleases cut by branch, but the
+        // engine never consults it — only `--pre` selects a channel. Reject
+        // the map rather than let a maintainer believe branch-driven
+        // prereleases are configured.
+        let error = plan_error_with_release_config(ReleaseConfig {
+            prerelease: Some(toven_ports::PrereleaseConfig {
+                channels: vec!["beta".into()],
+                branch_channels: std::collections::BTreeMap::from([("next".into(), "beta".into())]),
+            }),
+            ..ReleaseConfig::default()
+        });
+
+        let message = error.to_string();
+        assert!(message.contains("branch_channels"), "{message}");
+        assert!(message.contains("not yet executable"), "{message}");
+    }
+
+    #[test]
+    fn token_env_on_a_registry_module_is_rejected_as_not_yet_honored() {
+        // The publish port receives no credential, so a configured `token_env`
+        // never reaches the registry tooling — reject it rather than let a
+        // maintainer believe credential injection is configured.
+        let error = plan_error_with_release_config(ReleaseConfig {
+            registry: Some("crates-io".into()),
+            token_env: Some("CARGO_REGISTRY_TOKEN".into()),
+            ..ReleaseConfig::default()
+        });
+
+        let message = error.to_string();
+        assert!(message.contains("release.token_env"), "{message}");
+        assert!(message.contains("ambient"), "{message}");
+    }
+
+    #[test]
+    fn token_env_on_a_tag_only_module_is_harmless_and_accepted() {
+        // `token_env` only claims meaning for registry publication; a tag-only
+        // module never publishes, so the inert field is not a safety risk.
+        let core = module("core", "crates/core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+        let common = CommonEcosystemConfig {
+            release: ReleaseConfig {
+                token_env: Some("CARGO_REGISTRY_TOKEN".into()),
+                ..ReleaseConfig::default()
+            },
+            ..CommonEcosystemConfig::default()
+        };
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_common(common)
+            .with_release_target(FakeReleaseTarget::new());
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let request = PlanRequest::new(
+            "r1",
+            "t",
+            TaskIntent::resolve("release"),
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+        let vcs = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        release_plan(
+            &request,
+            &document(),
+            &providers,
+            &readers,
+            &BumpOverrides::new(),
+            &mut reporter,
+        )
+        .expect("a tag-only module's inert token_env must not fail the plan");
     }
 
     #[test]
@@ -939,11 +1144,26 @@ mod tests {
             .find(|entry| entry.module == app.key())
             .expect("app entry");
         assert_eq!(app_entry.planned_version, None);
+        assert_eq!(app_entry.planned_tag, None);
         assert!(!app_entry.publish_needed);
         assert_eq!(
             app_entry.mutation.dep_floor_updates.get(&mref("core")),
             Some(&Version::new(0, 1, 1))
         );
+    }
+
+    #[test]
+    fn planned_entries_carry_the_release_tag_name() {
+        // The plan must explain the exact tag a mutating run would create.
+        let plan = plan_core(
+            common_with_level(BumpLevel::Minor),
+            FakeReleaseTarget::new(),
+            &BumpOverrides::new(),
+        );
+
+        let entry = plan.entries.first().expect("one planned entry");
+        assert_eq!(entry.planned_version, Some(Version::new(0, 2, 0)));
+        assert_eq!(entry.planned_tag.as_deref(), Some("rust/core@0.2.0"));
     }
 
     #[test]

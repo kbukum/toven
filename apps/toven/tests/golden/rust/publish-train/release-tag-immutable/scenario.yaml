@@ -1,0 +1,22 @@
+# Immutable release tags: a guarded real publish whose planned tag already
+# exists fails closed before any mutation, with forward-fix guidance. The
+# colliding tag is pinned to the import commit so the touch commit still reads
+# as changed since the last release.
+repo: rust/publish-train
+git:
+  commits:
+    - msg: "touch train-cli"
+      touch:
+        - crates/train-cli/src/main.rs
+  tags:
+    - { name: train-cli/v0.2.0, at: 0 }
+steps:
+  # Both modules are pinned to one version so the shared commit_message
+  # template renders identically and the run reaches the tag preflight.
+  - id: 01-duplicate-tag-rejected
+    argv: [release, publish, --yes, --set-version, "rust:train-cli=0.2.0", --set-version, "rust:train-core=0.2.0"]
+    exit: 2
+    stderr: { match: normalized }
+    effects:
+      # The rejected run creates no other release tag.
+      - git_tag_absent: core-v0.2.0

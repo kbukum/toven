@@ -182,6 +182,12 @@ impl GitScenario {
         self.repo.create_tag(name, "HEAD", None)
     }
 
+    /// Create a lightweight tag pointing at a specific commit — e.g. a release
+    /// baseline tag pinned to an earlier commit in scripted history.
+    pub fn tag_lightweight_at(&self, name: &str, target: &Oid) -> AppResult<()> {
+        self.repo.create_tag(name, &target.to_string(), None)
+    }
+
     /// Short helper: assert a tag exists by name.
     pub fn has_tag(&self, name: &str) -> AppResult<bool> {
         Ok(self.repo.list_tags()?.iter().any(|tag| tag.name == name))

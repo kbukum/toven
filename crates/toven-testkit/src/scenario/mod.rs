@@ -21,7 +21,8 @@ pub use discover::discover_scenarios;
 pub use load::SCENARIO_FILENAME;
 pub use matcher_kind::{NormalizeScope, default_normalizer};
 pub use model::{
-    Cmp, Effect, GitCommit, GitScript, MatcherKind, Requires, Scenario, Step, StreamExpectation,
+    Cmp, Effect, GitCommit, GitScript, GitTag, MatcherKind, Requires, Scenario, Step,
+    StreamExpectation,
 };
 pub use report::{Report, StepOutcome, StepStatus};
 pub use run::{CACHE_DIR_ENV, apply_git_script, run_scenario, run_scenario_with};

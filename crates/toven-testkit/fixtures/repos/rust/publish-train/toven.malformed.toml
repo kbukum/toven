@@ -17,6 +17,5 @@ tag_message = "release {module} {version}"
 commit_message = "chore: release {version}"
 push = false
 registry = "crates-io"
-token_env = "CARGO_REGISTRY_TOKEN"
 readiness = ["clean-tree"
 
