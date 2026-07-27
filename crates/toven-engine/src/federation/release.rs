@@ -126,16 +126,14 @@ pub fn release_apply_by_member(
         .collect::<AppResult<Vec<_>>>()?;
     guard_member_trees(&shards, &settings, repos)?;
     for (shard, settings) in shards.iter().zip(&settings) {
-        apply::commit_message(
-            &shard.plan,
-            &module_by_ref,
-            targets,
-            settings.commit_message(),
-        )?;
+        // Target preflight: a member without a release target fails closed
+        // before any member mutates.
+        apply::preflight_targets(&shard.plan, &module_by_ref, targets)?;
+        apply::commit_message(&shard.plan, &module_by_ref, settings.commit_message())?;
         // Immutable-tag preflight: a planned tag that already exists fails
         // closed before any member mutates.
         let repo = repo_for(repos, shard.member.as_ref())?;
-        apply::preflight_tags(&shard.plan, &module_by_ref, targets, repo.reader())?;
+        apply::preflight_tags(&shard.plan, &module_by_ref, repo.reader())?;
     }
 
     let mut prepared = Vec::with_capacity(shards.len());
@@ -151,7 +149,6 @@ pub fn release_apply_by_member(
         commit_member_shard(
             shard,
             &module_by_ref,
-            targets,
             repos,
             options,
             &settings,
@@ -201,19 +198,13 @@ fn prepare_member_shard(
 fn commit_member_shard(
     shard: &MemberReleaseShard,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
-    targets: &crate::release::ReleaseTargets,
     repos: &MemberReleaseRepos<'_>,
     options: &ReleaseApplyOptions,
     settings: &apply::RepoReleaseSettings,
     stats: &mut ReleaseStats,
 ) -> AppResult<()> {
     let repo = repo_for(repos, shard.member.as_ref())?;
-    let message = apply::commit_message(
-        &shard.plan,
-        module_by_ref,
-        targets,
-        settings.commit_message(),
-    )?;
+    let message = apply::commit_message(&shard.plan, module_by_ref, settings.commit_message())?;
     let commit = match repo.writer().commit(&message) {
         Ok(commit) => commit,
         Err(error) => {
@@ -235,22 +226,15 @@ fn commit_member_shard(
             member.map_or("<root>", MemberId::as_str)
         )
     };
-    apply::tag_releases(
-        &shard.plan,
-        module_by_ref,
-        targets,
-        repo.writer(),
-        &commit,
-        stats,
-    )
-    .map_err(|error| apply::forward_recovery_error(&committed(), "tagging", error))?;
+    apply::tag_releases(&shard.plan, module_by_ref, repo.writer(), &commit, stats)
+        .map_err(|error| apply::forward_recovery_error(&committed(), "tagging", error))?;
     if settings.pushes(options) {
         // Every push-phase step — resolving the branch, computing refspecs, and
         // the push itself — runs after this member's commit and tags exist, so
         // any failure carries forward-only recovery guidance naming the member.
         let push = || -> AppResult<()> {
             let branch = repo.reader().current_branch()?;
-            let refspecs = apply::push_refspecs(&shard.plan, module_by_ref, targets, &branch)?;
+            let refspecs = apply::push_refspecs(&shard.plan, &branch)?;
             repo.writer().push(settings.remote(), &refspecs)
         };
         push().map_err(|error| apply::forward_recovery_error(&committed(), "push", error))?;

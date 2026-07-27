@@ -333,6 +333,10 @@ fn git_script_rejects_a_tag_pin_beyond_the_scripted_history() {
         "names the tag: {err}"
     );
     assert!(err.to_string().contains('7'), "names the index: {err}");
+    assert!(
+        err.to_string().contains("0..=1"),
+        "reports the valid index range (import + one scripted commit): {err}"
+    );
 }
 
 #[test]

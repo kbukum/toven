@@ -17,7 +17,7 @@ use toven_model::{Module, ModuleKey};
 use toven_ports::{Artifact, ReleaseTarget, ReleaseVar, VcsReader, VcsWriter};
 
 use super::publish::{self, PublishItem};
-use super::{ReleasePlan, ReleaseStats, tag};
+use super::{ReleasePlan, ReleaseStats};
 
 /// Default rate-limit retry budget for the publish loop.
 const DEFAULT_RETRY_BUDGET: usize = 5;
@@ -170,8 +170,8 @@ pub fn release_apply(
         .map(|module| (module.key(), module))
         .collect();
     // Resolve all pre-commit errors before mutating any manifest.
-    let message = commit_message(plan, &module_by_ref, targets, settings.commit_message())?;
-    preflight_tags(plan, &module_by_ref, targets, reader)?;
+    let message = commit_message(plan, &module_by_ref, settings.commit_message())?;
+    preflight_tags(plan, &module_by_ref, reader)?;
 
     // Pre-commit phase (undoable): apply mutations, then package every module.
     let artifacts = match prepare(plan, &module_by_ref, targets, &mut stats) {
@@ -190,7 +190,7 @@ pub fn release_apply(
     // here cannot undo the commit — it surfaces with forward-only recovery
     // guidance instead of pretending the run was atomic.
     let committed = || format!("release commit {} was created", commit.as_str());
-    tag_releases(plan, &module_by_ref, targets, writer, &commit, &mut stats)
+    tag_releases(plan, &module_by_ref, writer, &commit, &mut stats)
         .map_err(|error| forward_recovery_error(&committed(), "tagging", error))?;
     if settings.pushes(options) {
         // Every push-phase step — resolving the branch, computing refspecs, and
@@ -199,7 +199,7 @@ pub fn release_apply(
         // raw.
         let push = || -> AppResult<()> {
             let branch = reader.current_branch()?;
-            let refspecs = push_refspecs(plan, &module_by_ref, targets, &branch)?;
+            let refspecs = push_refspecs(plan, &branch)?;
             writer.push(settings.remote(), &refspecs)
         };
         push().map_err(|error| forward_recovery_error(&committed(), "push", error))?;
@@ -214,12 +214,31 @@ pub fn release_apply(
     Ok(stats)
 }
 
+/// The exact release tag string resolved for `entry` during planning. Apply,
+/// preflight, the commit message, and the pushed refspecs all anchor on this
+/// single planned value instead of re-deriving the tag from the scheme, so a
+/// run creates, validates, names, and pushes precisely the tag the plan showed
+/// — no second computation that could drift. A planned-version entry always
+/// carries a planned tag (both are resolved together during planning); the
+/// typed error guards that invariant without a panic.
+fn planned_tag_name(entry: &super::ReleaseEntry) -> AppResult<&str> {
+    entry.planned_tag.as_deref().ok_or_else(|| {
+        AppError::new(
+            ErrorCode::Internal,
+            format!(
+                "module '{}' has a planned version but no planned tag; the release plan is \
+                 internally inconsistent",
+                entry.module
+            ),
+        )
+    })
+}
+
 /// Create every planned release tag against the release commit.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn tag_releases(
     plan: &ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
-    targets: &super::ReleaseTargets,
     writer: &dyn VcsWriter,
     commit: &toven_ports::Oid,
     stats: &mut ReleaseStats,
@@ -227,11 +246,9 @@ pub(crate) fn tag_releases(
     for entry in &plan.entries {
         if let Some(version) = &entry.planned_version {
             let module = module_for(module_by_ref, &entry.module)?;
-            let target = target_for(targets, module)?;
-            let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
-            let name = tag::format(&scheme, version);
+            let name = planned_tag_name(entry)?;
             let message = tag_message(entry, module, version)?;
-            writer.create_tag(&name, commit.as_str(), message.as_deref())?;
+            writer.create_tag(name, commit.as_str(), message.as_deref())?;
             stats.tagged_modules += 1;
         }
     }
@@ -407,7 +424,6 @@ fn target_for<'a>(
 pub(crate) fn commit_message(
     plan: &ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
-    targets: &super::ReleaseTargets,
     template: Option<&str>,
 ) -> AppResult<String> {
     if let Some(template) = template {
@@ -445,14 +461,27 @@ pub(crate) fn commit_message(
     }
     let mut released = Vec::new();
     for entry in &plan.entries {
-        if let Some(version) = &entry.planned_version {
-            let module = module_for(module_by_ref, &entry.module)?;
-            let target = target_for(targets, module)?;
-            let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
-            released.push(tag::format(&scheme, version));
+        if entry.planned_version.is_some() {
+            released.push(planned_tag_name(entry)?.to_string());
         }
     }
     Ok(format!("release: {}", released.join(", ")))
+}
+
+/// Pre-commit target preflight: every planned entry must resolve a release
+/// target for its (member, ecosystem) pair. A member without a target fails
+/// closed here, before any mutation, instead of being discovered mid-apply.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn preflight_targets(
+    plan: &ReleasePlan,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+    targets: &super::ReleaseTargets,
+) -> AppResult<()> {
+    for entry in &plan.entries {
+        let module = module_for(module_by_ref, &entry.module)?;
+        target_for(targets, module)?;
+    }
+    Ok(())
 }
 
 /// Pre-commit tag preflight: every planned tag scheme and annotation must
@@ -464,7 +493,6 @@ pub(crate) fn commit_message(
 pub(crate) fn preflight_tags(
     plan: &ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
-    targets: &super::ReleaseTargets,
     reader: &dyn VcsReader,
 ) -> AppResult<()> {
     let existing = reader.list_tags(None)?;
@@ -475,11 +503,9 @@ pub(crate) fn preflight_tags(
             continue;
         };
         let module = module_for(module_by_ref, &entry.module)?;
-        let target = target_for(targets, module)?;
-        let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
         tag_message(entry, module, version)?;
-        let name = tag::format(&scheme, version);
-        if names.contains(name.as_str()) {
+        let name = planned_tag_name(entry)?;
+        if names.contains(name) {
             return Err(AppError::invalid_input(
                 "release.tags",
                 format!(
@@ -488,7 +514,7 @@ pub(crate) fn preflight_tags(
                 ),
             ));
         }
-        if !planned.insert(name.clone()) {
+        if !planned.insert(name.to_string()) {
             return Err(AppError::invalid_input(
                 "release.tags",
                 format!(
@@ -554,19 +580,11 @@ pub(crate) fn tag_message(
 /// remote, so the caller resolves the checked-out branch and pushes it
 /// explicitly.
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) fn push_refspecs(
-    plan: &ReleasePlan,
-    module_by_ref: &BTreeMap<ModuleKey, &Module>,
-    targets: &super::ReleaseTargets,
-    branch: &str,
-) -> AppResult<Vec<String>> {
+pub(crate) fn push_refspecs(plan: &ReleasePlan, branch: &str) -> AppResult<Vec<String>> {
     let mut refspecs = vec![format!("refs/heads/{branch}")];
     for entry in &plan.entries {
-        if let Some(version) = &entry.planned_version {
-            let module = module_for(module_by_ref, &entry.module)?;
-            let target = target_for(targets, module)?;
-            let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
-            refspecs.push(format!("refs/tags/{}", tag::format(&scheme, version)));
+        if entry.planned_version.is_some() {
+            refspecs.push(format!("refs/tags/{}", planned_tag_name(entry)?));
         }
     }
     Ok(refspecs)
@@ -821,8 +839,11 @@ mod tests {
     fn two_modules_planning_the_same_tag_are_rejected_before_any_mutation() {
         let mut core = entry("core", Version::new(0, 2, 0), true, 0);
         core.tag_format = Some("v{version}".into());
+        // Plan-time tag resolution renders both modules to the same tag.
+        core.planned_tag = Some("v0.2.0".into());
         let mut app = entry("app", Version::new(0, 2, 0), true, 1);
         app.tag_format = Some("v{version}".into());
+        app.planned_tag = Some("v0.2.0".into());
         let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![core, app]);
         let writer = FakeVcsWriter::new();
 
@@ -966,6 +987,7 @@ mod tests {
         let lightweight = entry.clone();
         let mut annotated = entry;
         annotated.module = mkey("app");
+        annotated.planned_tag = Some("rust/app@1.2.3".into());
         annotated.tag_message = Some("tag {ecosystem}/{module} {version}".into());
         let writer = FakeVcsWriter::new();
 
@@ -1101,6 +1123,8 @@ mod tests {
         go_module.manifest = Some(RepoPath::new("cache/redis/go.mod").unwrap());
         let mut go_entry = entry("core", Version::new(2, 0, 0), true, 1);
         go_entry.module = go_key;
+        // Plan-time tag resolution uses the go target's path-based scheme.
+        go_entry.planned_tag = Some("cache/redis/v2.0.0".into());
 
         let plan = ReleasePlan::new(
             BumpPolicy::SemverCascade,
@@ -1461,14 +1485,6 @@ mod tests {
         );
     }
 
-    /// Build the `module_by_ref` map the push helper expects from a module set.
-    fn module_by_ref(modules: &[Module]) -> std::collections::BTreeMap<ModuleKey, &Module> {
-        modules
-            .iter()
-            .map(|module| (module.key(), module))
-            .collect()
-    }
-
     #[test]
     fn standalone_push_lands_named_branch_and_tags_on_a_real_bare_remote() {
         use crate::vcs::RskitGitVcs;
@@ -1505,11 +1521,7 @@ mod tests {
             BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(1, 0, 0), true, 0)],
         );
-        let modules = [module("core")];
-        let targets = targets(vec![("core", FakeReleaseTarget::new())]);
-        let refspecs =
-            super::push_refspecs(&plan, &module_by_ref(&modules), &targets, "release-train")
-                .expect("refspecs");
+        let refspecs = super::push_refspecs(&plan, "release-train").expect("refspecs");
         assert_eq!(
             refspecs,
             vec![
@@ -1581,16 +1593,13 @@ mod tests {
                 entry("app", Version::new(1, 0, 0), true, 1),
             ],
         );
-        let modules = [module("core"), module("app")];
 
         // Resolve the branch exactly as the federated push does.
         let reader = RskitGitVcs::open(&work).expect("open reader");
         let branch = reader.current_branch().expect("current branch");
         assert_eq!(branch, "member-release");
 
-        let targets = targets(vec![("core", FakeReleaseTarget::new())]);
-        let refspecs = super::push_refspecs(&plan, &module_by_ref(&modules), &targets, &branch)
-            .expect("refspecs");
+        let refspecs = super::push_refspecs(&plan, &branch).expect("refspecs");
         assert_eq!(
             refspecs,
             vec![

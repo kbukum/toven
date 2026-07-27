@@ -60,11 +60,14 @@ pub fn release_status(
             continue;
         }
         let declared = target.declared_version(module)?;
-        // `offline` anchors idempotency on release tags instead of registry
-        // queries, so the status projection must not touch the registry at
-        // all — it stays truthful (and network-free) by reporting no
-        // registry-published set rather than querying one.
-        let published = if resolved.offline {
+        // Only a registry-published module in online mode has a meaningful
+        // published set. A tag-only module never publishes (querying it would
+        // still hit the network — e.g. `cargo search` — for a set that is
+        // unused), and `offline` anchors idempotency on release tags instead of
+        // registry queries. In both cases the projection stays truthful and
+        // network-free by reporting no registry-published set rather than
+        // querying one.
+        let published = if resolved.offline || !resolved.publication.publishes_to_registry() {
             Vec::new()
         } else {
             target.published_versions(module)?
@@ -177,8 +180,16 @@ mod tests {
         let target = FakeReleaseTarget::new()
             .with_declared_version(Version::new(0, 2, 0))
             .with_published_versions(vec![Version::new(0, 1, 0)]);
+        let common = CommonEcosystemConfig {
+            release: ReleaseConfig {
+                registry: Some("crates-io".into()),
+                ..ReleaseConfig::default()
+            },
+            ..CommonEcosystemConfig::default()
+        };
         let adapter = FakeConfiguredAdapter::new(eid("rust"))
             .with_response(response)
+            .with_common(common)
             .with_release_target(target);
         let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
         let providers: Vec<&dyn Provider> = vec![&provider];
@@ -194,11 +205,55 @@ mod tests {
         assert_eq!(status.modules.len(), 1);
         let entry = &status.modules[0];
         assert_eq!(entry.module, core.key());
-        assert_eq!(entry.publication, toven_ports::PublicationPolicy::TagOnly);
+        assert_eq!(
+            entry.publication,
+            toven_ports::PublicationPolicy::Registry {
+                registry: "crates-io".into()
+            }
+        );
         assert_eq!(entry.declared_version, Version::new(0, 2, 0));
         assert_eq!(entry.latest_tag.as_deref(), Some("rust/core@0.1.0"));
         assert_eq!(entry.published_versions, vec![Version::new(0, 1, 0)]);
         assert!(!entry.is_published);
+    }
+
+    #[test]
+    fn tag_only_status_never_queries_the_registry() {
+        // A tag-only module never publishes, so status must not query the
+        // registry for it even online — the lookup would hit the network
+        // (e.g. `cargo search`) for a set that is unused.
+        let core = module("core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+
+        let target = FakeReleaseTarget::new()
+            .with_declared_version(Version::new(0, 2, 0))
+            .with_published_versions(vec![Version::new(0, 1, 0)]);
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_release_target(target.clone());
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+
+        let vcs = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let status =
+            release_status(&request(), &document(), &providers, &readers, &mut reporter).unwrap();
+
+        let entry = &status.modules[0];
+        assert_eq!(entry.publication, toven_ports::PublicationPolicy::TagOnly);
+        assert!(entry.published_versions.is_empty());
+        assert!(!entry.is_published);
+        assert!(
+            !target
+                .calls()
+                .iter()
+                .any(|call| matches!(call, toven_testkit::ReleaseCall::PublishedVersions(_))),
+            "tag-only status must not query the registry: {:?}",
+            target.calls()
+        );
     }
 
     #[test]

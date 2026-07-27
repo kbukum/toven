@@ -185,9 +185,10 @@ pub fn apply_git_script(
                     AppError::invalid_input(
                         "git tag",
                         format!(
-                            "tag '{}' pins commit index {index}, but the script has {} commit(s)",
+                            "tag '{}' pins commit index {index}, which is out of range; valid \
+                             indices are 0..={} (0 = the import commit)",
                             tag.name,
-                            commits.len()
+                            commits.len() - 1
                         ),
                     )
                 })?;
