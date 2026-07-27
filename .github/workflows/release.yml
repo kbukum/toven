@@ -1,0 +1,304 @@
+name: Release
+
+# Toven's own binary release pipeline (docs/self-hosting.md "Release approval
+# pipeline"). This workflow never triggers on a `v*` tag push — it *creates*
+# that tag itself, through `toven release publish`, so a tag-triggered run
+# would race a preflight that fails closed on an already-existing tag. The
+# only trigger is an explicit, human-dispatched run, and the mutating job is
+# gated by the protected `release` GitHub environment (configure it once with
+# required reviewers before the first dispatch).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  COSIGN_VERSION: v2.6.0
+  RUST_VERSION: "1.94"
+
+jobs:
+  # Mutation-free preview: the exact plan, readiness, SBOM, and dependency
+  # graphs a real publish would use, preserved as review evidence for the
+  # `release` environment's required reviewers before they approve `publish`.
+  preview:
+    name: Release preview
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install "${RUST_VERSION}" --profile minimal
+          rustup override set "${RUST_VERSION}"
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@7e35be21c2b94d972b1143087fabc27d7dc881ef # v2.7.8
+
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --locked --version 0.5.9
+
+      - name: Preview release plan, readiness, SBOM, and dependency graphs
+        run: make release-plan
+
+      - name: Preview publication rehearsal
+        run: cargo run --locked -p toven -- release publish --dry-run --output jsonl | tee release-preview.jsonl
+
+      - name: Upload preview evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-preview
+          path: |
+            release-preview.jsonl
+            target/toven/release/sbom/**
+            target/toven/release/depgraphs/**
+          if-no-files-found: error
+          retention-days: 14
+
+  # Real per-target binary build. Each entry packages a runnable `toven` into
+  # the fixed dist/ archive name toven.toml's `release.host.assets` declares
+  # (scripts/package-release-binary.sh); the cross-compiled Linux ARM64 target
+  # builds through `cross` so it links against a matching glibc/OpenSSL/
+  # libgit2 instead of the x86_64 host's.
+  build:
+    name: Build ${{ matrix.target }}
+    needs: preview
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: false
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            use_cross: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            use_cross: false
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            use_cross: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install "${RUST_VERSION}" --profile minimal
+          rustup override set "${RUST_VERSION}"
+          rustup target add ${{ matrix.target }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@7e35be21c2b94d972b1143087fabc27d7dc881ef # v2.7.8
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.use_cross
+        uses: taiki-e/install-action@3d7d7cd5ac7f994c1892ae0c06165095b9139094 # v2
+        with:
+          tool: cross
+
+      - name: Build (native)
+        if: ${{ !matrix.use_cross }}
+        shell: bash
+        run: cargo build --locked --release -p toven --target ${{ matrix.target }}
+
+      - name: Build (cross)
+        if: matrix.use_cross
+        shell: bash
+        run: cross build --locked --release -p toven --target ${{ matrix.target }}
+
+      - name: Package release archive
+        shell: bash
+        run: |
+          binary="target/${{ matrix.target }}/release/toven"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            binary="${binary}.exe"
+          fi
+          ./scripts/package-release-binary.sh "${{ matrix.target }}" "${binary}"
+
+      - name: Verify the packaged binary reports the released version
+        shell: bash
+        run: |
+          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+            ./scripts/verify-release-binary.sh "${{ matrix.target }}" --no-run
+          else
+            ./scripts/verify-release-binary.sh "${{ matrix.target }}"
+          fi
+
+      - name: Upload packaged archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-archive-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  # Assemble every per-target archive into one dist/, then produce the
+  # combined SHA256SUMS, its keyless Sigstore/cosign signature, and the
+  # umbrella app's CycloneDX SBOM — the exact fixed-name file set toven.toml's
+  # `release.host.assets` declares.
+  assemble:
+    name: Assemble release assets
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # cosign keyless signing (Sigstore OIDC)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install "${RUST_VERSION}" --profile minimal
+          rustup override set "${RUST_VERSION}"
+
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --locked --version 0.5.9
+
+      - name: Download every packaged archive
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6
+        with:
+          pattern: release-archive-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate combined checksums
+        run: make release-checksums
+
+      - name: Generate the umbrella app's CycloneDX SBOM
+        run: |
+          cargo run --locked -p toven -- release sbom --out-dir target/toven/release/sbom
+          make release-sbom-binary
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+
+      - name: Sign the checksums file (keyless Sigstore)
+        run: |
+          cosign sign-blob --yes \
+            --output-signature dist/SHA256SUMS.sig \
+            --output-certificate dist/SHA256SUMS.pem \
+            dist/SHA256SUMS
+
+      - name: List assembled release assets
+        run: ls -la dist
+
+      - name: Upload assembled release assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-dist
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  # The one mutating step: creates the immutable version tag and the hosted
+  # GitHub Release with the assembled assets attached. Gated by the protected
+  # `release` environment's required reviewers — this is the "explicit human
+  # approval immediately before mutation" the plan requires.
+  publish:
+    name: Publish
+    needs: assemble
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install "${RUST_VERSION}" --profile minimal
+          rustup override set "${RUST_VERSION}"
+
+      - name: Download assembled release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6
+        with:
+          name: release-dist
+          path: dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: cargo run --locked -p toven -- release publish --yes --output jsonl | tee release-publish.jsonl
+
+      - name: Upload publish record
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-publish-record
+          path: release-publish.jsonl
+          if-no-files-found: error
+          retention-days: 90
+
+  # Download every published asset back from the hosted Release and prove it
+  # is exactly what was approved: checksum-verified, and — for every target
+  # that can execute on its build runner — reports the released version.
+  # `aarch64-unknown-linux-gnu` is checksum-verified only: no hosted runner can
+  # execute a Linux ARM64 binary.
+  verify:
+    name: Verify ${{ matrix.target }}
+    needs: publish
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            run: true
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            run: false
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            run: true
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            run: true
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            run: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Download and verify the published archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if [[ "${{ matrix.run }}" == "true" ]]; then
+            ./scripts/verify-release-binary.sh "${{ matrix.target }}" --download
+          else
+            ./scripts/verify-release-binary.sh "${{ matrix.target }}" --download --no-run
+          fi

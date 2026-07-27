@@ -1,5 +1,10 @@
 PACKAGE_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 
+# The native target triple of the machine running Make, used to build/package
+# a smoke-tested release binary without requiring a cross-compilation target
+# override (see `release-artifacts` below).
+HOST_TARGET := $(shell rustc -vV | sed -n 's/host: //p')
+
 # nextest profile (see .config/nextest.toml). Local runs use `default`
 # (fail-fast, no retries); CI overrides this to `ci` (retries + slow-timeout for
 # the real-subprocess integration tests) by exporting NEXTEST_PROFILE=ci. The
@@ -15,7 +20,7 @@ export NEXTEST_PROFILE ?= default
 # binary for speed with `make TOVEN=toven check`.
 TOVEN ?= cargo run --quiet --locked -p toven --
 
-.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark golden bless verify-release-platform-filter release-dry-run release-plan release-artifacts act-ci act-supply-chain act-release-readiness
+.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark golden bless verify-release-platform-filter release-dry-run release-plan release-artifacts release-checksums release-sbom-binary act-ci act-supply-chain act-release-readiness
 
 # Canonical local/CI gate for the virtual workspace.
 check: fmt-check lint test structure doc deny verify-release-platform-filter release-dry-run
@@ -141,12 +146,29 @@ release-plan:
 	$(TOVEN) release sbom --out-dir target/toven/release/sbom
 	$(TOVEN) release depgraphs --out-dir target/toven/release/depgraphs
 
-# Ship a reproducible source tarball until publishable apps land.
+# Real per-target release binary: build the release profile for TARGET
+# (defaults to the native host target) and package it into the fixed-name
+# dist/ archive that toven.toml's `release.host.assets` declares. The tag-
+# triggered .github/workflows/release.yml matrix invokes this once per
+# supported target (via `cross` for the cross-compiled aarch64-linux target);
+# the default (native) invocation is also the per-PR packaging smoke check.
 release-artifacts:
 	rm -rf dist
 	mkdir -p dist
-	tar --exclude './.git' --exclude '*/.git' --exclude './target' --exclude './dist' --exclude './tmp' -czf dist/toven-$(PACKAGE_VERSION)-source.tar.gz .
-	( cd dist && shasum -a 256 * > SHA256SUMS )
+	cargo build --locked --release -p toven --target $(HOST_TARGET)
+	./scripts/package-release-binary.sh "$(HOST_TARGET)" "target/$(HOST_TARGET)/release/$(if $(findstring windows,$(HOST_TARGET)),toven.exe,toven)"
+
+# Combine every per-target archive already staged under dist/ (downloaded
+# from the build matrix) into the immutable SHA256SUMS the hosted Release
+# publishes and signs.
+release-checksums:
+	cd dist && bash -c 'shopt -s nullglob; shasum -a 256 toven-*.tar.gz toven-*.zip > SHA256SUMS'
+
+# Copy the umbrella app's CycloneDX SBOM (already produced by `release-plan`'s
+# `toven release sbom`) to the fixed dist/ path release.host.assets declares.
+release-sbom-binary:
+	mkdir -p dist
+	cp target/toven/release/sbom/toven.cdx.json dist/toven-sbom.cdx.json
 
 act-ci:
 	act pull_request -W .github/workflows/ci.yml

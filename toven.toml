@@ -24,18 +24,34 @@ region = 70.0
 # single repository tag (e.g. `v0.1.0`) — the one release train for the binary —
 # instead of the per-crate `{ecosystem}/{module}@{version}` default.
 #
-# The hosted GitHub Release carries the per-target `toven` binary archives, their
-# checksums, signatures, SBOM, and provenance. Those assets are not declared here
-# (`host.assets` stays unset); the archives are produced by the release build and
-# attached at publish time. This block drives the mutation-free previews (`release
-# plan` / `status` / `readiness`); release execution runs once the build produces
-# the assets and the immutable host path resolves.
+# The hosted GitHub Release carries the per-target `toven` binary archives, a
+# combined `SHA256SUMS`, its keyless Sigstore/cosign signature and certificate,
+# and a CycloneDX SBOM. `host.assets` in this port is a fixed list of exact,
+# non-templated project-relative paths (no globbing, no version placeholder —
+# see crates/toven-ports/src/config/release/host.rs), so archive names never
+# embed the release version; the version lives in the release tag and title
+# instead. `.github/workflows/release.yml` builds every target on a `v*` tag
+# push, assembles this exact `dist/` file set, then runs `toven release
+# publish` so the resolved paths below exist before the hosted Release is cut.
+# Build provenance is attached separately as a GitHub attestation, not as a
+# listed asset.
 [ecosystems.rust.release]
 readiness = ["clean-tree"]
 tag_format = "v{version}"
 
 [ecosystems.rust.release.host]
 forge = "github"
+assets = [
+  "dist/toven-x86_64-unknown-linux-gnu.tar.gz",
+  "dist/toven-aarch64-unknown-linux-gnu.tar.gz",
+  "dist/toven-x86_64-apple-darwin.tar.gz",
+  "dist/toven-aarch64-apple-darwin.tar.gz",
+  "dist/toven-x86_64-pc-windows-msvc.zip",
+  "dist/SHA256SUMS",
+  "dist/SHA256SUMS.sig",
+  "dist/SHA256SUMS.pem",
+  "dist/toven-sbom.cdx.json",
+]
 
 [ecosystems.rust.release.prerelease]
 channels = ["alpha"]
