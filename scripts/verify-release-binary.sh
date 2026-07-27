@@ -33,6 +33,15 @@ for arg in "$@"; do
   esac
 done
 
+# The target triple names files under dist/ and feeds `gh release download
+# --pattern`; reject anything outside the triple alphabet (lowercase letters,
+# digits, `_`, `-`) so a manual invocation cannot traverse paths or inject
+# glob patterns.
+if [[ ! "${target}" =~ ^[a-z0-9_-]+$ ]]; then
+  echo "verify-release-binary: invalid target triple '${target}' (expected e.g. x86_64-unknown-linux-gnu)" >&2
+  exit 2
+fi
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
 
@@ -103,7 +112,11 @@ if [[ ! -f "${archive_path}" ]]; then
 fi
 
 if [[ "${run_binary}" -eq 0 ]]; then
-  echo "verify-release-binary: ${target} archive present and checksum-verified (not executed on this runner)" >&2
+  if [[ "${download}" -eq 1 ]]; then
+    echo "verify-release-binary: ${target} archive signature- and checksum-verified (not executed on this runner)" >&2
+  else
+    echo "verify-release-binary: ${target} archive present (not executed on this runner)" >&2
+  fi
   exit 0
 fi
 

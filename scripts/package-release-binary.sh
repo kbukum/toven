@@ -19,6 +19,14 @@ fi
 target="$1"
 built_binary="$2"
 
+# The target triple names the archive written under dist/; reject anything
+# outside the triple alphabet (lowercase letters, digits, `_`, `-`) so a
+# manual invocation cannot traverse paths.
+if [[ ! "${target}" =~ ^[a-z0-9_-]+$ ]]; then
+  echo "package-release-binary: invalid target triple '${target}' (expected e.g. x86_64-unknown-linux-gnu)" >&2
+  exit 2
+fi
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dist_dir="${repo_root}/dist"
 mkdir -p "${dist_dir}"
