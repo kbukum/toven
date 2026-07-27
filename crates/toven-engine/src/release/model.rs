@@ -269,7 +269,10 @@ pub struct ReleaseModuleStatus {
     pub latest_tag: Option<String>,
     /// Versions the registry reports as already published (best-effort).
     pub published_versions: Vec<Version>,
-    /// Whether the declared version is already among the published versions.
+    /// Whether the declared version is already released. Online, the registry
+    /// reports it among the published versions (tag-only modules never publish,
+    /// so they always report `false` online); offline, where release tags
+    /// anchor idempotency, the newest release tag is at/above it.
     pub is_published: bool,
 }
 

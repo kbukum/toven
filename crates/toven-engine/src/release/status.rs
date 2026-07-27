@@ -73,15 +73,23 @@ pub fn release_status(
             target.published_versions(module)?
         };
         let scheme = target.tag_scheme(module, resolved.tag_format.as_deref())?;
-        let latest_tag = tags_by_member
+        let latest = tags_by_member
             .get(&module.member)
-            .and_then(|tags| tag::latest(&scheme, tags))
-            .map(|(_, tag)| tag.name);
-        let is_published = if resolved.publication.publishes_to_registry() {
+            .and_then(|tags| tag::latest(&scheme, tags));
+        // Offline there is no registry set to consult — idempotency anchors on
+        // release tags instead (mirroring plan-time `planned <= tagged`), so the
+        // published verdict comes from the newest release tag: a declared
+        // version at/below it has already been released.
+        let is_published = if resolved.offline {
+            latest
+                .as_ref()
+                .is_some_and(|(tagged, _)| &declared <= tagged)
+        } else if resolved.publication.publishes_to_registry() {
             published.contains(&declared)
         } else {
             false
         };
+        let latest_tag = latest.map(|(_, tag)| tag.name);
         modules.push(ReleaseModuleStatus {
             module: module.key(),
             publication: resolved.publication.clone(),
@@ -296,6 +304,89 @@ mod tests {
             "offline status must not query the registry: {:?}",
             target.calls()
         );
+    }
+
+    #[test]
+    fn offline_status_anchors_is_published_on_the_release_tag() {
+        let core = module("core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+
+        let target = FakeReleaseTarget::new()
+            .with_declared_version(Version::new(0, 2, 0))
+            .with_published_versions(vec![Version::new(0, 1, 0)]);
+        let common = CommonEcosystemConfig {
+            release: ReleaseConfig {
+                registry: Some("crates-io".into()),
+                offline: Some(true),
+                ..ReleaseConfig::default()
+            },
+            ..CommonEcosystemConfig::default()
+        };
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_common(common)
+            .with_release_target(target.clone());
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+
+        let vcs = FakeVcsReader::new().with_tags(vec![
+            TagRef::new("rust/core@0.1.0", Oid::new("beef")),
+            TagRef::new("rust/core@0.2.0", Oid::new("cafe")),
+        ]);
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let status =
+            release_status(&request(), &document(), &providers, &readers, &mut reporter).unwrap();
+
+        let entry = &status.modules[0];
+        assert!(entry.published_versions.is_empty());
+        assert_eq!(entry.latest_tag.as_deref(), Some("rust/core@0.2.0"));
+        assert!(entry.is_published);
+        assert!(
+            !target
+                .calls()
+                .iter()
+                .any(|call| matches!(call, toven_testkit::ReleaseCall::PublishedVersions(_))),
+            "offline status must not query the registry: {:?}",
+            target.calls()
+        );
+    }
+
+    #[test]
+    fn offline_status_reports_unpublished_when_tags_lag_the_manifest() {
+        let core = module("core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+
+        let target = FakeReleaseTarget::new().with_declared_version(Version::new(0, 3, 0));
+        let common = CommonEcosystemConfig {
+            release: ReleaseConfig {
+                registry: Some("crates-io".into()),
+                offline: Some(true),
+                ..ReleaseConfig::default()
+            },
+            ..CommonEcosystemConfig::default()
+        };
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_common(common)
+            .with_release_target(target);
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+
+        let vcs =
+            FakeVcsReader::new().with_tags(vec![TagRef::new("rust/core@0.2.0", Oid::new("cafe"))]);
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let status =
+            release_status(&request(), &document(), &providers, &readers, &mut reporter).unwrap();
+
+        let entry = &status.modules[0];
+        assert_eq!(entry.latest_tag.as_deref(), Some("rust/core@0.2.0"));
+        assert!(!entry.is_published);
     }
 
     #[test]
