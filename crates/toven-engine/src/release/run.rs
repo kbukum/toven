@@ -98,7 +98,14 @@ pub fn release_run(
                 repos,
                 request.project_root.as_path(),
                 &mut stats,
-            )?;
+            )
+            .map_err(|error| {
+                super::apply::forward_recovery_error(
+                    "the release commit, tags, and registry publication completed",
+                    "hosted release",
+                    error,
+                )
+            })?;
         }
     }
     Ok(stats)

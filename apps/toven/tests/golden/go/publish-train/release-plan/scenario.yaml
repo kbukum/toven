@@ -1,0 +1,25 @@
+# Non-empty Go release plan golden: a changed nested module releases with its
+# path-prefixed tag and the dependent root module joins the train through a
+# dependency cascade. Baseline tags are pinned to the import commit so the
+# touch commit reads as changed since the last release.
+repo: go/publish-train
+requires: [go]
+git:
+  commits:
+    - msg: "touch core"
+      touch:
+        - core/core.go
+  tags:
+    - { name: v0.1.0, at: 0 }
+    - { name: core/v0.1.0, at: 0 }
+steps:
+  - id: 01-release-plan-jsonl
+    argv: [release, plan, --output, jsonl]
+    stdout: { match: normalized }
+  - id: 02-release-publish-dry-run
+    argv: [release, publish, --dry-run, --output, jsonl, --pre, alpha]
+    stdout: { match: normalized }
+    # --dry-run rehearses only: it must create no release tag.
+    effects:
+      - git_tag_absent: core/v0.2.0-alpha.1
+      - git_tag_absent: v0.1.1-alpha.1

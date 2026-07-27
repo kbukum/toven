@@ -1,3 +1,6 @@
+# Variant of the default release config that keeps the legacy `token_env`
+# field: release resolution must reject it (not-yet-honored) before any
+# planning or mutation, proving a configured-but-inert setting fails closed.
 [project]
 name = "publish-train-rust"
 
@@ -13,9 +16,6 @@ strategy = "semver-cascade"
 level = "minor"
 dependent_version = "upgrade"
 tag_format = "{module}/v{version}"
-tag_message = "release {module} {version}"
-commit_message = "chore: release {version}"
 push = false
 registry = "crates-io"
-readiness = ["clean-tree"
-
+token_env = "CARGO_REGISTRY_TOKEN"

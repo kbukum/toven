@@ -1,0 +1,25 @@
+# Rust dependency cascade golden: only the shared crate changed since the
+# pinned baseline tags, so the dependent CLI joins the release train through a
+# cascade bump with the changed crate as its cascade origin.
+repo: rust/publish-train
+git:
+  commits:
+    - msg: "touch train-core"
+      touch:
+        - crates/train-core/src/lib.rs
+  tags:
+    - { name: core-v0.1.0, at: 0 }
+    - { name: train-cli/v0.1.0, at: 0 }
+steps:
+  - id: 01-release-plan-jsonl
+    argv: [release, plan, --output, jsonl]
+    config: toven.cascade.toml
+    stdout: { match: normalized }
+  - id: 02-release-publish-dry-run
+    argv: [release, publish, --dry-run, --output, jsonl]
+    config: toven.cascade.toml
+    stdout: { match: normalized }
+    # --dry-run rehearses only: it must create no release tag.
+    effects:
+      - git_tag_absent: core-v1.0.0
+      - git_tag_absent: train-cli/v0.1.1

@@ -165,6 +165,8 @@ pub enum VcsWrite {
 pub struct FakeVcsWriter {
     commit_oid: Oid,
     fail_commit: Option<String>,
+    fail_create_tag: Option<String>,
+    fail_push: Option<String>,
     fail_restore: Option<String>,
     writes: Mutex<Vec<VcsWrite>>,
 }
@@ -174,6 +176,8 @@ impl Default for FakeVcsWriter {
         Self {
             commit_oid: Oid::new("0000000"),
             fail_commit: None,
+            fail_create_tag: None,
+            fail_push: None,
             fail_restore: None,
             writes: Mutex::new(Vec::new()),
         }
@@ -198,6 +202,22 @@ impl FakeVcsWriter {
     #[must_use]
     pub fn with_commit_failure(mut self, message: impl Into<String>) -> Self {
         self.fail_commit = Some(message.into());
+        self
+    }
+
+    /// Make `create_tag` fail with a typed internal error after recording the
+    /// call — e.g. to model a post-commit tagging failure.
+    #[must_use]
+    pub fn with_create_tag_failure(mut self, message: impl Into<String>) -> Self {
+        self.fail_create_tag = Some(message.into());
+        self
+    }
+
+    /// Make `push` fail with a typed internal error after recording the call —
+    /// e.g. to model a post-commit push failure.
+    #[must_use]
+    pub fn with_push_failure(mut self, message: impl Into<String>) -> Self {
+        self.fail_push = Some(message.into());
         self
     }
 
@@ -241,6 +261,9 @@ impl VcsWriter for FakeVcsWriter {
             target_rev: target_rev.to_string(),
             message: message.map(ToString::to_string),
         });
+        if let Some(message) = &self.fail_create_tag {
+            return Err(AppError::new(ErrorCode::Internal, message.clone()));
+        }
         Ok(())
     }
 
@@ -249,6 +272,9 @@ impl VcsWriter for FakeVcsWriter {
             remote: remote.to_string(),
             refspecs: refspecs.to_vec(),
         });
+        if let Some(message) = &self.fail_push {
+            return Err(AppError::new(ErrorCode::Internal, message.clone()));
+        }
         Ok(())
     }
 

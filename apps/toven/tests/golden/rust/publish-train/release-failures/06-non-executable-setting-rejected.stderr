@@ -1,0 +1,1 @@
+error[INVALID_INPUT]: invalid release.token_env: module 'rust:train-cli' configures token_env, which is not yet honored: the registry credential reaches the publishing toolchain only through its ambient environment (e.g. CARGO_REGISTRY_TOKEN for cargo); remove token_env from the release configuration

@@ -33,7 +33,7 @@ toven release publish --yes
 
 | Action | Result | Mutation |
 |---|---|---|
-| `plan` | Selected modules, publication policies, independent versions, reasons, cascades, and order | None |
+| `plan` | Selected modules, publication policies, independent versions, tags, reasons, cascades, and order | None |
 | `status` | Publication policies, declared versions, matching tags, and reported published versions | None |
 | `readiness` | Fail-closed go/no-go checks | None |
 | `sbom` | CycloneDX artifacts under `--out-dir` for supported targets | Local artifacts |
@@ -51,9 +51,9 @@ toven release plan [--output human|jsonl]
 toven release status [--output human|jsonl]
 ```
 
-The plan is deterministic and follows dependency order. Each entry reports the current and planned version, bump level, whether the module changed directly or joined through a dependency cascade, the winning version input, the resolved publication policy, and whether registry publication is needed. JSONL additionally carries the cascade origin, prerelease channel, publication policy, and registry identifier when one exists.
+The plan is deterministic and follows dependency order; repeated runs over unchanged state produce identical output. Each entry reports the current and planned version, the exact release tag a mutating run would create, the bump level, whether the module changed directly or joined through a dependency cascade, the winning version input, the resolved publication policy, and whether registry publication is needed. JSONL additionally carries the 1-based publication `order`, the cascade origin, prerelease channel, publication policy, and registry identifier when one exists. Entries appear in publication order in both renderings.
 
-Status performs read-only tag and ecosystem-target lookups and reports the resolved publication policy for each releasable module. A lookup failure is surfaced rather than converted into a successful empty result.
+Status performs read-only tag and ecosystem-target lookups and reports the resolved publication policy for each releasable module. A lookup failure is surfaced rather than converted into a successful empty result. With `offline = true`, status anchors on release tags and skips registry lookups entirely, so the projection stays network-free.
 
 ## Readiness
 
@@ -115,7 +115,7 @@ toven release tag --yes
 toven release publish --yes
 ```
 
-Mutating actions fail unless `--yes` is present. They check the allowed branch and reject a dirty worktree before changing a manifest — the clean-tree guardrail has no bypass. `--no-push` keeps the release commit and tags local and therefore skips hosted Release creation.
+Mutating actions fail unless `--yes` is present. They check the allowed branch and reject a dirty worktree before changing a manifest — the clean-tree guardrail has no bypass. Before any mutation, the planned tags are preflighted: a release tag that already exists fails closed with forward-fix guidance, because tags are immutable. `--no-push` keeps the release commit and tags local and therefore skips hosted Release creation. A failure after the release commit — tagging, push, registry publication, or hosted Release creation — reports the externally visible state and the forward-only recovery path; nothing is rolled back past that boundary.
 
 ## Rust release policy
 

@@ -132,28 +132,10 @@ pub fn release_apply_by_member(
             targets,
             settings.commit_message(),
         )?;
-        for entry in &shard.plan.entries {
-            let Some(version) = &entry.planned_version else {
-                continue;
-            };
-            let module = module_by_ref.get(&entry.module).copied().ok_or_else(|| {
-                AppError::invalid_input(
-                    "release.modules",
-                    format!("unknown module '{}'", entry.module),
-                )
-            })?;
-            let target = targets
-                .get(&(module.member.clone(), module.id.ecosystem.clone()))
-                .map(Box::as_ref)
-                .ok_or_else(|| {
-                    AppError::invalid_input(
-                        "release.target",
-                        format!("module '{}' has no release target", module.key()),
-                    )
-                })?;
-            target.tag_scheme(module, entry.tag_format.as_deref())?;
-            apply::tag_message(entry, module, version)?;
-        }
+        // Immutable-tag preflight: a planned tag that already exists fails
+        // closed before any member mutates.
+        let repo = repo_for(repos, shard.member.as_ref())?;
+        apply::preflight_tags(&shard.plan, &module_by_ref, targets, repo.reader())?;
     }
 
     let mut prepared = Vec::with_capacity(shards.len());
@@ -180,7 +162,13 @@ pub fn release_apply_by_member(
 
     if options.publish {
         let items = apply::publish_items(plan, &module_by_ref, targets, &artifacts)?;
-        publish::run(&items, options.retry_budget, &mut stats)?;
+        publish::run(&items, options.retry_budget, &mut stats).map_err(|error| {
+            apply::forward_recovery_error(
+                "the release commits and tags completed",
+                "publication",
+                error,
+            )
+        })?;
     }
     Ok(stats)
 }
@@ -236,37 +224,36 @@ fn commit_member_shard(
             ));
         }
     };
-    for entry in &shard.plan.entries {
-        if let Some(version) = &entry.planned_version {
-            let module = module_by_ref.get(&entry.module).copied().ok_or_else(|| {
-                AppError::invalid_input(
-                    "release.modules",
-                    format!("unknown module '{}'", entry.module),
-                )
-            })?;
-            let target = targets
-                .get(&(module.member.clone(), module.id.ecosystem.clone()))
-                .map(Box::as_ref)
-                .ok_or_else(|| {
-                    AppError::invalid_input(
-                        "release.target",
-                        format!("module '{}' has no release target", module.key()),
-                    )
-                })?;
-            let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
-            let name = crate::release::tag::format(&scheme, version);
-            let message = apply::tag_message(entry, module, version)?;
-            repo.writer()
-                .create_tag(&name, commit.as_str(), message.as_deref())?;
-            stats.tagged_modules += 1;
-        }
-    }
+    // Post-commit phase for this member (no rollback): tag, optionally push. A
+    // failure here cannot undo the member's commit — it surfaces with
+    // forward-only recovery guidance naming the member.
+    let member = shard.member.as_ref();
+    let committed = || {
+        format!(
+            "the release commit {} for member '{}' was created",
+            commit.as_str(),
+            member.map_or("<root>", MemberId::as_str)
+        )
+    };
+    apply::tag_releases(
+        &shard.plan,
+        module_by_ref,
+        targets,
+        repo.writer(),
+        &commit,
+        stats,
+    )
+    .map_err(|error| apply::forward_recovery_error(&committed(), "tagging", error))?;
     if settings.pushes(options) {
-        let branch = repo.reader().current_branch()?;
-        repo.writer().push(
-            settings.remote(),
-            &apply::push_refspecs(&shard.plan, module_by_ref, targets, &branch)?,
-        )?;
+        // Every push-phase step — resolving the branch, computing refspecs, and
+        // the push itself — runs after this member's commit and tags exist, so
+        // any failure carries forward-only recovery guidance naming the member.
+        let push = || -> AppResult<()> {
+            let branch = repo.reader().current_branch()?;
+            let refspecs = apply::push_refspecs(&shard.plan, module_by_ref, targets, &branch)?;
+            repo.writer().push(settings.remote(), &refspecs)
+        };
+        push().map_err(|error| apply::forward_recovery_error(&committed(), "push", error))?;
     }
     Ok(())
 }
@@ -397,6 +384,7 @@ mod tests {
             module: mkey(member, name),
             current_version: Version::new(0, 1, 0),
             planned_version: Some(version.clone()),
+            planned_tag: Some(format!("rust/{name}@{version}")),
             level: BumpLevel::Patch,
             reason: BumpReason::Changed,
             winning_input: BumpSource::Default,
@@ -440,6 +428,206 @@ mod tests {
             Box::new(gateway.clone()),
         );
         map
+    }
+
+    #[test]
+    fn a_planned_tag_that_already_exists_is_rejected_before_any_member_mutates() {
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![
+                entry("core", "shared", Version::new(0, 1, 1), 0),
+                entry("gateway", "api", Version::new(0, 1, 1), 1),
+            ],
+        );
+        let modules = vec![module("core", "shared"), module("gateway", "api")];
+        let target = FakeReleaseTarget::new();
+        let core_reader = FakeVcsReader::new().with_tags(vec![toven_ports::TagRef::new(
+            "rust/shared@0.1.1",
+            toven_ports::Oid::new("deadbee"),
+        )]);
+        let gateway_reader = FakeVcsReader::new();
+        let core_writer = FakeVcsWriter::new();
+        let gateway_writer = FakeVcsWriter::new();
+        let repos = MemberReleaseRepos::new(vec![
+            MemberReleaseRepo::new(
+                Some(member("core")),
+                std::path::PathBuf::from("/repos/core"),
+                &core_reader,
+                &core_writer,
+            ),
+            MemberReleaseRepo::new(
+                Some(member("gateway")),
+                std::path::PathBuf::from("/repos/gateway"),
+                &gateway_reader,
+                &gateway_writer,
+            ),
+        ]);
+
+        let error = release_apply_by_member(
+            &plan,
+            &modules,
+            &targets(&target),
+            &repos,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("an existing release tag must fail closed before any mutation");
+
+        let message = error.to_string();
+        assert!(message.contains("rust/shared@0.1.1"), "{message}");
+        assert!(message.contains("immutable"), "{message}");
+        assert!(
+            core_writer.writes().is_empty(),
+            "no write may reach the colliding member"
+        );
+        assert!(
+            gateway_writer.writes().is_empty(),
+            "no write may reach a sibling member either"
+        );
+        assert!(
+            target.calls().iter().all(|call| matches!(
+                call,
+                ReleaseCall::TagScheme { .. } | ReleaseCall::DeclaredVersion(_)
+            )),
+            "no target mutation/package/publish may happen: {:?}",
+            target.calls()
+        );
+    }
+
+    #[test]
+    fn a_tag_failure_after_a_member_commit_carries_forward_only_recovery_guidance() {
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", "shared", Version::new(0, 1, 1), 0)],
+        );
+        let modules = vec![module("core", "shared")];
+        let target = FakeReleaseTarget::new();
+        let core_reader = FakeVcsReader::new();
+        let core_writer = FakeVcsWriter::new().with_create_tag_failure("tag rejected");
+        let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
+            Some(member("core")),
+            std::path::PathBuf::from("/repos/core"),
+            &core_reader,
+            &core_writer,
+        )]);
+
+        let error = release_apply_by_member(
+            &plan,
+            &modules,
+            &targets(&target),
+            &repos,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("a post-commit tag failure must surface recovery guidance");
+
+        let message = error.to_string();
+        assert!(message.contains("tagging"), "{message}");
+        assert!(message.contains("tag rejected"), "{message}");
+        assert!(message.contains("member 'core'"), "{message}");
+        assert!(message.contains("toven release status"), "{message}");
+        assert!(message.contains("forward fix"), "{message}");
+        // The commit is past the rollback boundary: no worktree restore.
+        assert!(
+            core_writer
+                .writes()
+                .iter()
+                .any(|write| matches!(write, VcsWrite::Commit(_)))
+        );
+        assert!(
+            !core_writer
+                .writes()
+                .iter()
+                .any(|write| matches!(write, VcsWrite::RestoreWorktree))
+        );
+    }
+
+    #[test]
+    fn a_push_failure_after_the_member_commits_carries_forward_only_recovery_guidance() {
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", "shared", Version::new(0, 1, 1), 0)],
+        );
+        let modules = vec![module("core", "shared")];
+        let target = FakeReleaseTarget::new();
+        let core_reader = FakeVcsReader::new();
+        let core_writer = FakeVcsWriter::new().with_push_failure("remote rejected");
+        let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
+            Some(member("core")),
+            std::path::PathBuf::from("/repos/core"),
+            &core_reader,
+            &core_writer,
+        )]);
+
+        let error = release_apply_by_member(
+            &plan,
+            &modules,
+            &targets(&target),
+            &repos,
+            &ReleaseApplyOptions {
+                no_push: false,
+                ..Default::default()
+            },
+        )
+        .expect_err("a post-commit push failure must surface recovery guidance");
+
+        let message = error.to_string();
+        assert!(message.contains("push"), "{message}");
+        assert!(message.contains("remote rejected"), "{message}");
+        assert!(message.contains("member 'core'"), "{message}");
+        assert!(message.contains("toven release status"), "{message}");
+        assert!(message.contains("forward fix"), "{message}");
+        // The commit and tag are past the rollback boundary: no worktree
+        // restore may be attempted for a post-commit push failure.
+        assert!(
+            core_writer
+                .writes()
+                .iter()
+                .any(|write| matches!(write, VcsWrite::Commit(_)))
+        );
+        assert!(
+            !core_writer
+                .writes()
+                .iter()
+                .any(|write| matches!(write, VcsWrite::RestoreWorktree))
+        );
+    }
+
+    #[test]
+    fn a_publish_failure_after_the_member_commits_carries_forward_only_recovery_guidance() {
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", "shared", Version::new(0, 1, 1), 0)],
+        );
+        let modules = vec![module("core", "shared")];
+        let target = FakeReleaseTarget::new().with_publish_failure("registry unavailable");
+        let core_reader = FakeVcsReader::new();
+        let core_writer = FakeVcsWriter::new();
+        let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
+            Some(member("core")),
+            std::path::PathBuf::from("/repos/core"),
+            &core_reader,
+            &core_writer,
+        )]);
+
+        let error = release_apply_by_member(
+            &plan,
+            &modules,
+            &targets(&target),
+            &repos,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("a post-commit publish failure must surface recovery guidance");
+
+        let message = error.to_string();
+        assert!(message.contains("publication"), "{message}");
+        assert!(message.contains("registry unavailable"), "{message}");
+        assert!(message.contains("toven release status"), "{message}");
+        assert!(message.contains("forward fix"), "{message}");
+        assert!(
+            !core_writer
+                .writes()
+                .iter()
+                .any(|write| matches!(write, VcsWrite::RestoreWorktree))
+        );
     }
 
     #[test]

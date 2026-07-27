@@ -171,7 +171,7 @@ pub fn release_apply(
         .collect();
     // Resolve all pre-commit errors before mutating any manifest.
     let message = commit_message(plan, &module_by_ref, targets, settings.commit_message())?;
-    preflight_tags(plan, &module_by_ref, targets)?;
+    preflight_tags(plan, &module_by_ref, targets, reader)?;
 
     // Pre-commit phase (undoable): apply mutations, then package every module.
     let artifacts = match prepare(plan, &module_by_ref, targets, &mut stats) {
@@ -186,10 +186,47 @@ pub fn release_apply(
         Err(error) => return Err(restore_or_precommit_error(writer, "commit", error)),
     };
 
-    // Post-commit phase (no rollback): tag, optionally push, publish.
+    // Post-commit phase (no rollback): tag, optionally push, publish. A failure
+    // here cannot undo the commit — it surfaces with forward-only recovery
+    // guidance instead of pretending the run was atomic.
+    let committed = || format!("release commit {} was created", commit.as_str());
+    tag_releases(plan, &module_by_ref, targets, writer, &commit, &mut stats)
+        .map_err(|error| forward_recovery_error(&committed(), "tagging", error))?;
+    if settings.pushes(options) {
+        // Every push-phase step — resolving the branch, computing refspecs, and
+        // the push itself — runs after the commit and tags exist, so any
+        // failure carries forward-only recovery guidance rather than surfacing
+        // raw.
+        let push = || -> AppResult<()> {
+            let branch = reader.current_branch()?;
+            let refspecs = push_refspecs(plan, &module_by_ref, targets, &branch)?;
+            writer.push(settings.remote(), &refspecs)
+        };
+        push().map_err(|error| forward_recovery_error(&committed(), "push", error))?;
+    }
+
+    if options.publish {
+        let items = publish_items(plan, &module_by_ref, targets, &artifacts)?;
+        publish::run(&items, options.retry_budget, &mut stats)
+            .map_err(|error| forward_recovery_error(&committed(), "publication", error))?;
+    }
+
+    Ok(stats)
+}
+
+/// Create every planned release tag against the release commit.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn tag_releases(
+    plan: &ReleasePlan,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+    targets: &super::ReleaseTargets,
+    writer: &dyn VcsWriter,
+    commit: &toven_ports::Oid,
+    stats: &mut ReleaseStats,
+) -> AppResult<()> {
     for entry in &plan.entries {
         if let Some(version) = &entry.planned_version {
-            let module = module_for(&module_by_ref, &entry.module)?;
+            let module = module_for(module_by_ref, &entry.module)?;
             let target = target_for(targets, module)?;
             let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
             let name = tag::format(&scheme, version);
@@ -198,20 +235,26 @@ pub fn release_apply(
             stats.tagged_modules += 1;
         }
     }
-    if settings.pushes(options) {
-        let branch = reader.current_branch()?;
-        writer.push(
-            settings.remote(),
-            &push_refspecs(plan, &module_by_ref, targets, &branch)?,
-        )?;
-    }
+    Ok(())
+}
 
-    if options.publish {
-        let items = publish_items(plan, &module_by_ref, targets, &artifacts)?;
-        publish::run(&items, options.retry_budget, &mut stats)?;
-    }
-
-    Ok(stats)
+/// Wrap a failure that happens after externally visible release state exists
+/// (`state` says what) with forward-only recovery guidance, preserving the
+/// original error code and cause. Past that point the run cannot be made to
+/// look atomic: the operator inspects the partially released state and
+/// forward-fixes — never rewrites or deletes published state.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn forward_recovery_error(state: &str, phase: &str, error: AppError) -> AppError {
+    AppError::new(
+        error.code(),
+        format!(
+            "release {phase} failed after {state}: {error}. Release tags, registry versions, \
+             and hosted releases are immutable — inspect `toven release status`, resolve the \
+             cause, preview again, and publish a forward fix; never rewrite or delete published \
+             state"
+        ),
+    )
+    .with_cause(error)
 }
 
 /// Reject a disallowed checked-out branch before release mutation.
@@ -412,19 +455,50 @@ pub(crate) fn commit_message(
     Ok(format!("release: {}", released.join(", ")))
 }
 
-fn preflight_tags(
+/// Pre-commit tag preflight: every planned tag scheme and annotation must
+/// resolve, no planned tag may already exist, and no two modules in the plan
+/// may render the same tag. Release tags are immutable — a collision means the
+/// version was already tagged (manually or by an interrupted run), so the run
+/// fails closed with forward-fix guidance rather than reusing or moving a tag.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn preflight_tags(
     plan: &ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
     targets: &super::ReleaseTargets,
+    reader: &dyn VcsReader,
 ) -> AppResult<()> {
+    let existing = reader.list_tags(None)?;
+    let names: BTreeSet<&str> = existing.iter().map(|tag| tag.name.as_str()).collect();
+    let mut planned = BTreeSet::new();
     for entry in &plan.entries {
         let Some(version) = &entry.planned_version else {
             continue;
         };
         let module = module_for(module_by_ref, &entry.module)?;
         let target = target_for(targets, module)?;
-        target.tag_scheme(module, entry.tag_format.as_deref())?;
+        let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
         tag_message(entry, module, version)?;
+        let name = tag::format(&scheme, version);
+        if names.contains(name.as_str()) {
+            return Err(AppError::invalid_input(
+                "release.tags",
+                format!(
+                    "release tag '{name}' already exists; release tags are immutable — \
+                     forward-fix with a new version instead of reusing '{version}'"
+                ),
+            ));
+        }
+        if !planned.insert(name.clone()) {
+            return Err(AppError::invalid_input(
+                "release.tags",
+                format!(
+                    "module '{}' plans release tag '{name}', which another module in this \
+                     release already plans; release tags must be unique per repository — give \
+                     each module a distinct tag_format",
+                    entry.module
+                ),
+            ));
+        }
     }
     Ok(())
 }
@@ -504,7 +578,9 @@ mod tests {
     use rskit_errors::ErrorCode;
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleKey, ModuleRef, RepoPath};
-    use toven_ports::{ChangeRecord, ChangeStatus, PublishOutcome, ReleaseMutation, TagScheme};
+    use toven_ports::{
+        ChangeRecord, ChangeStatus, Oid, PublishOutcome, ReleaseMutation, TagRef, TagScheme,
+    };
     use toven_testkit::{FakeReleaseTarget, FakeVcsReader, FakeVcsWriter, ReleaseCall, VcsWrite};
 
     use super::{ReleaseApplyOptions, reconcile_repo_settings, release_apply};
@@ -532,6 +608,7 @@ mod tests {
             module: mkey(name),
             current_version: Version::new(0, 1, 0),
             planned_version: Some(version.clone()),
+            planned_tag: Some(format!("rust/{name}@{version}")),
             level: BumpLevel::Patch,
             reason: BumpReason::Changed,
             winning_input: BumpSource::Default,
@@ -738,6 +815,148 @@ mod tests {
 
         assert!(error.to_string().contains("release.branches"));
         assert!(writer.writes().is_empty());
+    }
+
+    #[test]
+    fn two_modules_planning_the_same_tag_are_rejected_before_any_mutation() {
+        let mut core = entry("core", Version::new(0, 2, 0), true, 0);
+        core.tag_format = Some("v{version}".into());
+        let mut app = entry("app", Version::new(0, 2, 0), true, 1);
+        app.tag_format = Some("v{version}".into());
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![core, app]);
+        let writer = FakeVcsWriter::new();
+
+        let error = release_apply(
+            &plan,
+            &[module("core"), module("app")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("an in-plan tag collision must fail closed before mutation");
+
+        let message = error.to_string();
+        assert!(message.contains("v0.2.0"), "{message}");
+        assert!(message.contains("unique"), "{message}");
+        assert!(writer.writes().is_empty());
+    }
+
+    #[test]
+    fn a_publish_failure_after_the_commit_carries_forward_only_recovery_guidance() {
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", Version::new(0, 2, 0), true, 0)],
+        );
+        let target = FakeReleaseTarget::new().with_publish_failure("registry unavailable");
+        let writer = FakeVcsWriter::new();
+
+        let error = release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", target)]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("a post-commit publish failure must surface recovery guidance");
+
+        let message = error.to_string();
+        assert!(message.contains("publication"), "{message}");
+        assert!(message.contains("registry unavailable"), "{message}");
+        assert!(message.contains("toven release status"), "{message}");
+        assert!(message.contains("forward fix"), "{message}");
+        // The commit is past the rollback boundary: it happened, and no
+        // worktree restore may be attempted for a post-commit failure.
+        assert!(
+            writer
+                .writes()
+                .iter()
+                .any(|write| matches!(write, VcsWrite::Commit(_)))
+        );
+        assert!(
+            !writer
+                .writes()
+                .iter()
+                .any(|write| matches!(write, VcsWrite::RestoreWorktree))
+        );
+    }
+
+    #[test]
+    fn a_push_failure_after_the_commit_carries_forward_only_recovery_guidance() {
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", Version::new(0, 2, 0), true, 0)],
+        );
+        let writer = FakeVcsWriter::new().with_push_failure("remote rejected");
+
+        let error = release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions {
+                no_push: false,
+                ..Default::default()
+            },
+        )
+        .expect_err("a post-commit push failure must surface recovery guidance");
+
+        let message = error.to_string();
+        assert!(message.contains("push"), "{message}");
+        assert!(message.contains("remote rejected"), "{message}");
+        assert!(message.contains("toven release status"), "{message}");
+        assert!(message.contains("forward fix"), "{message}");
+        // The commit and tag are past the rollback boundary: no worktree
+        // restore may be attempted for a post-commit push failure.
+        assert!(
+            writer
+                .writes()
+                .iter()
+                .any(|write| matches!(write, VcsWrite::Commit(_)))
+        );
+        assert!(
+            !writer
+                .writes()
+                .iter()
+                .any(|write| matches!(write, VcsWrite::RestoreWorktree))
+        );
+    }
+
+    #[test]
+    fn a_planned_tag_that_already_exists_is_rejected_before_any_mutation() {
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", Version::new(0, 2, 0), true, 0)],
+        );
+        let target = FakeReleaseTarget::new();
+        let writer = FakeVcsWriter::new();
+        let reader = FakeVcsReader::new()
+            .with_tags(vec![TagRef::new("rust/core@0.2.0", Oid::new("deadbee"))]);
+
+        let error = release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", target.clone())]),
+            &reader,
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("an existing release tag must fail closed before mutation");
+
+        let message = error.to_string();
+        assert!(message.contains("rust/core@0.2.0"), "{message}");
+        assert!(message.contains("immutable"), "{message}");
+        assert!(writer.writes().is_empty(), "no VCS write may happen");
+        assert!(
+            target.calls().iter().all(|call| matches!(
+                call,
+                ReleaseCall::TagScheme { .. } | ReleaseCall::DeclaredVersion { .. }
+            )),
+            "no target mutation/package/publish may happen: {:?}",
+            target.calls()
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
-# A release-configured train (`train-cli -> train-core`): ecosystem-level
-# registry publication with a per-module override, for release plan/status
-# scenarios (semver cascade, tag formats, publication mix).
+# Variant with `dependent_version = "bump"`: a changed shared crate releases,
+# and its dependent joins the train through a dependency cascade bump rather
+# than a floor-only upgrade.
 [project]
 name = "publish-train-rust"
 
@@ -14,10 +14,9 @@ run_strategy = "leaf-to-top"
 [ecosystems.rust.release]
 strategy = "semver-cascade"
 level = "minor"
-dependent_version = "upgrade"
+dependent_version = "bump"
 tag_format = "{module}/v{version}"
 tag_message = "release {module} {version}"
-commit_message = "chore: release {version}"
 push = false
 registry = "crates-io"
 # Golden scenarios must stay network-free: idempotency anchors on release

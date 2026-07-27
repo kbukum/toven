@@ -19,7 +19,6 @@ push = true
 remote = "origin"
 branches = ["main"]
 registry = "crates-io"
-token_env = "CARGO_REGISTRY_TOKEN"
 
 [ecosystems.rust.release.host]
 forge = "github"

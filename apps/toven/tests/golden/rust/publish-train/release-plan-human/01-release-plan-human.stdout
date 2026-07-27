@@ -1,8 +1,8 @@
 
 Release plan (semver-cascade)
-┌─────────────────┬─────────┬─────────┬───────┬─────────┬────────┬──────────────────────┬─────────┬────────────────────┐
-│ Module          │ Current │ Planned │ Level │ Reason  │ Input  │ Publication          │ Publish │ Summary            │
-├─────────────────┼─────────┼─────────┼───────┼─────────┼────────┼──────────────────────┼─────────┼────────────────────┤
-│ rust:train-core │ 0.1.0   │ 1.0.0   │ major │ changed │ config │ registry (crates-io) │ yes     │ dependency cascade │
-│ rust:train-cli  │ 0.1.0   │ 0.2.0   │ minor │ changed │ config │ registry (crates-io) │ yes     │ dependency cascade │
-└─────────────────┴─────────┴─────────┴───────┴─────────┴────────┴──────────────────────┴─────────┴────────────────────┘
+┌───┬─────────────────┬─────────┬─────────┬──────────────────┬───────┬─────────┬────────┬──────────────────────┬─────────┬────────────────────┐
+│ # │ Module          │ Current │ Planned │ Tag              │ Level │ Reason  │ Input  │ Publication          │ Publish │ Summary            │
+├───┼─────────────────┼─────────┼─────────┼──────────────────┼───────┼─────────┼────────┼──────────────────────┼─────────┼────────────────────┤
+│ 1 │ rust:train-core │ 0.1.0   │ 1.0.0   │ core-v1.0.0      │ major │ changed │ config │ registry (crates-io) │ yes     │ dependency cascade │
+│ 2 │ rust:train-cli  │ 0.1.0   │ 0.2.0   │ train-cli/v0.2.0 │ minor │ changed │ config │ registry (crates-io) │ yes     │ dependency cascade │
+└───┴─────────────────┴─────────┴─────────┴──────────────────┴───────┴─────────┴────────┴──────────────────────┴─────────┴────────────────────┘

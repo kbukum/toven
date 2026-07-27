@@ -62,9 +62,10 @@ pub struct GitScript {
     /// Commits applied in order after the initial import commit.
     #[serde(default)]
     pub commits: Vec<GitCommit>,
-    /// Tags created at `HEAD` after all commits.
+    /// Tags created after all commits: a plain name tags the final `HEAD`, a
+    /// `{ name, at }` table pins the tag to a scripted commit.
     #[serde(default)]
-    pub tags: Vec<String>,
+    pub tags: Vec<GitTag>,
     /// Branches created at `HEAD` after all commits.
     #[serde(default)]
     pub branches: Vec<String>,
@@ -79,6 +80,86 @@ pub struct GitCommit {
     /// Repo-relative files created or appended to before committing.
     #[serde(default)]
     pub touch: Vec<String>,
+}
+
+/// One scripted tag: a plain name created at the final `HEAD`, or a table
+/// pinning the tag to a specific scripted commit.
+///
+/// The `at` index addresses the scripted history: `0` is the import commit,
+/// `1..=N` the scenario's own commits in order. Pinning a release baseline tag
+/// to an earlier commit lets a scenario model "released, then changed" without
+/// interleaving tag and commit directives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitTag {
+    /// Tag name.
+    pub name: String,
+    /// Scripted commit the tag points at; `None` = the final `HEAD`.
+    pub at: Option<usize>,
+}
+
+impl GitTag {
+    /// A tag created at the final `HEAD` after all scripted commits.
+    #[must_use]
+    pub fn head(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            at: None,
+        }
+    }
+
+    /// A tag pinned to the scripted commit at `index` (0 = the import commit).
+    #[must_use]
+    pub fn at(name: impl Into<String>, index: usize) -> Self {
+        Self {
+            name: name.into(),
+            at: Some(index),
+        }
+    }
+}
+
+impl From<&str> for GitTag {
+    fn from(name: &str) -> Self {
+        Self::head(name)
+    }
+}
+
+impl<'de> Deserialize<'de> for GitTag {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        struct GitTagVisitor;
+
+        impl<'de> Visitor<'de> for GitTagVisitor {
+            type Value = GitTag;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a tag name string or a table like { name = \"v1.0.0\", at = 0 }")
+            }
+
+            fn visit_str<E: de::Error>(self, name: &str) -> Result<Self::Value, E> {
+                Ok(GitTag::head(name))
+            }
+
+            fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut name: Option<String> = None;
+                let mut at: Option<usize> = None;
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "name" => name = Some(map.next_value()?),
+                        "at" => at = Some(map.next_value()?),
+                        other => {
+                            return Err(de::Error::unknown_field(other, &["name", "at"]));
+                        }
+                    }
+                }
+                let name = name.ok_or_else(|| de::Error::missing_field("name"))?;
+                Ok(GitTag { name, at })
+            }
+        }
+
+        deserializer.deserialize_any(GitTagVisitor)
+    }
 }
 
 /// One `toven` invocation inside the session.

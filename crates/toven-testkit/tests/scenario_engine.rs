@@ -16,7 +16,7 @@ use toven_testkit::SampleRepo;
 use toven_testkit::fixtures::scenario_path;
 use toven_testkit::git::GitScenario;
 use toven_testkit::scenario::{
-    GitCommit, GitScript, Report, StepStatus, apply_git_script, discover_scenarios,
+    GitCommit, GitScript, GitTag, Report, StepStatus, apply_git_script, discover_scenarios,
     run_scenario_with,
 };
 
@@ -247,7 +247,7 @@ fn git_script_produces_stable_shas_across_materializations() {
             msg: "change app".to_owned(),
             touch: vec!["src/app.txt".to_owned()],
         }],
-        tags: vec!["v1".to_owned()],
+        tags: vec![GitTag::head("v1")],
         branches: vec!["feature".to_owned()],
     };
     let import_epoch = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
@@ -255,9 +255,10 @@ fn git_script_produces_stable_shas_across_materializations() {
     let head_of = |script: &GitScript| {
         let repo = SampleRepo::materialize("edge/no-ecosystem").unwrap();
         let git = GitScenario::init(repo.root()).unwrap();
-        git.commit_all_pinned("import fixture repo", import_epoch)
+        let import = git
+            .commit_all_pinned("import fixture repo", import_epoch)
             .unwrap();
-        apply_git_script(&git, script).unwrap();
+        apply_git_script(&git, script, &import).unwrap();
         (git.resolve("HEAD").unwrap(), git.resolve("v1").unwrap())
     };
 
@@ -266,6 +267,72 @@ fn git_script_produces_stable_shas_across_materializations() {
         head_of(&script),
         "pinned identity + dates make scripted history byte-stable"
     );
+}
+
+#[test]
+fn git_script_pins_tags_to_scripted_commits() {
+    let script = GitScript {
+        commits: vec![GitCommit {
+            msg: "change app".to_owned(),
+            touch: vec!["src/app.txt".to_owned()],
+        }],
+        tags: vec![
+            GitTag::head("v-head"),
+            GitTag::at("v-import", 0),
+            GitTag::at("v-change", 1),
+        ],
+        branches: vec![],
+    };
+    let repo = SampleRepo::materialize("edge/no-ecosystem").unwrap();
+    let git = GitScenario::init(repo.root()).unwrap();
+    let import = git
+        .commit_all_pinned(
+            "import fixture repo",
+            SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+        )
+        .unwrap();
+
+    apply_git_script(&git, &script, &import).unwrap();
+
+    let head = git.resolve("HEAD").unwrap();
+    assert_eq!(git.resolve("v-head").unwrap(), head, "plain tag at HEAD");
+    assert_eq!(
+        git.resolve("v-change").unwrap(),
+        head,
+        "at = 1 is the only scripted commit"
+    );
+    assert_eq!(
+        git.resolve("v-import").unwrap(),
+        import.to_string(),
+        "at = 0 is the import commit"
+    );
+}
+
+#[test]
+fn git_script_rejects_a_tag_pin_beyond_the_scripted_history() {
+    let script = GitScript {
+        commits: vec![GitCommit {
+            msg: "change app".to_owned(),
+            touch: vec!["src/app.txt".to_owned()],
+        }],
+        tags: vec![GitTag::at("v-missing", 7)],
+        branches: vec![],
+    };
+    let repo = SampleRepo::materialize("edge/no-ecosystem").unwrap();
+    let git = GitScenario::init(repo.root()).unwrap();
+    let import = git
+        .commit_all_pinned(
+            "import fixture repo",
+            SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+        )
+        .unwrap();
+
+    let err = apply_git_script(&git, &script, &import).unwrap_err();
+    assert!(
+        err.to_string().contains("v-missing"),
+        "names the tag: {err}"
+    );
+    assert!(err.to_string().contains('7'), "names the index: {err}");
 }
 
 #[test]
@@ -309,7 +376,13 @@ fn git_script_rejects_traversing_touch_paths() {
     };
     let repo = SampleRepo::materialize("edge/no-ecosystem").unwrap();
     let git = GitScenario::init(repo.root()).unwrap();
+    let import = git
+        .commit_all_pinned(
+            "import fixture repo",
+            SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+        )
+        .unwrap();
 
-    let err = apply_git_script(&git, &script).unwrap_err();
+    let err = apply_git_script(&git, &script, &import).unwrap_err();
     assert!(err.to_string().contains("touch"), "names the field: {err}");
 }

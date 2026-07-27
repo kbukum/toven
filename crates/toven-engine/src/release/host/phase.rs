@@ -241,6 +241,7 @@ mod tests {
             module: mkey(name),
             current_version: Version::new(0, 1, 0),
             planned_version: Some(version.clone()),
+            planned_tag: Some(format!("rust/{name}@{version}")),
             level: BumpLevel::Patch,
             reason: BumpReason::Changed,
             winning_input: BumpSource::Default,
