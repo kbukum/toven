@@ -170,6 +170,7 @@ pub fn release_apply(
         .map(|module| (module.key(), module))
         .collect();
     // Resolve all pre-commit errors before mutating any manifest.
+    preflight_targets(plan, &module_by_ref, targets)?;
     let message = commit_message(plan, &module_by_ref, settings.commit_message())?;
     preflight_tags(plan, &module_by_ref, reader)?;
 
@@ -861,6 +862,43 @@ mod tests {
         assert!(message.contains("v0.2.0"), "{message}");
         assert!(message.contains("unique"), "{message}");
         assert!(writer.writes().is_empty());
+    }
+
+    #[test]
+    fn a_module_without_a_release_target_is_rejected_before_any_mutation() {
+        // The go module has no registered target; the failure must surface
+        // before the rust module's mutation, not inside `prepare`.
+        let go_ref = ModuleRef::new(EcosystemId::new("go").unwrap(), "cache-redis").unwrap();
+        let mut go_module = Module::new(go_ref.clone(), RepoPath::new("cache/redis").unwrap());
+        go_module.manifest = Some(RepoPath::new("cache/redis/go.mod").unwrap());
+        let mut go_entry = entry("core", Version::new(2, 0, 0), true, 1);
+        go_entry.module = ModuleKey::bare(go_ref);
+        go_entry.planned_tag = Some("cache/redis/v2.0.0".into());
+
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", Version::new(0, 1, 1), true, 0), go_entry],
+        );
+        let target = FakeReleaseTarget::new();
+        let writer = FakeVcsWriter::new();
+
+        let error = release_apply(
+            &plan,
+            &[module("core"), go_module],
+            &targets(vec![("core", target.clone())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("a missing release target must fail closed before mutation");
+
+        assert!(error.to_string().contains("has no release target"));
+        assert!(writer.writes().is_empty(), "no VCS write may happen");
+        assert!(
+            target.calls().is_empty(),
+            "no target mutation/package may happen: {:?}",
+            target.calls()
+        );
     }
 
     #[test]
