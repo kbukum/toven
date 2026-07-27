@@ -2,8 +2,10 @@ PACKAGE_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head
 
 # The native target triple of the machine running Make, used to build/package
 # a smoke-tested release binary without requiring a cross-compilation target
-# override (see `release-artifacts` below).
-HOST_TARGET := $(shell rustc -vV | sed -n 's/host: //p')
+# override (see `release-artifacts` below). Recursively expanded (`=`, not
+# `:=`) so `rustc -vV` runs only when a recipe actually references it, not on
+# every Make invocation.
+HOST_TARGET = $(shell rustc -vV | sed -n 's/host: //p')
 
 # nextest profile (see .config/nextest.toml). Local runs use `default`
 # (fail-fast, no retries); CI overrides this to `ci` (retries + slow-timeout for
@@ -162,9 +164,11 @@ release-artifacts:
 # Combine every per-target archive already staged under dist/ (downloaded
 # from the build matrix) into the immutable SHA256SUMS the hosted Release
 # publishes and signs. Fails closed when no archives are staged: with
-# nullglob an empty match would leave shasum reading stdin and hang CI.
+# nullglob an empty match would leave the checksum tool reading stdin and
+# hang CI. Uses shasum when present, sha256sum otherwise (same fallback as
+# scripts/verify-release-binary.sh); both emit the same SHA256SUMS format.
 release-checksums:
-	cd dist && bash -c 'shopt -s nullglob; archives=(toven-*.tar.gz toven-*.zip); if (( $${#archives[@]} == 0 )); then echo "release-checksums: no toven-* archives staged under dist/" >&2; exit 1; fi; shasum -a 256 "$${archives[@]}" > SHA256SUMS'
+	cd dist && bash -c 'shopt -s nullglob; archives=(toven-*.tar.gz toven-*.zip); if (( $${#archives[@]} == 0 )); then echo "release-checksums: no toven-* archives staged under dist/" >&2; exit 1; fi; if command -v shasum >/dev/null; then shasum -a 256 "$${archives[@]}" > SHA256SUMS; elif command -v sha256sum >/dev/null; then sha256sum "$${archives[@]}" > SHA256SUMS; else echo "release-checksums: neither shasum nor sha256sum is available" >&2; exit 1; fi'
 
 # Copy the umbrella app's CycloneDX SBOM (already produced by `release-plan`'s
 # `toven release sbom`) to the fixed dist/ path release.host.assets declares.
