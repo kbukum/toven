@@ -146,14 +146,7 @@ pub fn release_apply_by_member(
 
     let mut artifacts = BTreeMap::new();
     for ((shard, member_artifacts), settings) in prepared.into_iter().zip(settings) {
-        commit_member_shard(
-            shard,
-            &module_by_ref,
-            repos,
-            options,
-            &settings,
-            &mut stats,
-        )?;
+        commit_member_shard(shard, &module_by_ref, repos, options, &settings, &mut stats)?;
         artifacts.extend(member_artifacts);
     }
 
