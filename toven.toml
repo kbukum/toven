@@ -30,9 +30,10 @@ region = 70.0
 # non-templated project-relative paths (no globbing, no version placeholder —
 # see crates/toven-ports/src/config/release/host.rs), so archive names never
 # embed the release version; the version lives in the release tag and title
-# instead. `.github/workflows/release.yml` builds every target on a `v*` tag
-# push, assembles this exact `dist/` file set, then runs `toven release
-# publish` so the resolved paths below exist before the hosted Release is cut.
+# instead. The manually dispatched `.github/workflows/release.yml` builds
+# every target, assembles this exact `dist/` file set, then runs `toven
+# release publish` so the resolved paths below exist before the hosted
+# Release is cut.
 # Build provenance is attached separately as a GitHub attestation, not as a
 # listed asset.
 [ecosystems.rust.release]

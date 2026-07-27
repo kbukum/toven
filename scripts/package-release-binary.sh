@@ -43,7 +43,13 @@ case "${target}" in
     archive_path="${dist_dir}/toven-${target}.tar.gz"
     cp "${built_binary}" "${stage_dir}/${binary_name}"
     chmod 755 "${stage_dir}/${binary_name}"
-    tar --numeric-owner --owner=0 --group=0 -czf "${archive_path}" -C "${stage_dir}" "${binary_name}"
+    # Normalize archived ownership for reproducible checksums. GNU tar and
+    # bsdtar spell these flags differently; macOS runners ship bsdtar.
+    if tar --version 2>/dev/null | grep -q 'GNU tar'; then
+      tar --numeric-owner --owner=0 --group=0 -czf "${archive_path}" -C "${stage_dir}" "${binary_name}"
+    else
+      tar --numeric-owner --uid 0 --gid 0 -czf "${archive_path}" -C "${stage_dir}" "${binary_name}"
+    fi
     ;;
 esac
 

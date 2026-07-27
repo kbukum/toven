@@ -260,10 +260,12 @@ jobs:
           retention-days: 90
 
   # Download every published asset back from the hosted Release and prove it
-  # is exactly what was approved: checksum-verified, and — for every target
-  # that can execute on its build runner — reports the released version.
-  # `aarch64-unknown-linux-gnu` is checksum-verified only: no hosted runner can
-  # execute a Linux ARM64 binary.
+  # is exactly what was approved: the keyless Sigstore signature on the
+  # checksum file is verified before the checksums are trusted, then the
+  # archive's checksum is verified, and — for every target that can execute
+  # on its build runner — the binary must report the released version.
+  # `aarch64-unknown-linux-gnu` is signature- and checksum-verified only: no
+  # hosted runner can execute a Linux ARM64 binary.
   verify:
     name: Verify ${{ matrix.target }}
     needs: publish
@@ -291,6 +293,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
 
       - name: Download and verify the published archive
         env:

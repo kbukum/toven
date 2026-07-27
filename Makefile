@@ -146,12 +146,13 @@ release-plan:
 	$(TOVEN) release sbom --out-dir target/toven/release/sbom
 	$(TOVEN) release depgraphs --out-dir target/toven/release/depgraphs
 
-# Real per-target release binary: build the release profile for TARGET
-# (defaults to the native host target) and package it into the fixed-name
-# dist/ archive that toven.toml's `release.host.assets` declares. The tag-
-# triggered .github/workflows/release.yml matrix invokes this once per
-# supported target (via `cross` for the cross-compiled aarch64-linux target);
-# the default (native) invocation is also the per-PR packaging smoke check.
+# Real per-target release binary: build the release profile for the native
+# host target and package it into the fixed-name dist/ archive that
+# toven.toml's `release.host.assets` declares. The manually dispatched
+# .github/workflows/release.yml runs the same packaging script for every
+# matrix target (building via `cross` for the cross-compiled aarch64-linux
+# target); the default (native) invocation is also the per-PR packaging
+# smoke check.
 release-artifacts:
 	rm -rf dist
 	mkdir -p dist
@@ -160,9 +161,10 @@ release-artifacts:
 
 # Combine every per-target archive already staged under dist/ (downloaded
 # from the build matrix) into the immutable SHA256SUMS the hosted Release
-# publishes and signs.
+# publishes and signs. Fails closed when no archives are staged: with
+# nullglob an empty match would leave shasum reading stdin and hang CI.
 release-checksums:
-	cd dist && bash -c 'shopt -s nullglob; shasum -a 256 toven-*.tar.gz toven-*.zip > SHA256SUMS'
+	cd dist && bash -c 'shopt -s nullglob; archives=(toven-*.tar.gz toven-*.zip); if (( $${#archives[@]} == 0 )); then echo "release-checksums: no toven-* archives staged under dist/" >&2; exit 1; fi; shasum -a 256 "$${archives[@]}" > SHA256SUMS'
 
 # Copy the umbrella app's CycloneDX SBOM (already produced by `release-plan`'s
 # `toven release sbom`) to the fixed dist/ path release.host.assets declares.

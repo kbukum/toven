@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Verify one target's packaged `toven` release archive: extract it and check
 # that the binary reports the expected released version. With `--download`,
-# first fetch the archive and the signed SHA256SUMS from the hosted GitHub
-# Release (using the ambient `gh` auth) and verify the archive's checksum
-# before extracting it — this is the "download every published binary and
-# verify it runs and reports the expected version" step of the release
-# approval pipeline (docs/self-hosting.md). With `--no-run`, the archive and
-# its checksum are still verified, but the binary is not executed — for the
-# cross-compiled Linux ARM64 target, which cannot run on any x86_64 build or
-# verify runner (see .github/workflows/release.yml).
+# first fetch the archive, the combined SHA256SUMS, and that file's keyless
+# Sigstore/cosign signature and certificate from the hosted GitHub Release
+# (using the ambient `gh` auth), verify the signature on SHA256SUMS before
+# trusting it, then verify the archive's checksum before extracting it —
+# this is the "download every published binary and verify it runs and
+# reports the expected version" step of the release approval pipeline
+# (docs/self-hosting.md). With `--no-run`, the signature and checksum are
+# still verified, but the binary is not executed — for the cross-compiled
+# Linux ARM64 target, which cannot run on any x86_64 build or verify runner
+# (see .github/workflows/release.yml).
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
@@ -48,17 +50,47 @@ esac
 work_dir="$(mktemp -d)"
 trap 'rm -rf "${work_dir}"' EXIT
 
+# Checksum-verify stdin against SHA256SUMS-format lines, using whichever of
+# shasum / sha256sum the runner provides (shasum is not installed everywhere,
+# e.g. Windows runners); verification must fail closed, never be skipped.
+sha256_check() {
+  if command -v shasum >/dev/null; then
+    shasum -a 256 -c -
+  elif command -v sha256sum >/dev/null; then
+    sha256sum -c -
+  else
+    echo "verify-release-binary: neither shasum nor sha256sum is available" >&2
+    exit 1
+  fi
+}
+
 if [[ "${download}" -eq 1 ]]; then
   tag="v${expected_version}"
-  echo "verify-release-binary: downloading ${archive_name} and SHA256SUMS from release ${tag}" >&2
+  if ! command -v cosign >/dev/null; then
+    echo "verify-release-binary: cosign is required to verify the SHA256SUMS signature" >&2
+    exit 1
+  fi
+  echo "verify-release-binary: downloading ${archive_name}, SHA256SUMS, and its signature from release ${tag}" >&2
   gh release download "${tag}" \
     --dir "${work_dir}" \
     --pattern "${archive_name}" \
-    --pattern "SHA256SUMS"
+    --pattern "SHA256SUMS" \
+    --pattern "SHA256SUMS.sig" \
+    --pattern "SHA256SUMS.pem"
+
+  # The checksums are only trustworthy once the keyless Sigstore signature on
+  # the SHA256SUMS file itself verifies against the release workflow identity
+  # (the same command docs/installation.md gives installers).
+  cosign verify-blob \
+    --certificate "${work_dir}/SHA256SUMS.pem" \
+    --signature "${work_dir}/SHA256SUMS.sig" \
+    --certificate-identity-regexp 'https://github.com/kbukum/toven/.github/workflows/release.yml@.*' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    "${work_dir}/SHA256SUMS"
 
   (
     cd "${work_dir}"
-    grep -F " ${archive_name}" SHA256SUMS | shasum -a 256 -c -
+    grep -F " ${archive_name}" SHA256SUMS | sha256_check
   )
   archive_path="${work_dir}/${archive_name}"
 else
