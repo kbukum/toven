@@ -7,10 +7,11 @@
 # trusting it, then verify the archive's checksum before extracting it —
 # this is the "download every published binary and verify it runs and
 # reports the expected version" step of the release approval pipeline
-# (docs/self-hosting.md). With `--no-run`, the signature and checksum are
-# still verified, but the binary is not executed — for the cross-compiled
-# Linux ARM64 target, which cannot run on any x86_64 build or verify runner
-# (see .github/workflows/release.yml).
+# (docs/self-hosting.md). On a local dist/ archive (no `--download`) only
+# presence and execution are verified; the signature and checksum steps exist
+# only in the download path. `--no-run` skips execution in either mode — for
+# the cross-compiled Linux ARM64 target, which cannot run on any x86_64 build
+# or verify runner (see .github/workflows/release.yml).
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
