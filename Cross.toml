@@ -1,0 +1,11 @@
+# `cross` configuration for the release workflow's cross-compiled targets.
+#
+# The release build enables the `vendored-openssl` feature (see
+# .github/workflows/release.yml), so rskit-git's embedded git2 backend compiles
+# OpenSSL from source per target. That source build runs `perl` and `make` on
+# the container's host architecture; ensure both are present in the cross image
+# before the build so a fresh runner never fails on a missing build tool.
+[target.aarch64-unknown-linux-gnu]
+pre-build = [
+    "apt-get update && apt-get install --assume-yes --no-install-recommends perl make",
+]

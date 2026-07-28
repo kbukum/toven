@@ -124,7 +124,22 @@ fi
 extract_dir="${work_dir}/extracted"
 mkdir -p "${extract_dir}"
 case "${archive_name}" in
-  *.zip) unzip -q "${archive_path}" -d "${extract_dir}" ;;
+  *.zip)
+    if command -v unzip >/dev/null; then
+      unzip -q "${archive_path}" -d "${extract_dir}"
+    else
+      # windows-latest has no `unzip`; PowerShell's built-in Expand-Archive is
+      # always present. `cygpath -w` gives PowerShell native Windows paths. The
+      # paths are handed to PowerShell through the environment rather than
+      # interpolated into the -Command string, so a path containing a single
+      # quote cannot break out of the script, and -LiteralPath keeps any `[`/`]`
+      # glob metacharacters from being expanded.
+      TOVEN_PS_ARCHIVE="$(cygpath -w "${archive_path}")" \
+      TOVEN_PS_DEST="$(cygpath -w "${extract_dir}")" \
+      powershell.exe -NoProfile -NonInteractive -Command \
+        "\$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath \$env:TOVEN_PS_ARCHIVE -DestinationPath \$env:TOVEN_PS_DEST -Force"
+    fi
+    ;;
   *) tar -xzf "${archive_path}" -C "${extract_dir}" ;;
 esac
 

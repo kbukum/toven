@@ -4,5 +4,9 @@
 !/tmp/.keep
 target-*/
 
+# Scratch release-preview dry-run output (release.yml writes it to the repo
+# root and uploads it as a CI artifact; it is never committed).
+/release-preview.jsonl
+
 # Editor-local settings
 /.vscode/

@@ -66,9 +66,11 @@ jobs:
 
   # Real per-target binary build. Each entry packages a runnable `toven` into
   # the fixed dist/ archive name toven.toml's `release.host.assets` declares
-  # (scripts/package-release-binary.sh); the cross-compiled Linux ARM64 target
-  # builds through `cross` so it links against a matching glibc/OpenSSL/
-  # libgit2 instead of the x86_64 host's.
+  # (scripts/package-release-binary.sh). Every target builds with the
+  # `vendored-openssl` feature, so rskit-git's embedded git2 backend links a
+  # source-built OpenSSL (libgit2 is already vendored) and the released binaries
+  # carry no host OpenSSL dependency; the cross-compiled Linux ARM64 target
+  # builds through `cross` for a matching glibc.
   build:
     name: Build ${{ matrix.target }}
     needs: preview
@@ -119,12 +121,12 @@ jobs:
       - name: Build (native)
         if: ${{ !matrix.use_cross }}
         shell: bash
-        run: cargo build --locked --release -p toven --target ${{ matrix.target }}
+        run: cargo build --locked --release -p toven --features vendored-openssl --target ${{ matrix.target }}
 
       - name: Build (cross)
         if: matrix.use_cross
         shell: bash
-        run: cross build --locked --release -p toven --target ${{ matrix.target }}
+        run: cross build --locked --release -p toven --features vendored-openssl --target ${{ matrix.target }}
 
       - name: Package release archive
         shell: bash

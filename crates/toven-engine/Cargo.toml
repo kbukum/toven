@@ -32,6 +32,11 @@ tokio.workspace = true
 tokio-util.workspace = true
 futures.workspace = true
 
+[features]
+# Statically link a source-built OpenSSL into rskit-git's embedded git2
+# backend, for portable and cross-compiled release builds. Off by default.
+vendored-openssl = ["rskit-git/vendored-openssl"]
+
 [dev-dependencies]
 toven-testkit.workspace = true
 tokio = { workspace = true, features = ["test-util"] }

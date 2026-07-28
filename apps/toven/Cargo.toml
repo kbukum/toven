@@ -23,6 +23,16 @@ toven-command.workspace = true
 rskit-cli.workspace = true
 rskit-errors.workspace = true
 
+[features]
+# Statically link a source-built OpenSSL into every adapter's rskit-git backend
+# so the released binary carries its own OpenSSL. Enabled by the release
+# workflow (`cargo build -p toven --features vendored-openssl`); off by default.
+vendored-openssl = [
+    "toven-cli/vendored-openssl",
+    "toven-rust/vendored-openssl",
+    "toven-go/vendored-openssl",
+]
+
 [dev-dependencies]
 toven-testkit.workspace = true
 libtest-mimic.workspace = true
