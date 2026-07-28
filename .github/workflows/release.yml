@@ -251,6 +251,16 @@ jobs:
           name: release-dist
           path: dist
 
+      # The release engine creates the version commit and annotated tags through
+      # libgit2, which builds the committer/author signature from git config.
+      # `actions/checkout` configures the auth token but not an identity, so
+      # without this step `repo.signature()` fails and the publish aborts before
+      # committing. Use the GitHub Actions bot identity for the release commit.
+      - name: Configure git identity for the release commit and tags
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
