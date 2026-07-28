@@ -25,5 +25,10 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 
+[features]
+# Forward rskit-git's vendored OpenSSL (reached via toven-engine) for portable
+# and cross-compiled release builds. Off by default.
+vendored-openssl = ["toven-engine/vendored-openssl"]
+
 [lints]
 workspace = true
