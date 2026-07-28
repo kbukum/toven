@@ -67,7 +67,7 @@ The final safety contract requires mutation-free previews, explicit approval, cl
 
 ## Toven distribution
 
-The first Toven release is the alpha prerelease `v0.1.0-alpha.1`. It will provide checksum-verified, keyless Sigstore-signed binaries for Linux x86-64 and ARM64 with glibc, macOS x86-64 and Apple silicon, and Windows x86-64. The hosted Release also carries a CycloneDX SBOM and build provenance.
+The first Toven release is the alpha prerelease `v0.1.0-alpha.1`. It will provide checksum-verified, keyless Sigstore-signed binaries for Linux x86-64 and ARM64 with glibc, macOS x86-64 and Apple silicon, and Windows x86-64, built and published by `.github/workflows/release.yml` behind a protected, manually approved environment. The hosted Release also carries a CycloneDX SBOM and build provenance.
 
 Until those assets exist, install Toven from source. See [installation](installation.md).
 

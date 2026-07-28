@@ -14,7 +14,7 @@ The `v0.1.0-alpha.1` distribution contract supports:
 | macOS Apple silicon | `aarch64-apple-darwin` |
 | Windows x86-64 | `x86_64-pc-windows-msvc` |
 
-Each target will have one archive named `toven-v0.1.0-alpha.1-<target>.tar.gz`, except Windows, which uses `.zip`. The hosted Release will also contain `SHA256SUMS`, keyless Sigstore signature and certificate files, a CycloneDX SBOM, and GitHub build provenance.
+Each target has one fixed-name archive, `toven-<target>.tar.gz`, except Windows, which uses `toven-<target>.zip`. Archive names never embed the release version — the version lives in the release tag instead. The hosted Release also contains `SHA256SUMS`, a keyless Sigstore signature and certificate for it (`SHA256SUMS.sig`, `SHA256SUMS.pem`), a CycloneDX SBOM, and a GitHub build provenance attestation.
 
 ## Install from source today
 
@@ -44,7 +44,7 @@ toven --help
 Choose the archive matching the machine, download that archive together with `SHA256SUMS`, and verify the checksum before extracting or executing it. For example, the macOS Apple-silicon asset will be:
 
 ```text
-https://github.com/kbukum/toven/releases/download/v0.1.0-alpha.1/toven-v0.1.0-alpha.1-aarch64-apple-darwin.tar.gz
+https://github.com/kbukum/toven/releases/download/v0.1.0-alpha.1/toven-aarch64-apple-darwin.tar.gz
 ```
 
 Checksum verification is mandatory:
@@ -55,7 +55,18 @@ shasum --ignore-missing -a 256 -c SHA256SUMS
 
 Linux can use `sha256sum --ignore-missing -c SHA256SUMS`. Windows can use `Get-FileHash -Algorithm SHA256` and compare the result with the matching `SHA256SUMS` entry.
 
-The release workflow will also publish the exact `cosign verify-blob` command and certificate identity for keyless signature verification. Do not install an archive that fails checksum, signature, or provenance verification.
+`SHA256SUMS` itself is keyless Sigstore/cosign-signed. Verify it before trusting the checksums it contains:
+
+```bash
+cosign verify-blob \
+  --certificate SHA256SUMS.pem \
+  --signature SHA256SUMS.sig \
+  --certificate-identity-regexp 'https://github.com/kbukum/toven/.github/workflows/release.yml@.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  SHA256SUMS
+```
+
+Do not install an archive that fails checksum, signature, or provenance verification.
 
 Extract the archive and place `toven` (`toven.exe` on Windows) in a directory on `PATH`, then verify:
 
