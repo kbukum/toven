@@ -254,7 +254,9 @@ jobs:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: cargo run --locked -p toven -- release publish --yes --output jsonl | tee release-publish.jsonl
+        run: |
+          set -eo pipefail
+          cargo run --locked -p toven -- release publish --yes --output jsonl | tee release-publish.jsonl
 
       # Provenance is attached only to artifacts that were actually approved and
       # published, and covers the exact published file set: `SHA256SUMS` lists
