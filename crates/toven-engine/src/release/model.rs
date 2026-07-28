@@ -2,7 +2,7 @@
 
 use rskit_version::semver::Version;
 use toven_model::ModuleKey;
-use toven_ports::{BaselineSpec, BumpLevel, Oid, PublicationPolicy, ReleaseMutation};
+use toven_ports::{BumpLevel, Oid, PublicationPolicy, ReleaseMutation};
 
 /// The engine-owned named bump policy.
 ///
@@ -108,8 +108,6 @@ pub struct ReleaseBaseline {
     pub version: Option<Version>,
     /// Object id the release tag points at, when a prior release tag exists.
     pub target: Option<Oid>,
-    /// Fallback baseline spec used when no prior release tag is available.
-    pub fallback: Option<BaselineSpec>,
 }
 
 impl ReleaseBaseline {
@@ -121,19 +119,6 @@ impl ReleaseBaseline {
             tag: Some(tag.into()),
             version: Some(version),
             target: Some(target),
-            fallback: None,
-        }
-    }
-
-    /// Construct a baseline from the configured fallback strategy.
-    #[must_use]
-    pub const fn fallback(module: ModuleKey, spec: BaselineSpec) -> Self {
-        Self {
-            module,
-            tag: None,
-            version: None,
-            target: None,
-            fallback: Some(spec),
         }
     }
 
@@ -149,14 +134,13 @@ impl ReleaseBaseline {
             tag: None,
             version: None,
             target: None,
-            fallback: None,
         }
     }
 
     /// Whether this baseline marks a module that has never been released.
     #[must_use]
     pub const fn is_initial(&self) -> bool {
-        self.tag.is_none() && self.fallback.is_none()
+        self.tag.is_none()
     }
 }
 

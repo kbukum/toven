@@ -124,3 +124,41 @@ fn a_repository_with_no_release_tag_plans_an_initial_release() {
         "a first release is not a dependency cascade"
     );
 }
+
+#[test]
+fn a_base_override_does_not_downgrade_a_tagless_module_to_an_empty_release() {
+    // `--base` overrides the diff ref only when a release tag anchors it. On a
+    // tagless module it must be ignored: honoring it (here, `HEAD`) would diff
+    // against a ref that reports no changes and silently plan an empty first
+    // release instead of the initial release every unreleased module deserves.
+    let (ws, root, document) = tagless_repo();
+    let provider = registry_provider();
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = RskitGitVcs::open(ws.path()).expect("open reader");
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("HEAD"));
+
+    let mut reporter = RecordingReporter::new();
+    let plan = release_plan(
+        &request(root),
+        &document,
+        &providers,
+        &readers,
+        &BumpOverrides::new().with_base("HEAD"),
+        &mut reporter,
+    )
+    .expect("plan");
+
+    assert_eq!(
+        plan.entries.len(),
+        1,
+        "`--base` must not suppress a never-released module's first release: {:?}",
+        plan.entries
+    );
+    let entry = &plan.entries[0];
+    assert_eq!(entry.reason, BumpReason::InitialRelease);
+    let baseline = entry.baseline.as_ref().expect("initial baseline recorded");
+    assert!(
+        baseline.is_initial(),
+        "a tagless module stays an initial release even under `--base`"
+    );
+}

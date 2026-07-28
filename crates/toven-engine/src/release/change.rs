@@ -118,16 +118,17 @@ fn detect_member(
 /// Resolve the diff baseline for one module's release change detection.
 ///
 /// A release baseline answers "what changed **since the last release**", so the
-/// only implicit baseline is the module's latest release tag. `--base` still
-/// overrides the diff ref explicitly, while the tag continues to anchor
+/// only baseline is the module's latest release tag. `--base` overrides the diff
+/// ref explicitly *when a release tag exists*, while the tag continues to anchor
 /// idempotency.
 ///
 /// When no release tag exists the module has never been released, so `None` is
 /// returned and the caller treats the module as an *initial release*: every
-/// module is unreleased, and nothing has been published yet to diff against. A
-/// branch ref such as `[project].base_ref` is deliberately **not** used as a
-/// substitute — diffing a never-released module against `origin/main` reports
-/// no changes on that branch and would silently plan an empty first release.
+/// module is unreleased, and nothing has been published yet to diff against.
+/// `--base` is deliberately **not** honored in that case, and neither is a
+/// branch ref such as `[project].base_ref` — diffing a never-released module
+/// against `origin/main` reports no changes on that branch and would silently
+/// plan an empty first release.
 fn baseline_spec(
     module: &Module,
     base_override: Option<&str>,
@@ -135,37 +136,34 @@ fn baseline_spec(
     scheme: &TagScheme,
     baselines: &mut BTreeMap<ModuleKey, ReleaseBaseline>,
 ) -> Option<BaselineSpec> {
-    // Record the anchoring baseline (a release tag is preferred, since it also
-    // carries the version that offline idempotency anchors on).
-    let tag_spec = tag::latest(scheme, tags).map(|(version, release_tag)| {
-        baselines.insert(
+    // The only baseline is the module's own latest release tag; it also carries
+    // the version that offline idempotency anchors on.
+    let Some((version, release_tag)) = tag::latest(scheme, tags) else {
+        // No release tag: the module has never been released, so it is always an
+        // initial release. `--base` is not honored here — a never-released module
+        // has nothing to diff against, and letting a branch ref stand in would
+        // silently plan an empty first release.
+        baselines.insert(module.key(), ReleaseBaseline::initial(module.key()));
+        return None;
+    };
+
+    baselines.insert(
+        module.key(),
+        ReleaseBaseline::tag(
             module.key(),
-            ReleaseBaseline::tag(
-                module.key(),
-                release_tag.name.clone(),
-                version,
-                release_tag.target.clone(),
-            ),
-        );
-        BaselineSpec::explicit(release_tag.target.as_str().to_string())
-    });
+            release_tag.name.clone(),
+            version,
+            release_tag.target.clone(),
+        ),
+    );
 
-    // `--base` overrides the diff ref (default: the latest release tag) while the
-    // tag still anchors idempotency.
-    if let Some(base) = base_override {
-        let spec = BaselineSpec::explicit(base.to_string());
-        baselines
-            .entry(module.key())
-            .or_insert_with(|| ReleaseBaseline::fallback(module.key(), spec.clone()));
-        return Some(spec);
-    }
-
-    if let Some(spec) = tag_spec {
-        return Some(spec);
-    }
-
-    baselines.insert(module.key(), ReleaseBaseline::initial(module.key()));
-    None
+    // `--base` overrides the diff ref (default: the release tag) while the tag
+    // still anchors idempotency.
+    let diff_ref = base_override.map_or_else(
+        || release_tag.target.as_str().to_string(),
+        ToString::to_string,
+    );
+    Some(BaselineSpec::explicit(diff_ref))
 }
 
 fn target_for<'a>(targets: &'a ReleaseTargets, module: &Module) -> Option<&'a dyn ReleaseTarget> {

@@ -170,8 +170,9 @@ pub(crate) fn planned_host_releases(
 /// A `tag_format` that omits the module (e.g. `v{version}` for a
 /// single-version workspace) maps every module onto one tag, which is one
 /// hosted Release — not one per module. Assets and notes from each contributing
-/// module are unioned deterministically; conflicting `draft`/`prerelease` flags
-/// are a typed configuration error rather than a last-writer-wins surprise.
+/// module are unioned deterministically; conflicting `draft`/`prerelease` flags,
+/// or an asset path contributed with divergent labels, are a typed configuration
+/// error rather than a last-writer-wins surprise.
 fn merge_planned(
     planned: &mut Vec<PlannedHostRelease>,
     candidate: PlannedHostRelease,
@@ -204,14 +205,28 @@ fn merge_planned(
     }
 
     for asset in candidate.release.assets {
-        if !existing
+        if let Some(present) = existing
             .release
             .assets
             .iter()
-            .any(|present| present.path == asset.path)
+            .find(|present| present.path == asset.path)
         {
-            existing.release.assets.push(asset);
+            if present.label != asset.label {
+                return Err(AppError::invalid_input(
+                    "release.host",
+                    format!(
+                        "modules sharing release tag '{}' disagree on the label for asset '{}'; \
+                         module '{module}' resolves {:?} against {:?}",
+                        candidate.release.tag,
+                        asset.path.display(),
+                        asset.label,
+                        present.label,
+                    ),
+                ));
+            }
+            continue;
         }
+        existing.release.assets.push(asset);
     }
     if !candidate.release.notes.is_empty()
         && !existing
@@ -281,10 +296,15 @@ mod tests {
     use rskit_errors::ErrorCode;
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleKey, ModuleRef, RepoPath};
-    use toven_ports::{BumpLevel, HostConfig, HostReleaseOutcome, ReleaseConfig, ReleaseMutation};
+    use toven_ports::{
+        BumpLevel, HostConfig, HostReleaseOutcome, HostedRelease, ReleaseAsset, ReleaseConfig,
+        ReleaseMutation,
+    };
     use toven_testkit::{FakeReleaseHost, FakeReleaseTarget, FakeVcsReader, FakeVcsWriter};
 
-    use super::{build_hosts, planned_host_releases, run_host_phase};
+    use super::{
+        PlannedHostRelease, build_hosts, merge_planned, planned_host_releases, run_host_phase,
+    };
     use crate::federation::release::{MemberReleaseRepo, MemberReleaseRepos};
     use crate::release::ResolvedReleaseSettings;
     use crate::release::{
@@ -437,6 +457,37 @@ mod tests {
         assert_eq!(planned[0].release.assets.len(), 1);
         // Identical per-module notes collapse instead of repeating.
         assert_eq!(planned[0].release.notes, "- did a thing");
+    }
+
+    #[test]
+    fn merge_rejects_one_asset_path_contributed_with_divergent_labels() {
+        let hosted = |label: Option<&str>| {
+            let mut asset = ReleaseAsset::new("dist/app.tgz");
+            if let Some(label) = label {
+                asset = asset.with_label(label);
+            }
+            HostedRelease::new("v0.1.1", "v0.1.1", "notes").with_assets(vec![asset])
+        };
+        let planned_of = |release| PlannedHostRelease {
+            forge: "github".to_string(),
+            member: None,
+            release,
+        };
+
+        // Same path, same label: deduped to one asset without error.
+        let mut planned = vec![planned_of(hosted(Some("App")))];
+        merge_planned(&mut planned, planned_of(hosted(Some("App"))), &mkey("app")).unwrap();
+        assert_eq!(planned[0].release.assets.len(), 1);
+
+        // Same path, divergent labels: fails closed instead of last-writer-wins.
+        let mut planned = vec![planned_of(hosted(Some("First")))];
+        let error = merge_planned(
+            &mut planned,
+            planned_of(hosted(Some("Second"))),
+            &mkey("app"),
+        )
+        .expect_err("a divergent label for one asset path must fail closed");
+        assert_eq!(error.code(), ErrorCode::InvalidInput);
     }
 
     #[test]
