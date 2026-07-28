@@ -174,7 +174,8 @@ pub fn release_apply(
     let message = commit_message(plan, &module_by_ref, settings.commit_message())?;
     preflight_tags(plan, &module_by_ref, reader)?;
 
-    // Pre-commit phase (undoable): apply mutations, then package every module.
+    // Pre-commit phase (undoable): apply mutations, then package every module
+    // that will be published.
     let artifacts = match prepare(plan, &module_by_ref, targets, &mut stats) {
         Ok(artifacts) => artifacts,
         Err(error) => return Err(restore_or_precommit_error(writer, "prepare", error)),
@@ -340,9 +341,16 @@ pub(crate) fn guard_clean_tree(reader: &dyn VcsReader) -> AppResult<()> {
     ))
 }
 
-/// Apply every mutation and package every module, returning the artifacts keyed
-/// by module. Runs entirely before the commit so the caller can restore the
-/// working tree on failure.
+/// Apply every mutation, then package every module that will be published,
+/// returning the artifacts keyed by module. Runs entirely before the commit so
+/// the caller can restore the working tree on failure.
+///
+/// Packaging is scoped to `publish_needed` entries: a tag-only module (and a
+/// registry module whose version is already published) produces no packaged
+/// artifact, because none is consumed by the publish loop. This also keeps a
+/// tag-only release from invoking ecosystem packaging that cannot succeed —
+/// e.g. `cargo package` on an unpublished workspace crate whose intra-workspace
+/// dependencies are not resolvable from the registry.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn prepare(
     plan: &ReleasePlan,
@@ -359,6 +367,9 @@ pub(crate) fn prepare(
 
     let mut artifacts = BTreeMap::new();
     for entry in &plan.entries {
+        if !entry.publish_needed {
+            continue;
+        }
         let module = module_for(module_by_ref, &entry.module)?;
         let target = target_for(targets, module)?;
         artifacts.insert(entry.module.clone(), target.package(module)?);
@@ -1582,7 +1593,11 @@ mod tests {
             BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(0, 1, 1), false, 0)],
         );
-        let target = FakeReleaseTarget::new();
+        // A tag-only module is never packaged: `cargo package` on an unpublished
+        // workspace crate cannot resolve its intra-workspace deps from the
+        // registry and exits non-zero. A package attempt here would fail the
+        // whole tag-only release, so wire the double to blow up if it happens.
+        let target = FakeReleaseTarget::new().with_package_failure("tag-only must not package");
 
         let stats = release_apply(
             &plan,
@@ -1595,13 +1610,14 @@ mod tests {
         .expect("apply without publish");
 
         assert_eq!(stats.mutated_modules, 1);
+        assert_eq!(stats.packaged_artifacts, 0);
         assert_eq!(stats.tagged_modules, 1);
         assert_eq!(stats.published_modules, 0);
         assert!(
             !target
                 .calls()
                 .iter()
-                .any(|c| matches!(c, ReleaseCall::Publish(_)))
+                .any(|c| matches!(c, ReleaseCall::Package(_) | ReleaseCall::Publish(_)))
         );
     }
 
