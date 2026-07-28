@@ -1,1 +1,1 @@
-{"kind":"publish","module":"rust:train-core","publication":"registry","registry":"crates-io","version":"0.2.0","decision":"would-publish"}
+{"kind":"publish","module":"rust:train-core","publication":"registry","registry":"crates-io","version":"0.1.0","decision":"would-publish"}

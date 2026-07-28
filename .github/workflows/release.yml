@@ -227,7 +227,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     permissions:
+      attestations: write # build provenance for the published artifacts
       contents: write
+      id-token: write # provenance attestation (Sigstore OIDC)
 
     steps:
       - name: Checkout
@@ -251,6 +253,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: cargo run --locked -p toven -- release publish --yes --output jsonl | tee release-publish.jsonl
+
+      # Provenance is attached only to artifacts that were actually approved and
+      # published, and covers the exact published file set: `SHA256SUMS` lists
+      # every archive and the SBOM, so attesting its subjects attests them all.
+      - name: Attest build provenance for the published artifacts
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-checksums: dist/SHA256SUMS
 
       - name: Upload publish record
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

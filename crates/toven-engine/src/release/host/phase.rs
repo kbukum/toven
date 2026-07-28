@@ -29,6 +29,7 @@ pub(crate) type ReleaseHosts = BTreeMap<String, Box<dyn ReleaseHost>>;
 
 /// One resolved hosted Release plus the forge that will cut it.
 #[allow(clippy::redundant_pub_crate)]
+#[derive(Debug)]
 pub(crate) struct PlannedHostRelease {
     /// Forge identifier the Release is cut on.
     pub forge: String,
@@ -134,9 +135,12 @@ pub(crate) fn planned_host_releases(
             .notes
             .clone()
             .unwrap_or_else(|| changelog_notes(&entry.changelog));
+        // A version carrying a prerelease identifier (`0.1.0-alpha.1`) is a
+        // prerelease whether it came from an explicit `--pre` channel or from the
+        // version the module already declares, as a first release does.
         let prerelease = host
             .prerelease
-            .unwrap_or_else(|| entry.prerelease_channel.is_some());
+            .unwrap_or_else(|| entry.prerelease_channel.is_some() || !version.pre.is_empty());
         let assets = host
             .assets
             .iter()
@@ -147,13 +151,97 @@ pub(crate) fn planned_host_releases(
             .with_draft(host.draft)
             .with_prerelease(prerelease)
             .with_assets(assets);
-        planned.push(PlannedHostRelease {
-            forge: forge.clone(),
-            member: module.member.clone(),
-            release,
-        });
+        merge_planned(
+            &mut planned,
+            PlannedHostRelease {
+                forge: forge.clone(),
+                member: module.member.clone(),
+                release,
+            },
+            &entry.module,
+        )?;
     }
     Ok(planned)
+}
+
+/// Fold `candidate` into `planned`, collapsing modules that resolve to the same
+/// hosted Release.
+///
+/// A `tag_format` that omits the module (e.g. `v{version}` for a
+/// single-version workspace) maps every module onto one tag, which is one
+/// hosted Release — not one per module. Assets and notes from each contributing
+/// module are unioned deterministically; conflicting `draft`/`prerelease` flags,
+/// or an asset path contributed with divergent labels, are a typed configuration
+/// error rather than a last-writer-wins surprise.
+fn merge_planned(
+    planned: &mut Vec<PlannedHostRelease>,
+    candidate: PlannedHostRelease,
+    module: &ModuleKey,
+) -> AppResult<()> {
+    let Some(existing) = planned.iter_mut().find(|entry| {
+        entry.forge == candidate.forge
+            && entry.member == candidate.member
+            && entry.release.tag == candidate.release.tag
+    }) else {
+        planned.push(candidate);
+        return Ok(());
+    };
+
+    if existing.release.draft != candidate.release.draft
+        || existing.release.prerelease != candidate.release.prerelease
+    {
+        return Err(AppError::invalid_input(
+            "release.host",
+            format!(
+                "modules sharing release tag '{}' disagree on the hosted Release flags; module \
+                 '{module}' resolves draft={}/prerelease={} against draft={}/prerelease={}",
+                candidate.release.tag,
+                candidate.release.draft,
+                candidate.release.prerelease,
+                existing.release.draft,
+                existing.release.prerelease,
+            ),
+        ));
+    }
+
+    for asset in candidate.release.assets {
+        if let Some(present) = existing
+            .release
+            .assets
+            .iter()
+            .find(|present| present.path == asset.path)
+        {
+            if present.label != asset.label {
+                return Err(AppError::invalid_input(
+                    "release.host",
+                    format!(
+                        "modules sharing release tag '{}' disagree on the label for asset '{}'; \
+                         module '{module}' resolves {:?} against {:?}",
+                        candidate.release.tag,
+                        asset.path.display(),
+                        asset.label,
+                        present.label,
+                    ),
+                ));
+            }
+            continue;
+        }
+        existing.release.assets.push(asset);
+    }
+    if !candidate.release.notes.is_empty()
+        && !existing
+            .release
+            .notes
+            .lines()
+            .eq(candidate.release.notes.lines())
+        && !existing.release.notes.contains(&candidate.release.notes)
+    {
+        if !existing.release.notes.is_empty() {
+            existing.release.notes.push('\n');
+        }
+        existing.release.notes.push_str(&candidate.release.notes);
+    }
+    Ok(())
 }
 
 /// Cut every planned hosted Release through its forge host, accounting
@@ -208,10 +296,15 @@ mod tests {
     use rskit_errors::ErrorCode;
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleKey, ModuleRef, RepoPath};
-    use toven_ports::{BumpLevel, HostConfig, HostReleaseOutcome, ReleaseConfig, ReleaseMutation};
+    use toven_ports::{
+        BumpLevel, HostConfig, HostReleaseOutcome, HostedRelease, ReleaseAsset, ReleaseConfig,
+        ReleaseMutation,
+    };
     use toven_testkit::{FakeReleaseHost, FakeReleaseTarget, FakeVcsReader, FakeVcsWriter};
 
-    use super::{build_hosts, planned_host_releases, run_host_phase};
+    use super::{
+        PlannedHostRelease, build_hosts, merge_planned, planned_host_releases, run_host_phase,
+    };
     use crate::federation::release::{MemberReleaseRepo, MemberReleaseRepos};
     use crate::release::ResolvedReleaseSettings;
     use crate::release::{
@@ -329,6 +422,75 @@ mod tests {
     }
 
     #[test]
+    fn modules_sharing_one_release_tag_collapse_into_a_single_hosted_release() {
+        // `v{version}` omits the module, so a single-version workspace maps every
+        // module onto one tag — and therefore onto one hosted Release.
+        let shared_format = |name: &str| {
+            let mut entry = entry(name, None);
+            entry.tag_format = Some("v{version}".into());
+            entry
+        };
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![shared_format("core"), shared_format("app")],
+        );
+        let modules = vec![module("core"), module("app")];
+        let host = HostConfig {
+            forge: Some("github".into()),
+            assets: Some(vec!["dist/SHA256SUMS".into()]),
+            ..HostConfig::default()
+        };
+        let mut resolved = settings("core", Some(host.clone()));
+        resolved.extend(settings("app", Some(host)));
+
+        let planned =
+            planned_host_releases(&plan, &modules, &targets(), &resolved, Path::new("/repo"))
+                .unwrap();
+
+        assert_eq!(
+            planned.len(),
+            1,
+            "one tag is one hosted Release: {planned:?}"
+        );
+        assert_eq!(planned[0].release.tag, "v0.1.1");
+        // The shared asset is uploaded once, not once per contributing module.
+        assert_eq!(planned[0].release.assets.len(), 1);
+        // Identical per-module notes collapse instead of repeating.
+        assert_eq!(planned[0].release.notes, "- did a thing");
+    }
+
+    #[test]
+    fn merge_rejects_one_asset_path_contributed_with_divergent_labels() {
+        let hosted = |label: Option<&str>| {
+            let mut asset = ReleaseAsset::new("dist/app.tgz");
+            if let Some(label) = label {
+                asset = asset.with_label(label);
+            }
+            HostedRelease::new("v0.1.1", "v0.1.1", "notes").with_assets(vec![asset])
+        };
+        let planned_of = |release| PlannedHostRelease {
+            forge: "github".to_string(),
+            member: None,
+            release,
+        };
+
+        // Same path, same label: deduped to one asset without error.
+        let mut planned = vec![planned_of(hosted(Some("App")))];
+        merge_planned(&mut planned, planned_of(hosted(Some("App"))), &mkey("app")).unwrap();
+        assert_eq!(planned[0].release.assets.len(), 1);
+
+        // Same path, divergent labels: fails closed instead of last-writer-wins.
+        let mut planned = vec![planned_of(hosted(Some("First")))];
+        let error = merge_planned(
+            &mut planned,
+            planned_of(hosted(Some("Second"))),
+            &mkey("app"),
+        )
+        .expect_err("a divergent label for one asset path must fail closed");
+        assert_eq!(error.code(), ErrorCode::InvalidInput);
+    }
+
+    #[test]
     fn planned_releases_error_when_a_planned_module_has_no_resolved_settings() {
         let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry("core", None)]);
         let modules = vec![module("core")];
@@ -351,6 +513,29 @@ mod tests {
     #[test]
     fn prerelease_flag_derives_from_channel_when_unset() {
         let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry("core", Some("rc"))]);
+        let modules = vec![module("core")];
+
+        let planned = planned_host_releases(
+            &plan,
+            &modules,
+            &targets(),
+            &settings("core", Some(github_host())),
+            Path::new("/repo"),
+        )
+        .unwrap();
+
+        assert!(planned[0].release.prerelease);
+    }
+
+    #[test]
+    fn a_prerelease_version_marks_the_hosted_release_as_a_prerelease() {
+        // No `--pre` channel: the declared version itself carries the prerelease
+        // identifier, as it does for a first release cut from `0.1.0-alpha.1`.
+        let mut prerelease_entry = entry("core", None);
+        let version = Version::parse("0.1.0-alpha.1").unwrap();
+        prerelease_entry.planned_version = Some(version.clone());
+        prerelease_entry.mutation = ReleaseMutation::version(version);
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![prerelease_entry]);
         let modules = vec![module("core")];
 
         let planned = planned_host_releases(

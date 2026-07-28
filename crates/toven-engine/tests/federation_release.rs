@@ -92,8 +92,9 @@ fn release_shards_history_mutations_per_member_repo() {
     let go = publishable_provider("go", "go", "api", "services/api", "go");
     let providers: Vec<&dyn Provider> = vec![&rust, &go];
 
-    // One reader and one writer per member repo; no tags/changes means a first
-    // release is planned for every module under a full selection.
+    // One reader and one writer per member repo; with no release tag anywhere,
+    // every module is planned as a first release, which cuts the version each
+    // module already declares (0.1.0) rather than bumping past it.
     let core_vcs = FakeVcsReader::new();
     let gateway_vcs = FakeVcsReader::new();
     let core_writer = FakeVcsWriter::new().with_commit_oid("core-commit");
@@ -158,11 +159,11 @@ fn release_shards_history_mutations_per_member_repo() {
     )));
     assert!(matches!(
         &core_log[0],
-        VcsWrite::Commit(message) if message == "core core 0.1.1"
+        VcsWrite::Commit(message) if message == "core core 0.1.0"
     ));
     assert!(core_log.iter().any(|write| matches!(
         write,
-        VcsWrite::CreateTag { message: Some(message), .. } if message == "tag core 0.1.1"
+        VcsWrite::CreateTag { message: Some(message), .. } if message == "tag core 0.1.0"
     )));
 
     // Registry publishing runs after the commit boundary for registry-enabled

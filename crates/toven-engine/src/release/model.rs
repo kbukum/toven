@@ -2,7 +2,7 @@
 
 use rskit_version::semver::Version;
 use toven_model::ModuleKey;
-use toven_ports::{BaselineSpec, BumpLevel, Oid, PublicationPolicy, ReleaseMutation};
+use toven_ports::{BumpLevel, Oid, PublicationPolicy, ReleaseMutation};
 
 /// The engine-owned named bump policy.
 ///
@@ -74,6 +74,9 @@ impl BumpSource {
 pub enum BumpReason {
     /// The module itself changed since its release baseline.
     Changed,
+    /// The module has never been released, so its declared version is cut as
+    /// its first release.
+    InitialRelease,
     /// The module bumped only because a dependency's floor rose (cascade).
     DependencyCascade,
     /// The module was pinned to an explicit target version.
@@ -86,6 +89,7 @@ impl BumpReason {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Changed => "changed",
+            Self::InitialRelease => "initial-release",
             Self::DependencyCascade => "dependency-cascade",
             Self::Explicit => "explicit",
         }
@@ -104,8 +108,6 @@ pub struct ReleaseBaseline {
     pub version: Option<Version>,
     /// Object id the release tag points at, when a prior release tag exists.
     pub target: Option<Oid>,
-    /// Fallback baseline spec used when no prior release tag is available.
-    pub fallback: Option<BaselineSpec>,
 }
 
 impl ReleaseBaseline {
@@ -117,20 +119,28 @@ impl ReleaseBaseline {
             tag: Some(tag.into()),
             version: Some(version),
             target: Some(target),
-            fallback: None,
         }
     }
 
-    /// Construct a baseline from the configured fallback strategy.
+    /// Construct the baseline of a module that has never been released.
+    ///
+    /// There is no prior release tag and no substitute ref to diff against:
+    /// every source file is unreleased, so the module always joins the plan as
+    /// an initial release.
     #[must_use]
-    pub const fn fallback(module: ModuleKey, spec: BaselineSpec) -> Self {
+    pub const fn initial(module: ModuleKey) -> Self {
         Self {
             module,
             tag: None,
             version: None,
             target: None,
-            fallback: Some(spec),
         }
+    }
+
+    /// Whether this baseline marks a module that has never been released.
+    #[must_use]
+    pub const fn is_initial(&self) -> bool {
+        self.tag.is_none()
     }
 }
 

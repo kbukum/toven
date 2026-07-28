@@ -7,13 +7,18 @@ use super::ChangelogEntry;
 
 /// Build a deterministic changelog entry from changed records.
 ///
+/// `initial` marks a module that has never been released: it has no prior
+/// release tag to diff against, so it carries no changed records and is
+/// summarized as an initial release rather than as an (equally record-free)
+/// dependency cascade.
+///
 /// The entry's `breaking` flag stays `false` here: [`ChangeRecord`] carries
 /// only a path and status, so a conventional-commit breaking signal has no
 /// source at this seam. Breaking is instead driven by the explicit
 /// `--minor`/`--major` argv or a per-module config `level`; this is the hook
 /// where a commit-message-aware classifier would set it.
 #[must_use]
-pub(super) fn entry(module: &Module, changes: &[ChangeRecord]) -> ChangelogEntry {
+pub(super) fn entry(module: &Module, changes: &[ChangeRecord], initial: bool) -> ChangelogEntry {
     let mut lines = changes
         .iter()
         .map(|change| change.path.display().to_string())
@@ -21,10 +26,12 @@ pub(super) fn entry(module: &Module, changes: &[ChangeRecord]) -> ChangelogEntry
     lines.sort();
     lines.dedup();
 
-    let summary = if lines.is_empty() {
-        "dependency cascade".to_string()
-    } else {
+    let summary = if !lines.is_empty() {
         format!("{} changed path(s)", lines.len())
+    } else if initial {
+        "initial release".to_string()
+    } else {
+        "dependency cascade".to_string()
     };
     ChangelogEntry::new(module.key(), summary, lines)
 }

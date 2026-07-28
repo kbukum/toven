@@ -153,7 +153,7 @@ mod tests {
     use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
     use toven_ports::{
         BaselineSpec, ChangeRecord, ChangeStatus, CommonEcosystemConfig, DiscoverResponse,
-        HostConfig, Provider, ReleaseConfig, TaskIntent,
+        HostConfig, Oid, Provider, ReleaseConfig, TagRef, TaskIntent,
     };
     use toven_testkit::{
         FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, RecordingReporter,
@@ -233,10 +233,14 @@ mod tests {
             .with_common(common)
             .with_release_target(target);
         let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
-        let vcs = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
-            "crates/core/src/lib.rs",
-            ChangeStatus::Modified,
-        )]);
+        // A prior release tag: these rehearsals model a follow-up release, not a
+        // first one.
+        let vcs = FakeVcsReader::new()
+            .with_tags(vec![TagRef::new("rust/core@0.1.0", Oid::new("cafe"))])
+            .with_changed_since(vec![ChangeRecord::new(
+                "crates/core/src/lib.rs",
+                ChangeStatus::Modified,
+            )]);
         (provider, vcs)
     }
 
