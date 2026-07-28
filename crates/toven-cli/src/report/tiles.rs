@@ -107,6 +107,10 @@ impl TilesRawSink {
     /// child told it is `cols` wide would wrap a full-width progress redraw at
     /// the narrower grid edge, scrolling the short grid and leaking a stale
     /// frame to scrollback each tick.
+    ///
+    /// Only the Unix live-output path (`configure_live_output`) sizes child
+    /// PTYs, so this is Unix-only; other platforms fall back to pipe capture.
+    #[cfg(unix)]
     pub(super) fn content_cols(&self) -> usize {
         self.console.content_cols()
     }
@@ -268,6 +272,7 @@ mod tests {
         assert!(sink.supports_concurrent_live());
     }
 
+    #[cfg(unix)]
     #[test]
     fn content_cols_reserves_the_tile_indent() {
         // Children are sized to this, not the full tile width, so a full-width in-place
