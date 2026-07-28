@@ -244,10 +244,18 @@ pub(crate) fn tag_releases(
     commit: &toven_ports::Oid,
     stats: &mut ReleaseStats,
 ) -> AppResult<()> {
+    let mut created = BTreeSet::new();
     for entry in &plan.entries {
         if let Some(version) = &entry.planned_version {
-            let module = module_for(module_by_ref, &entry.module)?;
             let name = planned_tag_name(entry)?;
+            // A single-version workspace collapses many modules onto one shared
+            // tag (`tag_format = "v{version}"`): that is one release train,
+            // created once, not one tag per module. The hosted-release phase
+            // collapses the same modules onto one hosted Release identically.
+            if !created.insert(name.to_string()) {
+                continue;
+            }
+            let module = module_for(module_by_ref, &entry.module)?;
             let message = tag_message(entry, module, version)?;
             writer.create_tag(name, commit.as_str(), message.as_deref())?;
             stats.tagged_modules += 1;
@@ -461,9 +469,14 @@ pub(crate) fn commit_message(
         };
     }
     let mut released = Vec::new();
+    let mut seen = BTreeSet::new();
     for entry in &plan.entries {
         if entry.planned_version.is_some() {
-            released.push(planned_tag_name(entry)?.to_string());
+            // Modules sharing one collapsed tag contribute it once, in plan order.
+            let name = planned_tag_name(entry)?;
+            if seen.insert(name.to_string()) {
+                released.push(name.to_string());
+            }
         }
     }
     Ok(format!("release: {}", released.join(", ")))
@@ -498,14 +511,33 @@ pub(crate) fn preflight_tags(
 ) -> AppResult<()> {
     let existing = reader.list_tags(None)?;
     let names: BTreeSet<&str> = existing.iter().map(|tag| tag.name.as_str()).collect();
-    let mut planned = BTreeSet::new();
+    // Tag name -> the annotation the first contributing module renders. A
+    // single-version workspace collapses many modules onto one shared tag
+    // (`tag_format = "v{version}"`): that is one release train, tagged once,
+    // not a per-module collision. Modules sharing a tag must agree on its
+    // annotation, mirroring the hosted-release phase's shared-tag merge.
+    let mut planned: BTreeMap<String, Option<String>> = BTreeMap::new();
     for entry in &plan.entries {
         let Some(version) = &entry.planned_version else {
             continue;
         };
         let module = module_for(module_by_ref, &entry.module)?;
-        tag_message(entry, module, version)?;
+        let annotation = tag_message(entry, module, version)?;
         let name = planned_tag_name(entry)?;
+        if let Some(existing_annotation) = planned.get(name) {
+            if existing_annotation != &annotation {
+                return Err(AppError::invalid_input(
+                    "release.tags",
+                    format!(
+                        "modules sharing release tag '{name}' disagree on the tag annotation; \
+                         module '{}' renders a different tag_message — give the shared tag one \
+                         annotation or a distinct tag_format",
+                        entry.module
+                    ),
+                ));
+            }
+            continue;
+        }
         if names.contains(name) {
             return Err(AppError::invalid_input(
                 "release.tags",
@@ -515,17 +547,7 @@ pub(crate) fn preflight_tags(
                 ),
             ));
         }
-        if !planned.insert(name.to_string()) {
-            return Err(AppError::invalid_input(
-                "release.tags",
-                format!(
-                    "module '{}' plans release tag '{name}', which another module in this \
-                     release already plans; release tags must be unique per repository — give \
-                     each module a distinct tag_format",
-                    entry.module
-                ),
-            ));
-        }
+        planned.insert(name.to_string(), annotation);
     }
     Ok(())
 }
@@ -583,9 +605,14 @@ pub(crate) fn tag_message(
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn push_refspecs(plan: &ReleasePlan, branch: &str) -> AppResult<Vec<String>> {
     let mut refspecs = vec![format!("refs/heads/{branch}")];
+    let mut seen = BTreeSet::new();
     for entry in &plan.entries {
         if entry.planned_version.is_some() {
-            refspecs.push(format!("refs/tags/{}", planned_tag_name(entry)?));
+            let name = planned_tag_name(entry)?;
+            // Modules sharing one collapsed tag push a single tag refspec.
+            if seen.insert(name.to_string()) {
+                refspecs.push(format!("refs/tags/{name}"));
+            }
         }
     }
     Ok(refspecs)
@@ -837,14 +864,69 @@ mod tests {
     }
 
     #[test]
-    fn two_modules_planning_the_same_tag_are_rejected_before_any_mutation() {
+    fn two_modules_sharing_a_tag_collapse_into_a_single_release_train() {
         let mut core = entry("core", Version::new(0, 2, 0), true, 0);
         core.tag_format = Some("v{version}".into());
-        // Plan-time tag resolution renders both modules to the same tag.
+        // Plan-time tag resolution renders both modules to the same tag: a
+        // single-version workspace collapses onto one shared repository tag.
         core.planned_tag = Some("v0.2.0".into());
         let mut app = entry("app", Version::new(0, 2, 0), true, 1);
         app.tag_format = Some("v{version}".into());
         app.planned_tag = Some("v0.2.0".into());
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![core, app]);
+        let writer = FakeVcsWriter::new().with_commit_oid("c0ffee");
+
+        let stats = release_apply(
+            &plan,
+            &[module("core"), module("app")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions {
+                no_push: false,
+                ..Default::default()
+            },
+        )
+        .expect("modules sharing a tag collapse into one release train");
+
+        // The shared tag is created exactly once for the whole train.
+        assert_eq!(stats.tagged_modules, 1);
+        let create_tags: Vec<_> = writer
+            .writes()
+            .into_iter()
+            .filter_map(|w| match w {
+                VcsWrite::CreateTag { name, .. } => Some(name),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(create_tags, vec!["v0.2.0".to_string()]);
+
+        // The commit message lists the collapsed tag once, and the push carries
+        // a single tag refspec.
+        let recorded = writer.writes();
+        assert_eq!(recorded[0], VcsWrite::Commit("release: v0.2.0".into()));
+        let tag_refspecs: Vec<_> = recorded
+            .iter()
+            .filter_map(|w| match w {
+                VcsWrite::Push { refspecs, .. } => Some(refspecs.clone()),
+                _ => None,
+            })
+            .flatten()
+            .filter(|r| r.starts_with("refs/tags/"))
+            .collect();
+        assert_eq!(tag_refspecs, vec!["refs/tags/v0.2.0".to_string()]);
+    }
+
+    #[test]
+    fn modules_sharing_a_tag_with_divergent_annotations_are_rejected() {
+        let mut core = entry("core", Version::new(0, 2, 0), true, 0);
+        core.tag_format = Some("v{version}".into());
+        core.planned_tag = Some("v0.2.0".into());
+        core.tag_message = Some("core annotation".into());
+        let mut app = entry("app", Version::new(0, 2, 0), true, 1);
+        app.tag_format = Some("v{version}".into());
+        app.planned_tag = Some("v0.2.0".into());
+        app.tag_message = Some("app annotation".into());
         let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![core, app]);
         let writer = FakeVcsWriter::new();
 
@@ -856,11 +938,11 @@ mod tests {
             &writer,
             &ReleaseApplyOptions::default(),
         )
-        .expect_err("an in-plan tag collision must fail closed before mutation");
+        .expect_err("a shared tag with conflicting annotations must fail closed");
 
         let message = error.to_string();
         assert!(message.contains("v0.2.0"), "{message}");
-        assert!(message.contains("unique"), "{message}");
+        assert!(message.contains("annotation"), "{message}");
         assert!(writer.writes().is_empty());
     }
 
