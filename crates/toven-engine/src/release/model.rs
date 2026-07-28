@@ -74,6 +74,9 @@ impl BumpSource {
 pub enum BumpReason {
     /// The module itself changed since its release baseline.
     Changed,
+    /// The module has never been released, so its declared version is cut as
+    /// its first release.
+    InitialRelease,
     /// The module bumped only because a dependency's floor rose (cascade).
     DependencyCascade,
     /// The module was pinned to an explicit target version.
@@ -86,6 +89,7 @@ impl BumpReason {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Changed => "changed",
+            Self::InitialRelease => "initial-release",
             Self::DependencyCascade => "dependency-cascade",
             Self::Explicit => "explicit",
         }
@@ -131,6 +135,28 @@ impl ReleaseBaseline {
             target: None,
             fallback: Some(spec),
         }
+    }
+
+    /// Construct the baseline of a module that has never been released.
+    ///
+    /// There is no prior release tag and no substitute ref to diff against:
+    /// every source file is unreleased, so the module always joins the plan as
+    /// an initial release.
+    #[must_use]
+    pub const fn initial(module: ModuleKey) -> Self {
+        Self {
+            module,
+            tag: None,
+            version: None,
+            target: None,
+            fallback: None,
+        }
+    }
+
+    /// Whether this baseline marks a module that has never been released.
+    #[must_use]
+    pub const fn is_initial(&self) -> bool {
+        self.tag.is_none() && self.fallback.is_none()
     }
 }
 

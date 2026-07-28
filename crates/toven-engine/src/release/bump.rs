@@ -258,6 +258,30 @@ fn resolve_bump(
     }
 
     let is_seed = input.changed.contains(reference);
+
+    // A module that has never been released cuts the version it already
+    // declares: bumping past it would publish a version nobody declared and
+    // would leave the declared version permanently unreleased. Explicit argv
+    // (`--set-version`, handled above, `--patch`/`--minor`/`--major`, `--pre`)
+    // still wins, so a deliberate first bump stays possible.
+    let is_initial = input
+        .baselines
+        .get(reference)
+        .is_some_and(ReleaseBaseline::is_initial);
+    if is_initial
+        && is_seed
+        && input.overrides.module_level(module_ref).is_none()
+        && input.overrides.prerelease().is_none()
+    {
+        return Ok(BumpDecision {
+            planned: Some(current.clone()),
+            level: classify(&Version::new(0, 0, 0), current),
+            reason: BumpReason::InitialRelease,
+            winning_input: BumpSource::Default,
+            prerelease_channel: None,
+        });
+    }
+
     let breaking = input
         .changelogs
         .get(reference)

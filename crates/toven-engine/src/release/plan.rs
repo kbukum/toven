@@ -15,7 +15,8 @@ use crate::federation::resolve::PathDriverLocator;
 use crate::plan::{PlanContext, PlanRequest, prepare_front};
 
 use super::{
-    BumpOverrides, BumpPolicy, ReleasePlan, ResolvedReleaseSettings, bump, change, changelog,
+    BumpOverrides, BumpPolicy, ReleaseBaseline, ReleasePlan, ResolvedReleaseSettings, bump, change,
+    changelog,
 };
 
 /// Build an immutable release plan.
@@ -62,14 +63,7 @@ pub(crate) fn plan_with_context(
     targets: &super::ReleaseTargets,
 ) -> AppResult<ReleasePlan> {
     let settings = resolve_release_settings(context, targets)?;
-    let changes = change::detect(
-        context,
-        &request.selection,
-        overrides.base(),
-        readers,
-        targets,
-        &settings,
-    )?;
+    let changes = change::detect(context, overrides.base(), readers, targets, &settings)?;
     validate_required_changelogs(request.project_root.as_path(), &changes, &settings)?;
     plan_with_changes(context, request, &changes, overrides, targets, &settings)
 }
@@ -93,7 +87,11 @@ fn plan_with_changes(
                 .get(&module.key())
                 .cloned()
                 .unwrap_or_default();
-            (module.key(), changelog::entry(module, &records))
+            let initial = changes
+                .baselines
+                .get(&module.key())
+                .is_some_and(ReleaseBaseline::is_initial);
+            (module.key(), changelog::entry(module, &records, initial))
         })
         .collect::<BTreeMap<_, _>>();
     let entries = bump::plan_entries(&bump::BumpInputs {
@@ -395,8 +393,8 @@ mod tests {
     };
     use toven_ports::{
         BaselineSpec, BumpLevel, ChangeRecord, ChangeStatus, ChangelogConfig,
-        CommonEcosystemConfig, DependentVersion, DiscoverResponse, PrereleaseConfig, Provider,
-        PublicationPolicy, ReleaseConfig, TaskIntent,
+        CommonEcosystemConfig, DependentVersion, DiscoverResponse, Oid, PrereleaseConfig, Provider,
+        PublicationPolicy, ReleaseConfig, TagRef, TaskIntent,
     };
     use toven_testkit::{
         FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, RecordingReporter,
@@ -421,6 +419,15 @@ mod tests {
 
     fn module(name: &str, root: &str) -> Module {
         Module::new(mref(name), RepoPath::new(root).unwrap())
+    }
+
+    /// Release tags placing every named module at `0.1.0`, so change detection
+    /// diffs against a real prior release instead of planning a first release.
+    fn released_at_0_1_0(modules: &[&str]) -> Vec<TagRef> {
+        modules
+            .iter()
+            .map(|name| TagRef::new(format!("rust/{name}@0.1.0"), Oid::new("cafe")))
+            .collect()
     }
 
     fn module_for_ecosystem(ecosystem: &str, name: &str, root: &str) -> Module {
@@ -493,10 +500,12 @@ mod tests {
             AbsPath::new("/repo").unwrap(),
         )
         .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
-        let vcs = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
-            "crates/core/src/lib.rs",
-            ChangeStatus::Modified,
-        )]);
+        let vcs = FakeVcsReader::new()
+            .with_tags(released_at_0_1_0(&["core"]))
+            .with_changed_since(vec![ChangeRecord::new(
+                "crates/core/src/lib.rs",
+                ChangeStatus::Modified,
+            )]);
         let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
         release_plan(
@@ -812,10 +821,12 @@ mod tests {
             AbsPath::new("/repo").unwrap(),
         )
         .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
-        let vcs = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
-            "crates/core/src/lib.rs",
-            ChangeStatus::Modified,
-        )]);
+        let vcs = FakeVcsReader::new()
+            .with_tags(released_at_0_1_0(&["core", "app"]))
+            .with_changed_since(vec![ChangeRecord::new(
+                "crates/core/src/lib.rs",
+                ChangeStatus::Modified,
+            )]);
         let mut reporter = RecordingReporter::new();
 
         let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
@@ -878,10 +889,12 @@ mod tests {
             AbsPath::new("/repo").unwrap(),
         )
         .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
-        let vcs = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
-            "crates/core/src/lib.rs",
-            ChangeStatus::Modified,
-        )]);
+        let vcs = FakeVcsReader::new()
+            .with_tags(released_at_0_1_0(&["core", "mid", "top"]))
+            .with_changed_since(vec![ChangeRecord::new(
+                "crates/core/src/lib.rs",
+                ChangeStatus::Modified,
+            )]);
         let mut reporter = RecordingReporter::new();
 
         let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
@@ -929,6 +942,7 @@ mod tests {
         )
         .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
         let vcs = FakeVcsReader::new()
+            .with_tags(released_at_0_1_0(&["core", "app"]))
             .with_changed_since(vec![
                 ChangeRecord::new("crates/core/src/lib.rs", ChangeStatus::Modified),
                 ChangeRecord::new("crates/app/src/lib.rs", ChangeStatus::Modified),
@@ -1045,10 +1059,12 @@ mod tests {
             AbsPath::new("/repo").unwrap(),
         )
         .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
-        let vcs = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
-            "crates/core/src/lib.rs",
-            ChangeStatus::Modified,
-        )]);
+        let vcs = FakeVcsReader::new()
+            .with_tags(released_at_0_1_0(&["core"]))
+            .with_changed_since(vec![ChangeRecord::new(
+                "crates/core/src/lib.rs",
+                ChangeStatus::Modified,
+            )]);
         let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
         assert!(
@@ -1121,10 +1137,12 @@ mod tests {
             AbsPath::new("/repo").unwrap(),
         )
         .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
-        let vcs = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
-            "crates/core/src/lib.rs",
-            ChangeStatus::Modified,
-        )]);
+        let vcs = FakeVcsReader::new()
+            .with_tags(released_at_0_1_0(&["core", "app"]))
+            .with_changed_since(vec![ChangeRecord::new(
+                "crates/core/src/lib.rs",
+                ChangeStatus::Modified,
+            )]);
         let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
         let overrides = BumpOverrides::new();

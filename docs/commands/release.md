@@ -53,6 +53,12 @@ toven release status [--output human|jsonl]
 
 The plan is deterministic and follows dependency order; repeated runs over unchanged state produce identical output. Each entry reports the current and planned version, the exact release tag a mutating run would create, the bump level, whether the module changed directly or joined through a dependency cascade, the winning version input, the resolved publication policy, and whether registry publication is needed. JSONL additionally carries the 1-based publication `order`, the cascade origin, prerelease channel, publication policy, and registry identifier when one exists. Entries appear in publication order in both renderings.
 
+### Release baseline
+
+Change detection answers "what changed since the last release", so the implicit baseline is the module's own latest release tag — never a branch ref. `[project].base_ref` and `[[members]].base_ref` select the baseline for changed-selection commands such as `toven affected`, not for releases; use `--base <REF>` to override a release diff explicitly.
+
+A module with no release tag has never been released, so it always joins the plan as an initial release with reason `initial-release`. A first release cuts the version the module already declares — `0.1.0-alpha.1` is tagged as `0.1.0-alpha.1` — instead of bumping past it, because bumping would publish a version nobody declared and leave the declared one permanently unreleased. Explicit argv (`--patch`/`--minor`/`--major`, `--set-version`, `--pre`) still wins when a deliberate first bump is wanted.
+
 Status performs read-only tag and ecosystem-target lookups and reports the resolved publication policy for each releasable module. A lookup failure is surfaced rather than converted into a successful empty result. With `offline = true`, status anchors on release tags and skips registry lookups entirely, so the projection stays network-free.
 
 ## Readiness

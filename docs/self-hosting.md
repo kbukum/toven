@@ -82,7 +82,25 @@ Archive names are fixed and never embed the version: `toven.toml`'s `[ecosystems
 
 Every archive contains one directly runnable binary. The hosted Release also contains a CycloneDX SBOM (`toven-sbom.cdx.json`), a combined `SHA256SUMS` covering every archive and the SBOM, that file's keyless Sigstore/cosign signature and certificate (`SHA256SUMS.sig`, `SHA256SUMS.pem`), and a separate GitHub build provenance attestation (not a listed asset; verify it with `gh attestation verify`).
 
-`.github/workflows/release.yml` builds this matrix, assembles the fixed `dist/` file set, and runs `toven release publish` behind the protected `release` environment's required-reviewer approval. It is dispatched manually (`workflow_dispatch`) rather than triggered by a `v*` tag push, because `toven release publish` creates that tag itself; a tag-triggered run would race its own immutable-tag preflight. `scripts/package-release-binary.sh` packages one target's built binary into its fixed archive name; `scripts/verify-release-binary.sh` verifies a packaged or downloaded archive — for downloaded archives, first the keyless Sigstore signature on `SHA256SUMS`, then the archive's checksum — and, where the runner can execute the target, runs it. The cross-compiled `aarch64-unknown-linux-gnu` target builds through `cross` for a matching glibc/OpenSSL/libgit2, and is signature- and checksum-verified only — no hosted runner can execute a Linux ARM64 binary.
+`.github/workflows/release.yml` builds this matrix, assembles the fixed `dist/` file set, and runs `toven release publish` behind the protected `release` environment's required-reviewer approval. It is dispatched manually (`workflow_dispatch`) rather than triggered by a `v*` tag push, because `toven release publish` creates that tag itself; a tag-triggered run would race its own immutable-tag preflight. `scripts/package-release-binary.sh` packages one target's built binary into its fixed archive name; `scripts/verify-release-binary.sh` verifies a packaged or downloaded archive — for downloaded archives, first the keyless Sigstore signature on `SHA256SUMS`, then the archive's checksum — and, where the runner can execute the target, runs it. The cross-compiled `aarch64-unknown-linux-gnu` target builds through `cross` for a matching glibc/OpenSSL/libgit2, and is signature- and checksum-verified only — no hosted runner can execute a Linux ARM64 binary. Build provenance is attested in the approved `publish` job, over the subjects of the published `SHA256SUMS`, so an attestation exists only for artifacts that were actually approved and published.
+
+## Artifact retention
+
+Two kinds of artifacts have very different lifetimes: transient workflow-run artifacts uploaded for review and debugging, and the permanent assets attached to a published hosted Release.
+
+Workflow-run artifacts are ephemeral. They exist only to make a run reviewable and are pruned by GitHub once their retention window elapses:
+
+| Artifact | Workflow | Job | Retention |
+|---|---|---|---|
+| `release-preview` (preview `release-preview.jsonl`, SBOM, dependency graphs) | `release.yml` | preview | 14 days |
+| `release-archive-<target>` (one packaged per-target archive) | `release.yml` | per-target build | 14 days |
+| `release-dist` (assembled `dist/` with every archive, SBOM, `SHA256SUMS`, signature, certificate) | `release.yml` | assemble | 14 days |
+| `release-publish-record` (`release-publish.jsonl` mutation record) | `release.yml` | publish | 90 days |
+| `release-artifacts` (locally built `dist/` set) | `release-readiness.yml` | build | 7 days |
+
+The publish record is kept longest (90 days) because it is the machine-readable record of what an approved mutation actually did. Preview and staging artifacts (14 days) outlive a normal review-and-approve cycle without accumulating indefinitely, and readiness artifacts (7 days) are the shortest-lived because they carry no immutable outcome and are regenerated on every readiness run.
+
+None of these windows affect the release itself. The binaries, checksums, signature, certificate, and SBOM attached to the published hosted Release, the immutable version tag, and the separate build provenance attestation are permanent parts of the Release and are not governed by `retention-days`. They persist until the Release is deleted, which the immutable create-or-verify policy below forbids as a repair mechanism. Consumers pin against those published assets, never against a transient workflow-run artifact.
 
 ## Immutability and recovery
 
