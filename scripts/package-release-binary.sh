@@ -49,11 +49,15 @@ case "${target}" in
     else
       # GitHub's windows-latest runner ships no `zip`; PowerShell's built-in
       # Compress-Archive is always present. `cygpath -w` converts the Git Bash
-      # paths to the Windows form PowerShell expects.
-      win_source="$(cygpath -w "${stage_dir}/${binary_name}")"
-      win_archive="$(cygpath -w "${archive_path}")"
+      # paths to the Windows form PowerShell expects. The paths are handed to
+      # PowerShell through the environment rather than interpolated into the
+      # -Command string, so a path containing a single quote cannot break out
+      # of the script, and -LiteralPath keeps any `[`/`]` glob metacharacters
+      # from being expanded.
+      TOVEN_PS_SOURCE="$(cygpath -w "${stage_dir}/${binary_name}")" \
+      TOVEN_PS_ARCHIVE="$(cygpath -w "${archive_path}")" \
       powershell.exe -NoProfile -NonInteractive -Command \
-        "\$ErrorActionPreference='Stop'; Compress-Archive -Path '${win_source}' -DestinationPath '${win_archive}' -Force"
+        "\$ErrorActionPreference='Stop'; Compress-Archive -LiteralPath \$env:TOVEN_PS_SOURCE -DestinationPath \$env:TOVEN_PS_ARCHIVE -Force"
     fi
     ;;
   *)
