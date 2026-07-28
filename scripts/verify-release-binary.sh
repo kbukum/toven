@@ -124,7 +124,18 @@ fi
 extract_dir="${work_dir}/extracted"
 mkdir -p "${extract_dir}"
 case "${archive_name}" in
-  *.zip) unzip -q "${archive_path}" -d "${extract_dir}" ;;
+  *.zip)
+    if command -v unzip >/dev/null; then
+      unzip -q "${archive_path}" -d "${extract_dir}"
+    else
+      # windows-latest has no `unzip`; PowerShell's built-in Expand-Archive is
+      # always present. `cygpath -w` gives PowerShell native Windows paths.
+      win_archive="$(cygpath -w "${archive_path}")"
+      win_dest="$(cygpath -w "${extract_dir}")"
+      powershell.exe -NoProfile -NonInteractive -Command \
+        "\$ErrorActionPreference='Stop'; Expand-Archive -Path '${win_archive}' -DestinationPath '${win_dest}' -Force"
+    fi
+    ;;
   *) tar -xzf "${archive_path}" -C "${extract_dir}" ;;
 esac
 
