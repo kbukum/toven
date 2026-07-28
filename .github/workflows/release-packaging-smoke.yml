@@ -1,0 +1,73 @@
+name: Release packaging smoke
+
+# Exercise the release packaging and verification scripts on every supported
+# runner OS, so their platform-specific paths — notably the Windows archive
+# handling, where `windows-latest` ships no `zip`/`unzip` and the scripts fall
+# back to PowerShell's Compress-Archive/Expand-Archive — are proven on a real
+# runner before a gated release dispatch relies on them. Builds a host-native
+# debug `toven`, packages it into its release archive, and verifies the
+# repackaged binary reports the workspace version. Runs only when the scripts
+# or the release workflow that drives them change.
+
+on:
+  pull_request:
+    paths:
+      - "scripts/package-release-binary.sh"
+      - "scripts/verify-release-binary.sh"
+      - ".github/workflows/release.yml"
+      - ".github/workflows/release-packaging-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-packaging-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_VERSION: "1.94"
+
+jobs:
+  package:
+    name: Package on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install "${RUST_VERSION}" --profile minimal
+          rustup override set "${RUST_VERSION}"
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@7e35be21c2b94d972b1143087fabc27d7dc881ef # v2.7.8
+        with:
+          key: packaging-smoke-${{ matrix.os }}
+
+      - name: Build host-native toven
+        shell: bash
+        run: cargo build --locked -p toven
+
+      - name: Package and verify the release archive
+        shell: bash
+        run: |
+          target="$(rustc -vV | sed -n 's/^host: //p')"
+          binary="target/debug/toven"
+          if [[ "${target}" == *windows* ]]; then
+            binary="${binary}.exe"
+          fi
+          ./scripts/package-release-binary.sh "${target}" "${binary}"
+          ./scripts/verify-release-binary.sh "${target}"
