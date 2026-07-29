@@ -48,12 +48,15 @@ impl RskitGitVcs {
     /// Open the repository rooted at `path`, authenticating push/fetch with a
     /// token read from the first present variable in `token_env`.
     ///
-    /// This is the release-path constructor: Toven supplies its forge policy
-    /// (the token variable names) while the git layer owns the mechanism. The
-    /// provider chain falls through to the transport default when none of the
-    /// variables are set, so local development is unaffected. An empty
+    /// This is the authenticated-open constructor: Toven supplies its forge
+    /// policy (the token variable names) while the git layer owns the mechanism.
+    /// The provider chain falls through to the transport default when none of
+    /// the variables are set, so local development is unaffected. An empty
     /// `token_env` is equivalent to [`open`](Self::open).
     pub fn open_with_token_env(path: impl AsRef<Path>, token_env: &[String]) -> AppResult<Self> {
+        if token_env.is_empty() {
+            return Self::open(path);
+        }
         Ok(Self::from_repo(rskit_git::open_with_auth(
             path,
             token_env_auth(token_env),
@@ -82,7 +85,7 @@ impl RskitGitVcs {
     }
 }
 
-/// Build the release push/fetch auth provider from Toven's configured token
+/// Build the push/fetch auth provider from Toven's configured token
 /// variable names: try an env-token first, then fall through to the transport
 /// default so an unset token (local development) changes nothing.
 fn token_env_auth(token_env: &[String]) -> Arc<dyn rskit_git::AuthProvider> {
@@ -207,6 +210,24 @@ mod tests {
         .expect("open with token env")
         .current_branch()
         .expect("branch");
+
+        assert!(!branch.is_empty());
+    }
+
+    #[test]
+    fn open_with_token_env_is_equivalent_to_open_when_empty() {
+        // An empty policy carries no token, so the constructor short-circuits to
+        // a plain open and never installs auth callbacks.
+        let workspace = TestWorkspace::new("vcs-token-env-empty");
+        let scenario = GitScenario::init(workspace.path()).expect("git init");
+        scenario
+            .commit_file("README.md", "release", "initial")
+            .expect("commit");
+
+        let branch = RskitGitVcs::open_with_token_env(workspace.path(), &[])
+            .expect("open with empty token env")
+            .current_branch()
+            .expect("branch");
 
         assert!(!branch.is_empty());
     }

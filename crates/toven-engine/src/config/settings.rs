@@ -39,7 +39,11 @@ pub struct TovenConfig {
 }
 
 /// The `[toven.git]` sub-section: how the embedded git backend authenticates
-/// network operations (push/fetch) during a mutating release.
+/// network operations (push/fetch).
+///
+/// These apply whenever the engine performs a git network operation — primarily
+/// the release push, but also the fetches behind planning and change selection,
+/// which reuse the same repository handle.
 ///
 /// Forge-agnostic by design: Toven owns the *policy* of which environment
 /// variables may carry a push token, while the git layer owns the *mechanism*

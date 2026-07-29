@@ -56,7 +56,7 @@ push_token_env = ["GITHUB_TOKEN", "GH_TOKEN"]
 
 Included files provide defaults. The canonical `toven.toml` wins on scalar and table conflicts. Included files must be committed.
 
-`[toven.git].push_token_env` lists, in order, the environment variables the embedded git backend consults for a push/fetch token during a mutating release. The first present, non-empty value is used as the HTTPS token-as-password, so an authenticated push (for example a tag push to a protected branch in CI) succeeds without relying on ambient git credential helpers. It is forge-agnostic: the default names suit GitHub Actions, but any forge's token variable (such as `GITLAB_TOKEN`) can be substituted. When none of the variables are set — the usual local-development case — the backend falls back to its ambient transport default, so nothing changes for day-to-day work.
+`[toven.git].push_token_env` lists, in order, the environment variables the embedded git backend consults for a push/fetch token whenever the engine performs a git network operation — primarily the release push, but also the fetches behind planning and change selection, which reuse the same repository handle. The first present, non-empty value is used as the HTTPS token-as-password, so an authenticated push (for example a tag push to a protected branch in CI) succeeds without relying on ambient git credential helpers. It is forge-agnostic: the default names suit GitHub Actions, but any forge's token variable (such as `GITLAB_TOKEN`) can be substituted. When none of the variables are set — the usual local-development case — the backend falls back to its ambient transport default, so nothing changes for day-to-day work.
 
 ## Rust discovery
 
