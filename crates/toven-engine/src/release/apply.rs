@@ -1790,7 +1790,7 @@ mod tests {
             BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(1, 0, 0), true, 0)],
         );
-        let refspecs = super::push_refspecs(&plan, "release-train", true).expect("refspecs");
+        let refspecs = super::push_refspecs(&plan, Some("release-train")).expect("refspecs");
         assert_eq!(
             refspecs,
             vec![
