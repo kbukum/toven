@@ -95,6 +95,15 @@ impl<'a> MemberReleaseRepos<'a> {
     pub fn root_for(&self, member: Option<&MemberId>) -> Option<&Path> {
         self.get(member).map(MemberReleaseRepo::root)
     }
+
+    /// The read-only VCS port for `member`, if it is a known member repo.
+    ///
+    /// The reconcile pre-pass uses it to confirm that a published version's
+    /// release tag exists before completing its missing hosted Release.
+    #[must_use]
+    pub fn reader_for(&self, member: Option<&MemberId>) -> Option<&dyn VcsReader> {
+        self.get(member).map(MemberReleaseRepo::reader)
+    }
 }
 
 /// Apply one federated release plan across member repos.
@@ -125,28 +134,49 @@ pub fn release_apply_by_member(
         .map(|shard| apply::reconcile_repo_settings(&shard.plan.entries))
         .collect::<AppResult<Vec<_>>>()?;
     guard_member_trees(&shards, &settings, repos)?;
+    let mut preflights = Vec::with_capacity(shards.len());
     for (shard, settings) in shards.iter().zip(&settings) {
         // Target preflight: a member without a release target fails closed
         // before any member mutates.
         apply::preflight_targets(&shard.plan, &module_by_ref, targets)?;
         apply::commit_message(&shard.plan, &module_by_ref, settings.commit_message())?;
-        // Immutable-tag preflight: a planned tag that already exists fails
-        // closed before any member mutates.
+        // Immutable-tag preflight: a partial tag overlap fails closed before any
+        // member mutates; an all-tags-exist member resumes.
         let repo = repo_for(repos, shard.member.as_ref())?;
-        apply::preflight_tags(&shard.plan, &module_by_ref, repo.reader())?;
+        preflights.push(apply::preflight_tags(
+            &shard.plan,
+            &module_by_ref,
+            repo.reader(),
+        )?);
+    }
+    if preflights
+        .iter()
+        .any(|preflight| matches!(preflight, apply::TagPreflight::Resume))
+    {
+        stats.resumed = true;
     }
 
     let mut prepared = Vec::with_capacity(shards.len());
-    for shard in &shards {
+    let mut prepared_settings = Vec::with_capacity(shards.len());
+    for ((shard, settings), preflight) in shards.iter().zip(&settings).zip(&preflights) {
+        // An already-tagged member resumes: its commit, tags, and push already
+        // exist on the remote, so its manifest mutation and commit are skipped;
+        // only the shared publish and hosted-release tail completes.
+        if matches!(preflight, apply::TagPreflight::Resume) {
+            continue;
+        }
         match prepare_member_shard(shard, &module_by_ref, targets, repos, &mut stats) {
-            Ok(member_artifacts) => prepared.push((shard, member_artifacts)),
+            Ok(member_artifacts) => {
+                prepared.push((shard, member_artifacts));
+                prepared_settings.push(settings);
+            }
             Err(error) => return Err(restore_prepared_or_error(&prepared, repos, error)),
         }
     }
 
     let mut artifacts = BTreeMap::new();
-    for ((shard, member_artifacts), settings) in prepared.into_iter().zip(settings) {
-        commit_member_shard(shard, &module_by_ref, repos, options, &settings, &mut stats)?;
+    for ((shard, member_artifacts), settings) in prepared.into_iter().zip(prepared_settings) {
+        commit_member_shard(shard, &module_by_ref, repos, options, settings, &mut stats)?;
         artifacts.extend(member_artifacts);
     }
 
@@ -416,21 +446,28 @@ mod tests {
     }
 
     #[test]
-    fn a_planned_tag_that_already_exists_is_rejected_before_any_member_mutates() {
-        let plan = ReleasePlan::new(
-            BumpPolicy::SemverCascade,
-            vec![
-                entry("core", "shared", Version::new(0, 1, 1), 0),
-                entry("gateway", "api", Version::new(0, 1, 1), 1),
-            ],
-        );
+    fn an_all_member_tags_exist_release_resumes_without_git_mutation() {
+        // Every member's planned tag already exists: the commits, tags, and
+        // pushes happened on a prior attempt, so APPLY resumes across the
+        // federation — no member mutates, commits, tags, or pushes — and the
+        // already-published versions make the publish loop a clean no-op.
+        let mut core_entry = entry("core", "shared", Version::new(0, 1, 1), 0);
+        core_entry.publish_needed = false;
+        core_entry.publication = toven_ports::PublicationPolicy::TagOnly;
+        let mut gateway_entry = entry("gateway", "api", Version::new(0, 1, 1), 1);
+        gateway_entry.publish_needed = false;
+        gateway_entry.publication = toven_ports::PublicationPolicy::TagOnly;
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![core_entry, gateway_entry]);
         let modules = vec![module("core", "shared"), module("gateway", "api")];
         let target = FakeReleaseTarget::new();
         let core_reader = FakeVcsReader::new().with_tags(vec![toven_ports::TagRef::new(
             "rust/shared@0.1.1",
             toven_ports::Oid::new("deadbee"),
         )]);
-        let gateway_reader = FakeVcsReader::new();
+        let gateway_reader = FakeVcsReader::new().with_tags(vec![toven_ports::TagRef::new(
+            "rust/api@0.1.1",
+            toven_ports::Oid::new("cafef00d"),
+        )]);
         let core_writer = FakeVcsWriter::new();
         let gateway_writer = FakeVcsWriter::new();
         let repos = MemberReleaseRepos::new(vec![
@@ -448,6 +485,61 @@ mod tests {
             ),
         ]);
 
+        let stats = release_apply_by_member(
+            &plan,
+            &modules,
+            &targets(&target),
+            &repos,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect("an already-tagged federation resumes rather than failing closed");
+
+        assert!(stats.resumed, "the run is marked resumed");
+        assert_eq!(stats.tagged_modules, 0);
+        assert!(
+            core_writer.writes().is_empty() && gateway_writer.writes().is_empty(),
+            "no member may commit/tag/push on resume: core={:?} gateway={:?}",
+            core_writer.writes(),
+            gateway_writer.writes()
+        );
+        assert!(
+            !target.calls().iter().any(|call| matches!(
+                call,
+                ReleaseCall::ApplyRelease { .. }
+                    | ReleaseCall::Package(_)
+                    | ReleaseCall::Publish(_)
+            )),
+            "no manifest mutation, packaging, or publish may happen on resume: {:?}",
+            target.calls()
+        );
+    }
+
+    #[test]
+    fn a_partial_planned_tag_set_in_a_member_is_rejected_before_any_mutation() {
+        // One member owns two distinct tags; only one exists — a partial overlap
+        // within the member's own tag train is an interrupted or divergent
+        // release, not a resume, and fails closed before any mutation.
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![
+                entry("core", "shared", Version::new(0, 1, 1), 0),
+                entry("core", "extra", Version::new(0, 1, 1), 1),
+            ],
+        );
+        let modules = vec![module("core", "shared"), module("core", "extra")];
+        let target = FakeReleaseTarget::new();
+        let core_reader = FakeVcsReader::new().with_tags(vec![toven_ports::TagRef::new(
+            "rust/shared@0.1.1",
+            toven_ports::Oid::new("deadbee"),
+        )]);
+        let core_writer = FakeVcsWriter::new();
+        let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
+            Some(member("core")),
+            std::path::PathBuf::from("/repos/core"),
+            &core_reader,
+            &core_writer,
+        )]);
+
         let error = release_apply_by_member(
             &plan,
             &modules,
@@ -455,26 +547,14 @@ mod tests {
             &repos,
             &ReleaseApplyOptions::default(),
         )
-        .expect_err("an existing release tag must fail closed before any mutation");
+        .expect_err("a partial tag overlap must fail closed before any mutation");
 
         let message = error.to_string();
-        assert!(message.contains("rust/shared@0.1.1"), "{message}");
         assert!(message.contains("immutable"), "{message}");
+        assert!(message.contains("forward-fix"), "{message}");
         assert!(
             core_writer.writes().is_empty(),
-            "no write may reach the colliding member"
-        );
-        assert!(
-            gateway_writer.writes().is_empty(),
-            "no write may reach a sibling member either"
-        );
-        assert!(
-            target.calls().iter().all(|call| matches!(
-                call,
-                ReleaseCall::TagScheme { .. } | ReleaseCall::DeclaredVersion(_)
-            )),
-            "no target mutation/package/publish may happen: {:?}",
-            target.calls()
+            "no write may reach the member on a partial overlap"
         );
     }
 

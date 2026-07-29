@@ -16,6 +16,7 @@ use toven_ports::{Provider, Reporter};
 
 use super::host;
 use super::plan::{plan_with_context, release_targets, resolve_release_settings};
+use super::reconcile;
 use super::{BumpOverrides, ReleaseApplyOptions, ReleaseStats};
 use crate::config::Document;
 use crate::federation::baseline::MemberVcsReaders;
@@ -61,9 +62,57 @@ pub fn release_run(
         reporter,
     )?;
     let targets = release_targets(&context)?;
+
+    // Reconcile pre-pass: complete a hosted Release for the already-published
+    // current version before planning any bump. A run that published the tag and
+    // registry version but failed before cutting the forge Release leaves an
+    // immutable, un-hostable state the bump planner can never reach (a changed
+    // module always plans a forward bump; an unchanged module is dropped from the
+    // plan). Keyed on the published+tagged+unhosted state, this pre-pass is
+    // reachable by the automatic `release publish` re-dispatch. It runs only for
+    // a pushing publish (the hosted phase depends on the pushed tag) and
+    // short-circuits the run only when it actually creates a missing Release, so
+    // a legitimate new release is never blocked.
+    if options.publish && !options.no_push {
+        let settings = resolve_release_settings(&context, &targets)?;
+        let hosts = host::build_hosts(&settings)?;
+        let mut stats = ReleaseStats::new(0);
+        let created = reconcile::reconcile_hosted_releases(
+            &context.federation.modules,
+            &targets,
+            &settings,
+            repos,
+            &hosts,
+            request.project_root.as_path(),
+            &mut stats,
+        )?;
+        if created {
+            stats.resumed = true;
+            reporter.emit(&toven_model::Event::Warning {
+                message: "the tag and registry version for the current release are already \
+                          published; completing only the missing hosted Release and skipping the \
+                          manifest mutation, commit, tag, push, and registry publish"
+                    .to_string(),
+            })?;
+            return Ok(stats);
+        }
+    }
+
     let plan = plan_with_context(&context, request, readers, overrides, &targets)?;
     let mut stats =
         release_apply_by_member(&plan, &context.federation.modules, &targets, repos, options)?;
+
+    // A resumed apply skipped the already-applied git mutation phase; surface it
+    // so the operator sees why no commit/tag/push happened and that the run is
+    // completing only the missing publish and hosted-release work.
+    if stats.resumed {
+        reporter.emit(&toven_model::Event::Warning {
+            message: "release commit and tags already exist for the planned version; skipping \
+                      the manifest mutation, commit, tag, and push, and completing only the \
+                      idempotent publish and hosted-release phases"
+                .to_string(),
+        })?;
+    }
 
     // The hosted-release phase runs after a pushing publish: it needs the pushed
     // tag on the forge to cut a Release against.
@@ -79,13 +128,8 @@ pub fn release_run(
             })
             .map(|entry| entry.module.member.clone())
             .collect::<BTreeSet<_>>();
-        let planned = host::planned_host_releases(
-            &plan,
-            &context.federation.modules,
-            &targets,
-            &settings,
-            request.project_root.as_path(),
-        )?;
+        let planned =
+            host::planned_host_releases(&plan, &context.federation.modules, &targets, &settings)?;
         let planned = planned
             .into_iter()
             .filter(|entry| pushed_members.contains(&entry.member))
@@ -175,6 +219,13 @@ mod tests {
     }
 
     fn provider_with_host_and_push(push: bool) -> FakeProvider {
+        provider_with_host_push_and_published(push, Vec::new())
+    }
+
+    fn provider_with_host_push_and_published(
+        push: bool,
+        published: Vec<rskit_version::semver::Version>,
+    ) -> FakeProvider {
         let mut response = DiscoverResponse::new(eid());
         response.modules = vec![module("core")];
         let common = CommonEcosystemConfig {
@@ -192,7 +243,7 @@ mod tests {
         let adapter = FakeConfiguredAdapter::new(eid())
             .with_response(response)
             .with_common(common)
-            .with_release_target(FakeReleaseTarget::new());
+            .with_release_target(FakeReleaseTarget::new().with_published_versions(published));
         FakeProvider::new(eid()).with_adapter(adapter)
     }
 
@@ -278,6 +329,72 @@ mod tests {
                 .writes()
                 .iter()
                 .any(|write| matches!(write, toven_testkit::VcsWrite::Push { .. }))
+        );
+    }
+
+    #[test]
+    fn a_resumed_apply_skips_git_mutation_and_reports_the_resume() {
+        // The planned tag already exists and the version is already published:
+        // APPLY resumes — no commit/tag/push — and the operator sees a resume
+        // notice. `--no-push` keeps the real hosted-release phase out of this
+        // unit test (its `gh` invocation is exercised at the phase level).
+        let provider = provider_with_host_push_and_published(
+            true,
+            vec![rskit_version::semver::Version::new(0, 1, 0)],
+        );
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let plan_reader = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
+            "crates/core/src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+        let readers = MemberVcsReaders::single(&plan_reader, BaselineSpec::explicit("main"));
+        let apply_reader = FakeVcsReader::new().with_tags(vec![toven_ports::TagRef::new(
+            "rust/core@0.1.0",
+            toven_ports::Oid::new("deadbee"),
+        )]);
+        let writer = FakeVcsWriter::new().with_commit_oid("c1");
+        let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
+            None,
+            AbsPath::new("/repo").unwrap().as_path().to_path_buf(),
+            &apply_reader,
+            &writer,
+        )]);
+        let mut reporter = RecordingReporter::new();
+
+        let stats = release_run(
+            &request(),
+            &document(),
+            &providers,
+            &readers,
+            &repos,
+            &BumpOverrides::new(),
+            &mut reporter,
+            &ReleaseApplyOptions {
+                no_push: true,
+                publish: true,
+                ..ReleaseApplyOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert!(stats.resumed, "the run is marked resumed");
+        assert_eq!(stats.tagged_modules, 0);
+        assert_eq!(
+            stats.published_modules, 0,
+            "the version is already published"
+        );
+        assert!(
+            writer.writes().is_empty(),
+            "no commit/tag/push may happen on resume: {:?}",
+            writer.writes()
+        );
+        assert!(
+            reporter.events().iter().any(|event| matches!(
+                event,
+                toven_model::Event::Warning { message } if message.contains("already exist")
+            )),
+            "the operator sees a resume notice: {:?}",
+            reporter.events()
         );
     }
 }

@@ -88,7 +88,6 @@ pub(crate) fn planned_host_releases(
     modules: &[Module],
     targets: &ReleaseTargets,
     settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
-    project_root: &std::path::Path,
 ) -> AppResult<Vec<PlannedHostRelease>> {
     let module_by_ref: BTreeMap<ModuleKey, &Module> = modules
         .iter()
@@ -144,7 +143,7 @@ pub(crate) fn planned_host_releases(
         let assets = host
             .assets
             .iter()
-            .map(|path| ReleaseAsset::new(project_root.join(path)))
+            .map(|path| ReleaseAsset::new(path.clone()))
             .collect();
 
         let release = HostedRelease::new(tag.clone(), tag, notes)
@@ -395,14 +394,8 @@ mod tests {
         let modules = vec![module("core")];
 
         // No host configured: nothing to cut.
-        let none = planned_host_releases(
-            &plan,
-            &modules,
-            &targets(),
-            &settings("core", None),
-            Path::new("/repo"),
-        )
-        .unwrap();
+        let none =
+            planned_host_releases(&plan, &modules, &targets(), &settings("core", None)).unwrap();
         assert!(none.is_empty());
 
         // Host configured: one release, tag from the target scheme.
@@ -411,7 +404,6 @@ mod tests {
             &modules,
             &targets(),
             &settings("core", Some(github_host())),
-            Path::new("/repo"),
         )
         .unwrap();
         assert_eq!(planned.len(), 1);
@@ -443,9 +435,7 @@ mod tests {
         let mut resolved = settings("core", Some(host.clone()));
         resolved.extend(settings("app", Some(host)));
 
-        let planned =
-            planned_host_releases(&plan, &modules, &targets(), &resolved, Path::new("/repo"))
-                .unwrap();
+        let planned = planned_host_releases(&plan, &modules, &targets(), &resolved).unwrap();
 
         assert_eq!(
             planned.len(),
@@ -502,7 +492,6 @@ mod tests {
             &modules,
             &targets(),
             &settings("other", Some(github_host())),
-            Path::new("/repo"),
         );
         let Err(error) = result else {
             panic!("missing settings must surface a typed error");
@@ -520,7 +509,6 @@ mod tests {
             &modules,
             &targets(),
             &settings("core", Some(github_host())),
-            Path::new("/repo"),
         )
         .unwrap();
 
@@ -543,7 +531,6 @@ mod tests {
             &modules,
             &targets(),
             &settings("core", Some(github_host())),
-            Path::new("/repo"),
         )
         .unwrap();
 
@@ -562,14 +549,9 @@ mod tests {
         let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry("core", Some("rc"))]);
         let modules = vec![module("core")];
 
-        let planned = planned_host_releases(
-            &plan,
-            &modules,
-            &targets(),
-            &settings("core", Some(host)),
-            Path::new("/repo"),
-        )
-        .unwrap();
+        let planned =
+            planned_host_releases(&plan, &modules, &targets(), &settings("core", Some(host)))
+                .unwrap();
 
         let release = &planned[0].release;
         assert!(release.draft);
@@ -577,13 +559,12 @@ mod tests {
         assert!(!release.prerelease);
         assert_eq!(release.notes, "handcrafted");
         assert_eq!(release.assets.len(), 1);
-        // Assets resolve against the project root.
-        assert!(
-            release.assets[0]
-                .path
-                .ends_with("target/toven/release/core.cdx.json")
+        // Asset paths stay project-relative through the port; resolution to an
+        // absolute filesystem path is deferred to fingerprint time.
+        assert_eq!(
+            release.assets[0].path,
+            Path::new("target/toven/release/core.cdx.json")
         );
-        assert!(release.assets[0].path.starts_with("/repo"));
     }
 
     #[test]
@@ -595,8 +576,7 @@ mod tests {
         let modules = vec![module("core"), module("api")];
         let mut all = settings("core", Some(github_host()));
         all.extend(settings("api", Some(github_host())));
-        let planned =
-            planned_host_releases(&plan, &modules, &targets(), &all, Path::new("/repo")).unwrap();
+        let planned = planned_host_releases(&plan, &modules, &targets(), &all).unwrap();
 
         let host = FakeReleaseHost::new().with_outcome(HostReleaseOutcome::AlreadyComplete);
         let mut hosts = super::ReleaseHosts::new();
@@ -631,7 +611,6 @@ mod tests {
             &modules,
             &targets(),
             &settings("core", Some(github_host())),
-            Path::new("/repo"),
         )
         .unwrap();
 

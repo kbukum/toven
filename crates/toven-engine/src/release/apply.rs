@@ -178,7 +178,17 @@ pub fn release_apply(
     // Resolve all pre-commit errors before mutating any manifest.
     preflight_targets(plan, &module_by_ref, targets)?;
     let message = commit_message(plan, &module_by_ref, settings.commit_message())?;
-    preflight_tags(plan, &module_by_ref, reader)?;
+
+    // If every planned tag already exists, the git mutation phase already ran
+    // and pushed on a prior attempt: resume by skipping manifest mutation,
+    // commit, tag, and push, and let the idempotent publish and hosted-release
+    // phases finish. A partial tag overlap has already failed closed above.
+    if matches!(
+        preflight_tags(plan, &module_by_ref, reader)?,
+        TagPreflight::Resume
+    ) {
+        return resume_apply(plan, &module_by_ref, targets, options, stats);
+    }
 
     // Pre-commit phase (undoable): apply mutations, then package every module
     // that will be published.
@@ -229,7 +239,38 @@ pub fn release_apply(
     Ok(stats)
 }
 
-/// The exact release tag string resolved for `entry` during planning. Apply,
+/// Complete an already-tagged release without re-running the git mutation
+/// phase.
+///
+/// Every planned tag already exists on the remote, so manifest mutation,
+/// commit, tag, and push are skipped — the release commit and its immutable
+/// tags were created and pushed on a prior attempt. Only the idempotent publish
+/// loop runs: a resume re-plan reports already-published versions as not
+/// publish-needed, so `publish_items` is empty and the loop is a clean no-op;
+/// any version the registry still lacks is published exactly as a fresh run
+/// would. The hosted-release phase runs afterward in the caller, creating the
+/// one Release a prior attempt left missing.
+fn resume_apply(
+    plan: &ReleasePlan,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+    targets: &super::ReleaseTargets,
+    options: &ReleaseApplyOptions,
+    mut stats: ReleaseStats,
+) -> AppResult<ReleaseStats> {
+    stats.resumed = true;
+    if options.publish {
+        let artifacts = BTreeMap::new();
+        let items = publish_items(plan, module_by_ref, targets, &artifacts)?;
+        publish::run(&items, options.retry_budget, &mut stats).map_err(|error| {
+            forward_recovery_error(
+                "the release commit, tags, and push already completed",
+                "publication",
+                error,
+            )
+        })?;
+    }
+    Ok(stats)
+}
 /// preflight, the commit message, and the pushed refspecs all anchor on this
 /// single planned value instead of re-deriving the tag from the scheme, so a
 /// run creates, validates, names, and pushes precisely the tag the plan showed
@@ -522,24 +563,56 @@ pub(crate) fn preflight_targets(
     Ok(())
 }
 
+/// The pre-commit tag preflight verdict: whether a run is a fresh release or a
+/// resume of an already-tagged one.
+///
+/// Release tags are immutable, so the set of planned tags that already exist on
+/// the remote classifies the run: none is a normal apply; all is a resume (the
+/// git mutation phase already ran and pushed, so it is skipped and only the
+/// idempotent publish and hosted-release phases finish); a partial overlap is
+/// an interrupted or divergent state that fails closed for a human forward fix.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) enum TagPreflight {
+    /// No planned tag exists yet: apply the release normally.
+    Fresh,
+    /// Every planned tag already exists and the plan is internally consistent:
+    /// resume by skipping manifest mutation, commit, tag, and push.
+    Resume,
+}
+
 /// Pre-commit tag preflight: every planned tag scheme and annotation must
-/// resolve, no planned tag may already exist, and no two modules in the plan
-/// may render the same tag. Release tags are immutable — a collision means the
-/// version was already tagged (manually or by an interrupted run), so the run
-/// fails closed with forward-fix guidance rather than reusing or moving a tag.
+/// resolve, and no two modules in the plan may render the same tag with
+/// divergent annotations. The set of planned tags that already exist on the
+/// remote then classifies the run as [`Fresh`](TagPreflight::Fresh) (none
+/// exist), [`Resume`](TagPreflight::Resume) (all exist), or a fail-closed
+/// forward-fix conflict (a partial overlap). Release tags are immutable — a
+/// partial set means an interrupted or divergent release a human must resolve,
+/// never a tag this run may reuse or move.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn preflight_tags(
     plan: &ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
     reader: &dyn VcsReader,
-) -> AppResult<()> {
+) -> AppResult<TagPreflight> {
     let existing = reader.list_tags(None)?;
     let names: BTreeSet<&str> = existing.iter().map(|tag| tag.name.as_str()).collect();
-    // Tag name -> the annotation the first contributing module renders. A
-    // single-version workspace collapses many modules onto one shared tag
-    // (`tag_format = "v{version}"`): that is one release train, tagged once,
-    // not a per-module collision. Modules sharing a tag must agree on its
-    // annotation, mirroring the hosted-release phase's shared-tag merge.
+    let planned = planned_tag_annotations(plan, module_by_ref)?;
+    classify_planned_tags(&planned, &names)
+}
+
+/// Resolve every distinct planned tag with the annotation the first
+/// contributing module renders, validating that modules sharing one tag agree
+/// on its annotation.
+///
+/// A single-version workspace collapses many modules onto one shared tag
+/// (`tag_format = "v{version}"`): that is one release train, tagged once, not a
+/// per-module collision. Modules sharing a tag must agree on its annotation,
+/// mirroring the hosted-release phase's shared-tag merge.
+fn planned_tag_annotations(
+    plan: &ReleasePlan,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+) -> AppResult<BTreeMap<String, Option<String>>> {
     let mut planned: BTreeMap<String, Option<String>> = BTreeMap::new();
     for entry in &plan.entries {
         let Some(version) = &entry.planned_version else {
@@ -562,18 +635,47 @@ pub(crate) fn preflight_tags(
             }
             continue;
         }
-        if names.contains(name) {
-            return Err(AppError::invalid_input(
-                "release.tags",
-                format!(
-                    "release tag '{name}' already exists; release tags are immutable — \
-                     forward-fix with a new version instead of reusing '{version}'"
-                ),
-            ));
-        }
         planned.insert(name.to_string(), annotation);
     }
-    Ok(())
+    Ok(planned)
+}
+
+/// Classify the planned tags against the tags already on the remote.
+///
+/// None present is a fresh apply; every planned tag present is a resume; a
+/// partial overlap fails closed, because a subset of an immutable tag train
+/// already existing is an interrupted or divergent release a human must
+/// forward-fix, not a state this run may complete by reusing or moving a tag.
+fn classify_planned_tags(
+    planned: &BTreeMap<String, Option<String>>,
+    existing: &BTreeSet<&str>,
+) -> AppResult<TagPreflight> {
+    let present: BTreeSet<&str> = planned
+        .keys()
+        .map(String::as_str)
+        .filter(|name| existing.contains(name))
+        .collect();
+    if present.is_empty() {
+        return Ok(TagPreflight::Fresh);
+    }
+    if present.len() == planned.len() {
+        return Ok(TagPreflight::Resume);
+    }
+    let missing: Vec<&str> = planned
+        .keys()
+        .map(String::as_str)
+        .filter(|name| !existing.contains(name))
+        .collect();
+    Err(AppError::invalid_input(
+        "release.tags",
+        format!(
+            "a partial release tag set already exists: [{}] are present but [{}] are not; \
+             release tags are immutable, so this interrupted or divergent release must be \
+             forward-fixed with a new version rather than reusing or moving a tag",
+            present.into_iter().collect::<Vec<_>>().join(", "),
+            missing.join(", ")
+        ),
+    ))
 }
 
 fn render_template(
@@ -1210,17 +1312,21 @@ mod tests {
     }
 
     #[test]
-    fn a_planned_tag_that_already_exists_is_rejected_before_any_mutation() {
+    fn an_all_tags_exist_release_resumes_without_git_mutation() {
+        // The planned tag already exists on the remote: the commit, tag, and
+        // push happened on a prior attempt, so APPLY resumes — no manifest
+        // mutation, commit, tag, or push — and the version is already published,
+        // so the publish loop is a clean no-op.
         let plan = ReleasePlan::new(
             BumpPolicy::SemverCascade,
-            vec![entry("core", Version::new(0, 2, 0), true, 0)],
+            vec![entry("core", Version::new(0, 2, 0), false, 0)],
         );
         let target = FakeReleaseTarget::new();
         let writer = FakeVcsWriter::new();
         let reader = FakeVcsReader::new()
             .with_tags(vec![TagRef::new("rust/core@0.2.0", Oid::new("deadbee"))]);
 
-        let error = release_apply(
+        let stats = release_apply(
             &plan,
             &[module("core")],
             &targets(vec![("core", target.clone())]),
@@ -1228,20 +1334,59 @@ mod tests {
             &writer,
             &ReleaseApplyOptions::default(),
         )
-        .expect_err("an existing release tag must fail closed before mutation");
+        .expect("an already-tagged release resumes rather than failing closed");
+
+        assert!(stats.resumed, "the run is marked resumed");
+        assert_eq!(stats.tagged_modules, 0);
+        assert!(
+            writer.writes().is_empty(),
+            "no commit/tag/push may happen on resume: {:?}",
+            writer.writes()
+        );
+        assert!(
+            !target.calls().iter().any(|call| matches!(
+                call,
+                ReleaseCall::ApplyRelease { .. }
+                    | ReleaseCall::Package(_)
+                    | ReleaseCall::Publish(_)
+            )),
+            "no manifest mutation, packaging, or publish may happen on resume: {:?}",
+            target.calls()
+        );
+    }
+
+    #[test]
+    fn a_partial_planned_tag_set_is_rejected_before_any_mutation() {
+        // One of two planned tags exists: an interrupted or divergent release,
+        // never a resume — it fails closed with immutable/forward-fix guidance
+        // before any mutation.
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![
+                entry("core", Version::new(0, 2, 0), true, 0),
+                entry("app", Version::new(0, 2, 0), true, 1),
+            ],
+        );
+        let writer = FakeVcsWriter::new();
+        let reader = FakeVcsReader::new()
+            .with_tags(vec![TagRef::new("rust/core@0.2.0", Oid::new("deadbee"))]);
+
+        let error = release_apply(
+            &plan,
+            &[module("core"), module("app")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &reader,
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("a partial tag overlap must fail closed before mutation");
 
         let message = error.to_string();
         assert!(message.contains("rust/core@0.2.0"), "{message}");
+        assert!(message.contains("rust/app@0.2.0"), "{message}");
         assert!(message.contains("immutable"), "{message}");
+        assert!(message.contains("forward-fix"), "{message}");
         assert!(writer.writes().is_empty(), "no VCS write may happen");
-        assert!(
-            target.calls().iter().all(|call| matches!(
-                call,
-                ReleaseCall::TagScheme { .. } | ReleaseCall::DeclaredVersion { .. }
-            )),
-            "no target mutation/package/publish may happen: {:?}",
-            target.calls()
-        );
     }
 
     #[test]

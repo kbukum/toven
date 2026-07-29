@@ -68,13 +68,8 @@ pub fn release_rehearse(
             .map(|entry| entry.module.member.clone())
             .collect()
     };
-    let planned = host::planned_host_releases(
-        &plan,
-        &context.federation.modules,
-        &targets,
-        &settings,
-        request.project_root.as_path(),
-    )?;
+    let planned =
+        host::planned_host_releases(&plan, &context.federation.modules, &targets, &settings)?;
     let planned = planned
         .into_iter()
         .filter(|entry| pushed_members.contains(&entry.member))

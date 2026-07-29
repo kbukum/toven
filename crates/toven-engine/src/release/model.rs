@@ -454,6 +454,11 @@ pub struct ReleaseStats {
     pub rate_limited_waits: usize,
     /// Hosted forge Releases created or updated after publish.
     pub hosted_releases: usize,
+    /// Whether APPLY resumed an already-tagged release: the git mutation phase
+    /// (manifest mutation, commit, tag, push) was skipped because every planned
+    /// tag already exists, leaving only the idempotent publish and
+    /// hosted-release phases to complete.
+    pub resumed: bool,
 }
 
 impl ReleaseStats {
@@ -469,6 +474,7 @@ impl ReleaseStats {
             skipped_published_modules: 0,
             rate_limited_waits: 0,
             hosted_releases: 0,
+            resumed: false,
         }
     }
 }

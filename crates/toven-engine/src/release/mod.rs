@@ -12,6 +12,7 @@ mod overrides;
 pub(crate) mod plan;
 pub(crate) mod publish;
 mod readiness;
+mod reconcile;
 mod rehearse;
 mod run;
 mod sbom;
