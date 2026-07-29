@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::{AppError, AppResult};
 use rskit_version::semver::Version;
-use toven_model::{DepKind, Edge, Graph, Module, ModuleKey, ModuleRef};
+use toven_model::{DepKind, Edge, Graph, MemberId, Module, ModuleKey, ModuleRef};
 use toven_ports::{BumpLevel, DependentVersion, PublicationPolicy, ReleaseMutation, ReleaseTarget};
 
 use super::strategy::{self, EffectiveLevel};
@@ -25,6 +25,9 @@ pub(super) struct BumpInputs<'a> {
     pub(super) changelogs: &'a BTreeMap<ModuleKey, ChangelogEntry>,
     pub(super) settings: &'a BTreeMap<ModuleKey, ResolvedReleaseSettings>,
     pub(super) targets: &'a super::ReleaseTargets,
+    /// Checked-out branch per federation member (absent on detached HEAD),
+    /// consulted only to resolve a configured branch→prerelease-channel mapping.
+    pub(super) branches: &'a BTreeMap<Option<MemberId>, String>,
     pub(super) policy: BumpPolicy,
     pub(super) overrides: &'a BumpOverrides,
 }
@@ -196,6 +199,10 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
                 .settings
                 .get(&reference)
                 .and_then(|resolved| resolved.commit_message.clone()),
+            token_env: input
+                .settings
+                .get(&reference)
+                .and_then(|resolved| resolved.token_env.clone()),
             push: input
                 .settings
                 .get(&reference)
@@ -259,11 +266,24 @@ fn resolve_bump(
 
     let is_seed = input.changed.contains(reference);
 
+    // The prerelease channel is only consulted for a module that cuts its own
+    // version, so it is resolved here for a changed seed and lazily below for a
+    // cascaded own-bump; a floor-only dependent never resolves it and so never
+    // fails on a channel it would not use. An explicit `--pre` wins; otherwise a
+    // configured branch→channel mapping selects the channel from the checked-out
+    // branch.
+    let seed_channel = if is_seed {
+        effective_channel(input, settings, reference)?
+    } else {
+        None
+    };
+
     // A module that has never been released cuts the version it already
     // declares: bumping past it would publish a version nobody declared and
     // would leave the declared version permanently unreleased. Explicit argv
     // (`--set-version`, handled above, `--patch`/`--minor`/`--major`, `--pre`)
-    // still wins, so a deliberate first bump stays possible.
+    // or a branch-mapped prerelease channel still wins, so a deliberate first
+    // bump stays possible.
     let is_initial = input
         .baselines
         .get(reference)
@@ -271,7 +291,7 @@ fn resolve_bump(
     if is_initial
         && is_seed
         && input.overrides.module_level(module_ref).is_none()
-        && input.overrides.prerelease().is_none()
+        && seed_channel.is_none()
     {
         return Ok(BumpDecision {
             planned: Some(current.clone()),
@@ -300,9 +320,14 @@ fn resolve_bump(
         });
     };
 
-    // Only a module cutting an own version consults the prerelease channel, so a
-    // floor-only dependent never fails on a channel it would not use.
-    let channel = resolve_channel(input, settings)?;
+    // A changed seed already resolved its channel above; a cascaded own-bump
+    // resolves it now. A floor-only dependent returned above and never reaches
+    // here, so it still never fails on a channel it would not use.
+    let channel = if is_seed {
+        seed_channel
+    } else {
+        effective_channel(input, settings, reference)?
+    };
     let planned = strategy::next_version(input.policy, current, level, channel.as_deref())?;
     Ok(BumpDecision {
         planned: Some(planned),
@@ -376,23 +401,55 @@ fn select_level(
     (None, BumpSource::Cascade, BumpReason::DependencyCascade)
 }
 
-/// Resolve and validate the per-run prerelease channel against the module's
-/// configured channels.
-fn resolve_channel(
+/// Resolve the per-run prerelease channel for a module cutting an own version.
+///
+/// An explicit `--pre <channel>` argv wins and is validated against the
+/// module's configured channels. Otherwise, when a branch→channel mapping is
+/// configured, the module's member's checked-out branch selects the channel;
+/// a detached HEAD or an unmapped branch yields a stable release. A mapped
+/// channel is validated against the configured channels defensively (config
+/// validation already enforces this), so a malformed mapping fails closed
+/// rather than cutting an unrecognized prerelease.
+///
+/// # Errors
+/// Rejects a `--pre` channel or a branch-mapped channel that is not one of the
+/// module's configured prerelease channels.
+fn effective_channel(
     input: &BumpInputs<'_>,
     settings: Option<&ResolvedReleaseSettings>,
+    reference: &ModuleKey,
 ) -> AppResult<Option<String>> {
-    let Some(channel) = input.overrides.prerelease() else {
+    if let Some(channel) = input.overrides.prerelease() {
+        if !settings.is_some_and(|resolved| resolved.prerelease.recognizes(channel)) {
+            return Err(AppError::invalid_input(
+                "release.pre",
+                format!("prerelease channel '{channel}' is not one of the configured channels"),
+            ));
+        }
+        return Ok(Some(channel.to_string()));
+    }
+    let Some(resolved) = settings else {
         return Ok(None);
     };
-    let recognized = settings.is_some_and(|resolved| resolved.prerelease.recognizes(channel));
-    if !recognized {
+    if resolved.prerelease.branch_channels.is_empty() {
+        return Ok(None);
+    }
+    let Some(branch) = input.branches.get(&reference.member) else {
+        return Ok(None);
+    };
+    let Some(channel) = resolved.prerelease.branch_channels.get(branch) else {
+        return Ok(None);
+    };
+    if !resolved.prerelease.recognizes(channel) {
         return Err(AppError::invalid_input(
-            "release.pre",
-            format!("prerelease channel '{channel}' is not one of the configured channels"),
+            "release.prerelease.branch_channels",
+            format!(
+                "branch '{branch}' maps to prerelease channel '{channel}', which is not one of \
+                 the configured channels"
+            ),
         ));
     }
-    Ok(Some(channel.to_string()))
+    Ok(Some(channel.clone()))
 }
 
 /// Classify the semver distance between `current` and an explicit `target`.
@@ -555,7 +612,7 @@ fn publish_ranks(
 #[cfg(test)]
 mod tests {
     use rskit_version::semver::Version;
-    use toven_model::{DepKind, EcosystemId, Edge, Graph, Module, RepoPath};
+    use toven_model::{DepKind, EcosystemId, Edge, Graph, MemberId, Module, RepoPath};
     use toven_ports::{BumpLevel, DependentVersion, ReleaseConfig, ReleaseTarget};
     use toven_testkit::FakeReleaseTarget;
 
@@ -564,6 +621,12 @@ mod tests {
         ModuleRef, ResolvedReleaseSettings, plan_entries,
     };
     use crate::release::ReleaseTargets;
+
+    /// The empty per-member branch map: tests that do not exercise
+    /// branch→channel mapping resolve no branch-derived prerelease channel.
+    fn no_branches() -> BTreeMap<Option<MemberId>, String> {
+        BTreeMap::new()
+    }
 
     fn core_module() -> Module {
         Module::new(
@@ -633,6 +696,7 @@ mod tests {
             changelogs: &changelogs,
             settings: &settings,
             targets: &targets,
+            branches: &no_branches(),
             policy: BumpPolicy::SemverCascade,
             overrides: &overrides,
         })
@@ -674,6 +738,7 @@ mod tests {
             changelogs: &changelogs,
             settings: &settings,
             targets: &targets,
+            branches: &no_branches(),
             policy: BumpPolicy::SemverCascade,
             overrides: &overrides,
         });
@@ -720,6 +785,7 @@ mod tests {
             changelogs: &changelogs,
             settings: &settings,
             targets: &targets,
+            branches: &no_branches(),
             policy: BumpPolicy::SemverCascade,
             overrides: &overrides,
         })
@@ -777,6 +843,7 @@ mod tests {
             changelogs: &changelogs,
             settings: &settings,
             targets: &targets,
+            branches: &no_branches(),
             policy: BumpPolicy::SemverCascade,
             overrides: &overrides,
         })

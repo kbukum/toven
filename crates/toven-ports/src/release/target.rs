@@ -7,7 +7,7 @@ use rskit_errors::AppResult;
 use rskit_version::semver::Version;
 use toven_model::Module;
 
-use super::{Artifact, PublishOutcome, ReleaseMutation, TagScheme};
+use super::{Artifact, PublishOutcome, ReleaseCredentials, ReleaseMutation, TagScheme};
 
 /// The ~10% ecosystem-specific release surface.
 ///
@@ -44,7 +44,20 @@ pub trait ReleaseTarget {
 
     /// Perform exactly one publish attempt and classify the registry's
     /// response.
-    fn publish(&self, module: &Module, artifact: &Artifact) -> AppResult<PublishOutcome>;
+    ///
+    /// `credentials` carries the *name* of the registry-token environment
+    /// variable (never the secret): a registry-publishing adapter reads that
+    /// variable from its own environment at publish time and forwards the
+    /// credential to its toolchain through the child process environment (never
+    /// argv), while a tag-only target ignores it. A `None`
+    /// [`registry_token_env`](ReleaseCredentials::registry_token_env) means
+    /// "use the toolchain's ambient default credential".
+    fn publish(
+        &self,
+        module: &Module,
+        artifact: &Artifact,
+        credentials: &ReleaseCredentials,
+    ) -> AppResult<PublishOutcome>;
 
     /// Generate a `CycloneDX` SBOM for the module, writing it under `out_dir`.
     ///

@@ -264,6 +264,11 @@ pub struct ReleaseEntry {
     pub tag_message: Option<String>,
     /// Configured member release-commit message template.
     pub commit_message: Option<String>,
+    /// Name of the environment variable holding the registry publish token,
+    /// resolved from this module's release settings; `None` uses the publishing
+    /// toolchain's ambient credential. Carries the variable *name* only — never
+    /// the secret — so a registry adapter reads it at the toolchain boundary.
+    pub token_env: Option<String>,
     /// How this module's member release refs are pushed: the release commit's
     /// branch alongside the tags, only the tags (tag-only mode for a
     /// protected branch), or nothing.
@@ -532,6 +537,7 @@ mod tests {
             tag_format: None,
             tag_message: None,
             commit_message: None,
+            token_env: None,
             push: PushPolicy::BranchAndTags,
             remote: "origin".into(),
             branches: Vec::new(),

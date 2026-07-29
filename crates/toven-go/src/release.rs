@@ -14,7 +14,9 @@ use rskit_git::{Inspector, LogReader, RefManager};
 use rskit_process::ProcessSpec;
 use rskit_version::semver::Version;
 use toven_model::Module;
-use toven_ports::{Artifact, PublishOutcome, ReleaseMutation, ReleaseTarget, TagScheme};
+use toven_ports::{
+    Artifact, PublishOutcome, ReleaseCredentials, ReleaseMutation, ReleaseTarget, TagScheme,
+};
 
 use crate::exec::run_go_json;
 
@@ -148,7 +150,12 @@ impl ReleaseTarget for GoVcsTarget {
         Ok(())
     }
 
-    fn publish(&self, _module: &Module, _artifact: &Artifact) -> AppResult<PublishOutcome> {
+    fn publish(
+        &self,
+        _module: &Module,
+        _artifact: &Artifact,
+        _credentials: &ReleaseCredentials,
+    ) -> AppResult<PublishOutcome> {
         Ok(PublishOutcome::Published)
     }
 }

@@ -1,6 +1,7 @@
 //! Release port — the thin ecosystem sliver behind the shared release engine.
 
 mod artifact;
+mod credentials;
 mod host;
 mod mutation;
 mod outcome;
@@ -9,6 +10,7 @@ mod tag_scheme;
 mod target;
 
 pub use artifact::Artifact;
+pub use credentials::ReleaseCredentials;
 pub use host::{
     HostReleaseOutcome, HostedRelease, ReleaseAsset, ReleaseHost, SUPPORTED_FORGES,
     is_supported_forge,

@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_util::Template;
 use toven_model::{Module, ModuleKey};
-use toven_ports::{Artifact, ReleaseTarget, ReleaseVar, VcsReader, VcsWriter};
+use toven_ports::{Artifact, ReleaseCredentials, ReleaseTarget, ReleaseVar, VcsReader, VcsWriter};
 
 use super::publish::{self, PublishItem};
 use super::{PushPolicy, ReleasePlan, ReleaseStats};
@@ -455,6 +455,10 @@ pub(crate) fn package_publishable(
 }
 
 /// Resolve the ordered publish items, skipping entries that need no publish.
+///
+/// Each item carries the registry credential context resolved from *its* module
+/// entry (the `token_env` variable name, never the secret); a module without a
+/// configured `token_env` publishes with the toolchain's ambient credential.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn publish_items<'a>(
     plan: &'a ReleasePlan,
@@ -486,6 +490,7 @@ pub(crate) fn publish_items<'a>(
             target: target_for(targets, module)?,
             artifact,
             version,
+            credentials: ReleaseCredentials::new(entry.token_env.clone()),
         });
     }
     Ok(items)
@@ -827,6 +832,7 @@ mod tests {
             tag_format: None,
             tag_message: None,
             commit_message: None,
+            token_env: None,
             push: PushPolicy::BranchAndTags,
             remote: "origin".into(),
             branches: Vec::new(),
@@ -907,6 +913,33 @@ mod tests {
                 .filter(|c| matches!(c, ReleaseCall::Publish(_)))
                 .count()
                 == 2
+        );
+    }
+
+    #[test]
+    fn a_configured_token_env_is_threaded_to_the_publish_target() {
+        // The resolved token_env rides from the plan entry to the release target
+        // as the credential context — proving publish-time credential injection
+        // is wired end-to-end (the target reads only the variable name).
+        let mut core = entry("core", Version::new(0, 1, 1), true, 0);
+        core.token_env = Some("CARGO_REGISTRY_TOKEN".into());
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![core]);
+        let target = FakeReleaseTarget::new();
+
+        release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", target.clone())]),
+            &FakeVcsReader::new(),
+            &FakeVcsWriter::new().with_commit_oid("c0ffee"),
+            &ReleaseApplyOptions::default(),
+        )
+        .expect("release apply");
+
+        assert_eq!(
+            target.publish_token_envs(),
+            vec![Some("CARGO_REGISTRY_TOKEN".to_string())],
+            "the publish target must receive the resolved token_env as its credential context"
         );
     }
 

@@ -11,7 +11,9 @@ use std::sync::{Arc, Mutex};
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_version::semver::Version;
 use toven_model::{Module, ModuleRef};
-use toven_ports::{Artifact, PublishOutcome, ReleaseMutation, ReleaseTarget, TagScheme};
+use toven_ports::{
+    Artifact, PublishOutcome, ReleaseCredentials, ReleaseMutation, ReleaseTarget, TagScheme,
+};
 
 /// A single call recorded by [`FakeReleaseTarget`].
 #[derive(Debug, Clone)]
@@ -71,6 +73,7 @@ struct FakeReleaseState {
     sbom_artifact: Option<String>,
     fail_sbom: Option<String>,
     calls: Vec<ReleaseCall>,
+    publish_token_envs: Vec<Option<String>>,
 }
 
 impl Default for FakeReleaseTarget {
@@ -90,6 +93,7 @@ impl Default for FakeReleaseTarget {
                 sbom_artifact: Some("sbom/fake.cdx.json".to_string()),
                 fail_sbom: None,
                 calls: Vec::new(),
+                publish_token_envs: Vec::new(),
             })),
         }
     }
@@ -202,6 +206,14 @@ impl FakeReleaseTarget {
         self.state().calls.clone()
     }
 
+    /// Snapshot the `token_env` name each `publish` call received (via the
+    /// [`ReleaseCredentials`] the engine threaded from the resolved release
+    /// settings), in call order. `None` entries are ambient-credential publishes.
+    #[must_use]
+    pub fn publish_token_envs(&self) -> Vec<Option<String>> {
+        self.state().publish_token_envs.clone()
+    }
+
     fn state(&self) -> std::sync::MutexGuard<'_, FakeReleaseState> {
         self.inner.lock().expect("FakeReleaseTarget mutex poisoned")
     }
@@ -268,9 +280,17 @@ impl ReleaseTarget for FakeReleaseTarget {
         Ok(())
     }
 
-    fn publish(&self, module: &Module, _artifact: &Artifact) -> AppResult<PublishOutcome> {
+    fn publish(
+        &self,
+        module: &Module,
+        _artifact: &Artifact,
+        credentials: &ReleaseCredentials,
+    ) -> AppResult<PublishOutcome> {
         self.record(ReleaseCall::Publish(module.id.clone()));
         let mut state = self.state();
+        state
+            .publish_token_envs
+            .push(credentials.registry_token_env().map(str::to_string));
         if let Some(message) = &state.fail_publish {
             return Err(fake_error(message));
         }
@@ -327,7 +347,7 @@ fn render_tag_format(format: &str, module: &Module) -> AppResult<TagScheme> {
 mod tests {
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
-    use toven_ports::{Artifact, PublishOutcome, ReleaseTarget};
+    use toven_ports::{Artifact, PublishOutcome, ReleaseCredentials, ReleaseTarget};
 
     use super::FakeReleaseTarget;
 
@@ -352,7 +372,11 @@ mod tests {
         );
         assert_eq!(
             target
-                .publish(&module, &Artifact::new("dist/x"))
+                .publish(
+                    &module,
+                    &Artifact::new("dist/x"),
+                    &ReleaseCredentials::default(),
+                )
                 .expect("ok"),
             PublishOutcome::AlreadyPublished
         );

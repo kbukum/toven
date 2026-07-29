@@ -1,6 +1,6 @@
-# Variant of the default release config that keeps the legacy `token_env`
-# field: release resolution must reject it (not-yet-honored) before any
-# planning or mutation, proving a configured-but-inert setting fails closed.
+# Variant of the default release config that enables artifact signing: release
+# resolution must reject it (not-yet-executable) before any planning or
+# mutation, proving a configured-but-inert setting fails closed.
 [project]
 name = "publish-train-rust"
 
@@ -18,4 +18,6 @@ dependent_version = "upgrade"
 tag_format = "{module}/v{version}"
 push = false
 registry = "crates-io"
-token_env = "CARGO_REGISTRY_TOKEN"
+
+[ecosystems.rust.release.sign]
+enabled = true

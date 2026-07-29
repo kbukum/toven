@@ -2,16 +2,20 @@
 name: release
 description: >-
     Cut a release of Toven — decide the semver bump, update the CHANGELOG, set the workspace
-    version, run the full pre-release gate and supply-chain sweep, then tag so CI publishes the
-    signed source artifact, SBOM, and provenance. Toven ships tagged, signed build artifacts (all
-    crates are publish = false) — it does not publish to crates.io. Use when preparing or
-    publishing a Toven release or checking release readiness.
+    version, run the full pre-release gate and supply-chain sweep, land the version commit on
+    protected `main` through a reviewed PR, then dispatch the gated Release workflow whose
+    `toven release publish` step creates the tag and hosted Release with per-target signed
+    binaries, SBOM, and provenance. Toven ships tagged, signed binary artifacts (all crates are
+    publish = false) — it does not publish to crates.io. Use when preparing or publishing a Toven
+    release or checking release readiness.
 user-invocable: true
 ---
 
 # Releasing Toven
 
-Toven is a **single Cargo workspace of binaries and internal crates — every crate is `publish = false`**, so a release is **not** a crates.io publish. A release is a signed, tagged build: pushing a `v*` tag drives the `Release Readiness` workflow ([`.github/workflows/release-readiness.yml`](../../workflows/release-readiness.yml)) to build the release binaries, produce the source tarball + `SHA256SUMS`, generate a CycloneDX SBOM, and attach build provenance. The whole workspace shares one version (root `Cargo.toml`); `PACKAGE_VERSION` in the `Makefile` is derived from it.
+Toven is a **single Cargo workspace of binaries and internal crates — every crate is `publish = false`**, so a release is **not** a crates.io publish. A release is a signed, tagged **binary** release: the manually dispatched `Release` workflow ([`.github/workflows/release.yml`](../../workflows/release.yml)) builds a per-target `toven` archive for every supported target, assembles a CycloneDX SBOM and a combined `SHA256SUMS`, keyless-signs that checksum file with Sigstore/cosign, then — behind the protected `release` environment's required-reviewer gate — runs `toven release publish`, which **creates the version tag itself** and cuts the hosted GitHub Release with build provenance attested over the published `SHA256SUMS`. The whole workspace shares one version (root `Cargo.toml`); `PACKAGE_VERSION` in the `Makefile` is derived from it.
+
+The release is **not** driven by pushing a `v*` tag. `toven release publish` creates the tag from inside the gated workflow; a tag-triggered run would race its own immutable-tag preflight, so `release.yml` is `workflow_dispatch`-only (see [`docs/self-hosting.md`](../../../docs/self-hosting.md) "Release approval pipeline"). The `Release Readiness` workflow ([`.github/workflows/release-readiness.yml`](../../workflows/release-readiness.yml)) is a **non-mutating** preview only, on PRs and `main`.
 
 The engineering baseline still applies ([`docs/engineering.md`](../../../docs/engineering.md)): supply chain pinned and clean, `Cargo.lock` committed, artifacts signed with SBOM + provenance.
 
@@ -36,7 +40,7 @@ Then dry-run the release-readiness and supply-chain workflows locally, and rebui
 ```bash
 make act-release-readiness   # runs .github/workflows/release-readiness.yml via act
 make act-supply-chain        # runs .github/workflows/supply-chain.yml via act
-make release-artifacts       # writes dist/toven-<version>-source.tar.gz + dist/SHA256SUMS
+make release-artifacts       # packages the native-target dist/toven-<target>.<ext> archive
 ```
 
 Also run the `review` project audit in a fresh agent before a release. Treat green gates as necessary but not sufficient.
@@ -69,20 +73,32 @@ make release-dry-run       # rebuilds at the new version and syncs the workspace
 
 Keep the resulting `Cargo.lock` committed.
 
-## Step 5 — Tag and let CI sign and create attestations
+## Step 5 — Land the version commit on `main` through a reviewed PR
 
-The maintainer commits the CHANGELOG + version bump, then tags. Pushing the `v*` tag triggers `Release Readiness`, which builds the artifacts, generates the SBOM, and (tag-only) attaches build provenance for `dist/SHA256SUMS`:
+`main` is protected and rejects direct pushes, and `[ecosystems.rust.release]` sets `push_branch = false` for exactly this reason: the release pushes only the tag, so the version/CHANGELOG commit must reach `main` the normal way. **Do not tag by hand** — `toven release publish` creates the tag inside the gated workflow, and a manually pushed `v*` tag would race that immutable-tag preflight.
+
+The maintainer commits the CHANGELOG + version bump on a branch and opens a PR:
 
 ```bash
-git tag -a vX.Y.Z -m "vX.Y.Z"
-git push origin vX.Y.Z
+git switch -c release/vX.Y.Z
+git commit -am "chore: release vX.Y.Z"
+git push origin release/vX.Y.Z   # then open and merge the PR into main
 ```
 
-Then create the GitHub release with notes from the `[vX.Y.Z]` CHANGELOG section and attach the signed source tarball, `SHA256SUMS`, and SBOM. CI actions stay SHA-pinned.
+## Step 6 — Dispatch the gated Release workflow
+
+On the merged release commit, dispatch `Release` ([`.github/workflows/release.yml`](../../workflows/release.yml)):
+
+```bash
+gh workflow run release.yml --ref main
+```
+
+The workflow builds every per-target archive (`vendored-openssl`; `aarch64-unknown-linux-gnu` via `cross`), assembles the fixed `dist/` asset set (archives + `toven-sbom.cdx.json` + `SHA256SUMS` + its keyless Sigstore signature/certificate), and preserves a mutation-free `release-preview` for the reviewers. Approve the protected `release` environment only after reviewing that preview. On approval the `publish` job runs `toven release publish --yes`, which creates the version tag and cuts the hosted Release with the assets attached, then attests build provenance over the published `SHA256SUMS`; the `verify` job re-downloads every asset and checks the Sigstore signature, checksum, and (where runnable) `--version`. CI actions stay SHA-pinned.
 
 ## Safety rules
 
 - **Never** run destructive git commands (`reset --hard`, `checkout -- .`, `clean`) on uncommitted work without explicit permission.
-- Per repo workflow, the agent prepares the branch/CHANGELOG/version edits; **the maintainer commits, pushes, and tags**. Open a PR only when explicitly requested, following the PR template.
+- Per repo workflow, the agent prepares the branch/CHANGELOG/version edits; **the maintainer merges the PR and dispatches/approves the Release workflow**. The tag is created by `toven release publish` — never tag or push a `v*` tag by hand. Open a PR only when explicitly requested, following the PR template.
+- Release tags, hosted Releases, and hosted assets are immutable create-or-verify. A partially completed release is forward-fixed with a new version and a fresh approval — never by moving a tag, editing notes, or clobbering an asset.
 - Do not bump wire/protocol version constants for a release while pre-stable unless the wire shape actually changed — the umbrella and drivers build from one tree.
 - Reference other-repo items with full URLs, never bare `#123`.

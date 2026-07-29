@@ -348,6 +348,7 @@ mod tests {
             tag_format: None,
             tag_message: None,
             commit_message: None,
+            token_env: None,
             push: PushPolicy::BranchAndTags,
             remote: "origin".into(),
             branches: Vec::new(),

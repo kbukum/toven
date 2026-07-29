@@ -1,12 +1,16 @@
 name: Release Readiness
 
+# Non-mutating release-readiness preview. It runs on pull requests, on pushes
+# to `main`, and on manual dispatch — never on a `v*` tag. Real release tags are
+# created by `toven release publish` inside the gated `.github/workflows/release.yml`
+# using `GITHUB_TOKEN`, which by design never triggers another workflow, so a
+# `tags: v*` trigger here would be unreachable on a real release and only
+# duplicate release.yml's own `preview` job.
 on:
   pull_request:
   push:
     branches:
       - main
-    tags:
-      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -18,7 +22,6 @@ concurrency:
 
 env:
   COSIGN_VERSION: v2.6.0
-  REQUIRE_PUBLISHABLE_PACKAGE: ${{ startsWith(github.ref, 'refs/tags/v') && '1' || '0' }}
   RUST_VERSION: "1.94"
 
 jobs:
