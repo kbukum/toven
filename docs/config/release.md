@@ -19,6 +19,7 @@ tag_format = "{ecosystem}/{module}@{version}"
 tag_message = "release {module} {version}"
 commit_message = "chore: release"
 push = true
+push_branch = true
 remote = "origin"
 branches = ["main"]
 registry = "crates-io"
@@ -48,6 +49,7 @@ assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
 | `tag_message` | Annotated-tag message template | Lightweight tag |
 | `commit_message` | Release commit template | Adapter default |
 | `push` | Permit release commit and tag push | `true` |
+| `push_branch` | Push the release commit's branch alongside the tags; `false` pushes tags only, for a protected release branch whose commit lands through a pull request | `true` |
 | `remote` | Git remote for release pushes | `origin` |
 | `branches` | Allowed release branches; an empty list permits any branch | Any branch |
 | `registry` | Registry selection for Rust crate publication; invalid for Go | No registry, tag-only |
@@ -61,6 +63,8 @@ assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
 Templates accept the documented release variables such as `{ecosystem}`, `{module}`, and `{version}`. Unknown placeholders, blank names, unsafe paths, and unsupported readiness checks fail validation.
 
 A repository creates one release commit for all selected modules, so `commit_message` must render identically for every module in that repository. Module- or version-specific commit templates are suitable only when the repository releases one module at a time.
+
+A pushing release normally updates both the release commit's branch and the release tags on the remote. When the release branch is protected and rejects direct pushes, set `push_branch = false`: the release then pushes only the tags and leaves the branch ref untouched, and the version/CHANGELOG commit reaches the branch through the normal reviewed pull-request flow. `push_branch` is per-repository like the other push settings — every module releasing in one repository must agree on it.
 
 ## Version and cascade policy
 

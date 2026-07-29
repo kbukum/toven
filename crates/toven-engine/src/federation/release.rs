@@ -227,7 +227,10 @@ fn commit_member_shard(
         // any failure carries forward-only recovery guidance naming the member.
         let push = || -> AppResult<()> {
             let branch = repo.reader().current_branch()?;
-            let refspecs = apply::push_refspecs(&shard.plan, &branch)?;
+            let refspecs = apply::push_refspecs(&shard.plan, &branch, settings.pushes_branch())?;
+            if refspecs.is_empty() {
+                return Ok(());
+            }
             repo.writer().push(settings.remote(), &refspecs)
         };
         push().map_err(|error| apply::forward_recovery_error(&committed(), "push", error))?;
@@ -326,8 +329,8 @@ mod tests {
 
     use super::{MemberReleaseRepo, MemberReleaseRepos, release_apply_by_member};
     use crate::release::{
-        BumpPolicy, BumpReason, BumpSource, ChangelogEntry, ReleaseApplyOptions, ReleaseEntry,
-        ReleasePlan,
+        BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PushPolicy, ReleaseApplyOptions,
+        ReleaseEntry, ReleasePlan,
     };
     use toven_ports::BumpLevel;
 
@@ -376,7 +379,7 @@ mod tests {
             tag_format: None,
             tag_message: None,
             commit_message: None,
-            push: true,
+            push: PushPolicy::BranchAndTags,
             remote: "origin".into(),
             branches: Vec::new(),
             topo_rank: rank,

@@ -43,6 +43,9 @@ pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfi
     if over.push.is_some() {
         merged.push = over.push;
     }
+    if over.push_branch.is_some() {
+        merged.push_branch = over.push_branch;
+    }
     if over.remote.is_some() {
         merged.remote.clone_from(&over.remote);
     }

@@ -308,7 +308,7 @@ mod tests {
     use crate::federation::release::{MemberReleaseRepo, MemberReleaseRepos};
     use crate::release::ResolvedReleaseSettings;
     use crate::release::{
-        BumpPolicy, BumpReason, BumpSource, ChangelogEntry, ReleaseEntry, ReleasePlan,
+        BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PushPolicy, ReleaseEntry, ReleasePlan,
         ReleaseStats, ReleaseTargets,
     };
 
@@ -349,7 +349,7 @@ mod tests {
             tag_format: None,
             tag_message: None,
             commit_message: None,
-            push: true,
+            push: PushPolicy::BranchAndTags,
             remote: "origin".into(),
             branches: Vec::new(),
             topo_rank: 0,

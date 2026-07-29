@@ -63,7 +63,7 @@ pub fn release_rehearse(
             .filter(|entry| {
                 settings
                     .get(&entry.module)
-                    .is_some_and(|resolved| resolved.push)
+                    .is_some_and(|resolved| resolved.push.permits_push())
             })
             .map(|entry| entry.module.member.clone())
             .collect()

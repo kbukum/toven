@@ -177,6 +177,51 @@ impl ChangelogEntry {
     }
 }
 
+/// How a module's release refs reach the remote: nothing, the release
+/// commit's branch plus its tags, or only the tags.
+///
+/// The `push`/`push_branch` settings pair resolves to this one policy so the
+/// meaningless combination — pushing nothing, yet selecting a branch-push
+/// behavior — is unrepresentable.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum PushPolicy {
+    /// Push nothing; the release commit and tags remain local (`push = false`,
+    /// or `--no-push` at apply time).
+    Disabled,
+    /// Push the release commit's branch alongside the release tags.
+    BranchAndTags,
+    /// Push only the release tags — the mode a protected release branch
+    /// requires, where the release commit lands through a pull request.
+    TagsOnly,
+}
+
+impl PushPolicy {
+    /// Resolve the policy from the `push`/`push_branch` settings pair.
+    #[must_use]
+    pub const fn resolve(push: bool, push_branch: bool) -> Self {
+        if !push {
+            Self::Disabled
+        } else if push_branch {
+            Self::BranchAndTags
+        } else {
+            Self::TagsOnly
+        }
+    }
+
+    /// Whether any release refs are pushed at all.
+    #[must_use]
+    pub const fn permits_push(self) -> bool {
+        !matches!(self, Self::Disabled)
+    }
+
+    /// Whether the release commit's branch is pushed alongside the tags.
+    #[must_use]
+    pub const fn pushes_branch(self) -> bool {
+        matches!(self, Self::BranchAndTags)
+    }
+}
+
 /// One module's planned release mutation and publish decision.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReleaseEntry {
@@ -219,8 +264,10 @@ pub struct ReleaseEntry {
     pub tag_message: Option<String>,
     /// Configured member release-commit message template.
     pub commit_message: Option<String>,
-    /// Whether this module permits its member release refs to be pushed.
-    pub push: bool,
+    /// How this module's member release refs are pushed: the release commit's
+    /// branch alongside the tags, only the tags (tag-only mode for a
+    /// protected branch), or nothing.
+    pub push: PushPolicy,
     /// Remote the member release refs target.
     pub remote: String,
     /// Branches on which this module permits a release; empty permits any.
@@ -433,7 +480,8 @@ mod tests {
     use toven_ports::{BumpLevel, ReleaseMutation};
 
     use super::{
-        BumpPolicy, BumpReason, BumpSource, ChangelogEntry, ReleaseEntry, ReleasePlan, ReleaseStats,
+        BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PushPolicy, ReleaseEntry, ReleasePlan,
+        ReleaseStats,
     };
 
     fn module(name: &str) -> ModuleKey {
@@ -478,7 +526,7 @@ mod tests {
             tag_format: None,
             tag_message: None,
             commit_message: None,
-            push: true,
+            push: PushPolicy::BranchAndTags,
             remote: "origin".into(),
             branches: Vec::new(),
             topo_rank: 0,
