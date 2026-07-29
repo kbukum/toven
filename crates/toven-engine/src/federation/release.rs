@@ -612,10 +612,7 @@ mod tests {
                 _ => None,
             })
             .expect("push recorded");
-        assert_eq!(
-            refspecs,
-            vec!["refs/tags/rust/shared@0.1.1".to_string()]
-        );
+        assert_eq!(refspecs, vec!["refs/tags/rust/shared@0.1.1".to_string()]);
     }
 
     #[test]
