@@ -10,7 +10,7 @@ use toven_ports::{
     PublicationPolicy, ReleaseConfig, SignConfig, merge_release,
 };
 
-use super::{BumpPolicy, strategy};
+use super::{BumpPolicy, PushPolicy, strategy};
 
 /// Default git remote when none is configured.
 const DEFAULT_REMOTE: &str = "origin";
@@ -79,8 +79,9 @@ pub struct ResolvedReleaseSettings {
     pub commit_message: Option<String>,
     /// Changelog generation settings; `path` is defaulted to `CHANGELOG.md`.
     pub changelog: ChangelogConfig,
-    /// Whether the release commit/tags are pushed.
-    pub push: bool,
+    /// How the release commit/tags are pushed: branch and tags, tags only
+    /// (tag-only mode for a protected branch), or not at all.
+    pub push: PushPolicy,
     /// Git remote pushed to.
     pub remote: String,
     /// Allowed release branches; empty = any branch.
@@ -136,7 +137,10 @@ impl ResolvedReleaseSettings {
             tag_message: config.tag_message.clone(),
             commit_message: config.commit_message.clone(),
             changelog: resolve_changelog(config.changelog.clone().unwrap_or_default()),
-            push: config.push.unwrap_or(true),
+            push: PushPolicy::resolve(
+                config.push.unwrap_or(true),
+                config.push_branch.unwrap_or(true),
+            ),
             remote: config
                 .remote
                 .clone()
@@ -168,7 +172,7 @@ fn resolve_changelog(mut changelog: ChangelogConfig) -> ChangelogConfig {
 #[cfg(test)]
 mod tests {
     use super::ResolvedReleaseSettings;
-    use crate::release::BumpPolicy;
+    use crate::release::{BumpPolicy, PushPolicy};
     use toven_ports::{BumpLevel, PublicationPolicy, ReleaseConfig};
 
     #[test]
@@ -177,7 +181,7 @@ mod tests {
         assert_eq!(resolved.policy, BumpPolicy::SemverCascade);
         assert_eq!(resolved.level, BumpLevel::Auto);
         assert_eq!(resolved.tag_format, None);
-        assert!(resolved.push);
+        assert_eq!(resolved.push, PushPolicy::BranchAndTags);
         assert_eq!(resolved.remote, "origin");
         assert!(!resolved.offline);
         assert_eq!(resolved.changelog.path.as_deref(), Some("CHANGELOG.md"));
@@ -200,6 +204,34 @@ mod tests {
             }
         );
         assert!(resolved.offline);
+    }
+
+    #[test]
+    fn push_policy_defaults_to_branch_and_tags_and_resolves_from_config() {
+        let tags_only = ReleaseConfig {
+            push_branch: Some(false),
+            ..ReleaseConfig::default()
+        };
+        let resolved = ResolvedReleaseSettings::resolve(&tags_only, None).unwrap();
+        assert_eq!(resolved.push, PushPolicy::TagsOnly);
+        // `push = false` disables the push entirely, whatever `push_branch` says.
+        let disabled = ReleaseConfig {
+            push: Some(false),
+            push_branch: Some(false),
+            ..ReleaseConfig::default()
+        };
+        let resolved = ResolvedReleaseSettings::resolve(&disabled, None).unwrap();
+        assert_eq!(resolved.push, PushPolicy::Disabled);
+        // The module override narrows the ecosystem default to tags-only.
+        let inherited = ResolvedReleaseSettings::resolve(
+            &ReleaseConfig::default(),
+            Some(&ReleaseConfig {
+                push_branch: Some(false),
+                ..ReleaseConfig::default()
+            }),
+        )
+        .unwrap();
+        assert_eq!(inherited.push, PushPolicy::TagsOnly);
     }
 
     #[test]

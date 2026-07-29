@@ -53,6 +53,13 @@ pub struct ReleaseConfig {
     /// Whether the release commit/tags are pushed; `None` = adapter default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub push: Option<bool>,
+    /// Whether the release commit's branch is pushed alongside the tags. When
+    /// `false`, only the release tags are pushed and the branch ref is left
+    /// untouched — the tag-only mode required by a protected release branch
+    /// whose commit lands through a pull request. `None` = adapter default
+    /// (`true`, push the branch).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub push_branch: Option<bool>,
     /// Git remote pushed to; `None` = adapter default (`origin`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<String>,

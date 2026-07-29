@@ -60,6 +60,8 @@ A protected release workflow must:
 
 Human release tables and JSONL use stdout. Warnings and mutation progress use stderr. Automation should parse only stdout when `--output jsonl` is selected and retain stderr as diagnostics.
 
+Because Toven's own `main` is protected, its `[ecosystems.rust.release]` sets `push_branch = false`: the approved publish job pushes only the release tag, and the version/CHANGELOG commit lands on `main` through the normal reviewed pull-request flow.
+
 ```bash
 toven release publish --dry-run --output jsonl > release-preview.jsonl
 ```

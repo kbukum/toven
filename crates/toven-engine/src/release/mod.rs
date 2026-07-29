@@ -26,7 +26,7 @@ pub use depgraphs::{DepgraphReport, release_depgraphs};
 pub use host::GithubReleaseHost;
 pub use manifest::ArtifactManifest;
 pub use model::{
-    BumpPolicy, BumpReason, BumpSource, ChangelogEntry, HostRehearsal, PublishDecision,
+    BumpPolicy, BumpReason, BumpSource, ChangelogEntry, HostRehearsal, PublishDecision, PushPolicy,
     RehearsalVerdict, ReleaseBaseline, ReleaseEntry, ReleaseModuleStatus, ReleasePlan,
     ReleaseRehearsal, ReleaseStats, ReleaseStatus,
 };

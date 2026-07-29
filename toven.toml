@@ -39,6 +39,10 @@ region = 70.0
 [ecosystems.rust.release]
 readiness = ["clean-tree"]
 tag_format = "v{version}"
+# `main` is protected and rejects direct pushes, so the release job pushes only
+# the release tag; the version/CHANGELOG commit lands on `main` through the
+# normal reviewed pull-request flow.
+push_branch = false
 
 [ecosystems.rust.release.host]
 forge = "github"

@@ -222,12 +222,20 @@ fn commit_member_shard(
     apply::tag_releases(&shard.plan, module_by_ref, repo.writer(), &commit, stats)
         .map_err(|error| apply::forward_recovery_error(&committed(), "tagging", error))?;
     if settings.pushes(options) {
-        // Every push-phase step — resolving the branch, computing refspecs, and
-        // the push itself — runs after this member's commit and tags exist, so
-        // any failure carries forward-only recovery guidance naming the member.
+        // Every push-phase step — resolving the branch (only when the branch
+        // itself is pushed, so a tags-only push never needs one), computing
+        // refspecs, and the push itself — runs after this member's commit and
+        // tags exist, so any failure carries forward-only recovery guidance
+        // naming the member.
         let push = || -> AppResult<()> {
-            let branch = repo.reader().current_branch()?;
-            let refspecs = apply::push_refspecs(&shard.plan, &branch)?;
+            let branch = settings
+                .pushes_branch()
+                .then(|| repo.reader().current_branch())
+                .transpose()?;
+            let refspecs = apply::push_refspecs(&shard.plan, branch.as_deref())?;
+            if refspecs.is_empty() {
+                return Ok(());
+            }
             repo.writer().push(settings.remote(), &refspecs)
         };
         push().map_err(|error| apply::forward_recovery_error(&committed(), "push", error))?;
@@ -326,8 +334,8 @@ mod tests {
 
     use super::{MemberReleaseRepo, MemberReleaseRepos, release_apply_by_member};
     use crate::release::{
-        BumpPolicy, BumpReason, BumpSource, ChangelogEntry, ReleaseApplyOptions, ReleaseEntry,
-        ReleasePlan,
+        BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PushPolicy, ReleaseApplyOptions,
+        ReleaseEntry, ReleasePlan,
     };
     use toven_ports::BumpLevel;
 
@@ -376,7 +384,7 @@ mod tests {
             tag_format: None,
             tag_message: None,
             commit_message: None,
-            push: true,
+            push: PushPolicy::BranchAndTags,
             remote: "origin".into(),
             branches: Vec::new(),
             topo_rank: rank,
@@ -566,6 +574,45 @@ mod tests {
                 .iter()
                 .any(|write| matches!(write, VcsWrite::RestoreWorktree))
         );
+    }
+
+    #[test]
+    fn tags_only_member_push_proceeds_on_a_detached_head() {
+        let mut shared = entry("core", "shared", Version::new(0, 1, 1), 0);
+        shared.push = PushPolicy::TagsOnly;
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![shared]);
+        let modules = vec![module("core", "shared")];
+        let target = FakeReleaseTarget::new();
+        let core_reader = FakeVcsReader::new().with_detached_head();
+        let core_writer = FakeVcsWriter::new();
+        let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
+            Some(member("core")),
+            std::path::PathBuf::from("/repos/core"),
+            &core_reader,
+            &core_writer,
+        )]);
+
+        release_apply_by_member(
+            &plan,
+            &modules,
+            &targets(&target),
+            &repos,
+            &ReleaseApplyOptions {
+                no_push: false,
+                ..Default::default()
+            },
+        )
+        .expect("a tags-only push does not require a checked-out branch");
+
+        let (_, refspecs) = core_writer
+            .writes()
+            .into_iter()
+            .find_map(|w| match w {
+                VcsWrite::Push { remote, refspecs } => Some((remote, refspecs)),
+                _ => None,
+            })
+            .expect("push recorded");
+        assert_eq!(refspecs, vec!["refs/tags/rust/shared@0.1.1".to_string()]);
     }
 
     #[test]

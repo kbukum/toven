@@ -20,7 +20,7 @@ use toven_ports::{BaselineSpec, ChangeRecord, Oid, TagRef, VcsReader, VcsWriter}
 /// baseline spec — baseline *policy* is the engine's job, not the port's.
 #[derive(Debug, Clone)]
 pub struct FakeVcsReader {
-    branch: String,
+    branch: Option<String>,
     rev_parse_oid: Oid,
     merge_base_oid: Oid,
     tags: Vec<TagRef>,
@@ -32,7 +32,7 @@ pub struct FakeVcsReader {
 impl Default for FakeVcsReader {
     fn default() -> Self {
         Self {
-            branch: "main".to_string(),
+            branch: Some("main".to_string()),
             rev_parse_oid: Oid::new("0000000"),
             merge_base_oid: Oid::new("0000000"),
             tags: Vec::new(),
@@ -53,7 +53,15 @@ impl FakeVcsReader {
     /// Script the checked-out local branch returned by `current_branch`.
     #[must_use]
     pub fn with_current_branch(mut self, branch: impl Into<String>) -> Self {
-        self.branch = branch.into();
+        self.branch = Some(branch.into());
+        self
+    }
+
+    /// Script `current_branch` to fail as it does on a detached HEAD checkout
+    /// — the common CI state that branch-independent operations must tolerate.
+    #[must_use]
+    pub fn with_detached_head(mut self) -> Self {
+        self.branch = None;
         self
     }
 
@@ -102,7 +110,12 @@ impl FakeVcsReader {
 
 impl VcsReader for FakeVcsReader {
     fn current_branch(&self) -> AppResult<String> {
-        Ok(self.branch.clone())
+        self.branch.clone().ok_or_else(|| {
+            AppError::invalid_input(
+                "git.head",
+                "HEAD is detached; a configured release branch requires a checked-out local branch",
+            )
+        })
     }
 
     fn rev_parse(&self, _rev: &str) -> AppResult<Oid> {

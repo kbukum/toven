@@ -11,7 +11,7 @@ use toven_ports::{BumpLevel, DependentVersion, PublicationPolicy, ReleaseMutatio
 
 use super::strategy::{self, EffectiveLevel};
 use super::{
-    BumpOverrides, BumpPolicy, BumpReason, BumpSource, ChangelogEntry, ReleaseBaseline,
+    BumpOverrides, BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PushPolicy, ReleaseBaseline,
     ReleaseEntry, ResolvedReleaseSettings, tag,
 };
 
@@ -199,7 +199,7 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
             push: input
                 .settings
                 .get(&reference)
-                .is_none_or(|resolved| resolved.push),
+                .map_or(PushPolicy::BranchAndTags, |resolved| resolved.push),
             remote: input
                 .settings
                 .get(&reference)

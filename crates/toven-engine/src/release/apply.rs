@@ -17,7 +17,7 @@ use toven_model::{Module, ModuleKey};
 use toven_ports::{Artifact, ReleaseTarget, ReleaseVar, VcsReader, VcsWriter};
 
 use super::publish::{self, PublishItem};
-use super::{ReleasePlan, ReleaseStats};
+use super::{PushPolicy, ReleasePlan, ReleaseStats};
 
 /// Default rate-limit retry budget for the publish loop.
 const DEFAULT_RETRY_BUDGET: usize = 5;
@@ -52,7 +52,7 @@ impl Default for ReleaseApplyOptions {
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) struct RepoReleaseSettings {
-    push: bool,
+    push: PushPolicy,
     remote: String,
     branches: BTreeSet<String>,
     commit_message: Option<String>,
@@ -62,7 +62,13 @@ impl RepoReleaseSettings {
     /// Whether this repository pushes after accounting for CLI suppression.
     #[must_use]
     pub(crate) const fn pushes(&self, options: &ReleaseApplyOptions) -> bool {
-        self.push && !options.no_push
+        self.push.permits_push() && !options.no_push
+    }
+
+    /// Whether the release commit's branch is pushed alongside the tags.
+    #[must_use]
+    pub(crate) const fn pushes_branch(&self) -> bool {
+        self.push.pushes_branch()
     }
 
     /// Configured remote selected for the repository push.
@@ -195,13 +201,20 @@ pub fn release_apply(
     tag_releases(plan, &module_by_ref, writer, &commit, &mut stats)
         .map_err(|error| forward_recovery_error(&committed(), "tagging", error))?;
     if settings.pushes(options) {
-        // Every push-phase step — resolving the branch, computing refspecs, and
-        // the push itself — runs after the commit and tags exist, so any
-        // failure carries forward-only recovery guidance rather than surfacing
-        // raw.
+        // Every push-phase step — resolving the branch (only when the branch
+        // itself is pushed, so a tags-only push never needs one), computing
+        // refspecs, and the push itself — runs after the commit and tags
+        // exist, so any failure carries forward-only recovery guidance rather
+        // than surfacing raw.
         let push = || -> AppResult<()> {
-            let branch = reader.current_branch()?;
-            let refspecs = push_refspecs(plan, &branch)?;
+            let branch = settings
+                .pushes_branch()
+                .then(|| reader.current_branch())
+                .transpose()?;
+            let refspecs = push_refspecs(plan, branch.as_deref())?;
+            if refspecs.is_empty() {
+                return Ok(());
+            }
             writer.push(settings.remote(), &refspecs)
         };
         push().map_err(|error| forward_recovery_error(&committed(), "push", error))?;
@@ -605,17 +618,23 @@ pub(crate) fn tag_message(
         .transpose()
 }
 
-/// Refspecs pushed after tagging: the release commit's branch plus every
-/// release tag.
+/// Refspecs pushed after tagging: the release commit's `branch` when it is
+/// pushed (`Some`), plus every release tag.
 ///
 /// The branch is pushed by its fully-qualified name (`refs/heads/<branch>`)
 /// rather than `HEAD`: an ambiguous `HEAD` refspec depends on the remote's
 /// `push.default` and silently fails to update the intended branch on a bare
 /// remote, so the caller resolves the checked-out branch and pushes it
 /// explicitly.
+///
+/// `None` selects the tags-only mode a protected branch requires, where the
+/// release commit lands through a pull request rather than a direct branch
+/// push: the branch ref is omitted, and because the branch name is never
+/// needed the caller does not resolve it — a tags-only push also works from a
+/// detached HEAD, the common CI checkout state.
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) fn push_refspecs(plan: &ReleasePlan, branch: &str) -> AppResult<Vec<String>> {
-    let mut refspecs = vec![format!("refs/heads/{branch}")];
+pub(crate) fn push_refspecs(plan: &ReleasePlan, branch: Option<&str>) -> AppResult<Vec<String>> {
+    let mut refspecs = branch.map_or_else(Vec::new, |branch| vec![format!("refs/heads/{branch}")]);
     let mut seen = BTreeSet::new();
     for entry in &plan.entries {
         if entry.planned_version.is_some() {
@@ -642,7 +661,7 @@ mod tests {
 
     use super::{ReleaseApplyOptions, reconcile_repo_settings, release_apply};
     use crate::release::{
-        BumpPolicy, BumpReason, BumpSource, ChangelogEntry, ReleaseEntry, ReleasePlan,
+        BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PushPolicy, ReleaseEntry, ReleasePlan,
     };
     use toven_ports::BumpLevel;
 
@@ -684,7 +703,7 @@ mod tests {
             tag_format: None,
             tag_message: None,
             commit_message: None,
-            push: true,
+            push: PushPolicy::BranchAndTags,
             remote: "origin".into(),
             branches: Vec::new(),
             topo_rank: rank,
@@ -807,10 +826,124 @@ mod tests {
     }
 
     #[test]
+    fn tags_only_push_policy_pushes_tags_only() {
+        let mut entry = entry("core", Version::new(1, 0, 0), true, 0);
+        entry.push = PushPolicy::TagsOnly;
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry]);
+        let writer = FakeVcsWriter::new();
+
+        release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions {
+                no_push: false,
+                ..Default::default()
+            },
+        )
+        .expect("release apply with tags-only push");
+
+        let (_, push) = writer
+            .writes()
+            .into_iter()
+            .find_map(|w| match w {
+                VcsWrite::Push { remote, refspecs } => Some((remote, refspecs)),
+                _ => None,
+            })
+            .expect("push recorded");
+        assert_eq!(push, vec!["refs/tags/rust/core@1.0.0".to_string()]);
+    }
+
+    #[test]
+    fn push_refspecs_omits_the_branch_when_no_branch_is_pushed() {
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", Version::new(1, 0, 0), true, 0)],
+        );
+
+        let with_branch = super::push_refspecs(&plan, Some("main")).expect("refspecs");
+        assert_eq!(with_branch[0], "refs/heads/main");
+
+        let tags_only = super::push_refspecs(&plan, None).expect("refspecs");
+        assert!(
+            tags_only.iter().all(|spec| spec.starts_with("refs/tags/")),
+            "{tags_only:?}"
+        );
+        assert_eq!(tags_only, vec!["refs/tags/rust/core@1.0.0".to_string()]);
+    }
+
+    #[test]
+    fn tags_only_push_proceeds_on_a_detached_head() {
+        let mut entry = entry("core", Version::new(1, 0, 0), true, 0);
+        entry.push = PushPolicy::TagsOnly;
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry]);
+        let writer = FakeVcsWriter::new();
+
+        release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new().with_detached_head(),
+            &writer,
+            &ReleaseApplyOptions {
+                no_push: false,
+                ..Default::default()
+            },
+        )
+        .expect("a tags-only push does not require a checked-out branch");
+
+        let (_, push) = writer
+            .writes()
+            .into_iter()
+            .find_map(|w| match w {
+                VcsWrite::Push { remote, refspecs } => Some((remote, refspecs)),
+                _ => None,
+            })
+            .expect("push recorded");
+        assert_eq!(push, vec!["refs/tags/rust/core@1.0.0".to_string()]);
+    }
+
+    #[test]
+    fn branch_push_still_requires_a_checked_out_branch() {
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", Version::new(1, 0, 0), true, 0)],
+        );
+        let writer = FakeVcsWriter::new();
+
+        let error = release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new().with_detached_head(),
+            &writer,
+            &ReleaseApplyOptions {
+                no_push: false,
+                ..Default::default()
+            },
+        )
+        .expect_err("pushing the branch requires resolving one");
+
+        assert!(error.to_string().contains("detached"), "{error}");
+    }
+
+    #[test]
+    fn reconcile_rejects_conflicting_push_policies() {
+        let first = entry("core", Version::new(1, 0, 0), true, 0);
+        let mut second = entry("util", Version::new(1, 0, 0), true, 1);
+        second.push = PushPolicy::TagsOnly;
+
+        let error = reconcile_repo_settings(&[first, second]).expect_err("conflict rejected");
+        assert!(error.to_string().contains("push"), "{error}");
+    }
+
+    #[test]
     fn configured_remote_and_push_gate_control_the_member_push() {
         let mut entry = entry("core", Version::new(1, 0, 0), true, 0);
         entry.remote = "release".into();
-        entry.push = false;
+        entry.push = PushPolicy::Disabled;
         let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry.clone()]);
         let writer = FakeVcsWriter::new();
 
@@ -833,7 +966,7 @@ mod tests {
                 .any(|write| matches!(write, VcsWrite::Push { .. }))
         );
 
-        entry.push = true;
+        entry.push = PushPolicy::BranchAndTags;
         let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry]);
         let writer = FakeVcsWriter::new();
         release_apply(
@@ -1176,7 +1309,7 @@ mod tests {
         let cases = [
             ("push", {
                 let mut second = entry("app", Version::new(1, 0, 0), true, 1);
-                second.push = false;
+                second.push = PushPolicy::Disabled;
                 second
             }),
             ("remote", {
@@ -1657,7 +1790,7 @@ mod tests {
             BumpPolicy::SemverCascade,
             vec![entry("core", Version::new(1, 0, 0), true, 0)],
         );
-        let refspecs = super::push_refspecs(&plan, "release-train").expect("refspecs");
+        let refspecs = super::push_refspecs(&plan, Some("release-train")).expect("refspecs");
         assert_eq!(
             refspecs,
             vec![
@@ -1735,7 +1868,7 @@ mod tests {
         let branch = reader.current_branch().expect("current branch");
         assert_eq!(branch, "member-release");
 
-        let refspecs = super::push_refspecs(&plan, &branch).expect("refspecs");
+        let refspecs = super::push_refspecs(&plan, Some(&branch)).expect("refspecs");
         assert_eq!(
             refspecs,
             vec![
