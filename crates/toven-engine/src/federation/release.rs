@@ -156,13 +156,21 @@ pub fn release_apply_by_member(
         stats.resumed = true;
     }
 
+    let mut artifacts = BTreeMap::new();
     let mut prepared = Vec::with_capacity(shards.len());
     let mut prepared_settings = Vec::with_capacity(shards.len());
     for ((shard, settings), preflight) in shards.iter().zip(&settings).zip(&preflights) {
         // An already-tagged member resumes: its commit, tags, and push already
-        // exist on the remote, so its manifest mutation and commit are skipped;
-        // only the shared publish and hosted-release tail completes.
+        // exist on the remote and its manifest already carries the released
+        // version, so mutation, commit, tag, and push are skipped. It still
+        // packages any version the registry lacks so the shared publish tail can
+        // complete a publish interrupted after tag/push; a fully-published
+        // member packages nothing.
         if matches!(preflight, apply::TagPreflight::Resume) {
+            match package_member_shard(shard, &module_by_ref, targets, repos, &mut stats) {
+                Ok(member_artifacts) => artifacts.extend(member_artifacts),
+                Err(error) => return Err(restore_prepared_or_error(&prepared, repos, error)),
+            }
             continue;
         }
         match prepare_member_shard(shard, &module_by_ref, targets, repos, &mut stats) {
@@ -174,7 +182,6 @@ pub fn release_apply_by_member(
         }
     }
 
-    let mut artifacts = BTreeMap::new();
     for ((shard, member_artifacts), settings) in prepared.into_iter().zip(prepared_settings) {
         commit_member_shard(shard, &module_by_ref, repos, options, settings, &mut stats)?;
         artifacts.extend(member_artifacts);
@@ -216,6 +223,22 @@ fn prepare_member_shard(
     let repo = repo_for(repos, shard.member.as_ref())?;
     apply::prepare(&shard.plan, module_by_ref, targets, stats)
         .map_err(|error| apply::restore_or_precommit_error(repo.writer(), "prepare", error))
+}
+
+/// Package a resumed member's still-publishable versions without mutating its
+/// manifest. The member's release commit, tags, and push already exist and its
+/// manifest already carries the released version, so only packaging is needed to
+/// feed the shared publish tail for a publish interrupted after tag/push; a
+/// fully-published member packages nothing.
+fn package_member_shard(
+    shard: &MemberReleaseShard,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+    targets: &crate::release::ReleaseTargets,
+    repos: &MemberReleaseRepos<'_>,
+    stats: &mut ReleaseStats,
+) -> AppResult<BTreeMap<ModuleKey, Artifact>> {
+    repo_for(repos, shard.member.as_ref())?;
+    apply::package_publishable(&shard.plan, module_by_ref, targets, stats)
 }
 
 fn commit_member_shard(

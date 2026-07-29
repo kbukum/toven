@@ -245,10 +245,11 @@ pub fn release_apply(
 /// Every planned tag already exists on the remote, so manifest mutation,
 /// commit, tag, and push are skipped — the release commit and its immutable
 /// tags were created and pushed on a prior attempt. Only the idempotent publish
-/// loop runs: a resume re-plan reports already-published versions as not
-/// publish-needed, so `publish_items` is empty and the loop is a clean no-op;
-/// any version the registry still lacks is published exactly as a fresh run
-/// would. The hosted-release phase runs afterward in the caller, creating the
+/// loop runs: the manifest already carries the released version, so any version
+/// the registry still lacks is packaged (without mutation) and published exactly
+/// as a fresh run would, while an already-published version is not
+/// `publish_needed` and is skipped, making a fully-published resume a clean
+/// no-op. The hosted-release phase runs afterward in the caller, creating the
 /// one Release a prior attempt left missing.
 fn resume_apply(
     plan: &ReleasePlan,
@@ -259,7 +260,10 @@ fn resume_apply(
 ) -> AppResult<ReleaseStats> {
     stats.resumed = true;
     if options.publish {
-        let artifacts = BTreeMap::new();
+        // Package (no mutation) any version the registry still lacks so a
+        // publish interrupted after tag/push can complete; a fully-published
+        // resume packages nothing.
+        let artifacts = package_publishable(plan, module_by_ref, targets, &mut stats)?;
         let items = publish_items(plan, module_by_ref, targets, &artifacts)?;
         publish::run(&items, options.retry_budget, &mut stats).map_err(|error| {
             forward_recovery_error(
@@ -419,6 +423,24 @@ pub(crate) fn prepare(
         stats.mutated_modules += 1;
     }
 
+    package_publishable(plan, module_by_ref, targets, stats)
+}
+
+/// Package every `publish_needed` entry without mutating any manifest.
+///
+/// The fresh path calls this after applying mutations; the resume path calls it
+/// alone. On a resume the release commit, tags, and push already exist and the
+/// manifest already carries the released version, so no mutation is needed —
+/// only the artifact the idempotent publish loop consumes for a version the
+/// registry still lacks. An already-published entry is not `publish_needed`, so
+/// a fully-published resume packages nothing, matching the fresh path's skip.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn package_publishable(
+    plan: &ReleasePlan,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+    targets: &super::ReleaseTargets,
+    stats: &mut ReleaseStats,
+) -> AppResult<BTreeMap<ModuleKey, Artifact>> {
     let mut artifacts = BTreeMap::new();
     for entry in &plan.entries {
         if !entry.publish_needed {
@@ -1351,6 +1373,63 @@ mod tests {
                     | ReleaseCall::Publish(_)
             )),
             "no manifest mutation, packaging, or publish may happen on resume: {:?}",
+            target.calls()
+        );
+    }
+
+    #[test]
+    fn a_resume_publishes_a_version_the_registry_still_lacks() {
+        // The planned tag exists (commit, tag, and push happened on a prior
+        // attempt) but the registry publish never completed: the entry is still
+        // publish-needed. A resume must package it (no manifest mutation) and
+        // publish it, completing the interrupted publish rather than failing on a
+        // missing artifact.
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", Version::new(0, 2, 0), true, 0)],
+        );
+        let target = FakeReleaseTarget::new();
+        let writer = FakeVcsWriter::new();
+        let reader = FakeVcsReader::new()
+            .with_tags(vec![TagRef::new("rust/core@0.2.0", Oid::new("deadbee"))]);
+
+        let stats = release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", target.clone())]),
+            &reader,
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect("a resume completes the interrupted publish");
+
+        assert!(stats.resumed, "the run is marked resumed");
+        assert_eq!(stats.packaged_artifacts, 1);
+        assert_eq!(stats.published_modules, 1);
+        assert_eq!(stats.tagged_modules, 0);
+        assert!(
+            writer.writes().is_empty(),
+            "no commit/tag/push may happen on resume: {:?}",
+            writer.writes()
+        );
+        assert!(
+            !target
+                .calls()
+                .iter()
+                .any(|call| matches!(call, ReleaseCall::ApplyRelease { .. })),
+            "a resume never mutates a manifest: {:?}",
+            target.calls()
+        );
+        assert!(
+            target
+                .calls()
+                .iter()
+                .any(|call| matches!(call, ReleaseCall::Package(_)))
+                && target
+                    .calls()
+                    .iter()
+                    .any(|call| matches!(call, ReleaseCall::Publish(_))),
+            "a resume packages and publishes the missing version: {:?}",
             target.calls()
         );
     }
