@@ -88,7 +88,11 @@ pub struct VcsReaderSet {
 impl VcsReaderSet {
     /// Resolve each `(workspace, absolute path)` to its canonical repo root,
     /// dedup by root, and open one [`RskitGitVcs`] per distinct repo.
-    pub fn open(members: &[(WorkspaceId, PathBuf)]) -> AppResult<Self> {
+    ///
+    /// `token_env` names the environment variables the opened repos consult for
+    /// a push/fetch token (see [`RskitGitVcs::open_with_token_env`]); an empty
+    /// slice opens with the ambient transport default.
+    pub fn open(members: &[(WorkspaceId, PathBuf)], token_env: &[String]) -> AppResult<Self> {
         let mut resolved = Vec::with_capacity(members.len());
         for (id, abs) in members {
             let root = rskit_git::discover(abs)?.root().to_path_buf();
@@ -98,7 +102,7 @@ impl VcsReaderSet {
 
         let mut groups = Vec::new();
         for (root, members) in group_by_root(resolved) {
-            let vcs = RskitGitVcs::open(&root)?;
+            let vcs = RskitGitVcs::open_with_token_env(&root, token_env)?;
             groups.push(RepoGroup { root, vcs, members });
         }
         Ok(Self { groups })

@@ -263,6 +263,10 @@ jobs:
 
       - name: Publish the release
         env:
+          # Both names are recognized by Toven's default `[toven.git]`
+          # `push_token_env`; the embedded git backend reads whichever is set to
+          # authenticate the tag/branch push to the protected branch.
+          GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eo pipefail

@@ -187,7 +187,7 @@ fn reader_set_dedups_two_workspaces_under_one_repo() {
             ws.path().join("apps/api"),
         ),
     ];
-    let set = assert_ok(VcsReaderSet::open(&members));
+    let set = assert_ok(VcsReaderSet::open(&members, &[]));
 
     assert_eq!(set.groups().len(), 1, "both workspaces share one repo");
     let group = &set.groups()[0];

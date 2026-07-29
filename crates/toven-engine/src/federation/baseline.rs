@@ -130,9 +130,10 @@ pub fn open_member_vcs_readers(
     umbrella_root: &AbsPath,
     composed: &ComposedFederation,
     baselines: &MemberBaselines,
+    token_env: &[String],
 ) -> AppResult<OpenMemberVcsReaders> {
     let placements = member_placements(composed)?;
-    let set = VcsReaderSet::open(&placements)?;
+    let set = VcsReaderSet::open(&placements, token_env)?;
     let mut entries = Vec::with_capacity(composed.members().len());
     for member in composed.members() {
         let placement_id = placement_id(member)?;
