@@ -35,5 +35,10 @@ pub fn open_project_vcs(
 ) -> AppResult<OpenMemberVcsReaders> {
     let composed = spine::compose(project_root, document, providers)?;
     let baselines = resolve_baselines(&composed, flags);
-    open_member_vcs_readers(project_root, &composed, &baselines)
+    open_member_vcs_readers(
+        project_root,
+        &composed,
+        &baselines,
+        &document.toven.git.push_token_env,
+    )
 }

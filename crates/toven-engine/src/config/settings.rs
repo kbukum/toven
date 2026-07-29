@@ -33,6 +33,96 @@ pub struct TovenConfig {
     /// Out-of-process driver settings, kept verbatim for the federation step.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub drivers: BTreeMap<String, RawValue>,
+    /// Git transport auth for release push/fetch.
+    #[serde(default, skip_serializing_if = "GitConfig::is_default")]
+    pub git: GitConfig,
+}
+
+/// The `[toven.git]` sub-section: how the embedded git backend authenticates
+/// network operations (push/fetch).
+///
+/// These apply whenever the engine performs a git network operation — primarily
+/// the release push, but also the fetches behind planning and change selection,
+/// which reuse the same repository handle.
+///
+/// Forge-agnostic by design: Toven owns the *policy* of which environment
+/// variables may carry a push token, while the git layer owns the *mechanism*
+/// (read the first present var, use it as the HTTPS basic-auth password). The
+/// default lists the GitHub Actions token names, but any forge's token variable
+/// can be substituted or added.
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GitConfig {
+    /// Ordered environment variable names consulted for a push/fetch token; the
+    /// first present, non-empty value is used as the HTTPS token-as-password.
+    /// When none are set (for example local development) the backend falls back
+    /// to its ambient transport default.
+    #[serde(default = "default_push_token_env")]
+    pub push_token_env: Vec<String>,
+}
+
+fn default_push_token_env() -> Vec<String> {
+    vec!["GITHUB_TOKEN".to_string(), "GH_TOKEN".to_string()]
+}
+
+impl Default for GitConfig {
+    fn default() -> Self {
+        Self {
+            push_token_env: default_push_token_env(),
+        }
+    }
+}
+
+impl GitConfig {
+    /// Whether this config is entirely default (so it can be skipped on
+    /// serialize).
+    #[must_use]
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GitConfig, TovenConfig};
+
+    #[test]
+    fn git_config_defaults_to_github_token_names() {
+        assert_eq!(
+            GitConfig::default().push_token_env,
+            vec!["GITHUB_TOKEN".to_string(), "GH_TOKEN".to_string()]
+        );
+        assert!(GitConfig::default().is_default());
+        assert!(TovenConfig::default().git.is_default());
+    }
+
+    #[test]
+    fn git_section_parses_custom_forge_agnostic_token_names() {
+        let toven: TovenConfig =
+            toml::from_str("[git]\npush_token_env = [\"GITLAB_TOKEN\", \"CI_JOB_TOKEN\"]\n")
+                .expect("parse [toven.git]");
+        assert_eq!(
+            toven.git.push_token_env,
+            vec!["GITLAB_TOKEN".to_string(), "CI_JOB_TOKEN".to_string()]
+        );
+        assert!(!toven.git.is_default());
+    }
+
+    #[test]
+    fn git_section_rejects_unknown_keys() {
+        let err = toml::from_str::<TovenConfig>("[git]\ntoken = \"secret\"\n")
+            .expect_err("unknown key rejected");
+        assert!(err.to_string().contains("token"), "{err}");
+    }
+
+    #[test]
+    fn default_git_config_is_skipped_on_serialize() {
+        let serialized = toml::to_string(&TovenConfig::default()).expect("serialize");
+        assert!(
+            !serialized.contains("push_token_env"),
+            "default git config must not serialize: {serialized}"
+        );
+    }
 }
 
 /// How a run is reported to the user.

@@ -1409,6 +1409,7 @@ dependencies = [
  "rskit-errors",
  "rskit-fs",
  "rskit-process",
+ "rskit-util",
  "thiserror",
 ]
 

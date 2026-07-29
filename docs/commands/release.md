@@ -123,6 +123,8 @@ toven release publish --yes
 
 Mutating actions fail unless `--yes` is present. They check the allowed branch and reject a dirty worktree before changing a manifest — the clean-tree guardrail has no bypass. Before any mutation, the planned tags are preflighted: a release tag that already exists fails closed with forward-fix guidance, because tags are immutable. `--no-push` keeps the release commit and tags local and therefore skips hosted Release creation. When the release branch is protected, `push_branch = false` pushes only the tags and leaves the branch to the pull-request flow. A failure after the release commit — tagging, push, registry publication, or hosted Release creation — reports the externally visible state and the forward-only recovery path; nothing is rolled back past that boundary.
 
+The tag/branch push authenticates over HTTPS using a token read from the variables listed in [`[toven.git].push_token_env`](../config/README.md#runtime) (default `GITHUB_TOKEN`, then `GH_TOKEN`). In CI the workflow exposes the job token under one of those names; locally, with none set, the push falls back to the ambient git transport default.
+
 ## Rust release policy
 
 The supported Rust contract is:

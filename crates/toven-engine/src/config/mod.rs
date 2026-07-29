@@ -37,4 +37,4 @@ pub use overlay::{OverlayConfig, OverlayRef};
 pub use project::ProjectConfig;
 pub use reference::ModuleRefSyntax;
 pub use registry::CanonicalRegistry;
-pub use settings::{CacheConfig, ReportFormat, TovenConfig, ViewMode};
+pub use settings::{CacheConfig, GitConfig, ReportFormat, TovenConfig, ViewMode};
