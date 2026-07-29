@@ -107,9 +107,15 @@ impl ReleaseHost for GithubReleaseHost {
 
 /// Whether a failed `gh release view` failed because no Release exists for the
 /// tag — the "Release is missing" signal the reconcile pre-pass acts on.
+///
+/// Matches only `gh`'s specific "release not found" message, not any output
+/// containing "not found". A broader match would misclassify unrelated failures
+/// — a missing repository, a permission/auth error, or a rate limit — as an
+/// absent Release and drive the reconcile path to create a duplicate instead of
+/// surfacing the real error.
 fn release_not_found(output: &ProcessResult) -> bool {
     let combined = format!("{}\n{}", output.stdout, output.stderr).to_ascii_lowercase();
-    combined.contains("release not found") || combined.contains("not found")
+    combined.contains("release not found")
 }
 
 /// Build the read-only `gh release view` argv that probes whether a Release
@@ -381,12 +387,53 @@ mod tests {
     use toven_ports::{HostedRelease, ReleaseAsset};
 
     use super::{
-        ExistingRelease, create_argv, exists_argv, fingerprint_assets, parse_existing, reconcile,
-        view_argv,
+        ExistingRelease, ProcessResult, create_argv, exists_argv, fingerprint_assets,
+        parse_existing, reconcile, release_not_found, view_argv,
     };
 
     fn release() -> HostedRelease {
         HostedRelease::new("rust/core@1.2.3", "core 1.2.3", "the notes")
+    }
+
+    fn failed_view(stderr: &str) -> ProcessResult {
+        ProcessResult::completed(
+            Some(1),
+            Vec::new(),
+            stderr.as_bytes().to_vec(),
+            false,
+            false,
+            std::time::Duration::from_millis(0),
+            false,
+            false,
+        )
+    }
+
+    #[test]
+    fn release_not_found_matches_only_the_release_missing_signal() {
+        // The specific `gh release view` "not found" message is the only
+        // absent-Release signal.
+        assert!(release_not_found(&failed_view("release not found")));
+        assert!(release_not_found(&failed_view(
+            "HTTP 404: Release not found"
+        )));
+    }
+
+    #[test]
+    fn release_not_found_does_not_misclassify_unrelated_failures() {
+        // A missing repo, an auth/permission error, or a rate limit must surface
+        // as a real error — never be read as "the Release is absent", which would
+        // drive the reconcile path to create a duplicate.
+        for stderr in [
+            "could not resolve to a Repository with the name 'kbukum/nope'. (not found)",
+            "GraphQL: Could not resolve to a Repository (repository not found)",
+            "HTTP 403: Resource not accessible by integration",
+            "API rate limit exceeded",
+        ] {
+            assert!(
+                !release_not_found(&failed_view(stderr)),
+                "must not classify {stderr:?} as a missing Release"
+            );
+        }
     }
 
     #[test]
