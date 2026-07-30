@@ -80,9 +80,9 @@ pub use merge::{merge_coverage, merge_release, merge_task};
 pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
 pub use raw_output::RawOutputSink;
 pub use release::{
-    Artifact, HostReleaseOutcome, HostedRelease, PublishOutcome, RegistryCadence, ReleaseAsset,
-    ReleaseCredentials, ReleaseHost, ReleaseMutation, ReleaseTarget, SUPPORTED_FORGES, TagScheme,
-    is_supported_forge,
+    Artifact, AssetDownloader, HostReleaseOutcome, HostedRelease, PublishOutcome, RegistryCadence,
+    ReleaseAsset, ReleaseCredentials, ReleaseHost, ReleaseMutation, ReleaseTarget,
+    SUPPORTED_FORGES, SignatureVerifier, Signer, TagScheme, VersionProbe, is_supported_forge,
 };
 pub use reporter::{PlanReporter, Reporter};
 pub use source::SourceDigest;

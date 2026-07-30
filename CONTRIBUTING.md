@@ -32,7 +32,7 @@ make check
 make coverage
 ```
 
-`make check` runs formatting, clippy, workspace tests, docs, the dependency/license audit, the `mod.rs`/structure guard, and a release build. `make coverage` enforces the current coverage threshold. `make release-artifacts` stages a source archive and checksum manifest without publishing.
+`make check` runs formatting, clippy, workspace tests, docs, the dependency/license audit, the `mod.rs`/structure guard, and a release build. `make coverage` enforces the current coverage threshold. `toven release package --target <triple>` archives a built binary into its declared hosted-release asset without publishing.
 
 Run the checks that match the files you changed before opening a pull request; prefer targeted checks for the changed crate. Broader gates run in CI.
 
@@ -46,7 +46,7 @@ make act-supply-chain
 make act-release-readiness
 ```
 
-CodeQL, artifact signing, and provenance attestations remain GitHub-hosted validation paths; the local substitutes are `make check`, `make coverage`, and `make release-artifacts`.
+CodeQL, artifact signing, and provenance attestations remain GitHub-hosted validation paths; the local substitutes are `make check`, `make coverage`, and the engine release verbs (`toven release plan | package | checksums | verify`).
 
 ## Workspace layout
 

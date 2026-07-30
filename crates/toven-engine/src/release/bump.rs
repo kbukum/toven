@@ -70,6 +70,18 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
         .overrides
         .validate_known(&active.iter().map(|key| key.module.clone()).collect())?;
 
+    // `--pre` composes with the `semver-cascade` matrix only; under `manifest`
+    // the prerelease channel already lives in the declared version, so a `--pre`
+    // override is a contradictory usage that must fail closed rather than be
+    // silently ignored.
+    if input.policy == BumpPolicy::Manifest && input.overrides.prerelease().is_some() {
+        return Err(AppError::invalid_input(
+            "release.strategy",
+            "strategy = \"manifest\": --pre conflicts with the manifest policy; \
+             the prerelease channel is part of the declared manifest version",
+        ));
+    }
+
     let ranks = publish_ranks(input.graph, &active)?;
     let mut ordered = active.iter().cloned().collect::<Vec<_>>();
     ordered.sort_by_key(|module| (*ranks.get(module).unwrap_or(&usize::MAX), module.clone()));
@@ -328,7 +340,35 @@ fn resolve_bump(
     } else {
         effective_channel(input, settings, reference)?
     };
-    let planned = strategy::next_version(input.policy, current, level, channel.as_deref())?;
+
+    // The `manifest` policy declares its own version rather than computing one
+    // from the matrix. An explicit argv level override (`--patch`/`--minor`/
+    // `--major`) still wins and takes the computed path even under `manifest`.
+    if input.policy == BumpPolicy::Manifest && input.overrides.module_level(module_ref).is_none() {
+        let baseline = input
+            .baselines
+            .get(reference)
+            .and_then(|b| b.version.as_ref());
+        let planned = manifest_target(module_ref, current, baseline)?;
+        return Ok(BumpDecision {
+            level: classify(baseline.unwrap_or(&Version::new(0, 0, 0)), &planned),
+            planned: Some(planned),
+            reason: BumpReason::Manifest,
+            winning_input: BumpSource::Manifest,
+            prerelease_channel: None,
+        });
+    }
+
+    // Computed path: the semver matrix. Reached under `semver-cascade`, or under
+    // `manifest` only when an explicit argv level override forced it — either
+    // way the matrix advances the resolved component, never the (guarded)
+    // manifest arm.
+    let planned = strategy::next_version(
+        BumpPolicy::SemverCascade,
+        current,
+        level,
+        channel.as_deref(),
+    )?;
     Ok(BumpDecision {
         planned: Some(planned),
         level: effective_to_level(level),
@@ -336,6 +376,32 @@ fn resolve_bump(
         winning_input,
         prerelease_channel: channel,
     })
+}
+
+/// Resolve the version the `manifest` policy cuts: exactly the version the
+/// manifest declares (`current`), guarded to be strictly ahead of the released
+/// `baseline` under semver precedence.
+///
+/// # Errors
+/// Fails closed when the declared version is at or below the released baseline
+/// (nothing to cut), with an actionable message telling the operator to bump
+/// the manifest first. A module with no baseline (never released) has no floor,
+/// so its declared version is always accepted.
+fn manifest_target(
+    module_ref: &ModuleRef,
+    current: &Version,
+    baseline: Option<&Version>,
+) -> AppResult<Version> {
+    match baseline {
+        Some(base) if current <= base => Err(AppError::invalid_input(
+            "release.strategy",
+            format!(
+                "strategy = \"manifest\": module '{module_ref}' declares {current}, not ahead of \
+                 the released baseline {base}. Bump the manifest version before releasing."
+            ),
+        )),
+        _ => Ok(current.clone()),
+    }
 }
 
 /// Select the effective bump level and its winning input/reason. `None` means a
@@ -611,14 +677,16 @@ fn publish_ranks(
 
 #[cfg(test)]
 mod tests {
+    use rskit_errors::AppResult;
     use rskit_version::semver::Version;
     use toven_model::{DepKind, EcosystemId, Edge, Graph, MemberId, Module, RepoPath};
-    use toven_ports::{BumpLevel, DependentVersion, ReleaseConfig, ReleaseTarget};
+    use toven_ports::{BumpLevel, DependentVersion, Oid, ReleaseConfig, ReleaseTarget};
     use toven_testkit::FakeReleaseTarget;
 
     use super::{
-        BTreeMap, BTreeSet, BumpInputs, BumpOverrides, BumpPolicy, BumpSource, ChangelogEntry,
-        ModuleRef, ResolvedReleaseSettings, plan_entries,
+        BTreeMap, BTreeSet, BumpInputs, BumpOverrides, BumpPolicy, BumpReason, BumpSource,
+        ChangelogEntry, ModuleRef, ReleaseBaseline, ReleaseEntry, ResolvedReleaseSettings,
+        plan_entries,
     };
     use crate::release::ReleaseTargets;
 
@@ -862,5 +930,214 @@ mod tests {
         assert_eq!(app_entry.planned_version, Some(Version::new(0, 1, 1)));
         assert!(!app_entry.mutation.dep_floor_updates.is_empty());
         assert!(app_entry.publish_needed);
+    }
+
+    /// Plan a single `rust/core` seed whose manifest declares `declared`, with an
+    /// optional released baseline version, under `policy` + `overrides`.
+    fn seed_plan(
+        declared: &str,
+        baseline: Option<&str>,
+        policy: BumpPolicy,
+        overrides: &BumpOverrides,
+    ) -> AppResult<Vec<ReleaseEntry>> {
+        let core = core_module();
+        let key = core.key();
+        let graph = Graph::build(vec![core.clone()], Vec::new()).unwrap();
+
+        let mut targets = ReleaseTargets::new();
+        targets.insert(
+            (None, EcosystemId::new("rust").unwrap()),
+            Box::new(
+                FakeReleaseTarget::new().with_declared_version(Version::parse(declared).unwrap()),
+            ) as Box<dyn ReleaseTarget>,
+        );
+
+        let mut settings = BTreeMap::new();
+        settings.insert(key.clone(), settings_for(&ReleaseConfig::default()));
+
+        let mut baselines = BTreeMap::new();
+        if let Some(version) = baseline {
+            let parsed = Version::parse(version).unwrap();
+            baselines.insert(
+                key.clone(),
+                ReleaseBaseline::tag(
+                    key.clone(),
+                    format!("rust/core@{parsed}"),
+                    parsed,
+                    Oid::new("cafe"),
+                ),
+            );
+        } else {
+            baselines.insert(key.clone(), ReleaseBaseline::initial(key.clone()));
+        }
+
+        let changed: BTreeSet<_> = std::iter::once(key).collect();
+        let changelogs = BTreeMap::new();
+        let modules = vec![core];
+        let edges = Vec::new();
+
+        plan_entries(&BumpInputs {
+            graph: &graph,
+            modules: &modules,
+            edges: &edges,
+            changed: &changed,
+            baselines: &baselines,
+            changelogs: &changelogs,
+            settings: &settings,
+            targets: &targets,
+            branches: &no_branches(),
+            policy,
+            overrides,
+        })
+    }
+
+    #[test]
+    fn manifest_cuts_the_declared_prerelease_when_it_is_ahead_of_the_baseline() {
+        let entries = seed_plan(
+            "0.1.0-alpha.2",
+            Some("0.1.0-alpha.1"),
+            BumpPolicy::Manifest,
+            &BumpOverrides::new(),
+        )
+        .unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0].planned_version,
+            Some(Version::parse("0.1.0-alpha.2").unwrap())
+        );
+        assert_eq!(entries[0].reason, BumpReason::Manifest);
+        assert_eq!(entries[0].winning_input, BumpSource::Manifest);
+    }
+
+    #[test]
+    fn manifest_finalizes_a_declared_release_over_a_prerelease_baseline() {
+        let entries = seed_plan(
+            "0.1.0",
+            Some("0.1.0-alpha.2"),
+            BumpPolicy::Manifest,
+            &BumpOverrides::new(),
+        )
+        .unwrap();
+
+        assert_eq!(entries[0].planned_version, Some(Version::new(0, 1, 0)));
+        assert_eq!(entries[0].winning_input, BumpSource::Manifest);
+    }
+
+    #[test]
+    fn manifest_cuts_a_declared_plain_patch() {
+        let entries = seed_plan(
+            "0.1.1",
+            Some("0.1.0"),
+            BumpPolicy::Manifest,
+            &BumpOverrides::new(),
+        )
+        .unwrap();
+
+        assert_eq!(entries[0].planned_version, Some(Version::new(0, 1, 1)));
+    }
+
+    #[test]
+    fn manifest_fails_closed_when_the_declared_version_equals_the_baseline() {
+        let error = seed_plan(
+            "0.1.0-alpha.2",
+            Some("0.1.0-alpha.2"),
+            BumpPolicy::Manifest,
+            &BumpOverrides::new(),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("not ahead"));
+    }
+
+    #[test]
+    fn manifest_fails_closed_when_the_declared_version_is_behind_the_baseline() {
+        assert!(
+            seed_plan(
+                "0.1.0-alpha.2",
+                Some("0.1.0"),
+                BumpPolicy::Manifest,
+                &BumpOverrides::new(),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn set_version_still_overrides_the_manifest_policy() {
+        let core = core_module();
+        let overrides = BumpOverrides::new()
+            .with_set_version(core.id, Version::new(0, 2, 0))
+            .unwrap();
+
+        let entries = seed_plan("0.1.0", Some("0.1.0"), BumpPolicy::Manifest, &overrides).unwrap();
+
+        assert_eq!(entries[0].planned_version, Some(Version::new(0, 2, 0)));
+        assert_eq!(entries[0].winning_input, BumpSource::SetVersion);
+    }
+
+    #[test]
+    fn an_argv_level_override_takes_the_computed_path_under_manifest() {
+        let core = core_module();
+        let overrides = BumpOverrides::new()
+            .with_module_level(core.id, BumpLevel::Minor)
+            .unwrap();
+
+        let entries = seed_plan("0.1.0", Some("0.1.0"), BumpPolicy::Manifest, &overrides).unwrap();
+
+        // The computed matrix advances the minor component; the manifest arm is
+        // bypassed by the explicit operator override.
+        assert_eq!(entries[0].planned_version, Some(Version::new(0, 2, 0)));
+        assert_eq!(entries[0].winning_input, BumpSource::Argv);
+    }
+
+    #[test]
+    fn pre_conflicts_with_the_manifest_policy() {
+        let overrides = BumpOverrides::new().with_prerelease("rc");
+
+        assert!(
+            seed_plan(
+                "0.1.0-alpha.2",
+                Some("0.1.0-alpha.1"),
+                BumpPolicy::Manifest,
+                &overrides,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn a_tagless_manifest_module_cuts_its_declared_initial_release() {
+        let entries = seed_plan(
+            "0.1.0-alpha.1",
+            None,
+            BumpPolicy::Manifest,
+            &BumpOverrides::new(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            entries[0].planned_version,
+            Some(Version::parse("0.1.0-alpha.1").unwrap())
+        );
+        // A never-released module always joins as an initial release, so the
+        // manifest policy is a consistent no-op there.
+        assert_eq!(entries[0].reason, BumpReason::InitialRelease);
+    }
+
+    #[test]
+    fn semver_cascade_default_finalizes_a_pending_prerelease_unchanged() {
+        // Regression: the default policy path is untouched — a patch of a pending
+        // prerelease still finalizes it to its release.
+        let entries = seed_plan(
+            "0.1.0-alpha.1",
+            Some("0.1.0-alpha.1"),
+            BumpPolicy::SemverCascade,
+            &BumpOverrides::new(),
+        )
+        .unwrap();
+
+        assert_eq!(entries[0].planned_version, Some(Version::new(0, 1, 0)));
+        assert_eq!(entries[0].reason, BumpReason::Changed);
     }
 }

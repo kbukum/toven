@@ -1,12 +1,5 @@
 PACKAGE_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 
-# The native target triple of the machine running Make, used to build/package
-# a smoke-tested release binary without requiring a cross-compilation target
-# override (see `release-artifacts` below). Recursively expanded (`=`, not
-# `:=`) so `rustc -vV` runs only when a recipe actually references it, not on
-# every Make invocation.
-HOST_TARGET = $(shell rustc -vV | sed -n 's/host: //p')
-
 # nextest profile (see .config/nextest.toml). Local runs use `default`
 # (fail-fast, no retries); CI overrides this to `ci` (retries + slow-timeout for
 # the real-subprocess integration tests) by exporting NEXTEST_PROFILE=ci. The
@@ -22,7 +15,7 @@ export NEXTEST_PROFILE ?= default
 # binary for speed with `make TOVEN=toven check`.
 TOVEN ?= cargo run --quiet --locked -p toven --
 
-.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark golden bless verify-release-platform-filter release-dry-run release-plan release-plan-version-check release-artifacts release-checksums release-sbom-binary act-ci act-supply-chain act-release-readiness
+.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark golden bless verify-release-platform-filter release-dry-run release-plan act-ci act-supply-chain act-release-readiness
 
 # Canonical local/CI gate for the virtual workspace.
 check: fmt-check lint test structure doc deny verify-release-platform-filter release-dry-run
@@ -147,45 +140,6 @@ release-plan:
 	$(TOVEN) release readiness
 	$(TOVEN) release sbom --out-dir target/toven/release/sbom
 	$(TOVEN) release depgraphs --out-dir target/toven/release/depgraphs
-
-# Preflight invariant: the version the engine will cut must equal
-# v${Cargo.toml}. The release workflow builds every binary from Cargo.toml
-# before the tag exists, so a divergence (stray tag, forgotten bump) would only
-# surface as an opaque "release not found" in the post-publish Verify jobs.
-# Fail closed here in the preview instead (scripts/verify-release-plan-version.sh).
-release-plan-version-check:
-	./scripts/verify-release-plan-version.sh
-
-# Real per-target release binary: build the release profile for the native
-# host target and package it into the fixed-name dist/ archive that
-# toven.toml's `release.host.assets` declares. The manually dispatched
-# .github/workflows/release.yml runs the same packaging script for every
-# matrix target (building via `cross` for the cross-compiled aarch64-linux
-# target); the default (native) invocation is also the per-PR packaging
-# smoke check.
-release-artifacts:
-	rm -rf dist
-	mkdir -p dist
-	cargo build --locked --release -p toven --target $(HOST_TARGET)
-	./scripts/package-release-binary.sh "$(HOST_TARGET)" "target/$(HOST_TARGET)/release/$(if $(findstring windows,$(HOST_TARGET)),toven.exe,toven)"
-
-# Combine every unsigned asset staged under dist/ — the per-target archives
-# (downloaded from the build matrix) and the CycloneDX SBOM (staged by
-# release-sbom-binary, which the workflow runs before this target) — into
-# the immutable SHA256SUMS the hosted Release publishes and signs. Fails
-# closed when an input is missing: with nullglob an empty archive match
-# would leave the checksum tool reading stdin and hang CI, and a silently
-# omitted SBOM would leave a published asset outside the signed checksum
-# set. Uses shasum when present, sha256sum otherwise (same fallback as
-# scripts/verify-release-binary.sh); both emit the same SHA256SUMS format.
-release-checksums:
-	cd dist && bash -c 'shopt -s nullglob; archives=(toven-*.tar.gz toven-*.zip); if (( $${#archives[@]} == 0 )); then echo "release-checksums: no toven-* archives staged under dist/" >&2; exit 1; fi; if [[ ! -f toven-sbom.cdx.json ]]; then echo "release-checksums: dist/toven-sbom.cdx.json is missing (run release-sbom-binary first)" >&2; exit 1; fi; if command -v shasum >/dev/null; then shasum -a 256 "$${archives[@]}" toven-sbom.cdx.json > SHA256SUMS; elif command -v sha256sum >/dev/null; then sha256sum "$${archives[@]}" toven-sbom.cdx.json > SHA256SUMS; else echo "release-checksums: neither shasum nor sha256sum is available" >&2; exit 1; fi'
-
-# Copy the umbrella app's CycloneDX SBOM (already produced by `release-plan`'s
-# `toven release sbom`) to the fixed dist/ path release.host.assets declares.
-release-sbom-binary:
-	mkdir -p dist
-	cp target/toven/release/sbom/toven.cdx.json dist/toven-sbom.cdx.json
 
 act-ci:
 	act pull_request -W .github/workflows/ci.yml

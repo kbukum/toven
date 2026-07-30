@@ -52,11 +52,12 @@ pub use assertions::{
     assert_emitted, assert_err_code, assert_event_sequence, assert_ok, find_event,
 };
 pub use doubles::{
-    CountingToolchainProber, EMPTY_IDENTITY, FakeCacheStore, FakeCommandRunner,
-    FakeConfiguredAdapter, FakeDriverLocator, FakeDriverWizard, FakeProvider, FakeReleaseHost,
-    FakeReleaseTarget, FakeSourceDigest, FakeVcsReader, FakeVcsWriter, HostCall,
-    RecordingCacheStore, RecordingCacheWriter, RecordingRawOutputSink, RecordingReporter,
-    ReleaseCall, ScriptedAnswers, ScriptedWatchSource, VcsWrite, WatchCall,
+    CountingToolchainProber, EMPTY_IDENTITY, FakeAssetDownloader, FakeCacheStore,
+    FakeCommandRunner, FakeConfiguredAdapter, FakeDriverLocator, FakeDriverWizard, FakeProvider,
+    FakeReleaseHost, FakeReleaseTarget, FakeSignatureVerifier, FakeSigner, FakeSourceDigest,
+    FakeVcsReader, FakeVcsWriter, FakeVersionProbe, HostCall, RecordingCacheStore,
+    RecordingCacheWriter, RecordingRawOutputSink, RecordingReporter, ReleaseCall, ScriptedAnswers,
+    ScriptedWatchSource, SignerCall, VcsWrite, VerifyCall, WatchCall,
 };
 pub use fixtures::{
     FIXTURES_ROOT, coverage_profile_string, document, document_path, document_string, ecosystem,

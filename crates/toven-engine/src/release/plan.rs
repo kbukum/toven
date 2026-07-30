@@ -225,9 +225,9 @@ pub(crate) fn resolve_release_settings(
 
 /// Fail closed on resolved settings that name release capabilities the engine
 /// does not execute. A configured-but-ignored setting is a safety hazard: a
-/// maintainer believes a hook gated the release, artifacts ship signed, or a
-/// credential is injected — while none of it happens. Until the engine
-/// executes these, the honest behavior is an actionable typed rejection.
+/// maintainer believes a hook gated the release while nothing runs. Until the
+/// engine executes these, the honest behavior is an actionable typed rejection.
+/// (Signing is executable — see `release::sign` — so it is not rejected here.)
 fn validate_executable_settings(
     module: &toven_model::Module,
     resolved: &ResolvedReleaseSettings,
@@ -239,16 +239,6 @@ fn validate_executable_settings(
                 "module '{}' configures release hooks, which are not yet executable; remove \
                  the […release.hooks] block and run any pre/post tasks explicitly around the \
                  release command",
-                module.key()
-            ),
-        ));
-    }
-    if resolved.sign.enabled {
-        return Err(AppError::invalid_input(
-            "release.sign",
-            format!(
-                "module '{}' enables artifact signing, which is not yet executable; remove \
-                 […release.sign] or set enabled = false and keep signing in the native CI gate",
                 module.key()
             ),
         ));
@@ -584,8 +574,10 @@ mod tests {
     }
 
     /// Drive `release_plan` against one rust `core` module whose ecosystem
-    /// release config is `release`, returning the resolution error.
-    fn plan_error_with_release_config(release: ReleaseConfig) -> rskit_errors::AppError {
+    /// release config is `release`, returning the resolution result.
+    fn plan_with_release_config(
+        release: ReleaseConfig,
+    ) -> rskit_errors::AppResult<super::super::ReleasePlan> {
         let core = module("core", "crates/core");
         let mut response = DiscoverResponse::new(eid("rust"));
         response.modules = vec![core];
@@ -617,7 +609,12 @@ mod tests {
             &BumpOverrides::new(),
             &mut reporter,
         )
-        .expect_err("the configured setting must fail closed")
+    }
+
+    /// Drive `release_plan` against one rust `core` module whose ecosystem
+    /// release config is `release`, returning the resolution error.
+    fn plan_error_with_release_config(release: ReleaseConfig) -> rskit_errors::AppError {
+        plan_with_release_config(release).expect_err("the configured setting must fail closed")
     }
 
     #[test]
@@ -639,20 +636,23 @@ mod tests {
     }
 
     #[test]
-    fn enabled_artifact_signing_is_rejected_as_not_yet_executable() {
-        // `sign.enabled = true` promises signed artifacts Toven cannot produce;
-        // shipping unsigned artifacts under that belief is a safety failure.
-        let error = plan_error_with_release_config(ReleaseConfig {
+    fn enabled_artifact_signing_is_accepted_now_that_signing_is_executable() {
+        // Signing is a real capability (`toven release sign` via cosign), so
+        // `sign.enabled = true` must no longer be rejected during planning —
+        // the plan resolves and the release proceeds to the executable signer.
+        let plan = plan_with_release_config(ReleaseConfig {
             sign: Some(toven_ports::SignConfig {
                 enabled: true,
                 signer: None,
+                ..toven_ports::SignConfig::default()
             }),
             ..ReleaseConfig::default()
-        });
-
-        let message = error.to_string();
-        assert!(message.contains("release.sign"), "{message}");
-        assert!(message.contains("not yet executable"), "{message}");
+        })
+        .expect("sign.enabled must be accepted");
+        assert!(
+            !plan.entries.is_empty(),
+            "the release plan resolves with signing enabled"
+        );
     }
 
     #[test]

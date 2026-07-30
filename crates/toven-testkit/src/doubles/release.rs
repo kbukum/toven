@@ -314,10 +314,21 @@ impl ReleaseTarget for FakeReleaseTarget {
         if let Some(message) = &state.fail_sbom {
             return Err(fake_error(message));
         }
-        Ok(state
-            .sbom_artifact
-            .as_ref()
-            .map(|path| Artifact::new(out_dir.join(path))))
+        let sbom_artifact = state.sbom_artifact.clone();
+        drop(state);
+        let Some(path) = sbom_artifact else {
+            return Ok(None);
+        };
+        // Write a small deterministic CycloneDX document so callers that stage
+        // the artifact to a declared asset path have a real file to copy.
+        let artifact = out_dir.join(path);
+        std::fs::write(&artifact, b"{\"bomFormat\":\"CycloneDX\"}\n").map_err(|error| {
+            AppError::new(
+                ErrorCode::Internal,
+                format!("fake sbom cannot write '{}': {error}", artifact.display()),
+            )
+        })?;
+        Ok(Some(Artifact::new(artifact)))
     }
 }
 

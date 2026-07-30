@@ -32,6 +32,7 @@ pub(super) enum EffectiveLevel {
 pub(super) fn resolve(raw: Option<&str>) -> AppResult<BumpPolicy> {
     match raw.unwrap_or(BumpPolicy::SemverCascade.as_str()) {
         "semver-cascade" => Ok(BumpPolicy::SemverCascade),
+        "manifest" => Ok(BumpPolicy::Manifest),
         unknown => Err(AppError::invalid_input(
             "release.strategy",
             format!("unknown bump policy '{unknown}'"),
@@ -63,6 +64,14 @@ pub(super) fn next_version(
             || Ok(stable_bump(current, level)),
             |channel| prerelease_bump(current, level, channel),
         ),
+        // The manifest policy declares its version rather than computing it, so
+        // the bump matrix is never the decision point for it; the manifest
+        // decision (step 02) routes around this. Reaching it here is a routing
+        // bug, so fail closed rather than silently fabricate a version.
+        BumpPolicy::Manifest => Err(AppError::invalid_input(
+            "release.strategy",
+            "manifest policy decides the version from the manifest, not the bump matrix",
+        )),
     }
 }
 
@@ -145,6 +154,7 @@ mod tests {
             resolve(Some("semver-cascade")).unwrap(),
             BumpPolicy::SemverCascade
         );
+        assert_eq!(resolve(Some("manifest")).unwrap(), BumpPolicy::Manifest);
         assert_eq!(resolve(None).unwrap(), BumpPolicy::SemverCascade);
     }
 
@@ -152,6 +162,21 @@ mod tests {
     fn rejects_the_removed_and_unknown_policy_names() {
         assert!(resolve(Some("caret-prerelease")).is_err());
         assert!(resolve(Some("other")).is_err());
+    }
+
+    #[test]
+    fn manifest_policy_does_not_compute_a_version_from_the_matrix() {
+        // The manifest policy declares its version; routing it through the bump
+        // matrix is a bug and must fail closed rather than fabricate a version.
+        assert!(
+            next_version(
+                BumpPolicy::Manifest,
+                &Version::new(1, 2, 3),
+                EffectiveLevel::Patch,
+                None,
+            )
+            .is_err()
+        );
     }
 
     #[test]

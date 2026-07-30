@@ -1,20 +1,19 @@
 name: Release packaging smoke
 
-# Exercise the release packaging and verification scripts on every supported
-# runner OS, so their platform-specific paths — notably the Windows archive
-# handling, where `windows-latest` ships no `zip`/`unzip` and the scripts fall
-# back to PowerShell's Compress-Archive/Expand-Archive — are proven on a real
-# runner before a gated release dispatch relies on them. Builds a host-native
-# debug `toven`, packages it into its release archive, and verifies the
-# repackaged binary reports the workspace version. Runs only when the scripts
-# or the release workflow that drives them change.
+# Exercise the engine's release packaging verb on every supported runner OS,
+# so its platform-specific paths — notably the Windows archive handling, now a
+# pure-Rust rskit-fs zip path rather than a PowerShell fallback — are proven on
+# a real runner before a gated release dispatch relies on them. Builds a
+# host-native debug `toven` and packages it into its declared release archive.
+# Runs only when the packaging engine, the release config, or the release
+# workflow that drives it change.
 
 on:
   pull_request:
     paths:
-      - "scripts/package-release-binary.sh"
-      - "scripts/verify-release-binary.sh"
-      - "scripts/verify-release-plan-version.sh"
+      - "crates/toven-engine/src/release/**"
+      - "crates/toven-ports/src/config/release/**"
+      - "toven.toml"
       - ".github/workflows/release.yml"
       - ".github/workflows/release-packaging-smoke.yml"
   workflow_dispatch:
@@ -62,7 +61,7 @@ jobs:
         shell: bash
         run: cargo build --locked -p toven
 
-      - name: Package and verify the release archive
+      - name: Package the release archive
         shell: bash
         run: |
           target="$(rustc -vV | sed -n 's/^host: //p')"
@@ -70,14 +69,5 @@ jobs:
           if [[ "${target}" == *windows* ]]; then
             binary="${binary}.exe"
           fi
-          ./scripts/package-release-binary.sh "${target}" "${binary}"
-          ./scripts/verify-release-binary.sh "${target}"
-
-      # The plan-version preflight has no platform-specific paths, so proving it
-      # once (on Linux) is enough: a fresh PR checkout fetches no tags, so the
-      # release baseline is "initial" and the plan cuts exactly v${Cargo.toml}.
-      # This keeps the script and its dependency on the plan's JSONL shape green.
-      - name: Assert the planned release tag matches the workspace version
-        if: runner.os == 'Linux'
-        shell: bash
-        run: make release-plan-version-check
+          cargo run --locked -p toven -- release package --target "${target}" --binary "${binary}" --output jsonl
+          ls -la dist

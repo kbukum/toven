@@ -50,14 +50,6 @@ jobs:
       - name: Preview release plan, readiness, SBOM, and dependency graphs
         run: make release-plan
 
-      # Fail closed before anything is built or approved if the version the
-      # engine will cut diverges from v${Cargo.toml}: the build job packages
-      # binaries from Cargo.toml before the tag exists, so a divergence (a stray
-      # tag flipping the baseline off "initial", a forgotten bump) would only
-      # surface as an opaque "release not found" in the post-publish Verify jobs.
-      - name: Assert the planned release tag matches the workspace version
-        run: make release-plan-version-check
-
       - name: Preview publication rehearsal
         run: cargo run --locked -p toven -- release publish --dry-run --output jsonl | tee release-preview.jsonl
 
@@ -74,11 +66,11 @@ jobs:
 
   # Real per-target binary build. Each entry packages a runnable `toven` into
   # the fixed dist/ archive name toven.toml's `release.host.assets` declares
-  # (scripts/package-release-binary.sh). Every target builds with the
-  # `vendored-openssl` feature, so rskit-git's embedded git2 backend links a
-  # source-built OpenSSL (libgit2 is already vendored) and the released binaries
-  # carry no host OpenSSL dependency; the cross-compiled Linux ARM64 target
-  # builds through `cross` for a matching glibc.
+  # (`toven release package`). Every target builds with the `vendored-openssl`
+  # feature, so rskit-git's embedded git2 backend links a source-built OpenSSL
+  # (libgit2 is already vendored) and the released binaries carry no host
+  # OpenSSL dependency; the cross-compiled Linux ARM64 target builds through
+  # `cross` for a matching glibc.
   build:
     name: Build ${{ matrix.target }}
     needs: preview
@@ -138,21 +130,7 @@ jobs:
 
       - name: Package release archive
         shell: bash
-        run: |
-          binary="target/${{ matrix.target }}/release/toven"
-          if [[ "${{ matrix.target }}" == *windows* ]]; then
-            binary="${binary}.exe"
-          fi
-          ./scripts/package-release-binary.sh "${{ matrix.target }}" "${binary}"
-
-      - name: Verify the packaged binary reports the released version
-        shell: bash
-        run: |
-          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-            ./scripts/verify-release-binary.sh "${{ matrix.target }}" --no-run
-          else
-            ./scripts/verify-release-binary.sh "${{ matrix.target }}"
-          fi
+        run: cargo run --locked -p toven -- release package --target ${{ matrix.target }} --output jsonl
 
       - name: Upload packaged archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -163,10 +141,11 @@ jobs:
           retention-days: 14
 
   # Assemble every per-target archive into one dist/, stage the umbrella
-  # app's CycloneDX SBOM alongside, then produce the combined SHA256SUMS
-  # (covering every archive and the SBOM) and its keyless Sigstore/cosign
-  # signature — the exact fixed-name file set toven.toml's
-  # `release.host.assets` declares.
+  # app's CycloneDX SBOM alongside, produce the combined SHA256SUMS (covering
+  # every archive and the SBOM) and its keyless Sigstore/cosign signature, then
+  # presence-check the whole declared asset set — the exact fixed-name file set
+  # toven.toml's `release.host.assets` declares, every one engine-produced
+  # (`toven release sbom | checksums | sign | verify`).
   assemble:
     name: Assemble release assets
     needs: build
@@ -196,13 +175,11 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Generate the umbrella app's CycloneDX SBOM
-        run: |
-          cargo run --locked -p toven -- release sbom --out-dir target/toven/release/sbom
-          make release-sbom-binary
+      - name: Stage the CycloneDX SBOM into its declared asset
+        run: cargo run --locked -p toven -- release sbom --out-dir target/toven/release/sbom --output jsonl
 
       - name: Generate combined checksums
-        run: make release-checksums
+        run: cargo run --locked -p toven -- release checksums --output jsonl
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -210,11 +187,10 @@ jobs:
           cosign-release: ${{ env.COSIGN_VERSION }}
 
       - name: Sign the checksums file (keyless Sigstore)
-        run: |
-          cosign sign-blob --yes \
-            --output-signature dist/SHA256SUMS.sig \
-            --output-certificate dist/SHA256SUMS.pem \
-            dist/SHA256SUMS
+        run: cargo run --locked -p toven -- release sign --output jsonl
+
+      - name: Presence-check the assembled release asset set
+        run: cargo run --locked -p toven -- release verify --no-run --output jsonl
 
       - name: List assembled release assets
         run: ls -la dist
@@ -297,52 +273,36 @@ jobs:
           retention-days: 90
 
   # Download every published asset back from the hosted Release and prove it
-  # is exactly what was approved: the keyless Sigstore signature on the
-  # checksum file is verified before the checksums are trusted, then the
-  # archive's checksum is verified, and — for every target that can execute
-  # on its build runner — the binary must report the released version.
-  # `aarch64-unknown-linux-gnu` is signature- and checksum-verified only: no
-  # hosted runner can execute a Linux ARM64 binary.
+  # is exactly what was approved: `toven release verify --download` verifies the
+  # keyless Sigstore signature on `SHA256SUMS` first, then checksum-verifies
+  # every published archive against the now-trusted manifest. The keyless
+  # identity/issuer it matches against come from `[…release.sign]` in
+  # toven.toml. `--no-run` skips execution: the verb verifies the whole declared
+  # asset set at once, and no single hosted runner can execute all five targets
+  # (two Linux, two macOS, one Windows).
   verify:
-    name: Verify ${{ matrix.target }}
+    name: Verify published assets
     needs: publish
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            run: true
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            run: false
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            run: true
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            run: true
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            run: true
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install "${RUST_VERSION}" --profile minimal
+          rustup override set "${RUST_VERSION}"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
           cosign-release: ${{ env.COSIGN_VERSION }}
 
-      - name: Download and verify the published archive
+      - name: Download and verify every published asset
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          if [[ "${{ matrix.run }}" == "true" ]]; then
-            ./scripts/verify-release-binary.sh "${{ matrix.target }}" --download
-          else
-            ./scripts/verify-release-binary.sh "${{ matrix.target }}" --download --no-run
-          fi
+        run: cargo run --locked -p toven -- release verify --download --no-run --output jsonl

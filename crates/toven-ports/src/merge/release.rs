@@ -102,14 +102,16 @@ mod tests {
     fn set_override_field_replaces_and_rest_inherits() {
         let over = ReleaseConfig {
             level: Some(BumpLevel::Minor),
+            strategy: Some("manifest".into()),
             ..ReleaseConfig::default()
         };
 
         let merged = merge_release(&base(), &over);
 
         assert_eq!(merged.level, Some(BumpLevel::Minor));
+        // a per-module strategy override replaces the ecosystem default:
+        assert_eq!(merged.strategy.as_deref(), Some("manifest"));
         // inherited from base, untouched by the override:
-        assert_eq!(merged.strategy.as_deref(), Some("semver-cascade"));
         assert_eq!(merged.registry.as_deref(), Some("crates-io"));
         assert_eq!(merged.branches.as_deref(), Some(["main".into()].as_slice()));
     }
