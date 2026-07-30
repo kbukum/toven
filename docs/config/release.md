@@ -77,17 +77,17 @@ A pushing release normally updates both the release commit's branch and the rele
 `strategy` selects **how the next version is decided**. The rest of the release flow — change detection, dependency cascade, idempotency, tag, publish — is identical for both strategies; only the version-decision node reads `strategy`.
 
 - **`semver-cascade`** (default) — the next version is **computed**: the baseline tag plus the detected changes resolve to a patch, minor, or major bump, a pending prerelease is finalized on a stable bump, and raised dependency floors cascade into dependents. Compose a prerelease channel with `--pre <channel>`.
-- **`manifest`** — the next version is **declared**: Toven cuts exactly `v${manifest version}` when the declared version is strictly ahead of the last release tag, and **fails closed** with a typed error when the declared version is equal to or behind the baseline ("bump the manifest version before releasing"). The reviewed version/CHANGELOG pull request *is* the version decision, so the tag equals the workspace version by construction. Because the channel already lives in the declared version string, `--pre` combined with `manifest` is a typed usage error. Explicit argv (`--set-version`/`--patch`/`--minor`/`--major`) still wins over either strategy.
+- **`manifest`** — the next version is **declared**: Toven cuts exactly `v${manifest version}` when the declared version is strictly ahead of the last release tag. When the declared version is equal to or behind the baseline there is nothing to cut, and the outcome depends on the verb: a read-only preview (`release plan` and the other previews) reports **nothing to release**, while a mutating run (`release tag`/`release publish`) **fails closed** with a typed error ("bump the manifest version before releasing") so it never re-cuts an already-released version. The reviewed version/CHANGELOG pull request *is* the version decision, so the tag equals the workspace version by construction. Because the channel already lives in the declared version string, `--pre` combined with `manifest` is a typed usage error. Explicit argv (`--set-version`/`--patch`/`--minor`/`--major`) still wins over either strategy.
 
 Worked example — baseline release tag versus the declared `Cargo.toml` version:
 
 | Baseline tag | Declared `Cargo.toml` | `semver-cascade` | `manifest` |
 |---|---|---|---|
-| `0.1.0-alpha.1` | `0.1.0-alpha.1` | `0.1.0` | fail closed (not ahead) |
+| `0.1.0-alpha.1` | `0.1.0-alpha.1` | `0.1.0` | nothing to release (preview) / fail closed (run) |
 | `0.1.0-alpha.1` | `0.1.0-alpha.2` | `0.1.0` | `0.1.0-alpha.2` |
 | `0.1.0-alpha.2` | `0.1.0` | `0.1.0` | `0.1.0` (finalize, declared) |
 | `0.1.0` | `0.1.1` | `0.1.1` | `0.1.1` |
-| `0.1.0` | `0.1.0-alpha.2` | — | fail closed (behind) |
+| `0.1.0` | `0.1.0-alpha.2` | — | nothing to release (preview) / fail closed (run) |
 
 `manifest` is what lets a workspace cut successive `0.1.0-alpha.2`, `-alpha.3` prereleases from a curated `Cargo.toml`, where `semver-cascade` would always compute past the declared prerelease to the finalized version.
 

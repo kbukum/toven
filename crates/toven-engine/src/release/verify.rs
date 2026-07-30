@@ -359,15 +359,28 @@ fn extract_binary(archive: &Path, dest: &Path) -> AppResult<PathBuf> {
             ),
         ));
     };
-    extracted.into_iter().next().ok_or_else(|| {
-        AppError::invalid_input(
+    // The release contract is exactly one directly runnable binary per archive;
+    // more than one extracted member makes the verification target ambiguous, so
+    // fail closed rather than silently running the first.
+    let mut members = extracted.into_iter();
+    match (members.next(), members.next()) {
+        (None, _) => Err(AppError::invalid_input(
             "release.verify.archive",
             format!(
                 "archive '{}' contained no packaged binary",
                 archive.display()
             ),
-        )
-    })
+        )),
+        (Some(binary), None) => Ok(binary),
+        (Some(_), Some(_)) => Err(AppError::invalid_input(
+            "release.verify.archive",
+            format!(
+                "archive '{}' contained more than one member; expected exactly one \
+                 runnable binary",
+                archive.display()
+            ),
+        )),
+    }
 }
 
 /// The binary's program name for the expected version line: its file name with
@@ -428,18 +441,23 @@ fn decide_version(
     })
 }
 
-/// The sorted, de-duplicated union of every module's declared hosted-release
-/// assets.
+/// The declared hosted-release assets in first-seen declared order, de-duped.
+/// Assets are an ecosystem-level declaration shared across modules; preserving
+/// declared order keeps the reported per-archive outcomes byte-stable and
+/// reviewable, matching `release checksums`.
 fn declared_assets(
     settings: &BTreeMap<toven_model::ModuleKey, ResolvedReleaseSettings>,
 ) -> Vec<&String> {
-    let mut assets: Vec<&String> = settings
-        .values()
-        .flat_map(|resolved| resolved.host.assets.iter())
-        .collect();
-    assets.sort();
-    assets.dedup();
-    assets
+    let mut seen = std::collections::BTreeSet::new();
+    let mut ordered = Vec::new();
+    for resolved in settings.values() {
+        for asset in &resolved.host.assets {
+            if seen.insert(asset.as_str()) {
+                ordered.push(asset);
+            }
+        }
+    }
+    ordered
 }
 
 /// The declared assets that are archives (`.tar.gz` / `.zip`), in declared
@@ -1117,5 +1135,33 @@ mod tests {
         )
         .expect_err("download verification needs a configured identity");
         assert!(error.to_string().contains("keyless identity"), "{error}");
+    }
+
+    #[test]
+    fn extract_binary_fails_closed_on_multiple_members() {
+        let root = TempDir::new().unwrap();
+        let dir = root.path().join("dist");
+        std::fs::create_dir_all(&dir).unwrap();
+        let first = dir.join("toven-binary");
+        std::fs::write(&first, b"the-binary").unwrap();
+        let extra = dir.join("extra-file");
+        std::fs::write(&extra, b"stowaway").unwrap();
+        let archive = dir.join("multi.tar.gz");
+        tar_gz(
+            &[
+                ArchiveEntry::new("toven", &first, 0o755),
+                ArchiveEntry::new("extra", &extra, 0o644),
+            ],
+            &archive,
+        )
+        .unwrap();
+
+        let dest = TempDir::new().unwrap();
+        let error = super::extract_binary(&archive, dest.path())
+            .expect_err("a multi-member archive must fail closed, not run the first member");
+        assert!(
+            error.to_string().contains("more than one member"),
+            "{error}"
+        );
     }
 }

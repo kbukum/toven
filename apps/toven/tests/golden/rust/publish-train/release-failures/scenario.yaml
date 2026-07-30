@@ -1,5 +1,6 @@
 # Failure matrix: malformed config, missing changelog, invalid version input,
-# clean-tree enforcement, and configured settings the engine does not execute.
+# clean-tree enforcement, and configured release hooks the engine does not
+# execute.
 repo: rust/publish-train
 git:
   commits:

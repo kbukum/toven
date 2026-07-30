@@ -90,7 +90,7 @@ pub fn release_sign(
     let targets = release_targets(&context)?;
     let settings = resolve_release_settings(&context, &targets)?;
 
-    let selection = match resolve_signer(&settings) {
+    let selection = match resolve_signer(&settings)? {
         SignerSelection::Disabled => {
             return Err(AppError::invalid_input(
                 "release.sign",
@@ -140,6 +140,7 @@ pub fn release_sign(
 
 /// The signer selection for the release scope: whether signing is enabled and,
 /// if so, which key/identity ref selects it (`None` = keyless default).
+#[derive(Debug)]
 enum SignerSelection {
     /// No resolved module enables signing.
     Disabled,
@@ -148,18 +149,48 @@ enum SignerSelection {
 }
 
 /// Resolve the signer selection for the release scope: `Enabled(signer)` when
-/// any resolved module enables signing (`signer` is its key/identity ref,
+/// the modules that enable signing agree on a single key/identity ref (`signer`,
 /// `None` for the keyless default), or `Disabled` when signing is off
 /// everywhere.
+///
+/// # Errors
+/// Fails closed when enabled modules declare divergent signer selections (e.g.
+/// some keyless and some keyed, or different key refs): the release cuts one
+/// signature over the shared `SHA256SUMS` manifest and cannot honour multiple
+/// keys, so a silent first-wins pick would sign under the wrong identity.
 fn resolve_signer(
     settings: &std::collections::BTreeMap<toven_model::ModuleKey, super::ResolvedReleaseSettings>,
-) -> SignerSelection {
-    settings
-        .values()
-        .find(|resolved| resolved.sign.enabled)
-        .map_or(SignerSelection::Disabled, |resolved| {
-            SignerSelection::Enabled(resolved.sign.signer.clone())
-        })
+) -> AppResult<SignerSelection> {
+    let mut selected: Option<&Option<String>> = None;
+    for resolved in settings.values() {
+        if !resolved.sign.enabled {
+            continue;
+        }
+        match selected {
+            None => selected = Some(&resolved.sign.signer),
+            Some(existing) if *existing != resolved.sign.signer => {
+                return Err(AppError::invalid_input(
+                    "release.sign.signer",
+                    format!(
+                        "enabled modules declare divergent signer selections ({} vs {}); the \
+                         release signs one shared manifest and cannot honour multiple keys",
+                        describe_signer(existing.as_deref()),
+                        describe_signer(resolved.sign.signer.as_deref()),
+                    ),
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(selected.map_or(SignerSelection::Disabled, |signer| {
+        SignerSelection::Enabled(signer.clone())
+    }))
+}
+
+/// Human-readable signer selection for an error message: `keyless` for the
+/// default (`None`) or the quoted key/identity ref.
+fn describe_signer(signer: Option<&str>) -> String {
+    signer.map_or_else(|| "keyless".to_string(), |key| format!("'{key}'"))
 }
 
 /// The sorted, de-duplicated union of every module's declared hosted-release
@@ -533,5 +564,51 @@ mod tests {
         assert!(argv.windows(2).any(|pair| pair == ["--key", "cosign.key"]));
         // The blob is the final positional argument.
         assert_eq!(argv.last().unwrap(), "dist/SHA256SUMS");
+    }
+
+    #[test]
+    fn resolve_signer_fails_closed_on_divergent_selections() {
+        use std::collections::BTreeMap;
+
+        use toven_model::ModuleKey;
+
+        use super::{SignerSelection, resolve_signer};
+        use crate::release::ResolvedReleaseSettings;
+
+        let resolved = |signer: Option<&str>| {
+            ResolvedReleaseSettings::resolve(
+                &ReleaseConfig {
+                    sign: Some(SignConfig {
+                        enabled: true,
+                        signer: signer.map(str::to_string),
+                        ..SignConfig::default()
+                    }),
+                    ..ReleaseConfig::default()
+                },
+                None,
+            )
+            .unwrap()
+        };
+        let key = |name: &str| ModuleKey::bare(ModuleRef::new(eid("rust"), name).unwrap());
+
+        // One module is keyless, the other keyed — the release cannot honour both.
+        let mut diverging = BTreeMap::new();
+        diverging.insert(key("core"), resolved(None));
+        diverging.insert(key("cli"), resolved(Some("cosign.key")));
+        let error =
+            resolve_signer(&diverging).expect_err("divergent signer selections must fail closed");
+        assert!(
+            error.to_string().contains("divergent signer selections"),
+            "{error}"
+        );
+
+        // Agreement resolves cleanly to the shared selection.
+        let mut agreeing = BTreeMap::new();
+        agreeing.insert(key("core"), resolved(Some("cosign.key")));
+        agreeing.insert(key("cli"), resolved(Some("cosign.key")));
+        assert!(matches!(
+            resolve_signer(&agreeing).unwrap(),
+            SignerSelection::Enabled(Some(selected)) if selected == "cosign.key"
+        ));
     }
 }

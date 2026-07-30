@@ -822,8 +822,10 @@ impl ReleaseAction {
     /// Whether the action is non-mutating and therefore a PLAN-only cut with no
     /// APPLY half (`plan` / `status` / `readiness` / `sbom` / `depgraphs` /
     /// `package` / `checksums` / `sign` / `verify`). These never bump a
-    /// manifest, tag, or publish; `sbom`, `depgraphs`, `package`, `checksums`,
-    /// and `sign` write artifacts but touch no history.
+    /// manifest, tag, or publish; `sbom` and `depgraphs` write artifacts under
+    /// `--out-dir` (see [`Self::writes_artifacts`]) while `package`,
+    /// `checksums`, and `sign` materialize their declared release assets in
+    /// place — none touch history.
     #[must_use]
     pub const fn is_projection(self) -> bool {
         matches!(

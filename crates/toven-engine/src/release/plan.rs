@@ -41,7 +41,14 @@ pub fn release_plan(
         reporter,
     )?;
     let targets = release_targets(&context)?;
-    plan_with_context(&context, request, readers, overrides, &targets)
+    plan_with_context(
+        &context,
+        request,
+        readers,
+        overrides,
+        &targets,
+        bump::CutIntent::Preview,
+    )
 }
 
 /// Build a [`ReleasePlan`] from an already-prepared [`PlanContext`] and its
@@ -49,7 +56,8 @@ pub fn release_plan(
 ///
 /// Shared by [`release_plan`] and the combined
 /// [`release_run`](super::release_run) facade so the PLAN cut is computed by
-/// exactly one path.
+/// exactly one path. `intent` selects whether a not-ahead `manifest` version is
+/// reported as nothing-to-release (preview) or fails closed (mutating run).
 ///
 /// # Errors
 /// Propagates bump-policy selection, change-detection, and bump-planning
@@ -61,13 +69,14 @@ pub(crate) fn plan_with_context(
     readers: &MemberVcsReaders<'_>,
     overrides: &BumpOverrides,
     targets: &super::ReleaseTargets,
+    intent: bump::CutIntent,
 ) -> AppResult<ReleasePlan> {
     let settings = resolve_release_settings(context, targets)?;
     let changes = change::detect(context, overrides.base(), readers, targets, &settings)?;
     validate_required_changelogs(request.project_root.as_path(), &changes, &settings)?;
     let branches = current_branches(readers);
     plan_with_changes(
-        context, request, &changes, &branches, overrides, targets, &settings,
+        context, request, &changes, &branches, overrides, targets, &settings, intent,
     )
 }
 
@@ -101,6 +110,7 @@ fn plan_with_changes(
     overrides: &BumpOverrides,
     targets: &super::ReleaseTargets,
     settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
+    intent: bump::CutIntent,
 ) -> AppResult<ReleasePlan> {
     let policy = reconcile_policy(settings)?;
     let changelogs = context
@@ -132,6 +142,7 @@ fn plan_with_changes(
         branches,
         policy,
         overrides,
+        intent,
     })?;
 
     Ok(ReleasePlan::new(policy, entries))

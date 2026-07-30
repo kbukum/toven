@@ -1,1 +1,1 @@
-error[INVALID_INPUT]: invalid release.sign: module 'rust:train-cli' enables artifact signing, which is not yet executable; remove […release.sign] or set enabled = false and keep signing in the native CI gate
+error[INVALID_INPUT]: invalid release.hooks: module 'rust:train-cli' configures release hooks, which are not yet executable; remove the […release.hooks] block and run any pre/post tasks explicitly around the release command

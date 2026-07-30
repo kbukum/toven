@@ -30,6 +30,25 @@ pub(super) struct BumpInputs<'a> {
     pub(super) branches: &'a BTreeMap<Option<MemberId>, String>,
     pub(super) policy: BumpPolicy,
     pub(super) overrides: &'a BumpOverrides,
+    /// Whether this cut is a read-only projection or a mutating run.
+    pub(super) intent: CutIntent,
+}
+
+/// Whether a bump plan is a read-only projection (`release plan` and the other
+/// previews) or the cut a mutating run (`release tag`/`publish`) will apply.
+///
+/// The distinction only matters for the `manifest` policy: a projection reports
+/// a manifest version that is not ahead of its released baseline as
+/// nothing-to-release, whereas a mutating run fails closed so it never re-cuts
+/// an already-released version.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) enum CutIntent {
+    /// A read-only projection: a not-ahead manifest version is a no-op, not an
+    /// error.
+    Preview,
+    /// A mutating cut: a not-ahead manifest version fails closed.
+    Mutate,
 }
 
 /// The resolved own-version bump for one module, before idempotency pre-skip.
@@ -349,14 +368,26 @@ fn resolve_bump(
             .baselines
             .get(reference)
             .and_then(|b| b.version.as_ref());
-        let planned = manifest_target(module_ref, current, baseline)?;
-        return Ok(BumpDecision {
-            level: classify(baseline.unwrap_or(&Version::new(0, 0, 0)), &planned),
-            planned: Some(planned),
-            reason: BumpReason::Manifest,
-            winning_input: BumpSource::Manifest,
-            prerelease_channel: None,
-        });
+        let target = manifest_target(module_ref, current, baseline, input.intent)?;
+        return Ok(target.map_or_else(
+            // A preview whose declared version is not ahead of the baseline: no
+            // own-version bump, so the module drops out of the plan (nothing to
+            // release) unless a dependency floor still pulls it in.
+            || BumpDecision {
+                level: BumpLevel::Patch,
+                planned: None,
+                reason: BumpReason::Manifest,
+                winning_input: BumpSource::Manifest,
+                prerelease_channel: None,
+            },
+            |planned| BumpDecision {
+                level: classify(baseline.unwrap_or(&Version::new(0, 0, 0)), &planned),
+                planned: Some(planned),
+                reason: BumpReason::Manifest,
+                winning_input: BumpSource::Manifest,
+                prerelease_channel: None,
+            },
+        ));
     }
 
     // Computed path: the semver matrix. Reached under `semver-cascade`, or under
@@ -382,25 +413,35 @@ fn resolve_bump(
 /// manifest declares (`current`), guarded to be strictly ahead of the released
 /// `baseline` under semver precedence.
 ///
+/// A module with no baseline (never released) has no floor, so its declared
+/// version is always cut. When the declared version is at or below the released
+/// baseline there is nothing to cut, and the guard resolves by `intent`: a
+/// [`CutIntent::Preview`] reports `None` (nothing to release) so the projection
+/// stays safe to run anywhere, while a [`CutIntent::Mutate`] fails closed so a
+/// run never re-cuts an already-released version.
+///
 /// # Errors
-/// Fails closed when the declared version is at or below the released baseline
-/// (nothing to cut), with an actionable message telling the operator to bump
-/// the manifest first. A module with no baseline (never released) has no floor,
-/// so its declared version is always accepted.
+/// Fails closed under [`CutIntent::Mutate`] when the declared version is at or
+/// below the released baseline, with an actionable message telling the operator
+/// to bump the manifest first.
 fn manifest_target(
     module_ref: &ModuleRef,
     current: &Version,
     baseline: Option<&Version>,
-) -> AppResult<Version> {
+    intent: CutIntent,
+) -> AppResult<Option<Version>> {
     match baseline {
-        Some(base) if current <= base => Err(AppError::invalid_input(
-            "release.strategy",
-            format!(
-                "strategy = \"manifest\": module '{module_ref}' declares {current}, not ahead of \
-                 the released baseline {base}. Bump the manifest version before releasing."
-            ),
-        )),
-        _ => Ok(current.clone()),
+        Some(base) if current <= base => match intent {
+            CutIntent::Preview => Ok(None),
+            CutIntent::Mutate => Err(AppError::invalid_input(
+                "release.strategy",
+                format!(
+                    "strategy = \"manifest\": module '{module_ref}' declares {current}, not ahead \
+                     of the released baseline {base}. Bump the manifest version before releasing."
+                ),
+            )),
+        },
+        _ => Ok(Some(current.clone())),
     }
 }
 
@@ -685,8 +726,8 @@ mod tests {
 
     use super::{
         BTreeMap, BTreeSet, BumpInputs, BumpOverrides, BumpPolicy, BumpReason, BumpSource,
-        ChangelogEntry, ModuleRef, ReleaseBaseline, ReleaseEntry, ResolvedReleaseSettings,
-        plan_entries,
+        ChangelogEntry, CutIntent, ModuleRef, ReleaseBaseline, ReleaseEntry,
+        ResolvedReleaseSettings, plan_entries,
     };
     use crate::release::ReleaseTargets;
 
@@ -767,6 +808,7 @@ mod tests {
             branches: &no_branches(),
             policy: BumpPolicy::SemverCascade,
             overrides: &overrides,
+            intent: CutIntent::Mutate,
         })
         .unwrap();
 
@@ -809,6 +851,7 @@ mod tests {
             branches: &no_branches(),
             policy: BumpPolicy::SemverCascade,
             overrides: &overrides,
+            intent: CutIntent::Mutate,
         });
 
         assert!(result.is_err());
@@ -856,6 +899,7 @@ mod tests {
             branches: &no_branches(),
             policy: BumpPolicy::SemverCascade,
             overrides: &overrides,
+            intent: CutIntent::Mutate,
         })
         .unwrap();
 
@@ -914,6 +958,7 @@ mod tests {
             branches: &no_branches(),
             policy: BumpPolicy::SemverCascade,
             overrides: &overrides,
+            intent: CutIntent::Mutate,
         })
         .unwrap();
 
@@ -933,12 +978,25 @@ mod tests {
     }
 
     /// Plan a single `rust/core` seed whose manifest declares `declared`, with an
-    /// optional released baseline version, under `policy` + `overrides`.
+    /// optional released baseline version, under `policy` + `overrides`. Defaults
+    /// to a mutating cut so the `manifest` not-ahead guard fails closed.
     fn seed_plan(
         declared: &str,
         baseline: Option<&str>,
         policy: BumpPolicy,
         overrides: &BumpOverrides,
+    ) -> AppResult<Vec<ReleaseEntry>> {
+        seed_plan_with_intent(declared, baseline, policy, overrides, CutIntent::Mutate)
+    }
+
+    /// Plan a single `rust/core` seed as [`seed_plan`], choosing the cut
+    /// `intent` explicitly so previews can be distinguished from mutating runs.
+    fn seed_plan_with_intent(
+        declared: &str,
+        baseline: Option<&str>,
+        policy: BumpPolicy,
+        overrides: &BumpOverrides,
+        intent: CutIntent,
     ) -> AppResult<Vec<ReleaseEntry>> {
         let core = core_module();
         let key = core.key();
@@ -988,6 +1046,7 @@ mod tests {
             branches: &no_branches(),
             policy,
             overrides,
+            intent,
         })
     }
 
@@ -1038,7 +1097,7 @@ mod tests {
     }
 
     #[test]
-    fn manifest_fails_closed_when_the_declared_version_equals_the_baseline() {
+    fn manifest_fails_closed_on_a_mutating_run_when_the_version_equals_the_baseline() {
         let error = seed_plan(
             "0.1.0-alpha.2",
             Some("0.1.0-alpha.2"),
@@ -1051,7 +1110,7 @@ mod tests {
     }
 
     #[test]
-    fn manifest_fails_closed_when_the_declared_version_is_behind_the_baseline() {
+    fn manifest_fails_closed_on_a_mutating_run_when_the_version_is_behind_the_baseline() {
         assert!(
             seed_plan(
                 "0.1.0-alpha.2",
@@ -1061,6 +1120,32 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn manifest_preview_is_a_no_op_when_the_version_is_not_ahead_of_the_baseline() {
+        // A read-only projection of a not-ahead manifest version reports nothing
+        // to release rather than failing closed, so `release plan` stays safe to
+        // run anywhere (equal baseline and a behind baseline both drop out).
+        let equal = seed_plan_with_intent(
+            "0.1.0-alpha.2",
+            Some("0.1.0-alpha.2"),
+            BumpPolicy::Manifest,
+            &BumpOverrides::new(),
+            CutIntent::Preview,
+        )
+        .unwrap();
+        assert!(equal.is_empty(), "equal-baseline preview must be a no-op");
+
+        let behind = seed_plan_with_intent(
+            "0.1.0-alpha.2",
+            Some("0.1.0"),
+            BumpPolicy::Manifest,
+            &BumpOverrides::new(),
+            CutIntent::Preview,
+        )
+        .unwrap();
+        assert!(behind.is_empty(), "behind-baseline preview must be a no-op");
     }
 
     #[test]
