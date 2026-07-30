@@ -14,6 +14,7 @@ on:
     paths:
       - "scripts/package-release-binary.sh"
       - "scripts/verify-release-binary.sh"
+      - "scripts/verify-release-plan-version.sh"
       - ".github/workflows/release.yml"
       - ".github/workflows/release-packaging-smoke.yml"
   workflow_dispatch:
@@ -71,3 +72,12 @@ jobs:
           fi
           ./scripts/package-release-binary.sh "${target}" "${binary}"
           ./scripts/verify-release-binary.sh "${target}"
+
+      # The plan-version preflight has no platform-specific paths, so proving it
+      # once (on Linux) is enough: a fresh PR checkout fetches no tags, so the
+      # release baseline is "initial" and the plan cuts exactly v${Cargo.toml}.
+      # This keeps the script and its dependency on the plan's JSONL shape green.
+      - name: Assert the planned release tag matches the workspace version
+        if: runner.os == 'Linux'
+        shell: bash
+        run: make release-plan-version-check

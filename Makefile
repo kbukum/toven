@@ -22,7 +22,7 @@ export NEXTEST_PROFILE ?= default
 # binary for speed with `make TOVEN=toven check`.
 TOVEN ?= cargo run --quiet --locked -p toven --
 
-.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark golden bless verify-release-platform-filter release-dry-run release-plan release-artifacts release-checksums release-sbom-binary act-ci act-supply-chain act-release-readiness
+.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark golden bless verify-release-platform-filter release-dry-run release-plan release-plan-version-check release-artifacts release-checksums release-sbom-binary act-ci act-supply-chain act-release-readiness
 
 # Canonical local/CI gate for the virtual workspace.
 check: fmt-check lint test structure doc deny verify-release-platform-filter release-dry-run
@@ -147,6 +147,14 @@ release-plan:
 	$(TOVEN) release readiness
 	$(TOVEN) release sbom --out-dir target/toven/release/sbom
 	$(TOVEN) release depgraphs --out-dir target/toven/release/depgraphs
+
+# Preflight invariant: the version the engine will cut must equal
+# v${Cargo.toml}. The release workflow builds every binary from Cargo.toml
+# before the tag exists, so a divergence (stray tag, forgotten bump) would only
+# surface as an opaque "release not found" in the post-publish Verify jobs.
+# Fail closed here in the preview instead (scripts/verify-release-plan-version.sh).
+release-plan-version-check:
+	./scripts/verify-release-plan-version.sh
 
 # Real per-target release binary: build the release profile for the native
 # host target and package it into the fixed-name dist/ archive that

@@ -50,6 +50,14 @@ jobs:
       - name: Preview release plan, readiness, SBOM, and dependency graphs
         run: make release-plan
 
+      # Fail closed before anything is built or approved if the version the
+      # engine will cut diverges from v${Cargo.toml}: the build job packages
+      # binaries from Cargo.toml before the tag exists, so a divergence (a stray
+      # tag flipping the baseline off "initial", a forgotten bump) would only
+      # surface as an opaque "release not found" in the post-publish Verify jobs.
+      - name: Assert the planned release tag matches the workspace version
+        run: make release-plan-version-check
+
       - name: Preview publication rehearsal
         run: cargo run --locked -p toven -- release publish --dry-run --output jsonl | tee release-preview.jsonl
 
