@@ -6,18 +6,25 @@ use toven_ports::{BumpLevel, Oid, PublicationPolicy, ReleaseMutation};
 
 /// The engine-owned named bump policy.
 ///
-/// The bump surface is a single matrix, not a family of named strategies. The
-/// `[…release].strategy` config field is kept as a named selector so additional
-/// policies can be introduced later without a config break, but it currently
-/// resolves to exactly one policy: prerelease behavior is driven only by `--pre
-/// <channel>` / the `prerelease` config, never by a policy name.
+/// The `[…release].strategy` config field resolves to one of these. It selects
+/// only the **decide next version** node of the release flow; every other node
+/// (change detection, cascade, idempotency, tag/publish) is common to all
+/// policies. Prerelease behavior is driven by `--pre <channel>` / the
+/// `prerelease` config under [`SemverCascade`](Self::SemverCascade); under
+/// [`Manifest`](Self::Manifest) the channel lives in the declared version.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum BumpPolicy {
-    /// Semantic-version cascade: patch by default, minor on a breaking signal,
-    /// major on explicit request, cascading a dependency-floor bump into
-    /// dependents. Prerelease is driven only by `--pre`/config.
+    /// Semantic-version cascade: compute the next version from baseline +
+    /// changes — patch by default, minor on a breaking signal, major on
+    /// explicit request, finalizing a pending prerelease on a stable bump and
+    /// cascading a dependency-floor bump into dependents. Prerelease is driven
+    /// only by `--pre`/config. The default.
     SemverCascade,
+    /// Manifest-declared: cut exactly the version the manifest declares, when
+    /// it is strictly ahead of the last release tag; fail closed otherwise. The
+    /// prerelease channel, if any, is part of the declared version.
+    Manifest,
 }
 
 impl BumpPolicy {
@@ -26,6 +33,7 @@ impl BumpPolicy {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::SemverCascade => "semver-cascade",
+            Self::Manifest => "manifest",
         }
     }
 }
@@ -51,6 +59,8 @@ pub enum BumpSource {
     Default,
     /// A dependency-floor cascade into a dependent that did not itself change.
     Cascade,
+    /// The `manifest` bump policy cut the version declared in the manifest.
+    Manifest,
 }
 
 impl BumpSource {
@@ -64,6 +74,7 @@ impl BumpSource {
             Self::Changelog => "changelog",
             Self::Default => "default",
             Self::Cascade => "cascade",
+            Self::Manifest => "manifest",
         }
     }
 }
@@ -81,6 +92,8 @@ pub enum BumpReason {
     DependencyCascade,
     /// The module was pinned to an explicit target version.
     Explicit,
+    /// The `manifest` bump policy cut the version declared in the manifest.
+    Manifest,
 }
 
 impl BumpReason {
@@ -92,6 +105,7 @@ impl BumpReason {
             Self::InitialRelease => "initial-release",
             Self::DependencyCascade => "dependency-cascade",
             Self::Explicit => "explicit",
+            Self::Manifest => "manifest",
         }
     }
 }
@@ -502,14 +516,17 @@ mod tests {
     #[test]
     fn policy_name_is_stable() {
         assert_eq!(BumpPolicy::SemverCascade.as_str(), "semver-cascade");
+        assert_eq!(BumpPolicy::Manifest.as_str(), "manifest");
     }
 
     #[test]
     fn bump_source_and_reason_names_are_stable() {
         assert_eq!(BumpSource::SetVersion.as_str(), "set-version");
         assert_eq!(BumpSource::Cascade.as_str(), "cascade");
+        assert_eq!(BumpSource::Manifest.as_str(), "manifest");
         assert_eq!(BumpReason::Changed.as_str(), "changed");
         assert_eq!(BumpReason::DependencyCascade.as_str(), "dependency-cascade");
+        assert_eq!(BumpReason::Manifest.as_str(), "manifest");
     }
 
     #[test]

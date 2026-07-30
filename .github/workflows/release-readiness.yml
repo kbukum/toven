@@ -71,8 +71,8 @@ jobs:
       - name: Preview release plan, readiness, SBOM, and dependency graphs
         run: make release-plan
 
-  release-artifacts:
-    name: Release artifacts
+  release-archive:
+    name: Release archive
     runs-on: ubuntu-latest
 
     steps:
@@ -86,13 +86,16 @@ jobs:
           rustup toolchain install "${RUST_VERSION}" --profile minimal
           rustup override set "${RUST_VERSION}"
 
-      - name: Build release artifacts
-        run: make release-artifacts
+      - name: Build the release archive
+        run: |
+          target="$(rustc -vV | sed -n 's/^host: //p')"
+          cargo build --locked --release -p toven --target "${target}"
+          cargo run --locked -p toven -- release package --target "${target}" --output jsonl
 
-      - name: Upload release artifacts
+      - name: Upload the release archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-artifacts
+          name: release-archive
           path: dist/*
           if-no-files-found: error
           retention-days: 7

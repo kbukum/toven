@@ -39,10 +39,26 @@ region = 70.0
 [ecosystems.rust.release]
 readiness = ["clean-tree"]
 tag_format = "v{version}"
+# Cut exactly `v${Cargo.toml version}`: the reviewed version/CHANGELOG pull
+# request is the version decision, so the tag the engine cuts equals the
+# workspace version by construction (no computed semver bump past the declared
+# manifest, which is what lets successive `0.1.0-alpha.N` prereleases be cut).
+strategy = "manifest"
 # `main` is protected and rejects direct pushes, so the release job pushes only
 # the release tag; the version/CHANGELOG commit lands on `main` through the
 # normal reviewed pull-request flow.
 push_branch = false
+
+# Sign the release surface: `toven release sign` produces the keyless
+# Sigstore/cosign signature and certificate over `SHA256SUMS` (no `signer`
+# selects the keyless default), and `toven release verify --download` fails
+# closed unless the downloaded signature's certificate matches this keyless
+# identity regexp and OIDC issuer — the release workflow ref and GitHub's
+# Actions token issuer. Neither value is a secret.
+[ecosystems.rust.release.sign]
+enabled = true
+identity = "https://github.com/kbukum/toven/.github/workflows/release.yml@.*"
+issuer = "https://token.actions.githubusercontent.com"
 
 [ecosystems.rust.release.host]
 forge = "github"

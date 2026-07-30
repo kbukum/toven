@@ -1,4 +1,4 @@
-# Variant of the default release config that enables artifact signing: release
+# Variant of the default release config that configures release hooks: release
 # resolution must reject it (not-yet-executable) before any planning or
 # mutation, proving a configured-but-inert setting fails closed.
 [project]
@@ -19,5 +19,5 @@ tag_format = "{module}/v{version}"
 push = false
 registry = "crates-io"
 
-[ecosystems.rust.release.sign]
-enabled = true
+[ecosystems.rust.release.hooks]
+pre = ["build"]

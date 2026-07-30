@@ -53,7 +53,14 @@ pub fn release_rehearse(
         reporter,
     )?;
     let targets = release_targets(&context)?;
-    let plan = plan_with_context(&context, request, readers, overrides, &targets)?;
+    let plan = plan_with_context(
+        &context,
+        request,
+        readers,
+        overrides,
+        &targets,
+        super::bump::CutIntent::Mutate,
+    )?;
     let settings = resolve_release_settings(&context, &targets)?;
     let pushed_members = if no_push {
         BTreeSet::new()

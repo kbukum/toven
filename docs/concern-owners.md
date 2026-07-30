@@ -9,10 +9,12 @@ Shared concerns have one canonical implementation owner. Reuse the owner before 
 | Application errors and results | rskit errors |
 | Validation primitives | rskit validation |
 | Filesystem operations | rskit filesystem |
+| Deterministic archive packaging (tar.gz/zip) | rskit filesystem |
 | Git operations | rskit Git |
 | Process execution and observation | rskit process |
 | General configuration primitives | rskit configuration |
 | Logging infrastructure | rskit logging |
+| SHA-256 digests (checksums/manifests) | rskit util |
 
 When a shared capability is missing, improve rskit generically. Do not make rskit depend on Toven concepts.
 
@@ -25,6 +27,7 @@ When a shared capability is missing, improve rskit generically. Do not make rski
 | Port traits | `toven-ports` |
 | Strict `toven.toml` document loading | `toven-engine` |
 | Planning, scheduling, affected selection, cache coordination | `toven-engine` |
+| Keyless release signing/verification policy (cosign orchestration) | `toven-engine` |
 | Rust ecosystem behavior | `toven-rust` |
 | Go ecosystem behavior | `toven-go` |
 | CLI parsing and user-facing output | `toven-cli` |

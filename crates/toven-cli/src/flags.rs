@@ -148,6 +148,29 @@ Examples:
   toven release depgraphs          Write a DOT dependency graph per module
   toven release depgraphs --out-dir target/graphs  Choose the artifact directory";
 
+/// `release package` action examples.
+const RELEASE_PACKAGE_EXAMPLES: &str = "\
+Examples:
+  toven release package --target x86_64-unknown-linux-gnu   Archive the built binary into its declared asset
+  toven release package --target x86_64-pc-windows-msvc --binary path/to/toven.exe  Package an explicit binary";
+
+/// `release checksums` action examples.
+const RELEASE_CHECKSUMS_EXAMPLES: &str = "\
+Examples:
+  toven release checksums          Write SHA256SUMS over the declared release assets";
+
+/// `release sign` action examples.
+const RELEASE_SIGN_EXAMPLES: &str = "\
+Examples:
+  toven release sign               Sign SHA256SUMS into its declared .sig/.pem sidecars (cosign)";
+
+/// `release verify` action examples.
+const RELEASE_VERIFY_EXAMPLES: &str = "\
+Examples:
+  toven release verify                    Verify local dist/ archives present and reporting the expected version
+  toven release verify --no-run           Verify presence without executing the packaged binary
+  toven release verify --download         Download the hosted assets, verify signature + checksum, then run";
+
 /// `driver` verb examples.
 const DRIVER_EXAMPLES: &str = "\
 Examples:
@@ -549,6 +572,24 @@ pub struct Cli {
     /// (created if absent; defaults to `target/toven/release`).
     #[arg(long, global = true, value_name = "PATH", help_heading = "Release")]
     pub out_dir: Option<PathBuf>,
+    /// Release package only: the target triple to package (e.g.
+    /// `x86_64-unknown-linux-gnu`); selects the declared archive asset and the
+    /// built binary under `target/<triple>/release/`.
+    #[arg(long, global = true, value_name = "TRIPLE", help_heading = "Release")]
+    pub target: Option<String>,
+    /// Release package only: explicit path to the already-built binary to
+    /// archive; defaults to `target/<triple>/release/<binary>`.
+    #[arg(long, global = true, value_name = "PATH", help_heading = "Release")]
+    pub binary: Option<PathBuf>,
+    /// Release verify only: download the declared assets from the hosted
+    /// release and verify signature + checksum before extraction, instead of
+    /// verifying the local `dist/` archives.
+    #[arg(long, global = true, help_heading = "Release")]
+    pub download: bool,
+    /// Release verify only: skip executing the packaged binary; presence,
+    /// signature, and checksum are still enforced.
+    #[arg(long = "no-run", global = true, help_heading = "Release")]
+    pub no_run: bool,
     /// Coverage only: override the absolute line-coverage floor for this run
     /// (percentage, `0..=100`); wins over the `[…coverage].line` config
     /// default.
@@ -731,6 +772,26 @@ pub enum ReleaseAction {
     /// (read-only).
     #[command(after_long_help = RELEASE_DEPGRAPHS_EXAMPLES)]
     Depgraphs,
+    /// Package already-built binaries into the fixed-name archive assets the
+    /// hosted release declares (`--target <triple>`); non-mutating.
+    #[command(after_long_help = RELEASE_PACKAGE_EXAMPLES)]
+    Package,
+    /// Write the `SHA256SUMS` manifest over the declared release assets to its
+    /// declared asset path; non-mutating.
+    #[allow(clippy::doc_markdown)]
+    #[command(after_long_help = RELEASE_CHECKSUMS_EXAMPLES)]
+    Checksums,
+    /// Sign the `SHA256SUMS` manifest into its declared detached-signature and
+    /// certificate sidecar assets with cosign; non-mutating.
+    #[allow(clippy::doc_markdown)]
+    #[command(after_long_help = RELEASE_SIGN_EXAMPLES)]
+    Sign,
+    /// Verify the declared release archives — locally (presence + reported
+    /// version) or, with `--download`, against the hosted release (signature +
+    /// checksum + reported version); non-mutating.
+    #[allow(clippy::doc_markdown)]
+    #[command(after_long_help = RELEASE_VERIFY_EXAMPLES)]
+    Verify,
 }
 
 impl ReleaseAction {
@@ -745,6 +806,10 @@ impl ReleaseAction {
             Self::Readiness => "readiness",
             Self::Sbom => "sbom",
             Self::Depgraphs => "depgraphs",
+            Self::Package => "package",
+            Self::Checksums => "checksums",
+            Self::Sign => "sign",
+            Self::Verify => "verify",
         }
     }
 
@@ -754,13 +819,26 @@ impl ReleaseAction {
         matches!(self, Self::Tag | Self::Publish)
     }
 
-    /// Whether the action is a read-only projection (`plan` / `status` /
-    /// `readiness` / `sbom` / `depgraphs`).
+    /// Whether the action is non-mutating and therefore a PLAN-only cut with no
+    /// APPLY half (`plan` / `status` / `readiness` / `sbom` / `depgraphs` /
+    /// `package` / `checksums` / `sign` / `verify`). These never bump a
+    /// manifest, tag, or publish; `sbom` and `depgraphs` write artifacts under
+    /// `--out-dir` (see [`Self::writes_artifacts`]) while `package`,
+    /// `checksums`, and `sign` materialize their declared release assets in
+    /// place — none touch history.
     #[must_use]
     pub const fn is_projection(self) -> bool {
         matches!(
             self,
-            Self::Plan | Self::Status | Self::Readiness | Self::Sbom | Self::Depgraphs
+            Self::Plan
+                | Self::Status
+                | Self::Readiness
+                | Self::Sbom
+                | Self::Depgraphs
+                | Self::Package
+                | Self::Checksums
+                | Self::Sign
+                | Self::Verify
         )
     }
 
@@ -876,6 +954,8 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
         return Err(only_applies("--no-push", "toven release tag/publish", verb));
     }
     gate_out_dir_flag(cli, verb)?;
+    gate_package_flags(cli, verb)?;
+    gate_verify_flags(cli, verb)?;
     gate_bump_flags(cli, verb, mutating_release)?;
     gate_init_flags(cli, verb, is_init)?;
     gate_coverage_flags(cli, verb, is_coverage)?;
@@ -1018,6 +1098,40 @@ fn gate_view_flag(cli: &Cli, verb: &str) -> AppResult<()> {
                 "`--view` only applies when running tasks (`toven run`/`toven <task>`); it has no effect on `toven {verb}`"
             ),
         ));
+    }
+    Ok(())
+}
+
+/// Reject `--download`/`--no-run` on anything but `release verify`, the only
+/// action that downloads hosted assets or runs the packaged binary; elsewhere
+/// both flags are silent no-ops.
+fn gate_verify_flags(cli: &Cli, verb: &str) -> AppResult<()> {
+    let is_verify = matches!(release_action(&cli.command), Some(ReleaseAction::Verify));
+    if is_verify {
+        return Ok(());
+    }
+    for (present, flag) in [(cli.download, "--download"), (cli.no_run, "--no-run")] {
+        if present {
+            return Err(only_applies(flag, "toven release verify", verb));
+        }
+    }
+    Ok(())
+}
+
+/// Reject `--target`/`--binary` on anything but `release package`, the only
+/// action that packages a built binary into a declared archive asset.
+fn gate_package_flags(cli: &Cli, verb: &str) -> AppResult<()> {
+    let is_package = matches!(release_action(&cli.command), Some(ReleaseAction::Package));
+    if is_package {
+        return Ok(());
+    }
+    for (present, flag) in [
+        (cli.target.is_some(), "--target"),
+        (cli.binary.is_some(), "--binary"),
+    ] {
+        if present {
+            return Err(only_applies(flag, "toven release package", verb));
+        }
     }
     Ok(())
 }
@@ -1655,6 +1769,10 @@ mod tests {
             ("readiness", ReleaseAction::Readiness),
             ("sbom", ReleaseAction::Sbom),
             ("depgraphs", ReleaseAction::Depgraphs),
+            ("package", ReleaseAction::Package),
+            ("checksums", ReleaseAction::Checksums),
+            ("sign", ReleaseAction::Sign),
+            ("verify", ReleaseAction::Verify),
         ] {
             let cli = parse(&["release", arg]).expect("parses");
             match cli.command {
@@ -1673,7 +1791,48 @@ mod tests {
         assert!(parse(&["release", "readiness"]).unwrap().is_plan_only());
         assert!(parse(&["release", "sbom"]).unwrap().is_plan_only());
         assert!(parse(&["release", "depgraphs"]).unwrap().is_plan_only());
+        assert!(parse(&["release", "package"]).unwrap().is_plan_only());
+        assert!(parse(&["release", "checksums"]).unwrap().is_plan_only());
+        assert!(parse(&["release", "sign"]).unwrap().is_plan_only());
+        assert!(parse(&["release", "verify"]).unwrap().is_plan_only());
         assert!(!parse(&["release", "publish"]).unwrap().is_plan_only());
+    }
+
+    #[test]
+    fn target_and_binary_only_apply_to_release_package() {
+        let ok = parse(&[
+            "--target",
+            "x86_64-unknown-linux-gnu",
+            "--binary",
+            "target/release/toven",
+            "release",
+            "package",
+        ])
+        .expect("parses");
+        assert!(super::gate(&ok).is_ok());
+
+        for action in ["plan", "sbom", "tag"] {
+            let cli = parse(&["--target", "x86_64-unknown-linux-gnu", "release", action])
+                .expect("parses");
+            assert!(super::gate(&cli).is_err(), "--target on {action}");
+        }
+        let on_task = parse(&["--binary", "x", "plan", "build"]).expect("parses");
+        assert!(super::gate(&on_task).is_err(), "--binary on a task verb");
+    }
+
+    #[test]
+    fn download_and_no_run_only_apply_to_release_verify() {
+        let ok = parse(&["--download", "--no-run", "release", "verify"]).expect("parses");
+        assert!(super::gate(&ok).is_ok());
+
+        for action in ["plan", "package", "tag"] {
+            let downloaded = parse(&["--download", "release", action]).expect("parses");
+            assert!(super::gate(&downloaded).is_err(), "--download on {action}");
+            let no_run = parse(&["--no-run", "release", action]).expect("parses");
+            assert!(super::gate(&no_run).is_err(), "--no-run on {action}");
+        }
+        let on_task = parse(&["--no-run", "plan", "build"]).expect("parses");
+        assert!(super::gate(&on_task).is_err(), "--no-run on a task verb");
     }
 
     #[test]
@@ -1683,7 +1842,14 @@ mod tests {
             assert!(super::gate(&cli).is_ok(), "{action}");
         }
 
-        for action in ["plan", "status", "readiness", "sbom", "depgraphs"] {
+        for action in [
+            "plan",
+            "status",
+            "readiness",
+            "sbom",
+            "depgraphs",
+            "package",
+        ] {
             let no_push = parse(&["--no-push", "release", action]).expect("parses");
             assert!(super::gate(&no_push).is_err(), "no-push {action}");
         }
@@ -1733,7 +1899,14 @@ mod tests {
                 let cli = parse(&argv).expect("parses");
                 assert!(super::gate(&cli).is_ok(), "{flag:?} on {action}");
             }
-            for action in ["plan", "status", "readiness", "sbom", "depgraphs"] {
+            for action in [
+                "plan",
+                "status",
+                "readiness",
+                "sbom",
+                "depgraphs",
+                "package",
+            ] {
                 let mut argv = flag.clone();
                 argv.extend(["release", action]);
                 let cli = parse(&argv).expect("parses");
@@ -1748,7 +1921,7 @@ mod tests {
             let cli = parse(&["--out-dir", "/tmp/out", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_ok(), "{action}");
         }
-        for action in ["plan", "status", "readiness", "tag", "publish"] {
+        for action in ["plan", "status", "readiness", "tag", "publish", "package"] {
             let cli = parse(&["--out-dir", "/tmp/out", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_err(), "{action}");
         }
@@ -1824,6 +1997,10 @@ mod tests {
             "readiness",
             "sbom",
             "depgraphs",
+            "package",
+            "checksums",
+            "sign",
+            "verify",
         ] {
             let cli = parse(&["--output", "jsonl", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_ok(), "{action}");
@@ -1837,6 +2014,22 @@ mod tests {
         assert!(ReleaseAction::Readiness.is_projection());
         assert!(ReleaseAction::Sbom.is_projection());
         assert!(ReleaseAction::Depgraphs.is_projection());
+        assert!(ReleaseAction::Package.is_projection());
+        assert!(!ReleaseAction::Package.is_mutating());
+        assert!(!ReleaseAction::Package.writes_artifacts());
+        assert!(!ReleaseAction::Package.accepts_dry_run());
+        assert!(ReleaseAction::Checksums.is_projection());
+        assert!(!ReleaseAction::Checksums.is_mutating());
+        assert!(!ReleaseAction::Checksums.writes_artifacts());
+        assert!(!ReleaseAction::Checksums.accepts_dry_run());
+        assert!(ReleaseAction::Sign.is_projection());
+        assert!(!ReleaseAction::Sign.is_mutating());
+        assert!(!ReleaseAction::Sign.writes_artifacts());
+        assert!(!ReleaseAction::Sign.accepts_dry_run());
+        assert!(ReleaseAction::Verify.is_projection());
+        assert!(!ReleaseAction::Verify.is_mutating());
+        assert!(!ReleaseAction::Verify.writes_artifacts());
+        assert!(!ReleaseAction::Verify.accepts_dry_run());
         assert!(!ReleaseAction::Tag.is_projection());
         assert!(ReleaseAction::Tag.is_mutating());
         assert!(ReleaseAction::Publish.is_mutating());

@@ -38,9 +38,16 @@ make deny               # cargo-deny: advisories, bans, licenses, sources
 Then dry-run the release-readiness and supply-chain workflows locally, and rebuild the artifacts:
 
 ```bash
-make act-release-readiness   # runs .github/workflows/release-readiness.yml via act
+make act-release-readiness   # runs .github/workflows/release-readiness.yml via act (includes the release-archive package job)
 make act-supply-chain        # runs .github/workflows/supply-chain.yml via act
-make release-artifacts       # packages the native-target dist/toven-<target>.<ext> archive
+```
+
+To package a native-target archive directly, drive the engine verb (the workflow runs the same verb per matrix target):
+
+```bash
+host="$(rustc -vV | sed -n 's/host: //p')"
+cargo build --locked --release -p toven --target "$host"
+cargo run --locked -p toven -- release package --target "$host"   # writes dist/toven-<host>.<ext>
 ```
 
 Also run the `review` project audit in a fresh agent before a release. Treat green gates as necessary but not sufficient.
@@ -71,7 +78,7 @@ Bump `version` in the root `Cargo.toml` (the whole workspace shares it and `PACK
 make release-dry-run       # rebuilds at the new version and syncs the workspace-member versions in Cargo.lock
 ```
 
-Keep the resulting `Cargo.lock` committed.
+Keep the resulting `Cargo.lock` committed. `[ecosystems.rust.release]` sets `strategy = "manifest"`, so this declared `Cargo.toml` version *is* the version the release cuts: the engine cuts exactly `v${Cargo.toml}` when it is strictly ahead of the last release tag and fails closed otherwise. There is no computed bump past the manifest, which is what lets successive `0.1.0-alpha.N` prereleases be cut from a curated version.
 
 ## Step 5 — Land the version commit on `main` through a reviewed PR
 
@@ -93,7 +100,7 @@ On the merged release commit, dispatch `Release` ([`.github/workflows/release.ym
 gh workflow run release.yml --ref main
 ```
 
-The workflow builds every per-target archive (`vendored-openssl`; `aarch64-unknown-linux-gnu` via `cross`), assembles the fixed `dist/` asset set (archives + `toven-sbom.cdx.json` + `SHA256SUMS` + its keyless Sigstore signature/certificate), and preserves a mutation-free `release-preview` for the reviewers. Approve the protected `release` environment only after reviewing that preview. On approval the `publish` job runs `toven release publish --yes`, which creates the version tag and cuts the hosted Release with the assets attached, then attests build provenance over the published `SHA256SUMS`; the `verify` job re-downloads every asset and checks the Sigstore signature, checksum, and (where runnable) `--version`. CI actions stay SHA-pinned.
+The workflow builds every per-target archive (`vendored-openssl`; `aarch64-unknown-linux-gnu` via `cross`) with `toven release package`, assembles the fixed `dist/` asset set with the engine verbs (`toven release sbom | checksums | sign` — archives + `toven-sbom.cdx.json` + `SHA256SUMS` + its keyless Sigstore signature/certificate), and preserves a mutation-free `release-preview` for the reviewers. Approve the protected `release` environment only after reviewing that preview. On approval the `publish` job runs `toven release publish --yes`, which creates the version tag and cuts the hosted Release with the assets attached, then attests build provenance over the published `SHA256SUMS`; the `verify` job re-downloads every asset and runs `toven release verify --download`, checking the Sigstore signature on `SHA256SUMS` first, then every archive's checksum. CI actions stay SHA-pinned.
 
 ## Safety rules
 

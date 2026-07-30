@@ -23,9 +23,16 @@ make deny               # cargo-deny: advisories, bans, licenses, sources
 Then dry-run the release-readiness and supply-chain workflows locally, and rebuild the artifacts:
 
 ```bash
-make act-release-readiness   # runs .github/workflows/release-readiness.yml via act
+make act-release-readiness   # runs .github/workflows/release-readiness.yml via act (includes the release-archive package job)
 make act-supply-chain        # runs .github/workflows/supply-chain.yml via act
-make release-artifacts       # writes dist/toven-<version>-source.tar.gz + dist/SHA256SUMS
+```
+
+Package a native-target archive directly with the engine verb (the workflow runs the same verb per matrix target):
+
+```bash
+host="$(rustc -vV | sed -n 's/host: //p')"
+cargo build --locked --release -p toven --target "$host"
+cargo run --locked -p toven -- release package --target "$host"   # writes dist/toven-<host>.<ext>
 ```
 
 Also run the `/review` command as a project audit in a fresh agent before a release. Treat green gates as necessary but not sufficient.

@@ -61,6 +61,47 @@ impl ReleaseTarget for FakeReleaseTarget {
     }
 }
 
+struct FakeSigner;
+impl Signer for FakeSigner {
+    fn sign_blob(
+        &self,
+        _blob: &Path,
+        _signature: &Path,
+        _certificate: &Path,
+        _signer: Option<&str>,
+    ) -> AppResult<()> {
+        Ok(())
+    }
+}
+
+struct FakeDownloader;
+impl AssetDownloader for FakeDownloader {
+    fn download(&self, _tag: &str, _assets: &[&str], _dest: &Path) -> AppResult<()> {
+        Ok(())
+    }
+}
+
+struct FakeVerifier;
+impl SignatureVerifier for FakeVerifier {
+    fn verify_blob(
+        &self,
+        _blob: &Path,
+        _signature: &Path,
+        _certificate: &Path,
+        _identity: &str,
+        _issuer: &str,
+    ) -> AppResult<()> {
+        Ok(())
+    }
+}
+
+struct FakeVersionProbe;
+impl VersionProbe for FakeVersionProbe {
+    fn report_version(&self, _binary: &Path) -> AppResult<String> {
+        Ok(String::new())
+    }
+}
+
 struct FakeConfigured(CommonEcosystemConfig);
 impl ConfiguredAdapter for FakeConfigured {
     fn discover(&self, request: &DiscoverRequest) -> AppResult<DiscoverResponse> {
@@ -294,6 +335,37 @@ fn port_traits_are_object_safe() {
     );
     let direct_artifact = release.package(&module).expect("packages");
     assert_eq!(direct_artifact.path, artifact.path);
+
+    // Exercise the Signer port.
+    let signer: Box<dyn Signer> = Box::new(FakeSigner);
+    signer
+        .sign_blob(
+            Path::new("dist/SHA256SUMS"),
+            Path::new("dist/SHA256SUMS.sig"),
+            Path::new("dist/SHA256SUMS.pem"),
+            None,
+        )
+        .expect("signs without error");
+
+    // Exercise the release-verification ports.
+    let downloader: Box<dyn AssetDownloader> = Box::new(FakeDownloader);
+    downloader
+        .download("v1.0.0", &["SHA256SUMS"], Path::new("dist"))
+        .expect("downloads without error");
+    let verifier: Box<dyn SignatureVerifier> = Box::new(FakeVerifier);
+    verifier
+        .verify_blob(
+            Path::new("dist/SHA256SUMS"),
+            Path::new("dist/SHA256SUMS.sig"),
+            Path::new("dist/SHA256SUMS.pem"),
+            "identity",
+            "issuer",
+        )
+        .expect("verifies without error");
+    let probe: Box<dyn VersionProbe> = Box::new(FakeVersionProbe);
+    probe
+        .report_version(Path::new("dist/toven"))
+        .expect("probes without error");
 
     // Exercise the Reporter port.
     reporter

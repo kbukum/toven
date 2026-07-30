@@ -42,7 +42,7 @@ assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
 
 | Field | Meaning | Default |
 |---|---|---|
-| `strategy` | Version and cascade policy; currently `semver-cascade` | `semver-cascade` |
+| `strategy` | Version decision policy: `semver-cascade` (compute the next version from changes) or `manifest` (cut exactly the declared manifest version) | `semver-cascade` |
 | `level` | Changed-module bump: `patch`, `minor`, `major`, or `auto` | `auto` |
 | `dependent_version` | `bump` releases a dependent; `upgrade` only raises its dependency floor | `bump` |
 | `tag_format` | Rust tag template; forbidden for Go | Adapter tag scheme |
@@ -71,6 +71,25 @@ A pushing release normally updates both the release commit's branch and the rele
 `level = "auto"` currently resolves a normal change to a patch and a known breaking signal to a minor bump. Use explicit configuration or CLI overrides when a major bump is required.
 
 `dependent_version = "bump"` is the safe release default: when a released dependency raises a requirement floor, the dependent receives its own release. `upgrade` changes the dependency requirement without releasing the dependent and should be selected only when the ecosystem and repository intentionally permit that state.
+
+### Version strategies
+
+`strategy` selects **how the next version is decided**. The rest of the release flow — change detection, dependency cascade, idempotency, tag, publish — is identical for both strategies; only the version-decision node reads `strategy`.
+
+- **`semver-cascade`** (default) — the next version is **computed**: the baseline tag plus the detected changes resolve to a patch, minor, or major bump, a pending prerelease is finalized on a stable bump, and raised dependency floors cascade into dependents. Compose a prerelease channel with `--pre <channel>`.
+- **`manifest`** — the next version is **declared**: Toven cuts exactly `v${manifest version}` when the declared version is strictly ahead of the last release tag. When the declared version is equal to or behind the baseline there is nothing to cut, and the outcome depends on the verb: a read-only preview (`release plan` and the other previews) reports **nothing to release**, while a mutating run (`release tag`/`release publish`) **fails closed** with a typed error ("bump the manifest version before releasing") so it never re-cuts an already-released version. The reviewed version/CHANGELOG pull request *is* the version decision, so the tag equals the workspace version by construction. Because the channel already lives in the declared version string, `--pre` combined with `manifest` is a typed usage error. Explicit argv (`--set-version`/`--patch`/`--minor`/`--major`) still wins over either strategy.
+
+Worked example — baseline release tag versus the declared `Cargo.toml` version:
+
+| Baseline tag | Declared `Cargo.toml` | `semver-cascade` | `manifest` |
+|---|---|---|---|
+| `0.1.0-alpha.1` | `0.1.0-alpha.1` | `0.1.0` | nothing to release (preview) / fail closed (run) |
+| `0.1.0-alpha.1` | `0.1.0-alpha.2` | `0.1.0` | `0.1.0-alpha.2` |
+| `0.1.0-alpha.2` | `0.1.0` | `0.1.0` | `0.1.0` (finalize, declared) |
+| `0.1.0` | `0.1.1` | `0.1.1` | `0.1.1` |
+| `0.1.0` | `0.1.0-alpha.2` | — | nothing to release (preview) / fail closed (run) |
+
+`manifest` is what lets a workspace cut successive `0.1.0-alpha.2`, `-alpha.3` prereleases from a curated `Cargo.toml`, where `semver-cascade` would always compute past the declared prerelease to the finalized version.
 
 ## Prereleases
 
@@ -147,9 +166,26 @@ For Go test-only and benchmark modules, the policy is intentionally explicit: us
 ```toml
 [ecosystems.rust.release.sign]
 enabled = true
+# signer = "my-key-ref"   # optional; omit for the keyless Sigstore default
+identity = "https://github.com/OWNER/REPO/.github/workflows/release.yml@.*"
+issuer = "https://token.actions.githubusercontent.com"
 ```
 
-Artifact signing is **not yet executable** by `toven release`: the typed configuration validates signing intent and an optional non-secret signer identifier, and release resolution then rejects `enabled = true` with an actionable error rather than letting a maintainer believe artifacts ship signed. Keep signing in the native CI gate until Toven executes it. Toven's own distribution contract uses keyless Sigstore/cosign signing in GitHub Actions with OIDC; no private key is stored in Toven configuration.
+Signing is **off by default** and, when enabled, executable by `toven release sign`: it produces a detached signature and certificate over the `SHA256SUMS` manifest with cosign, writing them to the declared `SHA256SUMS.sig`/`SHA256SUMS.pem` assets. With no `signer`, the keyless Sigstore default is used — the signing identity comes from the ambient OIDC token (GitHub Actions), and no private key is stored in Toven configuration; `signer` names a non-secret key/identity selection when a keyed signer is intended. A configured-but-unavailable signer, or a signer failure, fails the release closed.
+
+`identity` and `issuer` are the keyless **verification** inputs consumed by `toven release verify --download`: the `certificate-identity-regexp` a downloaded signature's certificate must match (the release workflow ref) and the `certificate-oidc-issuer` it must chain to. They are not secrets, and they let any consumer verify against *their own* workflow identity rather than a hard-coded one. Signing must be enabled for a `signer` to be set, and a blank `signer`, `identity`, or `issuer` fails validation.
+
+## Artifact assembly and verification
+
+Under a hosted-release policy, the fixed `host.assets` set is produced end to end by engine verbs — no external packaging, checksum, or signing scripts:
+
+- `toven release package --target <triple>` archives an already-built binary (`target/<triple>/release/<binary>`, or an explicit `--binary` path) into its declared per-target archive asset (`.tar.gz`, or `.zip` for a `*windows*` triple, with the `.exe` suffix recorded). It fails closed when the declared asset or the built binary is missing.
+- `toven release sbom` writes the CycloneDX SBOM and stages it into the declared `*.cdx.json` asset.
+- `toven release checksums` digests every declared archive and the SBOM into the `SHA256SUMS` manifest asset, in declared order, using SHA-256.
+- `toven release sign` signs `SHA256SUMS` into its `.sig`/`.pem` sidecar assets (see Signing).
+- `toven release verify` checks the declared archives: in **local** mode it presence-checks every declared archive and, unless `--no-run`, extracts and asserts each reports the decided version; with `--download` it fetches the archives plus `SHA256SUMS` and its signature from the hosted release and verifies them in a hard fail-closed order — the Sigstore signature on `SHA256SUMS` first, then each archive's checksum, then extraction and version check.
+
+Every verb is non-mutating with respect to git history, emits typed JSONL under `--output jsonl`, and fails closed on a missing or mismatched input. CI provisions the external tools (cosign, cargo-cyclonedx) and holds the human approval gate; Toven drives them.
 
 ## Safety
 
@@ -157,7 +193,7 @@ Artifact signing is **not yet executable** by `toven release`: the typed configu
 - Real publication requires `--yes`, an allowed branch, and a clean tree.
 - Release tags, registry versions, hosted Releases, and hosted assets are immutable.
 - Tokens remain in environment variables or credential stores: `token_env` names the variable; the secret is read only at the publishing toolchain boundary and never appears on argv, in a log, or in engine memory.
-- Settings that name capabilities Toven does not execute — release `hooks` and `sign.enabled = true` — are rejected with actionable errors rather than silently ignored.
+- Settings that name capabilities Toven does not execute — release `hooks` — are rejected with actionable errors rather than silently ignored.
 - Partial publication is recovered by a newly previewed and approved forward fix.
 
 The clean-tree guardrail has no bypass, and hosted GitHub Releases are immutable create-or-verify: an existing Release is verified byte-identical to the intended one or the run fails with a conflict, never edited in place.

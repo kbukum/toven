@@ -17,9 +17,12 @@ use rskit_version::semver::Version;
 use serde::Serialize;
 use toven_engine::plan::PlanRequest;
 use toven_engine::release::{
-    BumpOverrides, DepgraphReport, PublishDecision, ReadinessReport, ReleaseApplyOptions,
-    ReleasePlan, ReleaseRehearsal, ReleaseStatus, SbomReport, release_depgraphs, release_plan,
-    release_readiness, release_rehearse, release_run, release_sbom, release_status,
+    BumpOverrides, ChecksumReport, CosignSigner, CosignVerifier, DepgraphReport, GhAssetDownloader,
+    PackageReport, ProcessVersionProbe, PublishDecision, ReadinessReport, ReleaseApplyOptions,
+    ReleasePlan, ReleaseRehearsal, ReleaseStatus, SbomReport, SignReport, VerifyOptions,
+    VerifyReport, release_checksums, release_depgraphs, release_package, release_plan,
+    release_readiness, release_rehearse, release_run, release_sbom, release_sign, release_status,
+    release_verify,
 };
 use toven_engine::vcs::BaselineFlags;
 use toven_model::{Event, ModuleRef};
@@ -59,6 +62,10 @@ pub(crate) fn execute(
         ReleaseAction::Readiness => readiness(providers, project, cli.output),
         ReleaseAction::Sbom => sbom(providers, project, cli),
         ReleaseAction::Depgraphs => depgraphs(providers, project, cli),
+        ReleaseAction::Package => package(providers, project, cli),
+        ReleaseAction::Checksums => checksums(providers, project, cli),
+        ReleaseAction::Sign => sign(providers, project, cli),
+        ReleaseAction::Verify => verify(providers, project, cli),
         ReleaseAction::Publish if cli.dry_run => rehearse(providers, project, cli),
         ReleaseAction::Tag | ReleaseAction::Publish => run(providers, project, cli, action),
     }
@@ -243,6 +250,97 @@ fn depgraphs(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
     match resolve_output(cli.output, &project.document) {
         OutputKind::Jsonl => render_depgraphs_jsonl(&report)?,
         OutputKind::Human => render_depgraphs_human(&report),
+    }
+    Ok(ExitCode::Success)
+}
+
+/// `release package`: archive the already-built binary for `--target` into its
+/// declared hosted-release asset, mutating no history. `--target` is required;
+/// `--binary` overrides the default `target/<triple>/release/<binary>` source.
+fn package(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+    let request = release_request(project)?;
+    let target = cli.target.as_deref().ok_or_else(|| {
+        AppError::invalid_input(
+            "release.package.target",
+            "`toven release package` requires `--target <triple>` (e.g. \
+             x86_64-unknown-linux-gnu)",
+        )
+    })?;
+    let mut reporter = QuietReporter;
+    let report = release_package(
+        &request,
+        &project.document,
+        providers,
+        target,
+        cli.binary.as_deref(),
+        &mut reporter,
+    )?;
+    match resolve_output(cli.output, &project.document) {
+        OutputKind::Jsonl => render_package_jsonl(&report)?,
+        OutputKind::Human => render_package_human(&report),
+    }
+    Ok(ExitCode::Success)
+}
+
+/// `release checksums`: emit the `SHA256SUMS` manifest over the declared
+/// release assets to its declared asset path, mutating no history.
+fn checksums(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+    let request = release_request(project)?;
+    let mut reporter = QuietReporter;
+    let report = release_checksums(&request, &project.document, providers, &mut reporter)?;
+    match resolve_output(cli.output, &project.document) {
+        OutputKind::Jsonl => render_checksums_jsonl(&report)?,
+        OutputKind::Human => render_checksums_human(&report),
+    }
+    Ok(ExitCode::Success)
+}
+
+/// `release sign`: sign the declared `SHA256SUMS` manifest into its declared
+/// detached-signature and certificate sidecars with cosign, mutating no history.
+fn sign(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+    let request = release_request(project)?;
+    let signer = CosignSigner::new();
+    let mut reporter = QuietReporter;
+    let report = release_sign(
+        &request,
+        &project.document,
+        providers,
+        &signer,
+        &mut reporter,
+    )?;
+    match resolve_output(cli.output, &project.document) {
+        OutputKind::Jsonl => render_sign_jsonl(&report)?,
+        OutputKind::Human => render_sign_human(&report),
+    }
+    Ok(ExitCode::Success)
+}
+
+/// `release verify`: verify the declared release archives — locally (presence +
+/// reported version) or, with `--download`, against the hosted release
+/// (signature + checksum + reported version) — mutating nothing.
+fn verify(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+    let request = release_request(project)?;
+    let downloader = GhAssetDownloader::new();
+    let verifier = CosignVerifier::new();
+    let probe = ProcessVersionProbe::new();
+    let options = VerifyOptions {
+        download: cli.download,
+        run: !cli.no_run,
+    };
+    let mut reporter = QuietReporter;
+    let report = release_verify(
+        &request,
+        &project.document,
+        providers,
+        options,
+        &downloader,
+        &verifier,
+        &probe,
+        &mut reporter,
+    )?;
+    match resolve_output(cli.output, &project.document) {
+        OutputKind::Jsonl => render_verify_jsonl(&report)?,
+        OutputKind::Human => render_verify_human(&report),
     }
     Ok(ExitCode::Success)
 }
@@ -636,6 +734,13 @@ struct SbomRecord {
     path: String,
 }
 
+/// A stable JSON-lines record for one staged SBOM release asset.
+#[derive(Serialize)]
+struct StagedSbomRecord {
+    asset: String,
+    source: String,
+}
+
 fn render_sbom_human(report: &SbomReport) {
     let mut table =
         OutputTable::new(vec!["Module", "Artifact"]).with_title("Release SBOM artifacts");
@@ -646,6 +751,13 @@ fn render_sbom_human(report: &SbomReport) {
         ]);
     }
     println!("{table}");
+    if !report.staged.is_empty() {
+        let mut staged = OutputTable::new(vec!["Asset", "Source"]).with_title("Staged SBOM assets");
+        for asset in &report.staged {
+            staged.add_row(vec![asset.asset.clone(), asset.source.clone()]);
+        }
+        println!("{staged}");
+    }
     for module in &report.skipped {
         eprintln!("warning: {module} skipped (ecosystem has no SBOM tooling)");
     }
@@ -656,6 +768,14 @@ fn render_sbom_jsonl(report: &SbomReport) -> AppResult<()> {
         let record = SbomRecord {
             module: artifact.label.clone(),
             path: artifact.path.display().to_string(),
+        };
+        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+        println!("{line}");
+    }
+    for asset in &report.staged {
+        let record = StagedSbomRecord {
+            asset: asset.asset.clone(),
+            source: asset.source.clone(),
         };
         let line = serde_json::to_string(&record).map_err(AppError::internal)?;
         println!("{line}");
@@ -690,6 +810,173 @@ fn render_depgraphs_jsonl(report: &DepgraphReport) -> AppResult<()> {
         let record = DepgraphRecord {
             label: artifact.label.clone(),
             path: artifact.path.display().to_string(),
+        };
+        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+        println!("{line}");
+    }
+    Ok(())
+}
+
+/// A stable JSON-lines record for one packaged release archive.
+#[derive(Serialize)]
+struct PackageRecord {
+    target: String,
+    asset: String,
+    source: String,
+    format: String,
+    bytes: u64,
+}
+
+fn render_package_human(report: &PackageReport) {
+    let mut table = OutputTable::new(vec!["Asset", "Source", "Format", "Bytes"])
+        .with_title(format!("Release packages ({})", report.target));
+    for asset in &report.assets {
+        table.add_row(vec![
+            asset.asset.clone(),
+            asset.source.display().to_string(),
+            asset.format.as_str().to_string(),
+            asset.bytes.to_string(),
+        ]);
+    }
+    println!("{table}");
+}
+
+fn render_package_jsonl(report: &PackageReport) -> AppResult<()> {
+    for asset in &report.assets {
+        let record = PackageRecord {
+            target: report.target.clone(),
+            asset: asset.asset.clone(),
+            source: asset.source.display().to_string(),
+            format: asset.format.as_str().to_string(),
+            bytes: asset.bytes,
+        };
+        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+        println!("{line}");
+    }
+    Ok(())
+}
+
+/// A stable JSON-lines record for one checksummed release asset.
+#[derive(Serialize)]
+struct ChecksumRecord {
+    manifest: String,
+    name: String,
+    sha256: String,
+    bytes: u64,
+}
+
+fn render_checksums_human(report: &ChecksumReport) {
+    let mut table = OutputTable::new(vec!["Asset", "SHA-256", "Bytes"])
+        .with_title(format!("Release checksums ({})", report.manifest));
+    for entry in &report.entries {
+        table.add_row(vec![
+            entry.name.clone(),
+            entry.sha256.clone(),
+            entry.bytes.to_string(),
+        ]);
+    }
+    println!("{table}");
+}
+
+fn render_checksums_jsonl(report: &ChecksumReport) -> AppResult<()> {
+    for entry in &report.entries {
+        let record = ChecksumRecord {
+            manifest: report.manifest.clone(),
+            name: entry.name.clone(),
+            sha256: entry.sha256.clone(),
+            bytes: entry.bytes,
+        };
+        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+        println!("{line}");
+    }
+    Ok(())
+}
+
+/// A stable JSON-lines record for the signing outputs.
+#[derive(Serialize)]
+struct SignRecord {
+    blob: String,
+    signature: String,
+    certificate: String,
+}
+
+fn render_sign_human(report: &SignReport) {
+    let mut table = OutputTable::new(vec!["Blob", "Signature", "Certificate"])
+        .with_title("Release signing".to_string());
+    table.add_row(vec![
+        report.blob.clone(),
+        report.signature.clone(),
+        report.certificate.clone(),
+    ]);
+    println!("{table}");
+}
+
+fn render_sign_jsonl(report: &SignReport) -> AppResult<()> {
+    let record = SignRecord {
+        blob: report.blob.clone(),
+        signature: report.signature.clone(),
+        certificate: report.certificate.clone(),
+    };
+    let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+    println!("{line}");
+    Ok(())
+}
+
+/// A stable JSON-lines record for one archive's verification outcome.
+#[derive(Serialize)]
+struct VerifiedAssetRecord {
+    mode: String,
+    tag: Option<String>,
+    expected_version: String,
+    name: String,
+    checksum_ok: Option<bool>,
+    signature_ok: Option<bool>,
+    ran: bool,
+    reported_version: Option<String>,
+}
+
+fn render_verify_human(report: &VerifyReport) {
+    let mut table = OutputTable::new(vec!["Asset", "Checksum", "Signature", "Ran", "Reported"])
+        .with_title(format!(
+            "Release verify ({}, expected {})",
+            report.mode.as_str(),
+            report.expected_version
+        ));
+    for asset in &report.assets {
+        table.add_row(vec![
+            asset.name.clone(),
+            render_optional_check(asset.checksum_ok),
+            render_optional_check(asset.signature_ok),
+            if asset.ran { "yes" } else { "no" }.to_string(),
+            asset
+                .reported_version
+                .clone()
+                .unwrap_or_else(|| "—".to_string()),
+        ]);
+    }
+    println!("{table}");
+}
+
+/// Render an optional pass/fail check for the human table.
+fn render_optional_check(value: Option<bool>) -> String {
+    match value {
+        Some(true) => "ok".to_string(),
+        Some(false) => "FAIL".to_string(),
+        None => "—".to_string(),
+    }
+}
+
+fn render_verify_jsonl(report: &VerifyReport) -> AppResult<()> {
+    for asset in &report.assets {
+        let record = VerifiedAssetRecord {
+            mode: report.mode.as_str().to_string(),
+            tag: report.tag.clone(),
+            expected_version: report.expected_version.clone(),
+            name: asset.name.clone(),
+            checksum_ok: asset.checksum_ok,
+            signature_ok: asset.signature_ok,
+            ran: asset.ran,
+            reported_version: asset.reported_version.clone(),
         };
         let line = serde_json::to_string(&record).map_err(AppError::internal)?;
         println!("{line}");

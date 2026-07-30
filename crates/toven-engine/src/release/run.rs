@@ -98,7 +98,14 @@ pub fn release_run(
         }
     }
 
-    let plan = plan_with_context(&context, request, readers, overrides, &targets)?;
+    let plan = plan_with_context(
+        &context,
+        request,
+        readers,
+        overrides,
+        &targets,
+        super::bump::CutIntent::Mutate,
+    )?;
     let mut stats =
         release_apply_by_member(&plan, &context.federation.modules, &targets, repos, options)?;
 
