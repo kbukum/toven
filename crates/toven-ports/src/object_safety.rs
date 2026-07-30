@@ -51,7 +51,12 @@ impl ReleaseTarget for FakeReleaseTarget {
     fn apply_release(&self, _module: &Module, _mutation: &ReleaseMutation) -> AppResult<()> {
         Ok(())
     }
-    fn publish(&self, _module: &Module, _artifact: &Artifact) -> AppResult<PublishOutcome> {
+    fn publish(
+        &self,
+        _module: &Module,
+        _artifact: &Artifact,
+        _credentials: &ReleaseCredentials,
+    ) -> AppResult<PublishOutcome> {
         Ok(PublishOutcome::Published)
     }
 }
@@ -282,7 +287,9 @@ fn port_traits_are_object_safe() {
         .apply_release(&module, &ReleaseMutation::version(Version::new(1, 0, 0)))
         .expect("applies");
     assert_eq!(
-        target.publish(&module, &artifact).expect("publishes"),
+        target
+            .publish(&module, &artifact, &ReleaseCredentials::default())
+            .expect("publishes"),
         PublishOutcome::Published
     );
     let direct_artifact = release.package(&module).expect("packages");

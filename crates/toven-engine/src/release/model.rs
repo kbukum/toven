@@ -264,6 +264,11 @@ pub struct ReleaseEntry {
     pub tag_message: Option<String>,
     /// Configured member release-commit message template.
     pub commit_message: Option<String>,
+    /// Name of the environment variable holding the registry publish token,
+    /// resolved from this module's release settings; `None` uses the publishing
+    /// toolchain's ambient credential. Carries the variable *name* only — never
+    /// the secret — so a registry adapter reads it at the toolchain boundary.
+    pub token_env: Option<String>,
     /// How this module's member release refs are pushed: the release commit's
     /// branch alongside the tags, only the tags (tag-only mode for a
     /// protected branch), or nothing.
@@ -454,6 +459,11 @@ pub struct ReleaseStats {
     pub rate_limited_waits: usize,
     /// Hosted forge Releases created or updated after publish.
     pub hosted_releases: usize,
+    /// Whether APPLY resumed an already-tagged release: the git mutation phase
+    /// (manifest mutation, commit, tag, push) was skipped because every planned
+    /// tag already exists, leaving only the idempotent publish and
+    /// hosted-release phases to complete.
+    pub resumed: bool,
 }
 
 impl ReleaseStats {
@@ -469,6 +479,7 @@ impl ReleaseStats {
             skipped_published_modules: 0,
             rate_limited_waits: 0,
             hosted_releases: 0,
+            resumed: false,
         }
     }
 }
@@ -526,6 +537,7 @@ mod tests {
             tag_format: None,
             tag_message: None,
             commit_message: None,
+            token_env: None,
             push: PushPolicy::BranchAndTags,
             remote: "origin".into(),
             branches: Vec::new(),

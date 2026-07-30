@@ -89,6 +89,45 @@ impl ReleaseHost for GithubReleaseHost {
         reconcile(release, &local, &existing)?;
         Ok(HostReleaseOutcome::AlreadyComplete)
     }
+
+    fn release_exists(&self, root: &Path, tag: &str) -> AppResult<bool> {
+        let viewed = gh(root, exists_argv(tag), &[])?;
+        if viewed.success() {
+            return Ok(true);
+        }
+        if release_not_found(&viewed) {
+            return Ok(false);
+        }
+        // A real `gh` failure (auth, network, rate limit): surface it rather
+        // than silently treating the Release as absent and creating a duplicate.
+        viewed.check()?;
+        Ok(false)
+    }
+}
+
+/// Whether a failed `gh release view` failed because no Release exists for the
+/// tag — the "Release is missing" signal the reconcile pre-pass acts on.
+///
+/// Matches only `gh`'s specific "release not found" message, not any output
+/// containing "not found". A broader match would misclassify unrelated failures
+/// — a missing repository, a permission/auth error, or a rate limit — as an
+/// absent Release and drive the reconcile path to create a duplicate instead of
+/// surfacing the real error.
+fn release_not_found(output: &ProcessResult) -> bool {
+    let combined = format!("{}\n{}", output.stdout, output.stderr).to_ascii_lowercase();
+    combined.contains("release not found")
+}
+
+/// Build the read-only `gh release view` argv that probes whether a Release
+/// exists for `tag`, requesting a single minimal field.
+fn exists_argv(tag: &str) -> Vec<String> {
+    vec![
+        "release".to_string(),
+        "view".to_string(),
+        tag.to_string(),
+        "--json".to_string(),
+        "name".to_string(),
+    ]
 }
 
 /// Whether a failed `gh release create` failed because the Release already
@@ -100,7 +139,11 @@ fn release_already_exists(output: &ProcessResult) -> bool {
 
 /// Validate and fingerprint every asset by uploaded name and byte size.
 ///
-/// Rejects an asset path that escapes the repository root or is not a regular
+/// Asset paths are carried project-relative through the port; this is the
+/// single filesystem-touching site that resolves each one against `root` (the
+/// release/member root the assets are relative to) via
+/// [`safe_join`], which both rejects a traversal or absolute config value and
+/// yields a contained absolute path. Rejects an asset that is not a regular
 /// file, and rejects two assets that would upload under the same name. Runs
 /// before any `gh` invocation so an invalid asset set never partially mutates
 /// the forge.
@@ -340,12 +383,57 @@ fn gh(root: &Path, args: Vec<String>, stdin: &[u8]) -> AppResult<ProcessResult> 
 mod tests {
     use std::collections::BTreeMap;
 
+    use rskit_fs::TempDir;
     use toven_ports::{HostedRelease, ReleaseAsset};
 
-    use super::{ExistingRelease, create_argv, parse_existing, reconcile, view_argv};
+    use super::{
+        ExistingRelease, ProcessResult, create_argv, exists_argv, fingerprint_assets,
+        parse_existing, reconcile, release_not_found, view_argv,
+    };
 
     fn release() -> HostedRelease {
         HostedRelease::new("rust/core@1.2.3", "core 1.2.3", "the notes")
+    }
+
+    fn failed_view(stderr: &str) -> ProcessResult {
+        ProcessResult::completed(
+            Some(1),
+            Vec::new(),
+            stderr.as_bytes().to_vec(),
+            false,
+            false,
+            std::time::Duration::from_millis(0),
+            false,
+            false,
+        )
+    }
+
+    #[test]
+    fn release_not_found_matches_only_the_release_missing_signal() {
+        // The specific `gh release view` "not found" message is the only
+        // absent-Release signal.
+        assert!(release_not_found(&failed_view("release not found")));
+        assert!(release_not_found(&failed_view(
+            "HTTP 404: Release not found"
+        )));
+    }
+
+    #[test]
+    fn release_not_found_does_not_misclassify_unrelated_failures() {
+        // A missing repo, an auth/permission error, or a rate limit must surface
+        // as a real error — never be read as "the Release is absent", which would
+        // drive the reconcile path to create a duplicate.
+        for stderr in [
+            "could not resolve to a Repository with the name 'kbukum/nope'. (not found)",
+            "GraphQL: Could not resolve to a Repository (repository not found)",
+            "HTTP 403: Resource not accessible by integration",
+            "API rate limit exceeded",
+        ] {
+            assert!(
+                !release_not_found(&failed_view(stderr)),
+                "must not classify {stderr:?} as a missing Release"
+            );
+        }
     }
 
     #[test]
@@ -389,6 +477,18 @@ mod tests {
         assert!(argv.iter().any(|arg| arg == "--json"));
         // No mutating verb ever appears.
         assert!(argv.iter().all(|arg| arg != "edit" && arg != "upload"));
+    }
+
+    #[test]
+    fn exists_argv_is_a_read_only_probe() {
+        let argv = exists_argv("rust/core@0.1.0-alpha.1");
+        assert_eq!(&argv[0..3], &["release", "view", "rust/core@0.1.0-alpha.1"]);
+        assert!(argv.iter().any(|arg| arg == "--json"));
+        // A read-only existence probe never carries a mutating verb.
+        assert!(
+            argv.iter()
+                .all(|arg| arg != "create" && arg != "edit" && arg != "upload" && arg != "delete")
+        );
     }
 
     fn parsed(json: &str) -> ExistingRelease {
@@ -497,5 +597,53 @@ mod tests {
                 .to_string()
                 .contains("size")
         );
+    }
+
+    #[test]
+    fn fingerprint_assets_maps_a_relative_asset_to_name_and_size() {
+        // The producer keeps asset paths project-relative; fingerprinting is the
+        // single fs-touching site that resolves them against the release root.
+        let temp = TempDir::new().expect("temp dir");
+        temp.write_file("dist/app.tgz", b"payload-bytes")
+            .expect("stage asset");
+        let release = HostedRelease::new("rust/core@1.2.3", "core 1.2.3", "notes")
+            .with_assets(vec![ReleaseAsset::new("dist/app.tgz")]);
+
+        let sizes =
+            fingerprint_assets(temp.path(), &release).expect("relative asset fingerprinted");
+
+        assert_eq!(sizes, BTreeMap::from([("app.tgz".to_string(), 13_u64)]));
+    }
+
+    #[test]
+    fn fingerprint_assets_rejects_a_traversal_asset_path() {
+        let temp = TempDir::new().expect("temp dir");
+        let release = HostedRelease::new("rust/core@1.2.3", "core 1.2.3", "notes")
+            .with_assets(vec![ReleaseAsset::new("../evil")]);
+
+        let error = fingerprint_assets(temp.path(), &release)
+            .expect_err("a traversal asset path fails closed");
+
+        let message = error.to_string();
+        assert!(message.contains("release.host.assets"), "{message}");
+        assert!(message.contains("../evil"), "{message}");
+        assert!(message.contains("escapes the repository root"), "{message}");
+    }
+
+    #[test]
+    fn fingerprint_assets_rejects_two_assets_uploading_under_the_same_name() {
+        let temp = TempDir::new().expect("temp dir");
+        temp.write_file("a/app.tgz", b"one").expect("stage a");
+        temp.write_file("b/app.tgz", b"two").expect("stage b");
+        let release =
+            HostedRelease::new("rust/core@1.2.3", "core 1.2.3", "notes").with_assets(vec![
+                ReleaseAsset::new("a/app.tgz"),
+                ReleaseAsset::new("b/app.tgz"),
+            ]);
+
+        let error = fingerprint_assets(temp.path(), &release)
+            .expect_err("colliding upload names fail closed");
+
+        assert!(error.to_string().contains("same name 'app.tgz'"), "{error}");
     }
 }

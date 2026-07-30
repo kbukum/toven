@@ -1,1 +1,1 @@
-error[INVALID_INPUT]: invalid release.token_env: module 'rust:train-cli' configures token_env, which is not yet honored: the registry credential reaches the publishing toolchain only through its ambient environment (e.g. CARGO_REGISTRY_TOKEN for cargo); remove token_env from the release configuration
+error[INVALID_INPUT]: invalid release.sign: module 'rust:train-cli' enables artifact signing, which is not yet executable; remove […release.sign] or set enabled = false and keep signing in the native CI gate

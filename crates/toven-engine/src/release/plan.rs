@@ -6,7 +6,7 @@ use std::path::Path;
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::file::read_string_bounded;
-use toven_model::ModuleKey;
+use toven_model::{MemberId, ModuleKey};
 use toven_ports::{Provider, PublicationPolicy, Reporter};
 
 use crate::config::Document;
@@ -65,13 +65,39 @@ pub(crate) fn plan_with_context(
     let settings = resolve_release_settings(context, targets)?;
     let changes = change::detect(context, overrides.base(), readers, targets, &settings)?;
     validate_required_changelogs(request.project_root.as_path(), &changes, &settings)?;
-    plan_with_changes(context, request, &changes, overrides, targets, &settings)
+    let branches = current_branches(readers);
+    plan_with_changes(
+        context, request, &changes, &branches, overrides, targets, &settings,
+    )
 }
 
+/// Resolve each member's checked-out branch, best-effort.
+///
+/// A branch is recorded per member so a configured branch→prerelease-channel
+/// mapping can select the channel from the checked-out branch. A member on a
+/// detached HEAD (a common CI state) contributes no entry and simply resolves
+/// to a stable release; branch resolution never fails a plan, because most
+/// releases configure no branch→channel mapping at all.
+fn current_branches(readers: &MemberVcsReaders<'_>) -> BTreeMap<Option<MemberId>, String> {
+    readers
+        .entries()
+        .iter()
+        .filter_map(|entry| {
+            entry
+                .reader()
+                .current_branch()
+                .ok()
+                .map(|branch| (entry.member().cloned(), branch))
+        })
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
 fn plan_with_changes(
     context: &PlanContext,
     _request: &PlanRequest,
     changes: &change::ReleaseChanges,
+    branches: &BTreeMap<Option<MemberId>, String>,
     overrides: &BumpOverrides,
     targets: &super::ReleaseTargets,
     settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
@@ -103,6 +129,7 @@ fn plan_with_changes(
         changelogs: &changelogs,
         settings,
         targets,
+        branches,
         policy,
         overrides,
     })?;
@@ -222,28 +249,6 @@ fn validate_executable_settings(
             format!(
                 "module '{}' enables artifact signing, which is not yet executable; remove \
                  […release.sign] or set enabled = false and keep signing in the native CI gate",
-                module.key()
-            ),
-        ));
-    }
-    if !resolved.prerelease.branch_channels.is_empty() {
-        return Err(AppError::invalid_input(
-            "release.prerelease.branch_channels",
-            format!(
-                "module '{}' maps release branches to prerelease channels, which is not yet \
-                 executable; select the channel explicitly with `--pre <channel>`",
-                module.key()
-            ),
-        ));
-    }
-    if resolved.publication.publishes_to_registry() && resolved.token_env.is_some() {
-        return Err(AppError::invalid_input(
-            "release.token_env",
-            format!(
-                "module '{}' configures token_env, which is not yet honored: the registry \
-                 credential reaches the publishing toolchain only through its ambient \
-                 environment (e.g. CARGO_REGISTRY_TOKEN for cargo); remove token_env from the \
-                 release configuration",
                 module.key()
             ),
         ));
@@ -651,38 +656,151 @@ mod tests {
     }
 
     #[test]
-    fn branch_channel_mappings_are_rejected_as_not_yet_executable() {
-        // A branch→channel map promises prereleases cut by branch, but the
-        // engine never consults it — only `--pre` selects a channel. Reject
-        // the map rather than let a maintainer believe branch-driven
-        // prereleases are configured.
-        let error = plan_error_with_release_config(ReleaseConfig {
-            prerelease: Some(toven_ports::PrereleaseConfig {
-                channels: vec!["beta".into()],
-                branch_channels: std::collections::BTreeMap::from([("next".into(), "beta".into())]),
-            }),
-            ..ReleaseConfig::default()
+    fn branch_channel_mapping_cuts_a_prerelease_from_the_checked_out_branch() {
+        // With a `next -> beta` mapping and the reader checked out on `next`,
+        // a changed module cuts a `beta` prerelease with no `--pre` flag.
+        let mut common = CommonEcosystemConfig::default();
+        common.release.prerelease = Some(toven_ports::PrereleaseConfig {
+            channels: vec!["beta".into()],
+            branch_channels: std::collections::BTreeMap::from([("next".into(), "beta".into())]),
         });
-
-        let message = error.to_string();
-        assert!(message.contains("branch_channels"), "{message}");
-        assert!(message.contains("not yet executable"), "{message}");
+        let core = module("core", "crates/core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_common(common)
+            .with_release_target(FakeReleaseTarget::new());
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let request = PlanRequest::new(
+            "r1",
+            "t",
+            TaskIntent::resolve("release"),
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+        let vcs = FakeVcsReader::new()
+            .with_current_branch("next")
+            .with_tags(released_at_0_1_0(&["core"]))
+            .with_changed_since(vec![ChangeRecord::new(
+                "crates/core/src/lib.rs",
+                ChangeStatus::Modified,
+            )]);
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+        let plan = release_plan(
+            &request,
+            &document(),
+            &providers,
+            &readers,
+            &BumpOverrides::new(),
+            &mut reporter,
+        )
+        .unwrap();
+        assert_eq!(
+            plan.entries[0].planned_version,
+            Some(Version::parse("0.1.1-beta.1").unwrap())
+        );
+        assert_eq!(plan.entries[0].prerelease_channel.as_deref(), Some("beta"));
     }
 
     #[test]
-    fn token_env_on_a_registry_module_is_rejected_as_not_yet_honored() {
-        // The publish port receives no credential, so a configured `token_env`
-        // never reaches the registry tooling — reject it rather than let a
-        // maintainer believe credential injection is configured.
-        let error = plan_error_with_release_config(ReleaseConfig {
-            registry: Some("crates-io".into()),
-            token_env: Some("CARGO_REGISTRY_TOKEN".into()),
-            ..ReleaseConfig::default()
+    fn branch_channel_mapping_is_stable_on_an_unmapped_branch() {
+        // The same `next -> beta` mapping on the default `main` branch cuts a
+        // stable release: only a mapped branch selects a prerelease channel.
+        let mut common = CommonEcosystemConfig::default();
+        common.release.prerelease = Some(toven_ports::PrereleaseConfig {
+            channels: vec!["beta".into()],
+            branch_channels: std::collections::BTreeMap::from([("next".into(), "beta".into())]),
         });
+        let core = module("core", "crates/core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_common(common)
+            .with_release_target(FakeReleaseTarget::new());
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let request = PlanRequest::new(
+            "r1",
+            "t",
+            TaskIntent::resolve("release"),
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+        let vcs = FakeVcsReader::new()
+            .with_current_branch("main")
+            .with_tags(released_at_0_1_0(&["core"]))
+            .with_changed_since(vec![ChangeRecord::new(
+                "crates/core/src/lib.rs",
+                ChangeStatus::Modified,
+            )]);
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+        let plan = release_plan(
+            &request,
+            &document(),
+            &providers,
+            &readers,
+            &BumpOverrides::new(),
+            &mut reporter,
+        )
+        .unwrap();
+        assert_eq!(plan.entries[0].planned_version, Some(Version::new(0, 1, 1)));
+        assert_eq!(plan.entries[0].prerelease_channel, None);
+    }
 
-        let message = error.to_string();
-        assert!(message.contains("release.token_env"), "{message}");
-        assert!(message.contains("ambient"), "{message}");
+    #[test]
+    fn token_env_on_a_registry_module_is_accepted_and_carried_to_the_plan_entry() {
+        // `token_env` names the environment variable that holds the registry
+        // token; the publishing adapter reads it at the toolchain boundary and
+        // injects the credential, so a registry module configuring it plans
+        // cleanly (no rejection) and the resolved name rides onto the entry for
+        // publish-time injection.
+        let mut common = CommonEcosystemConfig::default();
+        common.release.registry = Some("crates-io".into());
+        common.release.token_env = Some("CARGO_REGISTRY_TOKEN".into());
+        let core = module("core", "crates/core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_common(common)
+            .with_release_target(FakeReleaseTarget::new());
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let request = PlanRequest::new(
+            "r1",
+            "t",
+            TaskIntent::resolve("release"),
+            AbsPath::new("/repo").unwrap(),
+        )
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+        let vcs = FakeVcsReader::new()
+            .with_tags(released_at_0_1_0(&["core"]))
+            .with_changed_since(vec![ChangeRecord::new(
+                "crates/core/src/lib.rs",
+                ChangeStatus::Modified,
+            )]);
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+        let plan = release_plan(
+            &request,
+            &document(),
+            &providers,
+            &readers,
+            &BumpOverrides::new(),
+            &mut reporter,
+        )
+        .expect("a registry module with a configured token_env must plan cleanly");
+        assert_eq!(plan.entries.len(), 1);
+        assert_eq!(
+            plan.entries[0].token_env.as_deref(),
+            Some("CARGO_REGISTRY_TOKEN"),
+            "the resolved token_env must ride onto the plan entry for publish-time injection"
+        );
     }
 
     #[test]

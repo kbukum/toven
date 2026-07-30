@@ -160,6 +160,20 @@ pub trait ReleaseHost {
     /// intended one.
     fn ensure_release(&self, root: &Path, release: &HostedRelease)
     -> AppResult<HostReleaseOutcome>;
+
+    /// Whether a hosted Release already exists for `tag` — a read-only forge
+    /// query.
+    ///
+    /// The reconcile pre-pass uses it to complete only a genuinely *missing*
+    /// hosted Release: it never runs the immutable verify against an existing
+    /// Release, so a legitimate Release whose notes differ from freshly authored
+    /// ones is left untouched rather than reported as a conflict. The working
+    /// directory `root` locates the forge repository the Release belongs to.
+    ///
+    /// # Errors
+    /// Propagates a forge CLI spawn/IO failure or a non-zero CLI exit that is
+    /// not the "release not found" signal.
+    fn release_exists(&self, root: &Path, tag: &str) -> AppResult<bool>;
 }
 
 #[cfg(test)]

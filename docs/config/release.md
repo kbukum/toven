@@ -56,7 +56,7 @@ assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
 | `publish` | `false` selects tag-only publication; in a per-module block it also narrows an inherited registry to tag-only | Inherit / registry-driven |
 | `exclude` | Exclude the module from release planning, tagging, registry publication, and hosted releases | `false` |
 | `offline` | Use tags rather than target queries for idempotency; `release status` skips registry lookups too | `false` |
-| `token_env` | Reserved. **Rejected** for registry-published modules: not yet honored — the credential reaches the publishing toolchain through its ambient environment (e.g. `CARGO_REGISTRY_TOKEN` for cargo) | None |
+| `token_env` | Name of the environment variable holding the registry publish token. The publishing adapter reads it at the toolchain boundary and forwards the credential (for cargo, as `CARGO_REGISTRY_TOKEN` on the child process, never on argv); a configured-but-absent variable fails the publish closed. `None` uses the toolchain's ambient credential | None |
 | `readiness` | Named fail-closed checks | None |
 | `hooks` | Reserved pre/post task references. **Rejected** when non-empty: release hooks are not yet executable — run such tasks explicitly around the release command | None |
 
@@ -85,7 +85,7 @@ channels = ["alpha", "rc"]
 toven release publish --dry-run --pre alpha
 ```
 
-An undeclared channel is rejected. The channel becomes part of the semantic version and therefore part of the Rust or Go tag. The reserved `branch_channels` map (a release branch to the channel it cuts) is **rejected** when non-empty: branch-driven prereleases are not yet executable — select the channel explicitly with `--pre`.
+An undeclared channel is rejected. The channel becomes part of the semantic version and therefore part of the Rust or Go tag. The `branch_channels` map binds a release branch to the channel it cuts, so releasing from a `next` branch can imply a `beta` train without a per-run flag: when no explicit `--pre` is given, the checked-out branch selects the channel. An explicit `--pre <channel>` always wins over the mapping, a branch not present in the map (or a detached HEAD) cuts a stable release, and every mapped channel must be one of the declared `channels`.
 
 ## Changelogs
 
@@ -156,8 +156,8 @@ Artifact signing is **not yet executable** by `toven release`: the typed configu
 - Preview commands must not mutate manifests, commits, tags, registries, or hosted Releases.
 - Real publication requires `--yes`, an allowed branch, and a clean tree.
 - Release tags, registry versions, hosted Releases, and hosted assets are immutable.
-- Tokens remain in environment variables or credential stores.
-- Settings that name capabilities Toven does not execute — release `hooks`, `sign.enabled = true`, `prerelease.branch_channels`, and `token_env` on a registry-published module — are rejected with actionable errors rather than silently ignored.
+- Tokens remain in environment variables or credential stores: `token_env` names the variable; the secret is read only at the publishing toolchain boundary and never appears on argv, in a log, or in engine memory.
+- Settings that name capabilities Toven does not execute — release `hooks` and `sign.enabled = true` — are rejected with actionable errors rather than silently ignored.
 - Partial publication is recovered by a newly previewed and approved forward fix.
 
 The clean-tree guardrail has no bypass, and hosted GitHub Releases are immutable create-or-verify: an existing Release is verified byte-identical to the intended one or the run fails with a conflict, never edited in place.

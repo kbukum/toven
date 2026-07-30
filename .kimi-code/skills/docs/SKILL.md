@@ -4,7 +4,9 @@ description: >-
     Review and update Toven's documentation so it reads naturally and reflects the project as it is
     today — keep Markdown paragraphs flowing without hard column wrapping, preserve intentional
     document structure, sync commands, structure, flags, and examples with the actual
-    Makefile/CLI/crates, fix outdated links and dead references, and drop history/plan narration.
+    Makefile/CLI/crates, fix outdated links and dead references, drop history/plan narration, keep
+    prose humanized and scannable with a task-first quickstart, and add mermaid diagrams where they
+    clarify architecture or flow.
     Use when writing or auditing docs, repairing AI-generated hard wraps, after a behavior change
     that outdated docs, or before a release.
 user-invocable: true
@@ -45,6 +47,17 @@ Verify each doc against the code it describes; a doc that lies is worse than no 
 - **Config & schema** examples are valid `toven.toml` for the current strict loader — keys round-trip and no outdated field survives.
 - **Examples run.** Code/command examples reflect current behavior; doctests compile under `make doc`.
 - **Links resolve.** Internal relative links and cross-references point at files that exist; other-repo references use full URLs, never bare `#123`.
+
+## Pass 3 — Clarity & developer experience (does it actually help the reader?)
+
+Standards and accuracy make a doc correct; this pass makes it *usable*. Judge every doc by whether a developer under time pressure finds what they need and gets running fast — a correct doc nobody can skim has still failed.
+
+- **Humanized, plain language.** Write for a developer skimming, not a spec lawyer. One idea per sentence; keep sentences short. Use active voice and direct instructions ("Run `toven plan`", "Send a GET request"), never passive throat-clearing ("a request should be sent"). Cut filler and hedging. Prefer the plain word over jargon; define an unavoidable term the first time it appears.
+- **Scannable, uncrowded structure.** Let the reader find the answer by scanning, not by reading top to bottom. Break content with meaningful headings, short lists, and tables; bold the load-bearing terms; keep paragraphs to a few sentences. Whitespace and sectioning carry meaning — never a wall of text.
+- **Task-first, quickstart up top.** Order each doc by what the reader wants to do, most common first (inverted pyramid). Lead with the shortest copy-pasteable path to a first working result, before deep reference. Know which of the four Diátaxis modes each page is — tutorial, how-to, reference, or explanation — and don't blend them on one page.
+- **Real, runnable examples.** Every non-trivial capability shows a real, copy-pasteable snippet or command that runs against the current binary/API — never pseudo-code. Show the common path first, then the important flags and failure cases. Prefer runnable `///` doctests so the compiler keeps them honest.
+- **Diagrams where prose is the wrong tool.** When a doc explains architecture, the hexagonal layering, a PLAN/APPLY or data flow, a state machine, or component interaction, add a focused `mermaid` diagram right where the concept is introduced — a diagram earns its place only by replacing a paragraph the reader would otherwise assemble in their head. Keep each diagram to one idea (prefer several small diagrams over one crowded one), pair it with a one-line caption so it degrades where mermaid isn't rendered, and keep it in sync with the code like any other doc. Don't diagram the trivial.
+- **Every element earns its place.** Delete restated-obvious prose, duplicate explanations, and decoration that doesn't help someone build. Meaning over volume.
 
 ## Apply, then validate
 

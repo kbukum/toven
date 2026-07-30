@@ -1,1 +1,1 @@
-error[INVALID_INPUT]: invalid release.tags: release tag 'train-cli/v0.2.0' already exists; release tags are immutable — forward-fix with a new version instead of reusing '0.2.0'
+error[INVALID_INPUT]: invalid release.tags: a partial release tag set already exists: [train-cli/v0.2.0] are present but [core-v0.2.0] are not; release tags are immutable, so this interrupted or divergent release must be forward-fixed with a new version rather than reusing or moving a tag

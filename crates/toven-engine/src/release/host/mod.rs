@@ -12,4 +12,6 @@ pub(crate) mod phase;
 
 pub use github::GithubReleaseHost;
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) use phase::{PlannedHostRelease, build_hosts, planned_host_releases, run_host_phase};
+pub(crate) use phase::{
+    PlannedHostRelease, ReleaseHosts, build_hosts, planned_host_releases, run_host_phase,
+};

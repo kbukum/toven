@@ -25,8 +25,8 @@ use rskit_version::semver::Version;
 use toml_edit::{DocumentMut, Item, value};
 use toven_model::Module;
 use toven_ports::{
-    Artifact, PublishOutcome, RegistryCadence, ReleaseMutation, ReleaseTarget, ReleaseVar,
-    TagScheme,
+    Artifact, PublishOutcome, RegistryCadence, ReleaseCredentials, ReleaseMutation, ReleaseTarget,
+    ReleaseVar, TagScheme,
 };
 
 /// Hard bound on a `Cargo.toml` read (4 MiB) — manifests are tiny; this only
@@ -38,6 +38,11 @@ const MANIFEST_TEMP_PREFIX: &str = "toven-cargo-manifest";
 
 /// Default Rust release tag template.
 const DEFAULT_TAG_FORMAT: &str = "{ecosystem}/{module}@{version}";
+
+/// The environment variable cargo reads for the registry publish token. A
+/// configured `token_env` is resolved to its value and injected under this name
+/// on the `cargo publish` child, so the secret never appears on argv.
+const CARGO_REGISTRY_TOKEN_ENV: &str = "CARGO_REGISTRY_TOKEN";
 
 /// Sentinel used to split a rendered tag template into version prefix/suffix.
 const VERSION_SENTINEL: &str = "\u{1f}TOVEN_VERSION_SENTINEL\u{1f}";
@@ -192,9 +197,19 @@ impl ReleaseTarget for CratesIoTarget {
         write_atomic_replace(&path, rewritten.as_bytes(), MANIFEST_TEMP_PREFIX)
     }
 
-    fn publish(&self, module: &Module, _artifact: &Artifact) -> AppResult<PublishOutcome> {
+    fn publish(
+        &self,
+        module: &Module,
+        _artifact: &Artifact,
+        credentials: &ReleaseCredentials,
+    ) -> AppResult<PublishOutcome> {
         let path = Self::manifest_path(module)?;
-        let output = cargo(
+        // Read the registry token only here, at the toolchain boundary, and hand
+        // it to cargo through the child process environment — never on argv and
+        // never through engine memory. `None` lets cargo resolve its ambient
+        // credential as usual.
+        let token = registry_token_injection(credentials, rskit_util::env::get_non_empty)?;
+        let output = cargo_with_env(
             Self::working_root()?,
             [
                 "publish".to_string(),
@@ -202,6 +217,7 @@ impl ReleaseTarget for CratesIoTarget {
                 path.display().to_string(),
                 "--allow-dirty".to_string(),
             ],
+            token,
         )?;
         classify_publish(*self, module, &output)
     }
@@ -408,13 +424,64 @@ fn cargo<I>(working_dir: PathBuf, args: I) -> AppResult<ProcessResult>
 where
     I: IntoIterator<Item = String>,
 {
-    let spec = ProcessSpec::new("cargo").args(args).dir(working_dir);
+    cargo_with_env(working_dir, args, None)
+}
+
+/// Run `cargo`, bounded and timed-out, optionally injecting one environment
+/// variable into the child process (used to hand cargo the registry token as
+/// `CARGO_REGISTRY_TOKEN` without ever placing it on argv). The inherited
+/// parent environment is preserved; `extra_env` only adds/overrides one entry.
+fn cargo_with_env<I>(
+    working_dir: PathBuf,
+    args: I,
+    extra_env: Option<(String, String)>,
+) -> AppResult<ProcessResult>
+where
+    I: IntoIterator<Item = String>,
+{
+    let mut spec = ProcessSpec::new("cargo").args(args).dir(working_dir);
+    if let Some((key, value)) = extra_env {
+        spec = spec.env(key, value);
+    }
     let config = ProcessConfig::default()
         .with_timeout(Some(CARGO_COMMAND_TIMEOUT))
         .with_io(ProcessIo::captured(CapturedIo::new().with_output(
             OutputPolicy::captured().with_max_output_bytes(MAX_CARGO_OUTPUT_BYTES),
         )));
     run(&spec, &config)
+}
+
+/// Resolve the registry-token environment injection for a publish attempt.
+///
+/// Given the publish `credentials` and an environment accessor `env` (a
+/// variable name → its non-empty value), return the
+/// `(CARGO_REGISTRY_TOKEN, <value>)` pair cargo must see on its child
+/// environment, or `None` when no `token_env` is configured (cargo falls back
+/// to its ambient credential). A configured-but-absent/empty variable is a
+/// typed error — the maintainer named an explicit credential source that is not
+/// present, so fail closed rather than silently attempt an unauthenticated
+/// publish. The accessor is a parameter so the resolution logic is unit-tested
+/// without touching the real process environment.
+fn registry_token_injection<F>(
+    credentials: &ReleaseCredentials,
+    env: F,
+) -> AppResult<Option<(String, String)>>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let Some(name) = credentials.registry_token_env() else {
+        return Ok(None);
+    };
+    let value = env(name).ok_or_else(|| {
+        AppError::invalid_input(
+            "release.token_env",
+            format!(
+                "release.token_env names environment variable '{name}', but it is unset or \
+                 empty; export the registry token there before publishing"
+            ),
+        )
+    })?;
+    Ok(Some((CARGO_REGISTRY_TOKEN_ENV.to_string(), value)))
 }
 
 /// Run `cargo metadata --no-deps` for `manifest`, bounded and timed-out, to
@@ -697,8 +764,9 @@ mod tests {
 
     use super::{
         apply_mutation, create_all, parse_cargo_search_versions, read_declared_version,
-        remove_stray_sbom_files, sbom_argv, sbom_output_candidates,
+        registry_token_injection, remove_stray_sbom_files, sbom_argv, sbom_output_candidates,
     };
+    use toven_ports::ReleaseCredentials;
 
     const MANIFEST: &str = "\
 [package]
@@ -847,6 +915,44 @@ core = \"1.4.2\"    # A core crate
             parse_cargo_search_versions("core", stdout),
             vec![Version::new(1, 4, 2)]
         );
+    }
+
+    #[test]
+    fn registry_token_injection_maps_a_configured_var_to_cargo_registry_token() {
+        // A configured token_env is read from the (test-supplied) environment and
+        // handed to cargo under CARGO_REGISTRY_TOKEN — the name cargo reads —
+        // never on argv.
+        let credentials = ReleaseCredentials::new(Some("MY_REGISTRY_TOKEN".into()));
+        let injected = registry_token_injection(&credentials, |name| {
+            (name == "MY_REGISTRY_TOKEN").then(|| "s3cr3t".to_string())
+        })
+        .expect("a present token var resolves");
+        assert_eq!(
+            injected,
+            Some(("CARGO_REGISTRY_TOKEN".to_string(), "s3cr3t".to_string()))
+        );
+    }
+
+    #[test]
+    fn registry_token_injection_is_absent_without_a_configured_var() {
+        // No token_env means "use cargo's ambient credential" — inject nothing.
+        let injected = registry_token_injection(&ReleaseCredentials::default(), |_| {
+            panic!("the accessor must not be consulted when no token_env is configured")
+        })
+        .expect("no token_env resolves to no injection");
+        assert_eq!(injected, None);
+    }
+
+    #[test]
+    fn registry_token_injection_fails_closed_when_the_named_var_is_absent() {
+        // A configured-but-absent credential source must fail closed rather than
+        // silently attempt an unauthenticated publish.
+        let credentials = ReleaseCredentials::new(Some("MISSING_TOKEN".into()));
+        let error = registry_token_injection(&credentials, |_| None)
+            .expect_err("an unset named token var must be a typed error");
+        let message = error.to_string();
+        assert!(message.contains("release.token_env"), "{message}");
+        assert!(message.contains("MISSING_TOKEN"), "{message}");
     }
 
     #[test]

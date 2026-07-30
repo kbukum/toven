@@ -29,6 +29,7 @@ pub struct FakeReleaseHost {
 #[derive(Debug, Clone)]
 struct FakeHostState {
     outcome: HostReleaseOutcome,
+    exists: bool,
     fail: Option<String>,
     calls: Vec<HostCall>,
 }
@@ -38,6 +39,7 @@ impl Default for FakeReleaseHost {
         Self {
             inner: Arc::new(Mutex::new(FakeHostState {
                 outcome: HostReleaseOutcome::Created,
+                exists: false,
                 fail: None,
                 calls: Vec::new(),
             })),
@@ -57,6 +59,14 @@ impl FakeReleaseHost {
     #[must_use]
     pub fn with_outcome(self, outcome: HostReleaseOutcome) -> Self {
         self.state().outcome = outcome;
+        self
+    }
+
+    /// Script whether a hosted Release already exists for the tag, as reported
+    /// by `release_exists` (default `false`: the Release is missing).
+    #[must_use]
+    pub fn with_existing(self, exists: bool) -> Self {
+        self.state().exists = exists;
         self
     }
 
@@ -93,6 +103,10 @@ impl ReleaseHost for FakeReleaseHost {
             return Err(AppError::new(ErrorCode::Internal, message.clone()));
         }
         Ok(state.outcome)
+    }
+
+    fn release_exists(&self, _root: &Path, _tag: &str) -> AppResult<bool> {
+        Ok(self.state().exists)
     }
 }
 
