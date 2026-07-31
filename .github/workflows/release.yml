@@ -42,7 +42,7 @@ jobs:
           rustup override set "${RUST_VERSION}"
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@7e35be21c2b94d972b1143087fabc27d7dc881ef # v2.7.8
+        uses: Swatinem/rust-cache@72d126e709cad40056a62344eee609d696d62d33 # v2.7.8
 
       - name: Install cargo-cyclonedx
         run: cargo install cargo-cyclonedx --locked --version 0.5.9
@@ -108,13 +108,13 @@ jobs:
           rustup target add ${{ matrix.target }}
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@7e35be21c2b94d972b1143087fabc27d7dc881ef # v2.7.8
+        uses: Swatinem/rust-cache@72d126e709cad40056a62344eee609d696d62d33 # v2.7.8
         with:
           key: ${{ matrix.target }}
 
       - name: Install cross
         if: matrix.use_cross
-        uses: taiki-e/install-action@3d7d7cd5ac7f994c1892ae0c06165095b9139094 # v2
+        uses: taiki-e/install-action@18b1216eba7f8039b0f8d131d5473787f0edce68 # v2
         with:
           tool: cross
 
@@ -169,7 +169,7 @@ jobs:
         run: cargo install cargo-cyclonedx --locked --version 0.5.9
 
       - name: Download every packaged archive
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v6
         with:
           pattern: release-archive-*
           path: dist
@@ -230,7 +230,7 @@ jobs:
           rustup override set "${RUST_VERSION}"
 
       - name: Download assembled release assets
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v6
         with:
           name: release-dist
           path: dist

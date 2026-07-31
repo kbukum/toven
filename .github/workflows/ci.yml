@@ -47,15 +47,15 @@ jobs:
           cache: false
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@7e35be21c2b94d972b1143087fabc27d7dc881ef # v2.7.8
+        uses: Swatinem/rust-cache@72d126e709cad40056a62344eee609d696d62d33 # v2.7.8
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@3d7d7cd5ac7f994c1892ae0c06165095b9139094 # v2
+        uses: taiki-e/install-action@18b1216eba7f8039b0f8d131d5473787f0edce68 # v2
         with:
           tool: cargo-nextest
 
       - name: Install ast-grep
-        uses: taiki-e/install-action@3d7d7cd5ac7f994c1892ae0c06165095b9139094 # v2
+        uses: taiki-e/install-action@18b1216eba7f8039b0f8d131d5473787f0edce68 # v2
         with:
           tool: ast-grep
 
