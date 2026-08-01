@@ -490,7 +490,10 @@ pub(crate) fn publish_items<'a>(
             target: target_for(targets, module)?,
             artifact,
             version,
-            credentials: ReleaseCredentials::new(entry.token_env.clone()),
+            credentials: ReleaseCredentials::new(
+                entry.token_env.clone(),
+                entry.publication.registry().map(str::to_string),
+            ),
             visibility: entry.visibility,
         });
     }
@@ -942,6 +945,62 @@ mod tests {
             target.publish_token_envs(),
             vec![Some("CARGO_REGISTRY_TOKEN".to_string())],
             "the publish target must receive the resolved token_env as its credential context"
+        );
+    }
+
+    #[test]
+    fn the_default_registry_threads_to_the_publish_target_unchanged() {
+        // The default `crates-io` publication registry rides to the target as
+        // `Some("crates-io")`; the rust adapter maps that to cargo's default
+        // registry, so crates.io publishing is unchanged.
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", Version::new(0, 1, 1), true, 0)],
+        );
+        let target = FakeReleaseTarget::new();
+
+        release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", target.clone())]),
+            &FakeVcsReader::new(),
+            &FakeVcsWriter::new().with_commit_oid("c0ffee"),
+            &ReleaseApplyOptions::default(),
+        )
+        .expect("release apply");
+
+        assert_eq!(
+            target.publish_registries(),
+            vec![Some("crates-io".to_string())]
+        );
+    }
+
+    #[test]
+    fn a_named_registry_is_threaded_to_the_publish_target() {
+        // A non-crates.io publication registry rides from the plan entry through
+        // the publish loop to the target, proving the generic-registry path is
+        // wired end-to-end (the adapter routes `--registry` from this name).
+        let mut core = entry("core", Version::new(0, 1, 1), true, 0);
+        core.publication = toven_ports::PublicationPolicy::Registry {
+            registry: "my-corp".into(),
+        };
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![core]);
+        let target = FakeReleaseTarget::new();
+
+        release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", target.clone())]),
+            &FakeVcsReader::new(),
+            &FakeVcsWriter::new().with_commit_oid("c0ffee"),
+            &ReleaseApplyOptions::default(),
+        )
+        .expect("release apply");
+
+        assert_eq!(
+            target.publish_registries(),
+            vec![Some("my-corp".to_string())],
+            "the publish target must receive the resolved registry as its credential context"
         );
     }
 

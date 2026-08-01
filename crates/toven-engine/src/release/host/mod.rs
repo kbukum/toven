@@ -7,10 +7,12 @@
 //! behind the same [`ReleaseHost`](toven_ports::ReleaseHost) port.
 
 mod github;
+mod gitlab;
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) mod phase;
 
 pub use github::GithubReleaseHost;
+pub use gitlab::GitlabReleaseHost;
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) use phase::{
     PlannedHostRelease, ReleaseHosts, build_hosts, planned_host_releases, run_host_phase,

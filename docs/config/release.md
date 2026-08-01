@@ -52,11 +52,11 @@ assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
 | `push_branch` | Push the release commit's branch alongside the tags; `false` pushes tags only, for a protected release branch whose commit lands through a pull request | `true` |
 | `remote` | Git remote for release pushes | `origin` |
 | `branches` | Allowed release branches; an empty list permits any branch | Any branch |
-| `registry` | Registry selection for Rust crate publication; invalid for Go | No registry, tag-only |
+| `registry` | Registry selection for Rust crate publication: `crates-io` (cargo's default) or a named alternate cargo registry; invalid for Go | No registry, tag-only |
 | `publish` | `false` selects tag-only publication; in a per-module block it also narrows an inherited registry to tag-only | Inherit / registry-driven |
 | `exclude` | Exclude the module from release planning, tagging, registry publication, and hosted releases | `false` |
 | `offline` | Use tags rather than target queries for idempotency; `release status` skips registry lookups too | `false` |
-| `token_env` | Name of the environment variable holding the registry publish token. The publishing adapter reads it at the toolchain boundary and forwards the credential (for cargo, as `CARGO_REGISTRY_TOKEN` on the child process, never on argv); a configured-but-absent variable fails the publish closed. `None` uses the toolchain's ambient credential | None |
+| `token_env` | Name of the environment variable holding the registry publish token. The publishing adapter reads it at the toolchain boundary and forwards the credential to cargo on the child process (never on argv) under the registry's own variable — `CARGO_REGISTRY_TOKEN` for crates.io, or `CARGO_REGISTRIES_<NAME>_TOKEN` for a named alternate registry; a configured-but-absent variable fails the publish closed. `None` uses the toolchain's ambient credential | None |
 | `visibility` | Requested exposure of the release: `public`, `private`, or `internal`. Enforced fail-closed at the registry-publish boundary: a non-public visibility against a public-only registry (crates.io) is rejected at plan time, and the registry adapter enforces the same rule as a last line of defense. The tag push and hosted forge Release follow the remote repository's own exposure | `public` |
 | `readiness` | Named fail-closed checks | None |
 | `hooks` | Reserved pre/post task references. **Rejected** when non-empty: release hooks are not yet executable — run such tasks explicitly around the release command | None |
@@ -126,7 +126,7 @@ readiness = ["clean-tree", "registry-idempotent"]
 
 `clean-tree` and `registry-idempotent` are currently executable. `registry-idempotent` only evaluates registry-published modules; tag-only and excluded modules are ignored by that registry check. A protected publication policy should configure both for registry releases and at least `clean-tree` for tag-only releases.
 
-## Hosted GitHub Releases
+## Hosted forge Releases
 
 ```toml
 [ecosystems.rust.release.host]
@@ -135,7 +135,12 @@ draft = false
 assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
 ```
 
-Asset paths are project-relative exact paths; glob expansion is not implemented. An unset `prerelease` flag derives from the selected version: a version carrying a prerelease identifier (`0.1.0-alpha.1`) marks the hosted Release as a prerelease, whether it came from `--pre` or from the version the module already declares. An unset `notes` value uses the planner's changelog summary.
+`forge` selects the hosted-release adapter; `github` and `gitlab` are supported, and any other value is rejected when the config is parsed. Asset paths are project-relative exact paths; glob expansion is not implemented. An unset `prerelease` flag derives from the selected version: a version carrying a prerelease identifier (`0.1.0-alpha.1`) marks the hosted Release as a prerelease, whether it came from `--pre` or from the version the module already declares. An unset `notes` value uses the planner's changelog summary.
+
+The two forges model releases differently, so the adapters honor what each platform can represent rather than pretending parity:
+
+- **GitHub** (`forge = "github"`, via `gh`) supports draft and prerelease flags and uploads assets as named files; an existing Release is verified field-by-field, including each asset's name and byte size.
+- **GitLab** (`forge = "gitlab"`, via `glab`) has no draft release, so a `draft = true` release is **rejected fail-closed** before any `glab` call — cut it on a forge that supports drafts or drop the flag. GitLab also has no prerelease flag, so `prerelease` is recorded intent the adapter cannot set on the forge; it is neither emitted nor verified. GitLab release assets are links (name + URL) with no byte size, so an existing Release is verified by title, notes, and asset **name** only. Creation uses `glab release create --no-update`, so an existing tag is refused rather than edited in place.
 
 One release tag is one hosted Release. A `tag_format` that omits the module — `v{version}` for a workspace that shares a single version — maps every module onto the same tag, so those modules collapse into a single hosted Release whose assets and notes are the deduplicated union of the contributing modules, and the shared tag itself is created once for the whole release train. Modules sharing a tag but disagreeing on `draft` or `prerelease`, or rendering different tag annotations (`tag_message`), are rejected as a configuration error before any mutation.
 
@@ -153,7 +158,8 @@ The contract distinguishes:
 
 Toven resolves publication into a typed policy before planning:
 
-- `registry = "crates-io"` selects Rust registry publication.
+- `registry = "crates-io"` selects Rust registry publication to crates.io (cargo's default registry).
+- `registry = "<name>"` for any other value selects a **named alternate cargo registry**: the adapter routes the publish via `cargo publish --registry <name>` and reads the publish token from `token_env` into cargo's per-registry variable `CARGO_REGISTRIES_<NAME>_TOKEN` (the name uppercased with non-alphanumerics replaced by `_`), never on argv. The registry itself must be configured in the project's cargo configuration (`[registries.<name>]`). Because a named registry is not the public-only crates.io, a `private`/`internal` `visibility` is **allowed** against it — its own access controls define the exposure.
 - No `registry` selects tag-only publication; Rust crates are not published by default.
 - `publish = false` is an explicit tag-only declaration; in the same block it requires no `registry`, and in a per-module override it narrows an inherited ecosystem registry to tag-only for that one module.
 - `exclude = true` removes the module from release planning entirely; in a per-module override it also narrows an inherited registry to excluded for that one module.
@@ -166,9 +172,9 @@ For Go test-only and benchmark modules, the policy is intentionally explicit: us
 
 `visibility` declares the intended exposure of a release — `public` (default), `private`, or `internal`. It resolves like the other release fields: an ecosystem-level value is inherited, a per-module block overrides it field-by-field, and an unset value defaults to `public`, so existing configs keep releasing publicly unchanged. Unknown values are rejected when the config is parsed.
 
-A non-public visibility is only honored by a target that can actually restrict exposure. crates.io publishes every version world-readable, so a `private`/`internal` release that targets it is a contradiction. Toven fails that closed at **plan time** — before any tag, push, or publish — with a typed `release.visibility` error naming the module and the public-only registry; the crates.io adapter enforces the same rule at the toolchain boundary as a last line of defense. A tag-only release (no registry publication) has no public-only mutation to conflict with, so it may carry any visibility.
+A non-public visibility is only honored by a target that can actually restrict exposure. crates.io publishes every version world-readable, so a `private`/`internal` release that targets it is a contradiction. Toven fails that closed at **plan time** — before any tag, push, or publish — with a typed `release.visibility` error naming the module and the public-only registry; the crates.io adapter enforces the same rule at the toolchain boundary as a last line of defense. A tag-only release (no registry publication) has no public-only mutation to conflict with, so it may carry any visibility. A named alternate registry is assumed to support the requested exposure, so a non-public release may target it.
 
-The tag push and the hosted GitHub Release are **visibility-agnostic**: their exposure follows the remote repository, which Toven does not own. Pushing a tag to a private repository leaks nothing, and a GitHub Release inherits its repository's visibility (a Release has no independent public/private setting), so neither boundary carries a per-Release exposure flag. Visibility is therefore enforced only where a target can actually violate it — the registry publish — and recorded as intent everywhere else.
+The tag push and the hosted forge Release are **visibility-agnostic**: their exposure follows the remote repository, which Toven does not own. Pushing a tag to a private repository leaks nothing, and a forge Release inherits its repository's visibility (a Release has no independent public/private setting), so neither boundary carries a per-Release exposure flag. Visibility is therefore enforced only where a target can actually violate it — the registry publish — and recorded as intent everywhere else.
 
 ## Signing
 
@@ -205,4 +211,4 @@ Every verb is non-mutating with respect to git history, emits typed JSONL under 
 - Settings that name capabilities Toven does not execute — release `hooks` — are rejected with actionable errors rather than silently ignored.
 - Partial publication is recovered by a newly previewed and approved forward fix.
 
-The clean-tree guardrail has no bypass, and hosted GitHub Releases are immutable create-or-verify: an existing Release is verified byte-identical to the intended one or the run fails with a conflict, never edited in place.
+The clean-tree guardrail has no bypass, and hosted forge Releases are immutable create-or-verify: an existing Release is verified against the intended one (byte-identical on GitHub; by title, notes, and asset name on GitLab) or the run fails with a conflict, never edited in place.
