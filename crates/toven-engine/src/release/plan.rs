@@ -229,6 +229,7 @@ pub(crate) fn resolve_release_settings(
         let resolved_settings = ResolvedReleaseSettings::resolve(&ecosystem, over)?;
         validate_ecosystem_publication(module, &resolved_settings)?;
         validate_executable_settings(module, &resolved_settings)?;
+        validate_visibility_compat(module, &resolved_settings)?;
         resolved.insert(module.key(), resolved_settings);
     }
     Ok(resolved)
@@ -255,6 +256,51 @@ fn validate_executable_settings(
         ));
     }
     Ok(())
+}
+
+/// Fail closed when a module requests a non-public [`Visibility`] against a
+/// registry that can only publish public versions (crates.io today), so the
+/// mismatch surfaces at plan time — before any tag, push, or publish — rather
+/// than mid-mutation. The consuming registry adapter enforces the same rule as
+/// a last line of defense; this keeps the failure fast and actionable.
+fn validate_visibility_compat(
+    module: &toven_model::Module,
+    resolved: &ResolvedReleaseSettings,
+) -> AppResult<()> {
+    if resolved.visibility.is_public() {
+        return Ok(());
+    }
+    if let PublicationPolicy::Registry { registry } = &resolved.publication
+        && is_public_only_registry(registry)
+    {
+        return Err(AppError::invalid_input(
+            "release.visibility",
+            format!(
+                "module '{}' requests visibility = {} but publishes to the public-only registry \
+                 '{registry}'; publish to a registry that supports that exposure or set \
+                 visibility = public",
+                module.key(),
+                resolved.visibility.as_str(),
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Whether `registry` names a registry that only hosts public versions. This is
+/// the engine's current registry-exposure knowledge: crates.io publishes every
+/// version world-readable, so a non-public release cannot target it.
+///
+/// This is a known-public-only allow-list, so an *unrecognized* registry does
+/// not trip this plan-time gate. That is safe because the registry adapter — not
+/// this gate — is the authoritative closure: the only publishing adapter today
+/// ([`toven_rust`]'s crates.io target) rejects every non-public exposure at the
+/// toolchain boundary regardless of registry name. A future adapter for a
+/// registry that *can* host private versions must itself honor or reject the
+/// requested exposure; this list only makes the common crates.io mismatch fail
+/// fast with an actionable message before any mutation.
+fn is_public_only_registry(registry: &str) -> bool {
+    matches!(registry, "crates-io" | "crates.io")
 }
 
 fn validate_ecosystem_publication(
@@ -644,6 +690,34 @@ mod tests {
         let message = error.to_string();
         assert!(message.contains("release.hooks"), "{message}");
         assert!(message.contains("not yet executable"), "{message}");
+    }
+
+    #[test]
+    fn private_visibility_to_a_public_only_registry_is_rejected() {
+        // crates.io publishes every version world-readable, so a private/internal
+        // release cannot target it — fail closed at plan time, before any tag or
+        // push, rather than silently publishing it publicly.
+        let error = plan_error_with_release_config(ReleaseConfig {
+            registry: Some("crates-io".into()),
+            visibility: Some(toven_ports::Visibility::Private),
+            ..ReleaseConfig::default()
+        });
+
+        let message = error.to_string();
+        assert!(message.contains("release.visibility"), "{message}");
+        assert!(message.contains("public-only"), "{message}");
+    }
+
+    #[test]
+    fn private_visibility_on_a_tag_only_release_is_accepted() {
+        // A private release that never publishes to a public registry (tag-only)
+        // has no public-only mutation to conflict with, so it resolves cleanly.
+        plan_with_release_config(ReleaseConfig {
+            publish: Some(false),
+            visibility: Some(toven_ports::Visibility::Private),
+            ..ReleaseConfig::default()
+        })
+        .expect("a tag-only private release must be accepted");
     }
 
     #[test]

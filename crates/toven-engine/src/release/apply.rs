@@ -491,6 +491,7 @@ pub(crate) fn publish_items<'a>(
             artifact,
             version,
             credentials: ReleaseCredentials::new(entry.token_env.clone()),
+            visibility: entry.visibility,
         });
     }
     Ok(items)
@@ -833,6 +834,7 @@ mod tests {
             tag_message: None,
             commit_message: None,
             token_env: None,
+            visibility: toven_ports::Visibility::Public,
             push: PushPolicy::BranchAndTags,
             remote: "origin".into(),
             branches: Vec::new(),
@@ -940,6 +942,59 @@ mod tests {
             target.publish_token_envs(),
             vec![Some("CARGO_REGISTRY_TOKEN".to_string())],
             "the publish target must receive the resolved token_env as its credential context"
+        );
+    }
+
+    #[test]
+    fn resolved_visibility_is_threaded_to_the_publish_target() {
+        // A non-default visibility rides from the plan entry through the publish
+        // loop to the release target, proving the exposure reaches the registry
+        // mutation boundary (the target-side fail-closed check consumes it).
+        let mut core = entry("core", Version::new(0, 1, 1), true, 0);
+        core.visibility = toven_ports::Visibility::Internal;
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![core]);
+        let target = FakeReleaseTarget::new();
+
+        release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", target.clone())]),
+            &FakeVcsReader::new(),
+            &FakeVcsWriter::new().with_commit_oid("c0ffee"),
+            &ReleaseApplyOptions::default(),
+        )
+        .expect("release apply");
+
+        assert_eq!(
+            target.publish_visibilities(),
+            vec![toven_ports::Visibility::Internal],
+            "the publish target must receive the resolved visibility as the release exposure"
+        );
+    }
+
+    #[test]
+    fn default_visibility_reaches_the_publish_target_as_public() {
+        // A module that omits `visibility` releases public, unchanged: the entry
+        // default threads through as `Public`.
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![entry("core", Version::new(0, 1, 1), true, 0)],
+        );
+        let target = FakeReleaseTarget::new();
+
+        release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", target.clone())]),
+            &FakeVcsReader::new(),
+            &FakeVcsWriter::new().with_commit_oid("c0ffee"),
+            &ReleaseApplyOptions::default(),
+        )
+        .expect("release apply");
+
+        assert_eq!(
+            target.publish_visibilities(),
+            vec![toven_ports::Visibility::Public],
         );
     }
 

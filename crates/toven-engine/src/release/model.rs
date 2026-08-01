@@ -2,7 +2,7 @@
 
 use rskit_version::semver::Version;
 use toven_model::ModuleKey;
-use toven_ports::{BumpLevel, Oid, PublicationPolicy, ReleaseMutation};
+use toven_ports::{BumpLevel, Oid, PublicationPolicy, ReleaseMutation, Visibility};
 
 /// The engine-owned named bump policy.
 ///
@@ -283,6 +283,10 @@ pub struct ReleaseEntry {
     /// toolchain's ambient credential. Carries the variable *name* only — never
     /// the secret — so a registry adapter reads it at the toolchain boundary.
     pub token_env: Option<String>,
+    /// Exposure this module's release is cut with, resolved from its release
+    /// settings and enforced at every mutation boundary (git push, registry
+    /// publish, hosted forge Release). Defaults to public.
+    pub visibility: Visibility,
     /// How this module's member release refs are pushed: the release commit's
     /// branch alongside the tags, only the tags (tag-only mode for a
     /// protected branch), or nothing.
@@ -502,7 +506,7 @@ impl ReleaseStats {
 mod tests {
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, ModuleKey, ModuleRef};
-    use toven_ports::{BumpLevel, ReleaseMutation};
+    use toven_ports::{BumpLevel, ReleaseMutation, Visibility};
 
     use super::{
         BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PushPolicy, ReleaseEntry, ReleasePlan,
@@ -555,6 +559,7 @@ mod tests {
             tag_message: None,
             commit_message: None,
             token_env: None,
+            visibility: Visibility::Public,
             push: PushPolicy::BranchAndTags,
             remote: "origin".into(),
             branches: Vec::new(),

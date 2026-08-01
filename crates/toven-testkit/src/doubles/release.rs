@@ -13,6 +13,7 @@ use rskit_version::semver::Version;
 use toven_model::{Module, ModuleRef};
 use toven_ports::{
     Artifact, PublishOutcome, ReleaseCredentials, ReleaseMutation, ReleaseTarget, TagScheme,
+    Visibility,
 };
 
 /// A single call recorded by [`FakeReleaseTarget`].
@@ -74,6 +75,7 @@ struct FakeReleaseState {
     fail_sbom: Option<String>,
     calls: Vec<ReleaseCall>,
     publish_token_envs: Vec<Option<String>>,
+    publish_visibilities: Vec<Visibility>,
 }
 
 impl Default for FakeReleaseTarget {
@@ -94,6 +96,7 @@ impl Default for FakeReleaseTarget {
                 fail_sbom: None,
                 calls: Vec::new(),
                 publish_token_envs: Vec::new(),
+                publish_visibilities: Vec::new(),
             })),
         }
     }
@@ -214,6 +217,13 @@ impl FakeReleaseTarget {
         self.state().publish_token_envs.clone()
     }
 
+    /// Snapshot the [`Visibility`] each `publish` call received, in call order —
+    /// the exposure the engine threaded from the resolved release settings.
+    #[must_use]
+    pub fn publish_visibilities(&self) -> Vec<Visibility> {
+        self.state().publish_visibilities.clone()
+    }
+
     fn state(&self) -> std::sync::MutexGuard<'_, FakeReleaseState> {
         self.inner.lock().expect("FakeReleaseTarget mutex poisoned")
     }
@@ -285,12 +295,14 @@ impl ReleaseTarget for FakeReleaseTarget {
         module: &Module,
         _artifact: &Artifact,
         credentials: &ReleaseCredentials,
+        visibility: Visibility,
     ) -> AppResult<PublishOutcome> {
         self.record(ReleaseCall::Publish(module.id.clone()));
         let mut state = self.state();
         state
             .publish_token_envs
             .push(credentials.registry_token_env().map(str::to_string));
+        state.publish_visibilities.push(visibility);
         if let Some(message) = &state.fail_publish {
             return Err(fake_error(message));
         }
@@ -358,7 +370,7 @@ fn render_tag_format(format: &str, module: &Module) -> AppResult<TagScheme> {
 mod tests {
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
-    use toven_ports::{Artifact, PublishOutcome, ReleaseCredentials, ReleaseTarget};
+    use toven_ports::{Artifact, PublishOutcome, ReleaseCredentials, ReleaseTarget, Visibility};
 
     use super::FakeReleaseTarget;
 
@@ -387,6 +399,7 @@ mod tests {
                     &module,
                     &Artifact::new("dist/x"),
                     &ReleaseCredentials::default(),
+                    Visibility::Public,
                 )
                 .expect("ok"),
             PublishOutcome::AlreadyPublished

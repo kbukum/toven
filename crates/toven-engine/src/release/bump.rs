@@ -234,6 +234,10 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
                 .settings
                 .get(&reference)
                 .and_then(|resolved| resolved.token_env.clone()),
+            visibility: input
+                .settings
+                .get(&reference)
+                .map_or_else(Default::default, |resolved| resolved.visibility),
             push: input
                 .settings
                 .get(&reference)

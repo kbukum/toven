@@ -7,7 +7,7 @@ use rskit_errors::AppResult;
 use rskit_version::semver::Version;
 use toven_model::Module;
 
-use super::{Artifact, PublishOutcome, ReleaseCredentials, ReleaseMutation, TagScheme};
+use super::{Artifact, PublishOutcome, ReleaseCredentials, ReleaseMutation, TagScheme, Visibility};
 
 /// The ~10% ecosystem-specific release surface.
 ///
@@ -52,11 +52,18 @@ pub trait ReleaseTarget {
     /// argv), while a tag-only target ignores it. A `None`
     /// [`registry_token_env`](ReleaseCredentials::registry_token_env) means
     /// "use the toolchain's ambient default credential".
+    ///
+    /// `visibility` is the exposure the release is cut with. A registry that can
+    /// only publish public versions (e.g. crates.io) **fails closed** with a
+    /// typed error on any non-public visibility rather than silently publishing
+    /// it publicly; a registry that supports the requested exposure creates the
+    /// version accordingly.
     fn publish(
         &self,
         module: &Module,
         artifact: &Artifact,
         credentials: &ReleaseCredentials,
+        visibility: Visibility,
     ) -> AppResult<PublishOutcome>;
 
     /// Generate a `CycloneDX` SBOM for the module, writing it under `out_dir`.

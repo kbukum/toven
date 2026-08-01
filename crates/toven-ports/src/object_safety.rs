@@ -56,6 +56,7 @@ impl ReleaseTarget for FakeReleaseTarget {
         _module: &Module,
         _artifact: &Artifact,
         _credentials: &ReleaseCredentials,
+        _visibility: Visibility,
     ) -> AppResult<PublishOutcome> {
         Ok(PublishOutcome::Published)
     }
@@ -329,7 +330,12 @@ fn port_traits_are_object_safe() {
         .expect("applies");
     assert_eq!(
         target
-            .publish(&module, &artifact, &ReleaseCredentials::default())
+            .publish(
+                &module,
+                &artifact,
+                &ReleaseCredentials::default(),
+                Visibility::Public
+            )
             .expect("publishes"),
         PublishOutcome::Published
     );

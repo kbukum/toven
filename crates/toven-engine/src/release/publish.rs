@@ -15,7 +15,7 @@ use std::time::{Duration, SystemTime};
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_version::semver::Version;
 use toven_model::Module;
-use toven_ports::{Artifact, PublishOutcome, ReleaseCredentials, ReleaseTarget};
+use toven_ports::{Artifact, PublishOutcome, ReleaseCredentials, ReleaseTarget, Visibility};
 
 use super::ReleaseStats;
 
@@ -38,6 +38,9 @@ pub(crate) struct PublishItem<'a> {
     /// Registry credential context resolved from this module's release
     /// settings — carries only the token env-var name, never the secret.
     pub(super) credentials: ReleaseCredentials,
+    /// Exposure the release is cut with; a public-only registry fails closed on
+    /// any non-public visibility.
+    pub(super) visibility: Visibility,
 }
 
 /// Publish each item in order, accounting outcomes into `stats`.
@@ -79,10 +82,12 @@ fn publish_one(
 
     let mut waits = 0_usize;
     loop {
-        match item
-            .target
-            .publish(item.module, item.artifact, &item.credentials)?
-        {
+        match item.target.publish(
+            item.module,
+            item.artifact,
+            &item.credentials,
+            item.visibility,
+        )? {
             PublishOutcome::Published => {
                 stats.published_modules += 1;
                 return Ok(());

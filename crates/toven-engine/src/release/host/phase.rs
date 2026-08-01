@@ -349,6 +349,7 @@ mod tests {
             tag_message: None,
             commit_message: None,
             token_env: None,
+            visibility: toven_ports::Visibility::Public,
             push: PushPolicy::BranchAndTags,
             remote: "origin".into(),
             branches: Vec::new(),
