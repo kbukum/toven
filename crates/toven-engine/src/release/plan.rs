@@ -228,34 +228,10 @@ pub(crate) fn resolve_release_settings(
             .map(|entry| &entry.release);
         let resolved_settings = ResolvedReleaseSettings::resolve(&ecosystem, over)?;
         validate_ecosystem_publication(module, &resolved_settings)?;
-        validate_executable_settings(module, &resolved_settings)?;
         validate_visibility_compat(module, &resolved_settings)?;
         resolved.insert(module.key(), resolved_settings);
     }
     Ok(resolved)
-}
-
-/// Fail closed on resolved settings that name release capabilities the engine
-/// does not execute. A configured-but-ignored setting is a safety hazard: a
-/// maintainer believes a hook gated the release while nothing runs. Until the
-/// engine executes these, the honest behavior is an actionable typed rejection.
-/// (Signing is executable — see `release::sign` — so it is not rejected here.)
-fn validate_executable_settings(
-    module: &toven_model::Module,
-    resolved: &ResolvedReleaseSettings,
-) -> AppResult<()> {
-    if !resolved.hooks.pre.is_empty() || !resolved.hooks.post.is_empty() {
-        return Err(AppError::invalid_input(
-            "release.hooks",
-            format!(
-                "module '{}' configures release hooks, which are not yet executable; remove \
-                 the […release.hooks] block and run any pre/post tasks explicitly around the \
-                 release command",
-                module.key()
-            ),
-        ));
-    }
-    Ok(())
 }
 
 /// Fail closed when a module requests a non-public [`Visibility`] against a
@@ -672,24 +648,6 @@ mod tests {
     /// release config is `release`, returning the resolution error.
     fn plan_error_with_release_config(release: ReleaseConfig) -> rskit_errors::AppError {
         plan_with_release_config(release).expect_err("the configured setting must fail closed")
-    }
-
-    #[test]
-    fn configured_release_hooks_are_rejected_as_not_yet_executable() {
-        // A silently ignored pre-release hook (e.g. a test gate) would let a
-        // maintainer believe the release was gated when nothing ran — fail
-        // closed until the engine actually executes hooks.
-        let error = plan_error_with_release_config(ReleaseConfig {
-            hooks: Some(toven_ports::HooksConfig {
-                pre: vec!["test".into()],
-                post: Vec::new(),
-            }),
-            ..ReleaseConfig::default()
-        });
-
-        let message = error.to_string();
-        assert!(message.contains("release.hooks"), "{message}");
-        assert!(message.contains("not yet executable"), "{message}");
     }
 
     #[test]

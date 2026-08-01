@@ -82,6 +82,13 @@ impl AssetDownloader for FakeDownloader {
     }
 }
 
+struct FakeHookRunner;
+impl HookRunner for FakeHookRunner {
+    fn run_hook(&self, _phase: HookPhase, _reference: &str) -> AppResult<()> {
+        Ok(())
+    }
+}
+
 struct FakeVerifier;
 impl SignatureVerifier for FakeVerifier {
     fn verify_blob(
@@ -352,6 +359,13 @@ fn port_traits_are_object_safe() {
             None,
         )
         .expect("signs without error");
+
+    // Exercise the HookRunner port.
+    let hook_runner: Box<dyn HookRunner> = Box::new(FakeHookRunner);
+    hook_runner
+        .run_hook(HookPhase::Pre, "test")
+        .expect("runs hook without error");
+    assert_eq!(HookPhase::Post.as_str(), "post");
 
     // Exercise the release-verification ports.
     let downloader: Box<dyn AssetDownloader> = Box::new(FakeDownloader);

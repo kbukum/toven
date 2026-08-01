@@ -6,12 +6,13 @@ use rskit_errors::{AppError, AppResult};
 use rskit_util::Template;
 use serde::{Deserialize, Serialize};
 
+use crate::config::HooksConfig;
 use crate::release::Visibility;
 use crate::template::ReleaseVar;
 
 use super::{
-    BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, HostConfig, PrereleaseConfig,
-    PublicationPolicy, SignConfig,
+    BumpLevel, ChangelogConfig, DependentVersion, HostConfig, PrereleaseConfig, PublicationPolicy,
+    SignConfig,
 };
 
 /// The declarative release surface (`[ecosystems.<id>].release` and the

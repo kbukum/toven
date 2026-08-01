@@ -33,6 +33,9 @@
 //! - [`exec`] — [`CommandRunner`]: the injected process-execution seam consumed
 //!   by the APPLY wave walk (concrete `rskit-process` runner lives in the
 //!   engine).
+//! - [`hook`] — [`HookRunner`]: the injected lifecycle-hook seam that runs a
+//!   configured pre/post task reference (concrete PLAN→APPLY runner lives in the
+//!   CLI).
 //! - [`discover`] — the discovery request/response vocabulary.
 //! - [`driver`] — [`DriverLocator`]/[`DriverWizard`]: the out-of-process
 //!   `toven-<eco>` driver seams (concrete adapters live in the engine).
@@ -51,6 +54,7 @@ pub mod config;
 pub mod discover;
 pub mod driver;
 pub mod exec;
+pub mod hook;
 pub mod merge;
 pub mod provider;
 pub mod raw_output;
@@ -76,6 +80,7 @@ pub use exec::{
     CommandRunner, HeldProcess, Invocation, InvocationEnvPolicy, InvocationEnvironment,
     OutputObserver, RunOutcome, StartOutcome,
 };
+pub use hook::{HookPhase, HookRunner};
 pub use merge::{merge_coverage, merge_release, merge_task};
 pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
 pub use raw_output::RawOutputSink;

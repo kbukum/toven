@@ -396,6 +396,7 @@ fn run(
         publish: matches!(action, ReleaseAction::Publish),
         ..ReleaseApplyOptions::default()
     };
+    let hooks = crate::commands::hook::CliHookRunner::new(providers, project, cli);
     release_run(
         &request,
         &project.document,
@@ -404,6 +405,7 @@ fn run(
         &repos,
         &overrides,
         sink,
+        &hooks,
         &options,
     )?;
     Ok(ExitCode::Success)

@@ -132,6 +132,7 @@ fn release_shards_history_mutations_per_member_repo() {
         ..ReleaseApplyOptions::default()
     };
     let mut reporter = toven_testkit::RecordingReporter::new();
+    let hooks = toven_testkit::RecordingHookRunner::new();
 
     let stats = release_run(
         &request,
@@ -141,6 +142,7 @@ fn release_shards_history_mutations_per_member_repo() {
         &repos,
         &BumpOverrides::new(),
         &mut reporter,
+        &hooks,
         &options,
     )
     .expect("federated release runs");

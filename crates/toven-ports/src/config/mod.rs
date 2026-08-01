@@ -3,6 +3,7 @@
 
 mod common;
 mod coverage;
+mod hooks;
 mod release;
 mod run_strategy;
 mod task_entry;
@@ -10,9 +11,10 @@ mod task_override;
 
 pub use common::CommonEcosystemConfig;
 pub use coverage::{CoverageConfig, CoverageProfile, CoverageThresholds, Enforcement};
+pub use hooks::HooksConfig;
 pub use release::{
-    BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, HostConfig, PrereleaseConfig,
-    PublicationPolicy, ReleaseConfig, SignConfig,
+    BumpLevel, ChangelogConfig, DependentVersion, HostConfig, PrereleaseConfig, PublicationPolicy,
+    ReleaseConfig, SignConfig,
 };
 pub use run_strategy::RunStrategy;
 pub use task_entry::TaskEntry;

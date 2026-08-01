@@ -55,9 +55,9 @@ pub use doubles::{
     CountingToolchainProber, EMPTY_IDENTITY, FakeAssetDownloader, FakeCacheStore,
     FakeCommandRunner, FakeConfiguredAdapter, FakeDriverLocator, FakeDriverWizard, FakeProvider,
     FakeReleaseHost, FakeReleaseTarget, FakeSignatureVerifier, FakeSigner, FakeSourceDigest,
-    FakeVcsReader, FakeVcsWriter, FakeVersionProbe, HostCall, RecordingCacheStore,
-    RecordingCacheWriter, RecordingRawOutputSink, RecordingReporter, ReleaseCall, ScriptedAnswers,
-    ScriptedWatchSource, SignerCall, VcsWrite, VerifyCall, WatchCall,
+    FakeVcsReader, FakeVcsWriter, FakeVersionProbe, HookCall, HostCall, RecordingCacheStore,
+    RecordingCacheWriter, RecordingHookRunner, RecordingRawOutputSink, RecordingReporter,
+    ReleaseCall, ScriptedAnswers, ScriptedWatchSource, SignerCall, VcsWrite, VerifyCall, WatchCall,
 };
 pub use fixtures::{
     FIXTURES_ROOT, coverage_profile_string, document, document_path, document_string, ecosystem,

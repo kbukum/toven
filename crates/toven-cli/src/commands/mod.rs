@@ -13,6 +13,7 @@ pub(crate) mod cache;
 pub(crate) mod completions;
 pub(crate) mod coverage;
 pub(crate) mod driver;
+pub(crate) mod hook;
 pub(crate) mod init;
 pub(crate) mod introspect;
 pub(crate) mod release;

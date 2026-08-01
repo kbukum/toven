@@ -59,7 +59,7 @@ assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
 | `token_env` | Name of the environment variable holding the registry publish token. The publishing adapter reads it at the toolchain boundary and forwards the credential to cargo on the child process (never on argv) under the registry's own variable — `CARGO_REGISTRY_TOKEN` for crates.io, or `CARGO_REGISTRIES_<NAME>_TOKEN` for a named alternate registry; a configured-but-absent variable fails the publish closed. `None` uses the toolchain's ambient credential | None |
 | `visibility` | Requested exposure of the release: `public`, `private`, or `internal`. Enforced fail-closed at the registry-publish boundary: a non-public visibility against a public-only registry (crates.io) is rejected at plan time, and the registry adapter enforces the same rule as a last line of defense. The tag push and hosted forge Release follow the remote repository's own exposure | `public` |
 | `readiness` | Named fail-closed checks | None |
-| `hooks` | Reserved pre/post task references. **Rejected** when non-empty: release hooks are not yet executable — run such tasks explicitly around the release command | None |
+| `hooks` | Pre/post task references run around the release. Each `pre` task runs (deduplicated, in module-key then declaration order) before any mutation — a non-success aborts the release fail-closed before any tag, push, or publish — and each `post` task runs after a successful release. Executed by the injected `HookRunner` port (the CLI resolves each reference through the `run` verb); the reconcile early-return path skips post-hooks. Distinct from `readiness`, which gates rather than performs work | None |
 
 Templates accept the documented release variables such as `{ecosystem}`, `{module}`, and `{version}`. Unknown placeholders, blank names, unsafe paths, and unsupported readiness checks fail validation.
 
@@ -208,7 +208,7 @@ Every verb is non-mutating with respect to git history, emits typed JSONL under 
 - Real publication requires `--yes`, an allowed branch, and a clean tree.
 - Release tags, registry versions, hosted Releases, and hosted assets are immutable.
 - Tokens remain in environment variables or credential stores: `token_env` names the variable; the secret is read only at the publishing toolchain boundary and never appears on argv, in a log, or in engine memory.
-- Settings that name capabilities Toven does not execute — release `hooks` — are rejected with actionable errors rather than silently ignored.
+- Release `hooks` are executed, not ignored: each `pre` task runs before any mutation (a non-success aborts fail-closed before any tag, push, or publish) and each `post` task runs only after a successful release.
 - Partial publication is recovered by a newly previewed and approved forward fix.
 
 The clean-tree guardrail has no bypass, and hosted forge Releases are immutable create-or-verify: an existing Release is verified against the intended one (byte-identical on GitHub; by title, notes, and asset name on GitLab) or the run fails with a conflict, never edited in place.
