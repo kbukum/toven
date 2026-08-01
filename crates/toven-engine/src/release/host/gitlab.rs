@@ -376,11 +376,13 @@ fn glab(root: &Path, args: Vec<String>, stdin: &[u8]) -> AppResult<ProcessResult
 mod tests {
     use std::collections::BTreeSet;
 
+    use rskit_fs::TempDir;
     use toven_ports::{HostedRelease, ReleaseAsset, ReleaseHost};
 
     use super::{
         ExistingRelease, GitlabReleaseHost, ProcessResult, asset_link_name, create_argv,
-        parse_existing, reconcile, release_already_exists, release_not_found, view_argv,
+        parse_existing, reconcile, release_already_exists, release_not_found, validate_assets,
+        view_argv,
     };
 
     fn release() -> HostedRelease {
@@ -578,5 +580,86 @@ mod tests {
                 {"name":"core.tgz.sig","url":"https://x/core.tgz.sig"}]}}"#,
         );
         reconcile(&intended, &local, &existing).expect("extra signature link tolerated");
+    }
+
+    #[test]
+    fn validate_assets_collects_relative_link_names() {
+        // Asset paths are carried project-relative; validation is the single
+        // fs-touching site that resolves them against the release root and
+        // yields the link names GitLab will record.
+        let temp = TempDir::new().expect("temp dir");
+        temp.write_file("dist/core.tgz", b"payload")
+            .expect("stage asset");
+        let release = release().with_assets(vec![
+            ReleaseAsset::new("dist/core.tgz").with_label("archive"),
+        ]);
+
+        let names = validate_assets(temp.path(), &release).expect("relative asset validated");
+
+        assert_eq!(names, BTreeSet::from(["archive".to_string()]));
+    }
+
+    #[test]
+    fn validate_assets_rejects_a_traversal_asset_path() {
+        let temp = TempDir::new().expect("temp dir");
+        let release = release().with_assets(vec![ReleaseAsset::new("../evil")]);
+
+        let error = validate_assets(temp.path(), &release)
+            .expect_err("a traversal asset path fails closed");
+
+        let message = error.to_string();
+        assert!(message.contains("release.host.assets"), "{message}");
+        assert!(message.contains("../evil"), "{message}");
+        assert!(message.contains("escapes the repository root"), "{message}");
+    }
+
+    #[test]
+    fn validate_assets_rejects_an_absolute_asset_path() {
+        let temp = TempDir::new().expect("temp dir");
+        let release = release().with_assets(vec![ReleaseAsset::new("/etc/passwd")]);
+
+        let error = validate_assets(temp.path(), &release)
+            .expect_err("an absolute asset path fails closed");
+
+        assert!(
+            error.to_string().contains("escapes the repository root"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn validate_assets_rejects_a_non_regular_file() {
+        // A directory resolves inside the root but is not an uploadable file;
+        // reject it before any `glab` mutation rather than let glab fail mid-run.
+        let temp = TempDir::new().expect("temp dir");
+        std::fs::create_dir_all(temp.path().join("dist")).expect("stage directory");
+        let release = release().with_assets(vec![ReleaseAsset::new("dist")]);
+
+        let error =
+            validate_assets(temp.path(), &release).expect_err("a non-regular file fails closed");
+
+        assert!(
+            error.to_string().contains("is not a regular file"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn validate_assets_rejects_two_assets_uploading_under_the_same_name() {
+        let temp = TempDir::new().expect("temp dir");
+        temp.write_file("a/core.tgz", b"one").expect("stage a");
+        temp.write_file("b/core.tgz", b"two").expect("stage b");
+        let release = release().with_assets(vec![
+            ReleaseAsset::new("a/core.tgz"),
+            ReleaseAsset::new("b/core.tgz"),
+        ]);
+
+        let error =
+            validate_assets(temp.path(), &release).expect_err("colliding upload names fail closed");
+
+        assert!(
+            error.to_string().contains("same name 'core.tgz'"),
+            "{error}"
+        );
     }
 }
