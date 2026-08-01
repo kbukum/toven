@@ -204,10 +204,14 @@ impl ReleaseTarget for CratesIoTarget {
         credentials: &ReleaseCredentials,
         visibility: Visibility,
     ) -> AppResult<PublishOutcome> {
-        // crates.io is a public-only registry: every published version is world
-        // readable. Fail closed rather than publish a version a maintainer asked
-        // to keep private/internal to a registry that cannot honor it.
-        if !visibility.is_public() {
+        let registry = credentials.registry();
+        // crates.io (the cargo default) is a public-only registry: every
+        // published version is world readable. Fail closed rather than publish a
+        // version a maintainer asked to keep private/internal to a registry that
+        // cannot honor it. A named alternate registry is assumed to support the
+        // requested exposure (its own access controls define it), so the publish
+        // proceeds to that registry.
+        if is_default_registry(registry) && !visibility.is_public() {
             return Err(AppError::invalid_input(
                 "release.visibility",
                 format!(
@@ -225,16 +229,7 @@ impl ReleaseTarget for CratesIoTarget {
         // never through engine memory. `None` lets cargo resolve its ambient
         // credential as usual.
         let token = registry_token_injection(credentials, rskit_util::env::get_non_empty)?;
-        let output = cargo_with_env(
-            Self::working_root()?,
-            [
-                "publish".to_string(),
-                "--manifest-path".to_string(),
-                path.display().to_string(),
-                "--allow-dirty".to_string(),
-            ],
-            token,
-        )?;
+        let output = cargo_with_env(Self::working_root()?, publish_argv(&path, registry), token)?;
         classify_publish(*self, module, &output)
     }
 
@@ -470,10 +465,11 @@ where
 /// Resolve the registry-token environment injection for a publish attempt.
 ///
 /// Given the publish `credentials` and an environment accessor `env` (a
-/// variable name → its non-empty value), return the
-/// `(CARGO_REGISTRY_TOKEN, <value>)` pair cargo must see on its child
-/// environment, or `None` when no `token_env` is configured (cargo falls back
-/// to its ambient credential). A configured-but-absent/empty variable is a
+/// variable name → its non-empty value), return the registry's token
+/// environment variable and its value (`CARGO_REGISTRY_TOKEN` for crates.io,
+/// or `CARGO_REGISTRIES_<NAME>_TOKEN` for a named alternate registry) that
+/// cargo must see on its child environment, or `None` when no `token_env` is
+/// configured (cargo falls back to its ambient credential). A configured-but-absent/empty variable is a
 /// typed error — the maintainer named an explicit credential source that is not
 /// present, so fail closed rather than silently attempt an unauthenticated
 /// publish. The accessor is a parameter so the resolution logic is unit-tested
@@ -497,7 +493,62 @@ where
             ),
         )
     })?;
-    Ok(Some((CARGO_REGISTRY_TOKEN_ENV.to_string(), value)))
+    Ok(Some((cargo_token_env_name(credentials.registry()), value)))
+}
+
+/// Whether `registry` names the cargo default registry (crates.io) rather than
+/// a named alternate. `None` and crates.io's canonical names are the default;
+/// any other value selects a named alternate registry.
+fn is_default_registry(registry: Option<&str>) -> bool {
+    matches!(registry, None | Some("crates-io" | "crates.io"))
+}
+
+/// Build the `cargo publish` argv for a module, routing to a named alternate
+/// registry via `--registry <name>` when one is configured (the cargo default
+/// registry, crates.io, adds no flag).
+fn publish_argv(manifest: &Path, registry: Option<&str>) -> Vec<String> {
+    let mut argv = vec![
+        "publish".to_string(),
+        "--manifest-path".to_string(),
+        manifest.display().to_string(),
+        "--allow-dirty".to_string(),
+    ];
+    if !is_default_registry(registry)
+        && let Some(name) = registry
+    {
+        argv.push("--registry".to_string());
+        argv.push(name.to_string());
+    }
+    argv
+}
+
+/// The cargo environment-variable name that carries the publish token for the
+/// selected registry: `CARGO_REGISTRY_TOKEN` for the default registry, or
+/// `CARGO_REGISTRIES_<NAME>_TOKEN` for a named alternate registry (cargo's
+/// config-env convention: the registry name uppercased with every
+/// non-alphanumeric byte replaced by `_`).
+fn cargo_token_env_name(registry: Option<&str>) -> String {
+    match registry {
+        Some(name) if !is_default_registry(Some(name)) => {
+            format!("CARGO_REGISTRIES_{}_TOKEN", cargo_registry_env_key(name))
+        }
+        _ => CARGO_REGISTRY_TOKEN_ENV.to_string(),
+    }
+}
+
+/// Uppercase a registry name and replace every non-alphanumeric character with
+/// `_`, matching cargo's `[registries.<name>]` config-env key derivation.
+fn cargo_registry_env_key(registry: &str) -> String {
+    registry
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// Run `cargo metadata --no-deps` for `manifest`, bounded and timed-out, to
@@ -779,8 +830,9 @@ mod tests {
     use toml_edit::Item;
 
     use super::{
-        apply_mutation, create_all, parse_cargo_search_versions, read_declared_version,
-        registry_token_injection, remove_stray_sbom_files, sbom_argv, sbom_output_candidates,
+        apply_mutation, cargo_token_env_name, create_all, parse_cargo_search_versions,
+        publish_argv, read_declared_version, registry_token_injection, remove_stray_sbom_files,
+        sbom_argv, sbom_output_candidates,
     };
     use toven_ports::ReleaseCredentials;
 
@@ -938,7 +990,7 @@ core = \"1.4.2\"    # A core crate
         // A configured token_env is read from the (test-supplied) environment and
         // handed to cargo under CARGO_REGISTRY_TOKEN — the name cargo reads —
         // never on argv.
-        let credentials = ReleaseCredentials::new(Some("MY_REGISTRY_TOKEN".into()));
+        let credentials = ReleaseCredentials::new(Some("MY_REGISTRY_TOKEN".into()), None);
         let injected = registry_token_injection(&credentials, |name| {
             (name == "MY_REGISTRY_TOKEN").then(|| "s3cr3t".to_string())
         })
@@ -946,6 +998,23 @@ core = \"1.4.2\"    # A core crate
         assert_eq!(
             injected,
             Some(("CARGO_REGISTRY_TOKEN".to_string(), "s3cr3t".to_string()))
+        );
+    }
+
+    #[test]
+    fn registry_token_injection_targets_a_named_registry_token_var() {
+        // A named alternate registry reads the same configured source var, but
+        // hands the secret to cargo under CARGO_REGISTRIES_<NAME>_TOKEN — the
+        // name cargo reads for that registry — never on argv.
+        let credentials =
+            ReleaseCredentials::new(Some("CI_TOKEN".into()), Some("my-corp".into()));
+        let injected = registry_token_injection(&credentials, |name| {
+            (name == "CI_TOKEN").then(|| "s3cr3t".to_string())
+        })
+        .expect("a present token var resolves");
+        assert_eq!(
+            injected,
+            Some(("CARGO_REGISTRIES_MY_CORP_TOKEN".to_string(), "s3cr3t".to_string()))
         );
     }
 
@@ -963,12 +1032,38 @@ core = \"1.4.2\"    # A core crate
     fn registry_token_injection_fails_closed_when_the_named_var_is_absent() {
         // A configured-but-absent credential source must fail closed rather than
         // silently attempt an unauthenticated publish.
-        let credentials = ReleaseCredentials::new(Some("MISSING_TOKEN".into()));
+        let credentials = ReleaseCredentials::new(Some("MISSING_TOKEN".into()), None);
         let error = registry_token_injection(&credentials, |_| None)
             .expect_err("an unset named token var must be a typed error");
         let message = error.to_string();
         assert!(message.contains("release.token_env"), "{message}");
         assert!(message.contains("MISSING_TOKEN"), "{message}");
+    }
+
+    #[test]
+    fn publish_argv_targets_crates_io_by_default_and_a_named_alternate_registry() {
+        let manifest = Path::new("crates/core/Cargo.toml");
+        // The cargo default registry (None or crates.io's canonical names) adds
+        // no `--registry` flag: crates.io behavior is unchanged.
+        for default in [None, Some("crates-io"), Some("crates.io")] {
+            let argv = publish_argv(manifest, default);
+            assert_eq!(&argv[0..2], &["publish", "--manifest-path"]);
+            assert!(argv.iter().all(|arg| arg != "--registry"), "{default:?}");
+        }
+        // A named alternate registry routes the publish via `--registry <name>`.
+        let argv = publish_argv(manifest, Some("my-corp"));
+        let idx = argv.iter().position(|arg| arg == "--registry").expect("flag");
+        assert_eq!(argv[idx + 1], "my-corp");
+    }
+
+    #[test]
+    fn cargo_token_env_name_follows_cargos_registry_convention() {
+        assert_eq!(cargo_token_env_name(None), "CARGO_REGISTRY_TOKEN");
+        assert_eq!(cargo_token_env_name(Some("crates-io")), "CARGO_REGISTRY_TOKEN");
+        assert_eq!(
+            cargo_token_env_name(Some("my-corp")),
+            "CARGO_REGISTRIES_MY_CORP_TOKEN"
+        );
     }
 
     #[test]
@@ -1111,6 +1206,31 @@ mod tag_scheme_tests {
                 .to_string()
                 .contains("crates.io only publishes public")
         );
+    }
+
+    #[test]
+    fn publishing_a_non_public_version_to_a_named_registry_bypasses_the_crates_io_gate() {
+        use toven_ports::{Artifact, ReleaseCredentials, ReleaseTarget, Visibility};
+
+        // A named alternate registry is not the public-only crates.io, so the
+        // adapter does not reject a private/internal exposure: the publish is
+        // allowed to proceed (here it fails later, at manifest resolution — never
+        // at the visibility gate).
+        let artifact = Artifact::new(std::path::PathBuf::from("crates/core"));
+        let error = CratesIoTarget::new()
+            .publish(
+                &module(),
+                &artifact,
+                &ReleaseCredentials::new(None, Some("my-corp".into())),
+                Visibility::Private,
+            )
+            .expect_err("no manifest on the fixture module, so publish still fails");
+
+        assert!(
+            !error.to_string().contains("release.visibility"),
+            "a named registry must not trip the crates.io visibility gate: {error}"
+        );
+        assert!(error.to_string().contains("manifest"), "{error}");
     }
 
     #[test]

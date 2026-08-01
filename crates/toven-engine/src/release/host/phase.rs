@@ -16,12 +16,16 @@ use toven_model::{MemberId, Module, ModuleKey};
 use toven_ports::{HostedRelease, ReleaseAsset, ReleaseHost};
 
 use super::github::GithubReleaseHost;
+use super::gitlab::GitlabReleaseHost;
 use crate::federation::release::MemberReleaseRepos;
 use crate::release::settings::ResolvedReleaseSettings;
 use crate::release::{ReleasePlan, ReleaseStats, ReleaseTargets, tag};
 
 /// Forge identifier for the GitHub hosted-release adapter.
 const FORGE_GITHUB: &str = "github";
+
+/// Forge identifier for the GitLab hosted-release adapter.
+const FORGE_GITLAB: &str = "gitlab";
 
 /// Concrete forge hosts resolved from config, keyed by forge identifier.
 #[allow(clippy::redundant_pub_crate)]
@@ -64,10 +68,11 @@ pub(crate) fn build_hosts(
 fn build_host(forge: &str) -> AppResult<Box<dyn ReleaseHost>> {
     match forge {
         FORGE_GITHUB => Ok(Box::new(GithubReleaseHost::new())),
+        FORGE_GITLAB => Ok(Box::new(GitlabReleaseHost::new())),
         other => Err(AppError::invalid_input(
             "release.host.forge",
             format!(
-                "unsupported forge '{other}'; only 'github' is supported (gitlab is a documented seam)"
+                "unsupported forge '{other}'; supported forges are 'github' and 'gitlab'"
             ),
         )),
     }
@@ -644,5 +649,15 @@ mod tests {
     fn build_hosts_resolves_github() {
         let hosts = build_hosts(&settings("core", Some(github_host()))).unwrap();
         assert!(hosts.contains_key("github"));
+    }
+
+    #[test]
+    fn build_hosts_resolves_gitlab() {
+        let host = HostConfig {
+            forge: Some("gitlab".into()),
+            ..HostConfig::default()
+        };
+        let hosts = build_hosts(&settings("core", Some(host))).unwrap();
+        assert!(hosts.contains_key("gitlab"));
     }
 }

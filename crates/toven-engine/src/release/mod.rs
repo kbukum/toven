@@ -29,7 +29,7 @@ mod verify;
 pub use apply::{ReleaseApplyOptions, release_apply};
 pub use checksums::{ChecksumEntry, ChecksumReport, release_checksums};
 pub use depgraphs::{DepgraphReport, release_depgraphs};
-pub use host::GithubReleaseHost;
+pub use host::{GithubReleaseHost, GitlabReleaseHost};
 pub use manifest::ArtifactManifest;
 pub use model::{
     BumpPolicy, BumpReason, BumpSource, ChangelogEntry, HostRehearsal, PublishDecision, PushPolicy,

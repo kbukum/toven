@@ -75,6 +75,7 @@ struct FakeReleaseState {
     fail_sbom: Option<String>,
     calls: Vec<ReleaseCall>,
     publish_token_envs: Vec<Option<String>>,
+    publish_registries: Vec<Option<String>>,
     publish_visibilities: Vec<Visibility>,
 }
 
@@ -96,6 +97,7 @@ impl Default for FakeReleaseTarget {
                 fail_sbom: None,
                 calls: Vec::new(),
                 publish_token_envs: Vec::new(),
+                publish_registries: Vec::new(),
                 publish_visibilities: Vec::new(),
             })),
         }
@@ -217,6 +219,15 @@ impl FakeReleaseTarget {
         self.state().publish_token_envs.clone()
     }
 
+    /// Snapshot the configured registry name each `publish` call received (via
+    /// the [`ReleaseCredentials`] the engine threaded from the resolved release
+    /// settings), in call order. `None` entries publish to the toolchain's
+    /// default registry.
+    #[must_use]
+    pub fn publish_registries(&self) -> Vec<Option<String>> {
+        self.state().publish_registries.clone()
+    }
+
     /// Snapshot the [`Visibility`] each `publish` call received, in call order —
     /// the exposure the engine threaded from the resolved release settings.
     #[must_use]
@@ -302,6 +313,9 @@ impl ReleaseTarget for FakeReleaseTarget {
         state
             .publish_token_envs
             .push(credentials.registry_token_env().map(str::to_string));
+        state
+            .publish_registries
+            .push(credentials.registry().map(str::to_string));
         state.publish_visibilities.push(visibility);
         if let Some(message) = &state.fail_publish {
             return Err(fake_error(message));

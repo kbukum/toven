@@ -21,9 +21,6 @@
 //! (Content-digest verification would require downloading each asset or the
 //! `SHA256SUMS` body and hashing it locally, which the create-or-verify path
 //! deliberately does not do.)
-//!
-//! GitLab is a documented follow-up seam behind the same [`ReleaseHost`] port;
-//! only GitHub is implemented here.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

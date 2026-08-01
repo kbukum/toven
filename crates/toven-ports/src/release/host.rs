@@ -16,7 +16,7 @@ use rskit_errors::AppResult;
 /// This is the single source of truth for recognized forges: config validation
 /// rejects any other `forge` value up front — before a run tags or publishes —
 /// and each engine adapter maps exactly one of these identifiers.
-pub const SUPPORTED_FORGES: &[&str] = &["github"];
+pub const SUPPORTED_FORGES: &[&str] = &["github", "gitlab"];
 
 /// Whether `forge` names a hosted-release forge the system supports.
 #[must_use]
