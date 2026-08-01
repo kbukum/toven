@@ -41,7 +41,7 @@ jobs:
           rustup override set "${RUST_VERSION}"
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@7e35be21c2b94d972b1143087fabc27d7dc881ef # v2.7.8
+        uses: Swatinem/rust-cache@72d126e709cad40056a62344eee609d696d62d33 # v2.7.8
 
       - name: Run release dry run
         run: make release-dry-run
@@ -63,7 +63,7 @@ jobs:
           rustup override set "${RUST_VERSION}"
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@7e35be21c2b94d972b1143087fabc27d7dc881ef # v2.7.8
+        uses: Swatinem/rust-cache@72d126e709cad40056a62344eee609d696d62d33 # v2.7.8
 
       - name: Install cargo-cyclonedx
         run: cargo install cargo-cyclonedx --locked --version 0.5.9
