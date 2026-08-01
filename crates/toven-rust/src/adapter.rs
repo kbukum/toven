@@ -8,7 +8,7 @@ use toven_ports::{
 
 use crate::config::RustConfig;
 use crate::discovery;
-use crate::release::CratesIoTarget;
+use crate::release::CargoRegistryTarget;
 use crate::tasks;
 use crate::toolchain;
 
@@ -47,7 +47,7 @@ impl ConfiguredAdapter for RustAdapter {
     }
 
     fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseTarget>>> {
-        Ok(Some(Box::new(CratesIoTarget::new())))
+        Ok(Some(Box::new(CargoRegistryTarget::new())))
     }
 
     fn common(&self) -> &CommonEcosystemConfig {

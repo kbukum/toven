@@ -26,7 +26,7 @@ use crate::exec::run_go_json;
 pub struct GoVcsTarget {
     /// Explicit repository working root; `None` resolves the process working
     /// directory (the engine runs from the repo root), mirroring
-    /// `CratesIoTarget`.
+    /// `CargoRegistryTarget`.
     root: Option<PathBuf>,
 }
 

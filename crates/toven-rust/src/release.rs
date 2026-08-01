@@ -1,4 +1,5 @@
-//! `CratesIoTarget` — the cargo/crates.io [`ReleaseTarget`] sliver.
+//! `CargoRegistryTarget` — the cargo [`ReleaseTarget`] sliver (crates.io by
+//! default, or a named alternate registry).
 //!
 //! Owns the ecosystem-specific ~10% of release: reading a module's declared
 //! version from its `Cargo.toml`, applying one atomic version mutation (own
@@ -57,14 +58,15 @@ const MAX_METADATA_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 /// Timeout for a single cargo registry-facing command.
 const CARGO_COMMAND_TIMEOUT: Duration = Duration::from_mins(2);
 
-/// The crates.io release target for the Rust ecosystem.
+/// The cargo registry release target for the Rust ecosystem (crates.io by
+/// default, or a named alternate registry).
 ///
 /// Resolves each module's repo-relative `manifest` against the process working
 /// directory (the engine runs from the repository root).
 #[derive(Debug, Default, Clone, Copy)]
-pub struct CratesIoTarget;
+pub struct CargoRegistryTarget;
 
-impl CratesIoTarget {
+impl CargoRegistryTarget {
     /// Construct the crates.io target.
     #[must_use]
     pub const fn new() -> Self {
@@ -138,7 +140,7 @@ impl CratesIoTarget {
     }
 }
 
-impl ReleaseTarget for CratesIoTarget {
+impl ReleaseTarget for CargoRegistryTarget {
     fn declared_version(&self, module: &Module) -> AppResult<Version> {
         let root = Self::working_root()?;
         let path = Self::manifest_path(module)?;
@@ -387,7 +389,7 @@ fn should_remove_sbom(candidate: &Path, preserve: Option<&Path>) -> AppResult<bo
 /// The directory of each workspace member manifest, resolved via
 /// `cargo metadata --no-deps` (which reports members only).
 fn workspace_member_dirs(manifest: &Path) -> AppResult<Vec<PathBuf>> {
-    let output = cargo_metadata_command(CratesIoTarget::working_root()?, manifest)?;
+    let output = cargo_metadata_command(CargoRegistryTarget::working_root()?, manifest)?;
     output.check()?;
     let metadata = rskit_codec::decode::<cargo_metadata::Metadata>(
         &rskit_codec::JsonCodec::default(),
@@ -595,7 +597,7 @@ fn parse_cargo_search_versions(package: &str, stdout: &str) -> Vec<Version> {
 }
 
 fn classify_publish(
-    target: CratesIoTarget,
+    target: CargoRegistryTarget,
     module: &Module,
     output: &ProcessResult,
 ) -> AppResult<PublishOutcome> {
@@ -1172,7 +1174,7 @@ mod tag_scheme_tests {
     use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
     use toven_ports::ReleaseTarget;
 
-    use super::CratesIoTarget;
+    use super::CargoRegistryTarget;
 
     fn module() -> Module {
         Module::new(
@@ -1183,7 +1185,7 @@ mod tag_scheme_tests {
 
     #[test]
     fn default_tag_scheme_preserves_existing_rust_tags() {
-        let scheme = CratesIoTarget::new()
+        let scheme = CargoRegistryTarget::new()
             .tag_scheme(&module(), None)
             .expect("scheme");
 
@@ -1199,7 +1201,7 @@ mod tag_scheme_tests {
         // last line of defense: a private/internal exposure is rejected before
         // any cargo invocation, with a typed, actionable error.
         let artifact = Artifact::new(std::path::PathBuf::from("crates/core"));
-        let error = CratesIoTarget::new()
+        let error = CargoRegistryTarget::new()
             .publish(
                 &module(),
                 &artifact,
@@ -1225,7 +1227,7 @@ mod tag_scheme_tests {
         // allowed to proceed (here it fails later, at manifest resolution — never
         // at the visibility gate).
         let artifact = Artifact::new(std::path::PathBuf::from("crates/core"));
-        let error = CratesIoTarget::new()
+        let error = CargoRegistryTarget::new()
             .publish(
                 &module(),
                 &artifact,
@@ -1243,7 +1245,7 @@ mod tag_scheme_tests {
 
     #[test]
     fn override_tag_scheme_splits_around_version() {
-        let scheme = CratesIoTarget::new()
+        let scheme = CargoRegistryTarget::new()
             .tag_scheme(&module(), Some("{module}/v{version}-release"))
             .expect("scheme");
 
@@ -1252,7 +1254,7 @@ mod tag_scheme_tests {
 
     #[test]
     fn override_without_version_is_rejected() {
-        let error = CratesIoTarget::new()
+        let error = CargoRegistryTarget::new()
             .tag_scheme(&module(), Some("{module}"))
             .expect_err("missing version rejected");
 
@@ -1265,7 +1267,7 @@ mod tag_scheme_tests {
         // already part of `{version}` (e.g. `1.0.0-rc.1`), so a `{channel}` in a tag
         // template would always render empty. Reject it instead of silently dropping
         // it.
-        let error = CratesIoTarget::new()
+        let error = CargoRegistryTarget::new()
             .tag_scheme(&module(), Some("{module}-{channel}/v{version}"))
             .expect_err("channel placeholder rejected");
 
