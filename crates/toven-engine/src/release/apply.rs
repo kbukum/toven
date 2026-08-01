@@ -969,7 +969,10 @@ mod tests {
         )
         .expect("release apply");
 
-        assert_eq!(target.publish_registries(), vec![Some("crates-io".to_string())]);
+        assert_eq!(
+            target.publish_registries(),
+            vec![Some("crates-io".to_string())]
+        );
     }
 
     #[test]

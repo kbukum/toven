@@ -1006,15 +1006,17 @@ core = \"1.4.2\"    # A core crate
         // A named alternate registry reads the same configured source var, but
         // hands the secret to cargo under CARGO_REGISTRIES_<NAME>_TOKEN — the
         // name cargo reads for that registry — never on argv.
-        let credentials =
-            ReleaseCredentials::new(Some("CI_TOKEN".into()), Some("my-corp".into()));
+        let credentials = ReleaseCredentials::new(Some("CI_TOKEN".into()), Some("my-corp".into()));
         let injected = registry_token_injection(&credentials, |name| {
             (name == "CI_TOKEN").then(|| "s3cr3t".to_string())
         })
         .expect("a present token var resolves");
         assert_eq!(
             injected,
-            Some(("CARGO_REGISTRIES_MY_CORP_TOKEN".to_string(), "s3cr3t".to_string()))
+            Some((
+                "CARGO_REGISTRIES_MY_CORP_TOKEN".to_string(),
+                "s3cr3t".to_string()
+            ))
         );
     }
 
@@ -1052,14 +1054,20 @@ core = \"1.4.2\"    # A core crate
         }
         // A named alternate registry routes the publish via `--registry <name>`.
         let argv = publish_argv(manifest, Some("my-corp"));
-        let idx = argv.iter().position(|arg| arg == "--registry").expect("flag");
+        let idx = argv
+            .iter()
+            .position(|arg| arg == "--registry")
+            .expect("flag");
         assert_eq!(argv[idx + 1], "my-corp");
     }
 
     #[test]
     fn cargo_token_env_name_follows_cargos_registry_convention() {
         assert_eq!(cargo_token_env_name(None), "CARGO_REGISTRY_TOKEN");
-        assert_eq!(cargo_token_env_name(Some("crates-io")), "CARGO_REGISTRY_TOKEN");
+        assert_eq!(
+            cargo_token_env_name(Some("crates-io")),
+            "CARGO_REGISTRY_TOKEN"
+        );
         assert_eq!(
             cargo_token_env_name(Some("my-corp")),
             "CARGO_REGISTRIES_MY_CORP_TOKEN"

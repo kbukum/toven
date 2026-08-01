@@ -71,9 +71,7 @@ fn build_host(forge: &str) -> AppResult<Box<dyn ReleaseHost>> {
         FORGE_GITLAB => Ok(Box::new(GitlabReleaseHost::new())),
         other => Err(AppError::invalid_input(
             "release.host.forge",
-            format!(
-                "unsupported forge '{other}'; supported forges are 'github' and 'gitlab'"
-            ),
+            format!("unsupported forge '{other}'; supported forges are 'github' and 'gitlab'"),
         )),
     }
 }

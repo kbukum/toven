@@ -548,8 +548,9 @@ mod tests {
     fn reconcile_rejects_notes_that_differ_beyond_line_endings() {
         let intended = HostedRelease::new("rust/core@1.2.3", "core 1.2.3", "line one\nline two\n");
         let local = BTreeSet::new();
-        let existing =
-            parsed(r#"{"name":"core 1.2.3","description":"line one\r\ndifferent\r\n","assets":{"links":[]}}"#);
+        let existing = parsed(
+            r#"{"name":"core 1.2.3","description":"line one\r\ndifferent\r\n","assets":{"links":[]}}"#,
+        );
         let error = reconcile(&intended, &local, &existing).expect_err("notes conflict");
         assert!(error.to_string().contains("release notes"), "{error}");
     }
@@ -558,9 +559,13 @@ mod tests {
     fn reconcile_flags_a_missing_intended_asset() {
         let intended = release().with_assets(vec![ReleaseAsset::new("dist/core.tgz")]);
         let local = BTreeSet::from(["core.tgz".to_string()]);
-        let existing = parsed(r#"{"name":"core 1.2.3","description":"the notes","assets":{"links":[]}}"#);
+        let existing =
+            parsed(r#"{"name":"core 1.2.3","description":"the notes","assets":{"links":[]}}"#);
         let error = reconcile(&intended, &local, &existing).expect_err("missing asset conflict");
-        assert!(error.to_string().contains("missing asset 'core.tgz'"), "{error}");
+        assert!(
+            error.to_string().contains("missing asset 'core.tgz'"),
+            "{error}"
+        );
     }
 
     #[test]
