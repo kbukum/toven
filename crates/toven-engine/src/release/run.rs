@@ -72,12 +72,15 @@ pub fn release_run(
     )?;
     let targets = release_targets(&context)?;
 
-    // Resolve settings once up front to drive the lifecycle hooks. `pre` hooks
-    // run before the reconcile pre-pass and every mutation below, so a failing
-    // gate (e.g. a test task) aborts the release before anything is written,
-    // tagged, or published. `post` hooks reuse the same resolution after success.
-    let hook_settings = resolve_release_settings(&context, &targets)?;
-    for reference in collect_hook_refs(&hook_settings, HookPhase::Pre) {
+    // Resolve settings once up front and reuse the same map for every phase of
+    // the run — the lifecycle hooks, the reconcile pre-pass, and the hosted
+    // phase — so hook collection and reconciliation see one consistent
+    // resolution. `pre` hooks run before the reconcile pre-pass and every
+    // mutation below, so a failing gate (e.g. a test task) aborts the release
+    // before anything is written, tagged, or published; `post` hooks reuse it
+    // after success.
+    let settings = resolve_release_settings(&context, &targets)?;
+    for reference in collect_hook_refs(&settings, HookPhase::Pre) {
         hooks.run_hook(HookPhase::Pre, &reference)?;
     }
 
@@ -92,7 +95,6 @@ pub fn release_run(
     // short-circuits the run only when it actually creates a missing Release, so
     // a legitimate new release is never blocked.
     if options.publish && !options.no_push {
-        let settings = resolve_release_settings(&context, &targets)?;
         let hosts = host::build_hosts(&settings)?;
         let mut stats = ReleaseStats::new(0);
         let created = reconcile::reconcile_hosted_releases(
@@ -142,7 +144,6 @@ pub fn release_run(
     // The hosted-release phase runs after a pushing publish: it needs the pushed
     // tag on the forge to cut a Release against.
     if options.publish && !options.no_push {
-        let settings = resolve_release_settings(&context, &targets)?;
         let pushed_members = plan
             .entries
             .iter()
@@ -180,7 +181,7 @@ pub fn release_run(
     // `post` hooks run only after a fully successful release (the reconcile
     // pre-pass short-circuit above intentionally skips them: it completes a prior
     // release's missing hosted Release, not a fresh mutation).
-    for reference in collect_hook_refs(&hook_settings, HookPhase::Post) {
+    for reference in collect_hook_refs(&settings, HookPhase::Post) {
         hooks.run_hook(HookPhase::Post, &reference)?;
     }
     Ok(stats)
@@ -215,7 +216,7 @@ mod tests {
 
     use rskit_config::RawValue;
     use serde_json::json;
-    use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
+    use toven_model::{AbsPath, EcosystemId, Module, ModuleKey, ModuleRef, RepoPath};
     use toven_ports::{
         BaselineSpec, ChangeRecord, ChangeStatus, CommonEcosystemConfig, DiscoverResponse,
         HostConfig, Provider, ReleaseConfig, TaskIntent,
@@ -225,7 +226,7 @@ mod tests {
         RecordingHookRunner, RecordingReporter,
     };
 
-    use super::release_run;
+    use super::{ResolvedReleaseSettings, collect_hook_refs, release_run};
     use crate::config::{Document, ProjectConfig, TovenConfig};
     use crate::federation::baseline::MemberVcsReaders;
     use crate::federation::release::{MemberReleaseRepo, MemberReleaseRepos};
@@ -591,6 +592,47 @@ mod tests {
                 },
             ],
             "pre runs, then the mutation, then post"
+        );
+    }
+
+    fn settings_with_pre(pre: &[&str]) -> ResolvedReleaseSettings {
+        let config = ReleaseConfig {
+            hooks: Some(toven_ports::HooksConfig {
+                pre: pre
+                    .iter()
+                    .map(|reference| (*reference).to_string())
+                    .collect(),
+                post: Vec::new(),
+            }),
+            ..ReleaseConfig::default()
+        };
+        ResolvedReleaseSettings::resolve(&config, None).unwrap()
+    }
+
+    // `collect_hook_refs` collects across every module in module-key order (not
+    // insertion order), preserves each module's declaration order, and runs a
+    // reference shared by two modules once.
+    #[test]
+    fn collect_hook_refs_dedupes_across_modules_in_module_key_order() {
+        let mut settings = BTreeMap::new();
+        // Insert the later module first so a passing result can only come from
+        // the BTreeMap's key ordering, never insertion order.
+        settings.insert(
+            ModuleKey::bare(mref("zeta")),
+            settings_with_pre(&["shared", "z"]),
+        );
+        settings.insert(
+            ModuleKey::bare(mref("alpha")),
+            settings_with_pre(&["a", "shared"]),
+        );
+
+        let references = collect_hook_refs(&settings, toven_ports::HookPhase::Pre);
+
+        assert_eq!(
+            references,
+            vec!["a".to_string(), "shared".to_string(), "z".to_string()],
+            "alpha (module-key order) first with its declaration order kept, then zeta's \
+             new refs, with the shared task deduplicated"
         );
     }
 }
