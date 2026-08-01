@@ -4,7 +4,7 @@
 
 Toven is an argv-first development and CI task planner for multi-module repositories. It discovers workspace modules, orders work by dependency graph, plans only what changed, caches successful results, and renders reviewable command batches before running them.
 
-**Status:** Pre-alpha, installed from source. See [what Toven does](docs/product.md).
+**Status:** Alpha. Signed binaries are published on the [Releases page](https://github.com/kbukum/toven/releases); source installs are also supported. See [what Toven does](docs/product.md).
 
 ## Quick start
 

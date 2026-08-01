@@ -63,11 +63,11 @@ Use temporary clones or worktrees with local Git remotes and controlled registry
 
 ## Bootstrap dependency
 
-Downstream CI cannot install a released Toven binary until Toven has published one. Complete Toven's first binary release before requiring it in rskit or gokit.
+Downstream CI cannot install a released Toven binary until Toven has published one — Toven's first binary release (`v0.1.0-alpha.1`) is published, so rskit and gokit can pin and install a released, checksum-verified Toven binary. Toven proves the platform on itself first, but does not wait on a release round-trip to do so: its self-canary dogfoods the binary it builds and packages, and the release pipeline's `verify` job re-verifies the published artifact. Downstream repositories require a *released* binary only once Toven's own self-hosting is green.
 
 ## CI canary
 
-The first CI integration should download a versioned binary directly and verify its checksum. Keep the existing release implementation available for comparison.
+Toven's own CI is the first canary, and it dogfoods the binary Toven produces rather than a downloaded release: `self-canary.yml` builds the release binary, packages it with `toven release package`, and runs Toven's release previews and every mapped gate through that self-generated binary via `make TOVEN=<binary>`. The released artifact is covered separately — `release.yml`'s `verify` job re-verifies every published asset, and `scripts/install-toven.sh` is the direct-download, checksum-verified install a downstream repository runs. Only after the self-hosting canary is green does that same direct-binary procedure extend to rskit and gokit.
 
 The direct, checksum-verified binary invocation is the canonical downstream contract; there is no required intermediary action to adopt.
 
@@ -106,7 +106,7 @@ Toven is a single tag-only binary release train: every workspace crate is `publi
 | Module discovery | `toven modules` over `crates/*`, `apps/*` | Cargo workspace members | Yes | — |
 | Version / tag | one `v{version}` tag, `release plan`/`status` | workspace `version`, git tags | Yes | — |
 | Publication | tag-only, no registry | `publish = false` per crate | Yes | — |
-| Hosted release | `host.forge = github` (assets attached at publish) | release-readiness workflow | Not yet (pending binary matrix build) | binary matrix build, signing, SBOM, provenance |
+| Hosted release | `host.forge = github` (assets attached at publish) | release workflow | Yes (binary matrix build shipped) | — |
 | Gate | fmt-check, lint, nextest, doc, deny via `make check` | Makefile | Partial | rustfmt, doctests, cargo-deny, ast-grep structure |
 
 ### rskit

@@ -4,13 +4,13 @@ Toven uses its own planner for mapped development and release previews. The Make
 
 ## Binary selection
 
-Until `v0.1.0-alpha.1` is published, Make targets run the freshly built workspace binary:
+By default, Make targets run the freshly built workspace binary:
 
 ```makefile
 TOVEN ?= cargo run --quiet --locked -p toven --
 ```
 
-After the binary release is available, an installed and verified binary can be selected explicitly:
+An installed and verified released binary can be selected explicitly:
 
 ```bash
 make TOVEN=toven check
@@ -67,9 +67,9 @@ Because Toven's own `main` is protected, its `[ecosystems.rust.release]` sets `p
 toven release publish --dry-run --output jsonl > release-preview.jsonl
 ```
 
-## Toven's first release
+## Toven's binary releases
 
-The first release is `v0.1.0-alpha.1`. It is a hosted binary release, not a crates.io publication. Every workspace crate remains `publish = false`.
+Toven's releases are hosted binary releases, not crates.io publications. Every workspace crate remains `publish = false`. The first release was `v0.1.0-alpha.1`; later alpha prereleases follow the same contract.
 
 The release matrix is:
 
@@ -88,6 +88,17 @@ Every archive contains one directly runnable binary. The hosted Release also con
 `.github/workflows/release.yml` builds this matrix, assembles the fixed `dist/` file set, and runs `toven release publish` behind the protected `release` environment's required-reviewer approval. It is dispatched manually (`workflow_dispatch`) rather than triggered by a `v*` tag push, because `toven release publish` creates that tag itself; a tag-triggered run would race its own immutable-tag preflight. Every asset in the fixed set is produced by an engine verb, not a bash script: the `build` job packages each target with `toven release package --target <triple>`, and the `assemble` job stages the SBOM (`toven release sbom`), writes the combined `SHA256SUMS` over every archive and the SBOM (`toven release checksums`), signs it with the keyless Sigstore/cosign default (`toven release sign`), and presence-checks the whole declared asset set (`toven release verify --no-run`). CI still provisions the tools (cosign, cargo-cyclonedx, `cross`) and holds the approval gate; Toven drives them. Every target builds with the `vendored-openssl` feature, so rskit-git's embedded git2 backend links a source-built OpenSSL (libgit2 is already vendored) and the released binaries carry no host OpenSSL dependency. The cross-compiled `aarch64-unknown-linux-gnu` target builds through `cross` for a matching glibc. Build provenance is attested in the approved `publish` job, over the subjects of the published `SHA256SUMS`, so an attestation exists only for artifacts that were actually approved and published.
 
 After publish, the `verify` job downloads every published asset and runs `toven release verify --download`, which verifies the keyless Sigstore signature on `SHA256SUMS` first, then checksum-verifies every published archive against the now-trusted manifest. The keyless `certificate-identity-regexp` and `certificate-oidc-issuer` it matches against come from `[ecosystems.rust.release.sign]` in `toven.toml`, not a hard-coded string. It runs with `--no-run`: the verb verifies the whole declared asset set at once, and no single hosted runner can execute all five targets (two Linux, two macOS, one Windows), so post-publish verification is signature- and checksum-based across the whole set.
+
+## Dogfooding the binary Toven produces
+
+Toven proves its release platform on itself, driving Toven's own work with the binary Toven builds and packages — not a source `cargo run` and not a downloaded release.
+
+`.github/workflows/self-canary.yml` is that proof. On every push to `main` (and on manual dispatch) it builds the release binary, packages it into its declared `dist/` archive with `toven release package`, extracts that self-generated binary, and then runs Toven's whole toven-driven surface through it: module discovery, `plan check`, the mapped gates (`lint`, `test`, `doc`, `coverage`, `affected`) via `make TOVEN=<binary>`, the `format-check` and `vuln` mapped tasks that `make check` otherwise gates natively, and the full mutation-free release preview (`release plan`/`status`/`readiness`/`sbom`/`depgraphs` and `publish --dry-run`). Nothing after packaging uses a source build, so a green run means the artifact Toven ships can perform every job Toven is built for. It needs no published release: the canary self-generates the binary it dogfoods.
+
+Two related but distinct checks cover the *released* artifact rather than the self-generated one, so the self-canary does not duplicate them:
+
+- `release.yml`'s `verify` job downloads every published asset and re-verifies it with `toven release verify --download` (signature on `SHA256SUMS`, then each archive's checksum).
+- `scripts/install-toven.sh <version> [install-dir]` is the reference downstream install contract a consumer (or another repository) uses: it pins an immutable release tag, downloads the matching per-target archive and `SHA256SUMS`, verifies the keyless Sigstore signature on `SHA256SUMS` when `cosign` is present, checksum-verifies the archive before extraction, and installs `toven`. It never uses an unpinned latest-release URL and passes no secret on argv.
 
 ## Artifact retention
 
