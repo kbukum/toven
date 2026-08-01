@@ -38,6 +38,10 @@ toven release publish --yes
 | `readiness` | Fail-closed go/no-go checks | None |
 | `sbom` | CycloneDX artifacts under `--out-dir` for supported targets | Local artifacts |
 | `depgraphs` | DOT dependency graphs under `--out-dir` | Local artifacts |
+| `package` | Archive an already-built binary into its declared per-target `host.assets` archive under `dist/` | Local artifacts |
+| `checksums` | Write `SHA256SUMS` over every declared archive and the SBOM | Local artifacts |
+| `sign` | Keyless Sigstore/cosign signature and certificate over `SHA256SUMS` | Local artifacts |
+| `verify` | Presence/version-check local assets, or with `--download` verify the signature and every published archive's checksum | None |
 | `tag` | Manifest changes, release commit, tags, and configured push | Repository and remote |
 | `publish --dry-run` | Registry and hosted-Release rehearsal | None |
 | `publish` | `tag` behavior followed by target publication and configured hosted Releases | Repository, remote, target, and forge |
@@ -84,6 +88,19 @@ toven release depgraphs --out-dir dist/graphs
 ```
 
 Artifact paths are written to stdout. Unsupported-ecosystem skips are warnings on stderr. Rust SBOM generation currently requires `cargo-cyclonedx`; Go SBOM generation is not implemented.
+
+## Binary release artifacts
+
+For a binary-distributed workspace, the fixed `host.assets` set is assembled by four non-mutating verbs — the same ones `.github/workflows/release.yml` drives, each writing into the local `dist/` directory rather than touching a tag, registry, or hosted Release:
+
+```bash
+toven release package --target x86_64-unknown-linux-gnu   # per built target
+toven release checksums                                    # SHA256SUMS over archives + SBOM
+toven release sign                                         # keyless Sigstore signature over SHA256SUMS
+toven release verify --no-run                              # presence-check the declared asset set
+```
+
+`package` archives an already-built binary for `--target` into the exact declared per-target archive path (globbing and version placeholders are not supported — the `host.assets` list is a set of fixed project-relative paths). `checksums` writes a SHA-256 `SHA256SUMS` covering every declared archive and the SBOM. `sign` produces the keyless Sigstore/cosign signature and certificate over `SHA256SUMS`; it runs only when `[ecosystems.<id>.release.sign] enabled = true` and matches the configured keyless `identity`/`issuer`. `verify` presence- and version-checks the local asset set; with `--download` it fetches every published asset, verifies the Sigstore signature on `SHA256SUMS` first, then checksum-verifies each archive before extraction. `--no-run` skips executing the archived binaries, so the whole multi-target asset set can be verified from a single runner that cannot execute every target.
 
 ## Mutation-free publication rehearsal
 

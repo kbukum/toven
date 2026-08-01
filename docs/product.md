@@ -63,13 +63,13 @@ Toven's release product is a reviewable decision followed by guarded mutation. T
 
 Rust repositories use independent crate versions and can choose registry or tag-only outcomes. Go repositories release changed modules through root or path-prefixed tags and explicitly classify test-only and benchmark modules rather than relying on path heuristics. Toven itself is a tag-only Rust workspace distributed as compiled binaries; none of its crates are published to crates.io.
 
-The final safety contract requires mutation-free previews, explicit approval, clean release trees, immutable published results, and forward-fix recovery. Some policy surfaces are defined but not executable yet; the exact boundary is maintained in [release configuration](config/release.md) and the [release workflow](commands/release.md).
+The final safety contract requires mutation-free previews, explicit approval, clean release trees, immutable published results, and forward-fix recovery. The exact policy boundary is maintained in [release configuration](config/release.md) and the [release workflow](commands/release.md).
 
 ## Toven distribution
 
-The first Toven release is the alpha prerelease `v0.1.0-alpha.1`. It will provide checksum-verified, keyless Sigstore-signed binaries for Linux x86-64 and ARM64 with glibc, macOS x86-64 and Apple silicon, and Windows x86-64, built and published by `.github/workflows/release.yml` behind a protected, manually approved environment. The hosted Release also carries a CycloneDX SBOM and build provenance.
+Toven publishes checksum-verified, keyless Sigstore-signed binaries for Linux x86-64 and ARM64 with glibc, macOS x86-64 and Apple silicon, and Windows x86-64, built and published by `.github/workflows/release.yml` behind a protected, manually approved environment. Each hosted Release also carries a CycloneDX SBOM and build provenance. The first release was the alpha prerelease `v0.1.0-alpha.1`; subsequent alpha prereleases follow the same contract.
 
-Until those assets exist, install Toven from source. See [installation](installation.md).
+Install a pinned, checksum-verified binary from the [Releases page](https://github.com/kbukum/toven/releases), or build from source. See [installation](installation.md).
 
 ## Output contract
 

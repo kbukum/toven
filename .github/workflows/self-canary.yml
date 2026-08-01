@@ -1,0 +1,79 @@
+name: Self-canary
+
+# Toven's first release-platform canary: dogfood a released, checksum-verified
+# Toven binary against Toven's own repository before that same direct-download
+# procedure is extended to rskit and gokit. It installs the pinned binary with
+# `scripts/install-toven.sh` (the canonical downstream install contract), then
+# runs Toven's release previews and mapped gates *through the released binary*
+# instead of a source build. Everything here is mutation-free — no tag, push,
+# registry, or hosted-Release call — so it is safe to dispatch at will.
+#
+# It is intentionally `workflow_dispatch`-only: it must pin an immutable,
+# already-published release version, so it cannot run before that release
+# exists. Dispatch it after cutting a release, with `version` set to that tag.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Released Toven version tag to install and dogfood (e.g. v0.1.0-alpha.2)."
+        required: true
+        default: "v0.1.0-alpha.2"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: self-canary-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dogfood:
+    name: Dogfood released binary
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          # No submodules: the released binary is prebuilt, so the canary only
+          # needs the workspace manifests, toven.toml, and full tag history for
+          # release change detection — not the rskit build submodule.
+          fetch-depth: 0
+
+      # Verify the keyless Sigstore signature on SHA256SUMS during install, the
+      # same trust check the documented human procedure performs.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Install the released Toven binary (pinned + checksum-verified)
+        run: scripts/install-toven.sh "${{ inputs.version }}" "${RUNNER_TEMP}/toven-bin"
+
+      - name: Put the released binary on PATH
+        run: echo "${RUNNER_TEMP}/toven-bin" >> "${GITHUB_PATH}"
+
+      - name: Show the dogfooded version
+        run: toven --version
+
+      # Toven planning its own work: module discovery and a mutation-free plan.
+      - name: Discover modules and plan
+        run: |
+          toven modules
+          toven plan check
+
+      # The full mutation-free release-preview contract, routed through the
+      # released binary via the Makefile's TOVEN override — the same entrypoint
+      # a maintainer uses locally with `make TOVEN=toven ...`.
+      - name: Release previews through the released binary
+        run: |
+          toven release plan
+          toven release status
+          toven release readiness
+          toven release publish --dry-run --output jsonl | tee release-preview.jsonl
+
+      - name: Upload the release preview evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: self-canary-release-preview
+          path: release-preview.jsonl
+          if-no-files-found: error
+          retention-days: 14

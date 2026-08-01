@@ -63,11 +63,11 @@ Use temporary clones or worktrees with local Git remotes and controlled registry
 
 ## Bootstrap dependency
 
-Downstream CI cannot install a released Toven binary until Toven has published one. Complete Toven's first binary release before requiring it in rskit or gokit.
+Downstream CI cannot install a released Toven binary until Toven has published one. Toven's first binary release (`v0.1.0-alpha.1`) is published, so downstream repositories can now pin and install a released, checksum-verified Toven binary. Prove Toven-on-Toven self-hosting against a released binary before requiring it in rskit or gokit.
 
 ## CI canary
 
-The first CI integration should download a versioned binary directly and verify its checksum. Keep the existing release implementation available for comparison.
+The first CI integration downloads a versioned binary directly and verifies its checksum. Toven's own CI is the first canary: it installs a pinned, checksum-verified released binary and runs Toven's release previews and mapped gates through it, alongside the existing source-built path kept for comparison. Only after that self-hosting canary is green does the same direct-binary procedure extend to rskit and gokit.
 
 The direct, checksum-verified binary invocation is the canonical downstream contract; there is no required intermediary action to adopt.
 
@@ -106,7 +106,7 @@ Toven is a single tag-only binary release train: every workspace crate is `publi
 | Module discovery | `toven modules` over `crates/*`, `apps/*` | Cargo workspace members | Yes | — |
 | Version / tag | one `v{version}` tag, `release plan`/`status` | workspace `version`, git tags | Yes | — |
 | Publication | tag-only, no registry | `publish = false` per crate | Yes | — |
-| Hosted release | `host.forge = github` (assets attached at publish) | release-readiness workflow | Not yet (pending binary matrix build) | binary matrix build, signing, SBOM, provenance |
+| Hosted release | `host.forge = github` (assets attached at publish) | release workflow | Yes (binary matrix build shipped) | — |
 | Gate | fmt-check, lint, nextest, doc, deny via `make check` | Makefile | Partial | rustfmt, doctests, cargo-deny, ast-grep structure |
 
 ### rskit

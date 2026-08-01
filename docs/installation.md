@@ -1,10 +1,10 @@
 # Installation
 
-Toven is currently installed from a source checkout. The first binary release will be `v0.1.0-alpha.1`; the direct-download commands in this page become executable only after that hosted Release exists.
+Toven is distributed as signed, checksum-verified binaries on the [Releases page](https://github.com/kbukum/toven/releases), and can also be installed from a source checkout. Binary releases are pinned by an immutable version tag — never an unpinned latest-release URL, especially in CI.
 
 ## Supported binary targets
 
-The `v0.1.0-alpha.1` distribution contract supports:
+Each hosted release provides one fixed-name archive per target:
 
 | Platform | Rust target |
 |---|---|
@@ -39,13 +39,16 @@ toven --help
 
 `--version` and help use stdout. Installation or usage failures use stderr and return a non-zero exit status.
 
-## Direct download after the first release
+## Direct download
 
-Choose the archive matching the machine, download that archive together with `SHA256SUMS`, and verify the checksum before extracting or executing it. For example, the macOS Apple-silicon asset will be:
+Choose a release version to pin, then download the archive matching the machine together with `SHA256SUMS` and verify the checksum before extracting or executing it. Set `TOVEN_VERSION` to the release tag you are pinning:
 
-```text
-https://github.com/kbukum/toven/releases/download/v0.1.0-alpha.1/toven-aarch64-apple-darwin.tar.gz
+```bash
+TOVEN_VERSION=v0.1.0-alpha.2
+base="https://github.com/kbukum/toven/releases/download/${TOVEN_VERSION}"
 ```
+
+For example, the macOS Apple-silicon asset is `${base}/toven-aarch64-apple-darwin.tar.gz`.
 
 Checksum verification is mandatory:
 
@@ -68,17 +71,13 @@ cosign verify-blob \
 
 Do not install an archive that fails checksum, signature, or provenance verification.
 
-Extract the archive and place `toven` (`toven.exe` on Windows) in a directory on `PATH`, then verify:
+Extract the archive and place `toven` (`toven.exe` on Windows) in a directory on `PATH`, then confirm the version you installed:
 
 ```bash
 toven --version
 ```
 
-The expected version is:
-
-```text
-toven 0.1.0-alpha.1
-```
+It prints `toven <version>`, matching the release tag you pinned.
 
 ## Run from a checkout
 
