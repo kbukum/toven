@@ -67,6 +67,9 @@ pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfi
     if over.token_env.is_some() {
         merged.token_env.clone_from(&over.token_env);
     }
+    if over.visibility.is_some() {
+        merged.visibility = over.visibility;
+    }
     if over.sign.is_some() {
         merged.sign.clone_from(&over.sign);
     }

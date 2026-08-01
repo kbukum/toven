@@ -7,7 +7,7 @@
 use rskit_errors::AppResult;
 use toven_ports::{
     BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, HostConfig, PrereleaseConfig,
-    PublicationPolicy, ReleaseConfig, SignConfig, merge_release,
+    PublicationPolicy, ReleaseConfig, SignConfig, Visibility, merge_release,
 };
 
 use super::{BumpPolicy, PushPolicy, strategy};
@@ -94,6 +94,10 @@ pub struct ResolvedReleaseSettings {
     pub offline: bool,
     /// Environment-variable name holding the registry token (never the secret).
     pub token_env: Option<String>,
+    /// Exposure the release is cut with, enforced fail-closed at the
+    /// registry-publish boundary; the tag push and hosted forge Release follow
+    /// the remote repository's own exposure.
+    pub visibility: Visibility,
     /// Artifact-signing settings.
     pub sign: SignConfig,
     /// Recognized checks composing `release readiness`.
@@ -153,6 +157,7 @@ impl ResolvedReleaseSettings {
             ),
             offline: config.offline.unwrap_or(false),
             token_env: config.token_env.clone(),
+            visibility: config.visibility.unwrap_or_default(),
             sign: config.sign.clone().unwrap_or_default(),
             readiness: config.readiness.clone().unwrap_or_default(),
             hooks: config.hooks.clone().unwrap_or_default(),
@@ -289,6 +294,31 @@ mod tests {
         };
         let resolved = ResolvedReleaseSettings::resolve(&ecosystem, Some(&module)).unwrap();
         assert_eq!(resolved.publication, PublicationPolicy::TagOnly);
+    }
+
+    #[test]
+    fn visibility_defaults_to_public_and_a_module_override_wins() {
+        use toven_ports::Visibility;
+
+        // Unset everywhere: releases are public.
+        let default = ResolvedReleaseSettings::resolve(&ReleaseConfig::default(), None).unwrap();
+        assert_eq!(default.visibility, Visibility::Public);
+
+        // An ecosystem-level visibility is inherited by a module that omits it.
+        let ecosystem = ReleaseConfig {
+            visibility: Some(Visibility::Internal),
+            ..ReleaseConfig::default()
+        };
+        let inherited = ResolvedReleaseSettings::resolve(&ecosystem, None).unwrap();
+        assert_eq!(inherited.visibility, Visibility::Internal);
+
+        // A module override replaces the inherited exposure (override-wins merge).
+        let module = ReleaseConfig {
+            visibility: Some(Visibility::Private),
+            ..ReleaseConfig::default()
+        };
+        let overridden = ResolvedReleaseSettings::resolve(&ecosystem, Some(&module)).unwrap();
+        assert_eq!(overridden.visibility, Visibility::Private);
     }
 
     #[test]

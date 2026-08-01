@@ -12,6 +12,7 @@ mod signer;
 mod tag_scheme;
 mod target;
 mod verifier;
+mod visibility;
 
 pub use artifact::Artifact;
 pub use credentials::ReleaseCredentials;
@@ -28,3 +29,4 @@ pub use signer::Signer;
 pub use tag_scheme::TagScheme;
 pub use target::ReleaseTarget;
 pub use verifier::SignatureVerifier;
+pub use visibility::Visibility;

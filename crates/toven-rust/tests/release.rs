@@ -114,6 +114,7 @@ fn publish_surfaces_manifest_resolution_failures_before_cargo_runs() {
             &module,
             &toven_ports::Artifact::new("ignored"),
             &toven_ports::ReleaseCredentials::default(),
+            toven_ports::Visibility::Public,
         )
         .expect_err("missing manifest must fail fast before cargo runs");
     assert!(

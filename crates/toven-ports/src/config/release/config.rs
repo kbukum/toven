@@ -6,6 +6,7 @@ use rskit_errors::{AppError, AppResult};
 use rskit_util::Template;
 use serde::{Deserialize, Serialize};
 
+use crate::release::Visibility;
 use crate::template::ReleaseVar;
 
 use super::{
@@ -86,6 +87,14 @@ pub struct ReleaseConfig {
     /// Environment-variable name holding the registry token (never the secret).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_env: Option<String>,
+    /// Exposure the release is cut with (`public`/`private`/`internal`); `None`
+    /// = default (`public`). Enforced fail-closed at the registry-publish
+    /// boundary (a non-public release to a public-only registry is rejected at
+    /// plan time and by the registry adapter). The tag push and hosted forge
+    /// Release follow the remote repository's exposure, so they carry this as
+    /// recorded intent, not a per-Release forge flag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<Visibility>,
     /// Artifact-signing settings; `None` = inherit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sign: Option<SignConfig>,

@@ -26,7 +26,7 @@ use toml_edit::{DocumentMut, Item, value};
 use toven_model::Module;
 use toven_ports::{
     Artifact, PublishOutcome, RegistryCadence, ReleaseCredentials, ReleaseMutation, ReleaseTarget,
-    ReleaseVar, TagScheme,
+    ReleaseVar, TagScheme, Visibility,
 };
 
 /// Hard bound on a `Cargo.toml` read (4 MiB) — manifests are tiny; this only
@@ -202,7 +202,23 @@ impl ReleaseTarget for CratesIoTarget {
         module: &Module,
         _artifact: &Artifact,
         credentials: &ReleaseCredentials,
+        visibility: Visibility,
     ) -> AppResult<PublishOutcome> {
+        // crates.io is a public-only registry: every published version is world
+        // readable. Fail closed rather than publish a version a maintainer asked
+        // to keep private/internal to a registry that cannot honor it.
+        if !visibility.is_public() {
+            return Err(AppError::invalid_input(
+                "release.visibility",
+                format!(
+                    "crates.io only publishes public versions, but module '{}' requests \
+                     visibility = {}; publish it to a registry that supports that exposure or set \
+                     visibility = public",
+                    module.key(),
+                    visibility.as_str(),
+                ),
+            ));
+        }
         let path = Self::manifest_path(module)?;
         // Read the registry token only here, at the toolchain boundary, and hand
         // it to cargo through the child process environment — never on argv and
@@ -1070,6 +1086,31 @@ mod tag_scheme_tests {
 
         assert_eq!(scheme.format(&Version::new(1, 2, 3)), "rust/core@1.2.3");
         assert_eq!(scheme.parse("rust/core@1.2.3"), Some(Version::new(1, 2, 3)));
+    }
+
+    #[test]
+    fn publishing_a_non_public_version_to_crates_io_fails_closed() {
+        use toven_ports::{Artifact, ReleaseCredentials, ReleaseTarget, Visibility};
+
+        // crates.io publishes every version world-readable, so the adapter is the
+        // last line of defense: a private/internal exposure is rejected before
+        // any cargo invocation, with a typed, actionable error.
+        let artifact = Artifact::new(std::path::PathBuf::from("crates/core"));
+        let error = CratesIoTarget::new()
+            .publish(
+                &module(),
+                &artifact,
+                &ReleaseCredentials::default(),
+                Visibility::Private,
+            )
+            .expect_err("a private crates.io publish must fail closed");
+
+        assert!(error.to_string().contains("release.visibility"));
+        assert!(
+            error
+                .to_string()
+                .contains("crates.io only publishes public")
+        );
     }
 
     #[test]

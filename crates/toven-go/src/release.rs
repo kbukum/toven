@@ -16,6 +16,7 @@ use rskit_version::semver::Version;
 use toven_model::Module;
 use toven_ports::{
     Artifact, PublishOutcome, ReleaseCredentials, ReleaseMutation, ReleaseTarget, TagScheme,
+    Visibility,
 };
 
 use crate::exec::run_go_json;
@@ -155,7 +156,11 @@ impl ReleaseTarget for GoVcsTarget {
         _module: &Module,
         _artifact: &Artifact,
         _credentials: &ReleaseCredentials,
+        _visibility: Visibility,
     ) -> AppResult<PublishOutcome> {
+        // Go modules publish by tag, not to a package registry, so a Go release's
+        // exposure follows the repository the tag is pushed to; there is no
+        // separate registry visibility for this target to honor or reject.
         Ok(PublishOutcome::Published)
     }
 }

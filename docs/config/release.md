@@ -57,6 +57,7 @@ assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
 | `exclude` | Exclude the module from release planning, tagging, registry publication, and hosted releases | `false` |
 | `offline` | Use tags rather than target queries for idempotency; `release status` skips registry lookups too | `false` |
 | `token_env` | Name of the environment variable holding the registry publish token. The publishing adapter reads it at the toolchain boundary and forwards the credential (for cargo, as `CARGO_REGISTRY_TOKEN` on the child process, never on argv); a configured-but-absent variable fails the publish closed. `None` uses the toolchain's ambient credential | None |
+| `visibility` | Requested exposure of the release: `public`, `private`, or `internal`. Enforced fail-closed at the registry-publish boundary: a non-public visibility against a public-only registry (crates.io) is rejected at plan time, and the registry adapter enforces the same rule as a last line of defense. The tag push and hosted forge Release follow the remote repository's own exposure | `public` |
 | `readiness` | Named fail-closed checks | None |
 | `hooks` | Reserved pre/post task references. **Rejected** when non-empty: release hooks are not yet executable — run such tasks explicitly around the release command | None |
 
@@ -160,6 +161,14 @@ Toven resolves publication into a typed policy before planning:
 Contradictions are rejected **within a single block**: Go cannot declare a registry, a `registry` target cannot be combined with `publish = false` in the same block, and an excluded module cannot declare registry publication or hosted assets. These same-block rules do not block a more-specific **per-module override from narrowing an inherited policy**: a module that inherits a registry from its ecosystem may set `publish = false` to become tag-only, or `exclude = true` to drop out of the release, without tripping a contradiction. The override merges field-by-field and the resolved policy is recomputed from the merged fields (`exclude` wins, then `publish = false`, then `registry`), so the per-module block that narrows an inherited registry never re-triggers the same-block contradiction check. Registry-published Rust crates are packaged and published during `release publish`; tag-only modules are versioned and tagged but never sent to a package registry.
 
 For Go test-only and benchmark modules, the policy is intentionally explicit: use tag-only release policy or `exclude = true`; path and name heuristics are forbidden. Go registry publication is rejected because Go releases are immutable Git tags.
+
+## Visibility
+
+`visibility` declares the intended exposure of a release — `public` (default), `private`, or `internal`. It resolves like the other release fields: an ecosystem-level value is inherited, a per-module block overrides it field-by-field, and an unset value defaults to `public`, so existing configs keep releasing publicly unchanged. Unknown values are rejected when the config is parsed.
+
+A non-public visibility is only honored by a target that can actually restrict exposure. crates.io publishes every version world-readable, so a `private`/`internal` release that targets it is a contradiction. Toven fails that closed at **plan time** — before any tag, push, or publish — with a typed `release.visibility` error naming the module and the public-only registry; the crates.io adapter enforces the same rule at the toolchain boundary as a last line of defense. A tag-only release (no registry publication) has no public-only mutation to conflict with, so it may carry any visibility.
+
+The tag push and the hosted GitHub Release are **visibility-agnostic**: their exposure follows the remote repository, which Toven does not own. Pushing a tag to a private repository leaks nothing, and a GitHub Release inherits its repository's visibility (a Release has no independent public/private setting), so neither boundary carries a per-Release exposure flag. Visibility is therefore enforced only where a target can actually violate it — the registry publish — and recorded as intent everywhere else.
 
 ## Signing
 
