@@ -1,6 +1,5 @@
 # Failure matrix: malformed config, missing changelog, invalid version input,
-# clean-tree enforcement, and configured release hooks the engine does not
-# execute.
+# and clean-tree enforcement.
 repo: rust/publish-train
 git:
   commits:
@@ -34,8 +33,3 @@ steps:
     config: toven.clean-tree.toml
     exit: 1
     stdout: { match: normalized }
-  - id: 06-non-executable-setting-rejected
-    argv: [release, plan]
-    config: toven.unsupported-release.toml
-    exit: 2
-    stderr: { match: normalized }

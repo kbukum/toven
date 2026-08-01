@@ -1,1 +1,0 @@
-error[INVALID_INPUT]: invalid release.hooks: module 'rust:train-cli' configures release hooks, which are not yet executable; remove the […release.hooks] block and run any pre/post tasks explicitly around the release command
