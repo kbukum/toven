@@ -94,7 +94,9 @@ pub struct ResolvedReleaseSettings {
     pub offline: bool,
     /// Environment-variable name holding the registry token (never the secret).
     pub token_env: Option<String>,
-    /// Exposure the release is cut with, enforced at every mutation boundary.
+    /// Exposure the release is cut with, enforced fail-closed at the
+    /// registry-publish boundary; the tag push and hosted forge Release follow
+    /// the remote repository's own exposure.
     pub visibility: Visibility,
     /// Artifact-signing settings.
     pub sign: SignConfig,

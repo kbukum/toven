@@ -284,8 +284,10 @@ pub struct ReleaseEntry {
     /// the secret — so a registry adapter reads it at the toolchain boundary.
     pub token_env: Option<String>,
     /// Exposure this module's release is cut with, resolved from its release
-    /// settings and enforced at every mutation boundary (git push, registry
-    /// publish, hosted forge Release). Defaults to public.
+    /// settings and enforced fail-closed at the registry-publish boundary (a
+    /// non-public release aimed at a public-only registry is rejected). The tag
+    /// push and hosted forge Release follow the remote repository's own
+    /// exposure, so visibility is recorded intent there. Defaults to public.
     pub visibility: Visibility,
     /// How this module's member release refs are pushed: the release commit's
     /// branch alongside the tags, only the tags (tag-only mode for a
