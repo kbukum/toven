@@ -63,11 +63,11 @@ Use temporary clones or worktrees with local Git remotes and controlled registry
 
 ## Bootstrap dependency
 
-Downstream CI cannot install a released Toven binary until Toven has published one. Toven's first binary release (`v0.1.0-alpha.1`) is published, so downstream repositories can now pin and install a released, checksum-verified Toven binary. Prove Toven-on-Toven self-hosting against a released binary before requiring it in rskit or gokit.
+Downstream CI cannot install a released Toven binary until Toven has published one — Toven's first binary release (`v0.1.0-alpha.1`) is published, so rskit and gokit can pin and install a released, checksum-verified Toven binary. Toven proves the platform on itself first, but does not wait on a release round-trip to do so: its self-canary dogfoods the binary it builds and packages, and the release pipeline's `verify` job re-verifies the published artifact. Downstream repositories require a *released* binary only once Toven's own self-hosting is green.
 
 ## CI canary
 
-The first CI integration downloads a versioned binary directly and verifies its checksum. Toven's own CI is the first canary: it installs a pinned, checksum-verified released binary and runs Toven's release previews and mapped gates through it, alongside the existing source-built path kept for comparison. Only after that self-hosting canary is green does the same direct-binary procedure extend to rskit and gokit.
+Toven's own CI is the first canary, and it dogfoods the binary Toven produces rather than a downloaded release: `self-canary.yml` builds the release binary, packages it with `toven release package`, and runs Toven's release previews and every mapped gate through that self-generated binary via `make TOVEN=<binary>`. The released artifact is covered separately — `release.yml`'s `verify` job re-verifies every published asset, and `scripts/install-toven.sh` is the direct-download, checksum-verified install a downstream repository runs. Only after the self-hosting canary is green does that same direct-binary procedure extend to rskit and gokit.
 
 The direct, checksum-verified binary invocation is the canonical downstream contract; there is no required intermediary action to adopt.
 
