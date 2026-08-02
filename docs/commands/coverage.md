@@ -2,6 +2,10 @@
 
 `toven coverage` runs the configured coverage task, attributes emitted profiles to modules, aggregates metrics, and applies configured thresholds.
 
+```bash
+toven coverage --workspace rust
+```
+
 ## Syntax
 
 ```text
@@ -9,8 +13,8 @@ toven coverage [SELECTION_OPTIONS] [THRESHOLD_OPTIONS] [OUTPUT_OPTIONS]
 ```
 
 ```bash
-toven coverage
-toven coverage --module rust:core
+toven coverage --workspace rust
+toven coverage --module rust:toven-cli
 toven coverage --base origin/main --merge-base
 toven coverage --line 90 --enforcement advisory
 toven coverage --output jsonl
@@ -43,6 +47,10 @@ region = 80.0
 changed_line = 85.0
 enforcement = "block"
 exclude = ["rust:generated"]
+
+[ecosystems.rust.coverage.profiles.security]
+modules = ["toven-security"]
+line = 95.0
 
 [modules."rust:core".coverage]
 line = 95.0

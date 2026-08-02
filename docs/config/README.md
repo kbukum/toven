@@ -2,6 +2,10 @@
 
 Toven loads one strict `toven.toml`. Unknown fields and invalid combinations fail instead of being ignored.
 
+```bash
+toven modules
+```
+
 ## Minimal configuration
 
 ```toml
@@ -43,6 +47,7 @@ base_ref = "origin/main"
 
 ```toml
 [toven]
+report = "human"
 max_parallel = 8
 view = "auto"
 include = ["ci/shared-tasks.toml"]
@@ -52,9 +57,12 @@ dir = ".toven/cache"
 
 [toven.git]
 push_token_env = ["GITHUB_TOKEN", "GH_TOKEN"]
+
+[toven.drivers]
+go = { version = "0.4.1" }
 ```
 
-Included files provide defaults. The canonical `toven.toml` wins on scalar and table conflicts. Included files must be committed.
+`report` accepts `human` or `json`; the CLI override is `--output human|jsonl`. Included files provide defaults. The canonical `toven.toml` wins on scalar and table conflicts. Included files must be committed.
 
 `[toven.git].push_token_env` lists, in order, the environment variables the embedded git backend consults for a push/fetch token whenever the engine performs a git network operation — primarily the release push, but also the fetches behind planning and change selection, which reuse the same repository handle. The first present, non-empty value is used as the HTTPS token-as-password, so an authenticated push (for example a tag push to a protected branch in CI) succeeds without relying on ambient git credential helpers. It is forge-agnostic: the default names suit GitHub Actions, but any forge's token variable (such as `GITLAB_TOKEN`) can be substituted. When none of the variables are set — the usual local-development case — the backend falls back to its ambient transport default, so nothing changes for day-to-day work.
 
@@ -92,6 +100,8 @@ selector = ["-p", "{module.package}"]
 fan_out = "batchable"
 shared_inputs = ["Cargo.lock", "rust-toolchain.toml"]
 cache_args = true
+cacheable = true
+fail_if_output = false
 ```
 
 Task names are user-owned identities. `kind` is an optional recognition attribute.
@@ -105,6 +115,7 @@ Common fields:
 | `fan_out` | Per-module or batchable scheduling |
 | `persistent` | Keep the process alive after readiness |
 | `readiness` | Decide when a persistent task is ready |
+| `readiness_timeout_secs` | Bound readiness detection for a persistent task; default `30` |
 | `cacheable` | Allow successful result reuse |
 | `cache_args` | Include passthrough arguments in cache keys |
 | `shared_inputs` | Repository files that invalidate every matching unit |
@@ -114,10 +125,15 @@ Common fields:
 
 ```toml
 [groups.integration]
+ecosystem = "rust"
+modules = ["rust:toven-cli"]
 run_strategy = "unordered"
 
 [groups.integration.tasks.test]
 argv = ["cargo", "nextest", "run", "--profile", "ci"]
+
+[groups.integration.guardrails]
+forbid = ["rust:toven-engine"]
 ```
 
 Group task entries are sparse overrides over an existing ecosystem task. Scalars and lists replace the base value; `shared_inputs` is additive. Conflicting group overrides fail.

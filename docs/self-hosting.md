@@ -103,7 +103,7 @@ Toven proves its release platform on itself, driving Toven's own work with the b
 Two related but distinct checks cover the *released* artifact rather than the self-generated one, so the self-canary does not duplicate them:
 
 - `release.yml`'s `verify` job downloads every published asset and re-verifies it with `toven release verify --download` (signature on `SHA256SUMS`, then each archive's checksum).
-- `scripts/install-toven.sh <version> [install-dir]` is the reference downstream install contract a consumer (or another repository) uses: it pins an immutable release tag, downloads the matching per-target archive and `SHA256SUMS`, verifies the keyless Sigstore signature on `SHA256SUMS` when `cosign` is present, checksum-verifies the archive before extraction, and installs `toven`. It never uses an unpinned latest-release URL and passes no secret on argv.
+- `scripts/install.sh` is the reference downstream install contract a consumer (or another repository) uses. Run with no arguments it installs the latest release; passed `--version <tag>` (as CI must) it pins an immutable release tag. Either way it downloads the matching per-target archive and `SHA256SUMS`, verifies the keyless Sigstore signature on `SHA256SUMS` when `cosign` is present, checksum-verifies the archive before extraction, and installs `toven`. In CI, pin both the version and the script URL to a tag so no unpinned latest-release URL enters the pipeline; no secret is passed on argv.
 
 ## Artifact retention
 

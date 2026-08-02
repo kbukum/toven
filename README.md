@@ -8,11 +8,15 @@ Toven is an argv-first development and CI task planner for multi-module reposito
 
 ## Quick start
 
-```bash
-git submodule update --init --recursive
-cargo install --path apps/toven --locked --force
+Install the latest signed binary on Linux or macOS:
 
-cd your-repo
+```bash
+curl -fsSL https://raw.githubusercontent.com/kbukum/toven/main/scripts/install.sh | sh
+```
+
+Or `brew tap kbukum/tap && brew install toven`, `scoop install toven` on Windows, or [build from source](docs/installation.md). Then, in your repository:
+
+```bash
 toven init                    # onboarding wizard writes toven.toml
 toven plan check              # see what would run
 toven check                   # run it

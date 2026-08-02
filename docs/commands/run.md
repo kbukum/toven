@@ -2,6 +2,10 @@
 
 Run any task defined under `[ecosystems.<id>.tasks.<name>]`.
 
+```bash
+toven run test --workspace rust --dry-run
+```
+
 ## Syntax
 
 ```text
@@ -12,8 +16,8 @@ toven run <task> [TOVEN_OPTIONS] -- [TASK_ARGUMENTS...]
 The explicit `run` form handles task names that collide with reserved commands.
 
 ```bash
-toven check
-toven run release -- --local
+toven check --workspace rust
+toven run structure
 ```
 
 ## Execution
@@ -36,19 +40,19 @@ Under `--output jsonl`, Toven events use stdout and child output uses stderr.
 Toven consumes recognized options at the start of the task argument list. The first token it does not own and everything after it are appended unchanged at `{args}`.
 
 ```bash
-toven test --module rust:core integration --nocapture
+toven test --workspace rust integration --nocapture
 ```
 
 Use `--` to pass a colliding flag:
 
 ```bash
-toven test -- --dry-run
+toven test --workspace rust -- --dry-run
 ```
 
 Inspect the resulting argv:
 
 ```bash
-toven explain test --module rust:core
+toven explain test --module rust:toven-cli
 ```
 
 Toven does not correct unknown task flags because they may belong to the underlying command.
@@ -66,9 +70,9 @@ Tool-specific gates are ordinary tasks, resolved and run through the same machin
 
 ```bash
 toven run structure
-toven run deny
+toven run deny --workspace rust
 toven run docs-build
-toven run doctest -- --all-features
+toven run doctest --workspace rust -- --all-features
 ```
 
 The `command` ecosystem is Toven's generic-tool adapter: a tool-specific but language-agnostic gate that has no cargo/go home is declared under `[ecosystems.command.tasks.<name>]`. A cargo-specific but repo-opt-in gate like `deny` (it needs a `deny.toml`) is a declared `[ecosystems.rust.tasks.deny]` task rather than a baked-in adapter default. See the [language- and tool-agnostic core](../engineering.md#language--and-tool-agnostic-core) principle for why each gate lives where it does. Inspect the resolved argv for any of them with `toven explain <task>`.
@@ -76,12 +80,12 @@ The `command` ecosystem is Toven's generic-tool adapter: a tool-specific but lan
 ## Select scope
 
 ```bash
-toven test --module core
-toven test --module rust:core
+toven test --module toven-cli
+toven test --module rust:toven-cli
 toven test --module 'rust:*'
 toven test --workspace rust
-toven test --module rust:core --dependents
-toven test --module rust:cli --dependencies
+toven test --module rust:toven-cli --dependents
+toven test --module rust:toven-cli --dependencies
 ```
 
 Selectors may be a bare module name, canonical `ecosystem:name`, `workspace/name`, or glob. Ambiguous bare names fail and list qualified candidates.
@@ -91,7 +95,7 @@ Selectors may be a bare module name, canonical `ecosystem:name`, `workspace/name
 ## Select changed work
 
 ```bash
-toven test --base origin/main --merge-base
+toven structure --base origin/main --merge-base
 ```
 
 Changed modules and their dependents run. See [baseline selection](README.md#baseline-selection).
@@ -99,8 +103,8 @@ Changed modules and their dependents run. See [baseline selection](README.md#bas
 ## Cache control
 
 ```bash
-toven test --refresh
-toven test --no-cache
+toven test --workspace rust --refresh
+toven test --workspace rust --no-cache
 ```
 
 - `--refresh` ignores existing records and writes successful replacements.
@@ -111,9 +115,9 @@ The options are mutually exclusive. See [cache management](cache.md).
 ## Concurrency
 
 ```bash
-toven test --jobs 1
-toven test --jobs 4
-toven test -j 4
+toven test --workspace rust --jobs 1
+toven test --workspace rust --jobs 4
+toven test --workspace rust -j 4
 ```
 
 `--jobs <N>` overrides `[toven].max_parallel`. `--jobs 1` executes serially and uses an inline stream under the default view.
@@ -121,10 +125,10 @@ toven test -j 4
 ## Live output
 
 ```bash
-toven test --view auto
-toven test --view tiles
-toven test --view panes
-toven test --view stream
+toven test --workspace rust --view auto
+toven test --workspace rust --view tiles
+toven test --workspace rust --view panes
+toven test --workspace rust --view stream
 ```
 
 | View | Behavior |
@@ -139,8 +143,8 @@ Non-terminal and JSONL runs always use stream behavior.
 ## Watch mode
 
 ```bash
-toven test --watch
-toven test --watch --watch-debounce-ms 500
+toven test --workspace rust --watch
+toven test --workspace rust --watch --watch-debounce-ms 500
 ```
 
 Watch mode reruns the affected subgraph after file changes. Ctrl+C cancels active work and exits.
@@ -148,7 +152,7 @@ Watch mode reruns the affected subgraph after file changes. Ctrl+C cancels activ
 ## Timeout and failure policy
 
 ```bash
-toven test --timeout 90s --fail-fast
+toven test --workspace rust --timeout 90s --fail-fast
 ```
 
 `--timeout` applies per execution unit. `--fail-fast` stops scheduling new work after the first failure.

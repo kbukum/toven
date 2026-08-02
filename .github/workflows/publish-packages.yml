@@ -1,0 +1,133 @@
+name: Publish packages
+
+# Update the Homebrew tap and Scoop bucket for a published Toven release.
+#
+# Package manifests are thin, verifiable projections of an already published,
+# signed release: this workflow only runs after a release exists, downloads that
+# release's `SHA256SUMS`, renders the manifests from it, and pushes them to the
+# distribution repositories. It never builds or re-signs binaries.
+#
+# It is a no-op unless a `HOMEBREW_TAP_TOKEN` secret (a fine-grained PAT with
+# contents:write on the tap and bucket repos) is configured, so the workflow is
+# safe to keep enabled before those repositories exist. Each channel is also
+# published independently: a distribution repository that does not yet exist is
+# detected and skipped, so the Homebrew tap can go live before the Scoop bucket
+# (or vice versa) without failing the run.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release tag to publish manifests for (e.g. v0.1.0-alpha.2)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-packages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Update Homebrew tap and Scoop bucket
+    runs-on: ubuntu-latest
+    env:
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      VERSION: ${{ github.event.release.tag_name || inputs.version }}
+      REPO: ${{ github.repository }}
+      TAP_REPO: kbukum/homebrew-tap
+      BUCKET_REPO: kbukum/scoop-bucket
+    steps:
+      - name: Gate on the distribution token
+        id: gate
+        run: |
+          if [ -n "${TAP_TOKEN}" ]; then
+            echo "enabled=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "::notice::HOMEBREW_TAP_TOKEN is not configured; skipping package publish."
+            echo "enabled=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Checkout Toven
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Download the release checksums
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          curl -fsSL \
+            -o dist/SHA256SUMS \
+            "https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS"
+
+      - name: Render Homebrew and Scoop manifests
+        if: steps.gate.outputs.enabled == 'true'
+        run: scripts/gen-packaging.sh "${VERSION}" dist/SHA256SUMS build/packaging
+
+      - name: Detect which distribution repositories exist
+        id: repos
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          for pair in "homebrew:${TAP_REPO}" "scoop:${BUCKET_REPO}"; do
+            channel="${pair%%:*}"
+            repo="${pair#*:}"
+            if git ls-remote "https://x-access-token:${TAP_TOKEN}@github.com/${repo}.git" >/dev/null 2>&1; then
+              echo "${channel}=true" >> "${GITHUB_OUTPUT}"
+            else
+              echo "::notice::${repo} is not reachable; skipping the ${channel} channel."
+              echo "${channel}=false" >> "${GITHUB_OUTPUT}"
+            fi
+          done
+
+      - name: Publish the Homebrew formula
+        if: steps.gate.outputs.enabled == 'true' && steps.repos.outputs.homebrew == 'true'
+        run: |
+          set -euo pipefail
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/${TAP_REPO}.git" tap
+          mkdir -p tap/Formula
+          cp build/packaging/homebrew/toven.rb tap/Formula/toven.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- Formula/toven.rb; then
+            echo "::notice::Homebrew formula already up to date for ${VERSION}."
+          else
+            git add Formula/toven.rb
+            git commit -m "toven ${VERSION}"
+            git push
+          fi
+
+      - name: Publish the Scoop manifest
+        if: steps.gate.outputs.enabled == 'true' && steps.repos.outputs.scoop == 'true'
+        run: |
+          set -euo pipefail
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/${BUCKET_REPO}.git" bucket
+          mkdir -p bucket/bucket
+          cp build/packaging/scoop/toven.json bucket/bucket/toven.json
+          cd bucket
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- bucket/toven.json; then
+            echo "::notice::Scoop manifest already up to date for ${VERSION}."
+          else
+            git add bucket/toven.json
+            git commit -m "toven ${VERSION}"
+            git push
+          fi
+          mkdir -p bucket/bucket
+          cp build/packaging/scoop/toven.json bucket/bucket/toven.json
+          cd bucket
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- bucket/toven.json; then
+            echo "::notice::Scoop manifest already up to date for ${VERSION}."
+          else
+            git add bucket/toven.json
+            git commit -m "toven ${VERSION}"
+            git push
+          fi

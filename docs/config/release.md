@@ -2,6 +2,10 @@
 
 Release policy is declared under `[ecosystems.<id>.release]` and may be overridden under `[modules."<ecosystem>:<name>".release]`. Precedence is:
 
+```bash
+toven release plan
+```
+
 ```text
 release CLI override > module release override > ecosystem release policy > adapter default
 ```
@@ -23,12 +27,16 @@ push_branch = true
 remote = "origin"
 branches = ["main"]
 registry = "crates-io"
+publish = true
 exclude = false
 offline = false
+token_env = "CARGO_REGISTRY_TOKEN"
+visibility = "public"
 readiness = ["clean-tree", "registry-idempotent"]
 
 [ecosystems.rust.release.prerelease]
 channels = ["alpha", "beta", "rc"]
+branch_channels = { next = "beta" }
 
 [ecosystems.rust.release.changelog]
 path = "CHANGELOG.md"
@@ -37,7 +45,18 @@ required = true
 [ecosystems.rust.release.host]
 forge = "github"
 draft = false
+prerelease = true
+notes = "Release notes body"
 assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
+
+[ecosystems.rust.release.sign]
+enabled = true
+identity = "https://github.com/OWNER/REPO/.github/workflows/release.yml@.*"
+issuer = "https://token.actions.githubusercontent.com"
+
+[ecosystems.rust.release.hooks]
+pre = ["check"]
+post = ["docs-build"]
 ```
 
 | Field | Meaning | Default |
@@ -49,7 +68,7 @@ assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
 | `tag_message` | Annotated-tag message template | Lightweight tag |
 | `commit_message` | Release commit template | Adapter default |
 | `push` | Permit release commit and tag push | `true` |
-| `push_branch` | Push the release commit's branch alongside the tags; `false` pushes tags only, for a protected release branch whose commit lands through a pull request | `true` |
+| `push_branch` | Push the release commit's branch alongside the tags; `false` pushes tags only for protected release branches | `true` |
 | `remote` | Git remote for release pushes | `origin` |
 | `branches` | Allowed release branches; an empty list permits any branch | Any branch |
 | `registry` | Registry selection for Rust crate publication: `crates-io` (cargo's default) or a named alternate cargo registry; invalid for Go | No registry, tag-only |
@@ -65,7 +84,7 @@ Templates accept the documented release variables such as `{ecosystem}`, `{modul
 
 A repository creates one release commit for all selected modules, so `commit_message` must render identically for every module in that repository. Module- or version-specific commit templates are suitable only when the repository releases one module at a time.
 
-A pushing release normally updates both the release commit's branch and the release tags on the remote. When the release branch is protected and rejects direct pushes, set `push_branch = false`: the release then pushes only the tags and leaves the branch ref untouched, and the version/CHANGELOG commit reaches the branch through the normal reviewed pull-request flow. `push_branch` is per-repository like the other push settings — every module releasing in one repository must agree on it.
+A pushing release normally updates both the release commit's branch and the release tags on the remote. When the release branch is protected and rejects direct pushes, set `push_branch = false`: the release then pushes only the tags and leaves the branch ref untouched. `push_branch` is per-repository like the other push settings — every module releasing in one repository must agree on it.
 
 ## Version and cascade policy
 
@@ -78,7 +97,7 @@ A pushing release normally updates both the release commit's branch and the rele
 `strategy` selects **how the next version is decided**. The rest of the release flow — change detection, dependency cascade, idempotency, tag, publish — is identical for both strategies; only the version-decision node reads `strategy`.
 
 - **`semver-cascade`** (default) — the next version is **computed**: the baseline tag plus the detected changes resolve to a patch, minor, or major bump, a pending prerelease is finalized on a stable bump, and raised dependency floors cascade into dependents. Compose a prerelease channel with `--pre <channel>`.
-- **`manifest`** — the next version is **declared**: Toven cuts exactly `v${manifest version}` when the declared version is strictly ahead of the last release tag. When the declared version is equal to or behind the baseline there is nothing to cut, and the outcome depends on the verb: a read-only preview (`release plan` and the other previews) reports **nothing to release**, while a mutating run (`release tag`/`release publish`) **fails closed** with a typed error ("bump the manifest version before releasing") so it never re-cuts an already-released version. The reviewed version/CHANGELOG pull request *is* the version decision, so the tag equals the workspace version by construction. Because the channel already lives in the declared version string, `--pre` combined with `manifest` is a typed usage error. Explicit argv (`--set-version`/`--patch`/`--minor`/`--major`) still wins over either strategy.
+- **`manifest`** — the next version is **declared**: Toven cuts exactly `v${manifest version}` when the declared version is strictly ahead of the last release tag. When the declared version is equal to or behind the baseline there is nothing to cut, and the outcome depends on the verb: a read-only preview (`release plan` and the other previews) reports **nothing to release**, while a mutating run (`release tag`/`release publish`) **fails closed** with a typed error ("bump the manifest version before releasing") so it never re-cuts an already-released version. The declared manifest version is the version decision, so the tag equals the workspace version by construction. Because the channel already lives in the declared version string, `--pre` combined with `manifest` is a typed usage error. Explicit argv (`--set-version`/`--patch`/`--minor`/`--major`) still wins over either strategy.
 
 Worked example — baseline release tag versus the declared `Cargo.toml` version:
 
@@ -135,7 +154,7 @@ draft = false
 assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
 ```
 
-`forge` selects the hosted-release adapter; `github` and `gitlab` are supported, and any other value is rejected when the config is parsed. Asset paths are project-relative exact paths; glob expansion is not implemented. An unset `prerelease` flag derives from the selected version: a version carrying a prerelease identifier (`0.1.0-alpha.1`) marks the hosted Release as a prerelease, whether it came from `--pre` or from the version the module already declares. An unset `notes` value uses the planner's changelog summary.
+`forge` selects the hosted-release adapter; `github` and `gitlab` are supported, and any other value is rejected when the config is parsed. Asset paths are project-relative exact paths; glob expansion is not implemented. An unset `prerelease` flag derives from the selected version: a version carrying a prerelease identifier (`0.1.0-alpha.1`) marks the hosted Release as a prerelease, whether it came from `--pre` or from the version the module already declares. An unset `notes` value uses the commit-derived release notes body rendered by the planner.
 
 The two forges model releases differently, so the adapters honor what each platform can represent rather than pretending parity:
 

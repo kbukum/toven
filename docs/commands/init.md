@@ -2,13 +2,17 @@
 
 `toven init` detects supported ecosystems and creates or extends `toven.toml`.
 
+```bash
+toven init --print
+```
+
 ## Syntax
 
 ```text
 toven init [--root <PATH>] [--force <ID>] [--non-interactive] [--print]
 ```
 
-## Default behavior
+## Write `toven.toml`
 
 ```bash
 toven init
@@ -23,7 +27,7 @@ detected: rust
 written: toven.toml
 ```
 
-## Preview without writing
+## Print without writing
 
 ```bash
 toven init --print

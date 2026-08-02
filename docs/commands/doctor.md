@@ -2,6 +2,10 @@
 
 `toven doctor` audits the tools the resolved task graph needs and reports which are present or missing. It is Toven's single source of truth for *what* a repository must have installed: tool identity comes from the ecosystem adapter probes and the resolved task argv, so the audit tracks the configured task table rather than a hand-maintained list.
 
+```bash
+toven doctor
+```
+
 ## Syntax
 
 ```text

@@ -2,6 +2,10 @@
 
 Toven accepts reserved commands and repository-defined task names.
 
+```bash
+toven modules
+```
+
 ## Command groups
 
 | Goal | Command |
@@ -10,7 +14,7 @@ Toven accepts reserved commands and repository-defined task names.
 | Run a configured task | [`toven <task>`](run.md) |
 | Preview or explain work | [`plan`, `affected`, `explain`](inspect.md) |
 | Inspect modules, tasks, or dependencies | [`modules`, `tasks`, `graph`](inspect.md) |
-| Inspect or clear cache records | [`cache`](cache.md) |
+| Inspect or clear task-cache records | [`cache`](cache.md) |
 | Measure and gate coverage | [`coverage`](coverage.md) |
 | Audit required tools | [`doctor`](doctor.md) |
 | Plan or execute a release | [`release`](release.md) |
@@ -25,7 +29,7 @@ toven --help
 toven release --help
 ```
 
-Help text is written to stdout. Invalid syntax is reported on stderr and returns a usage exit status.
+Help text is written to stdout. Invalid syntax is reported on stderr and returns usage exit code 2.
 
 ## Configuration discovery
 
@@ -65,14 +69,15 @@ toven modules --output jsonl > modules.jsonl
 
 JSONL mode reserves stdout for one JSON object per line. Human framing remains on stderr.
 
-## Global output options
+## Common options
 
 | Option | Effect |
 |---|---|
+| `--config <PATH>` | Load a specific `toven.toml` |
 | `--output human\|jsonl` | Select human tables or machine-readable JSONL |
 | `--color auto\|always\|never` | Control human status color |
-| `-v` | Increase human verbosity |
-| `-q` | Reduce human verbosity |
+| `-v`, `--verbose` | Increase human verbosity on execution verbs; repeatable |
+| `-q`, `--quiet` | Reduce human verbosity on execution verbs; repeatable |
 
 `NO_COLOR` disables color when set to a non-empty value.
 

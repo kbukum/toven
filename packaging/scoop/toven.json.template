@@ -1,0 +1,23 @@
+{
+    "version": "__VERSION__",
+    "description": "Argv-first development and CI task planner for multi-module repositories",
+    "homepage": "https://github.com/kbukum/toven",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/kbukum/toven/releases/download/v__VERSION__/toven-x86_64-pc-windows-msvc.zip",
+            "hash": "__SHA_X86_64_PC_WINDOWS_MSVC__"
+        }
+    },
+    "bin": "toven.exe",
+    "checkver": {
+        "github": "https://github.com/kbukum/toven"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/kbukum/toven/releases/download/v$version/toven-x86_64-pc-windows-msvc.zip"
+            }
+        }
+    }
+}
