@@ -68,6 +68,17 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         run: scripts/gen-packaging.sh "${VERSION}" dist/SHA256SUMS build/packaging
 
+      - name: Configure git credential helper
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          # Supply credentials via GIT_ASKPASS so the token never appears in
+          # command argv or remote URLs (safe against debug/error log leaks).
+          helper="$(mktemp)"
+          chmod 700 "${helper}"
+          printf '#!/bin/sh\nprintf "%%s\\n" "${TAP_TOKEN}"\n' >"${helper}"
+          echo "GIT_ASKPASS=${helper}" >> "${GITHUB_ENV}"
+          git config --global credential.https://github.com.username x-access-token
+
       - name: Detect which distribution repositories exist
         id: repos
         if: steps.gate.outputs.enabled == 'true'
@@ -76,7 +87,7 @@ jobs:
           for pair in "homebrew:${TAP_REPO}" "scoop:${BUCKET_REPO}"; do
             channel="${pair%%:*}"
             repo="${pair#*:}"
-            if git ls-remote "https://x-access-token:${TAP_TOKEN}@github.com/${repo}.git" >/dev/null 2>&1; then
+            if git ls-remote "https://github.com/${repo}.git" >/dev/null 2>&1; then
               echo "${channel}=true" >> "${GITHUB_OUTPUT}"
             else
               echo "::notice::${repo} is not reachable; skipping the ${channel} channel."
@@ -88,7 +99,7 @@ jobs:
         if: steps.gate.outputs.enabled == 'true' && steps.repos.outputs.homebrew == 'true'
         run: |
           set -euo pipefail
-          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/${TAP_REPO}.git" tap
+          git clone --depth 1 "https://github.com/${TAP_REPO}.git" tap
           mkdir -p tap/Formula
           cp build/packaging/homebrew/toven.rb tap/Formula/toven.rb
           cd tap
@@ -106,7 +117,7 @@ jobs:
         if: steps.gate.outputs.enabled == 'true' && steps.repos.outputs.scoop == 'true'
         run: |
           set -euo pipefail
-          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/${BUCKET_REPO}.git" bucket
+          git clone --depth 1 "https://github.com/${BUCKET_REPO}.git" bucket
           mkdir -p bucket/bucket
           cp build/packaging/scoop/toven.json bucket/bucket/toven.json
           cd bucket

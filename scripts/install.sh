@@ -180,7 +180,7 @@ log "verifying ${archive} against SHA256SUMS"
 )
 
 log "extracting ${archive}"
-tar -xzf "${workdir}/${archive}" -C "${workdir}"
+tar -xzf "${workdir}/${archive}" -C "${workdir}" -- toven
 
 mkdir -p "${install_dir}"
 install_dir_abs="$(cd "${install_dir}" && pwd)"
