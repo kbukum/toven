@@ -1,10 +1,13 @@
 //! Toolchain: resolve `{tool, version}` once per active workspace.
 //!
 //! A workspace is *active* when it owns ≥1 active module. The engine probes
-//! each such workspace's toolchain exactly once (untouched ecosystems are never
-//! probed) and stamps the resolved version onto its [`ToolchainTag`]; a
-//! needed-but-failing probe is a hard PLAN error. Probing is an injected port
-//! so the planner stays pure and tests substitute a deterministic prober.
+//! each such workspace's toolchain (untouched ecosystems are never probed) and
+//! stamps the resolved version onto its [`ToolchainTag`]. A probe is a
+//! tool-existence check plus a best-effort version read: an *absent* tool (spawn
+//! failure), a hang, or pathological output is a hard PLAN error, but a present
+//! tool that reports no parseable version simply yields no stamped version.
+//! Probing is an injected port so the planner stays pure and tests substitute a
+//! deterministic prober.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -16,7 +19,7 @@ use rskit_process::{CapturedIo, ProcessConfig, ProcessIo, ProcessSpec, run};
 use toven_model::{
     AbsPath, EcosystemId, MemberId, ModuleKey, ToolchainTag, Workspace, WorkspaceId,
 };
-use toven_ports::{ToolchainProbe, ToolchainProber};
+use toven_ports::{TaskIntent, ToolchainProbe, ToolchainProber};
 
 use super::configure::MemberAdapters;
 use super::discover::Federation;
@@ -61,7 +64,19 @@ impl ToolchainProber for ProcessToolchainProber {
             .with_timeout(Some(self.timeout))
             .with_max_output_bytes(self.max_output_bytes);
 
-        let result = run(&spec, &config)?;
+        let result = run(&spec, &config).map_err(|error| {
+            AppError::new(
+                rskit_errors::ErrorCode::NotFound,
+                format!(
+                    "toolchain probe '{}' could not run '{}' in '{}': is '{}' installed and on PATH?",
+                    probe.label,
+                    probe.program,
+                    workspace_root.display(),
+                    probe.program,
+                ),
+            )
+            .with_cause(error)
+        })?;
         if result.timed_out {
             return Err(AppError::new(
                 rskit_errors::ErrorCode::Timeout,
@@ -84,30 +99,15 @@ impl ToolchainProber for ProcessToolchainProber {
                 ),
             ));
         }
-        if !result.success() {
-            return Err(AppError::new(
-                rskit_errors::ErrorCode::Internal,
-                format!(
-                    "toolchain probe '{}' failed in '{}' (exit {:?}): {}",
-                    probe.label,
-                    workspace_root.display(),
-                    result.exit_code,
-                    result.stderr.trim()
-                ),
-            ));
-        }
-        let version = result.stdout.trim();
-        if version.is_empty() {
-            return Err(AppError::new(
-                rskit_errors::ErrorCode::Internal,
-                format!(
-                    "toolchain probe '{}' in '{}' returned an empty version",
-                    probe.label,
-                    workspace_root.display()
-                ),
-            ));
-        }
-        Ok(version.to_string())
+        // A probe that *ran* (spawned) but exited non-zero or printed no version
+        // line is not fatal: the tool exists, we simply have no cache-significant
+        // version to fold in. This keeps toolchain-independent command tasks whose
+        // program is not a version-reporting tool (`false`, `true`, `echo`) from
+        // aborting a plan. Only an absent tool (the ENOENT spawn failure mapped to
+        // NotFound above), a hang (`timed_out`), or pathological output
+        // (`stdout_truncated`) aborts planning. An empty return means "version
+        // unknown"; the caller then skips stamping.
+        Ok(result.stdout.trim().to_string())
     }
 }
 
@@ -125,6 +125,7 @@ pub(super) fn resolve(
     active: &BTreeSet<ModuleKey>,
     adapters: &MemberAdapters,
     prober: &dyn ToolchainProber,
+    intent: &TaskIntent,
 ) -> AppResult<BTreeMap<WorkspaceId, ToolchainTag>> {
     let active_workspaces = active_workspaces(federation, active)?;
 
@@ -136,16 +137,21 @@ pub(super) fn resolve(
                 "no configured adapter for ecosystem '{ecosystem}' owning workspace '{workspace_id}'"
             ))
         })?;
-        let probe = adapter.toolchain_probe();
         let root =
             safe_join(project_root.as_path(), workspace.root.as_path()).map_err(|error| {
                 AppError::invalid_input("workspace.root", error.to_string()).with_cause(error)
             })?;
-        let version = prober.probe(&probe, &root)?;
-        resolved.insert(
-            workspace_id,
-            workspace.toolchain.clone().with_version(version),
-        );
+        // Probe every tool the addressed task needs in this workspace, surfacing
+        // a typed error for the first *absent* one; the workspace's version
+        // identity is stamped from the first probe that reports a version.
+        let mut tag = workspace.toolchain.clone();
+        for probe in adapter.toolchain_probes_for(intent) {
+            let version = prober.probe(&probe, &root)?;
+            if !version.is_empty() && tag.version.is_none() {
+                tag = tag.with_version(version);
+            }
+        }
+        resolved.insert(workspace_id, tag);
     }
     Ok(resolved)
 }
@@ -220,10 +226,12 @@ fn find_workspace<'a>(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+    use std::path::Path;
 
     use toven_model::{EcosystemId, MemberId, Module, ModuleRef, RepoPath, WorkspaceId};
+    use toven_ports::{ToolchainProbe, ToolchainProber};
 
-    use super::active_workspaces;
+    use super::{ProcessToolchainProber, active_workspaces};
     use crate::plan::discover::Federation;
 
     fn module(member: &str, name: &str, workspace: &str) -> Module {
@@ -254,6 +262,52 @@ mod tests {
         assert!(
             error.to_string().contains("core/rust") && error.to_string().contains("services/rust"),
             "error should identify both workspace owners: {error}"
+        );
+    }
+
+    #[test]
+    fn a_missing_probe_tool_is_a_typed_not_found_error_naming_the_program() {
+        let probe = ToolchainProbe {
+            label: "structure".to_string(),
+            program: "toven-nonexistent-probe-tool".to_string(),
+            args: vec!["--version".to_string()],
+        };
+
+        let error = ProcessToolchainProber::new()
+            .probe(&probe, Path::new("."))
+            .expect_err("a probe for a tool that is not installed must fail");
+
+        assert_eq!(error.code(), rskit_errors::ErrorCode::NotFound);
+        let message = error.to_string();
+        assert!(
+            message.contains("toven-nonexistent-probe-tool") && message.contains("PATH"),
+            "error must name the missing program and mention PATH: {message}"
+        );
+        assert!(
+            error.cause().is_some(),
+            "the underlying spawn failure must be preserved as the cause"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_present_tool_that_reports_no_version_is_tolerated() {
+        // `false` exists but exits non-zero and (with no args) prints nothing:
+        // the tool is present, so planning must not abort — the probe just yields
+        // no version. Unix-only because it relies on the `false` utility.
+        let probe = ToolchainProbe {
+            label: "check".to_string(),
+            program: "false".to_string(),
+            args: Vec::new(),
+        };
+
+        let version = ProcessToolchainProber::new()
+            .probe(&probe, Path::new("."))
+            .expect("a present tool that reports no version must not fail the probe");
+
+        assert!(
+            version.is_empty(),
+            "no parseable version is expected, got {version:?}"
         );
     }
 }

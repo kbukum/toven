@@ -29,6 +29,31 @@ fn configure_reads_the_authoritative_task_table() {
 }
 
 #[test]
+fn a_repo_overrides_the_default_doctest_task_via_config() {
+    // The config is the authoritative task source, so a repo re-authoring
+    // `[ecosystems.rust.tasks.doctest]` supersedes the adapter default outright
+    // — the same override path every other task uses. Removal is the same
+    // mechanism: a config that never authors `doctest` simply has no such task.
+    let raw = toven_testkit::raw_subtree(
+        "manifests = [\"Cargo.toml\"]\n\
+         [tasks.doctest]\n\
+         kind = \"test\"\n\
+         argv = [\"cargo\", \"test\", \"--doc\", \"--all-features\", \"{args}\"]\n",
+    )
+    .expect("subtree");
+    let adapter = provider().configure(raw).expect("configure");
+    let doctest = adapter
+        .common()
+        .tasks
+        .get("doctest")
+        .expect("authored doctest task");
+    assert!(
+        doctest.argv.contains(&"--all-features".to_string()),
+        "the repo-authored doctest argv must supersede the adapter default"
+    );
+}
+
+#[test]
 fn configure_accepts_the_flattened_common_knobs() {
     // `deny_unknown_fields` on the outer struct must still admit the flattened
     // engine-common knobs (`run_strategy`, `[release]`, `[tasks.*]`). This locks in

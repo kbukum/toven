@@ -8,6 +8,7 @@ use toven_ports::{ChangeRecord, ChangeStatus, TaskIntent, TaskKind};
 
 use crate::federation::baseline::MemberVcsReaders;
 
+use crate::plan::configure::MemberAdapters;
 use crate::plan::discover::Federation;
 use crate::plan::request::{PlanRequest, Selection};
 
@@ -119,6 +120,56 @@ fn resolve_changed(
 /// Every module key in the graph.
 pub(super) fn all_modules(graph: &Graph) -> BTreeSet<ModuleKey> {
     graph.modules().map(Module::key).collect()
+}
+
+/// Narrow an active set to the modules whose ecosystem defines the addressed
+/// task.
+///
+/// A task need not exist in every ecosystem: `structure` may live only in the
+/// `command` ecosystem while `vuln` lives only in `rust`. For a broad
+/// (all-modules or changed) selection this keeps just the modules whose
+/// ecosystem's authoritative config task table declares `intent.name()`, so the
+/// task runs wherever it is defined instead of failing every active ecosystem
+/// that happens to lack it.
+///
+/// Two behaviours are deliberately preserved:
+/// - An [`Explicit`](Selection::Explicit) selection is returned unchanged — a
+///   user who names a target that lacks the task should see the typed
+///   per-ecosystem "has no '<task>' task" error, not a silently empty plan.
+/// - When *no* active ecosystem defines the task the set is returned unchanged,
+///   so scheduling raises that same unknown-task error (and the CLI its typo
+///   hint) exactly as before.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn restrict_to_task_defining(
+    active: ActiveModules,
+    request: &PlanRequest,
+    adapters: &MemberAdapters,
+) -> ActiveModules {
+    if matches!(request.selection, Selection::Explicit { .. }) {
+        return active;
+    }
+    let wanted = request.intent.name();
+    let defining: BTreeSet<ModuleKey> = active
+        .modules
+        .iter()
+        .filter(|key| ecosystem_defines_task(adapters, key, wanted))
+        .cloned()
+        .collect();
+    if defining.is_empty() {
+        return active;
+    }
+    ActiveModules {
+        modules: defining,
+        full_activation: active.full_activation,
+    }
+}
+
+/// Whether the configured adapter that owns `key` declares a `task` entry in its
+/// authoritative config task table.
+fn ecosystem_defines_task(adapters: &MemberAdapters, key: &ModuleKey, task: &str) -> bool {
+    adapters
+        .get(key.member(), &key.module().ecosystem)
+        .is_some_and(|adapter| adapter.common().tasks.contains_key(task))
 }
 
 /// The reverse-dependents edge filter for `intent`.

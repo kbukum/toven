@@ -20,4 +20,4 @@ mod tests;
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) use changed::{changed_for_members, changed_records_for_module, changed_seeds};
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) use entry::active_modules;
+pub(crate) use entry::{active_modules, restrict_to_task_defining};

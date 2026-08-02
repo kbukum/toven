@@ -97,6 +97,7 @@ pub fn plan_focused(
         phase: Phase::Affected,
     })?;
     let active = affected::active_modules(request, &context.graph, &context.federation, host.vcs)?;
+    let active = affected::restrict_to_task_defining(active, request, &context.adapters);
     if !active.full_activation.is_empty() {
         reporter.emit(&Event::FullActivation {
             paths: active.full_activation.clone(),
@@ -115,6 +116,7 @@ pub fn plan_focused(
         &active.modules,
         &context.adapters,
         host.prober,
+        &request.intent,
     )?;
     reporter.emit(&Event::PhaseFinished {
         phase: Phase::Toolchain,
@@ -179,7 +181,9 @@ fn resolve_focus(
         &context.federation,
         host.vcs,
     )
-    .map(|active| active.modules)
+    .map(|active| {
+        affected::restrict_to_task_defining(active, &focus_request, &context.adapters).modules
+    })
 }
 
 /// Resolve the run's recognized kind from the configured task tables.

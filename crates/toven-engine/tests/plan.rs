@@ -123,6 +123,31 @@ fn rust_provider_with_shared_input(path: &str) -> FakeProvider {
     FakeProvider::new(eid("rust")).with_adapter(adapter)
 }
 
+/// A single-module `command` ecosystem whose only task is `structure` — a task
+/// the [`rust_provider`] does not define. Used to prove task-aware activation:
+/// a task that lives in one ecosystem activates only that ecosystem's modules.
+fn command_provider() -> FakeProvider {
+    let mut response = DiscoverResponse::new(eid("command"));
+    response.workspaces.push(Workspace::new(
+        wsid("command"),
+        RepoPath::new(".").expect("root"),
+        ToolchainTag::new("ast-grep"),
+    ));
+    response
+        .modules
+        .push(module("command", "repo", ".", "command"));
+
+    let task = Task::new(
+        "structure",
+        vec!["ast-grep".to_string(), "scan".to_string()],
+        FanOut::WholeWorkspace,
+    );
+    let adapter = FakeConfiguredAdapter::new(eid("command"))
+        .with_response(response)
+        .with_tasks(vec![task]);
+    FakeProvider::new(eid("command")).with_adapter(adapter)
+}
+
 fn document() -> Document {
     Document {
         project: ProjectConfig {
@@ -137,6 +162,16 @@ fn document() -> Document {
         modules: std::collections::BTreeMap::new(),
         members: Vec::new(),
     }
+}
+
+/// [`document`] extended with the `command` ecosystem section so both providers
+/// load.
+fn two_ecosystem_document() -> Document {
+    let mut document = document();
+    document
+        .ecosystems
+        .insert(eid("command"), serde_json::json!({}));
+    document
 }
 
 fn request(intent: TaskIntent) -> PlanRequest {
@@ -750,4 +785,89 @@ fn conflicting_task_kinds_across_ecosystems_are_rejected() {
     let message = error.to_string();
     assert!(message.contains("conflicting kinds"), "{message}");
     assert!(message.contains("verify"), "{message}");
+}
+
+#[test]
+fn a_task_activates_only_the_ecosystems_that_define_it() {
+    let rust = rust_provider();
+    let command = command_provider();
+    let providers: Vec<&dyn Provider> = vec![&rust, &command];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
+    let cache = NullCache;
+    let mut reporter = RecordingReporter::new();
+
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+
+    // `structure` lives only in the command ecosystem, so a default (all-modules)
+    // run activates command:repo alone — the rust modules that lack the task are
+    // dropped instead of failing the whole plan.
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let structure = plan(
+        &request(TaskIntent::resolve("structure")),
+        &two_ecosystem_document(),
+        &providers,
+        host,
+        &mut reporter,
+    )
+    .expect("structure plans over the command ecosystem alone");
+    assert_eq!(structure.units.len(), 1);
+    assert_eq!(structure.units[0].task, "structure");
+    assert_eq!(
+        structure.units[0].argv,
+        vec!["ast-grep".to_string(), "scan".to_string()]
+    );
+    assert!(
+        structure.units[0]
+            .members
+            .iter()
+            .all(|key| key.module().ecosystem == eid("command")),
+        "structure must not activate rust modules"
+    );
+
+    // `test` lives only in the rust ecosystem, so the mirror holds: command:repo
+    // is dropped and the plan is the rust workspace batch.
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let test = plan(
+        &request(TaskIntent::resolve("test")),
+        &two_ecosystem_document(),
+        &providers,
+        host,
+        &mut reporter,
+    )
+    .expect("test plans over the rust ecosystem alone");
+    assert_eq!(test.units.len(), 1);
+    assert_eq!(test.units[0].task, "test");
+    assert!(
+        test.units[0]
+            .members
+            .iter()
+            .all(|key| key.module().ecosystem == eid("rust")),
+        "test must not activate the command module"
+    );
+}
+
+#[test]
+fn an_unknown_task_still_errors_when_no_ecosystem_defines_it() {
+    let rust = rust_provider();
+    let command = command_provider();
+    let providers: Vec<&dyn Provider> = vec![&rust, &command];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
+    let cache = NullCache;
+    let mut reporter = RecordingReporter::new();
+
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let error = plan(
+        &request(TaskIntent::resolve("bogus")),
+        &two_ecosystem_document(),
+        &providers,
+        host,
+        &mut reporter,
+    )
+    .expect_err("a task no ecosystem defines is rejected");
+    assert!(error.to_string().contains("has no 'bogus' task"), "{error}");
 }
