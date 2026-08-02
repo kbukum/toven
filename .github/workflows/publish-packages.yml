@@ -105,10 +105,13 @@ jobs:
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- Formula/toven.rb; then
+          # Stage first, then compare the index against HEAD: a brand-new
+          # untracked file (the first publish) does not show up in a working-tree
+          # `git diff`, so checking before `git add` would skip the initial push.
+          git add Formula/toven.rb
+          if git diff --cached --quiet; then
             echo "::notice::Homebrew formula already up to date for ${VERSION}."
           else
-            git add Formula/toven.rb
             git commit -m "toven ${VERSION}"
             git push
           fi
@@ -123,10 +126,13 @@ jobs:
           cd bucket
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- bucket/toven.json; then
+          # Stage first, then compare the index against HEAD: a brand-new
+          # untracked file (the first publish) does not show up in a working-tree
+          # `git diff`, so checking before `git add` would skip the initial push.
+          git add bucket/toven.json
+          if git diff --cached --quiet; then
             echo "::notice::Scoop manifest already up to date for ${VERSION}."
           else
-            git add bucket/toven.json
             git commit -m "toven ${VERSION}"
             git push
           fi
