@@ -5,6 +5,7 @@ mod bump;
 mod change;
 mod changelog;
 mod checksums;
+mod conventional;
 mod depgraphs;
 mod host;
 mod manifest;

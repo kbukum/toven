@@ -65,6 +65,16 @@ A module with no release tag has never been released, so it always joins the pla
 
 Status performs read-only tag and ecosystem-target lookups and reports the resolved publication policy for each releasable module. A lookup failure is surfaced rather than converted into a successful empty result. With `offline = true`, status anchors on release tags and skips registry lookups entirely, so the projection stays network-free.
 
+### Release notes
+
+A hosted Release's body is generated from git, not from a `CHANGELOG.md` file: `toven` reads each module's commit range (`baseline..HEAD`, scoped to the module's own directory), classifies every commit as a [Conventional Commit](https://www.conventionalcommits.org/), and renders grouped, attributed bullets under Keep a Changelog headings — `### Breaking changes`, `### Added`, `### Fixed`, `### Changed`, `### Other`. This is forge-agnostic and deterministic: the same commits drive a GitHub or GitLab release body identically, with no forge API call or hand-maintained changelog to drift.
+
+Each bullet carries the commit's optional scope, description, author attribution, and short id: `- **scope**: description — by @handle (abc123def456)`. The `@handle` is derived from git alone — a `login@users.noreply.github.com` or `ID+login@users.noreply.github.com` author email yields `@login`, and `Co-authored-by:` trailers are honored — falling back to the git author name when no handle is derivable (a commit authored with a personal email cannot be mapped to a forge handle without a network lookup, which `toven` deliberately avoids). Breaking changes are surfaced as a `### Breaking changes` section (from a `type!:` marker or a `BREAKING CHANGE:` body trailer) but do not silently re-decide the version bump — the bump stays driven by explicit `--minor`/`--major` argv or per-module config.
+
+When a single-version workspace maps every module onto one hosted Release (a `v{version}` tag format), the per-module note bodies are merged into one: sections are unioned by heading and duplicate bullets dropped, so a `### Added` heading appears once rather than once per contributing crate. A module with no commits in range contributes an empty body and folds away against a sibling that does carry notes. The plan table's summary column — a commit count (`1 commit`, `3 commits`) when commits are in range, or `dependency cascade` / `initial release` when none — is a plan-table cell only and is never emitted as release-body prose.
+
+The rendered body is fully previewable mutation-free through `toven release publish --dry-run` (see below) before any release is cut.
+
 ## Readiness
 
 ```bash
@@ -109,7 +119,7 @@ toven release publish --dry-run
 toven release publish --dry-run --output jsonl > release-preview.jsonl
 ```
 
-The rehearsal resolves the same module order, versions, publication policies, target idempotency verdicts, hosted tags, prerelease flags, and configured asset paths as a real publish. Registry entries report `would-publish` or `already-published`; tag-only entries report `tag-only`. It does not call manifest mutation, packaging, publication, tag creation, push, or forge commands.
+The rehearsal resolves the same module order, versions, publication policies, target idempotency verdicts, hosted tags, prerelease flags, and configured asset paths as a real publish. Registry entries report `would-publish` or `already-published`; tag-only entries report `tag-only`. Each hosted Release it would cut is previewed with its fully rendered, commit-derived notes body (human output prints the body under the hosted-release table; JSONL carries it as a `notes` field), so the exact release prose can be reviewed before dispatch. It does not call manifest mutation, packaging, publication, tag creation, push, or forge commands.
 
 Version choices can be supplied to rehearsal and mutating actions:
 

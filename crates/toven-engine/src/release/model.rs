@@ -427,6 +427,9 @@ pub struct HostRehearsal {
     pub draft: bool,
     /// Whether the Release would be marked as a prerelease.
     pub prerelease: bool,
+    /// Rendered Release notes body (the commit-derived, grouped changelog) that
+    /// a real run would post, previewed mutation-free.
+    pub notes: String,
     /// Project-relative artifact paths that would be uploaded.
     pub assets: Vec<String>,
 }

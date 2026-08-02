@@ -244,6 +244,13 @@ impl VcsReader for FakeVcs {
     fn changed_since(&self, _spec: &BaselineSpec) -> AppResult<Vec<ChangeRecord>> {
         Ok(Vec::new())
     }
+    fn commits_since(
+        &self,
+        _since: Option<&str>,
+        _path_prefix: Option<&Path>,
+    ) -> AppResult<Vec<CommitSummary>> {
+        Ok(Vec::new())
+    }
     fn worktree_status(&self) -> AppResult<Vec<ChangeRecord>> {
         Ok(Vec::new())
     }

@@ -127,6 +127,7 @@ fn rehearse_plan(
             tag: entry.release.tag.clone(),
             draft: entry.release.draft,
             prerelease: entry.release.prerelease,
+            notes: entry.release.notes.clone(),
             assets: entry
                 .release
                 .assets

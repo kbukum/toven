@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::AppResult;
 use toven_model::{Module, ModuleKey};
-use toven_ports::{BaselineSpec, ChangeRecord, ReleaseTarget, TagRef, TagScheme};
+use toven_ports::{BaselineSpec, ChangeRecord, CommitSummary, ReleaseTarget, TagRef, TagScheme};
 
 use crate::federation::baseline::{MemberVcsReader, MemberVcsReaders};
 use crate::plan::PlanContext;
@@ -21,6 +21,7 @@ use super::{ReleaseBaseline, ReleaseTargets, ResolvedReleaseSettings, tag};
 pub(super) struct ReleaseChanges {
     pub(super) changed: BTreeSet<ModuleKey>,
     pub(super) records: BTreeMap<ModuleKey, Vec<ChangeRecord>>,
+    pub(super) commits: BTreeMap<ModuleKey, Vec<CommitSummary>>,
     pub(super) baselines: BTreeMap<ModuleKey, ReleaseBaseline>,
 }
 
@@ -40,6 +41,7 @@ pub(super) fn detect(
     let mut changes = ReleaseChanges {
         changed: BTreeSet::new(),
         records: BTreeMap::new(),
+        commits: BTreeMap::new(),
         baselines: BTreeMap::new(),
     };
     for reader in readers.entries() {
@@ -93,6 +95,10 @@ fn detect_member(
         ) else {
             changes.changed.insert(module.key());
             changes.records.insert(module.key(), Vec::new());
+            changes.commits.insert(
+                module.key(),
+                collect_commits(reader, &changes.baselines, module)?,
+            );
             continue;
         };
         let mut module_changes = reader.umbrella_records(&reader.reader().changed_since(&spec)?);
@@ -109,10 +115,35 @@ fn detect_member(
                     &context.federation,
                 ),
             );
+            changes.commits.insert(
+                module.key(),
+                collect_commits(reader, &changes.baselines, module)?,
+            );
         }
     }
 
     Ok(())
+}
+
+/// Collect the Conventional-Commit history a changed module's changelog is
+/// generated from: the commits from the module's release baseline to `HEAD`,
+/// scoped to the module's own directory.
+///
+/// A module with no baseline (a first release) has no prior tag to diff
+/// against, so its whole path history is walked. Scoping by [`Module::root`]
+/// keeps each module's changelog to its own changes; workspace-root noise
+/// (lockfiles, CI config) attaches to no module.
+fn collect_commits(
+    reader: &MemberVcsReader<'_>,
+    baselines: &BTreeMap<ModuleKey, ReleaseBaseline>,
+    module: &Module,
+) -> AppResult<Vec<CommitSummary>> {
+    let since = baselines
+        .get(&module.key())
+        .and_then(|baseline| baseline.tag.as_deref());
+    reader
+        .reader()
+        .commits_since(since, Some(module.root.as_path()))
 }
 
 /// Resolve the diff baseline for one module's release change detection.

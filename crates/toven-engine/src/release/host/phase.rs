@@ -230,18 +230,11 @@ fn merge_planned(
         }
         existing.release.assets.push(asset);
     }
-    if !candidate.release.notes.is_empty()
-        && !existing
-            .release
-            .notes
-            .lines()
-            .eq(candidate.release.notes.lines())
-        && !existing.release.notes.contains(&candidate.release.notes)
-    {
-        if !existing.release.notes.is_empty() {
-            existing.release.notes.push('\n');
-        }
-        existing.release.notes.push_str(&candidate.release.notes);
+    if !candidate.release.notes.is_empty() {
+        existing.release.notes = crate::release::changelog::merge_notes(
+            &existing.release.notes,
+            &candidate.release.notes,
+        );
     }
     Ok(())
 }
@@ -280,14 +273,15 @@ pub(crate) fn run_host_phase(
     Ok(())
 }
 
-/// Derive the release-note body from a module's changelog entry: the detailed
-/// lines when present, otherwise the short summary.
+/// The hosted-release body for a module: its grouped, attributed changelog
+/// lines.
+///
+/// The plan `summary` (`3 commits`, `dependency cascade`, `initial release`) is
+/// a table cell for the release *plan*, never release-body prose — a module
+/// with no commits in range contributes an empty body and is folded away when
+/// its Release is merged with a sibling that does carry notes.
 fn changelog_notes(changelog: &crate::release::ChangelogEntry) -> String {
-    if changelog.lines.is_empty() {
-        changelog.summary.clone()
-    } else {
-        changelog.lines.join("\n")
-    }
+    changelog.lines.join("\n")
 }
 
 #[cfg(test)]
