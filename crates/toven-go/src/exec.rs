@@ -40,7 +40,7 @@ pub(crate) fn run_go_json(spec: &ProcessSpec, label: &str) -> AppResult<String> 
             format!("`{label}` timed out"),
         ));
     }
-    if result.stdout_truncated {
+    if result.stdout_truncated || result.stderr_truncated {
         return Err(AppError::new(
             ErrorCode::Internal,
             format!("`{label}` output exceeded {MAX_OUTPUT_BYTES} bytes"),

@@ -52,6 +52,16 @@ impl ProcessToolchainProber {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Test-only prober with a tiny output cap so a stream overrun is
+    /// exercisable deterministically without emitting cap-sized output.
+    #[cfg(test)]
+    const fn with_max_output_bytes(max_output_bytes: usize) -> Self {
+        Self {
+            timeout: DEFAULT_PROBE_TIMEOUT,
+            max_output_bytes,
+        }
+    }
 }
 
 impl ToolchainProber for ProcessToolchainProber {
@@ -65,17 +75,21 @@ impl ToolchainProber for ProcessToolchainProber {
             .with_max_output_bytes(self.max_output_bytes);
 
         let result = run(&spec, &config).map_err(|error| {
-            AppError::new(
-                rskit_errors::ErrorCode::NotFound,
-                format!(
-                    "toolchain probe '{}' could not run '{}' in '{}': is '{}' installed and on PATH?",
-                    probe.label,
-                    probe.program,
-                    workspace_root.display(),
-                    probe.program,
-                ),
-            )
-            .with_cause(error)
+            if error.code() == rskit_errors::ErrorCode::NotFound {
+                AppError::new(
+                    rskit_errors::ErrorCode::NotFound,
+                    format!(
+                        "toolchain probe '{}' could not run '{}' in '{}': is '{}' installed and on PATH?",
+                        probe.label,
+                        probe.program,
+                        workspace_root.display(),
+                        probe.program,
+                    ),
+                )
+                .with_cause(error)
+            } else {
+                error
+            }
         })?;
         if result.timed_out {
             return Err(AppError::new(
@@ -88,7 +102,7 @@ impl ToolchainProber for ProcessToolchainProber {
                 ),
             ));
         }
-        if result.stdout_truncated {
+        if result.stdout_truncated || result.stderr_truncated {
             return Err(AppError::new(
                 rskit_errors::ErrorCode::Internal,
                 format!(
@@ -99,15 +113,20 @@ impl ToolchainProber for ProcessToolchainProber {
                 ),
             ));
         }
-        // A probe that *ran* (spawned) but exited non-zero or printed no version
-        // line is not fatal: the tool exists, we simply have no cache-significant
-        // version to fold in. This keeps toolchain-independent command tasks whose
-        // program is not a version-reporting tool (`false`, `true`, `echo`) from
-        // aborting a plan. Only an absent tool (the ENOENT spawn failure mapped to
-        // NotFound above), a hang (`timed_out`), or pathological output
-        // (`stdout_truncated`) aborts planning. An empty return means "version
-        // unknown"; the caller then skips stamping.
-        Ok(result.stdout.trim().to_string())
+        // A probe that *ran* (spawned) aborts planning only on an absent tool
+        // (the ENOENT spawn failure mapped to NotFound above), a hang
+        // (`timed_out`), or output that overran the cap on *either* stream
+        // (`stdout`/`stderr` truncated). A tool that exists but exits non-zero
+        // yields *no* version rather than its stdout — which on failure is
+        // usage/error text, not a version — so a toolchain-independent command
+        // task whose program is not a version reporter (`false`, `true`, `echo`)
+        // never aborts a plan. An empty return means "version unknown"; the
+        // caller then skips stamping.
+        if result.success() {
+            Ok(result.stdout.trim().to_string())
+        } else {
+            Ok(String::new())
+        }
     }
 }
 
@@ -308,6 +327,89 @@ mod tests {
         assert!(
             version.is_empty(),
             "no parseable version is expected, got {version:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_present_tool_that_exits_non_zero_yields_no_version_not_its_stdout() {
+        // A probe that runs but exits non-zero must not stamp its stdout — which
+        // on failure is usage/error text, not a version — as the toolchain
+        // version; it yields "version unknown" while still letting the plan
+        // proceed. Unix-only because it relies on `sh`.
+        let probe = ToolchainProbe {
+            label: "check".to_string(),
+            program: "sh".to_string(),
+            args: vec!["-c".to_string(), "printf boom; exit 3".to_string()],
+        };
+
+        let version = ProcessToolchainProber::new()
+            .probe(&probe, Path::new("."))
+            .expect("a present tool that exits non-zero must not fail the probe");
+
+        assert!(
+            version.is_empty(),
+            "a non-zero exit must yield no version, got {version:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_probe_whose_stderr_overruns_the_cap_is_fatal() {
+        // The output bound covers *both* streams: a probe that floods stderr past
+        // the cap is a hard error, not a silently truncated success. Unix-only
+        // because it relies on `sh` and `/dev/zero`.
+        let probe = ToolchainProbe {
+            label: "check".to_string(),
+            program: "sh".to_string(),
+            args: vec!["-c".to_string(), "head -c 200 /dev/zero 1>&2".to_string()],
+        };
+
+        let error = ProcessToolchainProber::with_max_output_bytes(64)
+            .probe(&probe, Path::new("."))
+            .expect_err("a stderr overrun must be a fatal probe error");
+
+        assert_eq!(error.code(), rskit_errors::ErrorCode::Internal);
+        assert!(
+            error.to_string().contains("exceeded"),
+            "the error must explain the output-cap overrun: {error}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_present_but_non_executable_probe_tool_propagates_the_classified_error() {
+        use std::io::Write as _;
+        use std::os::unix::fs::PermissionsExt as _;
+
+        // A tool that exists but lacks the execute bit is a permission problem, not
+        // a "missing tool" one: the probe must surface the classified error
+        // (Forbidden) unchanged rather than mislabeling it as "not installed on
+        // PATH". Unix-only because it relies on POSIX permission bits.
+        let path = std::env::temp_dir().join(format!("toven-probe-noexec-{}", std::process::id()));
+        let mut file = std::fs::File::create(&path).expect("create temp probe tool");
+        file.write_all(b"#!/bin/sh\n")
+            .expect("write temp probe tool");
+        drop(file);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644))
+            .expect("drop the execute bit");
+
+        let probe = ToolchainProbe {
+            label: "check".to_string(),
+            program: path.to_string_lossy().into_owned(),
+            args: Vec::new(),
+        };
+
+        let error = ProcessToolchainProber::new()
+            .probe(&probe, Path::new("."))
+            .expect_err("a non-executable tool must fail the probe");
+
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(error.code(), rskit_errors::ErrorCode::Forbidden);
+        assert!(
+            !error.to_string().contains("PATH"),
+            "a permission error must not be reported as a missing tool: {error}"
         );
     }
 }

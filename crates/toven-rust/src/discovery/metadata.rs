@@ -103,7 +103,7 @@ fn run_metadata(project_root: &Path, manifest: &str) -> AppResult<cargo_metadata
             format!("`cargo metadata` for '{manifest}' timed out"),
         ));
     }
-    if result.stdout_truncated {
+    if result.stdout_truncated || result.stderr_truncated {
         return Err(AppError::new(
             ErrorCode::Internal,
             format!("`cargo metadata` output for '{manifest}' exceeded {MAX_METADATA_BYTES} bytes"),

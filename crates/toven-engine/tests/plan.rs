@@ -871,3 +871,82 @@ fn an_unknown_task_still_errors_when_no_ecosystem_defines_it() {
     .expect_err("a task no ecosystem defines is rejected");
     assert!(error.to_string().contains("has no 'bogus' task"), "{error}");
 }
+
+#[test]
+fn narrowing_to_a_task_defining_ecosystem_clears_the_full_activation_diagnostic() {
+    // An unclassified changed path forces fail-closed full activation of every
+    // module. Because `structure` lives only in the command ecosystem, the set is
+    // then narrowed to command:repo — so this is no longer a full activation and
+    // the misleading `FullActivation` event must not be emitted.
+    let rust = rust_provider();
+    let command = command_provider();
+    let providers: Vec<&dyn Provider> = vec![&rust, &command];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
+    let cache = NullCache;
+    let mut reporter = RecordingReporter::new();
+
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let request =
+        request(TaskIntent::resolve("structure")).with_selection(Selection::ChangedPaths(vec![
+            "unowned/loose-file.txt".to_string(),
+        ]));
+    let plan = plan(
+        &request,
+        &two_ecosystem_document(),
+        &providers,
+        host,
+        &mut reporter,
+    )
+    .expect("structure plans over the command ecosystem alone");
+
+    assert!(
+        plan.units.iter().all(|unit| unit
+            .members
+            .iter()
+            .all(|key| key.module().ecosystem == eid("command"))),
+        "structure must narrow to the command ecosystem"
+    );
+    assert!(
+        !reporter
+            .events()
+            .iter()
+            .any(|event| matches!(event, Event::FullActivation { .. })),
+        "a narrowed plan must not emit a FullActivation event"
+    );
+}
+
+#[test]
+fn an_unnarrowed_full_activation_keeps_its_diagnostic() {
+    // When every active module defines the task, restriction drops nothing, so
+    // the forced-full-activation diagnostic survives and the `FullActivation`
+    // event still fires — the single-ecosystem `test` run over an unclassified
+    // changed path.
+    let rust = rust_provider();
+    let providers: Vec<&dyn Provider> = vec![&rust];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = CountingToolchainProber::new();
+    let cache = NullCache;
+    let mut reporter = RecordingReporter::new();
+
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let request =
+        request(TaskIntent::resolve("test")).with_selection(Selection::ChangedPaths(vec![
+            "unowned/loose-file.txt".to_string(),
+        ]));
+    plan(&request, &document(), &providers, host, &mut reporter).expect("test plans");
+
+    let full_activation = reporter
+        .events()
+        .iter()
+        .find_map(|event| match event {
+            Event::FullActivation { paths } => Some(paths.clone()),
+            _ => None,
+        })
+        .expect("an unclassified path must still emit FullActivation when nothing is narrowed");
+    assert_eq!(full_activation, vec!["unowned/loose-file.txt".to_string()]);
+}
