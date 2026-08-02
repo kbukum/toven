@@ -34,6 +34,17 @@ jobs:
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked --version 0.19.0
 
+      # `doctor` audits the whole resolved task graph, so its referenced tools
+      # (ast-grep for structure, mdbook + mdbook-mermaid for docs-build) must be
+      # present for the gate to pass — the single source of truth for provisioning.
+      - name: Install task-graph tooling
+        uses: taiki-e/install-action@18b1216eba7f8039b0f8d131d5473787f0edce68 # v2
+        with:
+          tool: ast-grep,mdbook,mdbook-mermaid
+
+      - name: Doctor (required-tool gate)
+        run: make doctor
+
       - name: Run dependency audit
         run: make deny
 
@@ -67,6 +78,16 @@ jobs:
       # The rust publish-train golden scenarios shell out to the plugin.
       - name: Install cargo-cyclonedx
         run: cargo install cargo-cyclonedx --locked --version 0.5.9
+
+      # `doctor`'s referenced tools (ast-grep for structure, mdbook +
+      # mdbook-mermaid for docs-build) so the required-tool gate can pass.
+      - name: Install task-graph tooling
+        uses: taiki-e/install-action@18b1216eba7f8039b0f8d131d5473787f0edce68 # v2
+        with:
+          tool: ast-grep,mdbook,mdbook-mermaid
+
+      - name: Doctor (required-tool gate)
+        run: make doctor
 
       - name: Run coverage gate
         run: make coverage

@@ -113,6 +113,18 @@ fan_out = "batchable"
 selector = ["-p", "{module.package}"]
 shared_inputs = ["Cargo.lock"]
 
+# nextest (the `test` task) cannot execute documentation tests, so the Rust
+# adapter's `doctest` default runs `cargo test --doc`. A doctest is semantically
+# a test, so `kind = "test"` reuses the Test kind (coverage/affected grouping)
+# while the distinct `doctest` name keeps it from colliding with the nextest
+# `test` task. Mirrors the `toven-rust` adapter default; Go has no analog.
+[ecosystems.rust.tasks.doctest]
+argv = ["cargo", "test", "--doc", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+kind = "test"
+selector = ["-p", "{module.package}"]
+shared_inputs = ["Cargo.lock"]
+
 [ecosystems.rust.tasks.format]
 argv = ["cargo", "fmt", "--manifest-path", "{module.manifest}", "--all", "{args}"]
 cacheable = false

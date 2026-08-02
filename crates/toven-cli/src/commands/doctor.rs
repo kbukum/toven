@@ -17,7 +17,7 @@
 
 use rskit_cli::ExitCode;
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_engine::doctor::{ToolAudit, audit};
+use toven_engine::doctor::{ToolAudit, ToolProbeOutcome, audit_streaming};
 use toven_engine::plan::ProcessToolchainProber;
 use toven_model::{Event, ToolStatus};
 use toven_ports::{Provider, Reporter};
@@ -27,7 +27,7 @@ use crate::host::{Project, Report};
 /// `toven doctor [--ensure]`.
 ///
 /// # Errors
-/// Propagates configuration/probe failures from [`audit`], and — when `ensure`
+/// Propagates configuration/probe failures from the audit, and — when `ensure`
 /// is set and any tool is missing — the typed actionable error naming the tools
 /// Toven cannot provision.
 pub(crate) fn doctor(
@@ -37,26 +37,39 @@ pub(crate) fn doctor(
     ensure: bool,
 ) -> AppResult<ExitCode> {
     let prober = ProcessToolchainProber::new();
-    let audited = audit(&project.project_root, &project.document, providers, &prober)?;
     let mut reporter = report.reporter();
-    project_audit(&audited, ensure, reporter.as_mut())
+    // Stream each tool's verdict the moment its probe completes — the reporter
+    // flushes per line — so `doctor` reports progressively (check → report →
+    // next) like a run, instead of buffering every probe and dumping the audit
+    // at the end.
+    let audited = {
+        let sink = reporter.as_mut();
+        audit_streaming(
+            &project.project_root,
+            &project.document,
+            providers,
+            &prober,
+            &mut |tool| emit_tool(sink, tool),
+        )?
+    };
+    finish_audit(&audited, ensure, reporter.as_mut())
 }
 
-/// Project the audit through `sink` and resolve the process exit.
-///
-/// Emits one [`Event::ToolAudited`] per tool and a terminal
-/// [`Event::DoctorFinished`], then maps the result to an exit: healthy →
-/// success; missing tools → failure (or, under `ensure`, the typed
-/// unprovisionable error). Split out so the projection and exit policy are
-/// unit-testable against a captured reporter without spawning real probes.
-fn project_audit(audit: &ToolAudit, ensure: bool, sink: &mut dyn Reporter) -> AppResult<ExitCode> {
-    for tool in &audit.tools {
-        sink.emit(&Event::ToolAudited {
-            label: tool.label.clone(),
-            program: tool.program.clone(),
-            status: tool.status.clone(),
-        })?;
-    }
+/// Emit one tool's verdict as an [`Event::ToolAudited`].
+fn emit_tool(sink: &mut dyn Reporter, tool: &ToolProbeOutcome) -> AppResult<()> {
+    sink.emit(&Event::ToolAudited {
+        label: tool.label.clone(),
+        program: tool.program.clone(),
+        status: tool.status.clone(),
+    })
+}
+
+/// Emit the terminal [`Event::DoctorFinished`] summary and resolve the process
+/// exit: healthy → success; missing tools → failure (or, under `ensure`, the
+/// typed unprovisionable error). Per-tool [`Event::ToolAudited`] events are
+/// emitted as each probe completes (see [`emit_tool`]), so this only closes the
+/// audit.
+fn finish_audit(audit: &ToolAudit, ensure: bool, sink: &mut dyn Reporter) -> AppResult<ExitCode> {
     let missing = audit.missing_count();
     sink.emit(&Event::DoctorFinished {
         checked: audit.tools.len(),
@@ -69,6 +82,18 @@ fn project_audit(audit: &ToolAudit, ensure: bool, sink: &mut dyn Reporter) -> Ap
         return Err(unprovisionable(audit));
     }
     Ok(ExitCode::Failure)
+}
+
+/// Project a fully-classified audit through `sink`: emit every per-tool verdict,
+/// then close with [`finish_audit`]. The streaming [`doctor`] path emits the
+/// per-tool events as probes complete; this batch projector keeps the same
+/// event sequence available for unit tests without spawning real probes.
+#[cfg(test)]
+fn project_audit(audit: &ToolAudit, ensure: bool, sink: &mut dyn Reporter) -> AppResult<ExitCode> {
+    for tool in &audit.tools {
+        emit_tool(sink, tool)?;
+    }
+    finish_audit(audit, ensure, sink)
 }
 
 /// The typed, actionable error raised when `--ensure` cannot close the gap.

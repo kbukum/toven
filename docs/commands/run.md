@@ -53,6 +53,26 @@ toven explain test --module rust:core
 
 Toven does not correct unknown task flags because they may belong to the underlying command.
 
+## Tool gates as tasks
+
+Tool-specific gates are ordinary tasks, resolved and run through the same machinery — there is no bespoke verb for any of them. Toven drives its own quality gates this way:
+
+| Task | Ecosystem | Resolves to |
+|---|---|---|
+| `structure` | `command` | `ast-grep scan` (the declare-only `lib.rs`/`mod.rs` guard) |
+| `docs-build` | `command` | `mdbook build docs` |
+| `deny` | `rust` | `cargo deny check advisories bans licenses sources` |
+| `doctest` | `rust` | `cargo test --doc …` (the doctests nextest cannot run) |
+
+```bash
+toven run structure
+toven run deny
+toven run docs-build
+toven run doctest -- --all-features
+```
+
+The `command` ecosystem is Toven's generic-tool adapter: a tool-specific but language-agnostic gate that has no cargo/go home is declared under `[ecosystems.command.tasks.<name>]`. A cargo-specific but repo-opt-in gate like `deny` (it needs a `deny.toml`) is a declared `[ecosystems.rust.tasks.deny]` task rather than a baked-in adapter default. See the [language- and tool-agnostic core](../engineering.md#language--and-tool-agnostic-core) principle for why each gate lives where it does. Inspect the resolved argv for any of them with `toven explain <task>`.
+
 ## Select scope
 
 ```bash

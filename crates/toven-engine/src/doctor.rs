@@ -91,6 +91,11 @@ impl ToolAudit {
 /// [`ToolStatus::Present`] (with a version when one is parseable); a spawn
 /// `NotFound` yields [`ToolStatus::Missing`].
 ///
+/// This is the batch form: it returns the fully-classified [`ToolAudit`] once
+/// every probe has run. Use [`audit_streaming`] to observe each outcome the
+/// moment its probe completes (so a caller's reporter can stream results live
+/// instead of buffering the whole audit).
+///
 /// # Errors
 /// Propagates configuration failures and any probe failure that is *not* a
 /// missing tool — a hang, a permission error, or an output overrun is a hard
@@ -101,11 +106,36 @@ pub fn audit(
     providers: &[&dyn Provider],
     prober: &dyn ToolchainProber,
 ) -> AppResult<ToolAudit> {
+    audit_streaming(project_root, document, providers, prober, &mut |_| Ok(()))
+}
+
+/// Audit the resolved task graph's tools, invoking `on_outcome` for each tool
+/// the instant its probe is classified.
+///
+/// Identical in result to [`audit`] — same deterministic probe set and order,
+/// same returned [`ToolAudit`] — but each [`ToolProbeOutcome`] is handed to
+/// `on_outcome` *before the next probe runs*, so a caller (the `doctor` verb)
+/// can project results progressively through its reporter rather than waiting
+/// for the whole graph to be probed. The engine stays tool-agnostic: it never
+/// prints and knows nothing of the reporter; the callback is the only seam.
+///
+/// # Errors
+/// Propagates configuration failures, any non-missing probe failure, and any
+/// error `on_outcome` itself returns (a failed emit aborts the audit).
+pub fn audit_streaming(
+    project_root: &AbsPath,
+    document: &Document,
+    providers: &[&dyn Provider],
+    prober: &dyn ToolchainProber,
+    on_outcome: &mut dyn FnMut(&ToolProbeOutcome) -> AppResult<()>,
+) -> AppResult<ToolAudit> {
     let needed = collect_probes(document, providers)?;
     let mut tools = Vec::with_capacity(needed.len());
     for probe in needed {
         let status = classify(prober, &probe, project_root)?;
-        tools.push(ToolProbeOutcome::new(probe.label, probe.program, status));
+        let outcome = ToolProbeOutcome::new(probe.label, probe.program, status);
+        on_outcome(&outcome)?;
+        tools.push(outcome);
     }
     Ok(ToolAudit::new(tools))
 }
@@ -162,7 +192,7 @@ mod tests {
     use toven_ports::{FanOut, Provider, Task, ToolchainProbe, ToolchainProber};
     use toven_testkit::{FakeConfiguredAdapter, FakeProvider, ScriptedToolchainProber};
 
-    use super::audit;
+    use super::{audit, audit_streaming};
     use crate::config::{Document, ProjectConfig, TovenConfig};
 
     fn eid(id: &str) -> EcosystemId {
@@ -326,5 +356,56 @@ mod tests {
         .expect_err("a probe hang must fail the audit");
 
         assert_eq!(error.code(), ErrorCode::Timeout);
+    }
+
+    #[test]
+    fn streaming_hands_each_outcome_to_the_callback_in_probe_order() {
+        let rust = provider_probing("rust", "cargo");
+        let command = provider_probing("command", "mdbook");
+        let providers: Vec<&dyn Provider> = vec![&rust, &command];
+        let prober = ScriptedToolchainProber::new()
+            .with_version("cargo 1.94.0")
+            .with_absent("mdbook");
+
+        let mut streamed = Vec::new();
+        let audit = audit_streaming(
+            &root(),
+            &document_with(&["rust", "command"]),
+            &providers,
+            &prober,
+            &mut |outcome| {
+                streamed.push((outcome.program.clone(), outcome.status.clone()));
+                Ok(())
+            },
+        )
+        .expect("audit succeeds");
+
+        // The callback observes every tool, in the same order and with the same
+        // verdicts the returned audit carries — one emit per probe, live.
+        let from_audit: Vec<_> = audit
+            .tools
+            .iter()
+            .map(|tool| (tool.program.clone(), tool.status.clone()))
+            .collect();
+        assert_eq!(streamed, from_audit);
+        assert_eq!(streamed.len(), 2);
+    }
+
+    #[test]
+    fn streaming_aborts_when_the_callback_fails() {
+        let rust = provider_probing("rust", "cargo");
+        let providers: Vec<&dyn Provider> = vec![&rust];
+        let prober = ScriptedToolchainProber::new().with_version("cargo 1.94.0");
+
+        let error = audit_streaming(
+            &root(),
+            &document_with(&["rust"]),
+            &providers,
+            &prober,
+            &mut |_| Err(AppError::new(ErrorCode::Internal, "sink closed")),
+        )
+        .expect_err("a failed emit aborts the audit");
+
+        assert_eq!(error.code(), ErrorCode::Internal);
     }
 }

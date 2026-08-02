@@ -69,6 +69,12 @@ Because `line-set` does not normalize and every APPLY summary carries a `duratio
 
 The engine pins everything a scenario needs to be reproducible and safe under the harness's own parallelism: a fixed wall clock (`TOVEN_CLOCK_EPOCH`, so the only wall-clock field — the `run_id` — is stable), pinned git identity and commit dates, `LC_ALL=C`, `TERM=dumb`, a **scenario-scoped cache dir**, and **per-scenario toolchain homes** (`CARGO_HOME`/`GOCACHE`/`GOPATH`) so concurrent real-toolchain steps never contend on a shared package-cache lock. Prefer the toolchain-independent `command` ecosystem for exact APPLY goldens; gate real `cargo`/`go` scenarios with `requires:` so a runner without that toolchain skips the scenario green, and gate steps needing an extra plugin (such as `cargo-cyclonedx`) with a step-level `requires:` so only that step skips.
 
+## Doctests
+
+Doctests are a **Rust-adapter task, not a core Toven concept**. Nextest — the `test` task — cannot execute documentation tests, so the `toven-rust` adapter ships a default `doctest` task that runs `cargo test --doc`. It reuses `TaskKind::Test` (a doctest is semantically a test) under the distinct name `doctest` so it never collides with the nextest `test` task, and it fans out per module exactly like `test`. Because doctests are Rust/cargo-specific, the Go adapter has no `doctest` task by design — that asymmetry is the proof the capability lives in the correct layer.
+
+The canonical gate runs both: `make test` is `test-nextest` plus `doctest`, so a broken doctest fails `make check`. Run doctests alone with `toven run doctest` (or the low-level `cargo test -p <crate> --doc`).
+
 ## The check / bless loop
 
 ```bash

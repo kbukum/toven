@@ -11,9 +11,11 @@ name: Self-canary
 # is already re-verified by `release.yml`'s `verify` job (`toven release verify
 # --download`), and the downstream install contract is exercised by
 # `scripts/install-toven.sh`. This canary's unique signal is that the
-# self-produced binary runs Toven's whole toven-driven gate — including the
-# `format-check` and `vuln` mapped tasks that `make check` otherwise gates
-# natively — plus the full mutation-free release preview surface.
+# self-produced binary runs Toven's whole toven-driven gate — the full
+# `make check` surface (`lint`/`test`+`doctest`/`doc`/`structure`/`deny`/
+# `docs-build`) plus the `format-check` and `vuln` mapped tasks and the
+# `doctor` required-tool audit — plus the full mutation-free release preview
+# surface.
 on:
   push:
     branches:
@@ -59,12 +61,17 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@72d126e709cad40056a62344eee609d696d62d33 # v2.7.8
 
-      # Tools the mapped gates shell out to: nextest (test), llvm-cov (coverage),
-      # cargo-audit (vuln), cargo-cyclonedx (release sbom preview).
+      # Tools the toven-driven gates shell out to: nextest (test), llvm-cov
+      # (coverage), cargo-audit (vuln), ast-grep (structure), mdbook +
+      # mdbook-mermaid (docs-build), cargo-cyclonedx (release sbom preview).
+      # This set is exactly what `toven doctor` reports for the full task graph
+      # (cargo, ast-grep, mdbook) plus the cargo plugins it sees only as `cargo`.
       - name: Install gate tooling
         uses: taiki-e/install-action@18b1216eba7f8039b0f8d131d5473787f0edce68 # v2
         with:
-          tool: cargo-nextest,cargo-llvm-cov,cargo-audit
+          tool: cargo-nextest,cargo-llvm-cov,cargo-audit,ast-grep,mdbook,mdbook-mermaid
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked --version 0.19.0
       - name: Install cargo-cyclonedx
         run: cargo install cargo-cyclonedx --locked --version 0.5.9
 
@@ -98,11 +105,20 @@ jobs:
           toven graph
           toven plan check
 
+      # `doctor` through the self-generated binary: the single source of truth
+      # for the tools the resolved task graph needs, failing closed on any gap
+      # before the gates run.
+      - name: Doctor (required-tool gate) through the self-generated binary
+        run: '"${TOVEN_BIN}" doctor --ensure'
+
       # Every toven-driven gate, routed through the self-generated binary via the
       # Makefile's TOVEN override — the same entrypoint a maintainer uses with
-      # `make TOVEN=toven ...`.
+      # `make TOVEN=toven ...`. `test` runs nextest plus the `doctest` task;
+      # `structure`/`deny`/`docs-build` route the command-ecosystem and rust
+      # `deny` gates through the binary too, so the whole `make check` surface is
+      # dogfooded end to end.
       - name: Toven-driven gates through the self-generated binary
-        run: make TOVEN="${TOVEN_BIN}" lint test doc coverage affected
+        run: make TOVEN="${TOVEN_BIN}" lint test doc structure deny docs-build coverage affected
 
       # The two concerns `make check` gates natively also have Toven mapped tasks;
       # prove they run through the self-generated binary too, so no purpose Toven

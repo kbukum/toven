@@ -49,15 +49,16 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@72d126e709cad40056a62344eee609d696d62d33 # v2.7.8
 
-      - name: Install cargo-nextest
+      # Single authoritative install list, aligned to `toven doctor`'s report of
+      # the resolved task graph's tools (cargo, ast-grep, mdbook) plus the cargo
+      # plugins gates shell out to that `doctor` sees only as `cargo`:
+      # cargo-nextest (test), cargo-deny (deny), cargo-cyclonedx (the rust
+      # publish-train golden scenarios). mdbook + mdbook-mermaid back the
+      # command-ecosystem `docs-build` gate the `doctor` audit requires.
+      - name: Install task-graph tooling
         uses: taiki-e/install-action@18b1216eba7f8039b0f8d131d5473787f0edce68 # v2
         with:
-          tool: cargo-nextest
-
-      - name: Install ast-grep
-        uses: taiki-e/install-action@18b1216eba7f8039b0f8d131d5473787f0edce68 # v2
-        with:
-          tool: ast-grep
+          tool: cargo-nextest,ast-grep,mdbook,mdbook-mermaid
 
       - name: Show tool versions
         run: |
@@ -65,14 +66,20 @@ jobs:
           cargo --version
           cargo nextest --version
           ast-grep --version
+          mdbook --version
           go version
 
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked --version 0.19.0
 
-      # The rust publish-train golden scenarios shell out to the plugin.
       - name: Install cargo-cyclonedx
         run: cargo install cargo-cyclonedx --locked --version 0.5.9
+
+      # `doctor` is the single source of truth for required tooling: fail fast
+      # with the aggregated missing-tool report before the gate runs, so a
+      # provisioning gap surfaces here rather than mid-`check`.
+      - name: Doctor (required-tool gate)
+        run: make doctor
 
       - name: Run checks
         run: make check

@@ -15,10 +15,21 @@ export NEXTEST_PROFILE ?= default
 # binary for speed with `make TOVEN=toven check`.
 TOVEN ?= cargo run --quiet --locked -p toven --
 
-.PHONY: check fmt fmt-check lint test test-nextest test-doc structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark golden bless verify-release-platform-filter release-dry-run release-plan act-ci act-supply-chain act-release-readiness
+.PHONY: check doctor fmt fmt-check lint test test-nextest doctest structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark golden bless verify-release-platform-filter release-dry-run release-plan act-ci act-supply-chain act-release-readiness
 
-# Canonical local/CI gate for the virtual workspace.
+# Canonical local/CI gate for the virtual workspace. Every non-exempt gate
+# resolves through Toven (see the tmp/toven-self-application plan); `fmt-check`
+# is the one documented native exception (a single fast workspace rustfmt pass).
 check: fmt-check lint test structure doc deny verify-release-platform-filter release-dry-run
+
+# Whole-graph tool audit: report every tool the resolved task graph needs and
+# fail closed if any is missing (never installs). This is the single source of
+# truth CI provisions against — it spans the full declared surface (cargo,
+# ast-grep, mdbook), not just the `check` subset, so it is a standalone gate
+# rather than a `check` prerequisite that would over-demand tools `check` never
+# runs (e.g. mdbook for docs-build).
+doctor:
+	$(TOVEN) doctor --ensure
 
 # rustfmt is intentionally native: `make check` gates the whole workspace in a
 # single fast rustfmt pass; the per-module `format`/`format-check` tasks remain
@@ -36,19 +47,24 @@ lint:
 	$(TOVEN) lint -- --all-targets --all-features -- -D warnings
 
 # Tests run via the Toven `test` task (nextest, fast, globally parallel). nextest
-# does not execute doctests, so they run separately and natively under `test-doc`.
-test: test-nextest test-doc
+# does not execute doctests, so they run separately through the Toven-driven
+# `doctest` task (the `toven-rust` adapter default) rather than a native recipe.
+test: test-nextest doctest
 
 test-nextest:
 	$(TOVEN) test -- --all-targets --all-features
 
-test-doc:
-	cargo test --workspace --all-features --doc
+# Toven-driven doctests. The `doctest` task is a `toven-rust` adapter default
+# (`cargo test --doc`) reusing the Test kind; the passthrough carries the same
+# CI-strength feature selection as the nextest gate.
+doctest:
+	$(TOVEN) run doctest -- --all-features
 
+# Toven-driven declare-only aggregator guard (ast-grep). The command-ecosystem
+# `structure` task owns the argv; its toolchain probe (or `make doctor`) covers
+# the tool-presence check that the native `command -v` guard used to do.
 structure:
-	@echo "==> Checking declare-only aggregators (lib.rs / mod.rs)..."
-	@command -v ast-grep >/dev/null 2>&1 || { echo "structure: ast-grep not found — install with 'brew install ast-grep' or 'cargo install ast-grep --locked'"; exit 1; }
-	@ast-grep scan
+	$(TOVEN) run structure
 
 # Toven-driven rustdoc. RUSTDOCFLAGS supplies the deny-warnings gate and the
 # passthrough supplies `--all-features` (gate rustdoc across every feature); the
@@ -62,10 +78,11 @@ docs-serve:
 	@command -v mdbook-mermaid >/dev/null 2>&1 || { echo "docs-serve: mdbook-mermaid not found — install with 'cargo install mdbook-mermaid --locked'"; exit 1; }
 	mdbook serve docs --open
 
+# Toven-driven documentation build (mdbook). The command-ecosystem `docs-build`
+# task owns the argv; its per-task toolchain probe (or `make doctor`) covers the
+# mdbook/mdbook-mermaid presence check the native `command -v` guards did.
 docs-build:
-	@command -v mdbook >/dev/null 2>&1 || { echo "docs-build: mdbook not found — install with 'cargo install mdbook --locked'"; exit 1; }
-	@command -v mdbook-mermaid >/dev/null 2>&1 || { echo "docs-build: mdbook-mermaid not found — install with 'cargo install mdbook-mermaid --locked'"; exit 1; }
-	mdbook build docs
+	$(TOVEN) run docs-build
 
 # Scenario-driven golden matrix: every `scenario.yaml` under
 # `apps/toven/tests/golden/` is one reported case (zero per-case code; see
@@ -92,8 +109,11 @@ verify-release-platform-filter:
 		exit 1; \
 	fi
 
+# Toven-driven cargo-deny gate. The repo-declared rust `deny` task
+# (`[ecosystems.rust.tasks.deny]`) owns the argv; `deny.toml` is one of its
+# shared inputs so a policy edit re-runs the gate.
 deny:
-	cargo deny check advisories bans licenses sources
+	$(TOVEN) run deny
 
 # Toven owns coverage aggregation and gates the emitted profiles against the
 # `[ecosystems.rust.coverage]` thresholds (line 80 / function 80 in toven.toml).

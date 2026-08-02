@@ -24,15 +24,20 @@ CI must pin a Toven version and checksum. It must not use an unversioned latest-
 make check
 ```
 
-The gate includes formatting, linting, nextest, doctests, structure checks, rustdoc, dependency policy, and release build readiness.
+The gate includes formatting, linting, nextest, doctests, structure checks, rustdoc, dependency policy, and release build readiness. It is **Toven-driven end to end**: every gate resolves through a Toven task, with one deliberate, documented exception.
 
 | Gate | Execution |
 |---|---|
 | Lint, nextest, rustdoc, release build | Toven task |
-| rustfmt workspace check | Native Cargo |
-| Rust doctests | Native Cargo |
-| Dependency policy | cargo-deny |
-| Declare-only structure | ast-grep |
+| Rust doctests | Toven `doctest` task (`cargo test --doc`) |
+| Dependency policy (cargo-deny) | Toven `deny` task |
+| Declare-only structure (ast-grep) | Toven `structure` task (command ecosystem) |
+| Documentation build (mdbook) | Toven `docs-build` task (command ecosystem) |
+| rustfmt workspace check | Native Cargo — the sole documented exception |
+
+`fmt-check` stays native on purpose: `make check` gates the whole workspace in a single fast `cargo fmt --all --check` pass, and the granular `format`/`format-check` rust tasks remain available through Toven. Every other gate — including the ones that were once bespoke Makefile recipes with `command -v` tool guards (`structure`, `deny`, doctests, `docs-build`) — now runs through `toven run <task>`, and the tool-presence guards are replaced by a single [`doctor`](commands/doctor.md) audit.
+
+`make doctor` (`toven doctor --ensure`) is the single source of truth for required tooling: it walks the resolved task graph, reports every tool its tasks need (`cargo`, `ast-grep`, `mdbook`), and fails closed on a gap. CI provisions against that report and runs it as a fail-fast gate before the rest of the surface, so a missing tool surfaces once, up front, rather than mid-gate.
 
 Additional entry points are:
 
@@ -93,7 +98,7 @@ After publish, the `verify` job downloads every published asset and runs `toven 
 
 Toven proves its release platform on itself, driving Toven's own work with the binary Toven builds and packages — not a source `cargo run` and not a downloaded release.
 
-`.github/workflows/self-canary.yml` is that proof. On every push to `main` (and on manual dispatch) it builds the release binary, packages it into its declared `dist/` archive with `toven release package`, extracts that self-generated binary, and then runs Toven's whole toven-driven surface through it: module discovery, `plan check`, the mapped gates (`lint`, `test`, `doc`, `coverage`, `affected`) via `make TOVEN=<binary>`, the `format-check` and `vuln` mapped tasks that `make check` otherwise gates natively, and the full mutation-free release preview (`release plan`/`status`/`readiness`/`sbom`/`depgraphs` and `publish --dry-run`). Nothing after packaging uses a source build, so a green run means the artifact Toven ships can perform every job Toven is built for. It needs no published release: the canary self-generates the binary it dogfoods.
+`.github/workflows/self-canary.yml` is that proof. On every push to `main` (and on manual dispatch) it builds the release binary, packages it into its declared `dist/` archive with `toven release package`, extracts that self-generated binary, and then runs Toven's whole toven-driven surface through it: module discovery, `plan check`, the `doctor --ensure` required-tool audit, the full `make check` gate surface (`lint`, `test` — nextest plus the `doctest` task — `doc`, `structure`, `deny`, `docs-build`, `coverage`, `affected`) via `make TOVEN=<binary>`, the `format-check` and `vuln` mapped tasks that `make check` otherwise gates natively, and the full mutation-free release preview (`release plan`/`status`/`readiness`/`sbom`/`depgraphs` and `publish --dry-run`). Nothing after packaging uses a source build, so a green run means the artifact Toven ships can perform every job Toven is built for. It needs no published release: the canary self-generates the binary it dogfoods.
 
 Two related but distinct checks cover the *released* artifact rather than the self-generated one, so the self-canary does not duplicate them:
 

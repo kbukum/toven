@@ -22,6 +22,7 @@
   - [Inspect plans and graphs](commands/inspect.md)
   - [Manage cache](commands/cache.md)
   - [Measure coverage](commands/coverage.md)
+  - [Audit required tools](commands/doctor.md)
   - [Release modules](commands/release.md)
   - [Manage drivers](commands/driver.md)
   - [Manage federation](commands/federation.md)

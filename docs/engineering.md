@@ -47,6 +47,19 @@ model -> ports -> engine/adapters -> CLI -> apps
 
 Lower layers never import higher layers. Ecosystem adapters do not import the engine or CLI.
 
+## Language- and tool-agnostic core
+
+Toven's core (`toven-model`, `toven-ports`, `toven-engine`, `toven-cli`) is language- and tool-agnostic: it orchestrates a task graph but knows nothing about cargo, go, mdbook, or ast-grep. Every language- or tool-specific gate lives in an adapter or in configuration, never as a hard-coded verb in core. The test for where a gate belongs is what it is bound to, not what is convenient:
+
+| Gate | Nature | Home |
+|---|---|---|
+| `doctest` | Rust/cargo-specific (Go has no analog) | A `toven-rust` adapter default task reusing `TaskKind::Test` |
+| `deny` (cargo-deny) | cargo-specific but repo-opt-in (needs `deny.toml`) | A repo-declared `[ecosystems.rust.tasks.deny]` task |
+| `structure` (ast-grep), `docs-build` (mdbook) | tool-specific, language-agnostic | `[ecosystems.command.tasks.*]` — the command ecosystem is Toven's generic-tool adapter |
+| `doctor` tool audit | "does the resolved graph have its tools?" — agnostic mechanism | Toven core; tool *identity* still comes from adapter probes and task argv |
+
+`doctest` introduces no new core concept — the Rust adapter simply declares one more default task the way it declares `build`/`test`/`lint`, and the Go adapter never gains it, which is the proof it sits in the right layer. When a new tool gate is needed, add an adapter task or a `[ecosystems.command.tasks.*]` declaration; never teach core about the tool.
+
 ## Reuse rskit first
 
 Before adding shared errors, configuration, validation, filesystem, Git, process, or logging behavior, check [concern ownership](concern-owners.md). Improve rskit generically when its implementation is incomplete; do not fork a Toven-specific copy.
@@ -75,7 +88,8 @@ cargo nextest run -p <crate>
 Run doctests separately when affected:
 
 ```bash
-cargo test -p <crate> --doc
+toven run doctest -p <crate>   # the gate's Toven-driven form (cargo test --doc)
+cargo test -p <crate> --doc    # the equivalent low-level cargo escape hatch
 ```
 
 ## Security
