@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Phase, RunStats, UnitStatus};
 use crate::plan::CacheVerdict;
+use crate::tool::ToolStatus;
 
 /// The closed, typed event vocabulary spanning a run's four levels.
 ///
@@ -106,6 +107,28 @@ pub enum Event {
         exit_code: Option<i32>,
     },
 
+    // ---- DOCTOR level ----
+    /// A required tool for the resolved task graph was audited: present (with an
+    /// optional version) or missing. The `doctor` verb emits one per unique
+    /// tool through the same reporter sinks a run uses.
+    ToolAudited {
+        /// The probe's human-readable label (e.g. `"cargo"`).
+        label: String,
+        /// The program that was probed (`argv[0]`).
+        program: String,
+        /// Whether the tool is present (and its version) or missing.
+        status: ToolStatus,
+    },
+    /// The `doctor` audit finished. Advisory summary: the process exit is
+    /// derived from `missing` by the CLI (non-zero when any required tool is
+    /// absent), so the count is the single source of truth.
+    DoctorFinished {
+        /// Total tools checked across the resolved task graph.
+        checked: usize,
+        /// How many of them were missing.
+        missing: usize,
+    },
+
     // ---- WATCH level ----
     /// Watch mode began observing the workspace; each subsequent change batch
     /// drives one PLAN→APPLY run.
@@ -132,6 +155,7 @@ pub enum Event {
 mod tests {
     use super::{Event, Phase, RunStats, UnitStatus};
     use crate::plan::CacheVerdict;
+    use crate::tool::ToolStatus;
 
     fn round_trip(event: &Event) {
         let json = serde_json::to_string(event).unwrap();
@@ -178,5 +202,21 @@ mod tests {
         });
         round_trip(&Event::WatchRescan);
         round_trip(&Event::WatchStopped);
+        round_trip(&Event::ToolAudited {
+            label: "cargo".into(),
+            program: "cargo".into(),
+            status: ToolStatus::Present {
+                version: Some("cargo 1.94.0".into()),
+            },
+        });
+        round_trip(&Event::ToolAudited {
+            label: "mdbook".into(),
+            program: "mdbook".into(),
+            status: ToolStatus::Missing,
+        });
+        round_trip(&Event::DoctorFinished {
+            checked: 2,
+            missing: 1,
+        });
     }
 }

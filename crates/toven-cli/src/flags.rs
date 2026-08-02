@@ -89,6 +89,13 @@ Examples:
   toven completions zsh > _toven      Install zsh completions
   source <(toven completions bash)    Load bash completions for this shell";
 
+/// `doctor` verb examples.
+const DOCTOR_EXAMPLES: &str = "\
+Examples:
+  toven doctor               Report which tools the resolved task graph needs, and which are missing
+  toven doctor --output jsonl   Emit the audit as a machine-parseable stream
+  toven doctor --ensure      Exit with a typed error if any required tool is missing (never installs)";
+
 /// `init` verb examples.
 const INIT_EXAMPLES: &str = "\
 Examples:
@@ -699,6 +706,17 @@ pub enum Command {
         /// Optional task name to show in detail (argv template, inputs).
         name: Option<String>,
     },
+    /// Audit the tools the resolved task graph needs and report which are
+    /// present or missing.
+    #[command(after_long_help = DOCTOR_EXAMPLES)]
+    Doctor {
+        /// Turn any missing tool into a hard failure: exit with a typed error
+        /// naming the gaps instead of only reporting them (report-only is the
+        /// secure-by-default otherwise). `doctor` never installs tools; the
+        /// global `--auto-install` flag is accepted as an equivalent.
+        #[arg(long)]
+        ensure: bool,
+    },
     /// Print a shell completion script
     /// (`bash`/`zsh`/`fish`/`powershell`/`elvish`).
     #[command(after_long_help = COMPLETIONS_EXAMPLES)]
@@ -968,12 +986,12 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
             action: DriverAction::List
         } | Command::Federation {
             action: FederationAction::Sync
-        }
+        } | Command::Doctor { .. }
     );
     if cli.auto_install && !accepts_auto_install {
         return Err(only_applies(
             "--auto-install",
-            "toven driver list / toven federation sync",
+            "toven driver list / toven federation sync / toven doctor",
             verb,
         ));
     }
@@ -1392,6 +1410,7 @@ const fn accepts_output_format(command: &Command) -> bool {
             | Command::Release { .. }
             | Command::Coverage
             | Command::Tasks { .. }
+            | Command::Doctor { .. }
             | Command::Modules
     )
 }
@@ -1479,6 +1498,7 @@ fn verb_name(command: &Command) -> String {
         Command::Modules => "modules".to_string(),
         Command::Graph => "graph".to_string(),
         Command::Tasks { .. } => "tasks".to_string(),
+        Command::Doctor { .. } => "doctor".to_string(),
         Command::Completions { .. } => "completions".to_string(),
         Command::Driver { .. } => "driver".to_string(),
         Command::Federation { .. } => "federation".to_string(),

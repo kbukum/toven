@@ -31,6 +31,9 @@ _toven() {
             toven,deps)
                 cmd="toven__subcmd__graph"
                 ;;
+            toven,doctor)
+                cmd="toven__subcmd__doctor"
+                ;;
             toven,driver)
                 cmd="toven__subcmd__driver"
                 ;;
@@ -141,6 +144,9 @@ _toven() {
                 ;;
             toven__subcmd__help,coverage)
                 cmd="toven__subcmd__help__subcmd__coverage"
+                ;;
+            toven__subcmd__help,doctor)
+                cmd="toven__subcmd__help__subcmd__doctor"
                 ;;
             toven__subcmd__help,driver)
                 cmd="toven__subcmd__help__subcmd__driver"
@@ -308,7 +314,7 @@ _toven() {
 
     case "${cmd}" in
         toven)
-            opts="-j -v -q -h -V --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help --version run plan release coverage explain init affected modules list ls graph deps tasks completions driver federation cache help"
+            opts="-j -v -q -h -V --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help --version run plan release coverage explain init affected modules list ls graph deps tasks doctor completions driver federation cache help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1233,6 +1239,128 @@ _toven() {
             ;;
         toven__subcmd__coverage)
             opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --config)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --output)
+                    COMPREPLY=($(compgen -W "human jsonl" -- "${cur}"))
+                    return 0
+                    ;;
+                --color)
+                    COMPREPLY=($(compgen -W "auto always never" -- "${cur}"))
+                    return 0
+                    ;;
+                --view)
+                    COMPREPLY=($(compgen -W "auto tiles panes stream" -- "${cur}"))
+                    return 0
+                    ;;
+                --timeout)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --jobs)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --base)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --module)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --workspace)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --watch-debounce-ms)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --patch)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --minor)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --major)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --set-version)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --pre)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --out-dir)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --target)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --binary)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --line)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --function)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --region)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --changed-line)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --enforcement)
+                    COMPREPLY=($(compgen -W "block advisory" -- "${cur}"))
+                    return 0
+                    ;;
+                --force)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --root)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --format)
+                    COMPREPLY=($(compgen -W "text dot" -- "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        toven__subcmd__doctor)
+            opts="-j -v -q -h --ensure --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2442,7 +2570,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__help)
-            opts="run plan release coverage explain init affected modules graph tasks completions driver federation cache help"
+            opts="run plan release coverage explain init affected modules graph tasks doctor completions driver federation cache help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2540,6 +2668,20 @@ _toven() {
             return 0
             ;;
         toven__subcmd__help__subcmd__coverage)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        toven__subcmd__help__subcmd__doctor)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )

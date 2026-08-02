@@ -31,6 +31,7 @@ pub mod identity;
 pub mod module;
 pub mod plan;
 pub mod selector;
+pub mod tool;
 pub mod workspace;
 
 pub use ecosystems::{CanonicalEcosystem, canonical_ecosystems};
@@ -41,4 +42,5 @@ pub use identity::{AbsPath, EcosystemId, MemberId, ModuleKey, ModuleRef, RepoPat
 pub use module::Module;
 pub use plan::{CacheVerdict, ExecutionReadiness, ExecutionUnit, Plan, TaskOrigin};
 pub use selector::{ModuleSelector, NamePattern};
+pub use tool::ToolStatus;
 pub use workspace::{ToolchainTag, Workspace};

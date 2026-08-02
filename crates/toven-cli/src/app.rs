@@ -218,6 +218,11 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
             let project = load(providers, cli, false)?;
             commands::tasks::tasks(providers, &project, name.as_deref(), cli.output)
         }
+        Command::Doctor { ensure } => {
+            let project = load(providers, cli, false)?;
+            let report = resolve_report(cli, &project);
+            commands::doctor::doctor(providers, &project, report, *ensure || cli.auto_install)
+        }
         Command::Completions { shell } => Ok(commands::completions::completions(*shell)),
         Command::Cache { action } => {
             let project = load(providers, cli, false)?;

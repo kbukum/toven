@@ -33,7 +33,7 @@ pub use release::{FakeReleaseTarget, ReleaseCall};
 pub use reporter::RecordingReporter;
 pub use signer::{FakeSigner, SignerCall};
 pub use source::{EMPTY_IDENTITY, FakeSourceDigest};
-pub use toolchain::CountingToolchainProber;
+pub use toolchain::{CountingToolchainProber, ScriptedToolchainProber};
 pub use vcs::{FakeVcsReader, FakeVcsWriter, VcsWrite};
 pub use verify::{FakeAssetDownloader, FakeSignatureVerifier, FakeVersionProbe, VerifyCall};
 pub use watch::{ScriptedWatchSource, WatchCall};

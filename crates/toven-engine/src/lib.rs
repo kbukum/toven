@@ -56,6 +56,7 @@ pub mod apply;
 pub mod cache;
 pub mod config;
 pub mod coverage;
+pub mod doctor;
 pub mod federation;
 pub mod init;
 pub mod output;
