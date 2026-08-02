@@ -129,11 +129,20 @@ Release tags, registry versions, hosted Releases, and approved assets are immuta
 
 The current GitHub host adapter is immutable create-or-verify: it creates the Release, or — when one already exists — reads it back and verifies it matches the intended Release exactly, hard-erroring on any divergence. It never edits release notes, moves tags, or clobbers assets (its argv never contains `edit` or `upload`). One caveat: an existing asset is verified by uploaded name and byte size only, so a divergent asset of identical size would pass verification. Treat published assets as immutable and forward-fix by cutting a new version rather than replacing an asset in place.
 
-## GitHub Action direction
+## GitHub Action
 
-The current downstream install contract is a direct download of a released Toven binary, pinned by version and SHA-256 checksum — there is no required action.
+The reusable action at `.github/actions/toven` standardizes the install-and-run step as a single pinned `uses:` line. It is a thin wrapper around the same reference contract — it reuses `scripts/install.sh` bundled at the action's pinned commit, so there is no second download or verification path — and adds a runner tool-cache, cosign auto-install, unchanged argument forwarding, and typed `toven`/`version`/`cache-hit` outputs. It never publishes: release policy stays in `toven.toml` and Toven itself, and real publication stays behind each repository's approved release environment.
 
-A dedicated `toven-action` that installs and runs Toven inside a workflow is a candidate future mechanism to standardize that install-and-run step. It is explicitly deferred and out of scope: nothing in this repository or in rskit and gokit depends on it, and release policy stays in `toven.toml` and Toven itself. If such an action is built later, it would wrap the same version-and-checksum-pinned binary without changing release policy.
+Consumers pin both the action (by commit SHA) and the binary (by `version`):
+
+```yaml
+- uses: kbukum/toven/.github/actions/toven@<commit-sha> # v0.1.0-alpha.3
+  with:
+    version: v0.1.0-alpha.3
+    args: modules
+```
+
+The direct download below remains fully supported for repositories that prefer an explicit install step; the action reproduces it rather than replacing it.
 
 ## Local workflow reproduction
 
