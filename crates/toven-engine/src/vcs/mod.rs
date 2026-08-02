@@ -22,6 +22,7 @@
 mod adapter;
 mod baseline;
 mod changed;
+mod commits;
 mod convert;
 mod repo_set;
 mod tags;

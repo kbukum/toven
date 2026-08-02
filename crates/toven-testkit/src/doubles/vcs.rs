@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_ports::{BaselineSpec, ChangeRecord, Oid, TagRef, VcsReader, VcsWriter};
+use toven_ports::{BaselineSpec, ChangeRecord, CommitSummary, Oid, TagRef, VcsReader, VcsWriter};
 
 /// A [`VcsReader`] that returns scripted, repo-relative responses.
 ///
@@ -25,6 +25,7 @@ pub struct FakeVcsReader {
     merge_base_oid: Oid,
     tags: Vec<TagRef>,
     changed: Vec<ChangeRecord>,
+    commits: Vec<CommitSummary>,
     worktree: Vec<ChangeRecord>,
     ignored: Vec<PathBuf>,
 }
@@ -37,6 +38,7 @@ impl Default for FakeVcsReader {
             merge_base_oid: Oid::new("0000000"),
             tags: Vec::new(),
             changed: Vec::new(),
+            commits: Vec::new(),
             worktree: Vec::new(),
             ignored: Vec::new(),
         }
@@ -93,6 +95,15 @@ impl FakeVcsReader {
         self
     }
 
+    /// Script the commits returned by `commits_since` (newest first). Returned
+    /// regardless of the `since`/`path_prefix` arguments — range and path
+    /// scoping are the adapter's job, not the double's.
+    #[must_use]
+    pub fn with_commits_since(mut self, commits: Vec<CommitSummary>) -> Self {
+        self.commits = commits;
+        self
+    }
+
     /// Script the working-tree changes returned by `worktree_status`.
     #[must_use]
     pub fn with_worktree_status(mut self, changes: Vec<ChangeRecord>) -> Self {
@@ -132,6 +143,14 @@ impl VcsReader for FakeVcsReader {
 
     fn changed_since(&self, _spec: &BaselineSpec) -> AppResult<Vec<ChangeRecord>> {
         Ok(self.changed.clone())
+    }
+
+    fn commits_since(
+        &self,
+        _since: Option<&str>,
+        _path_prefix: Option<&Path>,
+    ) -> AppResult<Vec<CommitSummary>> {
+        Ok(self.commits.clone())
     }
 
     fn worktree_status(&self) -> AppResult<Vec<ChangeRecord>> {

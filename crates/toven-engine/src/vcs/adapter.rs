@@ -15,9 +15,10 @@ use rskit_git::{
     ChainAuthProvider, Committer, DefaultAuthProvider, EnvTokenAuthProvider, IgnoreReader,
     Inspector, LogReader, PushOptions, RefManager, RemoteManager, Repo, Repository,
 };
-use toven_ports::{BaselineSpec, ChangeRecord, Oid, TagRef, VcsReader, VcsWriter};
+use toven_ports::{BaselineSpec, ChangeRecord, CommitSummary, Oid, TagRef, VcsReader, VcsWriter};
 
 use super::changed::changed_since;
+use super::commits::commits_since;
 use super::convert::to_oid;
 use super::tags::list_tags;
 use super::worktree::{restore_worktree, worktree_status};
@@ -83,6 +84,13 @@ impl RskitGitVcs {
     pub fn is_dirty(&self) -> AppResult<bool> {
         self.repo.is_dirty()
     }
+
+    /// The opened rskit-git repository, for adapter-internal range composition
+    /// tests.
+    #[cfg(test)]
+    pub(super) const fn repo(&self) -> &Repo {
+        &self.repo
+    }
 }
 
 /// Build the push/fetch auth provider from Toven's configured token
@@ -128,6 +136,14 @@ impl VcsReader for RskitGitVcs {
 
     fn changed_since(&self, spec: &BaselineSpec) -> AppResult<Vec<ChangeRecord>> {
         changed_since(&self.repo, spec)
+    }
+
+    fn commits_since(
+        &self,
+        since: Option<&str>,
+        path_prefix: Option<&Path>,
+    ) -> AppResult<Vec<CommitSummary>> {
+        commits_since(&self.repo, since, path_prefix)
     }
 
     fn worktree_status(&self) -> AppResult<Vec<ChangeRecord>> {

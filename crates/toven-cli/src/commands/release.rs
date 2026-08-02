@@ -595,6 +595,7 @@ struct HostRehearsalRecord {
     tag: String,
     draft: bool,
     prerelease: bool,
+    notes: String,
     assets: Vec<String>,
 }
 
@@ -643,6 +644,15 @@ fn render_rehearsal_human(rehearsal: &ReleaseRehearsal) {
             ]);
         }
         println!("{hosted}");
+        for release in &rehearsal.hosted {
+            if release.notes.is_empty() {
+                continue;
+            }
+            println!("\nRelease notes — {} ({})", release.tag, release.forge);
+            for line in release.notes.lines() {
+                println!("  {line}");
+            }
+        }
     }
 }
 
@@ -666,6 +676,7 @@ fn render_rehearsal_jsonl(rehearsal: &ReleaseRehearsal) -> AppResult<()> {
             tag: release.tag.clone(),
             draft: release.draft,
             prerelease: release.prerelease,
+            notes: release.notes.clone(),
             assets: release.assets.clone(),
         };
         let line = serde_json::to_string(&record).map_err(AppError::internal)?;

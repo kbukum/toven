@@ -118,8 +118,8 @@ fn plan_with_changes(
         .modules
         .iter()
         .map(|module| {
-            let records = changes
-                .records
+            let commits = changes
+                .commits
                 .get(&module.key())
                 .cloned()
                 .unwrap_or_default();
@@ -127,7 +127,7 @@ fn plan_with_changes(
                 .baselines
                 .get(&module.key())
                 .is_some_and(ReleaseBaseline::is_initial);
-            (module.key(), changelog::entry(module, &records, initial))
+            (module.key(), changelog::entry(module, &commits, initial))
         })
         .collect::<BTreeMap<_, _>>();
     let entries = bump::plan_entries(&bump::BumpInputs {
@@ -947,6 +947,7 @@ mod tests {
         crate::release::change::ReleaseChanges {
             changed,
             records: BTreeMap::new(),
+            commits: BTreeMap::new(),
             baselines: BTreeMap::new(),
         }
     }
@@ -1084,7 +1085,7 @@ mod tests {
     }
 
     #[test]
-    fn release_plan_changelogs_only_include_module_owned_records() {
+    fn release_plan_generates_grouped_attributed_changelog_from_commits() {
         let core = module("core", "crates/core");
         let app = module("app", "crates/app");
         let mut response = DiscoverResponse::new(eid("rust"));
@@ -1111,7 +1112,13 @@ mod tests {
             .with_worktree_status(vec![ChangeRecord::new(
                 "crates/app/src/main.rs",
                 ChangeStatus::Modified,
-            )]);
+            )])
+            .with_commits_since(vec![
+                toven_ports::CommitSummary::new("abc123def456", "feat(core): add widget")
+                    .with_author("Ada", "42+ada@users.noreply.github.com"),
+                toven_ports::CommitSummary::new("def456abc789", "fix: correct off-by-one")
+                    .with_author("Bo", "bo@example.com"),
+            ]);
         let mut reporter = RecordingReporter::new();
 
         let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
@@ -1131,17 +1138,25 @@ mod tests {
             .map(|entry| (entry.module.clone(), entry.changelog.lines.clone()))
             .collect::<BTreeMap<_, _>>();
 
+        // The scripted commits are rendered as grouped, attributed Keep a
+        // Changelog bullets — the GitHub noreply email becomes an `@handle`, the
+        // non-GitHub author falls back to a name, and each commit lands under its
+        // Conventional Commit group heading.
+        let core_lines = by_module.get(&core.key()).unwrap();
         assert_eq!(
-            by_module.get(&core.key()).unwrap(),
-            &vec!["crates/core/src/lib.rs".to_string()]
-        );
-        assert_eq!(
-            by_module.get(&app.key()).unwrap(),
+            core_lines,
             &vec![
-                "crates/app/src/lib.rs".to_string(),
-                "crates/app/src/main.rs".to_string()
+                "### Added".to_string(),
+                "- **core**: add widget — by @ada (abc123def456)".to_string(),
+                String::new(),
+                "### Fixed".to_string(),
+                "- correct off-by-one — by Bo (def456abc789)".to_string(),
             ]
         );
+        // The double returns the same commits for every module (path scoping is
+        // the adapter's job, covered by the real-repo `commits_since` test), so
+        // `app` renders the same grouped changelog.
+        assert_eq!(by_module.get(&app.key()).unwrap(), core_lines);
     }
 
     #[test]

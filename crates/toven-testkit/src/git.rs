@@ -169,6 +169,19 @@ impl GitScenario {
         self.checkout(name)
     }
 
+    /// Merge `branch` into the current `HEAD` with a merge commit (never a
+    /// fast-forward), so scenarios can script non-linear history — a feature
+    /// branch that forks before a release baseline and lands after it.
+    pub fn merge_no_ff(&self, branch: &str, message: &str) -> AppResult<()> {
+        use rskit_git::Merger;
+        let opts = rskit_git::MergeOptions {
+            no_fast_forward: true,
+            message: Some(message.to_string()),
+            ..rskit_git::MergeOptions::default()
+        };
+        self.repo.merge(branch, Some(&opts)).map(|_| ())
+    }
+
     /// Create an annotated tag at the current `HEAD`.
     pub fn tag(&self, name: &str, message: &str) -> AppResult<()> {
         self.repo.create_tag(name, "HEAD", Some(message))
