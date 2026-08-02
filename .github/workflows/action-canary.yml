@@ -48,16 +48,23 @@ jobs:
           args: modules
 
       - name: Confirm the action's outputs
+        env:
+          TOVEN_BIN: ${{ steps.toven.outputs.toven }}
+          TOVEN_REPORTED: ${{ steps.toven.outputs.version }}
+          TOVEN_CACHE_HIT: ${{ steps.toven.outputs.cache-hit }}
         run: |
           set -euo pipefail
-          echo "installed: ${{ steps.toven.outputs.version }}"
-          echo "binary:    ${{ steps.toven.outputs.toven }}"
-          echo "cache-hit: ${{ steps.toven.outputs.cache-hit }}"
-          test -x "${{ steps.toven.outputs.toven }}"
-          case "${{ steps.toven.outputs.version }}" in
-            *"${TOVEN_VERSION#v}"*) : ;;
-            *) echo "::error::installed version does not match ${TOVEN_VERSION}" >&2; exit 1 ;;
-          esac
+          echo "installed: ${TOVEN_REPORTED}"
+          echo "binary:    ${TOVEN_BIN}"
+          echo "cache-hit: ${TOVEN_CACHE_HIT}"
+          test -x "${TOVEN_BIN}"
+          # Exact version match — a substring test would accept 0.1.0-alpha.30
+          # as ${TOVEN_VERSION#v} and hide a wrong-binary install.
+          installed="$(printf '%s' "${TOVEN_REPORTED}" | awk '{print $2}')"
+          if [ "${installed}" != "${TOVEN_VERSION#v}" ]; then
+            echo "::error::installed version '${installed}' does not match ${TOVEN_VERSION}" >&2
+            exit 1
+          fi
 
       # The binary the action installed is on PATH; run the remaining read-only
       # discovery and mutation-free release-preview surface directly through it.

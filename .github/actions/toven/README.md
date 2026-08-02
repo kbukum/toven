@@ -33,8 +33,8 @@ Install only, then invoke Toven yourself (the binary is on `PATH` and exposed as
 | `install-dir` | `""` (auto) | Install directory. Empty derives a versioned tool-cache path when caching, else a temp directory. |
 | `args` | `""` | Optional Toven command to run after install, forwarded unchanged to one `toven` invocation. Word-split into argv — pass only trusted, workflow-authored arguments. |
 | `working-directory` | `.` | Directory to run the optional `args` command in. |
-| `verify-signature` | `true` | Install `cosign` and verify the Sigstore signature over `SHA256SUMS` before extraction. The archive checksum is always enforced regardless. |
-| `cache` | `true` | Reuse a previously installed binary from `${RUNNER_TOOL_CACHE}/toven/<version>/<target>` when an explicit version is pinned. |
+| `install-cosign` | `true` | Install `cosign` so the installer can verify the Sigstore signature over `SHA256SUMS`. Controls only whether cosign is installed — the installer verifies whenever cosign is present, and the checksum is always enforced. It does not disable verification. |
+| `cache` | `true` | Reuse a previously installed binary from `${RUNNER_TOOL_CACHE}/toven/<version>/<target>` when an explicit version is pinned. A hit requires an exact version match and skips re-download. |
 
 ## Outputs
 
@@ -48,7 +48,8 @@ Install only, then invoke Toven yourself (the binary is on `PATH` and exposed as
 
 - **Pin the action by commit SHA**, never by a moving tag — `uses: kbukum/toven/.github/actions/toven@<commit-sha>`. The trailing `# vX` comment is documentation only; the SHA is the trust anchor.
 - **Pin the binary with `version`.** The `version` input is independent of the action SHA; pin both. An unpinned `version` installs the latest release, disables caching, and emits a workflow warning.
-- **Integrity is verified before execution.** The bundled `scripts/install.sh` enforces the `SHA256SUMS` checksum, and when `verify-signature` is `true` it checks the keyless Sigstore signature over `SHA256SUMS` first. There is no second, parallel verification path — the action and the direct-download procedure share one contract.
+- **Integrity is verified on install.** The bundled `scripts/install.sh` always enforces the `SHA256SUMS` checksum, and when `cosign` is present it verifies the keyless Sigstore signature over `SHA256SUMS` first. There is no second, parallel verification path — the action and the direct-download procedure share one contract.
+- **A cache hit reuses a previously verified binary, it does not re-verify.** With `cache: true`, a version-exact hit at `${RUNNER_TOOL_CACHE}/toven/<version>/<target>` reuses a binary this runner already installed and verified, skipping the download, checksum, and signature checks. On GitHub-hosted runners the tool cache is per-job, so a hit means an earlier step in the same job installed and verified it; on a persistent (self-hosted) tool cache it trusts a prior verified install of that exact version. Set `cache: false` to force a fresh, fully verified install every run.
 
 ## Relationship to the direct-download procedure
 
