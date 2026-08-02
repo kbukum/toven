@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Install a released Toven binary on Linux or macOS.
 #
 # Designed to be run either as a checked-in script or piped from a URL:

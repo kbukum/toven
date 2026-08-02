@@ -119,15 +119,3 @@ jobs:
             git commit -m "toven ${VERSION}"
             git push
           fi
-          mkdir -p bucket/bucket
-          cp build/packaging/scoop/toven.json bucket/bucket/toven.json
-          cd bucket
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- bucket/toven.json; then
-            echo "::notice::Scoop manifest already up to date for ${VERSION}."
-          else
-            git add bucket/toven.json
-            git commit -m "toven ${VERSION}"
-            git push
-          fi

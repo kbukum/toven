@@ -63,10 +63,15 @@ try {
     Invoke-WebRequest -Uri "$base/SHA256SUMS" -OutFile (Join-Path $work 'SHA256SUMS')
 
     Write-Log "verifying $archive against SHA256SUMS"
-    $expectedLine = Get-Content (Join-Path $work 'SHA256SUMS') |
-        Where-Object { $_ -match [regex]::Escape($archive) } | Select-Object -First 1
-    if (-not $expectedLine) { throw "no SHA256SUMS entry for $archive" }
-    $expected = ($expectedLine -split '\s+')[0].ToLower()
+    $expected = $null
+    foreach ($line in Get-Content (Join-Path $work 'SHA256SUMS')) {
+        $fields = $line -split '\s+', 2
+        if ($fields.Count -eq 2 -and $fields[1].TrimStart('*', ' ') -eq $archive) {
+            $expected = $fields[0].ToLower()
+            break
+        }
+    }
+    if (-not $expected) { throw "no SHA256SUMS entry for $archive" }
     $actual = (Get-FileHash -Algorithm SHA256 -Path (Join-Path $work $archive)).Hash.ToLower()
     if ($expected -ne $actual) { throw "checksum mismatch for $archive (expected $expected, got $actual)" }
 
