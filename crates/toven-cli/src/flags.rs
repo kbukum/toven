@@ -94,7 +94,7 @@ const DOCTOR_EXAMPLES: &str = "\
 Examples:
   toven doctor               Report which tools the resolved task graph needs, and which are missing
   toven doctor --output jsonl   Emit the audit as a machine-parseable stream
-  toven doctor --ensure      Provision what the driver path can; error on any unprovisionable gap";
+  toven doctor --ensure      Exit with a typed error if any required tool is missing (never installs)";
 
 /// `init` verb examples.
 const INIT_EXAMPLES: &str = "\
@@ -710,9 +710,10 @@ pub enum Command {
     /// present or missing.
     #[command(after_long_help = DOCTOR_EXAMPLES)]
     Doctor {
-        /// Provision what the driver path can install and fail on any remaining
-        /// unprovisionable tool gap (secure-by-default: report-only otherwise).
-        /// The global `--auto-install` flag is accepted as an equivalent.
+        /// Turn any missing tool into a hard failure: exit with a typed error
+        /// naming the gaps instead of only reporting them (report-only is the
+        /// secure-by-default otherwise). `doctor` never installs tools; the
+        /// global `--auto-install` flag is accepted as an equivalent.
         #[arg(long)]
         ensure: bool,
     },

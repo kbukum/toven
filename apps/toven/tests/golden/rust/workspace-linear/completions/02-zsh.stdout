@@ -1691,7 +1691,7 @@ advisory\:"Measure and report the shortfall without failing"))' \
 '--root=[Init only\: project root to onboard against]:PATH:_files' \
 '--format=[Graph only\: dependency-graph rendering format]:FORMAT:((text\:"Indented adjacency text"
 dot\:"Graphviz DOT"))' \
-'--ensure[Provision what the driver path can install and fail on any remaining unprovisionable tool gap (secure-by-default\: report-only otherwise). The global \`--auto-install\` flag is accepted as an equivalent]' \
+'--ensure[Turn any missing tool into a hard failure\: exit with a typed error naming the gaps instead of only reporting them (report-only is the secure-by-default otherwise). \`doctor\` never installs tools; the global \`--auto-install\` flag is accepted as an equivalent]' \
 '--dry-run[Preview what would run, without executing anything]' \
 '--explain[Preview what would run, with the reasoning for each unit]' \
 '--fail-fast[Stop scheduling after the first failure (when running tasks only)]' \

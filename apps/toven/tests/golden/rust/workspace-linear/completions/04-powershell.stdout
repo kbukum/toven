@@ -1457,7 +1457,7 @@ Register-ArgumentCompleter -Native -CommandName 'toven' -ScriptBlock {
             [CompletionResult]::new('--force', '--force', [CompletionResultType]::ParameterName, 'Init only: regenerate one `[ecosystems.<id>]` section')
             [CompletionResult]::new('--root', '--root', [CompletionResultType]::ParameterName, 'Init only: project root to onboard against')
             [CompletionResult]::new('--format', '--format', [CompletionResultType]::ParameterName, 'Graph only: dependency-graph rendering format')
-            [CompletionResult]::new('--ensure', '--ensure', [CompletionResultType]::ParameterName, 'Provision what the driver path can install and fail on any remaining unprovisionable tool gap (secure-by-default: report-only otherwise). The global `--auto-install` flag is accepted as an equivalent')
+            [CompletionResult]::new('--ensure', '--ensure', [CompletionResultType]::ParameterName, 'Turn any missing tool into a hard failure: exit with a typed error naming the gaps instead of only reporting them (report-only is the secure-by-default otherwise). `doctor` never installs tools; the global `--auto-install` flag is accepted as an equivalent')
             [CompletionResult]::new('--dry-run', '--dry-run', [CompletionResultType]::ParameterName, 'Preview what would run, without executing anything')
             [CompletionResult]::new('--explain', '--explain', [CompletionResultType]::ParameterName, 'Preview what would run, with the reasoning for each unit')
             [CompletionResult]::new('--fail-fast', '--fail-fast', [CompletionResultType]::ParameterName, 'Stop scheduling after the first failure (when running tasks only)')

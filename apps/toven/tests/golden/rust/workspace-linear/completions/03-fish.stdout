@@ -1452,7 +1452,7 @@ complete -c toven -n "__fish_toven_using_subcommand doctor" -l force -d 'Init on
 complete -c toven -n "__fish_toven_using_subcommand doctor" -l root -d 'Init only: project root to onboard against' -r -F
 complete -c toven -n "__fish_toven_using_subcommand doctor" -l format -d 'Graph only: dependency-graph rendering format' -r -f -a "text\t'Indented adjacency text'
 dot\t'Graphviz DOT'"
-complete -c toven -n "__fish_toven_using_subcommand doctor" -l ensure -d 'Provision what the driver path can install and fail on any remaining unprovisionable tool gap (secure-by-default: report-only otherwise). The global `--auto-install` flag is accepted as an equivalent'
+complete -c toven -n "__fish_toven_using_subcommand doctor" -l ensure -d 'Turn any missing tool into a hard failure: exit with a typed error naming the gaps instead of only reporting them (report-only is the secure-by-default otherwise). `doctor` never installs tools; the global `--auto-install` flag is accepted as an equivalent'
 complete -c toven -n "__fish_toven_using_subcommand doctor" -l dry-run -d 'Preview what would run, without executing anything'
 complete -c toven -n "__fish_toven_using_subcommand doctor" -l explain -d 'Preview what would run, with the reasoning for each unit'
 complete -c toven -n "__fish_toven_using_subcommand doctor" -l fail-fast -d 'Stop scheduling after the first failure (when running tasks only)'
