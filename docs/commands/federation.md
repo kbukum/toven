@@ -1,6 +1,12 @@
 # Manage federation
 
-Federation composes several member repositories under one umbrella `toven.toml`. These verbs report and provision the drivers that the composed members need. They are the cross-repo counterpart to [driver management](driver.md); all human output is on stderr.
+Federation composes several member repositories under one umbrella `toven.toml`. These verbs report and provision the drivers that the composed members need. They are the cross-repo counterpart to [driver management](driver.md).
+
+```bash
+toven federation status
+```
+
+`federation status` writes member and driver status lines to stdout so they can be piped. Provisioning progress from `federation sync` uses stderr.
 
 ## Report federation status
 
@@ -23,7 +29,7 @@ This is read-only — it installs nothing.
 toven federation sync
 ```
 
-Installs every driver pinned in `[toven.drivers]`, so a fresh checkout of the umbrella provisions the same driver set. With no pins it reports that there is nothing to install:
+Installs every version-pinned driver in `[toven.drivers]`, so a fresh checkout of the umbrella provisions the same driver set. Path-pinned drivers are reported as configuration errors for `sync` because Toven cannot install a local binary path. With no pins it reports that there is nothing to install:
 
 ```text
 federation sync: no pinned drivers in [toven.drivers]; nothing to install
@@ -35,7 +41,7 @@ Add `--auto-install` to also provision any referenced-but-absent ecosystem drive
 
 ```toml
 [toven.drivers]
-go = "0.4.1"
+go = { version = "0.4.1" }
 ```
 
 Pins make `federation sync` reproducible across every member checkout. See [driver management](driver.md) for the single-repo view and the full list of resolved driver states.

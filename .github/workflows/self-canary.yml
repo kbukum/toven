@@ -10,7 +10,7 @@ name: Self-canary
 # It deliberately does not download a published release: the published artifact
 # is already re-verified by `release.yml`'s `verify` job (`toven release verify
 # --download`), and the downstream install contract is exercised by
-# `scripts/install-toven.sh`. This canary's unique signal is that the
+# `scripts/install.sh`. This canary's unique signal is that the
 # self-produced binary runs Toven's whole toven-driven gate — the full
 # `make check` surface (`lint`/`test`+`doctest`/`doc`/`structure`/`deny`/
 # `docs-build`) plus the `format-check` and `vuln` mapped tasks and the

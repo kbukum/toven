@@ -1366,7 +1366,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
 name = "rskit-cli"
-version = "0.2.0-alpha.4"
+version = "0.2.0-alpha.5"
 dependencies = [
  "console",
  "crossterm",
@@ -1382,7 +1382,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-codec"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.3"
 dependencies = [
  "rskit-errors",
  "serde",
@@ -1393,7 +1393,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-component"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.3"
 dependencies = [
  "async-trait",
  "parking_lot",
@@ -1406,7 +1406,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-config"
-version = "0.2.0-alpha.3"
+version = "0.2.0-alpha.4"
 dependencies = [
  "config",
  "dotenvy",
@@ -1426,7 +1426,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-errors"
-version = "0.2.0-alpha.4"
+version = "0.2.0-alpha.5"
 dependencies = [
  "http",
  "serde",
@@ -1435,7 +1435,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-fs"
-version = "0.2.0-alpha.6"
+version = "0.2.0-alpha.7"
 dependencies = [
  "flate2",
  "futures",
@@ -1452,7 +1452,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-git"
-version = "0.2.0-alpha.3"
+version = "0.2.0-alpha.4"
 dependencies = [
  "git2",
  "rskit-errors",
@@ -1464,7 +1464,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-hook"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.3"
 dependencies = [
  "parking_lot",
  "rskit-errors",
@@ -1474,7 +1474,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-logging"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.3"
 dependencies = [
  "rskit-errors",
  "serde",
@@ -1482,7 +1482,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-process"
-version = "0.2.0-alpha.5"
+version = "0.2.0-alpha.6"
 dependencies = [
  "libc",
  "parking_lot",
@@ -1495,7 +1495,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-provider"
-version = "0.2.0-alpha.3"
+version = "0.2.0-alpha.4"
 dependencies = [
  "async-trait",
  "futures",
@@ -1507,7 +1507,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-stream"
-version = "0.2.0-alpha.5"
+version = "0.2.0-alpha.6"
 dependencies = [
  "async-stream",
  "futures",
@@ -1521,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-testutil"
-version = "0.2.0-alpha.3"
+version = "0.2.0-alpha.4"
 dependencies = [
  "async-trait",
  "parking_lot",
@@ -1542,7 +1542,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-util"
-version = "0.2.0-alpha.4"
+version = "0.2.0-alpha.5"
 dependencies = [
  "blake3",
  "serde",
@@ -1553,7 +1553,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-validation"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.3"
 dependencies = [
  "chrono",
  "regex",
@@ -1566,7 +1566,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-version"
-version = "0.2.0-alpha.3"
+version = "0.2.0-alpha.4"
 dependencies = [
  "rskit-errors",
  "rskit-util",
@@ -1576,7 +1576,7 @@ dependencies = [
 
 [[package]]
 name = "rskit-worker"
-version = "0.2.0-alpha.3"
+version = "0.2.0-alpha.4"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2009,7 +2009,7 @@ checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 
 [[package]]
 name = "toven"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "libtest-mimic",
  "rskit-cli",
@@ -2024,7 +2024,7 @@ dependencies = [
 
 [[package]]
 name = "toven-cli"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2044,7 +2044,7 @@ dependencies = [
 
 [[package]]
 name = "toven-command"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "rskit-codec",
  "rskit-config",
@@ -2057,7 +2057,7 @@ dependencies = [
 
 [[package]]
 name = "toven-engine"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "async-trait",
  "futures",
@@ -2085,7 +2085,7 @@ dependencies = [
 
 [[package]]
 name = "toven-go"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "rskit-cli",
  "rskit-codec",
@@ -2104,7 +2104,7 @@ dependencies = [
 
 [[package]]
 name = "toven-go-app"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "rskit-cli",
  "rskit-codec",
@@ -2121,7 +2121,7 @@ dependencies = [
 
 [[package]]
 name = "toven-model"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "rskit-errors",
  "rskit-fs",
@@ -2133,7 +2133,7 @@ dependencies = [
 
 [[package]]
 name = "toven-ports"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "async-trait",
  "futures",
@@ -2152,7 +2152,7 @@ dependencies = [
 
 [[package]]
 name = "toven-rs"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "rskit-cli",
  "rskit-errors",
@@ -2165,7 +2165,7 @@ dependencies = [
 
 [[package]]
 name = "toven-rust"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "cargo_metadata",
  "rskit-cli",
@@ -2187,7 +2187,7 @@ dependencies = [
 
 [[package]]
 name = "toven-testkit"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "async-trait",
  "futures",

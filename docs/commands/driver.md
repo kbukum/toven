@@ -2,7 +2,11 @@
 
 Toven runs each ecosystem through a driver. A driver linked into the running binary is used in-process; otherwise Toven can use an out-of-process driver found on `PATH` or pinned in `[toven.drivers]`. A normal run never installs anything — an absent driver is a warn-and-skip — so provisioning is an explicit, opt-in surface behind these verbs.
 
-All human output goes to stderr; stdout stays reserved for machine streams.
+```bash
+toven driver list
+```
+
+`driver list` writes its status lines to stdout so they can be piped. Provisioning progress from `driver install` and `driver list --auto-install` uses stderr.
 
 ## List driver status
 
@@ -25,7 +29,7 @@ States: `linked (in this binary)`, `driver on PATH <path>`, `pinned driver <path
 toven driver install <id>
 ```
 
-Installs the out-of-process driver for ecosystem `<id>` (for example `go`). When `[toven.drivers]` pins a version for that ecosystem, the pinned version is installed. An invalid ecosystem id is a usage error; a failed install (the underlying `cargo install` could not run or exited non-zero) is surfaced as a typed error.
+Installs the out-of-process driver for ecosystem `<id>` (for example `go`). When `[toven.drivers]` pins a version for that ecosystem, the pinned version is installed. An invalid ecosystem id is a usage error; a failed install is surfaced as a typed error.
 
 ## Auto-install referenced drivers
 
@@ -39,7 +43,7 @@ toven driver list --auto-install
 
 ```toml
 [toven.drivers]
-go = "0.4.1"
+go = { version = "0.4.1" }
 ```
 
 A pin makes `driver install`, `federation sync`, and `--auto-install` install that exact version, keeping provisioning reproducible.

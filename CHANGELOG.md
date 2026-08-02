@@ -4,6 +4,18 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3] - 2026-08-02
+
+### Added
+
+- `toven doctor`, a language-agnostic tool-audit command. It walks the resolved task graph, probes each task's required toolchain, and reports every tool as present or missing through the reporter sinks, exiting non-zero when any tool is missing. `--ensure` (and `--auto-install`) turns a missing tool into a typed, actionable error rather than fabricating or provisioning an installer — the verb only audits. The audit reuses the configure phase and per-task toolchain probes, so core stays tool-agnostic, and Toven's own CI workflows run it as a gate.
+- One-line binary installers and package-manager distribution. `scripts/install.sh` (Linux/macOS) and `scripts/install.ps1` (Windows) install a released binary by pinned tag or, by default, the latest release — resolving the tag first, then verifying the archive's SHA-256 checksum (and the keyless Sigstore signature on `SHA256SUMS` when `cosign` is present) before extraction. Both are pipe-safe (`curl -fsSL … | sh`, `irm … | iex`). A templated Homebrew formula and Scoop manifest (`packaging/`) plus `scripts/gen-packaging.sh` render each channel from a release's `SHA256SUMS`, and `.github/workflows/publish-packages.yml` pushes them to the tap and bucket on every published release (a no-op until the `HOMEBREW_TAP_TOKEN` secret and distribution repositories are configured).
+
+### Changed
+
+- Toven drives its own tool gates through declared `toven.toml` tasks: structure (ast-grep), docs-build (mdbook), and deny (cargo-deny) are now tasks backed by per-task toolchain probes and task-aware ecosystem activation in the engine, so classified probe errors propagate for non-executable tools instead of being hand-rolled outside the task graph (#129).
+- Hosted GitHub/GitLab release bodies are now a Conventional-Commit-grouped, `@handle`-attributed changelog walked from git commits, replacing the raw file-path dump. It is forge-agnostic and deterministic with no `CHANGELOG.md` dependency, and fully previewable via `toven release publish --dry-run` (#128).
+
 ## [0.1.0-alpha.2] - 2026-08-01
 
 ### Added

@@ -6,7 +6,7 @@ By participating, you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Project status
 
-Toven is **pre-alpha** and mid-redesign into a hexagonal `crates/*` + `apps/*` stack on top of the [rskit](https://github.com/kbukum/rskit) foundation framework. Toven and rskit are both pre-stable: backward compatibility is not a goal yet, so prefer clean redesigns over compatibility shims. See [GOVERNANCE.md](GOVERNANCE.md) for how decisions are made.
+Toven is in **alpha** — signed binaries are published on the [Releases page](https://github.com/kbukum/toven/releases) — and still consolidating into a hexagonal `crates/*` + `apps/*` stack on top of the [rskit](https://github.com/kbukum/rskit) foundation framework. Toven and rskit are both pre-stable: backward compatibility is not a goal yet, so prefer clean redesigns over compatibility shims. See [GOVERNANCE.md](GOVERNANCE.md) for how decisions are made.
 
 ## Local setup
 

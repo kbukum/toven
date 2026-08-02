@@ -67,7 +67,7 @@ Downstream CI cannot install a released Toven binary until Toven has published o
 
 ## CI canary
 
-Toven's own CI is the first canary, and it dogfoods the binary Toven produces rather than a downloaded release: `self-canary.yml` builds the release binary, packages it with `toven release package`, and runs Toven's release previews and every mapped gate through that self-generated binary via `make TOVEN=<binary>`. The released artifact is covered separately — `release.yml`'s `verify` job re-verifies every published asset, and `scripts/install-toven.sh` is the direct-download, checksum-verified install a downstream repository runs. Only after the self-hosting canary is green does that same direct-binary procedure extend to rskit and gokit.
+Toven's own CI is the first canary, and it dogfoods the binary Toven produces rather than a downloaded release: `self-canary.yml` builds the release binary, packages it with `toven release package`, and runs Toven's release previews and every mapped gate through that self-generated binary via `make TOVEN=<binary>`. The released artifact is covered separately — `release.yml`'s `verify` job re-verifies every published asset, and `scripts/install.sh --version <tag>` is the pinned, checksum-verified direct-download install a downstream repository runs in CI. Only after the self-hosting canary is green does that same direct-binary procedure extend to rskit and gokit.
 
 The direct, checksum-verified binary invocation is the canonical downstream contract; there is no required intermediary action to adopt.
 

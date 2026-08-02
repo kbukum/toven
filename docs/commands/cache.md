@@ -2,6 +2,10 @@
 
 Toven caches successful, cacheable task units and skips them while all inputs still match.
 
+```bash
+toven cache path
+```
+
 ## Resolve the cache path
 
 ```bash
@@ -21,7 +25,7 @@ Path precedence:
 3. Platform user cache, namespaced by workspace identity
 
 ```bash
-TOVEN_CACHE_DIR=/tmp/toven-cache toven test
+TOVEN_CACHE_DIR="$PWD/.toven/cache" toven test --workspace rust
 ```
 
 ```toml
@@ -40,8 +44,10 @@ toven cache stats
 Example stdout:
 
 ```text
-Path                                           Entries  Bytes  Truncated
-/Users/example/Library/Caches/toven/.../v3     24       18432  no
+       path:  /Users/example/Library/Caches/toven/<workspace-hash>/v3
+    entries:  24
+      bytes:  18432
+  truncated:  false
 ```
 
 ## Clear workspace cache
@@ -68,8 +74,8 @@ Persistent tasks and tasks with `cacheable = false` are never cached.
 ## Force execution
 
 ```bash
-toven test --refresh
-toven test --no-cache
+toven test --workspace rust --refresh
+toven test --workspace rust --no-cache
 ```
 
 `--refresh` replaces records after success. `--no-cache` leaves cache state untouched. See [running tasks](run.md#cache-control).
