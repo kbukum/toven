@@ -34,6 +34,7 @@ pub const RESERVED: &[&str] = &[
     "deps",
     "tasks",
     "completions",
+    "doctor",
     "driver",
     "federation",
     "cache",

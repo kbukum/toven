@@ -5,7 +5,7 @@ use std::io::{self, Write};
 
 use rskit_cli::{OutputKV, Palette};
 use rskit_errors::{AppError, AppResult};
-use toven_model::{CacheVerdict, Event, Phase, RunStats, UnitStatus};
+use toven_model::{CacheVerdict, Event, Phase, RunStats, ToolStatus, UnitStatus};
 use toven_ports::Reporter;
 
 use super::exit::exit_code;
@@ -66,6 +66,8 @@ impl<W: Write> HumanReporter<W> {
             | Event::RunFinished { .. }
             | Event::Warning { .. }
             | Event::FullActivation { .. }
+            | Event::ToolAudited { .. }
+            | Event::DoctorFinished { .. }
             | Event::WatchStarted { .. }
             | Event::WatchTriggered { .. }
             | Event::WatchRescan
@@ -256,6 +258,31 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
                 self.write_line("watch: dropped events — re-evaluating the whole workspace")
             }
             Event::WatchStopped => self.write_line("watch: stopped"),
+            Event::ToolAudited {
+                label,
+                program,
+                status,
+            } => match status {
+                ToolStatus::Present { version } => {
+                    let line = version.as_ref().map_or_else(
+                        || format!("  tool {label} ({program}): present"),
+                        |version| format!("  tool {label} ({program}): present ({version})"),
+                    );
+                    self.write_line(&self.palette.success(&line))
+                }
+                ToolStatus::Missing => {
+                    let line = format!("  tool {label} ({program}): missing");
+                    self.write_line(&self.palette.error(&line))
+                }
+            },
+            Event::DoctorFinished { checked, missing } => {
+                let line = format!("doctor: {checked} checked, {missing} missing");
+                if *missing == 0 {
+                    self.write_line(&self.palette.success(&line))
+                } else {
+                    self.write_line(&self.palette.error(&line))
+                }
+            }
         }
     }
 }
