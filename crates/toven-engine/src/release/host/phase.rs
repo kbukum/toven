@@ -273,8 +273,6 @@ pub(crate) fn run_host_phase(
     Ok(())
 }
 
-/// Derive the release-note body from a module's changelog entry: the detailed
-/// lines when present, otherwise the short summary.
 /// The hosted-release body for a module: its grouped, attributed changelog
 /// lines.
 ///

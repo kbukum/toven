@@ -63,7 +63,8 @@ pub(super) fn entry(module: &Module, commits: &[CommitSummary], initial: bool) -
 }
 
 /// Render one classified commit as a Keep a Changelog bullet with its scope,
-/// author attribution, and short id: `- (scope) description — by @handle (id)`.
+/// author attribution, and short id: `- **scope**: description — by @handle
+/// (id)` (the `**scope**: ` prefix is omitted when the commit has no scope).
 fn render_bullet(commit: &super::conventional::ClassifiedCommit) -> String {
     use std::fmt::Write as _;
     let mut bullet = String::from("- ");
