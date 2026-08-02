@@ -3,7 +3,7 @@
 use rskit_errors::AppResult;
 use toven_ports::{
     CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, ReleaseTarget,
-    RunStrategy, TaskKind, ToolchainProbe,
+    RunStrategy, TaskIntent, TaskKind, ToolchainProbe,
 };
 
 use crate::config::CommandConfig;
@@ -80,6 +80,36 @@ impl ConfiguredAdapter for CommandAdapter {
         ToolchainProbe::new(DEFAULT_TOOL, DEFAULT_TOOL, vec!["--version".to_string()])
     }
 
+    /// Scope the probe to the tool the addressed task actually runs.
+    ///
+    /// The command ecosystem funnels every declared module into one workspace,
+    /// yet each task is an independent tool (`ast-grep` for `structure`,
+    /// `mdbook` for `docs-build`). Probing per task — the addressed task's own
+    /// `argv[0]`, checked with `--version` — lets each gate surface a typed
+    /// missing-tool error for *its* tool without forcing every other command
+    /// tool to be installed for an unrelated run. An explicit `[toolchain]`
+    /// still wins (it declares one tool for the whole ecosystem); an unknown or
+    /// program-less task falls back to the ecosystem default probe.
+    fn toolchain_probes_for(&self, intent: &TaskIntent) -> Vec<ToolchainProbe> {
+        if self.config.toolchain.is_some() {
+            return vec![self.toolchain_probe()];
+        }
+        if let Some(program) = self
+            .config
+            .common
+            .tasks
+            .get(intent.name())
+            .and_then(|entry| entry.argv.first())
+        {
+            return vec![ToolchainProbe::new(
+                program.clone(),
+                program.clone(),
+                vec!["--version".to_string()],
+            )];
+        }
+        vec![self.toolchain_probe()]
+    }
+
     fn run_strategy_default(&self, kind: TaskKind) -> RunStrategy {
         self.config
             .common
@@ -102,6 +132,7 @@ mod tests {
 
     use super::CommandAdapter;
     use crate::config::{CommandConfig, DeclaredToolchain};
+    use toven_ports::TaskIntent;
 
     fn task_entry(argv: &[&str]) -> TaskEntry {
         TaskEntry {
@@ -156,6 +187,73 @@ mod tests {
         let adapter = CommandAdapter::new(CommandConfig::default());
         let probe = adapter.toolchain_probe();
         assert_eq!(probe.program, "command");
+    }
+
+    #[test]
+    fn probes_the_addressed_task_tool() {
+        // Each command gate is its own tool; the probe follows the addressed
+        // task's `argv[0]`, so `structure` checks `ast-grep` and `docs-build`
+        // checks `mdbook` — never the other tool.
+        let mut common = CommonEcosystemConfig::default();
+        common
+            .tasks
+            .insert("structure".to_string(), task_entry(&["ast-grep", "scan"]));
+        common.tasks.insert(
+            "docs-build".to_string(),
+            task_entry(&["mdbook", "build", "docs"]),
+        );
+        let adapter = CommandAdapter::new(CommandConfig {
+            common,
+            ..CommandConfig::default()
+        });
+
+        let structure = adapter.toolchain_probes_for(&TaskIntent::resolve("structure"));
+        assert_eq!(structure.len(), 1);
+        assert_eq!(structure[0].program, "ast-grep");
+        assert_eq!(structure[0].args, ["--version"]);
+
+        let docs = adapter.toolchain_probes_for(&TaskIntent::resolve("docs-build"));
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].program, "mdbook");
+    }
+
+    #[test]
+    fn explicit_toolchain_scopes_every_task_to_the_declared_tool() {
+        // A declared `[toolchain]` names one tool for the whole ecosystem, so it
+        // supersedes per-task derivation for any addressed task.
+        let mut common = CommonEcosystemConfig::default();
+        common
+            .tasks
+            .insert("structure".to_string(), task_entry(&["ast-grep", "scan"]));
+        let adapter = CommandAdapter::new(CommandConfig {
+            toolchain: Some(DeclaredToolchain {
+                program: "bazel".to_string(),
+                args: vec!["version".to_string()],
+                label: None,
+            }),
+            common,
+            ..CommandConfig::default()
+        });
+        let probes = adapter.toolchain_probes_for(&TaskIntent::resolve("structure"));
+        assert_eq!(probes.len(), 1);
+        assert_eq!(probes[0].program, "bazel");
+    }
+
+    #[test]
+    fn unknown_task_falls_back_to_the_ecosystem_default_probe() {
+        let mut common = CommonEcosystemConfig::default();
+        common
+            .tasks
+            .insert("structure".to_string(), task_entry(&["ast-grep", "scan"]));
+        let adapter = CommandAdapter::new(CommandConfig {
+            common,
+            ..CommandConfig::default()
+        });
+        // No `deploy` task is declared; the probe falls back to the ecosystem
+        // default (first declared task's program) rather than panicking.
+        let probes = adapter.toolchain_probes_for(&TaskIntent::resolve("deploy"));
+        assert_eq!(probes.len(), 1);
+        assert_eq!(probes[0].program, "ast-grep");
     }
 
     #[test]

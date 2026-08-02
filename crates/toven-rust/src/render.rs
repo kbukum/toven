@@ -174,6 +174,7 @@ fn task_table(use_nextest: bool, shared_inputs: &[String]) -> BTreeMap<String, T
         },
     );
     tasks.insert("doc".to_string(), doc_entry(shared_inputs));
+    tasks.insert("doctest".to_string(), doctest_entry(shared_inputs));
     tasks.insert("run".to_string(), run_entry(shared_inputs));
     tasks.insert("coverage".to_string(), coverage_entry(shared_inputs));
     tasks
@@ -259,6 +260,27 @@ fn fan_out_argv_with(subcommand: &str, extra: &[&str]) -> Vec<String> {
 fn doc_entry(shared_inputs: &[String]) -> TaskEntry {
     let mut entry = fan_out_entry("doc", FanOut::Batchable, shared_inputs);
     entry.argv = fan_out_argv_with("doc", &["--no-deps"]);
+    entry
+}
+
+/// The `doctest` entry: `cargo test --doc` runs the documentation tests the
+/// `nextest`-backed `test` task cannot execute. A doctest is semantically a
+/// test, so it reuses [`TaskKind::Test`](toven_ports::TaskKind::Test) rather
+/// than introducing a new kind, keeping the distinct `doctest` name so it never
+/// collides with the plain `test` task. Doctests are Rust/cargo-specific — the
+/// Go adapter has no analog — so the capability lives entirely in this adapter.
+fn doctest_entry(shared_inputs: &[String]) -> TaskEntry {
+    let mut entry = fan_out_entry("test", FanOut::Batchable, shared_inputs);
+    entry.kind = Some(TaskKind::Test);
+    entry.argv = vec![
+        "cargo".to_string(),
+        "test".to_string(),
+        "--doc".to_string(),
+        "--manifest-path".to_string(),
+        "{module.manifest}".to_string(),
+        "{module.selector}".to_string(),
+        "{args}".to_string(),
+    ];
     entry
 }
 
@@ -470,6 +492,7 @@ mod tests {
                 "check",
                 "coverage",
                 "doc",
+                "doctest",
                 "format",
                 "format-check",
                 "lint",
@@ -478,6 +501,16 @@ mod tests {
                 "vuln"
             ]
         );
+        let doctest = config.common.tasks.get("doctest").expect("doctest task");
+        assert_eq!(doctest.argv[..3], ["cargo", "test", "--doc"]);
+        assert_eq!(
+            doctest.resolved_kind("doctest"),
+            toven_ports::TaskKind::Test,
+            "a doctest is semantically a test; it reuses the Test kind"
+        );
+        assert_eq!(doctest.fan_out, FanOut::Batchable);
+        assert_eq!(doctest.selector, ["-p", "{module.package}"]);
+        assert_eq!(doctest.shared_inputs, ["Cargo.lock"]);
         assert_eq!(config.manifests, Manifests::Auto);
         let run = config.common.tasks.get("run").expect("run task");
         assert!(run.persistent);

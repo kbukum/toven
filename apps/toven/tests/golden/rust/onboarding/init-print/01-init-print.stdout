@@ -37,6 +37,12 @@ argv = ["cargo", "doc", "--manifest-path", "{module.manifest}", "{module.selecto
 fan_out = "batchable"
 selector = ["-p", "{module.package}"]
 
+[ecosystems.rust.tasks.doctest]
+argv = ["cargo", "test", "--doc", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+fan_out = "batchable"
+kind = "test"
+selector = ["-p", "{module.package}"]
+
 [ecosystems.rust.tasks.format]
 argv = ["cargo", "fmt", "--manifest-path", "{module.manifest}", "--all", "{args}"]
 cacheable = false

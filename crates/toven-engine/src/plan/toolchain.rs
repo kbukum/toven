@@ -1,10 +1,13 @@
 //! Toolchain: resolve `{tool, version}` once per active workspace.
 //!
 //! A workspace is *active* when it owns ≥1 active module. The engine probes
-//! each such workspace's toolchain exactly once (untouched ecosystems are never
-//! probed) and stamps the resolved version onto its [`ToolchainTag`]; a
-//! needed-but-failing probe is a hard PLAN error. Probing is an injected port
-//! so the planner stays pure and tests substitute a deterministic prober.
+//! each such workspace's toolchain (untouched ecosystems are never probed) and
+//! stamps the resolved version onto its [`ToolchainTag`]. A probe is a
+//! tool-existence check plus a best-effort version read: an *absent* tool (spawn
+//! failure), a hang, or pathological output is a hard PLAN error, but a present
+//! tool that reports no parseable version simply yields no stamped version.
+//! Probing is an injected port so the planner stays pure and tests substitute a
+//! deterministic prober.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -16,7 +19,7 @@ use rskit_process::{CapturedIo, ProcessConfig, ProcessIo, ProcessSpec, run};
 use toven_model::{
     AbsPath, EcosystemId, MemberId, ModuleKey, ToolchainTag, Workspace, WorkspaceId,
 };
-use toven_ports::{ToolchainProbe, ToolchainProber};
+use toven_ports::{TaskIntent, ToolchainProbe, ToolchainProber};
 
 use super::configure::MemberAdapters;
 use super::discover::Federation;
@@ -49,6 +52,16 @@ impl ProcessToolchainProber {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Test-only prober with a tiny output cap so a stream overrun is
+    /// exercisable deterministically without emitting cap-sized output.
+    #[cfg(test)]
+    const fn with_max_output_bytes(max_output_bytes: usize) -> Self {
+        Self {
+            timeout: DEFAULT_PROBE_TIMEOUT,
+            max_output_bytes,
+        }
+    }
 }
 
 impl ToolchainProber for ProcessToolchainProber {
@@ -61,7 +74,23 @@ impl ToolchainProber for ProcessToolchainProber {
             .with_timeout(Some(self.timeout))
             .with_max_output_bytes(self.max_output_bytes);
 
-        let result = run(&spec, &config)?;
+        let result = run(&spec, &config).map_err(|error| {
+            if error.code() == rskit_errors::ErrorCode::NotFound {
+                AppError::new(
+                    rskit_errors::ErrorCode::NotFound,
+                    format!(
+                        "toolchain probe '{}' could not run '{}' in '{}': is '{}' installed and on PATH?",
+                        probe.label,
+                        probe.program,
+                        workspace_root.display(),
+                        probe.program,
+                    ),
+                )
+                .with_cause(error)
+            } else {
+                error
+            }
+        })?;
         if result.timed_out {
             return Err(AppError::new(
                 rskit_errors::ErrorCode::Timeout,
@@ -73,7 +102,7 @@ impl ToolchainProber for ProcessToolchainProber {
                 ),
             ));
         }
-        if result.stdout_truncated {
+        if result.stdout_truncated || result.stderr_truncated {
             return Err(AppError::new(
                 rskit_errors::ErrorCode::Internal,
                 format!(
@@ -84,30 +113,20 @@ impl ToolchainProber for ProcessToolchainProber {
                 ),
             ));
         }
-        if !result.success() {
-            return Err(AppError::new(
-                rskit_errors::ErrorCode::Internal,
-                format!(
-                    "toolchain probe '{}' failed in '{}' (exit {:?}): {}",
-                    probe.label,
-                    workspace_root.display(),
-                    result.exit_code,
-                    result.stderr.trim()
-                ),
-            ));
+        // A probe that *ran* (spawned) aborts planning only on an absent tool
+        // (the ENOENT spawn failure mapped to NotFound above), a hang
+        // (`timed_out`), or output that overran the cap on *either* stream
+        // (`stdout`/`stderr` truncated). A tool that exists but exits non-zero
+        // yields *no* version rather than its stdout — which on failure is
+        // usage/error text, not a version — so a toolchain-independent command
+        // task whose program is not a version reporter (`false`, `true`, `echo`)
+        // never aborts a plan. An empty return means "version unknown"; the
+        // caller then skips stamping.
+        if result.success() {
+            Ok(result.stdout.trim().to_string())
+        } else {
+            Ok(String::new())
         }
-        let version = result.stdout.trim();
-        if version.is_empty() {
-            return Err(AppError::new(
-                rskit_errors::ErrorCode::Internal,
-                format!(
-                    "toolchain probe '{}' in '{}' returned an empty version",
-                    probe.label,
-                    workspace_root.display()
-                ),
-            ));
-        }
-        Ok(version.to_string())
     }
 }
 
@@ -125,6 +144,7 @@ pub(super) fn resolve(
     active: &BTreeSet<ModuleKey>,
     adapters: &MemberAdapters,
     prober: &dyn ToolchainProber,
+    intent: &TaskIntent,
 ) -> AppResult<BTreeMap<WorkspaceId, ToolchainTag>> {
     let active_workspaces = active_workspaces(federation, active)?;
 
@@ -136,16 +156,21 @@ pub(super) fn resolve(
                 "no configured adapter for ecosystem '{ecosystem}' owning workspace '{workspace_id}'"
             ))
         })?;
-        let probe = adapter.toolchain_probe();
         let root =
             safe_join(project_root.as_path(), workspace.root.as_path()).map_err(|error| {
                 AppError::invalid_input("workspace.root", error.to_string()).with_cause(error)
             })?;
-        let version = prober.probe(&probe, &root)?;
-        resolved.insert(
-            workspace_id,
-            workspace.toolchain.clone().with_version(version),
-        );
+        // Probe every tool the addressed task needs in this workspace, surfacing
+        // a typed error for the first *absent* one; the workspace's version
+        // identity is stamped from the first probe that reports a version.
+        let mut tag = workspace.toolchain.clone();
+        for probe in adapter.toolchain_probes_for(intent) {
+            let version = prober.probe(&probe, &root)?;
+            if !version.is_empty() && tag.version.is_none() {
+                tag = tag.with_version(version);
+            }
+        }
+        resolved.insert(workspace_id, tag);
     }
     Ok(resolved)
 }
@@ -220,10 +245,12 @@ fn find_workspace<'a>(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+    use std::path::Path;
 
     use toven_model::{EcosystemId, MemberId, Module, ModuleRef, RepoPath, WorkspaceId};
+    use toven_ports::{ToolchainProbe, ToolchainProber};
 
-    use super::active_workspaces;
+    use super::{ProcessToolchainProber, active_workspaces};
     use crate::plan::discover::Federation;
 
     fn module(member: &str, name: &str, workspace: &str) -> Module {
@@ -254,6 +281,135 @@ mod tests {
         assert!(
             error.to_string().contains("core/rust") && error.to_string().contains("services/rust"),
             "error should identify both workspace owners: {error}"
+        );
+    }
+
+    #[test]
+    fn a_missing_probe_tool_is_a_typed_not_found_error_naming_the_program() {
+        let probe = ToolchainProbe {
+            label: "structure".to_string(),
+            program: "toven-nonexistent-probe-tool".to_string(),
+            args: vec!["--version".to_string()],
+        };
+
+        let error = ProcessToolchainProber::new()
+            .probe(&probe, Path::new("."))
+            .expect_err("a probe for a tool that is not installed must fail");
+
+        assert_eq!(error.code(), rskit_errors::ErrorCode::NotFound);
+        let message = error.to_string();
+        assert!(
+            message.contains("toven-nonexistent-probe-tool") && message.contains("PATH"),
+            "error must name the missing program and mention PATH: {message}"
+        );
+        assert!(
+            error.cause().is_some(),
+            "the underlying spawn failure must be preserved as the cause"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_present_tool_that_reports_no_version_is_tolerated() {
+        // `false` exists but exits non-zero and (with no args) prints nothing:
+        // the tool is present, so planning must not abort — the probe just yields
+        // no version. Unix-only because it relies on the `false` utility.
+        let probe = ToolchainProbe {
+            label: "check".to_string(),
+            program: "false".to_string(),
+            args: Vec::new(),
+        };
+
+        let version = ProcessToolchainProber::new()
+            .probe(&probe, Path::new("."))
+            .expect("a present tool that reports no version must not fail the probe");
+
+        assert!(
+            version.is_empty(),
+            "no parseable version is expected, got {version:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_present_tool_that_exits_non_zero_yields_no_version_not_its_stdout() {
+        // A probe that runs but exits non-zero must not stamp its stdout — which
+        // on failure is usage/error text, not a version — as the toolchain
+        // version; it yields "version unknown" while still letting the plan
+        // proceed. Unix-only because it relies on `sh`.
+        let probe = ToolchainProbe {
+            label: "check".to_string(),
+            program: "sh".to_string(),
+            args: vec!["-c".to_string(), "printf boom; exit 3".to_string()],
+        };
+
+        let version = ProcessToolchainProber::new()
+            .probe(&probe, Path::new("."))
+            .expect("a present tool that exits non-zero must not fail the probe");
+
+        assert!(
+            version.is_empty(),
+            "a non-zero exit must yield no version, got {version:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_probe_whose_stderr_overruns_the_cap_is_fatal() {
+        // The output bound covers *both* streams: a probe that floods stderr past
+        // the cap is a hard error, not a silently truncated success. Unix-only
+        // because it relies on `sh` and `/dev/zero`.
+        let probe = ToolchainProbe {
+            label: "check".to_string(),
+            program: "sh".to_string(),
+            args: vec!["-c".to_string(), "head -c 200 /dev/zero 1>&2".to_string()],
+        };
+
+        let error = ProcessToolchainProber::with_max_output_bytes(64)
+            .probe(&probe, Path::new("."))
+            .expect_err("a stderr overrun must be a fatal probe error");
+
+        assert_eq!(error.code(), rskit_errors::ErrorCode::Internal);
+        assert!(
+            error.to_string().contains("exceeded"),
+            "the error must explain the output-cap overrun: {error}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_present_but_non_executable_probe_tool_propagates_the_classified_error() {
+        use std::io::Write as _;
+        use std::os::unix::fs::PermissionsExt as _;
+
+        // A tool that exists but lacks the execute bit is a permission problem, not
+        // a "missing tool" one: the probe must surface the classified error
+        // (Forbidden) unchanged rather than mislabeling it as "not installed on
+        // PATH". Unix-only because it relies on POSIX permission bits.
+        let path = std::env::temp_dir().join(format!("toven-probe-noexec-{}", std::process::id()));
+        let mut file = std::fs::File::create(&path).expect("create temp probe tool");
+        file.write_all(b"#!/bin/sh\n")
+            .expect("write temp probe tool");
+        drop(file);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644))
+            .expect("drop the execute bit");
+
+        let probe = ToolchainProbe {
+            label: "check".to_string(),
+            program: path.to_string_lossy().into_owned(),
+            args: Vec::new(),
+        };
+
+        let error = ProcessToolchainProber::new()
+            .probe(&probe, Path::new("."))
+            .expect_err("a non-executable tool must fail the probe");
+
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(error.code(), rskit_errors::ErrorCode::Forbidden);
+        assert!(
+            !error.to_string().contains("PATH"),
+            "a permission error must not be reported as a missing tool: {error}"
         );
     }
 }

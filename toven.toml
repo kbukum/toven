@@ -96,6 +96,17 @@ fan_out = "whole-workspace"
 kind = "coverage"
 shared_inputs = ["Cargo.lock"]
 
+# Repo-level opt-in gate: cargo-deny needs a per-repo `deny.toml`, so it is a
+# declared rust task rather than a Rust-adapter default. Whole-workspace like
+# `vuln` — one resolved graph per workspace — and `kind = "lint"` since `deny`
+# is not a name-recognized kind. `deny.toml` joins the shared inputs so a policy
+# edit re-runs the gate.
+[ecosystems.rust.tasks.deny]
+argv = ["cargo", "deny", "check", "advisories", "bans", "licenses", "sources", "{args}"]
+fan_out = "whole-workspace"
+kind = "lint"
+shared_inputs = ["Cargo.lock", "deny.toml"]
+
 [ecosystems.rust.tasks.doc]
 argv = ["cargo", "doc", "--manifest-path", "{module.manifest}", "{module.selector}", "--no-deps", "{args}"]
 fan_out = "batchable"
@@ -137,3 +148,29 @@ shared_inputs = ["Cargo.lock"]
 argv = ["cargo", "audit", "--file", "{workspace.root}/Cargo.lock", "{args}"]
 fan_out = "whole-workspace"
 shared_inputs = ["Cargo.lock"]
+
+# The command ecosystem is Toven's generic-tool adapter: tool-specific but
+# language-agnostic gates that have no cargo/go home. Declaring them here drives
+# Toven's own `structure` (ast-grep) and `docs-build` (mdbook) gates through the
+# task machinery instead of bespoke Makefile recipes. One module rooted at the
+# repo root owns both. No explicit `[ecosystems.command.toolchain]` is declared:
+# each gate is a distinct tool, so the adapter probes per addressed task
+# (`ast-grep --version` for `structure`, `mdbook --version` for `docs-build`),
+# giving each a typed missing-tool error without coupling the two.
+[[ecosystems.command.modules]]
+name = "repo"
+root = "."
+
+# ast-grep structural lint (the `mod.rs`/`lib.rs` declare-only guard). Argv is
+# byte-identical to the Makefile recipe; `whole-workspace` runs it once.
+[ecosystems.command.tasks.structure]
+argv = ["ast-grep", "scan"]
+fan_out = "whole-workspace"
+kind = "lint"
+
+# mdbook documentation build. Argv is byte-identical to the Makefile recipe;
+# `kind = "doc"` groups it with the other documentation gates.
+[ecosystems.command.tasks.docs-build]
+argv = ["mdbook", "build", "docs"]
+fan_out = "whole-workspace"
+kind = "doc"
