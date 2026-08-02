@@ -118,10 +118,18 @@ detect_target() {
 # alpha prereleases, so list releases and take the first).
 resolve_latest_version() {
   api="https://api.github.com/repos/${repo}/releases?per_page=1"
-  auth=""
-  [ -n "${GITHUB_TOKEN:-}" ] && auth="-H Authorization: Bearer ${GITHUB_TOKEN}"
-  # shellcheck disable=SC2086
-  tag="$(curl -fsSL ${auth} "${api}" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
+  auth_file=""
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    auth_file="$(mktemp)"
+    chmod 600 "${auth_file}"
+    printf 'Authorization: Bearer %s\n' "${GITHUB_TOKEN}" >"${auth_file}"
+  fi
+  if [ -n "${auth_file}" ]; then
+    tag="$(curl -fsSL -H "@${auth_file}" "${api}" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
+    rm -f "${auth_file}"
+  else
+    tag="$(curl -fsSL "${api}" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
+  fi
   [ -n "${tag}" ] || die "could not resolve the latest release tag from ${api}"
   printf '%s' "${tag}"
 }
