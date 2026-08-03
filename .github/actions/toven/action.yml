@@ -224,7 +224,10 @@ runs:
         INPUT_ARGS: ${{ inputs.args }}
       run: |
         set -euo pipefail
-        # Forward the requested command unchanged. INPUT_ARGS is intentionally
-        # word-split into argv; Toven never rewrites user arguments.
-        # shellcheck disable=SC2086
-        "${TOVEN}" ${INPUT_ARGS}
+        # Word-split INPUT_ARGS into argv WITHOUT pathname (glob) expansion, so a
+        # literal *, ?, or [ in an argument is passed through unchanged rather
+        # than rewritten — Toven never silently rewrites user arguments. `read
+        # -ra` splits on whitespace and performs no globbing; quoted array
+        # expansion then forwards the vector verbatim.
+        read -r -a toven_args <<< "${INPUT_ARGS}"
+        "${TOVEN}" "${toven_args[@]}"
