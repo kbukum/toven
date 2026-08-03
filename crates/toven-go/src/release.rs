@@ -13,7 +13,7 @@ use rskit_fs::safe_join;
 use rskit_git::{Inspector, LogReader, RefManager};
 use rskit_process::ProcessSpec;
 use rskit_version::semver::Version;
-use toven_model::Module;
+use toven_model::{Module, RepoPath};
 use toven_ports::{
     Artifact, PublishOutcome, ReleaseCredentials, ReleaseMutation, ReleaseTarget, TagScheme,
     Visibility,
@@ -120,7 +120,11 @@ impl ReleaseTarget for GoVcsTarget {
         Ok(Artifact::new(module.root.as_path()))
     }
 
-    fn apply_release(&self, module: &Module, mutation: &ReleaseMutation) -> AppResult<()> {
+    fn apply_release(
+        &self,
+        module: &Module,
+        mutation: &ReleaseMutation,
+    ) -> AppResult<Vec<RepoPath>> {
         if mutation.dep_floor_updates.len() != mutation.dep_floor_import_updates.len() {
             return Err(AppError::invalid_input(
                 "release.go_mod",
@@ -132,11 +136,18 @@ impl ReleaseTarget for GoVcsTarget {
                 ),
             ));
         }
-        let manifest = module.manifest.as_ref().map_or_else(
+        // Go carries no version in a manifest: a plain version cut writes nothing
+        // and returns no staged paths, so the engine tags `HEAD` rather than
+        // fabricating an empty commit. Only a dependency-floor rewrite touches
+        // `go.mod`, which is then the one path the release commit stages.
+        if mutation.dep_floor_import_updates.is_empty() {
+            return Ok(Vec::new());
+        }
+        let manifest_rel = module.manifest.as_ref().map_or_else(
             || module.root.as_path().join("go.mod"),
             |path| path.as_path().to_path_buf(),
         );
-        let manifest = safe_join(&self.working_root()?, &manifest).map_err(|error| {
+        let manifest = safe_join(&self.working_root()?, &manifest_rel).map_err(|error| {
             AppError::invalid_input("release.go_mod", error.to_string()).with_cause(error)
         })?;
         for (import_path, version) in &mutation.dep_floor_import_updates {
@@ -148,7 +159,10 @@ impl ReleaseTarget for GoVcsTarget {
                 .dir(self.working_root()?);
             run_go_json(&spec, "go mod edit dependency floor")?;
         }
-        Ok(())
+        let staged = RepoPath::new(manifest_rel).map_err(|error| {
+            AppError::invalid_input("release.go_mod", error.to_string()).with_cause(error)
+        })?;
+        Ok(vec![staged])
     }
 
     fn publish(

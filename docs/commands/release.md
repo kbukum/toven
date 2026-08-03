@@ -158,6 +158,8 @@ Before any mutation, the planned tags are preflighted and classified against the
 
 The tag/branch push authenticates over HTTPS using a token read from the variables listed in [`[toven.git].push_token_env`](../config/README.md#runtime) (default `GITHUB_TOKEN`, then `GH_TOKEN`). In CI the workflow exposes the job token under one of those names; locally, with none set, the push falls back to the ambient git transport default.
 
+When `sign_tags = true`, `tag` and `publish` create cryptographically signed annotated tags. Signing is always annotated, so `tag_message` is required and a signed lightweight tag is rejected at validation. `sign_format` selects the signing backend (`openpgp`/`gpg`, `ssh`, or `x509`, mapped onto git's `gpg.format`) and `signing_key` pins the key identifier (mapped onto git's `user.signingkey`); each is optional and inherits the repository's git configuration when unset. The signing key identifier is never key material. When signing is requested but no key resolves, the run fails closed with an actionable error before creating the tag.
+
 ## Rust release policy
 
 The supported Rust contract is:
@@ -194,6 +196,26 @@ The supported contract treats a published tag, registry version, hosted Release,
 
 ## Recovery
 
-Everything before a successful release commit is reversible and the implementation attempts to restore the worktree on failure. After a commit, tag, registry version, or hosted Release becomes externally visible, do not rewrite or delete it to make the run appear atomic. Inspect `release status`, correct the repository or release configuration, choose a new version where necessary, preview again, obtain approval again, and publish a forward fix.
+A publish is a sequence with one hard rollback boundary: manifest mutation, packaging, and the attempted release commit are reversible — a failure before the commit restores the worktree and creates no commit or tag — while the release commit, each module tag, the branch and tag push, the registry publication, and the hosted Release become externally visible in that order and are treated as immutable once they land. Recovery never rewinds past the commit boundary; it resumes forward.
 
-Never force-move a release tag, overwrite a published package version, or replace an asset attached to an approved immutable Release.
+### Diagnose first
+
+Start every recovery from `release status`. It reports, per module, which versions are already tagged, pushed, published to the registry, and hosted, so you can locate exactly where the interrupted run stopped before changing anything.
+
+### Partial publication
+
+Re-running `publish` after an interruption is safe and is the intended recovery path, because the mutation-free phases are idempotent and the mutating phases are guarded by a tag preflight:
+
+- **Interrupted before the commit** (mutation, packaging, or the commit itself failed) — the worktree was restored and nothing is visible. Re-run normally; the plan is unchanged.
+- **Interrupted after the tags were pushed but before every registry version or hosted Release completed** — re-running **resumes**: it preflights the planned tags, finds them all present with agreeing annotations, skips prepare/commit/tag/push, and lets the idempotent registry-publish and hosted-Release phases finish the remaining work. A registry version that already exists reports `already-published` and is skipped; a hosted Release that is missing is created by the reconcile pre-pass from the pushed tag. The run is marked resumed and prints a resume or reconcile notice.
+- **Interrupted with a partial or divergent planned-tag set** — some planned tags present, others missing, or annotations disagreeing — fails closed with forward-fix guidance. Because tags are immutable, a partially-tagged release cannot be safely re-derived. Do not delete the existing tags; publish a forward fix instead.
+
+`--no-push` keeps the commit and tags local, so a `--no-push` run has nothing externally visible to reconcile: recover by discarding the local commit and tags and re-running.
+
+### Forward-fix releases
+
+When the repository or release configuration was wrong — a bad manifest, a wrong registry, an incorrect asset — do not rewrite history to hide it. Correct the source, choose a **new** version where the released one is already visible, preview with `release plan` / `release publish --dry-run`, obtain approval again, and publish the forward fix. A changed module always plans onto a fresh tag, so a forward fix never collides with the immutable release it supersedes.
+
+### Never do this
+
+Never force-move or delete a release tag, overwrite a published registry version, or replace an asset attached to an approved immutable Release. These break the immutability contract downstream consumers rely on, and the adapters refuse them: the GitHub adapter uses create-or-verify semantics and never clobbers an existing Release or asset.

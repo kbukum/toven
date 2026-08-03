@@ -7,10 +7,26 @@
 use rskit_errors::AppResult;
 use toven_ports::{
     BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, HostConfig, PrereleaseConfig,
-    PublicationPolicy, ReleaseConfig, SignConfig, Visibility, merge_release,
+    PublicationPolicy, ReleaseConfig, SignConfig, SignFormat, Visibility, merge_release,
 };
 
 use super::{BumpPolicy, PushPolicy, strategy};
+
+/// Parse a configured `sign_format` value onto the [`SignFormat`] backend enum.
+///
+/// Accepts the canonical git `gpg.format` values plus the common `gpg` alias for
+/// `OpenPGP`; anything else is a typed configuration error.
+fn parse_sign_format(value: &str) -> AppResult<SignFormat> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "openpgp" | "gpg" => Ok(SignFormat::OpenPgp),
+        "ssh" => Ok(SignFormat::Ssh),
+        "x509" => Ok(SignFormat::X509),
+        other => Err(rskit_errors::AppError::invalid_input(
+            "release.sign_format",
+            format!("unknown sign_format '{other}'; use one of openpgp (or gpg), ssh, x509"),
+        )),
+    }
+}
 
 /// Default git remote when none is configured.
 const DEFAULT_REMOTE: &str = "origin";
@@ -75,6 +91,16 @@ pub struct ResolvedReleaseSettings {
     pub tag_format: Option<String>,
     /// Annotated-tag message template; `None` = a lightweight tag.
     pub tag_message: Option<String>,
+    /// Whether release tags are signed. Always implies an annotated tag
+    /// (`tag_message` set) and an available signing key.
+    pub sign_tags: bool,
+    /// Signing backend for signed tags (`gpg.format`); `None` inherits git
+    /// config. Only meaningful when `sign_tags` is set.
+    pub sign_format: Option<SignFormat>,
+    /// Signing key for signed tags (`user.signingkey`); `None` inherits git
+    /// config. Carries the key *identifier* only. Only meaningful when
+    /// `sign_tags` is set.
+    pub signing_key: Option<String>,
     /// Release commit message template; `None` = adapter default.
     pub commit_message: Option<String>,
     /// Changelog generation settings; `path` is defaulted to `CHANGELOG.md`.
@@ -132,6 +158,27 @@ impl ResolvedReleaseSettings {
     /// resolves to `Excluded`, and with `publish = false` to `TagOnly`) without
     /// tripping a false merged-level contradiction.
     fn from_merged(config: &ReleaseConfig) -> AppResult<Self> {
+        let sign_tags = config.sign_tags.unwrap_or(false);
+        if sign_tags && config.tag_message.is_none() {
+            return Err(rskit_errors::AppError::invalid_input(
+                "release.sign_tags",
+                "signed release tags are always annotated, so sign_tags = true requires a \
+                 tag_message; set a tag_message template or disable sign_tags",
+            ));
+        }
+        let sign_format = config
+            .sign_format
+            .as_deref()
+            .map(parse_sign_format)
+            .transpose()?;
+        let signing_key = config.signing_key.clone();
+        if !sign_tags && (sign_format.is_some() || signing_key.is_some()) {
+            return Err(rskit_errors::AppError::invalid_input(
+                "release.sign_tags",
+                "sign_format and signing_key only apply to signed tags; set sign_tags = true or \
+                 drop them",
+            ));
+        }
         Ok(Self {
             policy: strategy::resolve(config.strategy.as_deref())?,
             level: config.level.unwrap_or(BumpLevel::Auto),
@@ -139,6 +186,9 @@ impl ResolvedReleaseSettings {
             prerelease: config.prerelease.clone().unwrap_or_default(),
             tag_format: config.tag_format.clone(),
             tag_message: config.tag_message.clone(),
+            sign_tags,
+            sign_format,
+            signing_key,
             commit_message: config.commit_message.clone(),
             changelog: resolve_changelog(config.changelog.clone().unwrap_or_default()),
             push: PushPolicy::resolve(
@@ -189,7 +239,99 @@ mod tests {
         assert_eq!(resolved.push, PushPolicy::BranchAndTags);
         assert_eq!(resolved.remote, "origin");
         assert!(!resolved.offline);
+        assert!(!resolved.sign_tags);
         assert_eq!(resolved.changelog.path.as_deref(), Some("CHANGELOG.md"));
+    }
+
+    #[test]
+    fn sign_tags_resolves_with_an_annotated_message() {
+        let ecosystem = ReleaseConfig {
+            tag_message: Some("release {version}".into()),
+            sign_tags: Some(true),
+            ..ReleaseConfig::default()
+        };
+        let resolved = ResolvedReleaseSettings::resolve(&ecosystem, None).unwrap();
+        assert!(resolved.sign_tags);
+        assert_eq!(resolved.tag_message.as_deref(), Some("release {version}"));
+    }
+
+    #[test]
+    fn sign_tags_without_a_tag_message_is_rejected() {
+        let ecosystem = ReleaseConfig {
+            sign_tags: Some(true),
+            ..ReleaseConfig::default()
+        };
+        let error = ResolvedReleaseSettings::resolve(&ecosystem, None)
+            .expect_err("signing requires an annotated tag");
+        assert!(error.to_string().contains("sign_tags"), "{error}");
+    }
+
+    #[test]
+    fn sign_tags_inherits_tag_message_from_the_ecosystem_default() {
+        // The signing toggle and the annotation message may come from different
+        // blocks: a module opts into signing while inheriting the ecosystem's
+        // tag_message, and resolution honors the merged pair.
+        let ecosystem = ReleaseConfig {
+            tag_message: Some("release {version}".into()),
+            ..ReleaseConfig::default()
+        };
+        let module = ReleaseConfig {
+            sign_tags: Some(true),
+            ..ReleaseConfig::default()
+        };
+        let resolved = ResolvedReleaseSettings::resolve(&ecosystem, Some(&module)).unwrap();
+        assert!(resolved.sign_tags);
+        assert_eq!(resolved.tag_message.as_deref(), Some("release {version}"));
+    }
+
+    #[test]
+    fn sign_format_and_key_resolve_onto_the_backend_enum() {
+        let ecosystem = ReleaseConfig {
+            tag_message: Some("release {version}".into()),
+            sign_tags: Some(true),
+            sign_format: Some("ssh".into()),
+            signing_key: Some("KEYID".into()),
+            ..ReleaseConfig::default()
+        };
+        let resolved = ResolvedReleaseSettings::resolve(&ecosystem, None).unwrap();
+        assert_eq!(resolved.sign_format, Some(toven_ports::SignFormat::Ssh));
+        assert_eq!(resolved.signing_key.as_deref(), Some("KEYID"));
+    }
+
+    #[test]
+    fn sign_format_accepts_the_gpg_alias_case_insensitively() {
+        let ecosystem = ReleaseConfig {
+            tag_message: Some("release {version}".into()),
+            sign_tags: Some(true),
+            sign_format: Some("GPG".into()),
+            ..ReleaseConfig::default()
+        };
+        let resolved = ResolvedReleaseSettings::resolve(&ecosystem, None).unwrap();
+        assert_eq!(resolved.sign_format, Some(toven_ports::SignFormat::OpenPgp));
+    }
+
+    #[test]
+    fn unknown_sign_format_is_rejected() {
+        let ecosystem = ReleaseConfig {
+            tag_message: Some("release {version}".into()),
+            sign_tags: Some(true),
+            sign_format: Some("pkcs11".into()),
+            ..ReleaseConfig::default()
+        };
+        let error = ResolvedReleaseSettings::resolve(&ecosystem, None)
+            .expect_err("unknown signing backend");
+        assert!(error.to_string().contains("sign_format"), "{error}");
+    }
+
+    #[test]
+    fn sign_format_or_key_without_sign_tags_is_rejected() {
+        let ecosystem = ReleaseConfig {
+            sign_format: Some("ssh".into()),
+            ..ReleaseConfig::default()
+        };
+        let error = ResolvedReleaseSettings::resolve(&ecosystem, None)
+            .expect_err("signing material requires sign_tags");
+        assert!(error.to_string().contains("sign_tags"), "{error}");
     }
 
     #[test]

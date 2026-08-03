@@ -13,8 +13,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_util::Template;
-use toven_model::{Module, ModuleKey};
-use toven_ports::{Artifact, ReleaseCredentials, ReleaseTarget, ReleaseVar, VcsReader, VcsWriter};
+use toven_model::{Module, ModuleKey, RepoPath};
+use toven_ports::{
+    Artifact, ReleaseCredentials, ReleaseTarget, ReleaseVar, TagSigner, VcsReader, VcsWriter,
+};
 
 use super::publish::{self, PublishItem};
 use super::{PushPolicy, ReleasePlan, ReleaseStats};
@@ -183,31 +185,48 @@ pub fn release_apply(
     // and pushed on a prior attempt: resume by skipping manifest mutation,
     // commit, tag, and push, and let the idempotent publish and hosted-release
     // phases finish. A partial tag overlap has already failed closed above.
-    if matches!(
-        preflight_tags(plan, &module_by_ref, reader)?,
-        TagPreflight::Resume
-    ) {
+    let tag_preflight = preflight_tags(plan, &module_by_ref, reader)?;
+    if matches!(tag_preflight, TagPreflight::Resume) {
         return resume_apply(plan, &module_by_ref, targets, options, stats);
     }
+    preflight_tag_signers(plan, writer)?;
 
-    // Pre-commit phase (undoable): apply mutations, then package every module
-    // that will be published.
-    let artifacts = match prepare(plan, &module_by_ref, targets, &mut stats) {
-        Ok(artifacts) => artifacts,
+    // Pre-commit phase (undoable): apply mutations, capture exactly the paths
+    // they rewrote, then package every module that will be published.
+    let (changed_paths, artifacts) = match prepare(plan, &module_by_ref, targets, &mut stats) {
+        Ok(prepared) => prepared,
         Err(error) => return Err(restore_or_precommit_error(writer, "prepare", error)),
     };
 
-    // Commit boundary: if commit itself fails, no history was created yet, so the
-    // pre-commit working tree mutations are still undoable.
-    let commit = match writer.commit(&message) {
-        Ok(commit) => commit,
-        Err(error) => return Err(restore_or_precommit_error(writer, "commit", error)),
+    // Commit boundary. A release that rewrote manifests stages exactly those
+    // paths and creates the release commit. A mutation-free release — a Go
+    // tag-only cut, since Go carries no version in `go.mod` — rewrites nothing,
+    // so it tags the existing `HEAD` instead of fabricating an empty release
+    // commit. If staging or the commit fails, no history was created yet, so the
+    // pre-commit working-tree mutations are still undoable.
+    let created_commit = !changed_paths.is_empty();
+    let commit = if created_commit {
+        match stage_and_commit(writer, &changed_paths, &message) {
+            Ok(commit) => commit,
+            Err(error) => return Err(restore_or_precommit_error(writer, "commit", error)),
+        }
+    } else {
+        reader.rev_parse("HEAD")?
     };
 
     // Post-commit phase (no rollback): tag, optionally push, publish. A failure
-    // here cannot undo the commit — it surfaces with forward-only recovery
+    // here cannot undo the release refs — it surfaces with forward-only recovery
     // guidance instead of pretending the run was atomic.
-    let committed = || format!("release commit {} was created", commit.as_str());
+    let committed = || {
+        if created_commit {
+            format!("release commit {} was created", commit.as_str())
+        } else {
+            format!(
+                "release tags were applied to existing commit {}",
+                commit.as_str()
+            )
+        }
+    };
     tag_releases(plan, &module_by_ref, writer, &commit, &mut stats)
         .map_err(|error| forward_recovery_error(&committed(), "tagging", error))?;
     if settings.pushes(options) {
@@ -316,7 +335,12 @@ pub(crate) fn tag_releases(
             }
             let module = module_for(module_by_ref, &entry.module)?;
             let message = tag_message(entry, module, version)?;
-            writer.create_tag(name, commit.as_str(), message.as_deref())?;
+            writer.create_tag(
+                name,
+                commit.as_str(),
+                message.as_deref(),
+                entry.signer.as_ref(),
+            )?;
             stats.tagged_modules += 1;
         }
     }
@@ -399,9 +423,18 @@ pub(crate) fn guard_clean_tree(reader: &dyn VcsReader) -> AppResult<()> {
     ))
 }
 
-/// Apply every mutation, then package every module that will be published,
-/// returning the artifacts keyed by module. Runs entirely before the commit so
-/// the caller can restore the working tree on failure.
+/// Apply every mutation, capture the working-tree paths those mutations
+/// rewrote, then package every module that will be published, returning the
+/// changed paths and the artifacts keyed by module. Runs entirely before the
+/// commit so the caller can restore the working tree on failure.
+///
+/// The changed-path snapshot is taken **after** applying mutations but
+/// **before** packaging, so it reflects exactly the manifests the release
+/// rewrote and never captures release artifacts a target may write into the
+/// working tree. The clean-tree guard ran before any mutation, so any path here
+/// is the release's own write. An empty snapshot means the release mutated no
+/// manifest — a Go tag-only cut — and the caller tags `HEAD` rather than
+/// creating an empty commit.
 ///
 /// Packaging is scoped to `publish_needed` entries: a tag-only module (and a
 /// registry module whose version is already published) produces no packaged
@@ -415,15 +448,37 @@ pub(crate) fn prepare(
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
     targets: &super::ReleaseTargets,
     stats: &mut ReleaseStats,
-) -> AppResult<BTreeMap<ModuleKey, Artifact>> {
+) -> AppResult<(Vec<RepoPath>, BTreeMap<ModuleKey, Artifact>)> {
+    let mut changed_paths = Vec::new();
     for entry in &plan.entries {
         let module = module_for(module_by_ref, &entry.module)?;
         let target = target_for(targets, module)?;
-        target.apply_release(module, &entry.mutation)?;
+        changed_paths.extend(target.apply_release(module, &entry.mutation)?);
         stats.mutated_modules += 1;
     }
 
-    package_publishable(plan, module_by_ref, targets, stats)
+    let artifacts = package_publishable(plan, module_by_ref, targets, stats)?;
+    Ok((changed_paths, artifacts))
+}
+
+/// Stage exactly the release-mutated paths and create the release commit.
+///
+/// `changed_paths` are the repo-relative manifests the release's mutations
+/// reported rewriting, so committing them makes the commit carry the version
+/// bump (a bare commit would otherwise write an empty tree and leave the bump
+/// dangling in the working tree). Only called when that set is non-empty.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn stage_and_commit(
+    writer: &dyn VcsWriter,
+    changed_paths: &[RepoPath],
+    message: &str,
+) -> AppResult<toven_ports::Oid> {
+    let staged: Vec<String> = changed_paths
+        .iter()
+        .map(|path| path.as_path().to_string_lossy().into_owned())
+        .collect();
+    let staged_refs: Vec<&str> = staged.iter().map(String::as_str).collect();
+    writer.commit(message, &staged_refs)
 }
 
 /// Package every `publish_needed` entry without mutating any manifest.
@@ -709,6 +764,40 @@ fn classify_planned_tags(
     ))
 }
 
+/// Preflight every distinct planned signed tag before manifest mutation.
+///
+/// Modules may collapse onto one shared tag, so signer settings must agree for
+/// that tag. The writer then validates local signer requirements (including an
+/// inherited `user.signingkey`) before the release crosses the commit boundary.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn preflight_tag_signers(plan: &ReleasePlan, writer: &dyn VcsWriter) -> AppResult<()> {
+    let mut planned: BTreeMap<String, Option<TagSigner>> = BTreeMap::new();
+    for entry in &plan.entries {
+        if entry.planned_version.is_none() {
+            continue;
+        }
+        let name = planned_tag_name(entry)?;
+        let signer = entry.signer.clone();
+        if let Some(existing) = planned.get(name) {
+            if existing != &signer {
+                return Err(AppError::invalid_input(
+                    "release.sign_tags",
+                    format!(
+                        "modules sharing release tag '{name}' disagree on tag signing settings; \
+                         give the shared tag one signer or a distinct tag_format"
+                    ),
+                ));
+            }
+            continue;
+        }
+        if let Some(signer) = &signer {
+            writer.preflight_tag_signer(signer)?;
+        }
+        planned.insert(name.to_string(), signer);
+    }
+    Ok(())
+}
+
 fn render_template(
     template: &str,
     field: &str,
@@ -835,6 +924,7 @@ mod tests {
             publish_needed,
             tag_format: None,
             tag_message: None,
+            signer: None,
             commit_message: None,
             token_env: None,
             visibility: toven_ports::Visibility::Public,
@@ -1650,6 +1740,105 @@ mod tests {
             VcsWrite::CreateTag { message: Some(message), .. }
                 if message == "tag rust/app 1.2.3"
         ));
+    }
+
+    #[test]
+    fn signed_tag_flag_flows_through_to_the_writer() {
+        let mut entry = entry("core", Version::new(1, 2, 3), true, 0);
+        entry.planned_tag = Some("rust/core@1.2.3".into());
+        entry.tag_message = Some("release {version}".into());
+        entry.signer = Some(toven_ports::TagSigner {
+            format: Some(toven_ports::SignFormat::Ssh),
+            key: Some("KEYID".into()),
+        });
+        let writer = FakeVcsWriter::new();
+
+        release_apply(
+            &ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry]),
+            &[module("core")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect("signed tag release");
+
+        assert!(
+            writer.writes().iter().any(|write| matches!(
+                write,
+                VcsWrite::CreateTag { signer: Some(signer), message: Some(message), .. }
+                    if message == "release 1.2.3"
+                        && signer.format == Some(toven_ports::SignFormat::Ssh)
+                        && signer.key.as_deref() == Some("KEYID")
+            )),
+            "the signed, annotated tag must reach the writer: {:?}",
+            writer.writes()
+        );
+    }
+
+    #[test]
+    fn signed_tag_preflight_fails_before_any_mutation() {
+        let mut entry = entry("core", Version::new(1, 2, 3), true, 0);
+        entry.tag_message = Some("release {version}".into());
+        entry.signer = Some(toven_ports::TagSigner::default());
+        let writer = FakeVcsWriter::new()
+            .with_tag_signer_preflight_failure("user.signingkey is not configured");
+        let target = FakeReleaseTarget::new();
+
+        let error = release_apply(
+            &ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry]),
+            &[module("core")],
+            &targets(vec![("core", target.clone())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("missing signing key fails before mutation");
+
+        assert!(error.to_string().contains("user.signingkey"), "{error}");
+        assert!(
+            writer.writes().is_empty(),
+            "no VCS write may happen after signer preflight failure: {:?}",
+            writer.writes()
+        );
+        assert!(
+            !target
+                .calls()
+                .iter()
+                .any(|call| matches!(call, ReleaseCall::ApplyRelease { .. })),
+            "manifest mutation must not run after signer preflight failure: {:?}",
+            target.calls()
+        );
+    }
+
+    #[test]
+    fn shared_tag_requires_consistent_signer_settings() {
+        let mut signed = entry("core", Version::new(1, 2, 3), true, 0);
+        signed.planned_tag = Some("v1.2.3".into());
+        signed.tag_message = Some("release {version}".into());
+        signed.signer = Some(toven_ports::TagSigner {
+            format: Some(toven_ports::SignFormat::Ssh),
+            key: Some("KEYID".into()),
+        });
+        let mut unsigned = entry("app", Version::new(1, 2, 3), true, 1);
+        unsigned.planned_tag = Some("v1.2.3".into());
+        unsigned.tag_message = Some("release {version}".into());
+        let writer = FakeVcsWriter::new();
+
+        let error = release_apply(
+            &ReleasePlan::new(BumpPolicy::SemverCascade, vec![signed, unsigned]),
+            &[module("core"), module("app")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("one shared tag cannot mix signing settings");
+
+        let message = error.to_string();
+        assert!(message.contains("v1.2.3"), "{message}");
+        assert!(message.contains("signing settings"), "{message}");
+        assert!(writer.writes().is_empty(), "no VCS write may happen");
     }
 
     #[test]

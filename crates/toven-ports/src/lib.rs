@@ -99,8 +99,8 @@ pub use task::{
 pub use template::{CommandTemplate, ReleaseVar, TaskVar};
 pub use toolchain::ToolchainProber;
 pub use vcs::{
-    BaselineMode, BaselineSpec, ChangeRecord, ChangeStatus, CommitSummary, Oid, TagRef, VcsReader,
-    VcsWriter,
+    BaselineMode, BaselineSpec, ChangeRecord, ChangeStatus, CommitSummary, Oid, SignFormat, TagRef,
+    TagSigner, VcsReader, VcsWriter,
 };
 pub use watch::{ChangeBatch, ChangeBatchStream, WatchSource};
 pub use wizard::{

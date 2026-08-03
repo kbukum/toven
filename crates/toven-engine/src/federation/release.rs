@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_model::{MemberId, Module, ModuleKey};
+use toven_model::{MemberId, Module, ModuleKey, RepoPath};
 use toven_ports::{Artifact, VcsReader, VcsWriter};
 
 use crate::release::apply;
@@ -143,11 +143,11 @@ pub fn release_apply_by_member(
         // Immutable-tag preflight: a partial tag overlap fails closed before any
         // member mutates; an all-tags-exist member resumes.
         let repo = repo_for(repos, shard.member.as_ref())?;
-        preflights.push(apply::preflight_tags(
-            &shard.plan,
-            &module_by_ref,
-            repo.reader(),
-        )?);
+        let preflight = apply::preflight_tags(&shard.plan, &module_by_ref, repo.reader())?;
+        if matches!(preflight, apply::TagPreflight::Fresh) {
+            apply::preflight_tag_signers(&shard.plan, repo.writer())?;
+        }
+        preflights.push(preflight);
     }
     if preflights
         .iter()
@@ -174,16 +174,26 @@ pub fn release_apply_by_member(
             continue;
         }
         match prepare_member_shard(shard, &module_by_ref, targets, repos, &mut stats) {
-            Ok(member_artifacts) => {
-                prepared.push((shard, member_artifacts));
+            Ok((member_changed, member_artifacts)) => {
+                prepared.push((shard, member_changed, member_artifacts));
                 prepared_settings.push(settings);
             }
             Err(error) => return Err(restore_prepared_or_error(&prepared, repos, error)),
         }
     }
 
-    for ((shard, member_artifacts), settings) in prepared.into_iter().zip(prepared_settings) {
-        commit_member_shard(shard, &module_by_ref, repos, options, settings, &mut stats)?;
+    for ((shard, member_changed, member_artifacts), settings) in
+        prepared.into_iter().zip(prepared_settings)
+    {
+        commit_member_shard(
+            shard,
+            &module_by_ref,
+            repos,
+            options,
+            settings,
+            &member_changed,
+            &mut stats,
+        )?;
         artifacts.extend(member_artifacts);
     }
 
@@ -219,7 +229,7 @@ fn prepare_member_shard(
     targets: &crate::release::ReleaseTargets,
     repos: &MemberReleaseRepos<'_>,
     stats: &mut ReleaseStats,
-) -> AppResult<BTreeMap<ModuleKey, Artifact>> {
+) -> AppResult<(Vec<RepoPath>, BTreeMap<ModuleKey, Artifact>)> {
     let repo = repo_for(repos, shard.member.as_ref())?;
     apply::prepare(&shard.plan, module_by_ref, targets, stats)
         .map_err(|error| apply::restore_or_precommit_error(repo.writer(), "prepare", error))
@@ -247,30 +257,42 @@ fn commit_member_shard(
     repos: &MemberReleaseRepos<'_>,
     options: &ReleaseApplyOptions,
     settings: &apply::RepoReleaseSettings,
+    changed_paths: &[RepoPath],
     stats: &mut ReleaseStats,
 ) -> AppResult<()> {
     let repo = repo_for(repos, shard.member.as_ref())?;
     let message = apply::commit_message(&shard.plan, module_by_ref, settings.commit_message())?;
-    let commit = match repo.writer().commit(&message) {
-        Ok(commit) => commit,
-        Err(error) => {
-            return Err(apply::restore_or_precommit_error(
-                repo.writer(),
-                "commit",
-                error,
-            ));
+    // A member that rewrote manifests stages exactly those paths and creates its
+    // release commit; a mutation-free member (a Go tag-only cut, which rewrites
+    // no `go.mod`) tags its existing `HEAD` instead of fabricating an empty
+    // commit. Staging or commit failure leaves the member's mutations undoable.
+    let created_commit = !changed_paths.is_empty();
+    let commit = if created_commit {
+        match apply::stage_and_commit(repo.writer(), changed_paths, &message) {
+            Ok(commit) => commit,
+            Err(error) => {
+                return Err(apply::restore_or_precommit_error(
+                    repo.writer(),
+                    "commit",
+                    error,
+                ));
+            }
         }
+    } else {
+        repo.reader().rev_parse("HEAD")?
     };
     // Post-commit phase for this member (no rollback): tag, optionally push. A
-    // failure here cannot undo the member's commit — it surfaces with
+    // failure here cannot undo the member's release refs — it surfaces with
     // forward-only recovery guidance naming the member.
     let member = shard.member.as_ref();
     let committed = || {
-        format!(
-            "the release commit {} for member '{}' was created",
-            commit.as_str(),
-            member.map_or("<root>", MemberId::as_str)
-        )
+        let anchor = commit.as_str();
+        let name = member.map_or("<root>", MemberId::as_str);
+        if created_commit {
+            format!("the release commit {anchor} for member '{name}' was created")
+        } else {
+            format!("release tags for member '{name}' were applied to existing commit {anchor}")
+        }
     };
     apply::tag_releases(&shard.plan, module_by_ref, repo.writer(), &commit, stats)
         .map_err(|error| apply::forward_recovery_error(&committed(), "tagging", error))?;
@@ -297,11 +319,15 @@ fn commit_member_shard(
 }
 
 fn restore_prepared_or_error(
-    prepared: &[(&MemberReleaseShard, BTreeMap<ModuleKey, Artifact>)],
+    prepared: &[(
+        &MemberReleaseShard,
+        Vec<RepoPath>,
+        BTreeMap<ModuleKey, Artifact>,
+    )],
     repos: &MemberReleaseRepos<'_>,
     error: AppError,
 ) -> AppError {
-    for (shard, _) in prepared.iter().rev() {
+    for (shard, _, _) in prepared.iter().rev() {
         let repo = match repo_for(repos, shard.member.as_ref()) {
             Ok(repo) => repo,
             Err(restore) => {
@@ -436,6 +462,7 @@ mod tests {
             publish_needed: true,
             tag_format: None,
             tag_message: None,
+            signer: None,
             commit_message: None,
             token_env: None,
             visibility: toven_ports::Visibility::Public,

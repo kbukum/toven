@@ -21,6 +21,9 @@ level = "auto"
 dependent_version = "bump"
 tag_format = "{ecosystem}/{module}@{version}"
 tag_message = "release {module} {version}"
+sign_tags = true
+sign_format = "openpgp"
+signing_key = "ABCD1234"
 commit_message = "chore: release"
 push = true
 push_branch = true
@@ -66,6 +69,9 @@ post = ["docs-build"]
 | `dependent_version` | `bump` releases a dependent; `upgrade` only raises its dependency floor | `bump` |
 | `tag_format` | Rust tag template; forbidden for Go | Adapter tag scheme |
 | `tag_message` | Annotated-tag message template | Lightweight tag |
+| `sign_tags` | Sign release tags. Signing is always annotated, so `true` requires `tag_message` (a signed lightweight tag does not exist) and a resolvable signing key; the adapter fails closed with an actionable error when no key is available | `false` (unsigned) |
+| `sign_format` | Signing backend for signed tags, mapped onto git's `gpg.format`: `openpgp` (or the `gpg` alias), `ssh`, or `x509`. Only applies when `sign_tags = true` | Inherit repository `gpg.format` |
+| `signing_key` | Signing key *identifier* for signed tags, mapped onto git's `user.signingkey` (never key material). Only applies when `sign_tags = true` | Inherit repository `user.signingkey` |
 | `commit_message` | Release commit template | Adapter default |
 | `push` | Permit release commit and tag push | `true` |
 | `push_branch` | Push the release commit's branch alongside the tags; `false` pushes tags only for protected release branches | `true` |

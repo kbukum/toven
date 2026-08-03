@@ -2,7 +2,7 @@
 
 use rskit_version::semver::Version;
 use toven_model::ModuleKey;
-use toven_ports::{BumpLevel, Oid, PublicationPolicy, ReleaseMutation, Visibility};
+use toven_ports::{BumpLevel, Oid, PublicationPolicy, ReleaseMutation, TagSigner, Visibility};
 
 /// The engine-owned named bump policy.
 ///
@@ -276,6 +276,9 @@ pub struct ReleaseEntry {
     pub tag_format: Option<String>,
     /// Configured annotation template; `None` creates a lightweight tag.
     pub tag_message: Option<String>,
+    /// Signing material when the release tag is signed (always annotated);
+    /// `None` creates an unsigned tag.
+    pub signer: Option<TagSigner>,
     /// Configured member release-commit message template.
     pub commit_message: Option<String>,
     /// Name of the environment variable holding the registry publish token,
@@ -562,6 +565,7 @@ mod tests {
             publish_needed,
             tag_format: None,
             tag_message: None,
+            signer: None,
             commit_message: None,
             token_env: None,
             visibility: Visibility::Public,

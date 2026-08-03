@@ -156,15 +156,20 @@ fn commit_and_create_tag_advance_history() {
     let ws = TestWorkspace::new("vcs-write");
     let scenario = assert_ok(GitScenario::init(ws.path()));
     assert_ok(scenario.commit_file("a.rs", "0\n", "c0"));
-    // Stage a change so the release commit has content.
+    // A release-style mutation left in the working tree, unstaged: commit must
+    // stage exactly this path so the release commit carries the bump and the
+    // tree ends clean (the empty-commit / dangling-bump regression).
     assert_ok(scenario.write_file("a.rs", "1\n"));
-    assert_ok(scenario.stage_all());
 
     let vcs = assert_ok(RskitGitVcs::open(ws.path()));
-    let oid = assert_ok(vcs.commit("release: bump"));
+    let oid = assert_ok(vcs.commit("release: bump", &["a.rs"]));
     assert!(!oid.as_str().is_empty());
+    assert!(
+        !assert_ok(vcs.is_dirty()),
+        "commit stages the mutated path, leaving a clean tree"
+    );
 
-    assert_ok(vcs.create_tag("pkg@1.0.0", "HEAD", Some("release")));
+    assert_ok(vcs.create_tag("pkg@1.0.0", "HEAD", Some("release"), None));
     let tags = assert_ok(vcs.list_tags(Some("pkg@*")));
     assert_eq!(tags.len(), 1);
     assert_eq!(tags[0].name, "pkg@1.0.0");

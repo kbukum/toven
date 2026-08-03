@@ -5,7 +5,7 @@ use std::path::Path;
 
 use rskit_errors::AppResult;
 use rskit_version::semver::Version;
-use toven_model::Module;
+use toven_model::{Module, RepoPath};
 
 use super::{Artifact, PublishOutcome, ReleaseCredentials, ReleaseMutation, TagScheme, Visibility};
 
@@ -39,8 +39,20 @@ pub trait ReleaseTarget {
     /// Build and verify the publishable artifact.
     fn package(&self, module: &Module) -> AppResult<Artifact>;
 
-    /// Apply one atomic version mutation to the module's manifest.
-    fn apply_release(&self, module: &Module, mutation: &ReleaseMutation) -> AppResult<()>;
+    /// Apply one atomic version mutation to the module's manifest and return the
+    /// repo-relative paths it rewrote.
+    ///
+    /// The engine stages exactly these paths into the release commit, so the
+    /// return set must name every manifest the mutation wrote. An ecosystem that
+    /// carries no manifest version — a Go tag-only cut whose `go.mod` needs no
+    /// dependency-floor rewrite — writes nothing and returns an empty set; the
+    /// engine then tags the existing `HEAD` instead of fabricating an empty
+    /// release commit.
+    fn apply_release(
+        &self,
+        module: &Module,
+        mutation: &ReleaseMutation,
+    ) -> AppResult<Vec<RepoPath>>;
 
     /// Perform exactly one publish attempt and classify the registry's
     /// response.

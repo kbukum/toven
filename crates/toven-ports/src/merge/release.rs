@@ -34,6 +34,19 @@ pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfi
     if over.tag_message.is_some() {
         merged.tag_message.clone_from(&over.tag_message);
     }
+    if over.sign_tags.is_some() {
+        merged.sign_tags = over.sign_tags;
+        if over.sign_tags == Some(false) {
+            merged.sign_format = None;
+            merged.signing_key = None;
+        }
+    }
+    if over.sign_format.is_some() {
+        merged.sign_format.clone_from(&over.sign_format);
+    }
+    if over.signing_key.is_some() {
+        merged.signing_key.clone_from(&over.signing_key);
+    }
     if over.commit_message.is_some() {
         merged.commit_message.clone_from(&over.commit_message);
     }
@@ -162,6 +175,47 @@ mod tests {
         assert_eq!(host.forge.as_deref(), Some("github"));
         assert_eq!(host.draft, None);
         assert_eq!(host.prerelease, Some(true));
+    }
+
+    #[test]
+    fn disabling_signed_tags_clears_inherited_signing_material() {
+        let base = ReleaseConfig {
+            sign_tags: Some(true),
+            sign_format: Some("ssh".into()),
+            signing_key: Some("KEYID".into()),
+            ..ReleaseConfig::default()
+        };
+        let over = ReleaseConfig {
+            sign_tags: Some(false),
+            ..ReleaseConfig::default()
+        };
+
+        let merged = merge_release(&base, &over);
+
+        assert_eq!(merged.sign_tags, Some(false));
+        assert_eq!(merged.sign_format, None);
+        assert_eq!(merged.signing_key, None);
+    }
+
+    #[test]
+    fn explicit_signing_material_with_disabled_signing_stays_visible_to_validation() {
+        let base = ReleaseConfig {
+            sign_tags: Some(true),
+            sign_format: Some("ssh".into()),
+            signing_key: Some("KEYID".into()),
+            ..ReleaseConfig::default()
+        };
+        let over = ReleaseConfig {
+            sign_tags: Some(false),
+            sign_format: Some("openpgp".into()),
+            ..ReleaseConfig::default()
+        };
+
+        let merged = merge_release(&base, &over);
+
+        assert_eq!(merged.sign_tags, Some(false));
+        assert_eq!(merged.sign_format.as_deref(), Some("openpgp"));
+        assert_eq!(merged.signing_key, None);
     }
 
     #[test]

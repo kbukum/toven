@@ -48,8 +48,12 @@ impl ReleaseTarget for FakeReleaseTarget {
     fn package(&self, _module: &Module) -> AppResult<Artifact> {
         Ok(Artifact::new("dist/fake.crate"))
     }
-    fn apply_release(&self, _module: &Module, _mutation: &ReleaseMutation) -> AppResult<()> {
-        Ok(())
+    fn apply_release(
+        &self,
+        _module: &Module,
+        _mutation: &ReleaseMutation,
+    ) -> AppResult<Vec<RepoPath>> {
+        Ok(Vec::new())
     }
     fn publish(
         &self,
@@ -259,10 +263,19 @@ impl VcsReader for FakeVcs {
     }
 }
 impl VcsWriter for FakeVcs {
-    fn commit(&self, _message: &str) -> AppResult<Oid> {
+    fn commit(&self, _message: &str, _paths: &[&str]) -> AppResult<Oid> {
         Ok(Oid::new("deadbeef"))
     }
-    fn create_tag(&self, _name: &str, _target_rev: &str, _message: Option<&str>) -> AppResult<()> {
+    fn preflight_tag_signer(&self, _signer: &TagSigner) -> AppResult<()> {
+        Ok(())
+    }
+    fn create_tag(
+        &self,
+        _name: &str,
+        _target_rev: &str,
+        _message: Option<&str>,
+        _signer: Option<&TagSigner>,
+    ) -> AppResult<()> {
         Ok(())
     }
     fn push(&self, _remote: &str, _refspecs: &[String]) -> AppResult<()> {
@@ -424,8 +437,13 @@ fn port_traits_are_object_safe() {
     assert!(!reader.is_ignored(Path::new("target")).expect("ignored"));
 
     // Exercise every VcsWriter method.
-    assert_eq!(writer.commit("msg").expect("ok").as_str(), "deadbeef");
-    writer.create_tag("v1", "HEAD", Some("msg")).expect("tags");
+    assert_eq!(
+        writer.commit("msg", &["a.rs"]).expect("ok").as_str(),
+        "deadbeef"
+    );
+    writer
+        .create_tag("v1", "HEAD", Some("msg"), None)
+        .expect("tags");
     writer
         .push("origin", &["refs/heads/main".into()])
         .expect("pushes");

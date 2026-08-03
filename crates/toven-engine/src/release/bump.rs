@@ -7,7 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use rskit_errors::{AppError, AppResult};
 use rskit_version::semver::Version;
 use toven_model::{DepKind, Edge, Graph, MemberId, Module, ModuleKey, ModuleRef};
-use toven_ports::{BumpLevel, DependentVersion, PublicationPolicy, ReleaseMutation, ReleaseTarget};
+use toven_ports::{
+    BumpLevel, DependentVersion, PublicationPolicy, ReleaseMutation, ReleaseTarget, TagSigner,
+};
 
 use super::strategy::{self, EffectiveLevel};
 use super::{
@@ -226,6 +228,14 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
                 .settings
                 .get(&reference)
                 .and_then(|resolved| resolved.tag_message.clone()),
+            signer: input
+                .settings
+                .get(&reference)
+                .filter(|resolved| resolved.sign_tags)
+                .map(|resolved| TagSigner {
+                    format: resolved.sign_format,
+                    key: resolved.signing_key.clone(),
+                }),
             commit_message: input
                 .settings
                 .get(&reference)

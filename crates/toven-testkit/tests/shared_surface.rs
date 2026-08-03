@@ -89,7 +89,7 @@ fn fake_vcs_reader_returns_scripted_changes() {
 #[test]
 fn fake_vcs_writer_records_calls() {
     let writer = FakeVcsWriter::new().with_commit_oid("feed");
-    writer.commit("release").expect("commit");
+    writer.commit("release", &["a.rs"]).expect("commit");
     writer
         .push("origin", &["refs/tags/v1".into()])
         .expect("push");
