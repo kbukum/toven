@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_ports::{BaselineSpec, ChangeRecord, CommitSummary, Oid, TagRef, VcsReader, VcsWriter};
+use toven_ports::{
+    BaselineSpec, ChangeRecord, CommitSummary, Oid, TagRef, TagSigner, VcsReader, VcsWriter,
+};
 
 /// A [`VcsReader`] that returns scripted, repo-relative responses.
 ///
@@ -166,9 +168,15 @@ impl VcsReader for FakeVcsReader {
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum VcsWrite {
-    /// A `commit` call with its message.
-    Commit(String),
-    /// A `create_tag` call with name, target rev, and optional message.
+    /// A `commit` call with its message and exact staged paths.
+    Commit {
+        /// Commit message.
+        message: String,
+        /// Repo-relative paths supplied to the write port.
+        paths: Vec<String>,
+    },
+    /// A `create_tag` call with name, target rev, optional message, and the
+    /// signing material when the tag was requested signed.
     CreateTag {
         /// Tag name.
         name: String,
@@ -176,6 +184,9 @@ pub enum VcsWrite {
         target_rev: String,
         /// Annotation message (`None` for a lightweight tag).
         message: Option<String>,
+        /// Signing material when the tag was requested signed; `None` for an
+        /// unsigned tag.
+        signer: Option<TagSigner>,
     },
     /// A `push` call with its remote and refspecs.
     Push {
@@ -196,6 +207,7 @@ pub enum VcsWrite {
 #[derive(Debug)]
 pub struct FakeVcsWriter {
     commit_oid: Oid,
+    fail_preflight_tag_signer: Option<String>,
     fail_commit: Option<String>,
     fail_create_tag: Option<String>,
     fail_push: Option<String>,
@@ -207,6 +219,7 @@ impl Default for FakeVcsWriter {
     fn default() -> Self {
         Self {
             commit_oid: Oid::new("0000000"),
+            fail_preflight_tag_signer: None,
             fail_commit: None,
             fail_create_tag: None,
             fail_push: None,
@@ -227,6 +240,14 @@ impl FakeVcsWriter {
     #[must_use]
     pub fn with_commit_oid(mut self, oid: impl Into<String>) -> Self {
         self.commit_oid = Oid::new(oid);
+        self
+    }
+
+    /// Make signed-tag preflight fail with a typed invalid-input error without
+    /// recording a history-mutating write.
+    #[must_use]
+    pub fn with_tag_signer_preflight_failure(mut self, message: impl Into<String>) -> Self {
+        self.fail_preflight_tag_signer = Some(message.into());
         self
     }
 
@@ -279,19 +300,36 @@ impl FakeVcsWriter {
 }
 
 impl VcsWriter for FakeVcsWriter {
-    fn commit(&self, message: &str) -> AppResult<Oid> {
-        self.record(VcsWrite::Commit(message.to_string()));
+    fn commit(&self, message: &str, paths: &[&str]) -> AppResult<Oid> {
+        self.record(VcsWrite::Commit {
+            message: message.to_string(),
+            paths: paths.iter().map(|path| (*path).to_string()).collect(),
+        });
         if let Some(message) = &self.fail_commit {
             return Err(AppError::new(ErrorCode::Internal, message.clone()));
         }
         Ok(self.commit_oid.clone())
     }
 
-    fn create_tag(&self, name: &str, target_rev: &str, message: Option<&str>) -> AppResult<()> {
+    fn preflight_tag_signer(&self, _signer: &TagSigner) -> AppResult<()> {
+        if let Some(message) = &self.fail_preflight_tag_signer {
+            return Err(AppError::invalid_input("git.signing_key", message.clone()));
+        }
+        Ok(())
+    }
+
+    fn create_tag(
+        &self,
+        name: &str,
+        target_rev: &str,
+        message: Option<&str>,
+        signer: Option<&TagSigner>,
+    ) -> AppResult<()> {
         self.record(VcsWrite::CreateTag {
             name: name.to_string(),
             target_rev: target_rev.to_string(),
             message: message.map(ToString::to_string),
+            signer: signer.cloned(),
         });
         if let Some(message) = &self.fail_create_tag {
             return Err(AppError::new(ErrorCode::Internal, message.clone()));
@@ -357,8 +395,10 @@ mod tests {
     fn writer_records_calls_in_order() {
         let writer = FakeVcsWriter::new().with_commit_oid("abc123");
 
-        let oid = writer.commit("release").expect("commit");
-        writer.create_tag("v1", "HEAD", Some("rel")).expect("tag");
+        let oid = writer.commit("release", &["a.rs"]).expect("commit");
+        writer
+            .create_tag("v1", "HEAD", Some("rel"), None)
+            .expect("tag");
         writer
             .push("origin", &["refs/tags/v1".into()])
             .expect("push");
@@ -367,11 +407,15 @@ mod tests {
         assert_eq!(
             writer.writes(),
             vec![
-                VcsWrite::Commit("release".into()),
+                VcsWrite::Commit {
+                    message: "release".into(),
+                    paths: vec!["a.rs".into()],
+                },
                 VcsWrite::CreateTag {
                     name: "v1".into(),
                     target_rev: "HEAD".into(),
                     message: Some("rel".into()),
+                    signer: None,
                 },
                 VcsWrite::Push {
                     remote: "origin".into(),

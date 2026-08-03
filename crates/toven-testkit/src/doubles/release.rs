@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_version::semver::Version;
-use toven_model::{Module, ModuleRef};
+use toven_model::{Module, ModuleRef, RepoPath};
 use toven_ports::{
     Artifact, PublishOutcome, ReleaseCredentials, ReleaseMutation, ReleaseTarget, TagScheme,
     Visibility,
@@ -68,6 +68,7 @@ struct FakeReleaseState {
     outcomes: Vec<PublishOutcome>,
     publish_index: usize,
     fail_apply: Option<String>,
+    written_paths: Option<Vec<RepoPath>>,
     fail_package: Option<String>,
     fail_publish: Option<String>,
     fail_version_read: Option<String>,
@@ -90,6 +91,7 @@ impl Default for FakeReleaseTarget {
                 outcomes: vec![PublishOutcome::Published],
                 publish_index: 0,
                 fail_apply: None,
+                written_paths: None,
                 fail_package: None,
                 fail_publish: None,
                 fail_version_read: None,
@@ -157,6 +159,18 @@ impl FakeReleaseTarget {
     #[must_use]
     pub fn with_apply_failure(self, message: impl Into<String>) -> Self {
         self.state().fail_apply = Some(message.into());
+        self
+    }
+
+    /// Script the repo-relative paths `apply_release` reports rewriting.
+    ///
+    /// By default a target reports rewriting the module's manifest (or its root
+    /// when no manifest is set), so a release commits. Passing an empty set
+    /// models a tag-only ecosystem (a Go version cut) that writes nothing, so
+    /// the engine tags `HEAD` instead of committing.
+    #[must_use]
+    pub fn with_written_paths(self, paths: Vec<RepoPath>) -> Self {
+        self.state().written_paths = Some(paths);
         self
     }
 
@@ -290,15 +304,30 @@ impl ReleaseTarget for FakeReleaseTarget {
         Ok(Artifact::new(&state.artifact_path))
     }
 
-    fn apply_release(&self, module: &Module, mutation: &ReleaseMutation) -> AppResult<()> {
+    fn apply_release(
+        &self,
+        module: &Module,
+        mutation: &ReleaseMutation,
+    ) -> AppResult<Vec<RepoPath>> {
         self.record(ReleaseCall::ApplyRelease {
             module: module.id.clone(),
             mutation: mutation.clone(),
         });
-        if let Some(message) = &self.state().fail_apply {
+        let state = self.state();
+        if let Some(message) = &state.fail_apply {
             return Err(fake_error(message));
         }
-        Ok(())
+        // Default: report the module's manifest (falling back to its root) as
+        // rewritten so a release commits; a test scripts an empty set to model a
+        // tag-only ecosystem that writes nothing.
+        Ok(state.written_paths.clone().unwrap_or_else(|| {
+            vec![
+                module
+                    .manifest
+                    .clone()
+                    .unwrap_or_else(|| module.root.clone()),
+            ]
+        }))
     }
 
     fn publish(

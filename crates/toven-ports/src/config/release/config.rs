@@ -46,6 +46,22 @@ pub struct ReleaseConfig {
     /// Annotated-tag message template; `None` = a lightweight tag.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag_message: Option<String>,
+    /// Whether release tags are signed. Signing is always annotated, so
+    /// `sign_tags = true` requires `tag_message` to be set (a signed lightweight
+    /// tag is not a thing) and an available signing key (`user.signingkey`).
+    /// `None` = adapter default (`false`, unsigned).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign_tags: Option<bool>,
+    /// Signing backend for signed tags, mapped onto git's `gpg.format`: one of
+    /// `openpgp` (or the `gpg` alias), `ssh`, or `x509`. `None` inherits the
+    /// repository's `gpg.format`. Only applies when `sign_tags = true`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign_format: Option<String>,
+    /// Signing key for signed tags, mapped onto git's `user.signingkey`. Carries
+    /// the key *identifier* only — never key material. `None` inherits the
+    /// repository's `user.signingkey`. Only applies when `sign_tags = true`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signing_key: Option<String>,
     /// Release commit message template; `None` = adapter default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit_message: Option<String>,
@@ -179,6 +195,8 @@ impl ReleaseConfig {
         }
         validate_optional_nonblank(&format!("{field}.remote"), self.remote.as_deref())?;
         validate_optional_nonblank(&format!("{field}.token_env"), self.token_env.as_deref())?;
+        validate_optional_nonblank(&format!("{field}.sign_format"), self.sign_format.as_deref())?;
+        validate_optional_nonblank(&format!("{field}.signing_key"), self.signing_key.as_deref())?;
         if let Some(branches) = &self.branches {
             validate_nonblank_entries(&format!("{field}.branches"), branches)?;
         }
@@ -244,6 +262,9 @@ mod tests {
         assert_eq!(config.level, Some(BumpLevel::Minor));
         assert_eq!(config.dependent_version, Some(DependentVersion::Upgrade));
         assert_eq!(config.tag_format.as_deref(), Some("{module}/v{version}"));
+        assert_eq!(config.sign_tags, Some(true));
+        assert_eq!(config.sign_format.as_deref(), Some("openpgp"));
+        assert_eq!(config.signing_key.as_deref(), Some("ABCD1234"));
         assert_eq!(
             config.branches.as_deref(),
             Some(["main".into(), "release".into()].as_slice())

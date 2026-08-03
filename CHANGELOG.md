@@ -4,6 +4,14 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- Release tags can be signed as annotated Git tags with `[ecosystems.<id>.release] sign_tags = true`. `tag_message` is required for signed tags, `sign_format` selects the Git signing backend (`openpgp`/`gpg`, `ssh`, or `x509`), and `signing_key` pins the non-secret key identifier while still allowing repository Git config inheritance.
+
+### Changed
+
+- Release APPLY stages exactly the manifest paths reported by the ecosystem release target before committing, so version bumps land in the release commit without unrelated working-tree files. Tag-only Go releases that rewrite no `go.mod` dependency floors tag the existing `HEAD` instead of creating an empty release commit.
+
 ## [0.1.0-alpha.3] - 2026-08-02
 
 ### Added

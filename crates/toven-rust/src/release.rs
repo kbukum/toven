@@ -24,7 +24,7 @@ use rskit_process::{
 use rskit_util::{Template, TemplatePart};
 use rskit_version::semver::Version;
 use toml_edit::{DocumentMut, Item, value};
-use toven_model::Module;
+use toven_model::{Module, RepoPath};
 use toven_ports::{
     Artifact, PublishOutcome, RegistryCadence, ReleaseCredentials, ReleaseMutation, ReleaseTarget,
     ReleaseVar, TagScheme, Visibility,
@@ -192,11 +192,22 @@ impl ReleaseTarget for CargoRegistryTarget {
         Ok(Artifact::new(artifact))
     }
 
-    fn apply_release(&self, module: &Module, mutation: &ReleaseMutation) -> AppResult<()> {
+    fn apply_release(
+        &self,
+        module: &Module,
+        mutation: &ReleaseMutation,
+    ) -> AppResult<Vec<RepoPath>> {
+        let manifest = module.manifest.clone().ok_or_else(|| {
+            AppError::invalid_input(
+                "module.manifest",
+                format!("module '{}' has no manifest to release", module.id),
+            )
+        })?;
         let path = Self::manifest_path(module)?;
         let text = read_string_bounded(&path, MAX_MANIFEST_BYTES)?;
         let rewritten = apply_mutation(&text, mutation, &path)?;
-        write_atomic_replace(&path, rewritten.as_bytes(), MANIFEST_TEMP_PREFIX)
+        write_atomic_replace(&path, rewritten.as_bytes(), MANIFEST_TEMP_PREFIX)?;
+        Ok(vec![manifest])
     }
 
     fn publish(

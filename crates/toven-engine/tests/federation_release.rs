@@ -34,12 +34,17 @@ fn wsid(id: &str) -> WorkspaceId {
 }
 
 /// A publishable provider exposing one module of `ecosystem` at `root`.
+///
+/// `tag_only` scripts the release target to report writing no paths, modelling a
+/// Go version cut that carries no manifest version and so tags `HEAD` instead of
+/// fabricating an empty release commit.
 fn publishable_provider(
     ecosystem: &str,
     workspace_id: &str,
     module_name: &str,
     module_root: &str,
     toolchain: &str,
+    tag_only: bool,
 ) -> FakeProvider {
     let mut response = DiscoverResponse::new(eid(ecosystem));
     response.workspaces.push(Workspace::new(
@@ -53,9 +58,14 @@ fn publishable_provider(
     );
     module.workspace = Some(wsid(workspace_id));
     response.modules.push(module);
+    let release_target = if tag_only {
+        FakeReleaseTarget::new().with_written_paths(vec![])
+    } else {
+        FakeReleaseTarget::new()
+    };
     let adapter = FakeConfiguredAdapter::new(eid(ecosystem))
         .with_response(response)
-        .with_release_target(FakeReleaseTarget::new());
+        .with_release_target(release_target);
     FakeProvider::new(eid(ecosystem)).with_adapter(adapter)
 }
 
@@ -88,13 +98,17 @@ fn release_shards_history_mutations_per_member_repo() {
         "[project]\nname = \"umbrella\"\n\n[modules.\"rust:core\".release]\npush = false\nremote = \"umbrella-release\"\n\n[[members]]\nname = \"core\"\nroot = \"repos/core\"\n\n[[members]]\nname = \"gateway\"\nroot = \"repos/gateway\"\n",
     );
 
-    let rust = publishable_provider("rust", "rust", "core", "crates/core", "cargo");
-    let go = publishable_provider("go", "go", "api", "services/api", "go");
+    let rust = publishable_provider("rust", "rust", "core", "crates/core", "cargo", false);
+    let go = publishable_provider("go", "go", "api", "services/api", "go", true);
     let providers: Vec<&dyn Provider> = vec![&rust, &go];
 
     // One reader and one writer per member repo; with no release tag anywhere,
     // every module is planned as a first release, which cuts the version each
-    // module already declares (0.1.0) rather than bumping past it.
+    // module already declares (0.1.0) rather than bumping past it. The rust
+    // member's release target reports rewriting its manifest, driving a real
+    // release commit. The go member carries no version in a manifest, so its
+    // target writes nothing and it tags its existing `HEAD` without an empty
+    // commit.
     let core_vcs = FakeVcsReader::new();
     let gateway_vcs = FakeVcsReader::new();
     let core_writer = FakeVcsWriter::new().with_commit_oid("core-commit");
@@ -147,7 +161,9 @@ fn release_shards_history_mutations_per_member_repo() {
     )
     .expect("federated release runs");
 
-    // Each member repo gets exactly one release commit and one module tag.
+    // The rust member gets exactly one release commit and its module tag; the go
+    // member is tag-only (no version manifest) so it tags `HEAD` without a
+    // commit. Each member's refs stay isolated to its own writer.
     let core_log = core_writer.writes();
     let gateway_log = gateway_writer.writes();
     assert_member_repos_isolated(&core_log, &gateway_log);
@@ -159,10 +175,11 @@ fn release_shards_history_mutations_per_member_repo() {
         write,
         VcsWrite::Push { remote, .. } if remote == "gateway-release"
     )));
-    assert!(matches!(
-        &core_log[0],
-        VcsWrite::Commit(message) if message == "core core 0.1.0"
-    ));
+    assert!(core_log.iter().any(|write| matches!(
+        write,
+        VcsWrite::Commit { message, paths } if message == "core core 0.1.0"
+            && paths == &vec!["repos/core/crates/core".to_string()]
+    )));
     assert!(core_log.iter().any(|write| matches!(
         write,
         VcsWrite::CreateTag { message: Some(message), .. } if message == "tag core 0.1.0"
@@ -179,7 +196,7 @@ fn release_shards_history_mutations_per_member_repo() {
 fn assert_member_repos_isolated(core_log: &[VcsWrite], gateway_log: &[VcsWrite]) {
     let commit_count = |log: &[VcsWrite]| {
         log.iter()
-            .filter(|write| matches!(write, VcsWrite::Commit(_)))
+            .filter(|write| matches!(write, VcsWrite::Commit { .. }))
             .count()
     };
     assert_eq!(
@@ -189,8 +206,8 @@ fn assert_member_repos_isolated(core_log: &[VcsWrite], gateway_log: &[VcsWrite])
     );
     assert_eq!(
         commit_count(gateway_log),
-        1,
-        "the gateway member commits exactly once: {gateway_log:?}"
+        0,
+        "the go member is tag-only and fabricates no commit: {gateway_log:?}"
     );
 
     // The core member only tags its rust module; the gateway member only its go

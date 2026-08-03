@@ -10,12 +10,16 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rskit_errors::{AppError, AppResult};
+use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_git::{
-    ChainAuthProvider, Committer, DefaultAuthProvider, EnvTokenAuthProvider, IgnoreReader,
-    Inspector, LogReader, PushOptions, RefManager, RemoteManager, Repo, Repository,
+    ChainAuthProvider, Committer, ConfigReader, DefaultAuthProvider, EnvTokenAuthProvider,
+    IgnoreReader, IndexManager, Inspector, LogReader, PushOptions, RefManager, RemoteManager, Repo,
+    Repository, SignFormat as GitSignFormat, SignOptions,
 };
-use toven_ports::{BaselineSpec, ChangeRecord, CommitSummary, Oid, TagRef, VcsReader, VcsWriter};
+use toven_ports::{
+    BaselineSpec, ChangeRecord, CommitSummary, Oid, SignFormat, TagRef, TagSigner, VcsReader,
+    VcsWriter,
+};
 
 use super::changed::changed_since;
 use super::commits::commits_since;
@@ -162,13 +166,66 @@ impl VcsReader for RskitGitVcs {
 }
 
 impl VcsWriter for RskitGitVcs {
-    fn commit(&self, message: &str) -> AppResult<Oid> {
+    fn commit(&self, message: &str, paths: &[&str]) -> AppResult<Oid> {
+        // Stage exactly the release-mutated manifests, then commit, so the commit
+        // carries the version bump instead of writing an empty tree.
+        self.repo.stage(paths)?;
         self.repo.commit(message, None).map(|oid| to_oid(&oid))
     }
 
-    fn create_tag(&self, name: &str, target_rev: &str, message: Option<&str>) -> AppResult<()> {
+    fn preflight_tag_signer(&self, signer: &TagSigner) -> AppResult<()> {
+        let opts = to_sign_options(signer)?;
+        match opts.key.as_deref() {
+            Some(key) if !key.trim().is_empty() => Ok(()),
+            Some(_) => Err(signing_key_missing()),
+            None => {
+                let key = self.repo.config_get("user.signingkey").map_err(|error| {
+                    if error.code() == ErrorCode::NotFound {
+                        signing_key_missing()
+                    } else {
+                        AppError::invalid_input(
+                            "git.signing_key",
+                            format!("failed to read git signing key configuration: {error}"),
+                        )
+                        .with_cause(error)
+                    }
+                })?;
+                if key.trim().is_empty() {
+                    return Err(signing_key_missing());
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn create_tag(
+        &self,
+        name: &str,
+        target_rev: &str,
+        message: Option<&str>,
+        signer: Option<&TagSigner>,
+    ) -> AppResult<()> {
         // Port contract maps straight onto rskit-git: `Some(_)` = annotated (empty
-        // message allowed), `None` = lightweight.
+        // message allowed), `None` = lightweight. A signed tag is always
+        // annotated, so a signing request without a message is a typed error
+        // rather than a silently-unsigned tag; rskit-git preflights that a
+        // signing key (`user.signingkey`) is configured.
+        if let Some(signer) = signer {
+            let Some(message) = message else {
+                return Err(AppError::invalid_input(
+                    "git.tag",
+                    format!(
+                        "signed tag '{name}' requires an annotated message; set a tag_message \
+                         template or disable sign_tags"
+                    ),
+                ));
+            };
+            self.preflight_tag_signer(signer)?;
+            let opts = to_sign_options(signer)?;
+            return self
+                .repo
+                .create_signed_tag(name, target_rev, message, &opts);
+        }
         self.repo.create_tag(name, target_rev, message)
     }
 
@@ -185,12 +242,100 @@ impl VcsWriter for RskitGitVcs {
     }
 }
 
+fn signing_key_missing() -> AppError {
+    AppError::invalid_input(
+        "git.signing_key",
+        "signed release tags require a non-blank signing key; set signing_key or configure git \
+         user.signingkey",
+    )
+}
+
+/// Map the port's [`TagSigner`] onto rskit-git's [`SignOptions`], translating the
+/// signing backend enum and carrying the optional key through unchanged. `None`
+/// fields stay `None` so rskit-git inherits the repository's git configuration.
+fn to_sign_options(signer: &TagSigner) -> AppResult<SignOptions> {
+    let mut opts = SignOptions::default();
+    if let Some(format) = signer.format {
+        opts.format = Some(match format {
+            SignFormat::OpenPgp => GitSignFormat::OpenPgp,
+            SignFormat::Ssh => GitSignFormat::Ssh,
+            SignFormat::X509 => GitSignFormat::X509,
+            _ => {
+                return Err(AppError::invalid_input(
+                    "release.sign_format",
+                    "unsupported release tag signing format",
+                ));
+            }
+        });
+    }
+    opts.key.clone_from(&signer.key);
+    Ok(opts)
+}
+
 #[cfg(test)]
 mod tests {
-    use toven_ports::VcsReader;
+    use toven_ports::{TagSigner, VcsReader, VcsWriter};
     use toven_testkit::{TestWorkspace, git::GitScenario};
 
     use super::RskitGitVcs;
+
+    #[test]
+    fn signed_tag_without_a_message_is_a_typed_error() {
+        let workspace = TestWorkspace::new("vcs-signed-tag-no-message");
+        let scenario = GitScenario::init(workspace.path()).expect("git init");
+        scenario
+            .commit_file("README.md", "release", "initial")
+            .expect("commit");
+        let vcs = RskitGitVcs::open(workspace.path()).expect("open");
+
+        let error = vcs
+            .create_tag("v1", "HEAD", None, Some(&TagSigner::default()))
+            .expect_err("signing requires an annotated message");
+
+        assert_eq!(error.code(), rskit_errors::ErrorCode::InvalidInput);
+        assert!(error.message().contains("annotated"), "{error}");
+    }
+
+    #[test]
+    fn signed_tag_without_a_configured_key_surfaces_the_preflight_error() {
+        let workspace = TestWorkspace::new("vcs-signed-tag-no-key");
+        let scenario = GitScenario::init(workspace.path()).expect("git init");
+        scenario
+            .commit_file("README.md", "release", "initial")
+            .expect("commit");
+        let vcs = RskitGitVcs::open(workspace.path()).expect("open");
+
+        // A fresh scenario configures no signing key, so rskit-git's preflight
+        // fails closed with an actionable configuration error.
+        let error = vcs
+            .preflight_tag_signer(&TagSigner::default())
+            .expect_err("no signing key configured");
+
+        assert_eq!(error.code(), rskit_errors::ErrorCode::InvalidInput);
+        assert!(error.message().contains("user.signingkey"), "{error}");
+    }
+
+    #[test]
+    fn signed_tag_without_a_configured_key_surfaces_the_preflight_error_at_tag_creation() {
+        let workspace = TestWorkspace::new("vcs-signed-tag-no-key-at-create");
+        let scenario = GitScenario::init(workspace.path()).expect("git init");
+        scenario
+            .commit_file("README.md", "release", "initial")
+            .expect("commit");
+        let vcs = RskitGitVcs::open(workspace.path()).expect("open");
+
+        let error = vcs
+            .create_tag(
+                "v1",
+                "HEAD",
+                Some("release 1.0.0"),
+                Some(&TagSigner::default()),
+            )
+            .expect_err("no signing key configured");
+
+        assert_eq!(error.code(), rskit_errors::ErrorCode::InvalidInput);
+        assert!(error.message().contains("user.signingkey"), "{error}");
+    }
 
     #[test]
     fn current_branch_returns_the_checked_out_local_branch() {
