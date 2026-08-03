@@ -647,7 +647,7 @@ mod tests {
             core_writer
                 .writes()
                 .iter()
-                .any(|write| matches!(write, VcsWrite::Commit(_)))
+                .any(|write| matches!(write, VcsWrite::Commit { .. }))
         );
         assert!(
             !core_writer
@@ -698,7 +698,7 @@ mod tests {
             core_writer
                 .writes()
                 .iter()
-                .any(|write| matches!(write, VcsWrite::Commit(_)))
+                .any(|write| matches!(write, VcsWrite::Commit { .. }))
         );
         assert!(
             !core_writer
@@ -830,11 +830,15 @@ mod tests {
         assert_eq!(stats.published_modules, 2);
         assert!(matches!(
             &core_writer.writes()[0],
-            VcsWrite::Commit(message) if message == "release: rust/shared@0.1.1"
+            VcsWrite::Commit { message, paths }
+                if message == "release: rust/shared@0.1.1"
+                    && paths == &vec!["repos/core/crates/shared".to_string()]
         ));
         assert!(matches!(
             &gateway_writer.writes()[0],
-            VcsWrite::Commit(message) if message == "release: rust/api@0.1.1"
+            VcsWrite::Commit { message, paths }
+                if message == "release: rust/api@0.1.1"
+                    && paths == &vec!["repos/gateway/crates/api".to_string()]
         ));
         assert!(matches!(
             &core_writer.writes()[1],

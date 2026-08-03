@@ -5,6 +5,7 @@
 /// Mirrors git's `gpg.format` backends so a release can pin how its tags are
 /// signed rather than depending on ambient git configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SignFormat {
     /// `OpenPGP` signatures via `gpg` (git's default backend).
     OpenPgp,

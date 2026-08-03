@@ -97,7 +97,10 @@ fn fake_vcs_writer_records_calls() {
     assert_eq!(
         writer.writes(),
         vec![
-            VcsWrite::Commit("release".into()),
+            VcsWrite::Commit {
+                message: "release".into(),
+                paths: vec!["a.rs".into()],
+            },
             VcsWrite::Push {
                 remote: "origin".into(),
                 refspecs: vec!["refs/tags/v1".into()],

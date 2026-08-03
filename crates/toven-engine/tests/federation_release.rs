@@ -177,7 +177,8 @@ fn release_shards_history_mutations_per_member_repo() {
     )));
     assert!(core_log.iter().any(|write| matches!(
         write,
-        VcsWrite::Commit(message) if message == "core core 0.1.0"
+        VcsWrite::Commit { message, paths } if message == "core core 0.1.0"
+            && paths == &vec!["repos/core/crates/core".to_string()]
     )));
     assert!(core_log.iter().any(|write| matches!(
         write,
@@ -195,7 +196,7 @@ fn release_shards_history_mutations_per_member_repo() {
 fn assert_member_repos_isolated(core_log: &[VcsWrite], gateway_log: &[VcsWrite]) {
     let commit_count = |log: &[VcsWrite]| {
         log.iter()
-            .filter(|write| matches!(write, VcsWrite::Commit(_)))
+            .filter(|write| matches!(write, VcsWrite::Commit { .. }))
             .count()
     };
     assert_eq!(

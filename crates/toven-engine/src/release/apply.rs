@@ -475,8 +475,15 @@ pub(crate) fn stage_and_commit(
 ) -> AppResult<toven_ports::Oid> {
     let staged: Vec<String> = changed_paths
         .iter()
-        .map(|path| path.as_path().to_string_lossy().into_owned())
-        .collect();
+        .map(|path| {
+            path.as_path().to_str().map(str::to_owned).ok_or_else(|| {
+                AppError::invalid_input(
+                    "path",
+                    format!("non-UTF-8 repo path '{}'", path.as_path().display()),
+                )
+            })
+        })
+        .collect::<AppResult<_>>()?;
     let staged_refs: Vec<&str> = staged.iter().map(String::as_str).collect();
     writer.commit(message, &staged_refs)
 }
@@ -881,7 +888,7 @@ mod tests {
     };
     use toven_testkit::{FakeReleaseTarget, FakeVcsReader, FakeVcsWriter, ReleaseCall, VcsWrite};
 
-    use super::{ReleaseApplyOptions, reconcile_repo_settings, release_apply};
+    use super::{ReleaseApplyOptions, reconcile_repo_settings, release_apply, stage_and_commit};
     use crate::release::{
         BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PushPolicy, ReleaseEntry, ReleasePlan,
     };
@@ -950,6 +957,27 @@ mod tests {
             .with_worktree_status(vec![ChangeRecord::new("a.rs", ChangeStatus::Modified)])
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn stage_and_commit_rejects_non_utf8_repo_paths() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let path = RepoPath::new(std::path::PathBuf::from(std::ffi::OsString::from_vec(
+            vec![b'b', b'a', b'd', 0xff],
+        )))
+        .expect("repo-relative path");
+        let writer = FakeVcsWriter::new();
+
+        let error = stage_and_commit(&writer, &[path], "release").expect_err("non-UTF-8 path");
+
+        assert_eq!(error.code(), ErrorCode::InvalidInput);
+        assert!(error.to_string().contains("non-UTF-8 repo path"));
+        assert!(
+            writer.writes().is_empty(),
+            "invalid path must fail before staging"
+        );
+    }
+
     #[test]
     fn applies_mutations_commits_tags_and_publishes_in_order() {
         let plan = ReleasePlan::new(
@@ -982,7 +1010,13 @@ mod tests {
         let recorded = writer.writes();
         assert_eq!(
             recorded[0],
-            VcsWrite::Commit("release: rust/core@0.1.1, rust/app@0.1.1".into())
+            VcsWrite::Commit {
+                message: "release: rust/core@0.1.1, rust/app@0.1.1".into(),
+                paths: vec![
+                    "crates/core/Cargo.toml".into(),
+                    "crates/app/Cargo.toml".into(),
+                ],
+            }
         );
         assert!(matches!(
             &recorded[1],
@@ -1409,7 +1443,16 @@ mod tests {
         // The commit message lists the collapsed tag once, and the push carries
         // a single tag refspec.
         let recorded = writer.writes();
-        assert_eq!(recorded[0], VcsWrite::Commit("release: v0.2.0".into()));
+        assert_eq!(
+            recorded[0],
+            VcsWrite::Commit {
+                message: "release: v0.2.0".into(),
+                paths: vec![
+                    "crates/core/Cargo.toml".into(),
+                    "crates/app/Cargo.toml".into(),
+                ],
+            }
+        );
         let tag_refspecs: Vec<_> = recorded
             .iter()
             .filter_map(|w| match w {
@@ -1518,7 +1561,7 @@ mod tests {
             writer
                 .writes()
                 .iter()
-                .any(|write| matches!(write, VcsWrite::Commit(_)))
+                .any(|write| matches!(write, VcsWrite::Commit { .. }))
         );
         assert!(
             !writer
@@ -1560,7 +1603,7 @@ mod tests {
             writer
                 .writes()
                 .iter()
-                .any(|write| matches!(write, VcsWrite::Commit(_)))
+                .any(|write| matches!(write, VcsWrite::Commit { .. }))
         );
         assert!(
             !writer
@@ -1729,7 +1772,7 @@ mod tests {
         let recorded = writer.writes();
         assert!(matches!(
             &recorded[0],
-            VcsWrite::Commit(message) if message == "release"
+            VcsWrite::Commit { message, .. } if message == "release"
         ));
         assert!(matches!(
             &recorded[1],
@@ -1981,7 +2024,10 @@ mod tests {
         let recorded = writer.writes();
         assert_eq!(
             recorded[0],
-            VcsWrite::Commit("release: rust/core@0.1.1, cache/redis/v2.0.0".into())
+            VcsWrite::Commit {
+                message: "release: rust/core@0.1.1, cache/redis/v2.0.0".into(),
+                paths: vec!["crates/core/Cargo.toml".into(), "cache/redis/go.mod".into(),],
+            }
         );
         assert!(
             recorded.iter().any(
@@ -2019,7 +2065,10 @@ mod tests {
         assert_eq!(
             writer.writes(),
             vec![
-                VcsWrite::Commit("release: rust/core@0.1.1".into()),
+                VcsWrite::Commit {
+                    message: "release: rust/core@0.1.1".into(),
+                    paths: vec!["crates/core/Cargo.toml".into()],
+                },
                 VcsWrite::RestoreWorktree
             ]
         );
@@ -2092,7 +2141,10 @@ mod tests {
         assert_eq!(
             writer.writes(),
             vec![
-                VcsWrite::Commit("release: rust/core@0.1.1".into()),
+                VcsWrite::Commit {
+                    message: "release: rust/core@0.1.1".into(),
+                    paths: vec!["crates/core/Cargo.toml".into()],
+                },
                 VcsWrite::RestoreWorktree
             ]
         );
@@ -2176,7 +2228,11 @@ mod tests {
 
         let recorded = writer.writes();
         assert_eq!(recorded, vec![VcsWrite::RestoreWorktree]);
-        assert!(!recorded.iter().any(|w| matches!(w, VcsWrite::Commit(_))));
+        assert!(
+            !recorded
+                .iter()
+                .any(|w| matches!(w, VcsWrite::Commit { .. }))
+        );
     }
 
     #[test]

@@ -168,8 +168,13 @@ impl VcsReader for FakeVcsReader {
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum VcsWrite {
-    /// A `commit` call with its message.
-    Commit(String),
+    /// A `commit` call with its message and exact staged paths.
+    Commit {
+        /// Commit message.
+        message: String,
+        /// Repo-relative paths supplied to the write port.
+        paths: Vec<String>,
+    },
     /// A `create_tag` call with name, target rev, optional message, and the
     /// signing material when the tag was requested signed.
     CreateTag {
@@ -295,8 +300,11 @@ impl FakeVcsWriter {
 }
 
 impl VcsWriter for FakeVcsWriter {
-    fn commit(&self, message: &str, _paths: &[&str]) -> AppResult<Oid> {
-        self.record(VcsWrite::Commit(message.to_string()));
+    fn commit(&self, message: &str, paths: &[&str]) -> AppResult<Oid> {
+        self.record(VcsWrite::Commit {
+            message: message.to_string(),
+            paths: paths.iter().map(|path| (*path).to_string()).collect(),
+        });
         if let Some(message) = &self.fail_commit {
             return Err(AppError::new(ErrorCode::Internal, message.clone()));
         }
@@ -399,7 +407,10 @@ mod tests {
         assert_eq!(
             writer.writes(),
             vec![
-                VcsWrite::Commit("release".into()),
+                VcsWrite::Commit {
+                    message: "release".into(),
+                    paths: vec!["a.rs".into()],
+                },
                 VcsWrite::CreateTag {
                     name: "v1".into(),
                     target_rev: "HEAD".into(),

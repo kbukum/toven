@@ -174,7 +174,7 @@ impl VcsWriter for RskitGitVcs {
     }
 
     fn preflight_tag_signer(&self, signer: &TagSigner) -> AppResult<()> {
-        let opts = to_sign_options(signer);
+        let opts = to_sign_options(signer)?;
         match opts.key.as_deref() {
             Some(key) if !key.trim().is_empty() => Ok(()),
             Some(_) => Err(signing_key_missing()),
@@ -221,12 +221,10 @@ impl VcsWriter for RskitGitVcs {
                 ));
             };
             self.preflight_tag_signer(signer)?;
-            return self.repo.create_signed_tag(
-                name,
-                target_rev,
-                message,
-                &to_sign_options(signer),
-            );
+            let opts = to_sign_options(signer)?;
+            return self
+                .repo
+                .create_signed_tag(name, target_rev, message, &opts);
         }
         self.repo.create_tag(name, target_rev, message)
     }
@@ -255,17 +253,23 @@ fn signing_key_missing() -> AppError {
 /// Map the port's [`TagSigner`] onto rskit-git's [`SignOptions`], translating the
 /// signing backend enum and carrying the optional key through unchanged. `None`
 /// fields stay `None` so rskit-git inherits the repository's git configuration.
-fn to_sign_options(signer: &TagSigner) -> SignOptions {
+fn to_sign_options(signer: &TagSigner) -> AppResult<SignOptions> {
     let mut opts = SignOptions::default();
     if let Some(format) = signer.format {
         opts.format = Some(match format {
             SignFormat::OpenPgp => GitSignFormat::OpenPgp,
             SignFormat::Ssh => GitSignFormat::Ssh,
             SignFormat::X509 => GitSignFormat::X509,
+            _ => {
+                return Err(AppError::invalid_input(
+                    "release.sign_format",
+                    "unsupported release tag signing format",
+                ));
+            }
         });
     }
     opts.key.clone_from(&signer.key);
-    opts
+    Ok(opts)
 }
 
 #[cfg(test)]
