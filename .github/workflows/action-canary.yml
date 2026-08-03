@@ -1,0 +1,75 @@
+name: Action canary
+
+# Exercises the reusable Toven action (.github/actions/toven) against this
+# repository as a representative fixture. It proves the action installs the same
+# integrity-verified released binary as the direct-download procedure and runs
+# ordinary discovery and mutation-free release-preview commands through it — the
+# reference behavior downstream repositories consume via
+# `uses: kbukum/toven/.github/actions/toven@<sha>`.
+#
+# It is read-only and never publishes: least-privilege `contents: read`, all
+# actions SHA-pinned, and only discovery + dry-run/preview commands are run.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: action-canary-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pin the canary to an immutable published Toven release. Bump deliberately.
+  TOVEN_VERSION: v0.1.0-alpha.3
+
+jobs:
+  action-canary:
+    name: Toven action canary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history feeds the release-preview change detection and semver
+          # cascade the previews walk.
+          fetch-depth: 0
+
+      # Install via the local action and immediately run a discovery command
+      # through it, proving argument forwarding and the pinned install together.
+      - name: Install Toven and run discovery via the action
+        id: toven
+        uses: ./.github/actions/toven
+        with:
+          version: ${{ env.TOVEN_VERSION }}
+          args: modules
+
+      - name: Confirm the action's outputs
+        env:
+          TOVEN_BIN: ${{ steps.toven.outputs.toven }}
+          TOVEN_REPORTED: ${{ steps.toven.outputs.version }}
+          TOVEN_CACHE_HIT: ${{ steps.toven.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          echo "installed: ${TOVEN_REPORTED}"
+          echo "binary:    ${TOVEN_BIN}"
+          echo "cache-hit: ${TOVEN_CACHE_HIT}"
+          test -x "${TOVEN_BIN}"
+          # Exact version match — a substring test would accept 0.1.0-alpha.30
+          # as ${TOVEN_VERSION#v} and hide a wrong-binary install.
+          installed="$(printf '%s' "${TOVEN_REPORTED}" | awk '{print $2}')"
+          if [ "${installed}" != "${TOVEN_VERSION#v}" ]; then
+            echo "::error::installed version '${installed}' does not match ${TOVEN_VERSION}" >&2
+            exit 1
+          fi
+
+      # The binary the action installed is on PATH; run the remaining read-only
+      # discovery and mutation-free release-preview surface directly through it.
+      - name: Discovery and release previews through the installed binary
+        run: |
+          toven graph
+          toven release status
+          toven release plan

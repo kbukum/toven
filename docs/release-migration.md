@@ -12,7 +12,7 @@ Migrate a repository to Toven without replacing a working release path before pa
 6. Run a direct-binary CI canary, pinned by version and checksum.
 7. Remove competing release logic after parity.
 
-The only current downstream install contract is a direct download of a released binary pinned by version and checksum. A `toven-action` that installs and runs Toven inside a workflow is a candidate future convenience wrapper around that same contract; it is explicitly deferred and is not a migration prerequisite.
+The downstream install contract is a direct download of a released binary pinned by version and checksum. The reusable `toven` action (`.github/actions/toven`) wraps that same contract behind one pinned `uses:` line and is the recommended way to consume it in CI; the explicit `curl … | sh` download remains a supported fallback.
 
 ## Inventory
 

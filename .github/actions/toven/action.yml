@@ -1,0 +1,233 @@
+name: Install and run Toven
+description: >-
+  Install a released, integrity-verified Toven binary and optionally run a
+  Toven command. A thin wrapper around the reference install contract
+  (scripts/install.sh) — on install it downloads the pinned release, verifies
+  the archive checksum and (with cosign) the keyless Sigstore signature over
+  SHA256SUMS, then forwards the requested command unchanged. With caching, a
+  version-exact hit reuses a binary this runner already installed and verified,
+  skipping re-download. It is a convenience and consistency layer, never a
+  second release engine.
+
+# Pin this action by immutable commit SHA in consumers, e.g.
+#   uses: kbukum/toven/.github/actions/toven@<commit-sha> # v0.1.0-alpha.3
+# The `version` input selects which released binary to install and is
+# independent of the action SHA; pin both.
+inputs:
+  version:
+    description: >-
+      Immutable Toven release tag to install (e.g. v0.1.0-alpha.3). When empty,
+      the latest published release (including prereleases) is resolved and
+      caching is disabled; pinning an explicit version is strongly recommended
+      for reproducible, supply-chain-safe builds.
+    required: false
+    default: ""
+  repo:
+    description: Source repository that publishes the Toven release.
+    required: false
+    default: kbukum/toven
+  target:
+    description: >-
+      Override the auto-detected Rust target triple (e.g.
+      x86_64-unknown-linux-gnu). Empty auto-detects from the runner.
+    required: false
+    default: ""
+  install-dir:
+    description: >-
+      Directory to install the binary into. Empty derives a location
+      automatically (a versioned tool-cache path when caching is enabled, else a
+      temporary directory).
+    required: false
+    default: ""
+  args:
+    description: >-
+      Optional Toven command to run after installation, forwarded unchanged to a
+      single `toven` invocation (e.g. "modules" or "release plan"). The string
+      is shell word-split, so pass only trusted, workflow-authored arguments.
+      Empty installs without running a command.
+    required: false
+    default: ""
+  working-directory:
+    description: Directory to run the optional `args` command in.
+    required: false
+    default: "."
+  install-cosign:
+    description: >-
+      Install cosign so the bundled installer can verify the keyless Sigstore
+      signature over SHA256SUMS. This controls only whether this action installs
+      cosign — the installer verifies the signature whenever cosign is present
+      on PATH (already installed or provided here) and always enforces the
+      archive checksum regardless. It is not a switch that disables verification.
+    required: false
+    default: "true"
+  cache:
+    description: >-
+      Reuse a previously installed binary from the runner tool cache
+      (${RUNNER_TOOL_CACHE}/toven/<version>/<target>) when an explicit version
+      is pinned, skipping the download and verification on a hit.
+    required: false
+    default: "true"
+
+outputs:
+  toven:
+    description: Absolute path to the installed Toven binary.
+    value: ${{ steps.install.outputs.toven }}
+  version:
+    description: Version string reported by the installed binary (`toven --version`).
+    value: ${{ steps.install.outputs.version }}
+  cache-hit:
+    description: "\"true\" when the binary was served from the runner tool cache."
+    value: ${{ steps.setup.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve target, install directory, and cache state
+      id: setup
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_INSTALL_DIR: ${{ inputs.install-dir }}
+        INPUT_CACHE: ${{ inputs.cache }}
+      run: |
+        set -euo pipefail
+
+        version="${INPUT_VERSION}"
+        if [ -z "${version}" ]; then
+          echo "::warning title=Toven version not pinned::No 'version' input; installing the latest release and disabling caching. Pin an immutable tag for reproducible builds." >&2
+        fi
+
+        # Resolve the Rust target triple unless one is pinned, mirroring
+        # scripts/install.sh so the cache key and the install agree.
+        target="${INPUT_TARGET}"
+        if [ -z "${target}" ]; then
+          os="$(uname -s)"
+          arch="$(uname -m)"
+          case "${os}" in
+            Linux) os_part="unknown-linux-gnu" ;;
+            Darwin) os_part="apple-darwin" ;;
+            *) echo "::error::unsupported OS '${os}'; set the 'target' input explicitly" >&2; exit 1 ;;
+          esac
+          case "${arch}" in
+            x86_64|amd64) arch_part="x86_64" ;;
+            arm64|aarch64) arch_part="aarch64" ;;
+            *) echo "::error::unsupported architecture '${arch}'; set the 'target' input explicitly" >&2; exit 1 ;;
+          esac
+          target="${arch_part}-${os_part}"
+        fi
+
+        # Caching only applies when an explicit version is pinned (a moving
+        # "latest" cannot be keyed safely).
+        cache_enabled="false"
+        if [ "${INPUT_CACHE}" = "true" ] && [ -n "${version}" ]; then
+          cache_enabled="true"
+        fi
+
+        # Choose the install directory: caller override wins; otherwise a
+        # versioned tool-cache path when caching, else a temp directory.
+        install_dir="${INPUT_INSTALL_DIR}"
+        if [ -z "${install_dir}" ]; then
+          if [ "${cache_enabled}" = "true" ]; then
+            install_dir="${RUNNER_TOOL_CACHE}/toven/${version}/${target}"
+          else
+            install_dir="${RUNNER_TEMP}/toven-bin"
+          fi
+        fi
+
+        # A cache hit requires the pinned binary to already exist and report the
+        # pinned version exactly, so a partial, mismatched, or tampered install
+        # never masks a real download. An exact match (not a substring test) is
+        # essential: a substring would treat 0.1.0-alpha.30 as a hit for
+        # 0.1.0-alpha.3 and reuse the wrong binary.
+        cache_hit="false"
+        if [ "${cache_enabled}" = "true" ] && [ -x "${install_dir}/toven" ]; then
+          installed="$("${install_dir}/toven" --version 2>/dev/null | awk '{print $2}' || true)"
+          if [ "${installed}" = "${version#v}" ]; then
+            cache_hit="true"
+          fi
+        fi
+
+        {
+          echo "target=${target}"
+          echo "install-dir=${install_dir}"
+          echo "cache-hit=${cache_hit}"
+        } >> "${GITHUB_OUTPUT}"
+
+        if [ "${cache_hit}" = "true" ]; then
+          echo "Reusing cached Toven ${version} (${target}) from ${install_dir}" >&2
+        fi
+
+    - name: Install cosign
+      if: inputs.install-cosign == 'true' && steps.setup.outputs.cache-hit != 'true'
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+    - name: Install the Toven binary
+      if: steps.setup.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_REPO: ${{ inputs.repo }}
+        RESOLVED_TARGET: ${{ steps.setup.outputs.target }}
+        RESOLVED_DIR: ${{ steps.setup.outputs.install-dir }}
+      run: |
+        set -euo pipefail
+
+        # Reuse the single reference install contract bundled with this action
+        # (checked out at the action's pinned SHA), rather than a second,
+        # parallel download/verify implementation. It enforces the archive
+        # checksum and, with cosign present, the Sigstore signature.
+        script="${GITHUB_ACTION_PATH}/../../../scripts/install.sh"
+        if [ ! -f "${script}" ]; then
+          echo "::error::reference installer not found at ${script}; the action repository checkout is incomplete" >&2
+          exit 1
+        fi
+
+        set -- --repo "${INPUT_REPO}" --dir "${RESOLVED_DIR}"
+        if [ -n "${INPUT_VERSION}" ]; then
+          set -- "$@" --version "${INPUT_VERSION}"
+        fi
+        if [ -n "${RESOLVED_TARGET}" ]; then
+          set -- "$@" --target "${RESOLVED_TARGET}"
+        fi
+
+        sh "${script}" "$@"
+
+    - name: Export path and version
+      id: install
+      shell: bash
+      env:
+        RESOLVED_DIR: ${{ steps.setup.outputs.install-dir }}
+      run: |
+        set -euo pipefail
+
+        toven="${RESOLVED_DIR}/toven"
+        if [ ! -x "${toven}" ]; then
+          echo "::error::Toven binary not found at ${toven} after installation" >&2
+          exit 1
+        fi
+
+        installed="$("${toven}" --version)"
+        {
+          echo "toven=${toven}"
+          echo "version=${installed}"
+        } >> "${GITHUB_OUTPUT}"
+        echo "${RESOLVED_DIR}" >> "${GITHUB_PATH}"
+        echo "Using ${installed} at ${toven}" >&2
+
+    - name: Run Toven command
+      if: inputs.args != ''
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        TOVEN: ${{ steps.install.outputs.toven }}
+        INPUT_ARGS: ${{ inputs.args }}
+      run: |
+        set -euo pipefail
+        # Word-split INPUT_ARGS into argv WITHOUT pathname (glob) expansion, so a
+        # literal *, ?, or [ in an argument is passed through unchanged rather
+        # than rewritten — Toven never silently rewrites user arguments. `read
+        # -ra` splits on whitespace and performs no globbing; quoted array
+        # expansion then forwards the vector verbatim.
+        read -r -a toven_args <<< "${INPUT_ARGS}"
+        "${TOVEN}" "${toven_args[@]}"
