@@ -2,7 +2,7 @@
 
 use rskit_errors::AppResult;
 use toven_ports::{
-    CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, ReleaseTarget,
+    CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, ReleaseAdapter,
     RunStrategy, TaskIntent, TaskKind, ToolchainProbe,
 };
 
@@ -117,7 +117,7 @@ impl ConfiguredAdapter for CommandAdapter {
             .unwrap_or_else(|| tasks::default_run_strategy(kind))
     }
 
-    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseTarget>>> {
+    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
         Ok(None)
     }
 

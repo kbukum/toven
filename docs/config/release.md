@@ -231,8 +231,6 @@ Every verb is non-mutating with respect to git history, emits typed JSONL under 
 
 The release is a **flow** of ordered phases — `select`, `bump`, `tag`, `package`, `sign`, `publish`, `host`, `provenance`. Toven owns the flow and enforces its guarantees (mutation-free preview, gated mutation, immutable forward-fix outputs, typed reporting) for every phase. Each phase is *backed* either **natively** (Toven's own code — the default) or **delegated** to an external tool that Toven invokes argv-first while still owning selection, ordering, readiness, safety, and reporting. Delegation is per-phase and opt-in; Toven never hands the whole flow to an external tool.
 
-> **Not yet active.** This is the phase-backing contract that the flow model is built around, documented ahead of its wiring. The strict config loader does not yet accept a `[…release.phases]` block, and every phase runs natively today; the resolver and per-phase execution land with the phase-seam refactor.
-
 Per-phase backing is declared under `[…release.phases.<phase>]`. A phase with no entry stays native, so the block only names the phases you delegate:
 
 ```toml
@@ -242,9 +240,12 @@ backing = "delegated"
 [ecosystems.go.release.phases.package.delegated]
 tool = "goreleaser"
 args = ["release", "--clean"]
+preview = ["release", "--snapshot", "--clean"]
 ```
 
-`backing` is `native` (default) or `delegated`; a `delegated` backing requires the `[…delegated]` tool sub-block and a `native` backing must not carry one. `tool` names the executable, `args` are fixed leading arguments — argv-first, and never secrets, which flow through the child-process environment.
+`backing` is `native` (default) or `delegated`; a `delegated` backing requires the `[…delegated]` tool sub-block and a `native` backing must not carry one. `tool` names the executable, `args` are the fixed leading arguments for the real, mutating invocation, and `preview` are the arguments for the tool's **mutation-free preview** (its dry-run/plan equivalent) — argv-first in both cases, and never secrets, which flow through the child-process environment. A delegated phase must be previewable without mutating, so a tool that declares no `preview` arguments is rejected at config time.
+
+> **Delegated execution is not yet wired.** The `[…release.phases]` block is parsed, validated, and resolved today, and the per-phase `DelegatedPhase` runner exists, but no phase call site dispatches through it yet. So a `backing = "delegated"` entry does **not** silently run natively — it is rejected at plan time (before any mutation) until per-phase delegated execution lands with the Go/GoReleaser flow. Leave a phase native (omit its entry) to release today.
 
 ## Safety
 

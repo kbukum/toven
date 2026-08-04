@@ -9,15 +9,17 @@
 //!
 //! All fallible methods return [`rskit_errors::AppResult`]. Port traits are
 //! object-safe so registries store trait objects (`dyn Provider`, `dyn
-//! ConfiguredAdapter`, `dyn ReleaseTarget`, `dyn Reporter`, `dyn
+//! ConfiguredAdapter`, `dyn ReleaseAdapter`, `dyn Reporter`, `dyn
 //! RawOutputSink`, `dyn VcsReader`, `dyn VcsWriter`, `dyn ToolchainProber`,
 //! `dyn SourceDigest`, `dyn CacheStore`).
 //!
 //! ## Ports
 //! - [`provider`] — [`Provider`]/[`ConfiguredAdapter`]: the raw-TOML →
 //!   configured adapter seam, plus the [`wizard`] onboarding steps.
-//! - [`release`] — [`ReleaseTarget`] and friends: the thin ecosystem release
-//!   sliver.
+//! - [`release`] — [`ReleaseAdapter`] and the per-phase contracts
+//!   ([`VersionSource`], [`TagGrammar`], [`Packager`], [`ManifestMutator`],
+//!   [`Publisher`], [`SbomProducer`]) plus the [`DelegatedPhase`] delegation
+//!   seam: the thin ecosystem release sliver, resolved per phase.
 //! - [`reporter`] — [`Reporter`]: the observability output port.
 //! - [`raw_output`] — [`RawOutputSink`]: the raw child-output sink port
 //!   (sibling of [`Reporter`]; fed by the engine's `UnitOutputChannel`).
@@ -86,9 +88,11 @@ pub use merge::{merge_coverage, merge_release, merge_task};
 pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
 pub use raw_output::RawOutputSink;
 pub use release::{
-    Artifact, AssetDownloader, HostReleaseOutcome, HostedRelease, PhaseBacking, PublishOutcome,
-    RegistryCadence, ReleaseAsset, ReleaseCredentials, ReleaseHost, ReleaseMutation, ReleaseTarget,
-    SUPPORTED_FORGES, SignatureVerifier, Signer, TagScheme, VersionProbe, Visibility,
+    Artifact, AssetDownloader, DelegatedPhase, DelegatedPhaseMode, DelegatedPhaseOutcome,
+    DelegatedPhaseRequest, HostReleaseOutcome, HostedRelease, ManifestMutator, Packager,
+    PhaseBacking, PublishOutcome, Publisher, RegistryCadence, ReleaseAdapter, ReleaseAsset,
+    ReleaseCredentials, ReleaseHost, ReleaseMutation, SUPPORTED_FORGES, SbomProducer,
+    SignatureVerifier, Signer, TagGrammar, TagScheme, VersionProbe, VersionSource, Visibility,
     is_supported_forge,
 };
 pub use reporter::{PlanReporter, Reporter};

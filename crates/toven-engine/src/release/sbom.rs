@@ -1,7 +1,7 @@
 //! Read-only `release sbom` projection.
 //!
 //! Orchestrates each releasable module's ecosystem SBOM tool argv-first via its
-//! [`ReleaseTarget`](toven_ports::ReleaseTarget), collecting the produced
+//! [`SbomProducer`](toven_ports::SbomProducer), collecting the produced
 //! `CycloneDX` artifacts into a bounded output directory. Toven owns scope,
 //! ordering, and reporting; the ecosystem target owns the tool invocation. A
 //! module whose ecosystem has no SBOM tooling is recorded as skipped rather

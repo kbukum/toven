@@ -2,7 +2,7 @@
 
 use rskit_errors::AppResult;
 use toven_ports::{
-    CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, ReleaseTarget,
+    CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, ReleaseAdapter,
     RunStrategy, TaskKind, ToolchainProbe,
 };
 
@@ -46,7 +46,7 @@ impl ConfiguredAdapter for GoAdapter {
             .unwrap_or_else(|| tasks::default_run_strategy(kind))
     }
 
-    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseTarget>>> {
+    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
         Ok(Some(Box::new(GoVcsTarget::new())))
     }
 

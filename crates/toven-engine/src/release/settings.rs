@@ -5,9 +5,11 @@
 //! `[modules.<name>.release]` > `[ecosystems.<id>].release` > adapter default.
 
 use rskit_errors::AppResult;
+use toven_model::ReleasePhase;
 use toven_ports::{
-    BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, HostConfig, PrereleaseConfig,
-    PublicationPolicy, ReleaseConfig, SignConfig, SignFormat, Visibility, merge_release,
+    BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, HostConfig, PhaseBacking,
+    PhasesConfig, PrereleaseConfig, PublicationPolicy, ReleaseConfig, SignConfig, SignFormat,
+    Visibility, merge_release,
 };
 
 use super::{BumpPolicy, PushPolicy, strategy};
@@ -132,6 +134,32 @@ pub struct ResolvedReleaseSettings {
     pub hooks: HooksConfig,
     /// Hosted forge Release settings.
     pub host: ResolvedHostSettings,
+    /// Per-phase backing map: how each release phase is satisfied (native, the
+    /// default, or delegated to an external tool).
+    pub phases: PhasesConfig,
+}
+
+impl ResolvedReleaseSettings {
+    /// The resolved backing for `phase` — [`PhaseBacking::Native`] when the
+    /// phase has no configured entry.
+    ///
+    /// # Errors
+    /// Propagates a configured-but-inconsistent phase entry (a delegated
+    /// backing whose tool sub-block is missing or malformed).
+    pub fn phase_backing(&self, phase: ReleasePhase) -> AppResult<PhaseBacking> {
+        self.phases.backing(phase, "release.phases")
+    }
+
+    /// The delegated tool backing `phase`, if the phase delegates.
+    ///
+    /// Returns `None` for a native (or unconfigured) phase. The engine folds
+    /// this into an argv-first [`DelegatedPhaseRequest`](toven_ports::DelegatedPhaseRequest)
+    /// (via [`delegated_request`](super::delegated::delegated_request)) when a
+    /// phase resolves [`PhaseBacking::Delegated`].
+    #[must_use]
+    pub fn delegated_tool(&self, phase: ReleasePhase) -> Option<&toven_ports::DelegatedTool> {
+        self.phases.delegated_tool(phase)
+    }
 }
 
 impl ResolvedReleaseSettings {
@@ -212,6 +240,7 @@ impl ResolvedReleaseSettings {
             readiness: config.readiness.clone().unwrap_or_default(),
             hooks: config.hooks.clone().unwrap_or_default(),
             host: ResolvedHostSettings::from_config(config.host.as_ref()),
+            phases: config.phases.clone().unwrap_or_default(),
         })
     }
 }
@@ -499,5 +528,61 @@ mod tests {
             ..ReleaseConfig::default()
         };
         assert!(ResolvedReleaseSettings::resolve(&ecosystem, None).is_err());
+    }
+
+    #[test]
+    fn an_unconfigured_phase_resolves_native() {
+        use toven_model::ReleasePhase;
+        use toven_ports::PhaseBacking;
+
+        let resolved = ResolvedReleaseSettings::resolve(&ReleaseConfig::default(), None).unwrap();
+        assert_eq!(
+            resolved.phase_backing(ReleasePhase::Package).unwrap(),
+            PhaseBacking::Native
+        );
+        assert!(resolved.delegated_tool(ReleasePhase::Package).is_none());
+    }
+
+    #[test]
+    fn a_configured_phase_resolves_delegated_with_its_tool() {
+        use std::collections::BTreeMap;
+
+        use toven_model::ReleasePhase;
+        use toven_ports::{
+            DelegatedTool, PhaseBacking, PhaseBackingKind, PhaseConfig, PhasesConfig,
+        };
+
+        let mut phases = BTreeMap::new();
+        phases.insert(
+            ReleasePhase::Package,
+            PhaseConfig {
+                backing: PhaseBackingKind::Delegated,
+                delegated: Some(DelegatedTool {
+                    tool: "goreleaser".into(),
+                    args: Some(vec!["release".into()]),
+                    preview: vec!["release".into(), "--snapshot".into()],
+                }),
+            },
+        );
+        let ecosystem = ReleaseConfig {
+            phases: Some(PhasesConfig(phases)),
+            ..ReleaseConfig::default()
+        };
+
+        let resolved = ResolvedReleaseSettings::resolve(&ecosystem, None).unwrap();
+
+        assert_eq!(
+            resolved.phase_backing(ReleasePhase::Package).unwrap(),
+            PhaseBacking::delegated("goreleaser")
+        );
+        let tool = resolved
+            .delegated_tool(ReleasePhase::Package)
+            .expect("delegated tool");
+        assert_eq!(tool.tool, "goreleaser");
+        // A phase with no entry still resolves native alongside the delegated one.
+        assert_eq!(
+            resolved.phase_backing(ReleasePhase::Publish).unwrap(),
+            PhaseBacking::Native
+        );
     }
 }

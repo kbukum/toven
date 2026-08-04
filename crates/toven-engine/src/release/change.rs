@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::AppResult;
 use toven_model::{Module, ModuleKey};
-use toven_ports::{BaselineSpec, ChangeRecord, CommitSummary, ReleaseTarget, TagRef, TagScheme};
+use toven_ports::{BaselineSpec, ChangeRecord, CommitSummary, ReleaseAdapter, TagRef, TagScheme};
 
 use crate::federation::baseline::{MemberVcsReader, MemberVcsReaders};
 use crate::plan::PlanContext;
@@ -197,7 +197,7 @@ fn baseline_spec(
     Some(BaselineSpec::explicit(diff_ref))
 }
 
-fn target_for<'a>(targets: &'a ReleaseTargets, module: &Module) -> Option<&'a dyn ReleaseTarget> {
+fn target_for<'a>(targets: &'a ReleaseTargets, module: &Module) -> Option<&'a dyn ReleaseAdapter> {
     targets
         .get(&(module.member.clone(), module.id.ecosystem.clone()))
         .map(Box::as_ref)

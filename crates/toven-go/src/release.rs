@@ -15,8 +15,8 @@ use rskit_process::ProcessSpec;
 use rskit_version::semver::Version;
 use toven_model::{Module, RepoPath};
 use toven_ports::{
-    Artifact, PublishOutcome, ReleaseCredentials, ReleaseMutation, ReleaseTarget, TagScheme,
-    Visibility,
+    Artifact, ManifestMutator, Packager, PublishOutcome, Publisher, ReleaseCredentials,
+    ReleaseMutation, SbomProducer, TagGrammar, TagScheme, VersionSource, Visibility,
 };
 
 use crate::exec::run_go_json;
@@ -74,7 +74,7 @@ impl GoVcsTarget {
     }
 }
 
-impl ReleaseTarget for GoVcsTarget {
+impl VersionSource for GoVcsTarget {
     fn declared_version(&self, module: &Module) -> AppResult<Version> {
         self.published_versions(module)?.into_iter().max().ok_or_else(|| {
             AppError::invalid_input(
@@ -98,7 +98,9 @@ impl ReleaseTarget for GoVcsTarget {
         versions.dedup();
         Ok(versions)
     }
+}
 
+impl TagGrammar for GoVcsTarget {
     fn tag_scheme(&self, module: &Module, tag_format: Option<&str>) -> AppResult<TagScheme> {
         if tag_format.is_some() {
             return Err(AppError::invalid_input(
@@ -115,11 +117,15 @@ impl ReleaseTarget for GoVcsTarget {
             Ok(TagScheme::new(format!("{normalized}/v"), ""))
         }
     }
+}
 
+impl Packager for GoVcsTarget {
     fn package(&self, module: &Module) -> AppResult<Artifact> {
         Ok(Artifact::new(module.root.as_path()))
     }
+}
 
+impl ManifestMutator for GoVcsTarget {
     fn apply_release(
         &self,
         module: &Module,
@@ -164,7 +170,9 @@ impl ReleaseTarget for GoVcsTarget {
         })?;
         Ok(vec![staged])
     }
+}
 
+impl Publisher for GoVcsTarget {
     fn publish(
         &self,
         _module: &Module,
@@ -179,11 +187,15 @@ impl ReleaseTarget for GoVcsTarget {
     }
 }
 
+/// Go has no SBOM tooling in Toven's release model, so the `provenance` SBOM
+/// phase reports "not applicable" via the [`SbomProducer`] default.
+impl SbomProducer for GoVcsTarget {}
+
 #[cfg(test)]
 mod tests {
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
-    use toven_ports::{ReleaseMutation, ReleaseTarget};
+    use toven_ports::{ManifestMutator, ReleaseMutation, TagGrammar, VersionSource};
     use toven_testkit::git::GitScenario;
 
     use super::GoVcsTarget;

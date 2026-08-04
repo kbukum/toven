@@ -1,34 +1,50 @@
 //! Release port — the thin ecosystem sliver behind the shared release engine.
 
+mod adapter;
 mod artifact;
 mod backing;
 mod credentials;
+mod delegated;
 mod downloader;
 mod host;
 mod mutation;
+mod mutator;
 mod outcome;
+mod packager;
 mod probe;
+mod publisher;
 mod registry;
+mod sbom;
 mod signer;
+mod tag_grammar;
 mod tag_scheme;
-mod target;
 mod verifier;
+mod version;
 mod visibility;
 
+pub use adapter::ReleaseAdapter;
 pub use artifact::Artifact;
 pub use backing::PhaseBacking;
 pub use credentials::ReleaseCredentials;
+pub use delegated::{
+    DelegatedPhase, DelegatedPhaseMode, DelegatedPhaseOutcome, DelegatedPhaseRequest,
+};
 pub use downloader::AssetDownloader;
 pub use host::{
     HostReleaseOutcome, HostedRelease, ReleaseAsset, ReleaseHost, SUPPORTED_FORGES,
     is_supported_forge,
 };
 pub use mutation::ReleaseMutation;
+pub use mutator::ManifestMutator;
 pub use outcome::PublishOutcome;
+pub use packager::Packager;
 pub use probe::VersionProbe;
+pub use publisher::Publisher;
 pub use registry::RegistryCadence;
+pub use sbom::SbomProducer;
 pub use signer::Signer;
+pub use tag_grammar::TagGrammar;
 pub use tag_scheme::TagScheme;
-pub use target::ReleaseTarget;
 pub use verifier::SignatureVerifier;
+pub use version::VersionSource;
 pub use visibility::Visibility;

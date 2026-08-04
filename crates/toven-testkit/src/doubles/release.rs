@@ -1,9 +1,13 @@
-//! Shared [`ReleaseTarget`] double: [`FakeReleaseTarget`].
+//! Shared native release-adapter double: [`FakeReleaseTarget`].
 //!
 //! Release-engine tests configure canned version I/O, scripted publish
 //! behaviour, and call recording here instead of standing up a real adapter. It
-//! is `Clone` so a [`FakeConfiguredAdapter`](super::FakeConfiguredAdapter) can
-//! hand back a fresh boxed target from `release_target` on each call.
+//! implements every per-phase contract ([`VersionSource`], [`TagGrammar`],
+//! [`Packager`], [`ManifestMutator`], [`Publisher`], [`SbomProducer`]), so it is
+//! a [`ReleaseAdapter`](toven_ports::ReleaseAdapter) the engine drives as one
+//! native trait object. It is `Clone` so a
+//! [`FakeConfiguredAdapter`](super::FakeConfiguredAdapter) can hand back a fresh
+//! boxed adapter from `release_target` on each call.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -12,8 +16,8 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_version::semver::Version;
 use toven_model::{Module, ModuleRef, RepoPath};
 use toven_ports::{
-    Artifact, PublishOutcome, ReleaseCredentials, ReleaseMutation, ReleaseTarget, TagScheme,
-    Visibility,
+    Artifact, ManifestMutator, Packager, PublishOutcome, Publisher, ReleaseCredentials,
+    ReleaseMutation, SbomProducer, TagGrammar, TagScheme, VersionSource, Visibility,
 };
 
 /// A single call recorded by [`FakeReleaseTarget`].
@@ -52,8 +56,8 @@ pub enum ReleaseCall {
     },
 }
 
-/// A [`ReleaseTarget`] with canned version I/O, scripted publish behaviour, and
-/// call recording.
+/// A native release adapter with canned version I/O, scripted publish
+/// behaviour, and call recording.
 #[derive(Debug, Clone)]
 pub struct FakeReleaseTarget {
     inner: Arc<Mutex<FakeReleaseState>>,
@@ -258,7 +262,7 @@ impl FakeReleaseTarget {
     }
 }
 
-impl ReleaseTarget for FakeReleaseTarget {
+impl VersionSource for FakeReleaseTarget {
     fn declared_version(&self, module: &Module) -> AppResult<Version> {
         self.record(ReleaseCall::DeclaredVersion(module.id.clone()));
         let state = self.state();
@@ -276,7 +280,9 @@ impl ReleaseTarget for FakeReleaseTarget {
         }
         Ok(state.published.clone())
     }
+}
 
+impl TagGrammar for FakeReleaseTarget {
     fn tag_scheme(&self, module: &Module, tag_format: Option<&str>) -> AppResult<TagScheme> {
         self.record(ReleaseCall::TagScheme {
             module: module.id.clone(),
@@ -294,7 +300,9 @@ impl ReleaseTarget for FakeReleaseTarget {
             "",
         ))
     }
+}
 
+impl Packager for FakeReleaseTarget {
     fn package(&self, module: &Module) -> AppResult<Artifact> {
         self.record(ReleaseCall::Package(module.id.clone()));
         let state = self.state();
@@ -303,7 +311,9 @@ impl ReleaseTarget for FakeReleaseTarget {
         }
         Ok(Artifact::new(&state.artifact_path))
     }
+}
 
+impl ManifestMutator for FakeReleaseTarget {
     fn apply_release(
         &self,
         module: &Module,
@@ -329,7 +339,9 @@ impl ReleaseTarget for FakeReleaseTarget {
             ]
         }))
     }
+}
 
+impl Publisher for FakeReleaseTarget {
     fn publish(
         &self,
         module: &Module,
@@ -359,7 +371,9 @@ impl ReleaseTarget for FakeReleaseTarget {
         drop(state);
         Ok(outcome)
     }
+}
 
+impl SbomProducer for FakeReleaseTarget {
     fn sbom(&self, module: &Module, out_dir: &Path) -> AppResult<Option<Artifact>> {
         self.record(ReleaseCall::Sbom {
             module: module.id.clone(),
@@ -413,7 +427,9 @@ fn render_tag_format(format: &str, module: &Module) -> AppResult<TagScheme> {
 mod tests {
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
-    use toven_ports::{Artifact, PublishOutcome, ReleaseCredentials, ReleaseTarget, Visibility};
+    use toven_ports::{
+        Artifact, PublishOutcome, Publisher, ReleaseCredentials, VersionSource, Visibility,
+    };
 
     use super::FakeReleaseTarget;
 

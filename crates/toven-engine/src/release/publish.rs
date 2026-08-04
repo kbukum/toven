@@ -15,7 +15,7 @@ use std::time::{Duration, SystemTime};
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_version::semver::Version;
 use toven_model::Module;
-use toven_ports::{Artifact, PublishOutcome, ReleaseCredentials, ReleaseTarget, Visibility};
+use toven_ports::{Artifact, PublishOutcome, ReleaseAdapter, ReleaseCredentials, Visibility};
 
 use super::ReleaseStats;
 
@@ -30,7 +30,7 @@ pub(crate) struct PublishItem<'a> {
     /// Module to publish.
     pub(super) module: &'a Module,
     /// Ecosystem release target for the module.
-    pub(super) target: &'a dyn ReleaseTarget,
+    pub(super) target: &'a dyn ReleaseAdapter,
     /// Packaged artifact produced in the pre-commit phase.
     pub(super) artifact: &'a Artifact,
     /// Version being released.
@@ -67,7 +67,7 @@ fn publish_one(
     stats: &mut ReleaseStats,
 ) -> AppResult<()> {
     // Idempotency pre-skip: never re-publish a version the registry already has.
-    // `published_versions` is best-effort (see `ReleaseTarget` docs): this loop
+    // `published_versions` is best-effort (see `VersionSource` docs): this loop
     // runs after the release commit, so a transient registry/search failure must
     // not abort APPLY. On lookup failure, fall through to a live publish attempt —
     // idempotency is preserved by the `AlreadyPublished` classification below.

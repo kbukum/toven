@@ -35,19 +35,25 @@ impl RawOutputSink for FakeRawOutputSink {
 }
 
 struct FakeReleaseTarget;
-impl ReleaseTarget for FakeReleaseTarget {
+impl VersionSource for FakeReleaseTarget {
     fn declared_version(&self, _module: &Module) -> AppResult<Version> {
         Ok(Version::new(0, 1, 0))
     }
     fn published_versions(&self, _module: &Module) -> AppResult<Vec<Version>> {
         Ok(Vec::new())
     }
+}
+impl TagGrammar for FakeReleaseTarget {
     fn tag_scheme(&self, _module: &Module, _tag_format: Option<&str>) -> AppResult<TagScheme> {
         Ok(TagScheme::new("v", ""))
     }
+}
+impl Packager for FakeReleaseTarget {
     fn package(&self, _module: &Module) -> AppResult<Artifact> {
         Ok(Artifact::new("dist/fake.crate"))
     }
+}
+impl ManifestMutator for FakeReleaseTarget {
     fn apply_release(
         &self,
         _module: &Module,
@@ -55,6 +61,8 @@ impl ReleaseTarget for FakeReleaseTarget {
     ) -> AppResult<Vec<RepoPath>> {
         Ok(Vec::new())
     }
+}
+impl Publisher for FakeReleaseTarget {
     fn publish(
         &self,
         _module: &Module,
@@ -63,6 +71,18 @@ impl ReleaseTarget for FakeReleaseTarget {
         _visibility: Visibility,
     ) -> AppResult<PublishOutcome> {
         Ok(PublishOutcome::Published)
+    }
+}
+impl SbomProducer for FakeReleaseTarget {}
+
+struct FakeDelegatedPhase;
+impl DelegatedPhase for FakeDelegatedPhase {
+    fn run(&self, _request: &DelegatedPhaseRequest) -> AppResult<DelegatedPhaseOutcome> {
+        Ok(DelegatedPhaseOutcome {
+            exit_code: Some(0),
+            stdout: String::new(),
+            stderr: String::new(),
+        })
     }
 }
 
@@ -131,7 +151,7 @@ impl ConfiguredAdapter for FakeConfigured {
     fn run_strategy_default(&self, _kind: TaskKind) -> RunStrategy {
         RunStrategy::LeafToTop
     }
-    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseTarget>>> {
+    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
         Ok(Some(Box::new(FakeReleaseTarget)))
     }
     fn common(&self) -> &CommonEcosystemConfig {
@@ -303,7 +323,7 @@ impl WatchSource for FakeWatchSource {
 fn port_traits_are_object_safe() {
     let mut reporter: Box<dyn Reporter> = Box::new(FakeReporter);
     let mut raw_sink: Box<dyn RawOutputSink> = Box::new(FakeRawOutputSink { live: 0, blocks: 0 });
-    let release: Box<dyn ReleaseTarget> = Box::new(FakeReleaseTarget);
+    let release: Box<dyn ReleaseAdapter> = Box::new(FakeReleaseTarget);
     let reader: Box<dyn VcsReader> = Box::new(FakeVcs);
     let writer: Box<dyn VcsWriter> = Box::new(FakeVcs);
     let prober: Box<dyn ToolchainProber> = Box::new(FakeToolchainProber);
@@ -347,7 +367,7 @@ fn port_traits_are_object_safe() {
     );
     assert_eq!(configured.common(), &CommonEcosystemConfig::default());
 
-    // Exercise every ReleaseTarget method (directly and via the adapter seam).
+    // Exercise every release phase contract (directly and via the adapter seam).
     let target = configured.release_target().expect("ok").expect("present");
     assert_eq!(target.declared_version(&module).expect("ok").minor, 1);
     assert!(target.published_versions(&module).expect("ok").is_empty());
@@ -368,6 +388,18 @@ fn port_traits_are_object_safe() {
     );
     let direct_artifact = release.package(&module).expect("packages");
     assert_eq!(direct_artifact.path, artifact.path);
+
+    // Exercise the DelegatedPhase port.
+    let delegated: Box<dyn DelegatedPhase> = Box::new(FakeDelegatedPhase);
+    let outcome = delegated
+        .run(&DelegatedPhaseRequest::new(
+            toven_model::ReleasePhase::Package,
+            vec!["goreleaser".into(), "release".into()],
+            DelegatedPhaseMode::Preview,
+            "/repo",
+        ))
+        .expect("runs delegated phase");
+    assert!(outcome.succeeded());
 
     // Exercise the Signer port.
     let signer: Box<dyn Signer> = Box::new(FakeSigner);

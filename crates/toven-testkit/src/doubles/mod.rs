@@ -6,6 +6,7 @@
 
 mod answers;
 mod cache;
+mod delegated;
 mod driver;
 mod exec;
 mod hook;
@@ -23,6 +24,7 @@ mod watch;
 
 pub use answers::ScriptedAnswers;
 pub use cache::{FakeCacheStore, RecordingCacheStore, RecordingCacheWriter};
+pub use delegated::FakeDelegatedPhase;
 pub use driver::{FakeDriverLocator, FakeDriverWizard};
 pub use exec::FakeCommandRunner;
 pub use hook::{HookCall, RecordingHookRunner};

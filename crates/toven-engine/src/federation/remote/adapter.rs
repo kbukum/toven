@@ -23,7 +23,7 @@ use rskit_config::RawValue;
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use toven_model::EcosystemId;
 use toven_ports::{
-    CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, ReleaseTarget,
+    CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, ReleaseAdapter,
     RunStrategy, TaskKind, ToolchainProbe,
 };
 
@@ -191,7 +191,7 @@ impl ConfiguredAdapter for RemoteAdapter {
             .unwrap_or(RunStrategy::LeafToTop)
     }
 
-    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseTarget>>> {
+    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
         // Capability-gated: driven ecosystems are not publishable through the umbrella
         // transport.
         Ok(None)

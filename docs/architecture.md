@@ -201,20 +201,22 @@ A phase's *implementation* is a swappable seam described by `PhaseBacking` in `t
 
 ### Phase seam decomposition
 
-Today the ecosystem sliver is one `ReleaseTarget` trait that bundles several phases. The flow model decomposes it per phase; the mapping and the redesign decision that drives that refactor:
+The ecosystem sliver is a set of **per-phase contracts** in `toven-ports`, composed by the `ReleaseAdapter` marker trait (a blanket impl over all six). `ConfiguredAdapter::release_target` hands the engine one native trait object it resolves per phase, so each phase is independently backed `Native` or `Delegated`. The per-phase traits and the redesign decision behind each:
 
-| `ReleaseTarget` method | Phase | Decision |
+| Per-phase contract (method) | Phase | Decision |
 | --- | --- | --- |
-| `declared_version` | Bump | Align — a version-read seam under the Bump phase. |
-| `apply_release` | Bump | Align — the manifest version-write seam under Bump; the standalone bump verb extracts around it. |
-| `tag_scheme` | Tag | Align — the tag-grammar seam under the Tag phase. |
-| `package` | Package | Redesign — its own Package phase contract, delegable. |
-| `sbom` | Provenance | Redesign — folds into the Provenance phase; the `Ok(None)` default becomes an explicit backing. |
-| `published_versions` | Publish | Align — the registry-query (idempotency) seam under Publish. |
-| `publish` | Publish | Redesign — its own Publish phase contract, delegable. |
+| `VersionSource::declared_version` | Bump | Align — a version-read seam under the Bump phase. |
+| `ManifestMutator::apply_release` | Bump | Align — the manifest version-write seam under Bump; the standalone bump verb extracts around it. |
+| `TagGrammar::tag_scheme` | Tag | Align — the tag-grammar seam under the Tag phase. |
+| `Packager::package` | Package | Redesign — its own Package phase contract, delegable. |
+| `SbomProducer::sbom` | Provenance | Redesign — folds into the Provenance phase; the `Ok(None)` default becomes an explicit backing. |
+| `VersionSource::published_versions` | Publish | Align — the registry-query (idempotency) seam under Publish. |
+| `Publisher::publish` | Publish | Redesign — its own Publish phase contract, delegable. |
 | (engine sign) | Sign | Enhance — the engine-owned tag/artifact signing becomes an explicit Sign phase contract. |
 | (engine selection) | Select | Align — the existing selection/cascade/ordering is named as the Select phase. |
 | `ReleaseHost` port | Host | Align — the existing hosted-forge port is named as the Host phase. |
+
+A delegated phase is driven through the `DelegatedPhase` port: the engine builds a fully-resolved, argv-first `DelegatedPhaseRequest` (tool-first argument vector, mutation-free preview vs. mutating apply argv, secrets named on the child environment — never on argv) and the engine-side `ProcessDelegatedPhase` runner spawns it via the rskit process port and reports a classified exit.
 
 ## Output boundary
 
