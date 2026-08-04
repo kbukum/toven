@@ -46,6 +46,7 @@ toven release publish --yes
 | `checksums` | Write `SHA256SUMS` over every declared archive and the SBOM | Local artifacts |
 | `sign` | Keyless Sigstore/cosign signature and certificate over `SHA256SUMS` | Local artifacts |
 | `verify` | Presence/version-check local assets, or with `--download` verify the signature and every published archive's checksum | None |
+| `bump` | Manifest version/floor changes and the rolled changelog, committed (or, with `--no-commit`, staged for a pull request) | Repository (working tree) |
 | `tag` | Manifest changes, release commit, tags, and configured push | Repository and remote |
 | `publish --dry-run` | Registry and hosted-Release rehearsal | None |
 | `publish` | `tag` behavior followed by target publication and configured hosted Releases | Repository, remote, target, and forge |
@@ -144,6 +145,30 @@ toven release publish --dry-run --pre rc --base origin/main
 | `--offline` | Skip target version queries and use release tags for idempotency |
 
 Conflicting overrides fail before mutation.
+
+## Bump: the standalone version + changelog phase
+
+```bash
+toven release bump --yes
+toven release bump --no-commit --yes
+toven release bump --dry-run
+toven release bump --output jsonl
+```
+
+`bump` runs only the first half of a release — the version decision. It rewrites each selected module's manifest version and dependency floors and, where configured, rolls the changelog, then either creates the release commit (the default) or, with `--no-commit`, leaves the mutation staged for a maintainer's pull request. It never tags, pushes, publishes, or cuts a hosted Release. This models the real Toven and rskit flow, where *the version/CHANGELOG change is the release decision and tag/publish come after it merges.*
+
+`bump` and `tag`/`publish` share one manifest-mutation prefix through the `ManifestMutator` phase contract, so the versions a `bump` commit carries are exactly the ones a later `tag` would produce. The same version-input flags apply (`--patch`/`--minor`/`--major`, `--set-version`, `--pre`, `--base`), and a mutating `bump` obeys every flow guarantee: it requires `--yes` and checks the allowed branch and a clean worktree before mutating. `--dry-run` is the exception — it previews the planned version transitions and the changelog paths that would roll without writing anything, so like the other non-mutating projections it needs no `--yes` confirmation. `--no-commit` is valid only on `bump`; `--no-push` is not (a bump never pushes).
+
+| Option | Meaning |
+|---|---|
+| `--no-commit` | Stage the manifest/changelog mutation for a pull request instead of committing |
+| `--dry-run` | Preview the version transitions and changelog roll without writing |
+
+Typed JSONL emits one record per bumped module — its `module`, `old_version`, `new_version`, rewritten `manifests`, whether the run `committed`, and the rolled `changelogs` — so a PR bot can consume the mutation directly; data goes to stdout and warnings to stderr.
+
+### Changelog rolling
+
+`bump` verifies the changelog the same way `tag` does, and when a module's release config sets `[release.changelog].roll = true` it also rolls the documented `## [Unreleased]` section into a versioned `## [x.y.z] - <date>` heading, leaving an empty `[Unreleased]` at the top for the next cycle. Rolling only ever *moves* the body the maintainer already wrote — it never fabricates release prose. Rolling is opt-in: with `roll` unset (the default) the changelog is verified but left byte-for-byte unchanged, so `tag`/`publish` and non-opted-in repositories are unaffected. Because a rolled changelog leaves `[Unreleased]` empty, a repository that both rolls in `bump` and requires a documented `[Unreleased]` in `tag` should run `tag` against the merged, rolled changelog (the PR-first flow) rather than re-verifying the pre-roll state.
 
 ## Approval and clean-tree enforcement
 

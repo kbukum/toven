@@ -269,6 +269,15 @@ pub(super) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
                 .unwrap_or_else(|| {
                     ChangelogEntry::new(reference.clone(), "dependency cascade", Vec::new())
                 }),
+            changelog_path: input
+                .settings
+                .get(&reference)
+                .and_then(|resolved| resolved.changelog.path.clone())
+                .unwrap_or_else(|| "CHANGELOG.md".to_string()),
+            changelog_roll: input
+                .settings
+                .get(&reference)
+                .is_some_and(|resolved| resolved.changelog.roll),
         });
     }
     entries.sort_by(|left, right| {

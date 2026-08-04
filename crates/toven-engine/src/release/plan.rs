@@ -1031,6 +1031,7 @@ mod tests {
         config.release.changelog = Some(ChangelogConfig {
             path: None,
             required: true,
+            roll: false,
         });
         let resolved = ResolvedReleaseSettings::resolve(&config.release, None).unwrap();
         BTreeMap::from([(ModuleKey::bare(mref("core")), resolved)])

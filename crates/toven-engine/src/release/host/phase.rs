@@ -358,6 +358,8 @@ mod tests {
                 "changed core",
                 vec!["- did a thing".into()],
             ),
+            changelog_path: "CHANGELOG.md".into(),
+            changelog_roll: false,
         }
     }
 

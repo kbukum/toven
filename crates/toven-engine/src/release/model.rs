@@ -306,6 +306,12 @@ pub struct ReleaseEntry {
     pub baseline: Option<ReleaseBaseline>,
     /// Changelog entry planned for this module.
     pub changelog: ChangelogEntry,
+    /// Workspace-relative changelog file the `bump` phase rolls when
+    /// `changelog_roll` is set (defaulted to `CHANGELOG.md`).
+    pub changelog_path: String,
+    /// Whether the `bump` phase finalizes this module's changelog by moving the
+    /// documented `## [Unreleased]` body under a versioned heading.
+    pub changelog_roll: bool,
 }
 
 /// Immutable release plan produced by the release PLAN tail.
@@ -575,6 +581,8 @@ mod tests {
             topo_rank: 0,
             baseline: None,
             changelog: ChangelogEntry::new(module(name), "changed", Vec::new()),
+            changelog_path: "CHANGELOG.md".into(),
+            changelog_roll: false,
         };
 
         let plan = ReleasePlan::new(

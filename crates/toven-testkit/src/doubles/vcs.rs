@@ -175,6 +175,11 @@ pub enum VcsWrite {
         /// Repo-relative paths supplied to the write port.
         paths: Vec<String>,
     },
+    /// A `stage` call with its exact staged paths (PR-first `bump --no-commit`).
+    Stage {
+        /// Repo-relative paths supplied to the write port.
+        paths: Vec<String>,
+    },
     /// A `create_tag` call with name, target rev, optional message, and the
     /// signing material when the tag was requested signed.
     CreateTag {
@@ -209,6 +214,7 @@ pub struct FakeVcsWriter {
     commit_oid: Oid,
     fail_preflight_tag_signer: Option<String>,
     fail_commit: Option<String>,
+    fail_stage: Option<String>,
     fail_create_tag: Option<String>,
     fail_push: Option<String>,
     fail_restore: Option<String>,
@@ -221,6 +227,7 @@ impl Default for FakeVcsWriter {
             commit_oid: Oid::new("0000000"),
             fail_preflight_tag_signer: None,
             fail_commit: None,
+            fail_stage: None,
             fail_create_tag: None,
             fail_push: None,
             fail_restore: None,
@@ -255,6 +262,14 @@ impl FakeVcsWriter {
     #[must_use]
     pub fn with_commit_failure(mut self, message: impl Into<String>) -> Self {
         self.fail_commit = Some(message.into());
+        self
+    }
+
+    /// Make `stage` fail with a typed internal error after recording the call —
+    /// e.g. to model a PR-first `bump --no-commit` staging failure.
+    #[must_use]
+    pub fn with_stage_failure(mut self, message: impl Into<String>) -> Self {
+        self.fail_stage = Some(message.into());
         self
     }
 
@@ -309,6 +324,16 @@ impl VcsWriter for FakeVcsWriter {
             return Err(AppError::new(ErrorCode::Internal, message.clone()));
         }
         Ok(self.commit_oid.clone())
+    }
+
+    fn stage(&self, paths: &[&str]) -> AppResult<()> {
+        self.record(VcsWrite::Stage {
+            paths: paths.iter().map(|path| (*path).to_string()).collect(),
+        });
+        if let Some(message) = &self.fail_stage {
+            return Err(AppError::new(ErrorCode::Internal, message.clone()));
+        }
+        Ok(())
     }
 
     fn preflight_tag_signer(&self, _signer: &TagSigner) -> AppResult<()> {

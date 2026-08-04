@@ -39,6 +39,7 @@ vendored-openssl = ["rskit-git/vendored-openssl"]
 
 [dev-dependencies]
 toven-testkit.workspace = true
+rskit-util.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

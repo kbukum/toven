@@ -1,15 +1,17 @@
-//! The `release` lifecycle verb: `plan`, `status`, `tag`, `publish`.
+//! The `release` lifecycle verb: `plan`, `status`, `bump`, `tag`, `publish`.
 //!
 //! `plan` and `status` are read-only projections over the engine release spine
 //! — they render typed data on stdout and never mutate a manifest, tag, or
-//! registry. `tag` and `publish` drive the mutating release pipeline
-//! ([`release_run`]): `tag` stops after the release commit/tag/push, `publish`
-//! continues to the registry. `publish` under `--dry-run` instead runs a
-//! no-mutation rehearsal ([`release_rehearse`]) that reports the resolved
-//! publish order and per-module would-publish/already-published verdicts.
-//! Libraries return typed data; this CLI layer is the only one that prints,
-//! following the introspection stream convention (projection on stdout,
-//! warnings/summaries on stderr).
+//! registry. `bump` runs only the version + changelog mutation phase, then
+//! commits the release (or, with `--no-commit`, stages it for a pull request)
+//! without tagging, pushing, or publishing. `tag` and `publish` drive the
+//! mutating release pipeline ([`release_run`]): `tag` stops after the release
+//! commit/tag/push, `publish` continues to the registry. `publish` under
+//! `--dry-run` instead runs a no-mutation rehearsal ([`release_rehearse`]) that
+//! reports the resolved publish order and per-module
+//! would-publish/already-published verdicts. Libraries return typed data; this
+//! CLI layer is the only one that prints, following the introspection stream
+//! convention (projection on stdout, warnings/summaries on stderr).
 
 use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult};
@@ -17,12 +19,12 @@ use rskit_version::semver::Version;
 use serde::Serialize;
 use toven_engine::plan::PlanRequest;
 use toven_engine::release::{
-    BumpOverrides, ChecksumReport, CosignSigner, CosignVerifier, DepgraphReport, GhAssetDownloader,
-    PackageReport, ProcessVersionProbe, PublishDecision, ReadinessReport, ReleaseApplyOptions,
-    ReleasePlan, ReleaseRehearsal, ReleaseStatus, SbomReport, SignReport, VerifyOptions,
-    VerifyReport, release_checksums, release_depgraphs, release_package, release_plan,
-    release_readiness, release_rehearse, release_run, release_sbom, release_sign, release_status,
-    release_verify,
+    BumpOptions, BumpOverrides, BumpReport, ChecksumReport, CosignSigner, CosignVerifier,
+    DepgraphReport, GhAssetDownloader, PackageReport, ProcessVersionProbe, PublishDecision,
+    ReadinessReport, ReleaseApplyOptions, ReleasePlan, ReleaseRehearsal, ReleaseStatus, SbomReport,
+    SignReport, VerifyOptions, VerifyReport, release_bump, release_checksums, release_depgraphs,
+    release_package, release_plan, release_readiness, release_rehearse, release_run, release_sbom,
+    release_sign, release_status, release_verify,
 };
 use toven_engine::vcs::BaselineFlags;
 use toven_model::{Event, ModuleRef};
@@ -67,6 +69,7 @@ pub(crate) fn execute(
         ReleaseAction::Sign => sign(providers, project, cli),
         ReleaseAction::Verify => verify(providers, project, cli),
         ReleaseAction::Publish if cli.dry_run => rehearse(providers, project, cli),
+        ReleaseAction::Bump => bump(providers, project, cli),
         ReleaseAction::Tag | ReleaseAction::Publish => run(providers, project, cli, action),
     }
 }
@@ -419,6 +422,108 @@ fn require_release_confirmation(confirmed: bool) -> AppResult<()> {
         "release.confirmation",
         "real releases require explicit confirmation; pass --yes to proceed",
     ))
+}
+
+/// `release bump`: run only the version + changelog mutation phase, then commit
+/// the release (or, with `--no-commit`, stage it for a pull request). Never
+/// tags, pushes, or publishes. `--dry-run` previews the mutation without
+/// writing, so it needs no `--yes` confirmation.
+fn bump(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+    if !cli.dry_run {
+        require_release_confirmation(cli.confirm_release)?;
+    }
+    let request = release_request(project)?;
+    let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
+    let readers = opened.readers();
+    let repos = opened.release_repos();
+    let overrides = build_overrides(cli)?;
+    let clock = crate::host::resolve_clock()?;
+    let options = BumpOptions {
+        no_commit: cli.no_commit,
+        dry_run: cli.dry_run,
+    };
+    let mut reporter = QuietReporter;
+    let report = release_bump(
+        &request,
+        &project.document,
+        providers,
+        &readers,
+        &repos,
+        &overrides,
+        &mut reporter,
+        clock.as_ref(),
+        &options,
+    )?;
+    match resolve_output(cli.output, &project.document) {
+        OutputKind::Jsonl => render_bump_jsonl(&report)?,
+        OutputKind::Human => render_bump_human(&report),
+    }
+    Ok(ExitCode::Success)
+}
+
+/// A stable JSON-lines record for one `release bump` module outcome.
+#[derive(Serialize)]
+struct BumpRecord {
+    module: String,
+    old_version: String,
+    new_version: String,
+    manifests: Vec<String>,
+    committed: bool,
+    dry_run: bool,
+    changelogs: Vec<String>,
+}
+
+/// Render the `release bump` report as one JSON-lines record per module.
+fn render_bump_jsonl(report: &BumpReport) -> AppResult<()> {
+    for module in &report.modules {
+        let record = BumpRecord {
+            module: module.module.to_string(),
+            old_version: module.old_version.to_string(),
+            new_version: module.new_version.to_string(),
+            manifests: module.manifests.clone(),
+            committed: report.committed,
+            dry_run: report.dry_run,
+            changelogs: report.changelogs.clone(),
+        };
+        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+        println!("{line}");
+    }
+    Ok(())
+}
+
+/// Render the `release bump` report as a human table.
+fn render_bump_human(report: &BumpReport) {
+    if report.modules.is_empty() {
+        println!("\nRelease bump — nothing to bump");
+        println!("  all modules are up to date");
+        return;
+    }
+    let disposition = if report.dry_run {
+        "dry-run (nothing written)"
+    } else if report.committed {
+        "committed"
+    } else {
+        "staged (no commit)"
+    };
+    let title = format!("Release bump — {disposition}");
+    let mut table = OutputTable::new(vec!["Module", "From", "To", "Manifests"]).with_title(title);
+    for module in &report.modules {
+        table.add_row(vec![
+            module.module.to_string(),
+            module.old_version.to_string(),
+            module.new_version.to_string(),
+            module.manifests.join(", "),
+        ]);
+    }
+    println!("{table}");
+    if !report.changelogs.is_empty() {
+        let verb = if report.dry_run {
+            "would roll"
+        } else {
+            "rolled"
+        };
+        println!("changelog {verb}: {}", report.changelogs.join(", "));
+    }
 }
 
 /// A stable JSON-lines record for one `release plan` entry.

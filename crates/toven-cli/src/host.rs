@@ -245,7 +245,7 @@ pub(crate) const RUN_CLOCK_EPOCH_ENV: &str = "TOVEN_CLOCK_EPOCH";
 /// the clock here keeps the wall clock out of the call sites, which reach for a
 /// resolved [`Clock`](rskit_util::time::Clock) rather than `SystemTime::now()`
 /// directly. Fails when the env var is present but not a UTF-8 `u64`.
-fn resolve_clock() -> AppResult<SharedClock> {
+pub(crate) fn resolve_clock() -> AppResult<SharedClock> {
     let raw = match std::env::var(RUN_CLOCK_EPOCH_ENV) {
         Ok(value) => Some(value),
         Err(std::env::VarError::NotPresent) => None,

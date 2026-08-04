@@ -210,6 +210,207 @@ pub fn release_apply_by_member(
     Ok(stats)
 }
 
+/// Apply the standalone `bump` phase across member repos.
+///
+/// Runs only the version + changelog mutation half of a release, per member:
+/// each member gets its own branch and clean-tree guardrail, its manifests are
+/// rewritten and its configured changelog rolled, and the mutation is then
+/// either committed (the default) or staged for a pull request (`--no-commit`).
+/// No tag, push, publish, or hosted Release is produced. `date` stamps a rolled
+/// changelog's versioned heading; `options.dry_run` reports the planned mutation
+/// without writing.
+///
+/// The mutation runs in two phases so it stays undoable up to the first commit:
+/// every member's manifests and changelog are written first, and any failure
+/// restores the already-mutated members' working trees before surfacing. Only
+/// once all members are prepared are the per-member commits/stages created.
+///
+/// # Errors
+/// Returns a typed error when a member repo port is missing, a clean-tree or
+/// branch guardrail trips, or member mutation/changelog-roll/staging/commit
+/// fails.
+pub fn release_bump_by_member(
+    plan: &ReleasePlan,
+    modules: &[Module],
+    targets: &crate::release::ReleaseTargets,
+    repos: &MemberReleaseRepos<'_>,
+    date: &str,
+    options: &crate::release::BumpOptions,
+) -> AppResult<crate::release::BumpReport> {
+    use crate::release::BumpReport;
+
+    let mut report = BumpReport::empty(*options);
+    if plan.is_empty() {
+        return Ok(report);
+    }
+    let module_by_ref: BTreeMap<ModuleKey, &Module> = modules
+        .iter()
+        .map(|module| (module.key(), module))
+        .collect();
+    let shards = shard_plan(plan, modules)?;
+    let settings = shards
+        .iter()
+        .map(|shard| apply::reconcile_repo_settings(&shard.plan.entries))
+        .collect::<AppResult<Vec<_>>>()?;
+    guard_member_trees(&shards, &settings, repos)?;
+    // Resolve every pre-mutation failure (missing target, non-rendering commit
+    // template) before mutating any member.
+    for (shard, settings) in shards.iter().zip(&settings) {
+        apply::preflight_targets(&shard.plan, &module_by_ref, targets)?;
+        apply::commit_message(&shard.plan, &module_by_ref, settings.commit_message())?;
+    }
+
+    if options.dry_run {
+        report.modules = bump_module_outcomes(plan, &Vec::new());
+        report.changelogs = would_roll_changelogs(plan);
+        return Ok(report);
+    }
+
+    // Phase 1 (undoable): mutate manifests and roll the changelog for every
+    // member. A failure restores each already-mutated member before surfacing.
+    let mut prepared: Vec<(&MemberReleaseShard, Vec<RepoPath>)> = Vec::new();
+    for shard in &shards {
+        let repo = repo_for(repos, shard.member.as_ref())?;
+        match bump_prepare_member(&shard.plan, &module_by_ref, targets, repo.root(), date) {
+            Ok(prepared_bump) => {
+                report.modules.extend(bump_module_outcomes(
+                    &shard.plan,
+                    &prepared_bump.mutated_manifests,
+                ));
+                report.changelogs.extend(prepared_bump.rolled_changelogs);
+                prepared.push((shard, prepared_bump.changed));
+            }
+            Err(error) => return Err(restore_bump_prepared(&prepared, repos, error)),
+        }
+    }
+
+    // Phase 2: create the release commit, or stage the mutation for a PR, per
+    // member. A member that rewrote nothing (a tag-only ecosystem with no rolled
+    // changelog) has nothing to commit or stage, so `report.committed` reflects
+    // whether any member's release commit was actually created rather than the
+    // requested disposition.
+    for (shard, changed) in &prepared {
+        if changed.is_empty() {
+            continue;
+        }
+        let repo = repo_for(repos, shard.member.as_ref())?;
+        if options.no_commit {
+            apply::stage_only(repo.writer(), changed)?;
+        } else {
+            let settings = apply::reconcile_repo_settings(&shard.plan.entries)?;
+            let message =
+                apply::commit_message(&shard.plan, &module_by_ref, settings.commit_message())?;
+            apply::stage_and_commit(repo.writer(), changed, &message)?;
+            report.committed = true;
+        }
+    }
+    Ok(report)
+}
+
+/// One member's prepared `bump` mutation: the full staged path set, the
+/// per-module rewritten manifest paths, and the rolled changelog paths.
+struct PreparedBump {
+    /// Every repo-relative path the commit or stage will pick up (manifests +
+    /// rolled changelogs).
+    changed: Vec<RepoPath>,
+    /// Per-module rewritten manifest paths, for the report's module outcomes.
+    mutated_manifests: Vec<(ModuleKey, Vec<RepoPath>)>,
+    /// Repo-relative changelog paths that were rolled.
+    rolled_changelogs: Vec<String>,
+}
+
+/// Mutate one member's manifests and roll its changelog, returning the staged
+/// path set, the per-module manifest paths, and the rolled changelog paths.
+fn bump_prepare_member(
+    plan: &ReleasePlan,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+    targets: &crate::release::ReleaseTargets,
+    root: &Path,
+    date: &str,
+) -> AppResult<PreparedBump> {
+    use crate::release::mutate;
+
+    let mut stats = ReleaseStats::new(plan.entries.len());
+    let mutated_manifests = mutate::mutate_manifests(plan, module_by_ref, targets, &mut stats)?;
+    let rolled = mutate::roll_changelogs(plan, root, date)?;
+    let mut changed = mutate::staged_paths(&mutated_manifests);
+    changed.extend(rolled.iter().cloned());
+    let rolled_changelogs = rolled
+        .iter()
+        .map(|path| path.as_path().to_string_lossy().into_owned())
+        .collect();
+    Ok(PreparedBump {
+        changed,
+        mutated_manifests,
+        rolled_changelogs,
+    })
+}
+
+/// Restore every already-mutated member's working tree after a phase-1 failure,
+/// mirroring [`restore_prepared_or_error`].
+fn restore_bump_prepared(
+    prepared: &[(&MemberReleaseShard, Vec<RepoPath>)],
+    repos: &MemberReleaseRepos<'_>,
+    error: AppError,
+) -> AppError {
+    for (shard, _) in prepared.iter().rev() {
+        let repo = match repo_for(repos, shard.member.as_ref()) {
+            Ok(repo) => repo,
+            Err(restore) => return restore_prepared_failure(error, &restore),
+        };
+        if let Err(restore) = repo.writer().restore_worktree() {
+            return restore_prepared_failure(error, &restore);
+        }
+    }
+    error
+}
+
+/// Build per-module `bump` outcomes from a plan, mapping each planned entry to
+/// its version transition and (when known) the manifest paths it rewrote.
+fn bump_module_outcomes(
+    plan: &ReleasePlan,
+    mutated_manifests: &[(ModuleKey, Vec<RepoPath>)],
+) -> Vec<crate::release::BumpModuleOutcome> {
+    plan.entries
+        .iter()
+        .filter_map(|entry| {
+            let new_version = entry.planned_version.clone()?;
+            let manifests = mutated_manifests
+                .iter()
+                .find(|(module, _)| *module == entry.module)
+                .map(|(_, paths)| {
+                    paths
+                        .iter()
+                        .map(|path| path.as_path().to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(crate::release::BumpModuleOutcome {
+                module: entry.module.clone(),
+                old_version: entry.current_version.clone(),
+                new_version,
+                manifests,
+            })
+        })
+        .collect()
+}
+
+/// The distinct changelog paths a `bump` run would roll, in plan order — the
+/// `--dry-run` preview of the changelog mutation.
+fn would_roll_changelogs(plan: &ReleasePlan) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut paths = Vec::new();
+    for entry in &plan.entries {
+        if entry.changelog_roll
+            && entry.planned_version.is_some()
+            && seen.insert(entry.changelog_path.clone())
+        {
+            paths.push(entry.changelog_path.clone());
+        }
+    }
+    paths
+}
+
 fn guard_member_trees(
     shards: &[MemberReleaseShard],
     settings: &[apply::RepoReleaseSettings],
@@ -472,6 +673,8 @@ mod tests {
             topo_rank: rank,
             baseline: None,
             changelog: ChangelogEntry::new(mkey(member, name), "changed", Vec::new()),
+            changelog_path: "CHANGELOG.md".into(),
+            changelog_roll: false,
         }
     }
 

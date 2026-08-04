@@ -21,6 +21,16 @@ pub trait VcsWriter {
     /// release's own writes.
     fn commit(&self, message: &str, paths: &[&str]) -> AppResult<Oid>;
 
+    /// Stage exactly the repo-relative `paths` the release mutated without
+    /// creating a commit.
+    ///
+    /// The PR-first `bump` phase (`--no-commit`) uses this to leave the version
+    /// and changelog mutation staged in the index for a maintainer to review and
+    /// commit into their own pull request, instead of cutting the release commit
+    /// itself. Like [`commit`](Self::commit), the paths are precisely the
+    /// release's own writes, so no unrelated working-tree change is staged.
+    fn stage(&self, paths: &[&str]) -> AppResult<()>;
+
     /// Validate that `signer` can create a signed tag without mutating history.
     ///
     /// The release engine calls this before manifest mutation and the release
