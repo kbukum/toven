@@ -229,6 +229,7 @@ pub(crate) fn resolve_release_settings(
         let resolved_settings = ResolvedReleaseSettings::resolve(&ecosystem, over)?;
         validate_ecosystem_publication(module, &resolved_settings)?;
         validate_visibility_compat(module, &resolved_settings)?;
+        validate_phase_backing_supported(module, &resolved_settings)?;
         resolved.insert(module.key(), resolved_settings);
     }
     Ok(resolved)
@@ -259,6 +260,36 @@ fn validate_visibility_compat(
                 resolved.visibility.as_str(),
             ),
         ));
+    }
+    Ok(())
+}
+
+/// Fail closed when a module resolves a phase to a delegated backing, because
+/// the engine does not yet dispatch delegated phase execution — the per-phase
+/// `DelegatedPhase` runner is wired, but no phase call site routes through it.
+///
+/// A configured `[…release.phases.<phase>] backing = "delegated"` therefore must
+/// **not** silently run natively: it surfaces here, at plan time and before any
+/// mutation, naming the phase and tool, rather than degrading to the native
+/// path. The delegated-execution dispatch lands with the Go/GoReleaser flow;
+/// until then a delegated backing is a typed, actionable configuration error.
+fn validate_phase_backing_supported(
+    module: &toven_model::Module,
+    resolved: &ResolvedReleaseSettings,
+) -> AppResult<()> {
+    for phase in toven_model::ReleasePhase::ALL {
+        if let Some(tool) = resolved.phase_backing(*phase)?.tool() {
+            return Err(AppError::invalid_input(
+                format!("release.phases.{}", phase.as_str()),
+                format!(
+                    "module '{}' delegates the {} phase to '{tool}', but delegated phase \
+                     execution is not yet supported; remove the delegated backing to run the \
+                     phase natively",
+                    module.key(),
+                    phase.as_str(),
+                ),
+            ));
+        }
     }
     Ok(())
 }
@@ -430,7 +461,7 @@ mod tests {
 
     use super::{
         BumpPolicy, ResolvedReleaseSettings, reconcile_policy, release_plan,
-        validate_required_changelogs,
+        validate_phase_backing_supported, validate_required_changelogs,
     };
     use crate::config::{Document, ProjectConfig, TovenConfig};
     use crate::federation::baseline::MemberVcsReaders;
@@ -447,6 +478,49 @@ mod tests {
 
     fn module(name: &str, root: &str) -> Module {
         Module::new(mref(name), RepoPath::new(root).unwrap())
+    }
+
+    #[test]
+    fn a_native_phase_backing_passes_the_support_guard() {
+        let resolved = ResolvedReleaseSettings::resolve(&ReleaseConfig::default(), None).unwrap();
+        assert!(
+            validate_phase_backing_supported(&module("core", "core"), &resolved).is_ok(),
+            "an unconfigured (native) phase backing must be accepted"
+        );
+    }
+
+    #[test]
+    fn a_delegated_phase_backing_is_rejected_until_execution_is_wired() {
+        use toven_model::ReleasePhase;
+        use toven_ports::{DelegatedTool, PhaseBackingKind, PhaseConfig, PhasesConfig};
+
+        let mut phases = BTreeMap::new();
+        phases.insert(
+            ReleasePhase::Package,
+            PhaseConfig {
+                backing: PhaseBackingKind::Delegated,
+                delegated: Some(DelegatedTool {
+                    tool: "goreleaser".into(),
+                    args: Some(vec!["release".into()]),
+                    preview: vec!["release".into(), "--snapshot".into()],
+                }),
+            },
+        );
+        let ecosystem = ReleaseConfig {
+            phases: Some(PhasesConfig(phases)),
+            ..ReleaseConfig::default()
+        };
+        let resolved = ResolvedReleaseSettings::resolve(&ecosystem, None).unwrap();
+
+        let error = validate_phase_backing_supported(&module("core", "core"), &resolved)
+            .expect_err("a delegated backing must fail closed, not run natively");
+        let message = error.to_string();
+        assert!(message.contains("package"), "{message}");
+        assert!(message.contains("goreleaser"), "{message}");
+        assert!(
+            message.contains("not yet supported"),
+            "the error must explain the delegated phase is unwired: {message}"
+        );
     }
 
     /// Release tags placing every named module at `0.1.0`, so change detection

@@ -15,7 +15,7 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_util::Template;
 use toven_model::{Module, ModuleKey, RepoPath};
 use toven_ports::{
-    Artifact, ReleaseCredentials, ReleaseTarget, ReleaseVar, TagSigner, VcsReader, VcsWriter,
+    Artifact, ReleaseAdapter, ReleaseCredentials, ReleaseVar, TagSigner, VcsReader, VcsWriter,
 };
 
 use super::publish::{self, PublishItem};
@@ -574,7 +574,7 @@ fn module_for<'a>(
 fn target_for<'a>(
     targets: &'a super::ReleaseTargets,
     module: &Module,
-) -> AppResult<&'a dyn ReleaseTarget> {
+) -> AppResult<&'a dyn ReleaseAdapter> {
     targets
         .get(&(module.member.clone(), module.id.ecosystem.clone()))
         .map(Box::as_ref)

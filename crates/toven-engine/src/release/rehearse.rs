@@ -25,7 +25,7 @@ use crate::plan::{PlanRequest, prepare_front};
 ///
 /// Reuses the release PLAN cut, whose per-entry `publish_needed` already folds
 /// in the publish loop's idempotency query
-/// ([`ReleaseTarget::published_versions`](toven_ports::ReleaseTarget::published_versions)),
+/// ([`VersionSource::published_versions`](toven_ports::VersionSource::published_versions)),
 /// to report what a real publish would do. It also resolves — but never cuts —
 /// the hosted forge Releases a real run would create, so `--dry-run` reports
 /// the hosted release plan (tag, flags, assets) while invoking no forge CLI. It

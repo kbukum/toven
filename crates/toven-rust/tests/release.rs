@@ -6,7 +6,7 @@
 
 use rskit_version::semver::Version;
 use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
-use toven_ports::{ReleaseMutation, ReleaseTarget};
+use toven_ports::{ManifestMutator, Packager, Publisher, ReleaseMutation, VersionSource};
 use toven_rust::CargoRegistryTarget;
 use toven_testkit::{CurrentDirGuard, SampleRepo};
 

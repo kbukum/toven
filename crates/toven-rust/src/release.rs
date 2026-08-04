@@ -1,4 +1,4 @@
-//! `CargoRegistryTarget` — the cargo [`ReleaseTarget`] sliver (crates.io by
+//! `CargoRegistryTarget` — the cargo release-adapter sliver (crates.io by
 //! default, or a named alternate registry).
 //!
 //! Owns the ecosystem-specific ~10% of release: reading a module's declared
@@ -26,8 +26,9 @@ use rskit_version::semver::Version;
 use toml_edit::{DocumentMut, Item, value};
 use toven_model::{Module, RepoPath};
 use toven_ports::{
-    Artifact, PublishOutcome, RegistryCadence, ReleaseCredentials, ReleaseMutation, ReleaseTarget,
-    ReleaseVar, TagScheme, Visibility,
+    Artifact, ManifestMutator, Packager, PublishOutcome, Publisher, RegistryCadence,
+    ReleaseCredentials, ReleaseMutation, ReleaseVar, SbomProducer, TagGrammar, TagScheme,
+    VersionSource, Visibility,
 };
 
 /// Hard bound on a `Cargo.toml` read (4 MiB) — manifests are tiny; this only
@@ -140,7 +141,7 @@ impl CargoRegistryTarget {
     }
 }
 
-impl ReleaseTarget for CargoRegistryTarget {
+impl VersionSource for CargoRegistryTarget {
     fn declared_version(&self, module: &Module) -> AppResult<Version> {
         let root = Self::working_root()?;
         let path = Self::manifest_path(module)?;
@@ -166,11 +167,15 @@ impl ReleaseTarget for CargoRegistryTarget {
         output.check()?;
         Ok(parse_cargo_search_versions(&package, &output.stdout))
     }
+}
 
+impl TagGrammar for CargoRegistryTarget {
     fn tag_scheme(&self, module: &Module, tag_format: Option<&str>) -> AppResult<TagScheme> {
         tag_scheme(module, tag_format.unwrap_or(DEFAULT_TAG_FORMAT))
     }
+}
 
+impl Packager for CargoRegistryTarget {
     fn package(&self, module: &Module) -> AppResult<Artifact> {
         let path = Self::manifest_path(module)?;
         let output = cargo(
@@ -191,7 +196,9 @@ impl ReleaseTarget for CargoRegistryTarget {
         ));
         Ok(Artifact::new(artifact))
     }
+}
 
+impl ManifestMutator for CargoRegistryTarget {
     fn apply_release(
         &self,
         module: &Module,
@@ -209,7 +216,9 @@ impl ReleaseTarget for CargoRegistryTarget {
         write_atomic_replace(&path, rewritten.as_bytes(), MANIFEST_TEMP_PREFIX)?;
         Ok(vec![manifest])
     }
+}
 
+impl Publisher for CargoRegistryTarget {
     fn publish(
         &self,
         module: &Module,
@@ -245,7 +254,9 @@ impl ReleaseTarget for CargoRegistryTarget {
         let output = cargo_with_env(Self::working_root()?, publish_argv(&path, registry), token)?;
         classify_publish(*self, module, &output)
     }
+}
 
+impl SbomProducer for CargoRegistryTarget {
     fn sbom(&self, module: &Module, out_dir: &Path) -> AppResult<Option<Artifact>> {
         let manifest = Self::manifest_path(module)?;
         create_all(out_dir)?;
@@ -1183,7 +1194,7 @@ core = \"0.2.0\"
 mod tag_scheme_tests {
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
-    use toven_ports::ReleaseTarget;
+    use toven_ports::TagGrammar;
 
     use super::CargoRegistryTarget;
 
@@ -1206,7 +1217,7 @@ mod tag_scheme_tests {
 
     #[test]
     fn publishing_a_non_public_version_to_crates_io_fails_closed() {
-        use toven_ports::{Artifact, ReleaseCredentials, ReleaseTarget, Visibility};
+        use toven_ports::{Artifact, Publisher, ReleaseCredentials, Visibility};
 
         // crates.io publishes every version world-readable, so the adapter is the
         // last line of defense: a private/internal exposure is rejected before
@@ -1231,7 +1242,7 @@ mod tag_scheme_tests {
 
     #[test]
     fn publishing_a_non_public_version_to_a_named_registry_bypasses_the_crates_io_gate() {
-        use toven_ports::{Artifact, ReleaseCredentials, ReleaseTarget, Visibility};
+        use toven_ports::{Artifact, Publisher, ReleaseCredentials, Visibility};
 
         // A named alternate registry is not the public-only crates.io, so the
         // adapter does not reject a private/internal exposure: the publish is

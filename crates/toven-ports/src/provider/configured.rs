@@ -5,7 +5,7 @@ use rskit_errors::AppResult;
 use crate::{
     config::{CommonEcosystemConfig, RunStrategy},
     discover::{DiscoverRequest, DiscoverResponse},
-    release::ReleaseTarget,
+    release::ReleaseAdapter,
     task::{TaskIntent, TaskKind, ToolchainProbe},
 };
 
@@ -45,10 +45,12 @@ pub trait ConfiguredAdapter {
     /// applied).
     fn run_strategy_default(&self, kind: TaskKind) -> RunStrategy;
 
-    /// The ecosystem release target when the adapter supports release mechanics.
-    /// Publication policy (`registry`, tag-only, excluded) is resolved by the
-    /// engine from configuration.
-    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseTarget>>>;
+    /// The ecosystem release adapter when the adapter supports release
+    /// mechanics — the composed per-phase seam
+    /// ([`ReleaseAdapter`]). Publication policy (`registry`, tag-only, excluded)
+    /// and per-phase backing (native or delegated) are resolved by the engine
+    /// from configuration.
+    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseAdapter>>>;
 
     /// The resolved engine-common knobs (`run_strategy`, `release`, `tasks`).
     fn common(&self) -> &CommonEcosystemConfig;

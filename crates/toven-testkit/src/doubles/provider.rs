@@ -11,7 +11,7 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use toven_model::EcosystemId;
 use toven_ports::{
     Answers, CommonEcosystemConfig, ConfiguredAdapter, DEFAULT_READINESS_TIMEOUT, Detection,
-    DiscoverRequest, DiscoverResponse, EcosystemFragment, Provider, Questionnaire, ReleaseTarget,
+    DiscoverRequest, DiscoverResponse, EcosystemFragment, Provider, Questionnaire, ReleaseAdapter,
     RunStrategy, Task, TaskEntry, TaskKind, ToolchainProbe,
 };
 
@@ -138,11 +138,11 @@ impl ConfiguredAdapter for FakeConfiguredAdapter {
         self.run_strategy
     }
 
-    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseTarget>>> {
+    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
         Ok(self
             .release_target
             .clone()
-            .map(|target| Box::new(target) as Box<dyn ReleaseTarget>))
+            .map(|target| Box::new(target) as Box<dyn ReleaseAdapter>))
     }
 
     fn common(&self) -> &CommonEcosystemConfig {

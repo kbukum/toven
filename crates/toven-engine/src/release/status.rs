@@ -22,7 +22,7 @@ use super::plan::{release_targets, resolve_release_settings};
 ///
 /// A module is releasable when its ecosystem adapter exposes a release target;
 /// modules without one are omitted. Registry lookups are best-effort per the
-/// [`ReleaseTarget`](toven_ports::ReleaseTarget) contract, so a partial
+/// [`VersionSource`](toven_ports::VersionSource) contract, so a partial
 /// published set still yields a status.
 ///
 /// # Errors

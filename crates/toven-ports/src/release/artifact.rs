@@ -1,4 +1,4 @@
-//! The built, publishable artifact a [`ReleaseTarget`](super::ReleaseTarget)
+//! The built, publishable artifact a [`Packager`](super::Packager)
 //! produces.
 
 use std::path::PathBuf;
@@ -6,7 +6,7 @@ use std::path::PathBuf;
 /// A packaged artifact ready to publish.
 ///
 /// Intentionally thin: the engine never inspects the artifact's format, it only
-/// hands it back to [`ReleaseTarget::publish`](super::ReleaseTarget::publish).
+/// hands it back to [`Publisher::publish`](super::Publisher::publish).
 /// `path` locates the built artifact (e.g. a `.crate` file).
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Artifact {

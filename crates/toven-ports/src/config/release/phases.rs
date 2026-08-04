@@ -1,14 +1,13 @@
 //! Per-phase backing vocabulary: how each release [`ReleasePhase`] is satisfied
 //! (`[…release.phases.<phase>]`).
 //!
-//! This is the **contract sketch** for the per-phase seam: it names, per phase,
-//! whether Toven backs the phase natively (the default) or delegates it to an
-//! external tool invoked argv-first. It resolves to the seam-level
-//! [`PhaseBacking`](crate::release::PhaseBacking). The engine wiring that reads
-//! this — resolution into settings and per-phase execution — lands with the
-//! phase seam refactor; until [`ReleaseConfig`](super::ReleaseConfig) includes
-//! this field, the strict loader still rejects `[…release.phases]` and every
-//! phase runs natively.
+//! Names, per phase, whether Toven backs the phase natively (the default) or
+//! delegates it to an external tool invoked argv-first. It resolves to the
+//! seam-level [`PhaseBacking`](crate::release::PhaseBacking) and is a field of
+//! [`ReleaseConfig`](super::ReleaseConfig), so the strict loader accepts
+//! `[…release.phases]`, folds it through the ecosystem → per-module merge, and
+//! the engine resolves each phase's backing with the standard precedence. An
+//! absent phase entry runs natively.
 
 use std::collections::BTreeMap;
 
@@ -61,6 +60,18 @@ impl PhasesConfig {
             config.validate(&format!("{field}.{}", phase.as_str()))?;
         }
         Ok(())
+    }
+
+    /// The delegated tool backing `phase`, if the phase is configured to
+    /// delegate.
+    ///
+    /// Returns `None` for a native (or unconfigured) phase; the engine builds
+    /// the argv-first invocation from the returned [`DelegatedTool`].
+    #[must_use]
+    pub fn delegated_tool(&self, phase: ReleasePhase) -> Option<&DelegatedTool> {
+        self.0
+            .get(&phase)
+            .and_then(|config| config.delegated.as_ref())
     }
 }
 
@@ -151,24 +162,38 @@ impl PhaseBackingKind {
 
 /// The delegated external tool for a phase (`[…release.phases.<phase>.delegated]`).
 ///
-/// The tool is invoked argv-first: `tool` names the executable and `args` are
-/// fixed leading arguments. It carries no secrets — those flow through the
-/// child-process environment, never argv.
+/// The tool is invoked argv-first: `tool` names the executable, `args` are the
+/// fixed leading arguments for the real (mutating) invocation, and `preview`
+/// are the arguments for a **mutation-free preview** (the tool's dry-run/plan
+/// equivalent). It carries no secrets — those flow through the child-process
+/// environment, never argv.
+///
+/// A mutation-free preview is mandatory: a delegated phase must be previewable
+/// without mutating, so [`validate`](Self::validate) rejects a tool that
+/// declares no `preview` arguments. This is how the flow's mutation-free-preview
+/// guarantee is enforced at config time for a delegated phase.
 #[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DelegatedTool {
     /// The external executable that backs the phase (e.g. `goreleaser`).
     pub tool: String,
-    /// Fixed leading arguments passed to the tool, argv-first; `None` = none.
+    /// Fixed leading arguments for the real, mutating invocation, argv-first;
+    /// `None` = none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<String>>,
+    /// Arguments that run the tool as a **mutation-free preview** (its
+    /// dry-run/plan equivalent). Required: a delegated phase with no
+    /// mutation-free preview is rejected at config time.
+    pub preview: Vec<String>,
 }
 
 impl DelegatedTool {
     /// Validate the tool selection.
     ///
     /// # Errors
-    /// Rejects a blank tool name or any blank argument.
+    /// Rejects a blank tool name, any blank argument, or a missing/blank
+    /// mutation-free preview (a delegated phase must be previewable without
+    /// mutating).
     pub fn validate(&self, field: &str) -> AppResult<()> {
         if self.tool.trim().is_empty() {
             return Err(AppError::invalid_input(
@@ -177,17 +202,31 @@ impl DelegatedTool {
             ));
         }
         if let Some(args) = &self.args {
-            for (index, arg) in args.iter().enumerate() {
-                if arg.trim().is_empty() {
-                    return Err(AppError::invalid_input(
-                        format!("{field}.args[{index}]"),
-                        "argument must not be blank",
-                    ));
-                }
-            }
+            validate_argv(&format!("{field}.args"), args)?;
         }
+        if self.preview.is_empty() {
+            return Err(AppError::invalid_input(
+                format!("{field}.preview"),
+                "a delegated phase must declare mutation-free preview arguments (its dry-run \
+                 equivalent); a phase that cannot preview without mutating cannot be delegated",
+            ));
+        }
+        validate_argv(&format!("{field}.preview"), &self.preview)?;
         Ok(())
     }
+}
+
+/// Reject any blank entry in an argv list.
+fn validate_argv(field: &str, argv: &[String]) -> AppResult<()> {
+    for (index, arg) in argv.iter().enumerate() {
+        if arg.trim().is_empty() {
+            return Err(AppError::invalid_input(
+                format!("{field}[{index}]"),
+                "argument must not be blank",
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -224,6 +263,7 @@ mod tests {
             [package.delegated]
             tool = "goreleaser"
             args = ["release", "--clean"]
+            preview = ["release", "--snapshot", "--clean"]
             "#,
         )
         .expect("parses");
@@ -325,6 +365,7 @@ mod tests {
             r#"
             [package.delegated]
             tool = "goreleaser"
+            preview = ["release", "--snapshot"]
             "#,
         )
         .expect("parses");
@@ -342,6 +383,7 @@ mod tests {
             backing = "delegated"
             [package.delegated]
             tool = "  "
+            preview = ["release", "--snapshot"]
             "#,
         )
         .expect("parses");
@@ -352,6 +394,27 @@ mod tests {
     }
 
     #[test]
+    fn validate_rejects_delegated_without_a_mutation_free_preview() {
+        // A delegated phase that declares no dry-run preview cannot honor the
+        // flow's mutation-free-preview guarantee, so it is rejected at config
+        // time rather than run.
+        let phases = parse(
+            r#"
+            [package]
+            backing = "delegated"
+            [package.delegated]
+            tool = "goreleaser"
+            preview = []
+            "#,
+        )
+        .expect("parses");
+        let error = phases
+            .validate("ecosystems.go.release.phases")
+            .expect_err("delegated without a preview rejected");
+        assert!(error.to_string().contains("preview"), "{error}");
+    }
+
+    #[test]
     fn round_trips_through_serde() {
         let phases = parse(
             r#"
@@ -359,6 +422,7 @@ mod tests {
             backing = "delegated"
             [package.delegated]
             tool = "goreleaser"
+            preview = ["release", "--snapshot"]
             "#,
         )
         .expect("parses");

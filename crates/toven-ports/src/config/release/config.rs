@@ -11,8 +11,8 @@ use crate::release::Visibility;
 use crate::template::ReleaseVar;
 
 use super::{
-    BumpLevel, ChangelogConfig, DependentVersion, HostConfig, PrereleaseConfig, PublicationPolicy,
-    SignConfig,
+    BumpLevel, ChangelogConfig, DependentVersion, HostConfig, PhasesConfig, PrereleaseConfig,
+    PublicationPolicy, SignConfig,
 };
 
 /// The declarative release surface (`[ecosystems.<id>].release` and the
@@ -127,6 +127,11 @@ pub struct ReleaseConfig {
     /// `None` = inherit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<HostConfig>,
+    /// Per-phase backing map: how each release phase is satisfied (native, the
+    /// default, or delegated to an external tool). `None` = inherit; an absent
+    /// phase entry runs natively.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phases: Option<PhasesConfig>,
 }
 
 impl ReleaseConfig {
@@ -171,6 +176,9 @@ impl ReleaseConfig {
         }
         if let Some(host) = &self.host {
             host.validate(&format!("{field}.host"))?;
+        }
+        if let Some(phases) = &self.phases {
+            phases.validate(&format!("{field}.phases"))?;
         }
         validate_optional_nonblank(&format!("{field}.strategy"), self.strategy.as_deref())?;
         validate_optional_nonblank(&format!("{field}.registry"), self.registry.as_deref())?;

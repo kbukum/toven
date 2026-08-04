@@ -8,7 +8,7 @@ use rskit_errors::{AppError, AppResult};
 use rskit_version::semver::Version;
 use toven_model::{DepKind, Edge, Graph, MemberId, Module, ModuleKey, ModuleRef};
 use toven_ports::{
-    BumpLevel, DependentVersion, PublicationPolicy, ReleaseMutation, ReleaseTarget, TagSigner,
+    BumpLevel, DependentVersion, PublicationPolicy, ReleaseAdapter, ReleaseMutation, TagSigner,
 };
 
 use super::strategy::{self, EffectiveLevel};
@@ -605,7 +605,7 @@ const fn effective_to_level(level: EffectiveLevel) -> BumpLevel {
 fn idempotency(
     input: &BumpInputs<'_>,
     module: &Module,
-    target: &dyn ReleaseTarget,
+    target: &dyn ReleaseAdapter,
     reference: &ModuleKey,
     planned: Option<&Version>,
 ) -> (bool, bool) {
@@ -679,7 +679,7 @@ fn lookup<'a>(
 fn target_for<'a>(
     targets: &'a super::ReleaseTargets,
     module: &Module,
-) -> AppResult<&'a dyn ReleaseTarget> {
+) -> AppResult<&'a dyn ReleaseAdapter> {
     targets
         .get(&(module.member.clone(), module.id.ecosystem.clone()))
         .map(Box::as_ref)
@@ -735,7 +735,7 @@ mod tests {
     use rskit_errors::AppResult;
     use rskit_version::semver::Version;
     use toven_model::{DepKind, EcosystemId, Edge, Graph, MemberId, Module, RepoPath};
-    use toven_ports::{BumpLevel, DependentVersion, Oid, ReleaseConfig, ReleaseTarget};
+    use toven_ports::{BumpLevel, DependentVersion, Oid, ReleaseAdapter, ReleaseConfig};
     use toven_testkit::FakeReleaseTarget;
 
     use super::{
@@ -773,7 +773,7 @@ mod tests {
         let mut targets = ReleaseTargets::new();
         targets.insert(
             (None, EcosystemId::new("rust").unwrap()),
-            Box::new(FakeReleaseTarget::new()) as Box<dyn ReleaseTarget>,
+            Box::new(FakeReleaseTarget::new()) as Box<dyn ReleaseAdapter>,
         );
         targets
     }
@@ -787,7 +787,7 @@ mod tests {
         let mut targets = ReleaseTargets::new();
         targets.insert(
             (None, EcosystemId::new("rust").unwrap()),
-            Box::new(FakeReleaseTarget::new()) as Box<dyn ReleaseTarget>,
+            Box::new(FakeReleaseTarget::new()) as Box<dyn ReleaseAdapter>,
         );
 
         let mut settings = BTreeMap::new();
@@ -1021,7 +1021,7 @@ mod tests {
             (None, EcosystemId::new("rust").unwrap()),
             Box::new(
                 FakeReleaseTarget::new().with_declared_version(Version::parse(declared).unwrap()),
-            ) as Box<dyn ReleaseTarget>,
+            ) as Box<dyn ReleaseAdapter>,
         );
 
         let mut settings = BTreeMap::new();

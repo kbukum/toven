@@ -6,6 +6,7 @@ mod change;
 mod changelog;
 mod checksums;
 mod conventional;
+mod delegated;
 mod depgraphs;
 mod host;
 mod manifest;
@@ -29,6 +30,7 @@ mod verify;
 
 pub use apply::{ReleaseApplyOptions, release_apply};
 pub use checksums::{ChecksumEntry, ChecksumReport, release_checksums};
+pub use delegated::{ProcessDelegatedPhase, delegated_request};
 pub use depgraphs::{DepgraphReport, release_depgraphs};
 pub use host::{GithubReleaseHost, GitlabReleaseHost};
 pub use manifest::ArtifactManifest;

@@ -95,6 +95,9 @@ pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfi
     if over.host.is_some() {
         merged.host.clone_from(&over.host);
     }
+    if over.phases.is_some() {
+        merged.phases.clone_from(&over.phases);
+    }
 
     merged
 }
