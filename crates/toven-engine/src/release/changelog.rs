@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use rskit_version::semver::Version;
 use toven_model::Module;
 use toven_ports::CommitSummary;
 
@@ -183,9 +184,76 @@ pub(super) fn unreleased_documented(text: &str) -> bool {
     false
 }
 
+/// Whether a `## ` line is the `[Unreleased]` heading.
+fn is_unreleased_heading(line: &str) -> bool {
+    line.trim().strip_prefix("## ").is_some_and(|heading| {
+        let heading = heading.trim();
+        heading.contains('[') && heading.to_ascii_lowercase().contains("unreleased")
+    })
+}
+
+/// Roll a documented `## [Unreleased]` section into a versioned
+/// `## [version] - date` section, returning the rewritten document.
+///
+/// This is the `bump` phase's changelog **rewrite** (as distinct from the
+/// plan-time `unreleased_documented` **verify**): the accumulated `[Unreleased]`
+/// body is relocated verbatim under a new `## [version] - date` heading while an
+/// empty `## [Unreleased]` heading is left in place to collect the next cycle's
+/// entries. It never fabricates prose — only the entries an author already
+/// recorded move. Returns `None` when there is nothing to roll (no
+/// `[Unreleased]` section, or one with no documented entry), so a caller can
+/// leave the file untouched rather than write an empty versioned section.
+#[must_use]
+pub(super) fn roll_unreleased(text: &str, version: &Version, date: &str) -> Option<String> {
+    if !unreleased_documented(text) {
+        return None;
+    }
+    let lines: Vec<&str> = text.lines().collect();
+    let heading_index = lines.iter().position(|line| is_unreleased_heading(line))?;
+    // The section body runs from just after the `[Unreleased]` heading to the
+    // next level-2 heading (or the end of the document).
+    let body_end = lines[heading_index + 1..]
+        .iter()
+        .position(|line| line.trim_start().starts_with("## "))
+        .map_or(lines.len(), |offset| heading_index + 1 + offset);
+
+    let body: Vec<&str> = trim_blank_edges(&lines[heading_index + 1..body_end]);
+    let suffix = &lines[body_end..];
+
+    let mut rolled: Vec<String> = lines[..=heading_index]
+        .iter()
+        .map(|line| (*line).to_string())
+        .collect();
+    rolled.push(String::new());
+    rolled.push(format!("## [{version}] - {date}"));
+    rolled.push(String::new());
+    rolled.extend(body.iter().map(|line| (*line).to_string()));
+    if !suffix.is_empty() {
+        rolled.push(String::new());
+        rolled.extend(suffix.iter().map(|line| (*line).to_string()));
+    }
+    let mut out = rolled.join("\n");
+    out.push('\n');
+    Some(out)
+}
+
+/// Drop leading and trailing blank lines from a slice of lines.
+fn trim_blank_edges<'a>(lines: &[&'a str]) -> Vec<&'a str> {
+    let start = lines
+        .iter()
+        .position(|line| !line.trim().is_empty())
+        .unwrap_or(lines.len());
+    let end = lines
+        .iter()
+        .rposition(|line| !line.trim().is_empty())
+        .map_or(start, |index| index + 1);
+    lines[start..end].to_vec()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{merge_notes, unreleased_documented};
+    use super::{merge_notes, roll_unreleased, unreleased_documented};
+    use rskit_version::semver::Version;
 
     #[test]
     fn merging_same_heading_unions_bullets_under_one_section() {
@@ -263,5 +331,35 @@ mod tests {
         // A bullet after Unreleased closes belongs to the released section.
         let text = "## [Unreleased]\n\n## [1.0.0]\n\n- Shipped\n";
         assert!(!unreleased_documented(text));
+    }
+
+    #[test]
+    fn rolling_moves_the_unreleased_body_under_a_versioned_heading() {
+        let text = "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- A feature\n\n## \
+                    [1.0.0] - 2026-01-01\n\n- Older change\n";
+        let rolled = roll_unreleased(text, &Version::new(1, 1, 0), "2026-08-04").expect("rolls");
+        assert_eq!(
+            rolled,
+            "# Changelog\n\n## [Unreleased]\n\n## [1.1.0] - 2026-08-04\n\n### Added\n\n- A \
+             feature\n\n## [1.0.0] - 2026-01-01\n\n- Older change\n"
+        );
+        // The rolled document leaves an empty `[Unreleased]` for the next cycle.
+        assert!(!unreleased_documented(&rolled));
+    }
+
+    #[test]
+    fn rolling_an_undocumented_unreleased_section_is_a_noop() {
+        let text = "## [Unreleased]\n\n### Added\n\n## [1.0.0]\n\n- Shipped\n";
+        assert!(roll_unreleased(text, &Version::new(1, 1, 0), "2026-08-04").is_none());
+    }
+
+    #[test]
+    fn rolling_a_trailing_unreleased_section_needs_no_following_section() {
+        let text = "## [Unreleased]\n\n- Only change\n";
+        let rolled = roll_unreleased(text, &Version::new(0, 2, 0), "2026-08-04").expect("rolls");
+        assert_eq!(
+            rolled,
+            "## [Unreleased]\n\n## [0.2.0] - 2026-08-04\n\n- Only change\n"
+        );
     }
 }

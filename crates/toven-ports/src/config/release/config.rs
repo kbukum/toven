@@ -281,7 +281,9 @@ mod tests {
             config.prerelease.as_ref().expect("prerelease set").channels,
             ["rc", "beta"]
         );
-        assert!(config.changelog.as_ref().expect("changelog set").required);
+        let changelog = config.changelog.as_ref().expect("changelog set");
+        assert!(changelog.required);
+        assert!(changelog.roll);
         assert!(config.sign.as_ref().expect("sign set").enabled);
         assert_eq!(config.hooks.as_ref().expect("hooks set").pre, ["fmt-check"]);
         assert_eq!(

@@ -173,6 +173,12 @@ impl VcsWriter for RskitGitVcs {
         self.repo.commit(message, None).map(|oid| to_oid(&oid))
     }
 
+    fn stage(&self, paths: &[&str]) -> AppResult<()> {
+        // Stage exactly the release-mutated paths for a PR-first `bump --no-commit`
+        // run, leaving the maintainer to create the commit.
+        self.repo.stage(paths)
+    }
+
     fn preflight_tag_signer(&self, signer: &TagSigner) -> AppResult<()> {
         let opts = to_sign_options(signer)?;
         match opts.key.as_deref() {

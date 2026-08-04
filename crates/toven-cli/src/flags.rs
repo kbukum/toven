@@ -131,6 +131,13 @@ Examples:
   toven release tag --minor rust:core --yes  Force a minor bump for one module
   toven release tag --no-push --yes  Cut the tag locally without pushing";
 
+/// `release bump` action examples.
+const RELEASE_BUMP_EXAMPLES: &str = "\
+Examples:
+  toven release bump --yes         Rewrite versions + changelog and commit (no tag/push/publish)
+  toven release bump --no-commit --yes  Stage the version/changelog change for a pull request
+  toven release bump --dry-run     Preview the version + changelog mutation without writing";
+
 /// `release publish` action examples.
 const RELEASE_PUBLISH_EXAMPLES: &str = "\
 Examples:
@@ -524,6 +531,10 @@ pub struct Cli {
     /// Release only: skip pushing the release commit and tags.
     #[arg(long, global = true, help_heading = "Release")]
     pub no_push: bool,
+    /// Release bump only: stage the version/changelog mutation for a pull
+    /// request instead of creating the release commit.
+    #[arg(long, global = true, help_heading = "Release")]
+    pub no_commit: bool,
     /// Release tag/publish only: force `<module>` to bump at the patch level
     /// (repeatable). Highest precedence with the other level flags and
     /// `--set-version`; a module named in two level flags or a level flag plus
@@ -772,6 +783,12 @@ pub enum ReleaseAction {
     /// publishing to the registry.
     #[command(after_long_help = RELEASE_TAG_EXAMPLES)]
     Tag,
+    /// Run only the version + changelog mutation phase: rewrite each module's
+    /// manifest version and dependency floors and, where configured, roll the
+    /// changelog, then commit the release (or, with `--no-commit`, stage it for
+    /// a pull request). Never tags, pushes, or publishes.
+    #[command(after_long_help = RELEASE_BUMP_EXAMPLES)]
+    Bump,
     /// Run the full release pipeline (commit, tag, push, publish); `--dry-run`
     /// rehearses the publish order and per-module
     /// would-publish/already-published verdicts without mutating anything.
@@ -820,6 +837,7 @@ impl ReleaseAction {
             Self::Plan => "plan",
             Self::Status => "status",
             Self::Tag => "tag",
+            Self::Bump => "bump",
             Self::Publish => "publish",
             Self::Readiness => "readiness",
             Self::Sbom => "sbom",
@@ -831,10 +849,12 @@ impl ReleaseAction {
         }
     }
 
-    /// Whether the action mutates history/registry (accepts `--no-push`).
+    /// Whether the action mutates the working tree, history, or registry (a
+    /// version cut, changelog roll, commit, tag, or publish): `bump`, `tag`, and
+    /// `publish`. These accept the per-run bump argv and require `--yes`.
     #[must_use]
     pub const fn is_mutating(self) -> bool {
-        matches!(self, Self::Tag | Self::Publish)
+        matches!(self, Self::Bump | Self::Tag | Self::Publish)
     }
 
     /// Whether the action is non-mutating and therefore a PLAN-only cut with no
@@ -868,10 +888,11 @@ impl ReleaseAction {
     }
 
     /// Whether `--dry-run` is meaningful for the action: `plan` (already a
-    /// projection) and the rehearsable `publish` pipeline.
+    /// projection), the rehearsable `publish` pipeline, and `bump` (which
+    /// previews the version + changelog mutation without writing).
     #[must_use]
     pub const fn accepts_dry_run(self) -> bool {
-        matches!(self, Self::Plan | Self::Publish)
+        matches!(self, Self::Plan | Self::Bump | Self::Publish)
     }
 }
 
@@ -961,15 +982,21 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     let verb_owned = verb_name(&cli.command);
     let verb = verb_owned.as_str();
     let mutating_release = release_action(&cli.command).is_some_and(ReleaseAction::is_mutating);
+    let is_bump = matches!(release_action(&cli.command), Some(ReleaseAction::Bump));
     let is_init = matches!(cli.command, Command::Init);
     let is_graph = matches!(cli.command, Command::Graph);
     let is_coverage = matches!(cli.command, Command::Coverage);
 
-    // `--no-push` is a mutating-release rehearsal flag, so it belongs only to the
-    // mutating release actions; the read-only projections (`release plan`/`release
-    // status`) never touch history, and no other verb releases at all.
-    if cli.no_push && !mutating_release {
+    // `--no-push` is a tag/publish rehearsal flag: `bump` never pushes (it only
+    // mutates + commits/stages) and the read-only projections never touch
+    // history, so it belongs only to the pushing mutating actions.
+    if cli.no_push && (!mutating_release || is_bump) {
         return Err(only_applies("--no-push", "toven release tag/publish", verb));
+    }
+    // `--no-commit` stages the `bump` mutation for a pull request, so it belongs
+    // only to `release bump`.
+    if cli.no_commit && !is_bump {
+        return Err(only_applies("--no-commit", "toven release bump", verb));
     }
     gate_out_dir_flag(cli, verb)?;
     gate_package_flags(cli, verb)?;
@@ -1185,7 +1212,7 @@ fn gate_bump_flags(cli: &Cli, verb: &str, mutating_release: bool) -> AppResult<(
         (cli.offline, "--offline"),
     ] {
         if present {
-            return Err(only_applies(flag, "toven release tag/publish", verb));
+            return Err(only_applies(flag, "toven release bump/tag/publish", verb));
         }
     }
     Ok(())
@@ -1197,7 +1224,7 @@ fn gate_bump_flags(cli: &Cli, verb: &str, mutating_release: bool) -> AppResult<(
 fn gate_init_flags(cli: &Cli, verb: &str, is_init: bool) -> AppResult<()> {
     let release_confirmation = matches!(
         release_action(&cli.command),
-        Some(ReleaseAction::Tag | ReleaseAction::Publish)
+        Some(ReleaseAction::Bump | ReleaseAction::Tag | ReleaseAction::Publish)
     );
     if cli.force.is_some() && !is_init {
         return Err(only_applies("--force", "toven init", verb));
@@ -1209,7 +1236,11 @@ fn gate_init_flags(cli: &Cli, verb: &str, is_init: bool) -> AppResult<()> {
         return Err(only_applies("--non-interactive", "toven init", verb));
     }
     if cli.confirm_release && !release_confirmation {
-        return Err(only_applies("--yes", "toven release tag/publish", verb));
+        return Err(only_applies(
+            "--yes",
+            "toven release bump/tag/publish",
+            verb,
+        ));
     }
     if cli.print && !is_init {
         return Err(only_applies("--print", "toven init", verb));
@@ -1785,6 +1816,7 @@ mod tests {
             ("plan", ReleaseAction::Plan),
             ("status", ReleaseAction::Status),
             ("tag", ReleaseAction::Tag),
+            ("bump", ReleaseAction::Bump),
             ("publish", ReleaseAction::Publish),
             ("readiness", ReleaseAction::Readiness),
             ("sbom", ReleaseAction::Sbom),
@@ -1869,6 +1901,7 @@ mod tests {
             "sbom",
             "depgraphs",
             "package",
+            "bump",
         ] {
             let no_push = parse(&["--no-push", "release", action]).expect("parses");
             assert!(super::gate(&no_push).is_err(), "no-push {action}");
@@ -1876,8 +1909,21 @@ mod tests {
     }
 
     #[test]
+    fn no_commit_only_applies_to_release_bump() {
+        let ok = parse(&["--no-commit", "--yes", "release", "bump"]).expect("parses");
+        assert!(ok.no_commit);
+        assert!(super::gate(&ok).is_ok());
+        for action in ["plan", "status", "tag", "publish"] {
+            let cli = parse(&["--no-commit", "release", action]).expect("parses");
+            assert!(super::gate(&cli).is_err(), "--no-commit on {action}");
+        }
+        let on_task = parse(&["--no-commit", "plan", "build"]).expect("parses");
+        assert!(super::gate(&on_task).is_err(), "--no-commit on a task verb");
+    }
+
+    #[test]
     fn yes_confirmation_only_applies_to_mutating_release_actions() {
-        for action in ["tag", "publish"] {
+        for action in ["bump", "tag", "publish"] {
             let cli = parse(&["--yes", "release", action]).expect("parses");
             assert!(cli.confirm_release);
             // `--yes` is release-only now, not an alias of init's `--non-interactive`.
@@ -1963,7 +2009,7 @@ mod tests {
 
     #[test]
     fn dry_run_only_on_rehearsable_release_actions() {
-        for action in ["plan", "publish"] {
+        for action in ["plan", "bump", "publish"] {
             let cli = parse(&["--dry-run", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_ok(), "{action}");
         }

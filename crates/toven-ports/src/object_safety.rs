@@ -286,6 +286,9 @@ impl VcsWriter for FakeVcs {
     fn commit(&self, _message: &str, _paths: &[&str]) -> AppResult<Oid> {
         Ok(Oid::new("deadbeef"))
     }
+    fn stage(&self, _paths: &[&str]) -> AppResult<()> {
+        Ok(())
+    }
     fn preflight_tag_signer(&self, _signer: &TagSigner) -> AppResult<()> {
         Ok(())
     }
@@ -473,6 +476,7 @@ fn port_traits_are_object_safe() {
         writer.commit("msg", &["a.rs"]).expect("ok").as_str(),
         "deadbeef"
     );
+    writer.stage(&["a.rs"]).expect("stages");
     writer
         .create_tag("v1", "HEAD", Some("msg"), None)
         .expect("tags");

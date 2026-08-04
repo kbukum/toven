@@ -2,6 +2,7 @@
 
 pub(crate) mod apply;
 mod bump;
+mod bump_verb;
 mod change;
 mod changelog;
 mod checksums;
@@ -11,6 +12,7 @@ mod depgraphs;
 mod host;
 mod manifest;
 mod model;
+pub(crate) mod mutate;
 mod overrides;
 pub(crate) mod package;
 pub(crate) mod plan;
@@ -29,6 +31,7 @@ mod targets;
 mod verify;
 
 pub use apply::{ReleaseApplyOptions, release_apply};
+pub use bump_verb::{BumpModuleOutcome, BumpOptions, BumpReport, release_bump};
 pub use checksums::{ChecksumEntry, ChecksumReport, release_checksums};
 pub use delegated::{ProcessDelegatedPhase, delegated_request};
 pub use depgraphs::{DepgraphReport, release_depgraphs};

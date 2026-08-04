@@ -9,7 +9,10 @@ use serde::{Deserialize, Serialize};
 ///
 /// `path` is the workspace-relative changelog file (default `CHANGELOG.md`);
 /// `required` fails a release readiness/plan when a changed module has no
-/// changelog entry, so a release cannot ship an undocumented change.
+/// changelog entry, so a release cannot ship an undocumented change; `roll`
+/// makes the `bump` phase finalize the changelog by moving the documented
+/// `## [Unreleased]` body under a versioned `## [x.y.z] - <date>` heading (it
+/// only relocates existing prose, never fabricating any).
 #[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ChangelogConfig {
@@ -19,6 +22,11 @@ pub struct ChangelogConfig {
     /// Whether a changelog entry is required for a changed module.
     #[serde(default, skip_serializing_if = "is_false")]
     pub required: bool,
+    /// Whether the `bump` phase rolls `## [Unreleased]` into a versioned
+    /// `## [x.y.z] - <date>` section. Off by default, so a release that does not
+    /// opt in leaves the changelog untouched.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub roll: bool,
 }
 
 impl ChangelogConfig {

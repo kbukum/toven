@@ -449,14 +449,8 @@ pub(crate) fn prepare(
     targets: &super::ReleaseTargets,
     stats: &mut ReleaseStats,
 ) -> AppResult<(Vec<RepoPath>, BTreeMap<ModuleKey, Artifact>)> {
-    let mut changed_paths = Vec::new();
-    for entry in &plan.entries {
-        let module = module_for(module_by_ref, &entry.module)?;
-        let target = target_for(targets, module)?;
-        changed_paths.extend(target.apply_release(module, &entry.mutation)?);
-        stats.mutated_modules += 1;
-    }
-
+    let mutated = super::mutate::mutate_manifests(plan, module_by_ref, targets, stats)?;
+    let changed_paths = super::mutate::staged_paths(&mutated);
     let artifacts = package_publishable(plan, module_by_ref, targets, stats)?;
     Ok((changed_paths, artifacts))
 }
@@ -473,7 +467,27 @@ pub(crate) fn stage_and_commit(
     changed_paths: &[RepoPath],
     message: &str,
 ) -> AppResult<toven_ports::Oid> {
-    let staged: Vec<String> = changed_paths
+    let staged = staged_refs(changed_paths)?;
+    let staged_refs: Vec<&str> = staged.iter().map(String::as_str).collect();
+    writer.commit(message, &staged_refs)
+}
+
+/// Stage exactly the release-mutated paths without creating a commit.
+///
+/// The PR-first `bump --no-commit` path stages the version/changelog mutation
+/// for a maintainer's pull request instead of cutting the release commit,
+/// reusing the same repo-relative path set [`stage_and_commit`] would commit.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn stage_only(writer: &dyn VcsWriter, changed_paths: &[RepoPath]) -> AppResult<()> {
+    let staged = staged_refs(changed_paths)?;
+    let staged_refs: Vec<&str> = staged.iter().map(String::as_str).collect();
+    writer.stage(&staged_refs)
+}
+
+/// Render the repo-relative mutated paths as staged string refs, failing closed
+/// on a non-UTF-8 path.
+fn staged_refs(changed_paths: &[RepoPath]) -> AppResult<Vec<String>> {
+    changed_paths
         .iter()
         .map(|path| {
             path.as_path().to_str().map(str::to_owned).ok_or_else(|| {
@@ -483,9 +497,7 @@ pub(crate) fn stage_and_commit(
                 )
             })
         })
-        .collect::<AppResult<_>>()?;
-    let staged_refs: Vec<&str> = staged.iter().map(String::as_str).collect();
-    writer.commit(message, &staged_refs)
+        .collect()
 }
 
 /// Package every `publish_needed` entry without mutating any manifest.
@@ -562,7 +574,8 @@ pub(crate) fn publish_items<'a>(
     Ok(items)
 }
 
-fn module_for<'a>(
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn module_for<'a>(
     module_by_ref: &BTreeMap<ModuleKey, &'a Module>,
     reference: &ModuleKey,
 ) -> AppResult<&'a Module> {
@@ -571,7 +584,8 @@ fn module_for<'a>(
     })
 }
 
-fn target_for<'a>(
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn target_for<'a>(
     targets: &'a super::ReleaseTargets,
     module: &Module,
 ) -> AppResult<&'a dyn ReleaseAdapter> {
@@ -941,6 +955,8 @@ mod tests {
             topo_rank: rank,
             baseline: None,
             changelog: ChangelogEntry::new(mkey(name), "changed", Vec::new()),
+            changelog_path: "CHANGELOG.md".into(),
+            changelog_roll: false,
         }
     }
 
