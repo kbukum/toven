@@ -6,8 +6,9 @@
 //! external tool invoked argv-first. It resolves to the seam-level
 //! [`PhaseBacking`](crate::release::PhaseBacking). The engine wiring that reads
 //! this — resolution into settings and per-phase execution — lands with the
-//! phase seam refactor; today the block parses and validates but the engine
-//! still runs every phase natively.
+//! phase seam refactor; until [`ReleaseConfig`](super::ReleaseConfig) includes
+//! this field, the strict loader still rejects `[…release.phases]` and every
+//! phase runs natively.
 
 use std::collections::BTreeMap;
 
