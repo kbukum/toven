@@ -71,8 +71,9 @@ pub mod wizard;
 pub use cache::{CacheStore, CacheWriter};
 pub use config::{
     BumpLevel, ChangelogConfig, CommonEcosystemConfig, CoverageConfig, CoverageProfile,
-    CoverageThresholds, DependentVersion, Enforcement, HooksConfig, HostConfig, PrereleaseConfig,
-    PublicationPolicy, ReleaseConfig, RunStrategy, SignConfig, TaskEntry, TaskOverride,
+    CoverageThresholds, DelegatedTool, DependentVersion, Enforcement, HooksConfig, HostConfig,
+    PhaseBackingKind, PhaseConfig, PhasesConfig, PrereleaseConfig, PublicationPolicy,
+    ReleaseConfig, RunStrategy, SignConfig, TaskEntry, TaskOverride,
 };
 pub use discover::{DISCOVERY_SCHEMA_VERSION, DiscoverContext, DiscoverRequest, DiscoverResponse};
 pub use driver::{DriverLocator, DriverWizard};
@@ -85,8 +86,8 @@ pub use merge::{merge_coverage, merge_release, merge_task};
 pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
 pub use raw_output::RawOutputSink;
 pub use release::{
-    Artifact, AssetDownloader, HostReleaseOutcome, HostedRelease, PublishOutcome, RegistryCadence,
-    ReleaseAsset, ReleaseCredentials, ReleaseHost, ReleaseMutation, ReleaseTarget,
+    Artifact, AssetDownloader, HostReleaseOutcome, HostedRelease, PhaseBacking, PublishOutcome,
+    RegistryCadence, ReleaseAsset, ReleaseCredentials, ReleaseHost, ReleaseMutation, ReleaseTarget,
     SUPPORTED_FORGES, SignatureVerifier, Signer, TagScheme, VersionProbe, Visibility,
     is_supported_forge,
 };

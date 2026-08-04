@@ -1,6 +1,7 @@
 //! Release port — the thin ecosystem sliver behind the shared release engine.
 
 mod artifact;
+mod backing;
 mod credentials;
 mod downloader;
 mod host;
@@ -15,6 +16,7 @@ mod verifier;
 mod visibility;
 
 pub use artifact::Artifact;
+pub use backing::PhaseBacking;
 pub use credentials::ReleaseCredentials;
 pub use downloader::AssetDownloader;
 pub use host::{

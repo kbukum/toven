@@ -180,6 +180,42 @@ Release planning uses the same dependency graph as tasks. Ecosystem release targ
 
 Hosted releases use a separate forge port. GitHub integration invokes `gh` with argv and ambient authentication.
 
+### Release flow and phases
+
+The release is modeled as a **flow**: an ordered set of named phases the engine orchestrates.
+
+```text
+select → bump → tag → package → sign → publish → host → provenance
+```
+
+The phase vocabulary is `ReleasePhase` in `toven-model` — pure, descriptive names, no behavior. For **every** phase, the engine owns four guarantees, independent of how the phase is backed:
+
+| Guarantee | Meaning |
+| --- | --- |
+| Mutation-free preview | Preview observes without changing the repository or any target. |
+| Gated mutation | Real mutation requires `--yes` + an allowed branch + a clean tree. |
+| Immutable, forward-fix outputs | Tags, registry versions, hosted Releases, assets, and image tags never change; recovery is a new forward-fix version. |
+| Typed reporting | Output is typed JSONL/human on the correct stream. |
+
+A phase's *implementation* is a swappable seam described by `PhaseBacking` in `toven-ports`: `Native` (Toven's own code, the default) or `Delegated { tool }` (an external tool invoked argv-first). Delegation is per-phase and opt-in; a delegated phase that cannot preview mutation-free is not an acceptable delegation, so the guarantee table binds both backings equally. Toven never hands the whole flow to an external tool. Per-phase backing is declared under `[…release.phases.<phase>]` (see [release configuration](config/release.md#release-phases-and-backing)).
+
+### Phase seam decomposition
+
+Today the ecosystem sliver is one `ReleaseTarget` trait that bundles several phases. The flow model decomposes it per phase; the mapping and the redesign decision that drives that refactor:
+
+| `ReleaseTarget` method | Phase | Decision |
+| --- | --- | --- |
+| `declared_version` | Bump | Align — a version-read seam under the Bump phase. |
+| `apply_release` | Bump | Align — the manifest version-write seam under Bump; the standalone bump verb extracts around it. |
+| `tag_scheme` | Tag | Align — the tag-grammar seam under the Tag phase. |
+| `package` | Package | Redesign — its own Package phase contract, delegable. |
+| `sbom` | Provenance | Redesign — folds into the Provenance phase; the `Ok(None)` default becomes an explicit backing. |
+| `published_versions` | Publish | Align — the registry-query (idempotency) seam under Publish. |
+| `publish` | Publish | Redesign — its own Publish phase contract, delegable. |
+| (engine sign) | Sign | Enhance — the engine-owned tag/artifact signing becomes an explicit Sign phase contract. |
+| (engine selection) | Select | Align — the existing selection/cascade/ordering is named as the Select phase. |
+| `ReleaseHost` port | Host | Align — the existing hosted-forge port is named as the Host phase. |
+
 ## Output boundary
 
 Only `toven-cli` writes user-facing output:

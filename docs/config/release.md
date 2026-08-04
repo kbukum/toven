@@ -227,6 +227,25 @@ Under a hosted-release policy, the fixed `host.assets` set is produced end to en
 
 Every verb is non-mutating with respect to git history, emits typed JSONL under `--output jsonl`, and fails closed on a missing or mismatched input. CI provisions the external tools (cosign, cargo-cyclonedx) and holds the human approval gate; Toven drives them.
 
+## Release phases and backing
+
+The release is a **flow** of ordered phases — `select`, `bump`, `tag`, `package`, `sign`, `publish`, `host`, `provenance`. Toven owns the flow and enforces its guarantees (mutation-free preview, gated mutation, immutable forward-fix outputs, typed reporting) for every phase. Each phase is *backed* either **natively** (Toven's own code — the default) or **delegated** to an external tool that Toven invokes argv-first while still owning selection, ordering, readiness, safety, and reporting. Delegation is per-phase and opt-in; Toven never hands the whole flow to an external tool.
+
+> **Not yet active.** This is the phase-backing contract that the flow model is built around, documented ahead of its wiring. The strict config loader does not yet accept a `[…release.phases]` block, and every phase runs natively today; the resolver and per-phase execution land with the phase-seam refactor.
+
+Per-phase backing is declared under `[…release.phases.<phase>]`. A phase with no entry stays native, so the block only names the phases you delegate:
+
+```toml
+[ecosystems.go.release.phases.package]
+backing = "delegated"
+
+[ecosystems.go.release.phases.package.delegated]
+tool = "goreleaser"
+args = ["release", "--clean"]
+```
+
+`backing` is `native` (default) or `delegated`; a `delegated` backing requires the `[…delegated]` tool sub-block and a `native` backing must not carry one. `tool` names the executable, `args` are fixed leading arguments — argv-first, and never secrets, which flow through the child-process environment.
+
 ## Safety
 
 - Preview commands must not mutate manifests, commits, tags, registries, or hosted Releases.

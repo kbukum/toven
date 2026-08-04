@@ -63,6 +63,8 @@ Toven's release product is a reviewable decision followed by guarded mutation. T
 
 Rust repositories use independent crate versions and can choose registry or tag-only outcomes. Go repositories release changed modules through root or path-prefixed tags and explicitly classify test-only and benchmark modules rather than relying on path heuristics. Toven itself is a tag-only Rust workspace distributed as compiled binaries; none of its crates are published to crates.io.
 
+The release is modeled as a **flow**: an ordered set of phases — select, bump, tag, package, sign, publish, host, provenance — that the engine orchestrates. Toven owns the flow and its guarantees for every phase; each phase's *implementation* is a swappable seam backed either **natively** (Toven's own code, the default) or **delegated** to the repository's existing tool (for example GoReleaser for Go packaging), invoked argv-first while Toven still parses, guards, and reports around it. Delegation is per-phase and opt-in — Toven never hands the whole flow to an external tool.
+
 The final safety contract requires mutation-free previews, explicit approval, clean release trees, immutable published results, and forward-fix recovery. The exact policy boundary is maintained in [release configuration](config/release.md) and the [release workflow](commands/release.md).
 
 ## Toven distribution
