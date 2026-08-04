@@ -14,7 +14,7 @@
 //! per-member mutation tail — keeping the discovery/target wiring engine-owned
 //! so the CLI stays a thin caller.
 
-use rskit_errors::AppResult;
+use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_util::time::{Clock, datetime_from_epoch_secs};
 use rskit_version::semver::Version;
 use toven_model::ModuleKey;
@@ -72,11 +72,16 @@ pub struct BumpReport {
 }
 
 impl BumpReport {
-    /// An empty report for an up-to-date project with nothing to bump.
+    /// A report for a run that committed nothing yet — the initial state the
+    /// per-member tail builds on, and the terminal report for an up-to-date
+    /// project with nothing to bump. `committed` starts `false` and is set only
+    /// once a member actually creates the release commit, so a no-op run, a
+    /// `--no-commit` staging run, and a `--dry-run` preview all report
+    /// `committed = false` truthfully.
     #[must_use]
     pub(crate) const fn empty(options: BumpOptions) -> Self {
         Self {
-            committed: !options.no_commit && !options.dry_run,
+            committed: false,
             dry_run: options.dry_run,
             modules: Vec::new(),
             changelogs: Vec::new(),
@@ -127,7 +132,7 @@ pub fn release_bump(
         &targets,
         super::bump::CutIntent::Mutate,
     )?;
-    let date = today(clock);
+    let date = today(clock)?;
     release_bump_by_member(
         &plan,
         &context.federation.modules,
@@ -140,8 +145,54 @@ pub fn release_bump(
 
 /// Format the clock's current UTC civil date as `YYYY-MM-DD` for a rolled
 /// changelog's versioned heading.
-fn today(clock: &dyn Clock) -> String {
-    let seconds = i64::try_from(clock.epoch_seconds()).unwrap_or(0);
+///
+/// # Errors
+/// Fails when the clock's epoch second count does not fit in an `i64` rather
+/// than silently stamping a fallback date.
+fn today(clock: &dyn Clock) -> AppResult<String> {
+    let seconds = i64::try_from(clock.epoch_seconds()).map_err(|error| {
+        AppError::new(
+            ErrorCode::Internal,
+            "clock epoch seconds do not fit in a signed 64-bit civil-date conversion",
+        )
+        .with_cause(error)
+    })?;
     let date = datetime_from_epoch_secs(seconds).date;
-    format!("{:04}-{:02}-{:02}", date.year, date.month, date.day)
+    Ok(format!(
+        "{:04}-{:02}-{:02}",
+        date.year, date.month, date.day
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BumpOptions, BumpReport};
+
+    #[test]
+    fn empty_report_never_claims_a_commit() {
+        // A run with nothing to bump commits nothing, so the terminal report
+        // must read `committed = false` for every disposition — including the
+        // default (commit) options, which only earns `committed` once a member
+        // actually creates the release commit.
+        for options in [
+            BumpOptions::default(),
+            BumpOptions {
+                no_commit: true,
+                dry_run: false,
+            },
+            BumpOptions {
+                no_commit: false,
+                dry_run: true,
+            },
+        ] {
+            let report = BumpReport::empty(options);
+            assert!(
+                !report.committed,
+                "empty report claims a commit: {report:?}"
+            );
+            assert_eq!(report.dry_run, options.dry_run);
+            assert!(report.modules.is_empty());
+            assert!(report.changelogs.is_empty());
+        }
+    }
 }

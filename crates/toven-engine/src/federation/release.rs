@@ -286,7 +286,9 @@ pub fn release_bump_by_member(
 
     // Phase 2: create the release commit, or stage the mutation for a PR, per
     // member. A member that rewrote nothing (a tag-only ecosystem with no rolled
-    // changelog) has nothing to commit or stage.
+    // changelog) has nothing to commit or stage, so `report.committed` reflects
+    // whether any member's release commit was actually created rather than the
+    // requested disposition.
     for (shard, changed) in &prepared {
         if changed.is_empty() {
             continue;
@@ -299,6 +301,7 @@ pub fn release_bump_by_member(
             let message =
                 apply::commit_message(&shard.plan, &module_by_ref, settings.commit_message())?;
             apply::stage_and_commit(repo.writer(), changed, &message)?;
+            report.committed = true;
         }
     }
     Ok(report)

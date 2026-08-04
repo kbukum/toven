@@ -40,6 +40,19 @@ fn wsid(id: &str) -> WorkspaceId {
 
 /// A rust provider exposing one releaseable `core` module rooted at the repo.
 fn core_provider() -> FakeProvider {
+    provider_with_target(FakeReleaseTarget::new())
+}
+
+/// A rust provider whose release target rewrites no manifest paths, modelling a
+/// tag-only ecosystem (a Go-style version cut) that a `bump` leaves with nothing
+/// to commit.
+fn tag_only_provider() -> FakeProvider {
+    provider_with_target(FakeReleaseTarget::new().with_written_paths(Vec::new()))
+}
+
+/// Build the single-`core`-module rust provider around a scripted release
+/// target.
+fn provider_with_target(target: FakeReleaseTarget) -> FakeProvider {
     let mut response = DiscoverResponse::new(eid("rust"));
     response.workspaces.push(Workspace::new(
         wsid("rust"),
@@ -54,7 +67,7 @@ fn core_provider() -> FakeProvider {
     response.modules.push(module);
     let adapter = FakeConfiguredAdapter::new(eid("rust"))
         .with_response(response)
-        .with_release_target(FakeReleaseTarget::new());
+        .with_release_target(target);
     FakeProvider::new(eid("rust")).with_adapter(adapter)
 }
 
@@ -115,8 +128,18 @@ fn run_bump(
     writer: &FakeVcsWriter,
     options: BumpOptions,
 ) -> toven_engine::release::BumpReport {
-    let provider = core_provider();
-    let providers: Vec<&dyn Provider> = vec![&provider];
+    run_bump_with(ws, root, document, writer, options, &core_provider())
+}
+
+fn run_bump_with(
+    ws: &toven_testkit::TestWorkspace,
+    root: AbsPath,
+    document: &Document,
+    writer: &FakeVcsWriter,
+    options: BumpOptions,
+    provider: &FakeProvider,
+) -> toven_engine::release::BumpReport {
+    let providers: Vec<&dyn Provider> = vec![provider];
     let reader = FakeVcsReader::new();
     let (readers, repos) = single_member(ws, &reader, writer);
     let clock = FixedClock::new(FIXED_EPOCH, 0);
@@ -261,5 +284,37 @@ fn bump_rolls_the_configured_changelog() {
         )),
         "the rolled changelog is staged into the release commit: {log:?}"
     );
+    assert_no_release_history(&log);
+}
+
+#[test]
+fn a_tag_only_bump_that_rewrites_nothing_reports_no_commit() {
+    // A tag-only ecosystem rewrites no manifest and (here) rolls no changelog,
+    // so the default `bump` has nothing to commit. `committed` must reflect that
+    // no release commit was created, not the requested commit disposition.
+    let (ws, root, document) = load_project(false);
+    let writer = FakeVcsWriter::new().with_commit_oid("unused");
+    let report = run_bump_with(
+        &ws,
+        root,
+        &document,
+        &writer,
+        BumpOptions::default(),
+        &tag_only_provider(),
+    );
+
+    assert!(
+        !report.committed,
+        "a bump that rewrote nothing must not claim a commit: {report:?}"
+    );
+    assert_eq!(report.modules.len(), 1, "the module is still planned");
+    assert!(
+        report.modules[0].manifests.is_empty(),
+        "a tag-only ecosystem rewrote no manifest: {report:?}"
+    );
+
+    let log = writer.writes();
+    assert_eq!(commits(&log), 0, "nothing is committed: {log:?}");
+    assert_eq!(stages(&log), 0, "nothing is staged: {log:?}");
     assert_no_release_history(&log);
 }

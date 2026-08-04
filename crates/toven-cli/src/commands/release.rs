@@ -493,6 +493,11 @@ fn render_bump_jsonl(report: &BumpReport) -> AppResult<()> {
 
 /// Render the `release bump` report as a human table.
 fn render_bump_human(report: &BumpReport) {
+    if report.modules.is_empty() {
+        println!("\nRelease bump — nothing to bump");
+        println!("  all modules are up to date");
+        return;
+    }
     let disposition = if report.dry_run {
         "dry-run (nothing written)"
     } else if report.committed {
@@ -501,11 +506,6 @@ fn render_bump_human(report: &BumpReport) {
         "staged (no commit)"
     };
     let title = format!("Release bump — {disposition}");
-    if report.modules.is_empty() {
-        println!("\n{title}");
-        println!("  nothing to bump: all modules are up to date");
-        return;
-    }
     let mut table = OutputTable::new(vec!["Module", "From", "To", "Manifests"]).with_title(title);
     for module in &report.modules {
         table.add_row(vec![
