@@ -11,8 +11,8 @@ use crate::release::Visibility;
 use crate::template::ReleaseVar;
 
 use super::{
-    BumpLevel, ChangelogConfig, DependentVersion, HostConfig, PhasesConfig, PrereleaseConfig,
-    PublicationPolicy, SignConfig,
+    BumpLevel, ChangelogConfig, DependentVersion, HostConfig, ImageConfig, PhasesConfig,
+    PrereleaseConfig, PublicationPolicy, SignConfig,
 };
 
 /// The declarative release surface (`[ecosystems.<id>].release` and the
@@ -127,6 +127,10 @@ pub struct ReleaseConfig {
     /// `None` = inherit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<HostConfig>,
+    /// Container-image phase settings (build, push to a primary registry plus
+    /// mirrors, sign the digest); `None` = the module runs no image phase.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<ImageConfig>,
     /// Per-phase backing map: how each release phase is satisfied (native, the
     /// default, or delegated to an external tool). `None` = inherit; an absent
     /// phase entry runs natively.
@@ -177,6 +181,9 @@ impl ReleaseConfig {
         if let Some(host) = &self.host {
             host.validate(&format!("{field}.host"))?;
         }
+        if let Some(image) = &self.image {
+            image.validate(&format!("{field}.image"))?;
+        }
         if let Some(phases) = &self.phases {
             phases.validate(&format!("{field}.phases"))?;
         }
@@ -199,6 +206,13 @@ impl ReleaseConfig {
                 format!("{field}.exclude"),
                 "an excluded module cannot declare hosted release assets; remove the host assets \
                  or set exclude = false",
+            ));
+        }
+        if self.exclude == Some(true) && self.image.is_some() {
+            return Err(AppError::invalid_input(
+                format!("{field}.image"),
+                "an excluded module runs no image phase, so it cannot declare an image block; \
+                 remove the image block or set exclude = false",
             ));
         }
         validate_optional_nonblank(&format!("{field}.remote"), self.remote.as_deref())?;
@@ -379,5 +393,57 @@ mod tests {
             .validate("ecosystems.rust.release")
             .expect_err("blank template rejected");
         assert!(error.to_string().contains("tag_format"), "{error}");
+    }
+
+    #[test]
+    fn validate_accepts_a_valid_image_block() {
+        let config = parse(
+            r#"
+            [image]
+            registry = "ghcr.io/acme"
+            name = "toven"
+            "#,
+        )
+        .expect("parses");
+        config.validate("ecosystems.rust.release").expect("valid");
+        assert_eq!(
+            config.image.as_ref().expect("image set").registry,
+            "ghcr.io/acme"
+        );
+    }
+
+    #[test]
+    fn validate_propagates_an_invalid_image_block() {
+        let config = parse(
+            r#"
+            [image]
+            registry = "ghcr.io/acme"
+            name = "{modual}"
+            "#,
+        )
+        .expect("parses");
+        let error = config
+            .validate("ecosystems.rust.release")
+            .expect_err("bad image template rejected");
+        assert!(error.to_string().contains("image.name"), "{error}");
+    }
+
+    #[test]
+    fn validate_rejects_an_image_block_on_an_excluded_module() {
+        let config = parse(
+            r#"
+            exclude = true
+
+            [image]
+            registry = "ghcr.io/acme"
+            name = "toven"
+            "#,
+        )
+        .expect("parses");
+        let error = config
+            .validate("modules.rust:demo.release")
+            .expect_err("image on an excluded module rejected");
+        assert!(error.to_string().contains("image"), "{error}");
+        assert!(error.to_string().contains("excluded"), "{error}");
     }
 }

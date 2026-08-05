@@ -95,6 +95,9 @@ pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfi
     if over.host.is_some() {
         merged.host.clone_from(&over.host);
     }
+    if over.image.is_some() {
+        merged.image.clone_from(&over.image);
+    }
     if over.phases.is_some() {
         merged.phases.clone_from(&over.phases);
     }
@@ -219,6 +222,33 @@ mod tests {
         assert_eq!(merged.sign_tags, Some(false));
         assert_eq!(merged.sign_format.as_deref(), Some("openpgp"));
         assert_eq!(merged.signing_key, None);
+    }
+
+    #[test]
+    fn image_override_replaces_base_image() {
+        use crate::config::ImageConfig;
+
+        let base = ReleaseConfig {
+            image: Some(ImageConfig {
+                registry: "ghcr.io/acme".into(),
+                name: "base".into(),
+                ..ImageConfig::default()
+            }),
+            ..ReleaseConfig::default()
+        };
+        let over = ReleaseConfig {
+            image: Some(ImageConfig {
+                registry: "ghcr.io/acme".into(),
+                name: "app".into(),
+                ..ImageConfig::default()
+            }),
+            ..ReleaseConfig::default()
+        };
+
+        let merged = merge_release(&base, &over);
+
+        let image = merged.image.expect("image set");
+        assert_eq!(image.name, "app");
     }
 
     #[test]

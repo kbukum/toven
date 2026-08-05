@@ -59,6 +59,7 @@ const CONTRACT: &[PhaseGuarantees] = &[
     bound(ReleasePhase::Sign),
     bound(ReleasePhase::Publish),
     bound(ReleasePhase::Host),
+    bound(ReleasePhase::Image),
     bound(ReleasePhase::Provenance),
 ];
 

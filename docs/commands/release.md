@@ -46,6 +46,8 @@ toven release publish --yes
 | `checksums` | Write `SHA256SUMS` over every declared archive and the SBOM | Local artifacts |
 | `sign` | Keyless Sigstore/cosign signature and certificate over `SHA256SUMS` | Local artifacts |
 | `verify` | Presence/version-check local assets, or with `--download` verify the signature and every published archive's checksum | None |
+| `image` | Build the configured container image once, push it to the primary registry plus mirrors, and cosign-sign the pushed digest | Registries |
+| `provenance` | Attest SLSA provenance over exactly the published subjects — the declared `SHA256SUMS` manifest entries and every pushed image digest | Attestation store |
 | `bump` | Manifest version/floor changes and the rolled changelog, committed (or, with `--no-commit`, staged for a pull request) | Repository (working tree) |
 | `tag` | Manifest changes, release commit, tags, and configured push | Repository and remote |
 | `publish --dry-run` | Registry and hosted-Release rehearsal | None |
@@ -116,6 +118,21 @@ toven release verify --no-run                              # presence-check the 
 ```
 
 `package` archives an already-built binary for `--target` into the exact declared per-target archive path (globbing and version placeholders are not supported — the `host.assets` list is a set of fixed project-relative paths). `checksums` writes a SHA-256 `SHA256SUMS` covering every declared archive and the SBOM. `sign` produces the keyless Sigstore/cosign signature and certificate over `SHA256SUMS`; it runs only when `[ecosystems.<id>.release.sign] enabled = true` and matches the configured keyless `identity`/`issuer`. `verify` presence- and version-checks the local asset set; with `--download` it fetches every published asset, verifies the Sigstore signature on `SHA256SUMS` first, then checksum-verifies each archive before extraction. `--no-run` skips executing the archived binaries, so the whole multi-target asset set can be verified from a single runner that cannot execute every target.
+
+## Container images and provenance
+
+A service-style module — shipped as a container image rather than a registry package or archive — declares a `[…release.image]` block (see the [image config](../config/release.md#container-image-release)). Two verbs complete such a release: `image` publishes the container image, and `provenance` attests SLSA build provenance over what was actually published. Both are backable native or delegated like any other release phase, both preview mutation-free under `--dry-run`, and both require `--yes` for the real mutation because `image` writes to registries and `provenance` writes to the attestation store.
+
+```bash
+toven release image --dry-run        # preview the references and existing digests, mutating nothing
+toven release image --yes            # build once, push to primary + mirrors, cosign-sign the digest
+toven release provenance --dry-run   # preview whether the published subjects already carry an attestation
+toven release provenance --yes       # attest over exactly the published manifest subjects and pushed image digests
+```
+
+`image` runs only for modules that declare an image block; a module without one is skipped, and a run where no module declares an image block fails closed. For each such module it renders the image name and tag from the module's declared version, builds the context/Dockerfile once, pushes the built digest to the primary registry followed by every configured mirror, and — when `sign = true` (the default) — cosign-signs the pushed digest keyless. Image publication is immutable: pushing a tag that already exists at a **different** digest fails closed, and recovery is a forward-fix version, never a moved tag. An already-present identical digest reports `already-complete`. Registry credentials are read from the ambient environment only and never placed on argv or logged. `--dry-run` resolves each reference's existing digest but never builds, pushes, or signs, reporting `would-push` or `already-present`.
+
+`provenance` attests over **exactly** the approved, published subjects — the entries of the declared `SHA256SUMS` manifest, each a `sha256:`-prefixed digest, plus the live digest of every pushed image reference — so the attestation covers the released bytes and nothing else. It fails closed when neither a `SHA256SUMS` manifest nor an image is declared, when a declared manifest lists no subjects, or when a declared image resolves to no pushed digest (run `toven release image` first). Attestation is immutable and idempotent: a re-run over already-attested subjects reports `already-complete`. The forge token is read from the ambient environment only. `--dry-run` queries whether an attestation already exists for the subjects (reporting `would-attest` or `already-present`) but never attests. Typed JSONL emits one record per module image (`image`) or per subject (`provenance`), each carrying the `preview` flag and resolved `status`; data goes to stdout and warnings to stderr.
 
 ## Mutation-free publication rehearsal
 
