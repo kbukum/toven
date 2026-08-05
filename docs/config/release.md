@@ -162,12 +162,14 @@ assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
 
 `forge` selects the hosted-release adapter; `github` and `gitlab` are supported, and any other value is rejected when the config is parsed. Asset paths are project-relative exact paths; glob expansion is not implemented. An unset `prerelease` flag derives from the selected version: a version carrying a prerelease identifier (`0.1.0-alpha.1`) marks the hosted Release as a prerelease, whether it came from `--pre` or from the version the module already declares. An unset `notes` value uses the commit-derived release notes body rendered by the planner.
 
+`host.assets` is resolved **per module**: a `[modules."rust:app".release.host]` block attaches its assets to that module, and a module that produces no binary artifacts simply declares no `assets`. Assets are not a single ecosystem-wide list — each participating module contributes the archives it owns, so a repository can release registry libraries (no assets) alongside a self-hosted binary app (archive assets) in one release train.
+
 The two forges model releases differently, so the adapters honor what each platform can represent rather than pretending parity:
 
 - **GitHub** (`forge = "github"`, via `gh`) supports draft and prerelease flags and uploads assets as named files; an existing Release is verified field-by-field, including each asset's name and byte size.
 - **GitLab** (`forge = "gitlab"`, via `glab`) has no draft release, so a `draft = true` release is **rejected fail-closed** before any `glab` call — cut it on a forge that supports drafts or drop the flag. GitLab also has no prerelease flag, so `prerelease` is recorded intent the adapter cannot set on the forge; it is neither emitted nor verified. GitLab release assets are links (name + URL) with no byte size, so an existing Release is verified by title, notes, and asset **name** only. Creation uses `glab release create --no-update`, so an existing tag is refused rather than edited in place.
 
-One release tag is one hosted Release. A `tag_format` that omits the module — `v{version}` for a workspace that shares a single version — maps every module onto the same tag, so those modules collapse into a single hosted Release whose assets and notes are the deduplicated union of the contributing modules, and the shared tag itself is created once for the whole release train. Modules sharing a tag but disagreeing on `draft` or `prerelease`, or rendering different tag annotations (`tag_message`), are rejected as a configuration error before any mutation.
+One release tag is one hosted Release. A `tag_format` that omits the module — `v{version}` for a workspace that shares a single version — maps every module onto the same tag, so those modules collapse into a single hosted Release whose assets and notes are the deduplicated union of the contributing modules, and the shared tag itself is created once for the whole release train. This is what lets a mixed repository — registry libraries plus one self-hosted binary app — release together under a shared `v{version}` tag: the library modules contribute notes but no archives, the binary module contributes its per-target archives, and the collapsed Release carries their union. Modules sharing a tag but disagreeing on `draft` or `prerelease`, or rendering different tag annotations (`tag_message`), are rejected as a configuration error before any mutation.
 
 Hosted Release rehearsal is mutation-free. Real hosted Release creation currently runs only after a pushing `release publish`, not after `release tag`.
 
@@ -217,7 +219,7 @@ Signing is **off by default** and, when enabled, executable by `toven release si
 
 ## Artifact assembly and verification
 
-Under a hosted-release policy, the fixed `host.assets` set is produced end to end by engine verbs — no external packaging, checksum, or signing scripts:
+Under a hosted-release policy, each binary-producing module's declared `host.assets` are produced end to end by engine verbs — no external packaging, checksum, or signing scripts. The verbs scope to the modules that declare assets, so a mixed repository packages, checksums, signs, and verifies only its binary app while its registry libraries pass through untouched:
 
 - `toven release package --target <triple>` archives an already-built binary (`target/<triple>/release/<binary>`, or an explicit `--binary` path) into its declared per-target archive asset (`.tar.gz`, or `.zip` for a `*windows*` triple, with the `.exe` suffix recorded). It fails closed when the declared asset or the built binary is missing.
 - `toven release sbom` writes the CycloneDX SBOM and stages it into the declared `*.cdx.json` asset.

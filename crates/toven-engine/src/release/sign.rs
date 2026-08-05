@@ -100,7 +100,7 @@ pub fn release_sign(
         SignerSelection::Enabled(signer) => signer,
     };
 
-    let declared = declared_assets(&settings);
+    let declared = super::assets::declared_release_assets(&settings);
     let blob = require_declared_asset(&declared, MANIFEST_NAME)?;
     let signature = require_declared_asset(&declared, SIGNATURE_NAME)?;
     let certificate = require_declared_asset(&declared, CERTIFICATE_NAME)?;
@@ -191,20 +191,6 @@ fn resolve_signer(
 /// default (`None`) or the quoted key/identity ref.
 fn describe_signer(signer: Option<&str>) -> String {
     signer.map_or_else(|| "keyless".to_string(), |key| format!("'{key}'"))
-}
-
-/// The sorted, de-duplicated union of every module's declared hosted-release
-/// assets.
-fn declared_assets(
-    settings: &std::collections::BTreeMap<toven_model::ModuleKey, super::ResolvedReleaseSettings>,
-) -> Vec<&String> {
-    let mut assets: Vec<&String> = settings
-        .values()
-        .flat_map(|resolved| resolved.host.assets.iter())
-        .collect();
-    assets.sort();
-    assets.dedup();
-    assets
 }
 
 /// Find the declared asset whose file name is exactly `name`, fail-closed.

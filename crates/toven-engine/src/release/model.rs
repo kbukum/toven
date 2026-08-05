@@ -358,6 +358,12 @@ pub struct ReleaseModuleStatus {
     pub declared_version: Version,
     /// Newest release tag cut for the module, if any.
     pub latest_tag: Option<String>,
+    /// Forge the module resolves for hosted Release participation
+    /// (`[…release.host].forge`), if any. `None` means no host forge resolves
+    /// for this module. Host participation is orthogonal to publication policy:
+    /// a registry library can still resolve a forge and contribute notes to a
+    /// shared hosted Release while a binary app contributes archives.
+    pub host_forge: Option<String>,
     /// Versions the registry reports as already published (best-effort).
     pub published_versions: Vec<Version>,
     /// Whether the declared version is already released. Online, the registry

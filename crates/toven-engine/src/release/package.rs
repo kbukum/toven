@@ -137,7 +137,7 @@ pub fn release_package(
     let targets = release_targets(&context)?;
     let settings = resolve_release_settings(&context, &targets)?;
 
-    let declared = declared_assets(&settings);
+    let declared = super::assets::declared_release_assets(&settings);
     if declared.is_empty() {
         return Err(AppError::invalid_input(
             "release.host.assets",
@@ -259,21 +259,6 @@ fn package_asset(
         format,
         bytes,
     })
-}
-
-/// The sorted, de-duplicated union of every module's declared hosted-release
-/// assets. Assets are an ecosystem-level declaration shared across modules, so
-/// the union is the release scope's asset set.
-fn declared_assets(
-    settings: &std::collections::BTreeMap<toven_model::ModuleKey, super::ResolvedReleaseSettings>,
-) -> Vec<&String> {
-    let mut assets: Vec<&String> = settings
-        .values()
-        .flat_map(|resolved| resolved.host.assets.iter())
-        .collect();
-    assets.sort();
-    assets.dedup();
-    assets
 }
 
 /// The final path component of a project-relative asset path.

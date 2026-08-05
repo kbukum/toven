@@ -452,6 +452,76 @@ mod tests {
     }
 
     #[test]
+    fn mixed_library_and_binary_modules_collapse_into_one_release() {
+        // A mixed repo: a registry library (`corelib`) contributes release
+        // notes only, while a binary app (`app`) contributes signed archives.
+        // Both render the shared `v{version}` tag, so they collapse into one
+        // hosted Release whose notes and assets are the union of the two
+        // per-module contributions — assets owned by the binary, notes by both.
+        let shared = |name: &str, notes: &str| {
+            let mut entry = entry(name, None);
+            entry.tag_format = Some("v{version}".into());
+            entry.changelog = ChangelogEntry::new(mkey(name), "changed", vec![notes.to_string()]);
+            entry
+        };
+        let plan = ReleasePlan::new(
+            BumpPolicy::SemverCascade,
+            vec![
+                shared("corelib", "- library change"),
+                shared("app", "- app change"),
+            ],
+        );
+        let modules = vec![module("corelib"), module("app")];
+
+        // The library declares a forge but no assets (notes only); the binary
+        // declares the archives and checksum manifest.
+        let library_host = HostConfig {
+            forge: Some("github".into()),
+            ..HostConfig::default()
+        };
+        let binary_host = HostConfig {
+            forge: Some("github".into()),
+            assets: Some(vec![
+                "dist/app-x86_64-unknown-linux-gnu.tar.gz".into(),
+                "dist/SHA256SUMS".into(),
+            ]),
+            ..HostConfig::default()
+        };
+        let mut resolved = settings("corelib", Some(library_host));
+        resolved.extend(settings("app", Some(binary_host)));
+
+        let planned = planned_host_releases(&plan, &modules, &targets(), &resolved).unwrap();
+
+        assert_eq!(
+            planned.len(),
+            1,
+            "one shared tag is one Release: {planned:?}"
+        );
+        let release = &planned[0].release;
+        assert_eq!(release.tag, "v0.1.1");
+        // Assets come solely from the binary module.
+        let asset_paths: Vec<_> = release
+            .assets
+            .iter()
+            .map(|asset| asset.path.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            asset_paths,
+            vec![
+                "dist/app-x86_64-unknown-linux-gnu.tar.gz".to_string(),
+                "dist/SHA256SUMS".to_string()
+            ]
+        );
+        // Notes are the merged union of both modules' distinct bodies.
+        assert!(
+            release.notes.contains("- library change"),
+            "{}",
+            release.notes
+        );
+        assert!(release.notes.contains("- app change"), "{}", release.notes);
+    }
+
+    #[test]
     fn merge_rejects_one_asset_path_contributed_with_divergent_labels() {
         let hosted = |label: Option<&str>| {
             let mut asset = ReleaseAsset::new("dist/app.tgz");

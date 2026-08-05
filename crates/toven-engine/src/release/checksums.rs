@@ -101,7 +101,7 @@ pub fn release_checksums(
     let targets = release_targets(&context)?;
     let settings = resolve_release_settings(&context, &targets)?;
 
-    let declared = ordered_declared_assets(&settings);
+    let declared = super::assets::declared_release_assets(&settings);
     if declared.is_empty() {
         return Err(AppError::invalid_input(
             "release.host.assets",
@@ -193,24 +193,6 @@ fn is_checksum_input(asset: &str) -> bool {
     asset_file_name(asset).is_some_and(|name| {
         name != MANIFEST_NAME && !name.starts_with(&format!("{MANIFEST_NAME}."))
     })
-}
-
-/// The declared hosted-release assets in first-seen declared order, de-duped.
-/// Assets are an ecosystem-level declaration shared across modules; preserving
-/// declared order keeps the emitted manifest byte-stable and reviewable.
-fn ordered_declared_assets(
-    settings: &std::collections::BTreeMap<toven_model::ModuleKey, super::ResolvedReleaseSettings>,
-) -> Vec<&String> {
-    let mut seen = std::collections::BTreeSet::new();
-    let mut ordered = Vec::new();
-    for resolved in settings.values() {
-        for asset in &resolved.host.assets {
-            if seen.insert(asset.as_str()) {
-                ordered.push(asset);
-            }
-        }
-    }
-    ordered
 }
 
 /// The final path component of a project-relative asset path.
