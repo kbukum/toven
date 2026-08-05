@@ -24,7 +24,8 @@ use super::BumpOverrides;
 use super::plan::{plan_with_context, release_targets};
 use crate::config::Document;
 use crate::federation::baseline::MemberVcsReaders;
-use crate::federation::release::{MemberReleaseRepos, release_bump_by_member};
+use crate::federation::member_repo::MemberReleaseRepos;
+use crate::release::federated::release_bump_by_member;
 use crate::federation::resolve::PathDriverLocator;
 use crate::plan::{PlanRequest, prepare_front};
 
@@ -139,7 +140,7 @@ pub fn release_bump(
         &targets,
         repos,
         &date,
-        options,
+        *options,
     )
 }
 

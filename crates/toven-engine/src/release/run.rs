@@ -22,7 +22,8 @@ use super::settings::ResolvedReleaseSettings;
 use super::{BumpOverrides, ReleaseApplyOptions, ReleaseStats};
 use crate::config::Document;
 use crate::federation::baseline::MemberVcsReaders;
-use crate::federation::release::{MemberReleaseRepos, release_apply_by_member};
+use crate::federation::member_repo::MemberReleaseRepos;
+use crate::release::federated::release_apply_by_member;
 use crate::federation::resolve::PathDriverLocator;
 use crate::plan::{PlanRequest, prepare_front};
 
@@ -229,7 +230,7 @@ mod tests {
     use super::{ResolvedReleaseSettings, collect_hook_refs, release_run};
     use crate::config::{Document, ProjectConfig, TovenConfig};
     use crate::federation::baseline::MemberVcsReaders;
-    use crate::federation::release::{MemberReleaseRepo, MemberReleaseRepos};
+    use crate::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
     use crate::plan::{PlanRequest, Selection};
     use crate::release::{BumpOverrides, ReleaseApplyOptions};
 

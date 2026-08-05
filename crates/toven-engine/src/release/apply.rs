@@ -2454,7 +2454,7 @@ mod tests {
 
     #[test]
     fn federated_style_multi_module_push_lands_every_tag_on_a_real_bare_remote() {
-        // The federated member push (federation::release::commit_member_shard)
+        // The federated member push (release::federated::commit_member_shard)
         // shares `push_refspecs` and the same rskit-git writer as the standalone
         // path, adding only `reader().current_branch()`. This proves that shared
         // mechanism pushes the resolved branch plus every module tag to a real

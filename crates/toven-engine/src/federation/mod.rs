@@ -23,7 +23,7 @@
 //!   coordinates.
 //! - [`baseline`] — per-member baseline specs and VCS reader views.
 //! - [`project`] — open one deduped rskit-git reader/writer per member repo.
-//! - [`release`] — federated release planning and per-member APPLY sharding.
+//! - [`member_repo`] — release-agnostic per-member repo VCS handles.
 //! - [`spine`] — the N-member Configure → Discover spine that unions members.
 //! - [`sync`] — explicit member-repo provisioning (clone + clean-tree guard).
 
@@ -35,7 +35,7 @@ pub mod project;
 pub mod protocol;
 pub mod provision;
 pub mod rebase;
-pub mod release;
+pub mod member_repo;
 pub mod remote;
 pub mod resolve;
 pub mod serve;

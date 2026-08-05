@@ -10,6 +10,7 @@ mod checksums;
 mod conventional;
 mod delegated;
 mod depgraphs;
+pub(crate) mod federated;
 mod host;
 mod manifest;
 mod model;

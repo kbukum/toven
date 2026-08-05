@@ -13,7 +13,7 @@ use rskit_util::time::FixedClock;
 use toven_engine::config::{CanonicalRegistry, Document, load};
 use toven_engine::federation::MemberVcsReaders;
 use toven_engine::federation::baseline::MemberVcsReader;
-use toven_engine::federation::release::{MemberReleaseRepo, MemberReleaseRepos};
+use toven_engine::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
 use toven_engine::plan::PlanRequest;
 use toven_engine::release::{BumpOptions, BumpOverrides, release_bump};
 use toven_model::{
