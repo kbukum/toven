@@ -13,8 +13,9 @@ pub use common::CommonEcosystemConfig;
 pub use coverage::{CoverageConfig, CoverageProfile, CoverageThresholds, Enforcement};
 pub use hooks::HooksConfig;
 pub use release::{
-    BumpLevel, ChangelogConfig, DelegatedTool, DependentVersion, HostConfig, PhaseBackingKind,
-    PhaseConfig, PhasesConfig, PrereleaseConfig, PublicationPolicy, ReleaseConfig, SignConfig,
+    BumpLevel, ChangelogConfig, DelegatedTool, DependentVersion, HostConfig, ImageConfig,
+    PhaseBackingKind, PhaseConfig, PhasesConfig, PrereleaseConfig, PublicationPolicy,
+    ReleaseConfig, SignConfig,
 };
 pub use run_strategy::RunStrategy;
 pub use task_entry::TaskEntry;

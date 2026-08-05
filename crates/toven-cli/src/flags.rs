@@ -185,6 +185,18 @@ Examples:
   toven release verify --no-run           Verify presence without executing the packaged binary
   toven release verify --download         Download the hosted assets, verify signature + checksum, then run";
 
+/// `release image` action examples.
+const RELEASE_IMAGE_EXAMPLES: &str = "\
+Examples:
+  toven release image --dry-run    Preview the image references and existing digests without building or pushing
+  toven release image --yes        Build once, push to the primary registry plus mirrors, and cosign-sign the digest";
+
+/// `release provenance` action examples.
+const RELEASE_PROVENANCE_EXAMPLES: &str = "\
+Examples:
+  toven release provenance --dry-run  Preview whether the published subjects already carry an attestation
+  toven release provenance --yes      Attest SLSA provenance over exactly the published SHA256SUMS subjects";
+
 /// `driver` verb examples.
 const DRIVER_EXAMPLES: &str = "\
 Examples:
@@ -827,6 +839,18 @@ pub enum ReleaseAction {
     #[allow(clippy::doc_markdown)]
     #[command(after_long_help = RELEASE_VERIFY_EXAMPLES)]
     Verify,
+    /// Build the configured container image once, push it to the primary
+    /// registry plus mirrors immutably, and cosign-sign the pushed digest;
+    /// `--dry-run` previews the references and existing digests mutation-free,
+    /// the real push requires `--yes`.
+    #[command(after_long_help = RELEASE_IMAGE_EXAMPLES)]
+    Image,
+    /// Attest SLSA provenance over exactly the published subjects (the declared
+    /// `SHA256SUMS` entries); `--dry-run` previews whether an attestation
+    /// already exists mutation-free, the real attestation requires `--yes`.
+    #[allow(clippy::doc_markdown)]
+    #[command(after_long_help = RELEASE_PROVENANCE_EXAMPLES)]
+    Provenance,
 }
 
 impl ReleaseAction {
@@ -846,15 +870,33 @@ impl ReleaseAction {
             Self::Checksums => "checksums",
             Self::Sign => "sign",
             Self::Verify => "verify",
+            Self::Image => "image",
+            Self::Provenance => "provenance",
         }
     }
 
-    /// Whether the action mutates the working tree, history, or registry (a
-    /// version cut, changelog roll, commit, tag, or publish): `bump`, `tag`, and
-    /// `publish`. These accept the per-run bump argv and require `--yes`.
+    /// Whether the action performs a version-cut mutation of the working tree,
+    /// history, or registry (a version cut, changelog roll, commit, tag, or
+    /// publish): `bump`, `tag`, and `publish`. These accept the per-run bump
+    /// argv and require `--yes`. The registry/attestation-store mutations
+    /// (`image` / `provenance`) are *not* version cuts — they take no bump argv
+    /// — so they are classified by [`Self::requires_confirmation`] instead.
     #[must_use]
     pub const fn is_mutating(self) -> bool {
         matches!(self, Self::Bump | Self::Tag | Self::Publish)
+    }
+
+    /// Whether the action performs a real mutation that must be authorized with
+    /// `--yes`: the version-cut family (`bump` / `tag` / `publish`) plus the
+    /// registry/attestation-store mutations (`image` pushes to registries,
+    /// `provenance` writes to the attestation store). Each honors `--dry-run` as
+    /// a mutation-free preview that needs no confirmation.
+    #[must_use]
+    pub const fn requires_confirmation(self) -> bool {
+        matches!(
+            self,
+            Self::Bump | Self::Tag | Self::Publish | Self::Image | Self::Provenance
+        )
     }
 
     /// Whether the action is non-mutating and therefore a PLAN-only cut with no
@@ -888,11 +930,17 @@ impl ReleaseAction {
     }
 
     /// Whether `--dry-run` is meaningful for the action: `plan` (already a
-    /// projection), the rehearsable `publish` pipeline, and `bump` (which
-    /// previews the version + changelog mutation without writing).
+    /// projection), the rehearsable `publish` pipeline, `bump` (which previews
+    /// the version + changelog mutation without writing), and the
+    /// registry/attestation-store mutations `image` and `provenance` (which
+    /// preview their references/subjects without building, pushing, or
+    /// attesting).
     #[must_use]
     pub const fn accepts_dry_run(self) -> bool {
-        matches!(self, Self::Plan | Self::Bump | Self::Publish)
+        matches!(
+            self,
+            Self::Plan | Self::Bump | Self::Publish | Self::Image | Self::Provenance
+        )
     }
 }
 
@@ -1222,10 +1270,8 @@ fn gate_bump_flags(cli: &Cli, verb: &str, mutating_release: bool) -> AppResult<(
 /// `--print`) on any other verb, and the release-only `--yes` anywhere but a
 /// mutating release action.
 fn gate_init_flags(cli: &Cli, verb: &str, is_init: bool) -> AppResult<()> {
-    let release_confirmation = matches!(
-        release_action(&cli.command),
-        Some(ReleaseAction::Bump | ReleaseAction::Tag | ReleaseAction::Publish)
-    );
+    let release_confirmation =
+        release_action(&cli.command).is_some_and(ReleaseAction::requires_confirmation);
     if cli.force.is_some() && !is_init {
         return Err(only_applies("--force", "toven init", verb));
     }
@@ -1238,7 +1284,7 @@ fn gate_init_flags(cli: &Cli, verb: &str, is_init: bool) -> AppResult<()> {
     if cli.confirm_release && !release_confirmation {
         return Err(only_applies(
             "--yes",
-            "toven release bump/tag/publish",
+            "toven release bump/tag/publish/image/provenance",
             verb,
         ));
     }
@@ -1825,6 +1871,8 @@ mod tests {
             ("checksums", ReleaseAction::Checksums),
             ("sign", ReleaseAction::Sign),
             ("verify", ReleaseAction::Verify),
+            ("image", ReleaseAction::Image),
+            ("provenance", ReleaseAction::Provenance),
         ] {
             let cli = parse(&["release", arg]).expect("parses");
             match cli.command {
@@ -1923,7 +1971,7 @@ mod tests {
 
     #[test]
     fn yes_confirmation_only_applies_to_mutating_release_actions() {
-        for action in ["bump", "tag", "publish"] {
+        for action in ["bump", "tag", "publish", "image", "provenance"] {
             let cli = parse(&["--yes", "release", action]).expect("parses");
             assert!(cli.confirm_release);
             // `--yes` is release-only now, not an alias of init's `--non-interactive`.
@@ -2009,7 +2057,7 @@ mod tests {
 
     #[test]
     fn dry_run_only_on_rehearsable_release_actions() {
-        for action in ["plan", "bump", "publish"] {
+        for action in ["plan", "bump", "publish", "image", "provenance"] {
             let cli = parse(&["--dry-run", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_ok(), "{action}");
         }
@@ -2067,6 +2115,8 @@ mod tests {
             "checksums",
             "sign",
             "verify",
+            "image",
+            "provenance",
         ] {
             let cli = parse(&["--output", "jsonl", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_ok(), "{action}");
@@ -2109,6 +2159,21 @@ mod tests {
         assert!(!ReleaseAction::Status.accepts_dry_run());
         assert!(!ReleaseAction::Tag.accepts_dry_run());
         assert!(!ReleaseAction::Readiness.accepts_dry_run());
+        // The registry/attestation-store mutations require `--yes` but are not
+        // version cuts, so they classify via `requires_confirmation`, honor
+        // `--dry-run`, and are neither projections nor version-cut mutations.
+        for action in [ReleaseAction::Image, ReleaseAction::Provenance] {
+            assert!(!action.is_projection());
+            assert!(!action.is_mutating());
+            assert!(!action.writes_artifacts());
+            assert!(action.accepts_dry_run());
+            assert!(action.requires_confirmation());
+        }
+        assert!(ReleaseAction::Bump.requires_confirmation());
+        assert!(ReleaseAction::Tag.requires_confirmation());
+        assert!(ReleaseAction::Publish.requires_confirmation());
+        assert!(!ReleaseAction::Sign.requires_confirmation());
+        assert!(!ReleaseAction::Plan.requires_confirmation());
     }
 
     #[test]

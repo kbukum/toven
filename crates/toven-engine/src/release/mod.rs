@@ -11,12 +11,14 @@ mod conventional;
 mod delegated;
 mod depgraphs;
 mod host;
+mod image;
 mod manifest;
 mod model;
 pub(crate) mod mutate;
 mod overrides;
 pub(crate) mod package;
 pub(crate) mod plan;
+mod provenance;
 pub(crate) mod publish;
 mod readiness;
 mod reconcile;
@@ -37,6 +39,10 @@ pub use checksums::{ChecksumEntry, ChecksumReport, release_checksums};
 pub use delegated::{ProcessDelegatedPhase, delegated_request};
 pub use depgraphs::{DepgraphReport, release_depgraphs};
 pub use host::{GithubReleaseHost, GitlabReleaseHost};
+pub use image::{
+    BuildxImagePhase, ImageModuleOutcome, ImageOptions, ImagePhaseStatus, ImageReport,
+    release_image,
+};
 pub use manifest::ArtifactManifest;
 pub use model::{
     BumpPolicy, BumpReason, BumpSource, ChangelogEntry, HostRehearsal, PublishDecision, PushPolicy,
@@ -46,6 +52,10 @@ pub use model::{
 pub use overrides::BumpOverrides;
 pub use package::{ArchiveFormat, PackageReport, PackagedAsset, release_package};
 pub use plan::release_plan;
+pub use provenance::{
+    GhAttestationProvenance, ProvenanceOptions, ProvenancePhaseStatus, ProvenanceReport,
+    release_provenance,
+};
 pub use readiness::{ReadinessCheck, ReadinessReport, release_readiness};
 pub use rehearse::release_rehearse;
 pub use run::release_run;

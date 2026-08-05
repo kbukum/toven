@@ -37,6 +37,9 @@ pub enum ReleasePhase {
     Publish,
     /// Cut or reconcile the hosted forge Release and upload its assets.
     Host,
+    /// Build a tagged container image, push it to the primary registry plus any
+    /// mirrors, and sign the pushed digest.
+    Image,
     /// Attach supply-chain provenance and the SBOM to the release.
     Provenance,
 }
@@ -51,6 +54,7 @@ impl ReleasePhase {
         Self::Sign,
         Self::Publish,
         Self::Host,
+        Self::Image,
         Self::Provenance,
     ];
 
@@ -66,6 +70,7 @@ impl ReleasePhase {
             Self::Sign => "sign",
             Self::Publish => "publish",
             Self::Host => "host",
+            Self::Image => "image",
             Self::Provenance => "provenance",
         }
     }
@@ -91,6 +96,7 @@ mod tests {
                 "sign",
                 "publish",
                 "host",
+                "image",
                 "provenance",
             ]
         );

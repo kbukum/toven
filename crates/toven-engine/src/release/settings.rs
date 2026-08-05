@@ -7,9 +7,9 @@
 use rskit_errors::AppResult;
 use toven_model::ReleasePhase;
 use toven_ports::{
-    BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, HostConfig, PhaseBacking,
-    PhasesConfig, PrereleaseConfig, PublicationPolicy, ReleaseConfig, SignConfig, SignFormat,
-    Visibility, merge_release,
+    BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, HostConfig, ImageConfig,
+    PhaseBacking, PhasesConfig, PrereleaseConfig, PublicationPolicy, ReleaseConfig, SignConfig,
+    SignFormat, Visibility, merge_release,
 };
 
 use super::{BumpPolicy, PushPolicy, strategy};
@@ -134,6 +134,8 @@ pub struct ResolvedReleaseSettings {
     pub hooks: HooksConfig,
     /// Hosted forge Release settings.
     pub host: ResolvedHostSettings,
+    /// Container-image phase settings; `None` = the module runs no image phase.
+    pub image: Option<ImageConfig>,
     /// Per-phase backing map: how each release phase is satisfied (native, the
     /// default, or delegated to an external tool).
     pub phases: PhasesConfig,
@@ -240,6 +242,7 @@ impl ResolvedReleaseSettings {
             readiness: config.readiness.clone().unwrap_or_default(),
             hooks: config.hooks.clone().unwrap_or_default(),
             host: ResolvedHostSettings::from_config(config.host.as_ref()),
+            image: config.image.clone(),
             phases: config.phases.clone().unwrap_or_default(),
         })
     }

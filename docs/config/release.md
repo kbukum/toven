@@ -229,9 +229,38 @@ Under a hosted-release policy, each binary-producing module's declared `host.ass
 
 Every verb is non-mutating with respect to git history, emits typed JSONL under `--output jsonl`, and fails closed on a missing or mismatched input. CI provisions the external tools (cosign, cargo-cyclonedx) and holds the human approval gate; Toven drives them.
 
+## Container-image release
+
+A module shipped as a container image declares a `[…release.image]` block. It is required to run the `image` phase (the phase is unusable without it) and drives [`toven release image`](../commands/release.md#container-images-and-provenance): build the image once, push the built digest to the primary registry followed by every mirror, and cosign-sign the pushed digest. An image block on an ecosystem whose module ships no image is rejected at config time, so the block is never a silent no-op.
+
+```toml
+[ecosystems.rust.release.image]
+registry = "ghcr.io/acme"          # primary registry (required)
+mirrors = ["docker.io/acme"]       # additional registries the same digest is pushed to
+name = "toven"                     # image name template
+tag = "{version}"                  # image tag template (default: {version})
+context = "services/api"           # project-relative build context (default: the project root)
+dockerfile = "services/api/Dockerfile"  # project-relative Dockerfile (default: the builder default)
+sign = true                        # cosign-sign the pushed digest, keyless (default: true)
+```
+
+| Field | Meaning | Default |
+|---|---|---|
+| `registry` | Primary registry the image is pushed to (e.g. `ghcr.io/acme`); must not be blank | Required |
+| `mirrors` | Additional mirror registries the same digest is pushed to | None |
+| `name` | Image name template | Required |
+| `tag` | Image tag template | `{version}` |
+| `context` | Project-relative build context | Project root (`.`) |
+| `dockerfile` | Project-relative Dockerfile path | Builder default (`<context>/Dockerfile`) |
+| `sign` | Cosign-sign the pushed digest, keyless | `true` |
+
+`name` and `tag` are templates over the same `{version}`/`{ecosystem}`/`{module}`/`{channel}` vocabulary as `tag_format`, validated at config time so a typo like `{verison}` fails the load. `context` and `dockerfile` must be safe project-relative paths (traversal is rejected). Image publication is immutable: pushing a tag that already exists at a different digest fails closed, and recovery is a forward-fix version. Registry credentials are read from the ambient environment only and never placed on argv or logged.
+
+`provenance` needs no config block — [`toven release provenance`](../commands/release.md#container-images-and-provenance) attests over exactly the published subjects: the entries of the declared `host.assets` `SHA256SUMS` manifest and the live digest of every pushed `[…release.image]` reference. A release may declare a manifest, an image, or both; it fails closed when neither is declared.
+
 ## Release phases and backing
 
-The release is a **flow** of ordered phases — `select`, `bump`, `tag`, `package`, `sign`, `publish`, `host`, `provenance`. Toven owns the flow and enforces its guarantees (mutation-free preview, gated mutation, immutable forward-fix outputs, typed reporting) for every phase. Each phase is *backed* either **natively** (Toven's own code — the default) or **delegated** to an external tool that Toven invokes argv-first while still owning selection, ordering, readiness, safety, and reporting. Delegation is per-phase and opt-in; Toven never hands the whole flow to an external tool.
+The release is a **flow** of ordered phases — `select`, `bump`, `tag`, `package`, `sign`, `publish`, `host`, `image`, `provenance`. Toven owns the flow and enforces its guarantees (mutation-free preview, gated mutation, immutable forward-fix outputs, typed reporting) for every phase. Each phase is *backed* either **natively** (Toven's own code — the default) or **delegated** to an external tool that Toven invokes argv-first while still owning selection, ordering, readiness, safety, and reporting. Delegation is per-phase and opt-in; Toven never hands the whole flow to an external tool.
 
 Per-phase backing is declared under `[…release.phases.<phase>]`. A phase with no entry stays native, so the block only names the phases you delegate:
 
