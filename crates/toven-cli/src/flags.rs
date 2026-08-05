@@ -195,7 +195,7 @@ Examples:
 const RELEASE_PROVENANCE_EXAMPLES: &str = "\
 Examples:
   toven release provenance --dry-run  Preview whether the published subjects already carry an attestation
-  toven release provenance --yes      Attest SLSA provenance over exactly the published SHA256SUMS subjects";
+  toven release provenance --yes      Attest SLSA provenance over published manifest entries and image digests";
 
 /// `driver` verb examples.
 const DRIVER_EXAMPLES: &str = "\
@@ -845,9 +845,10 @@ pub enum ReleaseAction {
     /// the real push requires `--yes`.
     #[command(after_long_help = RELEASE_IMAGE_EXAMPLES)]
     Image,
-    /// Attest SLSA provenance over exactly the published subjects (the declared
-    /// `SHA256SUMS` entries); `--dry-run` previews whether an attestation
-    /// already exists mutation-free, the real attestation requires `--yes`.
+    /// Attest SLSA provenance over exactly the published subjects (declared
+    /// `SHA256SUMS` entries plus pushed image digests); `--dry-run` previews
+    /// whether an attestation already exists mutation-free, the real
+    /// attestation requires `--yes`.
     #[allow(clippy::doc_markdown)]
     #[command(after_long_help = RELEASE_PROVENANCE_EXAMPLES)]
     Provenance,

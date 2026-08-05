@@ -382,9 +382,9 @@ fn image(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult
 }
 
 /// `release provenance`: attest SLSA provenance over exactly the published
-/// subjects (the declared `SHA256SUMS` entries). `--dry-run` previews whether an
-/// attestation already exists mutation-free, so it needs no `--yes`; the real
-/// attestation requires confirmation.
+/// subjects (the declared `SHA256SUMS` entries plus pushed image digests).
+/// `--dry-run` previews whether an attestation already exists mutation-free, so
+/// it needs no `--yes`; the real attestation requires confirmation.
 fn provenance(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     if !cli.dry_run {
         require_release_confirmation(cli.confirm_release)?;

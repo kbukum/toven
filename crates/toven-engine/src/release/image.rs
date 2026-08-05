@@ -19,7 +19,9 @@ use std::time::Duration;
 use rskit_errors::{AppError, AppResult};
 use rskit_fs::TempFile;
 use rskit_fs::sync_io::file::read_string_bounded;
-use rskit_process::{CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessSpec, run};
+use rskit_process::{
+    CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessResult, ProcessSpec, run,
+};
 use rskit_util::Template;
 use toven_ports::{ImageOutcome, ImagePhase, ImageRequest, Provider, ReleaseVar, Reporter};
 
@@ -214,22 +216,68 @@ fn preview_image(
     module_key: &str,
     request: &ImageRequest,
 ) -> AppResult<ImageModuleOutcome> {
-    let mut present: Option<String> = None;
-    for reference in request.references() {
-        if let Some(digest) = image_phase.resolve_digest(project_root, &reference)? {
-            present = Some(digest);
+    let references = request.references();
+    let primary = references.first().ok_or_else(|| {
+        AppError::invalid_input(
+            "release.image.registry",
+            "no registry configured for the image preview",
+        )
+    })?;
+    let primary_digest = image_phase.resolve_digest(project_root, primary)?;
+    let mut all_present = primary_digest.is_some();
+    for reference in references.iter().skip(1) {
+        let Some(mirror_digest) = image_phase.resolve_digest(project_root, reference)? else {
+            all_present = false;
+            continue;
+        };
+        let Some(primary_digest) = &primary_digest else {
+            return Err(divergent_preview_digest(
+                primary,
+                None,
+                reference,
+                &mirror_digest,
+            ));
+        };
+        if &mirror_digest != primary_digest {
+            return Err(divergent_preview_digest(
+                primary,
+                Some(primary_digest),
+                reference,
+                &mirror_digest,
+            ));
         }
     }
-    let (status, digest) = present.map_or((ImagePhaseStatus::WouldPush, None), |digest| {
-        (ImagePhaseStatus::AlreadyPresent, Some(digest))
-    });
+    let status = if all_present {
+        ImagePhaseStatus::AlreadyPresent
+    } else {
+        ImagePhaseStatus::WouldPush
+    };
     Ok(ImageModuleOutcome {
         module: module_key.to_string(),
-        references: request.references(),
-        digest,
+        references,
+        digest: primary_digest,
         signed: request.sign,
         status,
     })
+}
+
+/// Report inconsistent primary/mirror registry state during mutation-free
+/// preview rather than hiding it behind a successful-looking digest.
+fn divergent_preview_digest(
+    primary: &str,
+    primary_digest: Option<&String>,
+    mirror: &str,
+    mirror_digest: &str,
+) -> AppError {
+    let primary_value = primary_digest.map_or("missing", String::as_str);
+    AppError::invalid_input(
+        "release.image",
+        format!(
+            "image mirror '{mirror}' resolves to digest {mirror_digest}, but primary '{primary}' \
+             resolves to {primary_value}; releases are immutable, so reconcile the registry state \
+             before previewing or publishing"
+        ),
+    )
 }
 
 /// Build, push, and sign one module's image immutably.
@@ -407,9 +455,40 @@ impl ImagePhase for BuildxImagePhase {
             }
             return Ok(Some(digest));
         }
-        // A missing tag is the expected "not found" signal, not a failure.
-        Ok(None)
+        if image_not_found(&result) {
+            return Ok(None);
+        }
+        Err(process_failure("release.image.inspect", "docker", &result))
     }
+}
+
+/// Whether `docker buildx imagetools inspect` reported the specific
+/// tag-missing condition that previews and immutable publish guards treat as
+/// absence. Auth, network, timeout, and malformed invocations fail closed.
+fn image_not_found(result: &ProcessResult) -> bool {
+    let output = format!("{}\n{}", result.stdout, result.stderr).to_ascii_lowercase();
+    output.contains("not found")
+        || output.contains("manifest unknown")
+        || output.contains("name unknown")
+}
+
+/// Convert a non-zero tool result into a typed fail-closed error with bounded
+/// captured diagnostics.
+fn process_failure(field: &str, program: &str, result: &ProcessResult) -> AppError {
+    let mut message = format!(
+        "{program} exited with code {}; refusing to treat the result as absent",
+        result
+            .exit_code
+            .map_or_else(|| "unknown".to_string(), |code| code.to_string())
+    );
+    let stderr = result.stderr.trim();
+    if !stderr.is_empty() {
+        message.push_str(": ");
+        message.push_str(stderr);
+    }
+    AppError::new(rskit_errors::ErrorCode::Internal, message)
+        .with_detail("field", field)
+        .with_detail("program", program)
 }
 
 impl BuildxImagePhase {
@@ -729,6 +808,29 @@ mod tests {
         assert_eq!(report.images[0].status, ImagePhaseStatus::AlreadyPresent);
         assert_eq!(report.images[0].digest.as_deref(), Some("sha256:live"));
         assert!(phase.calls().is_empty());
+    }
+
+    #[test]
+    fn image_dry_run_fails_closed_on_divergent_primary_and_mirror_digests() {
+        let provider = provider_with_image(Some(image_config()), Version::new(1, 0, 0));
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let phase = FakeImagePhase::new()
+            .with_reference_digest("ghcr.io/acme/toven:1.0.0", "sha256:primary")
+            .with_reference_digest("docker.io/acme/toven:1.0.0", "sha256:mirror");
+        let mut reporter = RecordingReporter::new();
+
+        let error = release_image(
+            &request(),
+            &document(),
+            &providers,
+            &phase,
+            ImageOptions { dry_run: true },
+            &mut reporter,
+        )
+        .expect_err("divergent preview state must fail closed");
+
+        assert!(error.to_string().contains("reconcile"), "{error}");
+        assert!(phase.calls().is_empty(), "preview must not push");
     }
 
     #[test]

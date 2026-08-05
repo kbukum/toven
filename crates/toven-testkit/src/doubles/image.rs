@@ -7,6 +7,7 @@
 //! tag at a digest (so the immutable preview and the divergent-tag fail-closed
 //! path are exercised offline) or to fail outright.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -29,6 +30,7 @@ struct FakeImageState {
     /// A digest an existing tag already points at (scripts the preview and the
     /// divergent-tag fail-closed path).
     existing_digest: Option<String>,
+    reference_digests: BTreeMap<String, String>,
     fail: Option<String>,
     calls: Vec<ImageCall>,
 }
@@ -46,6 +48,7 @@ impl Default for FakeImagePhase {
                 digest: "sha256:feedface".to_string(),
                 outcome: ImageOutcome::Pushed,
                 existing_digest: None,
+                reference_digests: BTreeMap::new(),
                 fail: None,
                 calls: Vec::new(),
             })),
@@ -93,6 +96,20 @@ impl FakeImagePhase {
         self
     }
 
+    /// Script the digest a specific registry reference points at. References
+    /// without an explicit entry fall back to [`Self::with_existing_digest`].
+    #[must_use]
+    pub fn with_reference_digest(
+        self,
+        reference: impl Into<String>,
+        digest: impl Into<String>,
+    ) -> Self {
+        self.state()
+            .reference_digests
+            .insert(reference.into(), digest.into());
+        self
+    }
+
     /// Snapshot the recorded image-publish calls in call order.
     #[must_use]
     pub fn calls(&self) -> Vec<ImageCall> {
@@ -136,8 +153,13 @@ impl ImagePhase for FakeImagePhase {
         ))
     }
 
-    fn resolve_digest(&self, _root: &Path, _reference: &str) -> AppResult<Option<String>> {
-        Ok(self.state().existing_digest.clone())
+    fn resolve_digest(&self, _root: &Path, reference: &str) -> AppResult<Option<String>> {
+        let state = self.state();
+        Ok(state
+            .reference_digests
+            .get(reference)
+            .cloned()
+            .or_else(|| state.existing_digest.clone()))
     }
 }
 
@@ -175,6 +197,26 @@ mod tests {
             .expect_err("divergent tag fails");
         assert!(error.to_string().contains("immutable"), "{error}");
         assert_eq!(phase.calls().len(), 1);
+    }
+
+    #[test]
+    fn per_reference_digest_overrides_default_digest() {
+        let phase = FakeImagePhase::new()
+            .with_existing_digest("sha256:default")
+            .with_reference_digest("ghcr.io/acme/toven:1.0.0", "sha256:primary");
+
+        assert_eq!(
+            phase
+                .resolve_digest(Path::new("/repo"), "ghcr.io/acme/toven:1.0.0")
+                .expect("resolves"),
+            Some("sha256:primary".to_string())
+        );
+        assert_eq!(
+            phase
+                .resolve_digest(Path::new("/repo"), "docker.io/acme/toven:1.0.0")
+                .expect("resolves"),
+            Some("sha256:default".to_string())
+        );
     }
 
     #[test]

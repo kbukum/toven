@@ -20,7 +20,9 @@ use std::path::Path;
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::file::read_string_bounded;
-use rskit_process::{CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessSpec, run};
+use rskit_process::{
+    CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessResult, ProcessSpec, run,
+};
 use toven_ports::{ProvenanceOutcome, ProvenancePhase, ProvenanceSubject, Provider, Reporter};
 
 use super::plan::{release_targets, resolve_release_settings};
@@ -187,14 +189,14 @@ fn published_subjects(
         let manifest_subjects = parse_manifest_subjects(&path)?;
         if manifest_subjects.is_empty() {
             return Err(AppError::invalid_input(
-                "release.host.assets",
+                "release.provenance.subjects",
                 format!("manifest '{manifest}' lists no subjects to attest"),
             ));
         }
         subjects.extend(manifest_subjects);
     } else if image_requests.is_empty() {
         return Err(AppError::invalid_input(
-            "release.host.assets",
+            "release.provenance.subjects",
             format!(
                 "no '{MANIFEST_NAME}' manifest and no image are declared; provenance attests \
                  exactly the published subjects (manifest entries and pushed image digests)"
@@ -214,11 +216,11 @@ fn published_subjects(
     Ok(subjects)
 }
 
-/// The live digest of each published image reference, as a provenance subject.
-/// A reference the registry does not yet resolve (the image was not pushed)
-/// contributes nothing — provenance attests only what was actually published.
-/// The primary reference is preferred; mirrors carry the same digest, so each
-/// image yields at most one subject.
+/// The live digest of each published primary image reference, as a provenance
+/// subject. A primary reference the registry does not yet resolve (the image was
+/// not pushed) contributes nothing — provenance attests only what was actually
+/// published by the authoritative registry. Mirrors never substitute for a
+/// missing primary.
 fn image_subjects(
     project_root: &Path,
     image_requests: &[(String, toven_ports::ImageRequest)],
@@ -226,11 +228,11 @@ fn image_subjects(
 ) -> AppResult<Vec<ProvenanceSubject>> {
     let mut subjects = Vec::new();
     for (_module, request) in image_requests {
-        for reference in request.references() {
-            if let Some(digest) = image_phase.resolve_digest(project_root, &reference)? {
-                subjects.push(ProvenanceSubject::new(reference, digest));
-                break;
-            }
+        let Some(reference) = request.references().into_iter().next() else {
+            continue;
+        };
+        if let Some(digest) = image_phase.resolve_digest(project_root, &reference)? {
+            subjects.push(ProvenanceSubject::new(reference, digest));
         }
     }
     Ok(subjects)
@@ -310,17 +312,16 @@ impl GhAttestationProvenance {
         }
     }
 
-    /// Run an argv-only `gh` invocation rooted at `root`, returning captured
-    /// stdout and whether the process exited zero.
-    fn run(&self, root: &Path, argv: Vec<String>) -> AppResult<(bool, String)> {
+    /// Run an argv-only `gh` invocation rooted at `root`, returning its captured
+    /// result for explicit outcome classification.
+    fn run(&self, root: &Path, argv: Vec<String>) -> AppResult<ProcessResult> {
         let spec = ProcessSpec::new("gh").args(argv).dir(root);
         let config = ProcessConfig::default()
             .with_timeout(Some(self.timeout))
             .with_io(ProcessIo::captured(CapturedIo::new().with_output(
                 OutputPolicy::captured().with_max_output_bytes(MAX_PROVENANCE_OUTPUT_BYTES),
             )));
-        let result = run(&spec, &config)?;
-        Ok((result.success(), result.stdout))
+        run(&spec, &config)
     }
 }
 
@@ -348,24 +349,54 @@ impl ProvenancePhase for GhAttestationProvenance {
             return Ok(ProvenanceOutcome::AlreadyComplete);
         }
         for subject in subjects {
-            let (ok, _) = self.run(root, attest_argv(subject))?;
-            if !ok {
-                return Err(AppError::new(
-                    ErrorCode::Internal,
-                    format!(
-                        "attestation for subject '{}' failed; the release is not attested",
-                        subject.name
-                    ),
-                ));
-            }
+            self.run(root, attest_argv(subject))?.check()?;
         }
         Ok(ProvenanceOutcome::Attested)
     }
 
     fn attestation_exists(&self, root: &Path, subject: &ProvenanceSubject) -> AppResult<bool> {
-        let (ok, _) = self.run(root, verify_argv(subject))?;
-        Ok(ok)
+        let result = self.run(root, verify_argv(subject))?;
+        if result.success() {
+            return Ok(true);
+        }
+        if attestation_not_found(&result) {
+            return Ok(false);
+        }
+        Err(process_failure(
+            "release.provenance.attestation",
+            "gh",
+            &result,
+        ))
     }
+}
+
+/// Whether `gh attestation verify` reported the specific absence condition that
+/// preview and idempotency checks treat as "no attestation yet". Auth, network,
+/// malformed argv, and other tool failures fail closed.
+fn attestation_not_found(result: &ProcessResult) -> bool {
+    let output = format!("{}\n{}", result.stdout, result.stderr).to_ascii_lowercase();
+    output.contains("no attestations found")
+        || output.contains("no attestation found")
+        || output.contains("not found")
+}
+
+/// Convert a non-zero tool result into a typed fail-closed error with bounded
+/// captured diagnostics.
+fn process_failure(field: &str, program: &str, result: &ProcessResult) -> AppError {
+    let mut message = format!(
+        "{program} exited with code {}; refusing to treat the result as absent",
+        result
+            .exit_code
+            .map_or_else(|| "unknown".to_string(), |code| code.to_string())
+    );
+    let stderr = result.stderr.trim();
+    if !stderr.is_empty() {
+        message.push_str(": ");
+        message.push_str(stderr);
+    }
+    AppError::new(ErrorCode::Internal, message)
+        .with_detail("field", field)
+        .with_detail("program", program)
 }
 
 /// Build the argv-only `gh attestation` invocation that cuts an attestation
@@ -724,6 +755,31 @@ mod tests {
 
         assert_eq!(report.subjects.len(), 1);
         assert_eq!(report.subjects[0].name, "ghcr.io/acme/toven:1.0.0");
+    }
+
+    #[test]
+    fn image_provenance_requires_the_primary_registry_digest() {
+        let root = TempDir::new().unwrap();
+        let provider = provider_with_image(vec![]);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let phase = FakeProvenancePhase::new();
+        let image =
+            FakeImagePhase::new().with_reference_digest("docker.io/acme/toven:1.0.0", "sha256:img");
+        let mut reporter = RecordingReporter::new();
+
+        let error = release_provenance(
+            &request(root.path()),
+            &document(),
+            &providers,
+            &phase,
+            &image,
+            ProvenanceOptions::default(),
+            &mut reporter,
+        )
+        .expect_err("a mirror digest must not substitute for the primary");
+
+        assert!(error.to_string().contains("release image"), "{error}");
+        assert!(phase.calls().is_empty());
     }
 
     #[test]
