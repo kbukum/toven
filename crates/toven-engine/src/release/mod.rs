@@ -1,6 +1,7 @@
 //! Release-specific engine vocabulary and orchestration.
 
 pub(crate) mod apply;
+mod assets;
 mod bump;
 mod bump_verb;
 mod change;

@@ -160,7 +160,7 @@ pub fn release_verify(
         )
     })?;
 
-    let declared = declared_assets(&settings);
+    let declared = super::assets::declared_release_assets(&settings);
     let archives = archive_assets(&declared);
     if archives.is_empty() {
         return Err(AppError::invalid_input(
@@ -439,25 +439,6 @@ fn decide_version(
             "no releasable module declares a version to verify against",
         )
     })
-}
-
-/// The declared hosted-release assets in first-seen declared order, de-duped.
-/// Assets are an ecosystem-level declaration shared across modules; preserving
-/// declared order keeps the reported per-archive outcomes byte-stable and
-/// reviewable, matching `release checksums`.
-fn declared_assets(
-    settings: &BTreeMap<toven_model::ModuleKey, ResolvedReleaseSettings>,
-) -> Vec<&String> {
-    let mut seen = std::collections::BTreeSet::new();
-    let mut ordered = Vec::new();
-    for resolved in settings.values() {
-        for asset in &resolved.host.assets {
-            if seen.insert(asset.as_str()) {
-                ordered.push(asset);
-            }
-        }
-    }
-    ordered
 }
 
 /// The declared assets that are archives (`.tar.gz` / `.zip`), in declared

@@ -68,7 +68,7 @@ Change detection answers "what changed since the last release", so the implicit 
 
 A module with no release tag has never been released, so it always joins the plan as an initial release with reason `initial-release`. A first release cuts the version the module already declares — `0.1.0-alpha.1` is tagged as `0.1.0-alpha.1` — instead of bumping past it, because bumping would publish a version nobody declared and leave the declared one permanently unreleased. Explicit argv (`--patch`/`--minor`/`--major`, `--set-version`, `--pre`) still wins when a deliberate first bump is wanted.
 
-Status performs read-only tag and ecosystem-target lookups and reports the resolved publication policy for each releasable module. A lookup failure is surfaced rather than converted into a successful empty result. With `offline = true`, status anchors on release tags and skips registry lookups entirely, so the projection stays network-free.
+Status performs read-only tag and ecosystem-target lookups and reports the resolved publication policy for each releasable module. A lookup failure is surfaced rather than converted into a successful empty result. With `offline = true`, status anchors on release tags and skips registry lookups entirely, so the projection stays network-free. Status also reports which hosted forge each module participates in — the `Hosted on` column (a `host_forge` field under `--output jsonl`) names the forge a module resolves a `[…release.host]` block for and stays blank for a module with no resolved host forge. Host participation is orthogonal to publication policy: a registry library that inherits an ecosystem `host.forge` and contributes notes to a shared hosted Release shows that forge even though it publishes to the registry, so a mixed repository's per-module release phases are visible at a glance.
 
 ### Release notes
 
@@ -106,7 +106,7 @@ Artifact paths are written to stdout. Unsupported-ecosystem skips are warnings o
 
 ## Binary release artifacts
 
-For a binary-distributed workspace, the fixed `host.assets` set is assembled by four non-mutating verbs — the same ones `.github/workflows/release.yml` drives, each writing into the local `dist/` directory rather than touching a tag, registry, or hosted Release:
+For a binary-producing module, its declared `host.assets` are assembled by four non-mutating verbs — the same ones `.github/workflows/release.yml` drives, each writing into the local `dist/` directory rather than touching a tag, registry, or hosted Release. The verbs scope to the modules that declare assets, so in a mixed repository the registry libraries carry no archives and only the binary app is packaged, checksummed, signed, and verified:
 
 ```bash
 toven release package --target x86_64-unknown-linux-gnu   # per built target

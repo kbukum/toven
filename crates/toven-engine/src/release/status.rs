@@ -96,6 +96,7 @@ pub fn release_status(
             is_published,
             declared_version: declared,
             latest_tag,
+            host_forge: resolved.host.forge.clone(),
             published_versions: published,
         });
     }
@@ -428,5 +429,75 @@ mod tests {
             }
         );
         assert_eq!(entry.latest_tag, None);
+    }
+
+    #[test]
+    fn status_reports_the_host_forge_a_module_participates_in() {
+        // A hosting module surfaces its forge; a module with no host block
+        // reports no host participation.
+        let core = module("core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+
+        let target = FakeReleaseTarget::new().with_declared_version(Version::new(0, 1, 0));
+        let common = CommonEcosystemConfig {
+            release: ReleaseConfig {
+                registry: Some("crates-io".into()),
+                offline: Some(true),
+                host: Some(toven_ports::HostConfig {
+                    forge: Some("github".into()),
+                    ..toven_ports::HostConfig::default()
+                }),
+                ..ReleaseConfig::default()
+            },
+            ..CommonEcosystemConfig::default()
+        };
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_common(common)
+            .with_release_target(target);
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+
+        let vcs = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let status =
+            release_status(&request(), &document(), &providers, &readers, &mut reporter).unwrap();
+
+        assert_eq!(status.modules[0].host_forge.as_deref(), Some("github"));
+    }
+
+    #[test]
+    fn status_reports_no_host_forge_for_a_pure_library() {
+        let core = module("core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+
+        let target = FakeReleaseTarget::new().with_declared_version(Version::new(0, 1, 0));
+        let common = CommonEcosystemConfig {
+            release: ReleaseConfig {
+                registry: Some("crates-io".into()),
+                offline: Some(true),
+                ..ReleaseConfig::default()
+            },
+            ..CommonEcosystemConfig::default()
+        };
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_common(common)
+            .with_release_target(target);
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+
+        let vcs = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let status =
+            release_status(&request(), &document(), &providers, &readers, &mut reporter).unwrap();
+
+        assert_eq!(status.modules[0].host_forge, None);
     }
 }

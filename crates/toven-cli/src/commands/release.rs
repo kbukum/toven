@@ -635,6 +635,7 @@ struct StatusRecord {
     registry: Option<String>,
     declared_version: String,
     latest_tag: Option<String>,
+    host_forge: Option<String>,
     published_versions: Vec<String>,
     is_published: bool,
 }
@@ -645,6 +646,7 @@ fn render_status_human(status: &ReleaseStatus) {
         "Publication",
         "Declared",
         "Latest tag",
+        "Hosted on",
         "Published",
     ])
     .with_title("Release status");
@@ -654,6 +656,7 @@ fn render_status_human(status: &ReleaseStatus) {
             publication_label(&module.publication),
             module.declared_version.to_string(),
             module.latest_tag.clone().unwrap_or_else(|| "-".to_string()),
+            module.host_forge.clone().unwrap_or_else(|| "-".to_string()),
             if module.is_published { "yes" } else { "no" }.to_string(),
         ]);
     }
@@ -668,6 +671,7 @@ fn render_status_jsonl(status: &ReleaseStatus) -> AppResult<()> {
             registry: module.publication.registry().map(str::to_string),
             declared_version: module.declared_version.to_string(),
             latest_tag: module.latest_tag.clone(),
+            host_forge: module.host_forge.clone(),
             published_versions: module
                 .published_versions
                 .iter()
