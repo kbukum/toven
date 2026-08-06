@@ -11,10 +11,10 @@ use rskit_errors::{AppError, AppResult};
 use toven_ports::{Provider, Reporter};
 
 use super::plan::{release_targets, resolve_release_settings};
-use crate::config::Document;
-use crate::federation::baseline::MemberVcsReaders;
-use crate::federation::resolve::PathDriverLocator;
-use crate::plan::{PlanRequest, prepare_front};
+use toven_engine_core::config::Document;
+use toven_engine_core::federation::baseline::MemberVcsReaders;
+use toven_engine_core::federation::resolve::PathDriverLocator;
+use toven_engine_core::plan::{PlanRequest, prepare_front};
 
 /// Recognized check: every member working tree is clean.
 const CHECK_CLEAN_TREE: &str = "clean-tree";
@@ -129,7 +129,7 @@ fn composed_check_names(
 /// Evaluate one recognized check over the release scope.
 fn evaluate_check(
     name: &str,
-    context: &crate::plan::PlanContext,
+    context: &toven_engine_core::plan::PlanContext,
     targets: &super::ReleaseTargets,
     settings: &std::collections::BTreeMap<toven_model::ModuleKey, super::ResolvedReleaseSettings>,
     readers: &MemberVcsReaders<'_>,
@@ -167,7 +167,7 @@ fn check_clean_tree(readers: &MemberVcsReaders<'_>) -> AppResult<ReadinessCheck>
 /// strictly behind its highest published version — a regression that would
 /// re-release an older version.
 fn check_registry_idempotent(
-    context: &crate::plan::PlanContext,
+    context: &toven_engine_core::plan::PlanContext,
     targets: &super::ReleaseTargets,
     settings: &std::collections::BTreeMap<toven_model::ModuleKey, super::ResolvedReleaseSettings>,
 ) -> AppResult<ReadinessCheck> {
@@ -220,9 +220,9 @@ mod tests {
     };
 
     use super::release_readiness;
-    use crate::config::{Document, ProjectConfig, TovenConfig};
-    use crate::federation::baseline::MemberVcsReaders;
-    use crate::plan::PlanRequest;
+    use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
+    use toven_engine_core::federation::baseline::MemberVcsReaders;
+    use toven_engine_core::plan::PlanRequest;
 
     fn eid(id: &str) -> EcosystemId {
         EcosystemId::new(id).unwrap()

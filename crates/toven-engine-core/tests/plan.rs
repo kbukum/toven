@@ -5,10 +5,10 @@ mod common;
 use std::collections::BTreeMap;
 
 use common::eid;
-use toven_engine::config::{Document, GroupConfig, ProjectConfig, TovenConfig};
-use toven_engine::federation::MemberVcsReaders;
-use toven_engine::federation::resolve::PathDriverLocator;
-use toven_engine::plan::{
+use toven_engine_core::config::{Document, GroupConfig, ProjectConfig, TovenConfig};
+use toven_engine_core::federation::MemberVcsReaders;
+use toven_engine_core::federation::resolve::PathDriverLocator;
+use toven_engine_core::plan::{
     CacheMode, NullCache, PlanHost, PlanRequest, Selection, dependency_graph, plan,
 };
 use toven_model::{

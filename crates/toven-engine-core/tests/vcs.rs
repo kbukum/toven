@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use rskit_fs::sync_io::file;
-use toven_engine::vcs::{RskitGitVcs, VcsReaderSet};
+use toven_engine_core::vcs::{RskitGitVcs, VcsReaderSet};
 use toven_model::WorkspaceId;
 use toven_ports::{BaselineSpec, ChangeRecord, ChangeStatus, VcsReader, VcsWriter};
 use toven_testkit::{TestWorkspace, assert_ok, git::GitScenario};

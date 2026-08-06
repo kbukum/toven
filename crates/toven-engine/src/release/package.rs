@@ -28,9 +28,9 @@ use rskit_fs::sync_io::file::exists as file_exists;
 use toven_ports::{Provider, Reporter};
 
 use super::plan::{release_targets, resolve_release_settings};
-use crate::config::Document;
-use crate::federation::resolve::PathDriverLocator;
-use crate::plan::{PlanRequest, prepare_front};
+use toven_engine_core::config::Document;
+use toven_engine_core::federation::resolve::PathDriverLocator;
+use toven_engine_core::plan::{PlanRequest, prepare_front};
 
 /// Unix mode recorded for a packaged executable (`rwxr-xr-x`).
 const EXECUTABLE_MODE: u32 = 0o755;
@@ -303,8 +303,8 @@ mod tests {
     };
 
     use super::{ArchiveFormat, release_package};
-    use crate::config::{Document, ProjectConfig, TovenConfig};
-    use crate::plan::PlanRequest;
+    use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
+    use toven_engine_core::plan::PlanRequest;
 
     const LINUX: &str = "x86_64-unknown-linux-gnu";
     const WINDOWS: &str = "x86_64-pc-windows-msvc";

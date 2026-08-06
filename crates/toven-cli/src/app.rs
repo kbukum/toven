@@ -12,8 +12,8 @@ use clap::Parser;
 use clap::error::ErrorKind;
 use rskit_cli::{ErrorRenderer, ExitCode};
 use rskit_errors::{AppError, AppResult};
-use toven_engine::plan::addressable_task_names;
-use toven_engine::vcs::BaselineFlags;
+use toven_engine_core::plan::addressable_task_names;
+use toven_engine_core::vcs::BaselineFlags;
 use toven_ports::{Provider, TaskIntent};
 
 use crate::flags::{Cli, Command, GraphFormat};

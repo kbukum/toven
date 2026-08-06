@@ -24,9 +24,9 @@ use super::select::explicit_seeds;
 /// is never silent; the engine only returns the typed data.
 #[derive(Debug, Default)]
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) struct ActiveModules {
+pub struct ActiveModules {
     /// The active module keys scheduling operates over.
-    pub(crate) modules: BTreeSet<ModuleKey>,
+    pub modules: BTreeSet<ModuleKey>,
     /// Changed paths that forced full activation (empty when not forced).
     pub(crate) full_activation: Vec<String>,
 }
@@ -46,7 +46,7 @@ pub(crate) struct ActiveModules {
 /// resolution errors (unknown or ambiguous targets), and the graph closure (an
 /// unknown seed).
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) fn active_modules(
+pub fn active_modules(
     request: &PlanRequest,
     graph: &Graph,
     federation: &Federation,
@@ -135,17 +135,17 @@ pub(super) fn all_modules(graph: &Graph) -> BTreeSet<ModuleKey> {
 /// Two behaviours are deliberately preserved:
 /// - An [`Explicit`](Selection::Explicit) selection is returned unchanged — a
 ///   user who names a target that lacks the task should see the typed
-///   per-ecosystem "has no '<task>' task" error, not a silently empty plan.
+///   per-ecosystem "has no `<task>` task" error, not a silently empty plan.
 /// - When *no* active ecosystem defines the task the set is returned unchanged,
 ///   so scheduling raises that same unknown-task error (and the CLI its typo
 ///   hint) exactly as before.
 ///
-/// When the set *is* narrowed, the [`full_activation`](ActiveModules::full_activation)
+/// When the set *is* narrowed, the `full_activation`
 /// diagnostic is cleared: the plan no longer activates every module, so carrying
 /// the forced-full-activation paths would make the CLI emit a misleading
 /// `FullActivation` event. The diagnostic is kept only when nothing is dropped.
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) fn restrict_to_task_defining(
+pub fn restrict_to_task_defining(
     active: ActiveModules,
     request: &PlanRequest,
     adapters: &MemberAdapters,

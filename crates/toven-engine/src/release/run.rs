@@ -20,12 +20,12 @@ use super::plan::{plan_with_context, release_targets, resolve_release_settings};
 use super::reconcile;
 use super::settings::ResolvedReleaseSettings;
 use super::{BumpOverrides, ReleaseApplyOptions, ReleaseStats};
-use crate::config::Document;
-use crate::federation::baseline::MemberVcsReaders;
-use crate::federation::member_repo::MemberReleaseRepos;
+use toven_engine_core::config::Document;
+use toven_engine_core::federation::baseline::MemberVcsReaders;
+use toven_engine_core::federation::member_repo::MemberReleaseRepos;
 use crate::release::federated::release_apply_by_member;
-use crate::federation::resolve::PathDriverLocator;
-use crate::plan::{PlanRequest, prepare_front};
+use toven_engine_core::federation::resolve::PathDriverLocator;
+use toven_engine_core::plan::{PlanRequest, prepare_front};
 
 /// Plan and apply a release in one call.
 ///
@@ -228,10 +228,10 @@ mod tests {
     };
 
     use super::{ResolvedReleaseSettings, collect_hook_refs, release_run};
-    use crate::config::{Document, ProjectConfig, TovenConfig};
-    use crate::federation::baseline::MemberVcsReaders;
-    use crate::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
-    use crate::plan::{PlanRequest, Selection};
+    use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
+    use toven_engine_core::federation::baseline::MemberVcsReaders;
+    use toven_engine_core::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
+    use toven_engine_core::plan::{PlanRequest, Selection};
     use crate::release::{BumpOverrides, ReleaseApplyOptions};
 
     fn eid() -> EcosystemId {

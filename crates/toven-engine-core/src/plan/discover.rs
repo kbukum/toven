@@ -19,13 +19,13 @@ use super::configure::ConfiguredSet;
 /// `ecosystem:name` module identity guarantees no cross-ecosystem collision.
 #[derive(Debug, Clone, Default)]
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) struct Federation {
+pub struct Federation {
     /// Every discovered workspace across ecosystems.
     pub(crate) workspaces: Vec<Workspace>,
     /// Every discovered module across ecosystems.
-    pub(crate) modules: Vec<Module>,
+    pub modules: Vec<Module>,
     /// Intra-ecosystem edges plus the config overlay edges.
-    pub(crate) edges: Vec<Edge>,
+    pub edges: Vec<Edge>,
     /// Non-fatal warnings surfaced by adapters during discovery.
     pub(crate) warnings: Vec<String>,
 }

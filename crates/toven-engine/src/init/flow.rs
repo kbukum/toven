@@ -11,7 +11,7 @@ use toven_ports::{AnswerProvider, DriverLocator, DriverWizard, Provider};
 use super::merge::{self, MergeResult};
 use super::probe::{self, ProcessDriverWizard};
 use super::render;
-use crate::federation::PathDriverLocator;
+use toven_engine_core::federation::PathDriverLocator;
 
 /// Upper bound on an existing `toven.toml` read for the additive re-run merge.
 const MAX_CONFIG_BYTES: u64 = 8 * 1024 * 1024;

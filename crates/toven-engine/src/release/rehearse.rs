@@ -16,10 +16,10 @@ use super::plan::{plan_with_context, release_targets, resolve_release_settings};
 use super::{
     BumpOverrides, HostRehearsal, PublishDecision, RehearsalVerdict, ReleasePlan, ReleaseRehearsal,
 };
-use crate::config::Document;
-use crate::federation::baseline::MemberVcsReaders;
-use crate::federation::resolve::PathDriverLocator;
-use crate::plan::{PlanRequest, prepare_front};
+use toven_engine_core::config::Document;
+use toven_engine_core::federation::baseline::MemberVcsReaders;
+use toven_engine_core::federation::resolve::PathDriverLocator;
+use toven_engine_core::plan::{PlanRequest, prepare_front};
 
 /// Rehearse the release publish loop without mutating anything.
 ///
@@ -164,9 +164,9 @@ mod tests {
     };
 
     use super::release_rehearse;
-    use crate::config::{Document, ProjectConfig, TovenConfig};
-    use crate::federation::baseline::MemberVcsReaders;
-    use crate::plan::{PlanRequest, Selection};
+    use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
+    use toven_engine_core::federation::baseline::MemberVcsReaders;
+    use toven_engine_core::plan::{PlanRequest, Selection};
     use crate::release::BumpOverrides;
     use crate::release::PublishDecision;
 

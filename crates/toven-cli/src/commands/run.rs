@@ -14,9 +14,9 @@ use rskit_cli::{ExitCode, on_ctrl_c};
 use rskit_errors::{AppError, AppResult};
 use toven_engine::apply::{ApplyOptions, ProcessCommandRunner, apply};
 use toven_engine::cache::FsContentCache;
-use toven_engine::config::ViewMode;
+use toven_engine_core::config::ViewMode;
 use toven_engine::output::UnitOutputChannel;
-use toven_engine::plan::{
+use toven_engine_core::plan::{
     CacheMode, FsSourceDigest, PlanHost, PlanRequest, ProcessToolchainProber, plan,
 };
 use toven_model::{CacheVerdict, Event, Plan, RunStats};

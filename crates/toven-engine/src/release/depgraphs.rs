@@ -15,9 +15,9 @@ use rskit_fs::sync_io::file::write_atomic;
 use toven_ports::{Provider, Reporter};
 
 use super::ArtifactManifest;
-use crate::config::Document;
-use crate::federation::resolve::PathDriverLocator;
-use crate::plan::{PlanRequest, prepare_front};
+use toven_engine_core::config::Document;
+use toven_engine_core::federation::resolve::PathDriverLocator;
+use toven_engine_core::plan::{PlanRequest, prepare_front};
 
 /// Temp-file prefix for atomic depgraph writes.
 const DEPGRAPH_TEMP_PREFIX: &str = "toven-depgraph";
@@ -115,8 +115,8 @@ mod tests {
     use toven_testkit::{FakeConfiguredAdapter, FakeProvider, RecordingReporter};
 
     use super::{release_depgraphs, sanitize_stem};
-    use crate::config::{Document, ProjectConfig, TovenConfig};
-    use crate::plan::PlanRequest;
+    use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
+    use toven_engine_core::plan::PlanRequest;
 
     fn eid(id: &str) -> EcosystemId {
         EcosystemId::new(id).unwrap()

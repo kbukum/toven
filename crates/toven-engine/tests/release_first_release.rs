@@ -8,11 +8,11 @@
 
 use std::collections::BTreeSet;
 
-use toven_engine::config::{CanonicalRegistry, Document, load};
-use toven_engine::federation::MemberVcsReaders;
-use toven_engine::plan::PlanRequest;
+use toven_engine_core::config::{CanonicalRegistry, Document, load};
+use toven_engine_core::federation::MemberVcsReaders;
+use toven_engine_core::plan::PlanRequest;
 use toven_engine::release::{BumpOverrides, BumpReason, release_plan};
-use toven_engine::vcs::RskitGitVcs;
+use toven_engine_core::vcs::RskitGitVcs;
 use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
 use toven_ports::{
     BaselineSpec, CommonEcosystemConfig, DiscoverResponse, Provider, ReleaseConfig, TaskIntent,

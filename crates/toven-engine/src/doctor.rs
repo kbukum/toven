@@ -1,7 +1,7 @@
 //! Doctor: audit the tools the resolved task graph needs.
 //!
 //! `doctor` answers "does this repository have the tools its tasks will run?"
-//! It reuses the [Configure](crate::plan) phase to bake every declared
+//! It reuses the [Configure](toven_engine_core::plan) phase to bake every declared
 //! ecosystem's [`ConfiguredAdapter`](toven_ports::ConfiguredAdapter), then — per
 //! resolved task — collects the [`ToolchainProbe`]s that task needs (the same
 //! per-task probe seam the planner uses via
@@ -21,8 +21,8 @@ use rskit_errors::{AppResult, ErrorCode};
 use toven_model::{AbsPath, ToolStatus};
 use toven_ports::{Provider, TaskIntent, ToolchainProbe, ToolchainProber};
 
-use crate::config::Document;
-use crate::plan::configure::configure;
+use toven_engine_core::config::Document;
+use toven_engine_core::plan::configure::configure;
 
 /// One audited tool: the probe that identifies it plus its presence status.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,7 +193,7 @@ mod tests {
     use toven_testkit::{FakeConfiguredAdapter, FakeProvider, ScriptedToolchainProber};
 
     use super::{audit, audit_streaming};
-    use crate::config::{Document, ProjectConfig, TovenConfig};
+    use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
 
     fn eid(id: &str) -> EcosystemId {
         EcosystemId::new(id).unwrap()

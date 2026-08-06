@@ -27,7 +27,7 @@ use toven_ports::{HostReleaseOutcome, HostedRelease, PublicationPolicy, ReleaseA
 use super::host::{PlannedHostRelease, ReleaseHosts};
 use super::settings::ResolvedReleaseSettings;
 use super::{ReleaseStats, ReleaseTargets, changelog, tag};
-use crate::federation::member_repo::MemberReleaseRepos;
+use toven_engine_core::federation::member_repo::MemberReleaseRepos;
 
 /// Plan the hosted Releases that must be reconciled for the current published
 /// state.
@@ -198,7 +198,7 @@ mod tests {
     use toven_testkit::{FakeReleaseHost, FakeReleaseTarget, FakeVcsReader, FakeVcsWriter};
 
     use super::{plan_reconcile_releases, reconcile_hosted_releases};
-    use crate::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
+    use toven_engine_core::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
     use crate::release::host::ReleaseHosts;
     use crate::release::settings::ResolvedReleaseSettings;
     use crate::release::{ReleaseStats, ReleaseTargets};

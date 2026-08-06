@@ -9,11 +9,11 @@
 
 use std::collections::BTreeSet;
 
-use toven_engine::config::{CanonicalRegistry, Document, load};
-use toven_engine::federation::MemberVcsReaders;
-use toven_engine::federation::baseline::MemberVcsReader;
-use toven_engine::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
-use toven_engine::plan::PlanRequest;
+use toven_engine_core::config::{CanonicalRegistry, Document, load};
+use toven_engine_core::federation::MemberVcsReaders;
+use toven_engine_core::federation::baseline::MemberVcsReader;
+use toven_engine_core::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
+use toven_engine_core::plan::PlanRequest;
 use toven_engine::release::{BumpOverrides, ReleaseApplyOptions, release_run};
 use toven_model::{
     AbsPath, EcosystemId, MemberId, Module, ModuleRef, RepoPath, ToolchainTag, Workspace,

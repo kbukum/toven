@@ -17,7 +17,7 @@ use toven_ports::{HostedRelease, ReleaseAsset, ReleaseHost};
 
 use super::github::GithubReleaseHost;
 use super::gitlab::GitlabReleaseHost;
-use crate::federation::member_repo::MemberReleaseRepos;
+use toven_engine_core::federation::member_repo::MemberReleaseRepos;
 use crate::release::settings::ResolvedReleaseSettings;
 use crate::release::{ReleasePlan, ReleaseStats, ReleaseTargets, tag};
 
@@ -301,7 +301,7 @@ mod tests {
     use super::{
         PlannedHostRelease, build_hosts, merge_planned, planned_host_releases, run_host_phase,
     };
-    use crate::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
+    use toven_engine_core::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
     use crate::release::ResolvedReleaseSettings;
     use crate::release::{
         BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PushPolicy, ReleaseEntry, ReleasePlan,

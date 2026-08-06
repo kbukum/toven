@@ -25,9 +25,9 @@ use rskit_util::hash::sha256::sha256;
 use toven_ports::{Provider, Reporter};
 
 use super::plan::{release_targets, resolve_release_settings};
-use crate::config::Document;
-use crate::federation::resolve::PathDriverLocator;
-use crate::plan::{PlanRequest, prepare_front};
+use toven_engine_core::config::Document;
+use toven_engine_core::federation::resolve::PathDriverLocator;
+use toven_engine_core::plan::{PlanRequest, prepare_front};
 
 /// The canonical file name of the checksum manifest and its signature sidecars'
 /// stem. An asset whose file name is exactly this is the manifest output; one
@@ -217,8 +217,8 @@ mod tests {
     };
 
     use super::{ChecksumReport, release_checksums};
-    use crate::config::{Document, ProjectConfig, TovenConfig};
-    use crate::plan::PlanRequest;
+    use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
+    use toven_engine_core::plan::PlanRequest;
 
     fn eid(id: &str) -> EcosystemId {
         EcosystemId::new(id).unwrap()

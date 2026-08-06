@@ -74,7 +74,8 @@ impl<'a> MemberReleaseRepos<'a> {
         Self { entries }
     }
 
-    pub(crate) fn get(&self, member: Option<&MemberId>) -> Option<&MemberReleaseRepo<'a>> {
+    /// Look up the release VCS handle for `member` (or the root when `None`).
+    pub fn get(&self, member: Option<&MemberId>) -> Option<&MemberReleaseRepo<'a>> {
         self.entries
             .iter()
             .find(|entry| entry.member.as_ref() == member)

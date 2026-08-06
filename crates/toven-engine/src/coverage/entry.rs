@@ -19,11 +19,11 @@ use super::aggregate::{CoverageInputs, aggregate};
 use super::read::{COVERAGE_DIR, read_profiles};
 use super::report::CoverageReport;
 use super::settings::{CoverageOverrides, ResolvedCoverageSettings};
-use crate::config::Document;
-use crate::federation::baseline::MemberVcsReaders;
-use crate::federation::resolve::PathDriverLocator;
-use crate::plan::affected::{active_modules, changed_for_members};
-use crate::plan::{PlanRequest, Selection, prepare_front};
+use toven_engine_core::config::Document;
+use toven_engine_core::federation::baseline::MemberVcsReaders;
+use toven_engine_core::federation::resolve::PathDriverLocator;
+use toven_engine_core::plan::affected::{active_modules, changed_for_members};
+use toven_engine_core::plan::{PlanRequest, Selection, prepare_front};
 
 /// Aggregate and gate the coverage profiles emitted for `request`'s scope.
 ///
@@ -115,6 +115,8 @@ fn changed_files(
                 .collect(),
         )),
         Selection::ChangedPaths(paths) => Ok(Some(paths.iter().map(PathBuf::from).collect())),
-        Selection::All | Selection::Explicit { .. } => Ok(None),
+        // `Selection` is `#[non_exhaustive]`; whole-scope selections (`All`,
+        // `Explicit`, and any future variant) never gate `changed_line`.
+        _ => Ok(None),
     }
 }

@@ -2,7 +2,8 @@
 //! [`ConfiguredAdapter`] via its [`Provider`].
 //!
 //! The loaded [`Document`] keeps every ecosystem subtree verbatim as a
-//! `serde_json`-backed [`RawValue`]; each is handed to the owning provider's
+//! `serde_json`-backed [`RawValue`](rskit_config::RawValue); each is handed to
+//! the owning provider's
 //! [`Provider::configure`] (which parses it under the adapter's own strict
 //! schema). Ecosystems with no loaded provider were already classified at Load
 //! (canonical-but-unloaded = warn + ignore; unknown = hard error), so they are
@@ -18,7 +19,7 @@ use crate::config::Document;
 
 /// The per-ecosystem configured-adapter set produced by [`configure`].
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) type ConfiguredSet = BTreeMap<EcosystemId, Box<dyn ConfiguredAdapter>>;
+pub type ConfiguredSet = BTreeMap<EcosystemId, Box<dyn ConfiguredAdapter>>;
 
 /// The configured adapters of a whole federation, partitioned by member.
 ///
@@ -30,7 +31,7 @@ pub(crate) type ConfiguredSet = BTreeMap<EcosystemId, Box<dyn ConfiguredAdapter>
 /// [`ConfiguredSet`].
 #[derive(Default)]
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) struct MemberAdapters {
+pub struct MemberAdapters {
     root: Option<ConfiguredSet>,
     by_member: BTreeMap<MemberId, ConfiguredSet>,
 }
@@ -46,7 +47,7 @@ impl MemberAdapters {
     }
 
     /// Look up the configured adapter that owns `ecosystem` within `member`.
-    pub(crate) fn get(
+    pub fn get(
         &self,
         member: Option<&MemberId>,
         ecosystem: &EcosystemId,
@@ -63,7 +64,7 @@ impl MemberAdapters {
 
     /// Iterate every `(member, ecosystem, adapter)` triple across the
     /// federation.
-    pub(crate) fn iter(
+    pub fn iter(
         &self,
     ) -> impl Iterator<Item = (Option<&MemberId>, &EcosystemId, &dyn ConfiguredAdapter)> {
         self.root
@@ -90,7 +91,7 @@ impl MemberAdapters {
 /// Propagates a provider's `configure` failure, or a subtree that cannot be
 /// converted into the TOML value the provider expects.
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) fn configure(
+pub fn configure(
     document: &Document,
     providers: &[&dyn Provider],
 ) -> AppResult<ConfiguredSet> {

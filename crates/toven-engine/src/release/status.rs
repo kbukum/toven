@@ -11,10 +11,10 @@ use toven_model::MemberId;
 use toven_ports::{Provider, Reporter, TagRef};
 
 use super::{ReleaseModuleStatus, ReleaseStatus, tag};
-use crate::config::Document;
-use crate::federation::baseline::MemberVcsReaders;
-use crate::federation::resolve::PathDriverLocator;
-use crate::plan::{PlanRequest, prepare_front};
+use toven_engine_core::config::Document;
+use toven_engine_core::federation::baseline::MemberVcsReaders;
+use toven_engine_core::federation::resolve::PathDriverLocator;
+use toven_engine_core::plan::{PlanRequest, prepare_front};
 
 use super::plan::{release_targets, resolve_release_settings};
 
@@ -136,9 +136,9 @@ mod tests {
     };
 
     use super::release_status;
-    use crate::config::{Document, ProjectConfig, TovenConfig};
-    use crate::federation::baseline::MemberVcsReaders;
-    use crate::plan::{PlanRequest, Selection};
+    use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
+    use toven_engine_core::federation::baseline::MemberVcsReaders;
+    use toven_engine_core::plan::{PlanRequest, Selection};
 
     fn eid(id: &str) -> EcosystemId {
         EcosystemId::new(id).unwrap()

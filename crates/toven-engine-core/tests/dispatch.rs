@@ -4,7 +4,7 @@ mod common;
 
 use common::{canonical, eid, loaded};
 use rskit_errors::ErrorCode;
-use toven_engine::config::load;
+use toven_engine_core::config::load;
 use toven_testkit::{assert_err_code, assert_ok, document_path};
 
 #[test]

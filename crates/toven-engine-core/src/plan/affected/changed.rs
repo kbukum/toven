@@ -19,8 +19,12 @@ use crate::plan::discover::Federation;
 
 use super::entry::all_modules;
 
-#[allow(clippy::redundant_pub_crate)]
-pub(crate) fn changed_for_members(
+/// Collect the changed records across every member repo, applying `fallback`
+/// as the per-member baseline when a member declares no baseline of its own.
+///
+/// # Errors
+/// Propagates any member VCS reader's change-detection failure.
+pub fn changed_for_members(
     readers: &MemberVcsReaders<'_>,
     fallback: Option<&BaselineSpec>,
 ) -> AppResult<Vec<ChangeRecord>> {
@@ -59,7 +63,7 @@ fn changed_for_member(
 /// Map changed records to direct seed modules before any reverse-dependent
 /// closure is applied.
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) fn changed_seeds(
+pub fn changed_seeds(
     changed: &[ChangeRecord],
     graph: &Graph,
     federation: &Federation,
@@ -105,7 +109,7 @@ pub(crate) fn unclassified_paths(changed: &[ChangeRecord], federation: &Federati
 /// fail closed for activation through [`changed_seeds`], but they are not
 /// assigned to a per-module changelog because no owner can be identified.
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) fn changed_records_for_module(
+pub fn changed_records_for_module(
     module: &Module,
     changed: &[ChangeRecord],
     federation: &Federation,

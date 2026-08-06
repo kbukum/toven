@@ -4,10 +4,10 @@
 mod common;
 
 use common::{canonical, loaded};
-use toven_engine::config::{ReportFormat, load};
+use toven_engine_core::config::{ReportFormat, load};
 use toven_testkit::{assert_ok, document_path};
 
-fn load_fixture(rel: &str, loaded_ids: &[&str]) -> toven_engine::config::Document {
+fn load_fixture(rel: &str, loaded_ids: &[&str]) -> toven_engine_core::config::Document {
     let path = assert_ok(document_path(rel));
     assert_ok(load(&path, &loaded(loaded_ids), &canonical())).document
 }

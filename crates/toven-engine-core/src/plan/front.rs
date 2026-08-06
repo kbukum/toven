@@ -18,12 +18,15 @@ use super::graph;
 use super::overrides::GroupOverrides;
 
 /// Validated shared state produced before a PLAN tail diverges.
-#[allow(clippy::redundant_pub_crate)]
-pub(crate) struct PlanContext {
-    pub(crate) composed: ComposedFederation,
-    pub(crate) adapters: MemberAdapters,
-    pub(crate) federation: Federation,
-    pub(crate) graph: Graph,
+pub struct PlanContext {
+    /// The composed federation (member repos, overlays, groups) the plan spans.
+    pub composed: ComposedFederation,
+    /// The per-member configured adapters baked by the Configure phase.
+    pub adapters: MemberAdapters,
+    /// The unioned discovery output (modules and edges) across all members.
+    pub federation: Federation,
+    /// The dependency graph built and semantically validated over the union.
+    pub graph: Graph,
     pub(crate) group_overrides: GroupOverrides,
 }
 
@@ -38,7 +41,7 @@ pub(crate) struct PlanContext {
 /// Propagates configuration, discovery, graph construction, or semantic
 /// validation failures.
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) fn prepare(
+pub fn prepare(
     project_root: &AbsPath,
     document: &Document,
     providers: &[&dyn Provider],

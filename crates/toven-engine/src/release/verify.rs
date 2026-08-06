@@ -36,9 +36,9 @@ use toven_ports::{AssetDownloader, Provider, Reporter, SignatureVerifier, Versio
 
 use super::plan::{release_targets, resolve_release_settings};
 use super::settings::ResolvedReleaseSettings;
-use crate::config::Document;
-use crate::federation::resolve::PathDriverLocator;
-use crate::plan::{PlanRequest, prepare_front};
+use toven_engine_core::config::Document;
+use toven_engine_core::federation::resolve::PathDriverLocator;
+use toven_engine_core::plan::{PlanRequest, prepare_front};
 
 /// The signed manifest and its Sigstore signature/certificate sidecars.
 const MANIFEST_NAME: &str = "SHA256SUMS";
@@ -402,7 +402,7 @@ fn binary_stem(binary: &Path) -> AppResult<String> {
 /// same-version-per-kit policy means every module declares the same version; a
 /// disagreement is a fail-closed error rather than a silent pick.
 fn decide_version(
-    context: &crate::plan::PlanContext,
+    context: &toven_engine_core::plan::PlanContext,
     targets: &super::ReleaseTargets,
     settings: &BTreeMap<toven_model::ModuleKey, ResolvedReleaseSettings>,
 ) -> AppResult<Version> {
@@ -695,8 +695,8 @@ mod tests {
     };
 
     use super::{VerifyMode, VerifyOptions, release_verify};
-    use crate::config::{Document, ProjectConfig, TovenConfig};
-    use crate::plan::PlanRequest;
+    use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
+    use toven_engine_core::plan::PlanRequest;
 
     const LINUX_ARCHIVE: &str = "dist/toven-x86_64-unknown-linux-gnu.tar.gz";
     const ARCHIVE_NAME: &str = "toven-x86_64-unknown-linux-gnu.tar.gz";

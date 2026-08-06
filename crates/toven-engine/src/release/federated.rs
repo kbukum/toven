@@ -16,7 +16,7 @@ use toven_ports::Artifact;
 use crate::release::apply;
 use crate::release::publish;
 use crate::release::{ReleaseApplyOptions, ReleasePlan, ReleaseStats};
-use crate::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
+use toven_engine_core::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
 
 /// Apply one federated release plan across member repos.
 ///

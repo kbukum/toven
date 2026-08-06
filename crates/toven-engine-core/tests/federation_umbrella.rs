@@ -9,11 +9,11 @@
 
 use std::collections::BTreeSet;
 
-use toven_engine::config::{CanonicalRegistry, Document, load};
-use toven_engine::federation::MemberVcsReaders;
-use toven_engine::federation::baseline::MemberVcsReader;
-use toven_engine::federation::resolve::PathDriverLocator;
-use toven_engine::plan::{NullCache, PlanHost, PlanRequest, Selection, dependency_graph, plan};
+use toven_engine_core::config::{CanonicalRegistry, Document, load};
+use toven_engine_core::federation::MemberVcsReaders;
+use toven_engine_core::federation::baseline::MemberVcsReader;
+use toven_engine_core::federation::resolve::PathDriverLocator;
+use toven_engine_core::plan::{NullCache, PlanHost, PlanRequest, Selection, dependency_graph, plan};
 use toven_model::{
     AbsPath, DepKind, EcosystemId, Module, ModuleRef, RepoPath, ToolchainTag, Workspace,
     WorkspaceId,

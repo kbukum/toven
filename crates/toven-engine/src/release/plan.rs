@@ -9,10 +9,10 @@ use rskit_fs::sync_io::file::read_string_bounded;
 use toven_model::{MemberId, ModuleKey};
 use toven_ports::{Provider, PublicationPolicy, Reporter};
 
-use crate::config::Document;
-use crate::federation::baseline::MemberVcsReaders;
-use crate::federation::resolve::PathDriverLocator;
-use crate::plan::{PlanContext, PlanRequest, prepare_front};
+use toven_engine_core::config::Document;
+use toven_engine_core::federation::baseline::MemberVcsReaders;
+use toven_engine_core::federation::resolve::PathDriverLocator;
+use toven_engine_core::plan::{PlanContext, PlanRequest, prepare_front};
 
 use super::{
     BumpOverrides, BumpPolicy, ReleaseBaseline, ReleasePlan, ResolvedReleaseSettings, bump, change,
@@ -212,7 +212,7 @@ pub(crate) fn resolve_release_settings(
             .members()
             .iter()
             .find(|member| member.member().id() == module.member.as_ref())
-            .map(crate::federation::compose::ComposedMember::document)
+            .map(toven_engine_core::federation::compose::ComposedMember::document)
             .ok_or_else(|| {
                 AppError::new(
                     ErrorCode::Internal,
@@ -463,9 +463,9 @@ mod tests {
         BumpPolicy, ResolvedReleaseSettings, reconcile_policy, release_plan,
         validate_phase_backing_supported, validate_required_changelogs,
     };
-    use crate::config::{Document, ProjectConfig, TovenConfig};
-    use crate::federation::baseline::MemberVcsReaders;
-    use crate::plan::{PlanRequest, Selection};
+    use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
+    use toven_engine_core::federation::baseline::MemberVcsReaders;
+    use toven_engine_core::plan::{PlanRequest, Selection};
     use crate::release::{BumpOverrides, BumpReason, BumpSource, ReleasePlan};
 
     fn eid(id: &str) -> EcosystemId {

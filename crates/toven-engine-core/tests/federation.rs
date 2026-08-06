@@ -2,9 +2,9 @@
 //! in-process `__serve` double, plus the four-way driver dispatch semantics.
 //!
 //! No real subprocess is spawned for the transport tests: the `ServeDouble`
-//! runs the engine's [`serve`](toven_engine::federation::serve) loop on a
+//! runs the engine's [`serve`](toven_engine_core::federation::serve) loop on a
 //! thread connected by OS pipes, so a
-//! [`RemoteAdapter`](toven_engine::federation::RemoteAdapter) round-trips
+//! [`RemoteAdapter`](toven_engine_core::federation::RemoteAdapter) round-trips
 //! exactly as it would over a child's stdio. The dispatch tests drive the real
 //! spawn path with a *bogus* pinned driver to prove a resolved-but-broken
 //! driver is a hard error while an absent one warns and skips.
@@ -14,14 +14,14 @@ use std::io::{PipeReader, PipeWriter};
 use std::thread::{self, JoinHandle};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_engine::config::{CanonicalRegistry, load};
-use toven_engine::federation::RemoteAdapter;
-use toven_engine::federation::protocol::{
+use toven_engine_core::config::{CanonicalRegistry, load};
+use toven_engine_core::federation::RemoteAdapter;
+use toven_engine_core::federation::protocol::{
     Capabilities, ENVELOPE_SCHEMA_VERSION, Hello, MAX_FRAME_BYTES, Response, Welcome, WizardOffer,
     WizardProbe, read_value, write_value,
 };
-use toven_engine::federation::resolve::{PathDriverLocator, resolve_adapters};
-use toven_engine::plan::dependency_graph;
+use toven_engine_core::federation::resolve::{PathDriverLocator, resolve_adapters};
+use toven_engine_core::plan::dependency_graph;
 use toven_model::{AbsPath, EcosystemId, Event};
 use toven_ports::{
     CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, FanOut, Provider, RunStrategy, Task,
@@ -53,7 +53,7 @@ fn scripted_go_adapter() -> FakeConfiguredAdapter {
 
 /// Load a config fixture into a strict `Document`, treating `loaded` as the
 /// in-proc ecosystems.
-fn load_document(rel: &str, loaded: &[&str]) -> toven_engine::config::Document {
+fn load_document(rel: &str, loaded: &[&str]) -> toven_engine_core::config::Document {
     let path = fixtures::document_path(rel).expect("fixture path");
     let loaded_ids: BTreeSet<EcosystemId> = loaded.iter().map(|id| eid(id)).collect();
     load(&path, &loaded_ids, &CanonicalRegistry::model())
@@ -427,7 +427,7 @@ impl ServeDouble {
         let handle = thread::spawn(move || {
             let providers = build();
             let refs: Vec<&dyn Provider> = providers.iter().map(Box::as_ref).collect();
-            toven_engine::federation::serve(&refs, driver_in, driver_out)
+            toven_engine_core::federation::serve(&refs, driver_in, driver_out)
         });
 
         Ok(Self {
@@ -464,12 +464,12 @@ fn wizard_exchange_round_trips_over_the_framed_transport() {
     let join: JoinHandle<()> = thread::spawn(move || {
         let provider = FakeProvider::new(eid("go")).with_fragment(driver_fragment);
         let providers: Vec<&dyn Provider> = vec![&provider];
-        toven_engine::federation::serve_wizard(&providers, driver_in, driver_out)
+        toven_engine_core::federation::serve_wizard(&providers, driver_in, driver_out)
             .expect("serve_wizard completes");
     });
 
     let answers = ScriptedAnswers::new();
-    let fragments = toven_engine::federation::wizard_io(
+    let fragments = toven_engine_core::federation::wizard_io(
         umbrella_reader,
         umbrella_writer,
         "toven-go",
@@ -494,12 +494,12 @@ fn wizard_driver_detect_failure_surfaces_as_a_typed_error() {
         let provider = FakeProvider::new(eid("go"))
             .with_detect_error(ErrorCode::InvalidInput, "go.mod is malformed");
         let providers: Vec<&dyn Provider> = vec![&provider];
-        toven_engine::federation::serve_wizard(&providers, driver_in, driver_out)
+        toven_engine_core::federation::serve_wizard(&providers, driver_in, driver_out)
             .expect("serve_wizard completes the exchange even when detection fails");
     });
 
     let answers = ScriptedAnswers::new();
-    let error = toven_engine::federation::wizard_io(
+    let error = toven_engine_core::federation::wizard_io(
         umbrella_reader,
         umbrella_writer,
         "toven-go",
@@ -531,7 +531,7 @@ fn wizard_schema_mismatch_is_reported_as_a_typed_error() {
     let join: JoinHandle<()> = thread::spawn(move || {
         let provider = FakeProvider::new(eid("go"));
         let providers: Vec<&dyn Provider> = vec![&provider];
-        toven_engine::federation::serve_wizard(&providers, driver_in, driver_out)
+        toven_engine_core::federation::serve_wizard(&providers, driver_in, driver_out)
             .expect("serve_wizard replies to a version-skewed probe");
     });
 
@@ -574,7 +574,7 @@ fn wizard_peer_closing_before_a_probe_is_a_clean_no_op() {
     let join: JoinHandle<AppResult<()>> = thread::spawn(move || {
         let provider = FakeProvider::new(eid("go"));
         let providers: Vec<&dyn Provider> = vec![&provider];
-        toven_engine::federation::serve_wizard(&providers, driver_in, driver_out)
+        toven_engine_core::federation::serve_wizard(&providers, driver_in, driver_out)
     });
 
     let mut reader = umbrella_reader;

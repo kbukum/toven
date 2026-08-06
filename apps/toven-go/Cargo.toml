@@ -22,7 +22,7 @@ rskit-cli.workspace = true
 rskit-errors.workspace = true
 
 [dev-dependencies]
-toven-engine.workspace = true
+toven-engine-core.workspace = true
 toven-model.workspace = true
 toven-testkit.workspace = true
 rskit-codec.workspace = true

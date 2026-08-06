@@ -11,8 +11,8 @@ use rskit_errors::AppResult;
 use toven_model::{Module, ModuleKey};
 use toven_ports::{BaselineSpec, ChangeRecord, CommitSummary, ReleaseAdapter, TagRef, TagScheme};
 
-use crate::federation::baseline::{MemberVcsReader, MemberVcsReaders};
-use crate::plan::PlanContext;
+use toven_engine_core::federation::baseline::{MemberVcsReader, MemberVcsReaders};
+use toven_engine_core::plan::PlanContext;
 
 use super::{ReleaseBaseline, ReleaseTargets, ResolvedReleaseSettings, tag};
 
@@ -104,12 +104,12 @@ fn detect_member(
         let mut module_changes = reader.umbrella_records(&reader.reader().changed_since(&spec)?);
         module_changes.extend(worktree.iter().cloned());
         let seeds =
-            crate::plan::changed_seeds(&module_changes, &context.graph, &context.federation);
+            toven_engine_core::plan::changed_seeds(&module_changes, &context.graph, &context.federation);
         if seeds.contains(&module.key()) {
             changes.changed.insert(module.key());
             changes.records.insert(
                 module.key(),
-                crate::plan::changed_records_for_module(
+                toven_engine_core::plan::changed_records_for_module(
                     module,
                     &module_changes,
                     &context.federation,

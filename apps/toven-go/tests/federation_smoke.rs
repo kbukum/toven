@@ -4,7 +4,7 @@
 //! Unlike the engine's in-process [`ServeDouble`] round-trip (which exercises
 //! the framed transport over OS pipes on a thread), this spawns the actual
 //! shipping `toven-go` binary via `<program> __serve` and connects a
-//! [`RemoteAdapter`](toven_engine::federation::RemoteAdapter) to it exactly as
+//! [`RemoteAdapter`](toven_engine_core::federation::RemoteAdapter) to it exactly as
 //! the umbrella would. It proves the argv-only spawn + handshake + prefetch
 //! surface work end to end against a real process. It deliberately does **not**
 //! call `discover` (which would shell out to the `go` toolchain), so the smoke
@@ -12,7 +12,7 @@
 
 use std::path::PathBuf;
 
-use toven_engine::federation::RemoteAdapter;
+use toven_engine_core::federation::RemoteAdapter;
 use toven_model::EcosystemId;
 use toven_ports::{ConfiguredAdapter, TaskKind};
 

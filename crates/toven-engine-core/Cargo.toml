@@ -1,6 +1,6 @@
 [package]
-name = "toven-engine"
-description = "Toven engine orchestration — strict config Document, PLAN change selection, and APPLY execution over rskit ports"
+name = "toven-engine-core"
+description = "Toven engine core — the shared PLAN foundation (strict config Document, VCS seam, PLAN spine, umbrella federation) below the engine and release crates"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,13 +12,10 @@ publish = false
 [dependencies]
 toven-model.workspace = true
 toven-ports.workspace = true
-toven-engine-core.workspace = true
 rskit-errors.workspace = true
-rskit-fs = { workspace = true, features = ["watch", "archive"] }
+rskit-fs.workspace = true
 rskit-git.workspace = true
 rskit-process.workspace = true
-rskit-worker.workspace = true
-rskit-component.workspace = true
 rskit-validation.workspace = true
 rskit-config.workspace = true
 rskit-codec.workspace = true
@@ -27,11 +24,6 @@ rskit-version.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
-toml_edit.workspace = true
-async-trait.workspace = true
-tokio.workspace = true
-tokio-util.workspace = true
-futures.workspace = true
 
 [features]
 # Statically link a source-built OpenSSL into rskit-git's embedded git2
@@ -41,7 +33,6 @@ vendored-openssl = ["rskit-git/vendored-openssl"]
 [dev-dependencies]
 toven-testkit.workspace = true
 rskit-util.workspace = true
-tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

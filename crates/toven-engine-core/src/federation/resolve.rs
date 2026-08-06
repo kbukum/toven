@@ -163,7 +163,7 @@ pub fn resolve_adapters(
 }
 
 /// The conventional driver binary name for an ecosystem id (`toven-<id>`).
-pub(crate) fn driver_binary_name(id: &EcosystemId) -> String {
+pub fn driver_binary_name(id: &EcosystemId) -> String {
     format!("toven-{id}")
 }
 

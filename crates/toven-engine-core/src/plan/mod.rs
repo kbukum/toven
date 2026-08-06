@@ -20,10 +20,10 @@
 //! - `cache` — the content key, lookup port, and per-unit verdict.
 //! - `request` / `source` / `host` — PLAN inputs and injected ports.
 
-pub(crate) mod affected;
+pub mod affected;
 mod cache;
 pub(crate) mod catalog;
-pub(crate) mod configure;
+pub mod configure;
 pub(crate) mod discover;
 pub(crate) mod front;
 mod graph;
@@ -47,5 +47,5 @@ pub use source::FsSourceDigest;
 pub use toolchain::ProcessToolchainProber;
 pub use toven_model::ModuleSelector;
 
-pub(crate) use affected::{changed_records_for_module, changed_seeds};
-pub(crate) use front::{PlanContext, prepare as prepare_front};
+pub use affected::{changed_records_for_module, changed_seeds};
+pub use front::{PlanContext, prepare as prepare_front};
