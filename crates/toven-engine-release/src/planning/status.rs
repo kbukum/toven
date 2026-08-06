@@ -91,6 +91,21 @@ pub fn release_status(
             false
         };
         let latest_tag = latest.map(|(_, tag)| tag.name);
+        // For a maintainer-owned module the maintainer creates the release tag
+        // before Toven publishes against it, so surface whether the tag for the
+        // declared version is already present — a fail-closed readiness signal.
+        // A Toven-owned module creates its own tag, so the question does not
+        // apply (`None`).
+        let maintainer_tag_present = if resolved.entrypoint.is_maintainer_owned() {
+            let expected = tag::format(&scheme, &declared);
+            Some(
+                tags_by_member
+                    .get(&module.member)
+                    .is_some_and(|tags| tags.iter().any(|tag| tag.name == expected)),
+            )
+        } else {
+            None
+        };
         modules.push(ReleaseModuleStatus {
             module: module.key(),
             publication: resolved.publication.clone(),
@@ -99,6 +114,8 @@ pub fn release_status(
             latest_tag,
             host_forge: resolved.host.forge.clone(),
             published_versions: published,
+            entrypoint: resolved.entrypoint,
+            maintainer_tag_present,
         });
     }
     modules.sort_by(|left, right| left.module.cmp(&right.module));
@@ -264,6 +281,102 @@ mod tests {
             "tag-only status must not query the registry: {:?}",
             target.calls()
         );
+    }
+
+    #[test]
+    fn maintainer_owned_status_flags_the_declared_version_tag_as_present() {
+        // A maintainer-owned module surfaces whether the maintainer's release
+        // tag for the declared version is present — the tag `rust/core@0.1.0`
+        // exists, so the flow is ready.
+        let core = module("core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+        let target = FakeReleaseTarget::new().with_declared_version(Version::new(0, 1, 0));
+        let common = CommonEcosystemConfig {
+            release: ReleaseConfig {
+                entrypoint: Some(toven_model::Entrypoint::Maintainer),
+                ..ReleaseConfig::default()
+            },
+            ..CommonEcosystemConfig::default()
+        };
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_common(common)
+            .with_release_target(target);
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+
+        let vcs =
+            FakeVcsReader::new().with_tags(vec![TagRef::new("rust/core@0.1.0", Oid::new("cafe"))]);
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let status =
+            release_status(&request(), &document(), &providers, &readers, &mut reporter).unwrap();
+
+        let entry = &status.modules[0];
+        assert!(entry.entrypoint.is_maintainer_owned());
+        assert_eq!(entry.maintainer_tag_present, Some(true));
+    }
+
+    #[test]
+    fn maintainer_owned_status_flags_a_missing_declared_version_tag() {
+        // No tag exists for the declared version: a fail-closed preview that the
+        // maintainer-owned flow is not yet ready to publish.
+        let core = module("core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+        let target = FakeReleaseTarget::new().with_declared_version(Version::new(0, 1, 0));
+        let common = CommonEcosystemConfig {
+            release: ReleaseConfig {
+                entrypoint: Some(toven_model::Entrypoint::Maintainer),
+                ..ReleaseConfig::default()
+            },
+            ..CommonEcosystemConfig::default()
+        };
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_common(common)
+            .with_release_target(target);
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+
+        let vcs = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let status =
+            release_status(&request(), &document(), &providers, &readers, &mut reporter).unwrap();
+
+        let entry = &status.modules[0];
+        assert!(entry.entrypoint.is_maintainer_owned());
+        assert_eq!(entry.maintainer_tag_present, Some(false));
+    }
+
+    #[test]
+    fn toven_owned_status_leaves_the_maintainer_tag_flag_unset() {
+        // A Toven-owned module creates its own tag, so the maintainer-tag
+        // readiness question does not apply.
+        let core = module("core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+        let target = FakeReleaseTarget::new().with_declared_version(Version::new(0, 1, 0));
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_release_target(target);
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+
+        let vcs = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let status =
+            release_status(&request(), &document(), &providers, &readers, &mut reporter).unwrap();
+
+        let entry = &status.modules[0];
+        assert!(entry.entrypoint.is_toven_owned());
+        assert_eq!(entry.maintainer_tag_present, None);
     }
 
     #[test]

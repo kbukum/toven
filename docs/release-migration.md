@@ -113,9 +113,13 @@ Toven is a single tag-only binary release train: every workspace crate is `publi
 
 rskit's publishable core and contrib crates publish to `crates-io`; the `examples/` demos and the `fuzz/` harness are `publish = false` and are explicitly `exclude`d from the release so workspace discovery never sweeps them into the registry train.
 
+rskit's real flow is **maintainer-owned**: a human publishes the GitHub Release (the `release: published` event), and CI then runs Toven against that existing tag/Release to publish the crates and attach evidence. Model this with `entrypoint = "maintainer"` so Toven verifies the human-created tag rather than creating it, mutates no manifest, and publishes + attaches only (see [entrypoint flows](config/release.md#entrypoint-flows-toven-owned-and-maintainer-owned)). The `rskit-suite` facade is the train's `umbrella = true` representative: it fronts the single `vX.Y.Z` Release that aggregates the member crates' notes while each crate keeps its independent version and per-crate tag.
+
 | Concern | Toven models | Native source of truth | Parity required | Retained native |
 |---|---|---|---|---|
 | Module discovery | `toven modules` over `core`/`contrib`/`examples`/`fuzz` | three Cargo workspaces | Yes | — |
+| Entrypoint | `entrypoint = maintainer`; verify the human-created tag/Release | `release: published` workflow | Yes | maintainer-created Release |
+| Umbrella | `rskit-suite` `umbrella = true` aggregates member notes onto one Release | release workflow | Yes | — |
 | Publication | per-crate `registry = crates-io`; demos + fuzz excluded | per-crate `publish` | Yes | — |
 | Idempotency | `registry-idempotent` readiness | crates.io state | Yes | crates.io upload |
 | Hosted release | `host.forge = github` after publish | release workflow | No | signing, SBOM, provenance |

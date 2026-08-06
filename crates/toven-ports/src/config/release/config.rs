@@ -5,6 +5,7 @@
 use rskit_errors::{AppError, AppResult};
 use rskit_util::Template;
 use serde::{Deserialize, Serialize};
+use toven_model::Entrypoint;
 
 use crate::config::HooksConfig;
 use crate::release::Visibility;
@@ -136,6 +137,20 @@ pub struct ReleaseConfig {
     /// phase entry runs natively.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phases: Option<PhasesConfig>,
+    /// Who cuts the release: `toven` (the default — Toven owns the whole flow
+    /// and creates the tag/hosted Release itself) or `maintainer` (a human
+    /// created the tag/Release in the forge and Toven runs against them,
+    /// verifying rather than creating the tag, then publishing + attaching +
+    /// attesting). `None` = adapter default (`toven`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entrypoint: Option<Entrypoint>,
+    /// Whether this module is the release train's **umbrella** — an aggregate
+    /// that represents the whole release rather than a separately-published
+    /// unit. An umbrella module contributes its members' notes to the shared
+    /// hosted Release and does not publish to a registry unless it is itself a
+    /// registry package (`registry` + `publish`). `None` = not an umbrella.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub umbrella: Option<bool>,
 }
 
 impl ReleaseConfig {
@@ -213,6 +228,13 @@ impl ReleaseConfig {
                 format!("{field}.image"),
                 "an excluded module runs no image phase, so it cannot declare an image block; \
                  remove the image block or set exclude = false",
+            ));
+        }
+        if self.exclude == Some(true) && self.umbrella == Some(true) {
+            return Err(AppError::invalid_input(
+                format!("{field}.umbrella"),
+                "an excluded module takes no part in the release, so it cannot be the release \
+                 umbrella; remove umbrella or set exclude = false",
             ));
         }
         validate_optional_nonblank(&format!("{field}.remote"), self.remote.as_deref())?;
@@ -444,6 +466,47 @@ mod tests {
             .validate("modules.rust:demo.release")
             .expect_err("image on an excluded module rejected");
         assert!(error.to_string().contains("image"), "{error}");
+        assert!(error.to_string().contains("excluded"), "{error}");
+    }
+
+    #[test]
+    fn parses_entrypoint_and_umbrella() {
+        use toven_model::Entrypoint;
+
+        let config = parse(
+            r#"
+            entrypoint = "maintainer"
+            umbrella = true
+            "#,
+        )
+        .expect("parses");
+        assert_eq!(config.entrypoint, Some(Entrypoint::Maintainer));
+        assert_eq!(config.umbrella, Some(true));
+        config.validate("ecosystems.rust.release").expect("valid");
+    }
+
+    #[test]
+    fn entrypoint_defaults_to_none_and_rejects_unknown() {
+        let config = parse("").expect("parses");
+        assert_eq!(config.entrypoint, None);
+        assert_eq!(config.umbrella, None);
+        let error = parse(r#"entrypoint = "ci""#).expect_err("unknown entrypoint rejected");
+        assert!(error.to_string().contains("entrypoint"), "{error}");
+    }
+
+    #[test]
+    fn validate_rejects_an_umbrella_on_an_excluded_module() {
+        let config = parse(
+            r"
+            exclude = true
+            umbrella = true
+            ",
+        )
+        .expect("parses");
+        let error = config
+            .validate("modules.rust:suite.release")
+            .expect_err("umbrella on an excluded module rejected");
+        assert!(error.to_string().contains("umbrella"), "{error}");
         assert!(error.to_string().contains("excluded"), "{error}");
     }
 }

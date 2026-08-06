@@ -281,6 +281,14 @@ pub(crate) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
                 .settings
                 .get(&reference)
                 .is_some_and(|resolved| resolved.changelog.roll),
+            entrypoint: input
+                .settings
+                .get(&reference)
+                .map_or_else(Default::default, |resolved| resolved.entrypoint),
+            umbrella: input
+                .settings
+                .get(&reference)
+                .is_some_and(|resolved| resolved.umbrella),
         });
     }
     entries.sort_by(|left, right| {
@@ -291,9 +299,69 @@ pub(crate) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
     Ok(entries)
 }
 
+/// Resolve the bump decision for a maintainer-owned module: plan exactly the
+/// version its manifest already declares against the tag/Release a maintainer
+/// created out of band (the version decision already merged through `release
+/// bump`). APPLY verifies the maintainer's tag matches this version and publishes,
+/// and registry idempotency decides whether that publish is still needed.
+///
+/// Guarded against regressing below the released baseline: a maintainer-owned
+/// module must declare the released version or newer. `current == baseline` is
+/// allowed — that is the steady state a maintainer-owned re-run verifies and
+/// republishes idempotently — but `current < baseline` means the manifest was
+/// left behind the latest release, which would publish an older semver version
+/// than already shipped. That fails closed under [`CutIntent::Mutate`] and drops
+/// from a [`CutIntent::Preview`] projection (nothing safely releasable), exactly
+/// like the `manifest` policy's baseline floor.
+///
+/// # Errors
+/// Fails closed under [`CutIntent::Mutate`] when the declared version is behind
+/// the released baseline.
+fn maintainer_decision(
+    input: &BumpInputs<'_>,
+    reference: &ModuleKey,
+    current: &Version,
+) -> AppResult<BumpDecision> {
+    let baseline = input
+        .baselines
+        .get(reference)
+        .and_then(|b| b.version.as_ref());
+    if let Some(base) = baseline
+        && current < base
+    {
+        return match input.intent {
+            CutIntent::Preview => Ok(BumpDecision {
+                level: BumpLevel::Patch,
+                planned: None,
+                reason: BumpReason::Manifest,
+                winning_input: BumpSource::Manifest,
+                prerelease_channel: None,
+            }),
+            CutIntent::Mutate => Err(AppError::invalid_input(
+                "release.entrypoint",
+                format!(
+                    "maintainer-owned module '{}' declares {current}, behind the released \
+                         baseline {base}; a maintainer-owned release never republishes a version \
+                         below the latest release. Bump the manifest to the released version or \
+                         newer before publishing.",
+                    reference.module
+                ),
+            )),
+        };
+    }
+    Ok(BumpDecision {
+        level: classify(baseline.unwrap_or(&Version::new(0, 0, 0)), current),
+        planned: Some(current.clone()),
+        reason: BumpReason::Manifest,
+        winning_input: BumpSource::Manifest,
+        prerelease_channel: None,
+    })
+}
+
 /// Resolve one module's own-version bump under the documented precedence (argv
 /// `--set-version` > argv level > config level > adapter default), then a
 /// dependency cascade for a dependent that did not itself change.
+#[allow(clippy::too_many_lines)] // a linear walk through the documented bump precedence
 fn resolve_bump(
     input: &BumpInputs<'_>,
     reference: &ModuleKey,
@@ -302,6 +370,13 @@ fn resolve_bump(
 ) -> AppResult<BumpDecision> {
     let settings = input.settings.get(reference);
     let module_ref = &reference.module;
+
+    // A maintainer-owned module keeps the version its manifest already declares
+    // (see `maintainer_decision`); detection, the matrix, and cascades never move
+    // it. The decision is guarded against regressing below the released baseline.
+    if settings.is_some_and(|resolved| resolved.entrypoint.is_maintainer_owned()) {
+        return maintainer_decision(input, reference, current);
+    }
 
     if let Some(version) = input.overrides.set_version(module_ref) {
         if version <= current {
@@ -881,6 +956,171 @@ mod tests {
         });
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn a_maintainer_owned_module_plans_its_declared_version_from_the_manifest() {
+        // A maintainer-owned module publishes the version its manifest already
+        // declares (the fake target reports 0.1.0) against the tag a maintainer
+        // cut: planning neither computes nor moves the version — it plans exactly
+        // the declared version, attributed to the manifest, so APPLY can verify
+        // the tag and publish idempotently.
+        let core = core_module();
+        let key = core.key();
+        let graph = Graph::build(vec![core.clone()], Vec::new()).unwrap();
+        let targets = rust_targets();
+
+        let maintainer = ReleaseConfig {
+            entrypoint: Some(toven_model::Entrypoint::Maintainer),
+            ..ReleaseConfig::default()
+        };
+        let mut settings = BTreeMap::new();
+        settings.insert(key.clone(), settings_for(&maintainer));
+
+        // The module carries the declared version even though change detection
+        // seeded it (the flow forces a maintainer-owned module in regardless of
+        // commits since the baseline).
+        let changed: BTreeSet<_> = std::iter::once(key).collect();
+        let baselines = BTreeMap::new();
+        let changelogs = BTreeMap::new();
+        let modules = vec![core];
+        let edges = Vec::new();
+        let overrides = BumpOverrides::new();
+
+        let entries = plan_entries(&BumpInputs {
+            graph: &graph,
+            modules: &modules,
+            edges: &edges,
+            changed: &changed,
+            baselines: &baselines,
+            changelogs: &changelogs,
+            settings: &settings,
+            targets: &targets,
+            branches: &no_branches(),
+            policy: BumpPolicy::SemverCascade,
+            overrides: &overrides,
+            intent: CutIntent::Mutate,
+        })
+        .unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].planned_version, Some(Version::new(0, 1, 0)));
+        assert_eq!(entries[0].reason, BumpReason::Manifest);
+        assert_eq!(entries[0].winning_input, BumpSource::Manifest);
+        assert!(entries[0].entrypoint.is_maintainer_owned());
+    }
+
+    #[test]
+    fn a_maintainer_owned_module_fails_closed_when_declared_version_is_behind_the_baseline() {
+        // The manifest declares 0.1.0 but the module already released 0.2.0
+        // (baseline). A maintainer-owned mutate must not republish a version
+        // behind the latest release, so planning fails closed rather than
+        // planning the regressed version.
+        let core = core_module();
+        let key = core.key();
+        let graph = Graph::build(vec![core.clone()], Vec::new()).unwrap();
+        let targets = rust_targets();
+
+        let maintainer = ReleaseConfig {
+            entrypoint: Some(toven_model::Entrypoint::Maintainer),
+            ..ReleaseConfig::default()
+        };
+        let mut settings = BTreeMap::new();
+        settings.insert(key.clone(), settings_for(&maintainer));
+
+        let changed: BTreeSet<_> = std::iter::once(key.clone()).collect();
+        let mut baselines = BTreeMap::new();
+        baselines.insert(
+            key.clone(),
+            ReleaseBaseline::tag(
+                key,
+                "rust/core@0.2.0",
+                Version::new(0, 2, 0),
+                Oid::new("cafe"),
+            ),
+        );
+        let changelogs = BTreeMap::new();
+        let modules = vec![core];
+        let edges = Vec::new();
+        let overrides = BumpOverrides::new();
+
+        let error = plan_entries(&BumpInputs {
+            graph: &graph,
+            modules: &modules,
+            edges: &edges,
+            changed: &changed,
+            baselines: &baselines,
+            changelogs: &changelogs,
+            settings: &settings,
+            targets: &targets,
+            branches: &no_branches(),
+            policy: BumpPolicy::SemverCascade,
+            overrides: &overrides,
+            intent: CutIntent::Mutate,
+        })
+        .expect_err("a maintainer-owned version behind the baseline fails closed");
+
+        let message = error.to_string();
+        assert!(
+            message.contains("behind the released baseline"),
+            "{message}"
+        );
+        assert!(message.contains("0.2.0"), "{message}");
+    }
+
+    #[test]
+    fn a_maintainer_owned_module_plans_the_baseline_version_for_an_idempotent_rerun() {
+        // The manifest declares exactly the released baseline (0.1.0). A
+        // maintainer-owned re-run is the steady state: it plans that version so
+        // APPLY verifies the tag and registry idempotency decides publish — the
+        // baseline floor allows `current == baseline`, only rejecting a regress.
+        let core = core_module();
+        let key = core.key();
+        let graph = Graph::build(vec![core.clone()], Vec::new()).unwrap();
+        let targets = rust_targets();
+
+        let maintainer = ReleaseConfig {
+            entrypoint: Some(toven_model::Entrypoint::Maintainer),
+            ..ReleaseConfig::default()
+        };
+        let mut settings = BTreeMap::new();
+        settings.insert(key.clone(), settings_for(&maintainer));
+
+        let changed: BTreeSet<_> = std::iter::once(key.clone()).collect();
+        let mut baselines = BTreeMap::new();
+        baselines.insert(
+            key.clone(),
+            ReleaseBaseline::tag(
+                key,
+                "rust/core@0.1.0",
+                Version::new(0, 1, 0),
+                Oid::new("cafe"),
+            ),
+        );
+        let changelogs = BTreeMap::new();
+        let modules = vec![core];
+        let edges = Vec::new();
+        let overrides = BumpOverrides::new();
+
+        let entries = plan_entries(&BumpInputs {
+            graph: &graph,
+            modules: &modules,
+            edges: &edges,
+            changed: &changed,
+            baselines: &baselines,
+            changelogs: &changelogs,
+            settings: &settings,
+            targets: &targets,
+            branches: &no_branches(),
+            policy: BumpPolicy::SemverCascade,
+            overrides: &overrides,
+            intent: CutIntent::Mutate,
+        })
+        .expect("a maintainer-owned re-run at the baseline version is allowed");
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].planned_version, Some(Version::new(0, 1, 0)));
+        assert_eq!(entries[0].reason, BumpReason::Manifest);
     }
 
     #[test]

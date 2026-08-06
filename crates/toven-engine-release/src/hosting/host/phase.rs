@@ -98,11 +98,43 @@ pub(crate) fn planned_host_releases(
         .map(|module| (module.key(), module))
         .collect();
 
+    // Identify each member's umbrella module (its train representative). An
+    // umbrella module fronts a single hosted Release for its whole train: the
+    // other members publish to their registries with independent versions and
+    // tags but cut no individual forge Release — their notes aggregate onto the
+    // umbrella Release instead. A member with two umbrella modules is a
+    // fail-closed configuration error.
+    let mut umbrella_by_member: BTreeMap<Option<MemberId>, ModuleKey> = BTreeMap::new();
+    for entry in &plan.entries {
+        if !entry.umbrella {
+            continue;
+        }
+        if let Some(existing) =
+            umbrella_by_member.insert(entry.module.member.clone(), entry.module.clone())
+        {
+            return Err(AppError::invalid_input(
+                "release.umbrella",
+                format!(
+                    "member declares more than one umbrella module ('{existing}' and '{}'); a \
+                     train has a single umbrella representative",
+                    entry.module
+                ),
+            ));
+        }
+    }
+
     let mut planned = Vec::new();
     for entry in &plan.entries {
         let Some(version) = &entry.planned_version else {
             continue;
         };
+        // In an umbrella train only the umbrella module cuts a hosted Release;
+        // every other member of the same train contributes its notes to that
+        // Release (folded in when the umbrella entry is built) and cuts none of
+        // its own.
+        if !entry.umbrella && umbrella_by_member.contains_key(&entry.module.member) {
+            continue;
+        }
         let Some(host) = settings.get(&entry.module).map(|resolved| &resolved.host) else {
             return Err(AppError::new(
                 ErrorCode::Internal,
@@ -134,10 +166,16 @@ pub(crate) fn planned_host_releases(
         let scheme = target.tag_scheme(module, entry.tag_format.as_deref())?;
         let tag = tag::format(&scheme, version);
 
-        let notes = host
-            .notes
-            .clone()
-            .unwrap_or_else(|| changelog_notes(&entry.changelog));
+        // The umbrella Release aggregates its train's member notes (unless the
+        // host config overrides them outright); a standalone module carries its
+        // own changelog.
+        let notes = host.notes.clone().unwrap_or_else(|| {
+            if entry.umbrella {
+                aggregate_umbrella_notes(plan, entry.module.member.as_ref())
+            } else {
+                changelog_notes(&entry.changelog)
+            }
+        });
         // A version carrying a prerelease identifier (`0.1.0-alpha.1`) is a
         // prerelease whether it came from an explicit `--pre` channel or from the
         // version the module already declares, as a first release does.
@@ -285,6 +323,24 @@ fn changelog_notes(changelog: &crate::ChangelogEntry) -> String {
     changelog.lines.join("\n")
 }
 
+/// Aggregate the changelog notes of every planned module in `member` into one
+/// note body for the member's umbrella Release, folded in deterministic plan
+/// order so a shared heading (`### Added`) appears once across the whole train.
+fn aggregate_umbrella_notes(plan: &ReleasePlan, member: Option<&MemberId>) -> String {
+    let mut notes = String::new();
+    for entry in &plan.entries {
+        if entry.planned_version.is_none() || entry.module.member.as_ref() != member {
+            continue;
+        }
+        let incoming = changelog_notes(&entry.changelog);
+        if incoming.trim().is_empty() {
+            continue;
+        }
+        notes = crate::versioning::changelog::merge_notes(&notes, &incoming);
+    }
+    notes
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -361,6 +417,8 @@ mod tests {
             ),
             changelog_path: "CHANGELOG.md".into(),
             changelog_roll: false,
+            entrypoint: toven_model::Entrypoint::Toven,
+            umbrella: false,
         }
     }
 
@@ -520,6 +578,66 @@ mod tests {
             release.notes
         );
         assert!(release.notes.contains("- app change"), "{}", release.notes);
+    }
+
+    #[test]
+    fn umbrella_module_cuts_one_release_aggregating_member_notes() {
+        // An umbrella train: the `suite` module fronts one hosted `v{version}`
+        // Release, while the `core` library keeps its own per-crate version and
+        // tag and publishes to its registry — but cuts no forge Release of its
+        // own even though it resolves a host forge. The single umbrella Release
+        // aggregates both members' notes.
+        let mut suite = entry("suite", None);
+        suite.umbrella = true;
+        suite.tag_format = Some("v{version}".into());
+        suite.changelog =
+            ChangelogEntry::new(mkey("suite"), "train", vec!["- suite change".into()]);
+        let mut core = entry("core", None);
+        core.changelog = ChangelogEntry::new(mkey("core"), "core", vec!["- core change".into()]);
+
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![suite, core]);
+        let modules = vec![module("suite"), module("core")];
+        let mut resolved = settings("suite", Some(github_host()));
+        resolved.extend(settings("core", Some(github_host())));
+
+        let planned = planned_host_releases(&plan, &modules, &targets(), &resolved).unwrap();
+
+        assert_eq!(
+            planned.len(),
+            1,
+            "an umbrella train cuts one Release, not one per member: {planned:?}"
+        );
+        // The Release rides the umbrella module's own `v{version}` tag.
+        assert_eq!(planned[0].release.tag, "v0.1.1");
+        // Both members' notes aggregate onto the single Release.
+        assert!(
+            planned[0].release.notes.contains("- suite change"),
+            "{}",
+            planned[0].release.notes
+        );
+        assert!(
+            planned[0].release.notes.contains("- core change"),
+            "{}",
+            planned[0].release.notes
+        );
+    }
+
+    #[test]
+    fn a_member_with_two_umbrella_modules_fails_closed() {
+        let mut first = entry("suite", None);
+        first.umbrella = true;
+        first.tag_format = Some("v{version}".into());
+        let mut second = entry("meta", None);
+        second.umbrella = true;
+        second.tag_format = Some("v{version}".into());
+
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![first, second]);
+        let modules = vec![module("suite"), module("meta")];
+        let mut resolved = settings("suite", Some(github_host()));
+        resolved.extend(settings("meta", Some(github_host())));
+
+        let error = planned_host_releases(&plan, &modules, &targets(), &resolved).unwrap_err();
+        assert_eq!(error.code(), ErrorCode::InvalidInput);
     }
 
     #[test]

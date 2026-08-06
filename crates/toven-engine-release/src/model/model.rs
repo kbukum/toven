@@ -1,7 +1,7 @@
 //! Immutable release planning vocabulary.
 
 use rskit_version::semver::Version;
-use toven_model::ModuleKey;
+use toven_model::{Entrypoint, ModuleKey};
 use toven_ports::{BumpLevel, Oid, PublicationPolicy, ReleaseMutation, TagSigner, Visibility};
 
 /// The engine-owned named bump policy.
@@ -237,6 +237,7 @@ impl PushPolicy {
 }
 
 /// One module's planned release mutation and publish decision.
+#[allow(clippy::struct_excessive_bools)] // a plan entry is a flat set of independent flags
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReleaseEntry {
     /// Module being considered for release.
@@ -312,6 +313,15 @@ pub struct ReleaseEntry {
     /// Whether the `bump` phase finalizes this module's changelog by moving the
     /// documented `## [Unreleased]` body under a versioned heading.
     pub changelog_roll: bool,
+    /// Who cuts the release for this module: Toven (owns the whole flow) or a
+    /// maintainer (Toven runs against an existing human-created tag/Release,
+    /// verifying the tag rather than creating it and performing no manifest
+    /// mutation or release commit at publish time).
+    pub entrypoint: Entrypoint,
+    /// Whether this module is the release train's umbrella aggregate — it
+    /// contributes its members' notes to the shared hosted Release without
+    /// publishing separately unless it is itself a registry package.
+    pub umbrella: bool,
 }
 
 /// Immutable release plan produced by the release PLAN tail.
@@ -371,6 +381,16 @@ pub struct ReleaseModuleStatus {
     /// so they always report `false` online); offline, where release tags
     /// anchor idempotency, the newest release tag is at/above it.
     pub is_published: bool,
+    /// Who cuts the release for this module: Toven-owned (the default) or
+    /// maintainer-owned (Toven runs against an existing human-created
+    /// tag/Release).
+    pub entrypoint: Entrypoint,
+    /// For a maintainer-owned module, whether the release tag for the declared
+    /// version — which a maintainer must create before Toven publishes against
+    /// it — is already present. `None` for a Toven-owned module (Toven creates
+    /// the tag itself, so the question does not apply); `Some(false)` is a
+    /// fail-closed signal that the maintainer-owned flow is not yet ready.
+    pub maintainer_tag_present: Option<bool>,
 }
 
 /// A read-only projection of every releasable module's
@@ -589,6 +609,8 @@ mod tests {
             changelog: ChangelogEntry::new(module(name), "changed", Vec::new()),
             changelog_path: "CHANGELOG.md".into(),
             changelog_roll: false,
+            entrypoint: toven_model::Entrypoint::Toven,
+            umbrella: false,
         };
 
         let plan = ReleasePlan::new(

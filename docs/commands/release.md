@@ -62,7 +62,9 @@ toven release plan [--output human|jsonl]
 toven release status [--output human|jsonl]
 ```
 
-The plan is deterministic and follows dependency order; repeated runs over unchanged state produce identical output. Each entry reports the current and planned version, the exact release tag a mutating run would create, the bump level, whether the module changed directly or joined through a dependency cascade, the winning version input, the resolved publication policy, and whether registry publication is needed. JSONL additionally carries the 1-based publication `order`, the cascade origin, prerelease channel, publication policy, and registry identifier when one exists. Entries appear in publication order in both renderings.
+The plan is deterministic and follows dependency order; repeated runs over unchanged state produce identical output. Each entry reports the current and planned version, the exact release tag for the version — the tag a Toven-owned run would create, or, for a maintainer-owned module, the existing tag Toven verifies — the bump level, whether the module changed directly or joined through a dependency cascade, the winning version input, the release flow (its `entrypoint`, with an `umbrella` marker for an aggregate module), the resolved publication policy, and whether registry publication is needed. JSONL additionally carries the 1-based publication `order`, the cascade origin, prerelease channel, publication policy, registry identifier when one exists, the `entrypoint`, and the `umbrella` flag. Entries appear in publication order in both renderings.
+
+`release status` likewise reports each module's flow: its `entrypoint`, and for a maintainer-owned module whether the required release tag for the declared version is already present (`tag ready` / `tag missing` in human output, a `maintainer_tag_present` boolean in JSONL) — a fail-closed preview that a maintainer-owned module cannot publish until the maintainer has cut its tag. See [entrypoint flows](../config/release.md#entrypoint-flows-toven-owned-and-maintainer-owned) for the flow model.
 
 ### Release baseline
 

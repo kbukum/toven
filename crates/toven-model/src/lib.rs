@@ -22,7 +22,8 @@
 //!   grammar).
 //! - [`event`] — [`Event`], [`UnitStatus`], [`RunStats`].
 //! - [`ecosystems`] — the canonical ecosystem registry.
-//! - [`release`] — [`ReleasePhase`], the release-flow stage vocabulary.
+//! - [`release`] — [`ReleasePhase`] and [`Entrypoint`], the release-flow
+//!   stage and entrypoint vocabulary.
 
 pub mod ecosystems;
 pub mod edge;
@@ -43,7 +44,7 @@ pub use graph::Graph;
 pub use identity::{AbsPath, EcosystemId, MemberId, ModuleKey, ModuleRef, RepoPath, WorkspaceId};
 pub use module::Module;
 pub use plan::{CacheVerdict, ExecutionReadiness, ExecutionUnit, Plan, TaskOrigin};
-pub use release::ReleasePhase;
+pub use release::{Entrypoint, ReleasePhase};
 pub use selector::{ModuleSelector, NamePattern};
 pub use tool::ToolStatus;
 pub use workspace::{ToolchainTag, Workspace};

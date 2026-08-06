@@ -5,7 +5,7 @@
 //! `[modules.<name>.release]` > `[ecosystems.<id>].release` > adapter default.
 
 use rskit_errors::AppResult;
-use toven_model::ReleasePhase;
+use toven_model::{Entrypoint, ReleasePhase};
 use toven_ports::{
     BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, HostConfig, ImageConfig,
     PhaseBacking, PhasesConfig, PrereleaseConfig, PublicationPolicy, ReleaseConfig, SignConfig,
@@ -140,6 +140,13 @@ pub struct ResolvedReleaseSettings {
     /// Per-phase backing map: how each release phase is satisfied (native, the
     /// default, or delegated to an external tool).
     pub phases: PhasesConfig,
+    /// Who cuts the release: Toven (the default, owning the whole flow) or a
+    /// maintainer (Toven runs against an existing human-created tag/Release).
+    pub entrypoint: Entrypoint,
+    /// Whether this module is the release train's umbrella aggregate — it
+    /// contributes its members' notes to the shared hosted Release and does not
+    /// publish to a registry unless it is itself a registry package.
+    pub umbrella: bool,
 }
 
 impl ResolvedReleaseSettings {
@@ -245,6 +252,8 @@ impl ResolvedReleaseSettings {
             host: ResolvedHostSettings::from_config(config.host.as_ref()),
             image: config.image.clone(),
             phases: config.phases.clone().unwrap_or_default(),
+            entrypoint: config.entrypoint.unwrap_or_default(),
+            umbrella: config.umbrella.unwrap_or(false),
         })
     }
 }
@@ -274,6 +283,20 @@ mod tests {
         assert!(!resolved.offline);
         assert!(!resolved.sign_tags);
         assert_eq!(resolved.changelog.path.as_deref(), Some("CHANGELOG.md"));
+        assert_eq!(resolved.entrypoint, toven_model::Entrypoint::Toven);
+        assert!(!resolved.umbrella);
+    }
+
+    #[test]
+    fn entrypoint_and_umbrella_resolve_from_config() {
+        let ecosystem = ReleaseConfig {
+            entrypoint: Some(toven_model::Entrypoint::Maintainer),
+            umbrella: Some(true),
+            ..ReleaseConfig::default()
+        };
+        let resolved = ResolvedReleaseSettings::resolve(&ecosystem, None).unwrap();
+        assert_eq!(resolved.entrypoint, toven_model::Entrypoint::Maintainer);
+        assert!(resolved.umbrella);
     }
 
     #[test]

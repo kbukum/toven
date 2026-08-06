@@ -47,24 +47,37 @@ pub(crate) fn release_apply_by_member(
         .map(|shard| apply::reconcile_repo_settings(&shard.plan.entries))
         .collect::<AppResult<Vec<_>>>()?;
     guard_member_trees(&shards, &settings, repos)?;
-    let mut preflights = Vec::with_capacity(shards.len());
+    // Classify each member shard's apply mode. A maintainer-owned member runs
+    // against a tag/Release a human already created: its tags are an input to
+    // verify (fail closed if absent), never a mutation, so it skips the
+    // tag-preflight/mutation/commit path entirely and only publishes. Same-member
+    // entrypoint homogeneity is enforced in `reconcile_repo_settings`, so a whole
+    // shard is either maintainer-owned or Toven-owned.
+    let mut modes = Vec::with_capacity(shards.len());
     for (shard, settings) in shards.iter().zip(&settings) {
         // Target preflight: a member without a release target fails closed
-        // before any member mutates.
+        // before any member mutates or publishes.
         apply::preflight_targets(&shard.plan, &module_by_ref, targets)?;
+        let repo = repo_for(repos, shard.member.as_ref())?;
+        if settings.entrypoint().is_maintainer_owned() {
+            // The maintainer's tags must already exist for the planned version;
+            // Toven never creates or moves them.
+            apply::verify_maintainer_tags(&shard.plan, &module_by_ref, repo.reader())?;
+            modes.push(ShardApply::Maintainer);
+            continue;
+        }
         apply::commit_message(&shard.plan, &module_by_ref, settings.commit_message())?;
         // Immutable-tag preflight: a partial tag overlap fails closed before any
         // member mutates; an all-tags-exist member resumes.
-        let repo = repo_for(repos, shard.member.as_ref())?;
         let preflight = apply::preflight_tags(&shard.plan, &module_by_ref, repo.reader())?;
         if matches!(preflight, apply::TagPreflight::Fresh) {
             apply::preflight_tag_signers(&shard.plan, repo.writer())?;
         }
-        preflights.push(preflight);
+        modes.push(ShardApply::Toven(preflight));
     }
-    if preflights
+    if modes
         .iter()
-        .any(|preflight| matches!(preflight, apply::TagPreflight::Resume))
+        .any(|mode| matches!(mode, ShardApply::Toven(apply::TagPreflight::Resume)))
     {
         stats.resumed = true;
     }
@@ -72,26 +85,31 @@ pub(crate) fn release_apply_by_member(
     let mut artifacts = BTreeMap::new();
     let mut prepared = Vec::with_capacity(shards.len());
     let mut prepared_settings = Vec::with_capacity(shards.len());
-    for ((shard, settings), preflight) in shards.iter().zip(&settings).zip(&preflights) {
-        // An already-tagged member resumes: its commit, tags, and push already
-        // exist on the remote and its manifest already carries the released
-        // version, so mutation, commit, tag, and push are skipped. It still
-        // packages any version the registry lacks so the shared publish tail can
-        // complete a publish interrupted after tag/push; a fully-published
-        // member packages nothing.
-        if matches!(preflight, apply::TagPreflight::Resume) {
-            match package_member_shard(shard, &module_by_ref, targets, repos, &mut stats) {
-                Ok(member_artifacts) => artifacts.extend(member_artifacts),
-                Err(error) => return Err(restore_prepared_or_error(&prepared, repos, error)),
+    for ((shard, settings), mode) in shards.iter().zip(&settings).zip(&modes) {
+        match mode {
+            // Neither a maintainer-owned member nor an already-tagged
+            // (`Resume`) member mutates: both only package the versions the
+            // registry still lacks to feed the shared publish tail — no manifest
+            // mutation, commit, tag, or push. A maintainer-owned member's
+            // manifest already carries the released version and its tags already
+            // exist as a human-created input; a `Resume` member's commit, tags,
+            // and push already exist on the remote from a prior attempt (a
+            // fully-published member packages nothing).
+            ShardApply::Maintainer | ShardApply::Toven(apply::TagPreflight::Resume) => {
+                match package_member_shard(shard, &module_by_ref, targets, repos, &mut stats) {
+                    Ok(member_artifacts) => artifacts.extend(member_artifacts),
+                    Err(error) => return Err(restore_prepared_or_error(&prepared, repos, error)),
+                }
             }
-            continue;
-        }
-        match prepare_member_shard(shard, &module_by_ref, targets, repos, &mut stats) {
-            Ok((member_changed, member_artifacts)) => {
-                prepared.push((shard, member_changed, member_artifacts));
-                prepared_settings.push(settings);
+            ShardApply::Toven(apply::TagPreflight::Fresh) => {
+                match prepare_member_shard(shard, &module_by_ref, targets, repos, &mut stats) {
+                    Ok((member_changed, member_artifacts)) => {
+                        prepared.push((shard, member_changed, member_artifacts));
+                        prepared_settings.push(settings);
+                    }
+                    Err(error) => return Err(restore_prepared_or_error(&prepared, repos, error)),
+                }
             }
-            Err(error) => return Err(restore_prepared_or_error(&prepared, repos, error)),
         }
     }
 
@@ -488,6 +506,16 @@ struct MemberReleaseShard {
     plan: ReleasePlan,
 }
 
+/// How a single member shard is applied: the maintainer-owned publish-only path
+/// (tags are a verified input, nothing mutates), or the Toven-owned path carrying
+/// its immutable-tag preflight verdict (`Fresh` mutates/commits/tags/pushes;
+/// `Resume` completes an interrupted publish without re-running the git phase).
+#[derive(Debug)]
+enum ShardApply {
+    Maintainer,
+    Toven(apply::TagPreflight),
+}
+
 fn shard_plan(plan: &ReleasePlan, modules: &[Module]) -> AppResult<Vec<MemberReleaseShard>> {
     let module_members = modules
         .iter()
@@ -589,6 +617,8 @@ mod tests {
             changelog: ChangelogEntry::new(mkey(member, name), "changed", Vec::new()),
             changelog_path: "CHANGELOG.md".into(),
             changelog_roll: false,
+            entrypoint: toven_model::Entrypoint::Toven,
+            umbrella: false,
         }
     }
 
@@ -1118,5 +1148,167 @@ mod tests {
 
         assert!(error.to_string().contains("has no release target"));
         assert!(gateway_writer.writes().is_empty());
+    }
+
+    #[test]
+    fn a_maintainer_owned_member_publishes_against_the_existing_tag_without_mutating() {
+        // The maintainer already created the tag `rust/shared@0.2.0` (and the
+        // hosted Release) in the forge. A maintainer-owned member shard verifies
+        // that tag, then publishes the version the registry still lacks against
+        // it — mutating no manifest and creating no commit, tag, or push. This
+        // drives the production `release_run` path (`release_apply_by_member`),
+        // not the standalone `release_apply`.
+        let mut owned = entry("core", "shared", Version::new(0, 2, 0), 0);
+        owned.entrypoint = toven_model::Entrypoint::Maintainer;
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![owned]);
+        let modules = vec![module("core", "shared")];
+        let target = FakeReleaseTarget::new();
+        let core_reader = FakeVcsReader::new()
+            .with_rev_parse("deadbee")
+            .with_tags(vec![toven_ports::TagRef::new(
+                "rust/shared@0.2.0",
+                toven_ports::Oid::new("deadbee"),
+            )]);
+        let core_writer = FakeVcsWriter::new();
+        let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
+            Some(member("core")),
+            std::path::PathBuf::from("/repos/core"),
+            &core_reader,
+            &core_writer,
+        )]);
+
+        let stats = release_apply_by_member(
+            &plan,
+            &modules,
+            &targets(&target),
+            &repos,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect("a maintainer-owned member publishes against the existing tag");
+
+        assert_eq!(stats.published_modules, 1);
+        assert_eq!(stats.tagged_modules, 0);
+        assert_eq!(stats.mutated_modules, 0);
+        assert!(
+            core_writer.writes().is_empty(),
+            "no commit/tag/push may happen for a maintainer-owned member: {:?}",
+            core_writer.writes()
+        );
+        assert!(
+            !target
+                .calls()
+                .iter()
+                .any(|call| matches!(call, ReleaseCall::ApplyRelease { .. })),
+            "a maintainer-owned member never mutates a manifest: {:?}",
+            target.calls()
+        );
+        assert!(
+            target
+                .calls()
+                .iter()
+                .any(|call| matches!(call, ReleaseCall::Publish(_))),
+            "a maintainer-owned member publishes against the existing tag: {:?}",
+            target.calls()
+        );
+    }
+
+    #[test]
+    fn a_maintainer_owned_member_fails_closed_when_the_release_tag_is_absent() {
+        // No tag exists for the planned version: the maintainer has not cut the
+        // Release yet, or the manifest version and the created tag diverge. The
+        // production `release_apply_by_member` path refuses to proceed rather
+        // than creating or moving the tag itself — zero VCS writes, no mutation.
+        let mut owned = entry("core", "shared", Version::new(0, 2, 0), 0);
+        owned.entrypoint = toven_model::Entrypoint::Maintainer;
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![owned]);
+        let modules = vec![module("core", "shared")];
+        let target = FakeReleaseTarget::new();
+        let core_reader = FakeVcsReader::new();
+        let core_writer = FakeVcsWriter::new();
+        let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
+            Some(member("core")),
+            std::path::PathBuf::from("/repos/core"),
+            &core_reader,
+            &core_writer,
+        )]);
+
+        let error = release_apply_by_member(
+            &plan,
+            &modules,
+            &targets(&target),
+            &repos,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("an absent maintainer-owned tag fails closed");
+
+        let message = error.to_string();
+        assert!(message.contains("rust/shared@0.2.0"), "{message}");
+        assert!(message.contains("never creates or moves"), "{message}");
+        assert!(
+            core_writer.writes().is_empty(),
+            "no VCS write may happen when a maintainer-owned tag is absent: {:?}",
+            core_writer.writes()
+        );
+        assert!(
+            !target.calls().iter().any(|call| matches!(
+                call,
+                ReleaseCall::ApplyRelease { .. } | ReleaseCall::Publish(_)
+            )),
+            "no mutation or publish may happen when the tag is absent: {:?}",
+            target.calls()
+        );
+    }
+
+    #[test]
+    fn a_maintainer_owned_member_fails_closed_when_the_tag_diverges_from_head() {
+        // The member's tag exists but points at an earlier commit than the
+        // checked-out HEAD. The production `release_apply_by_member` path
+        // packages and publishes from HEAD, so it fails closed rather than
+        // attaching artifacts to a tag that names a different commit — zero VCS
+        // writes, no publish.
+        let mut owned = entry("core", "shared", Version::new(0, 2, 0), 0);
+        owned.entrypoint = toven_model::Entrypoint::Maintainer;
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![owned]);
+        let modules = vec![module("core", "shared")];
+        let target = FakeReleaseTarget::new();
+        let core_reader = FakeVcsReader::new()
+            .with_rev_parse("cafef00d")
+            .with_tags(vec![toven_ports::TagRef::new(
+                "rust/shared@0.2.0",
+                toven_ports::Oid::new("deadbee"),
+            )]);
+        let core_writer = FakeVcsWriter::new();
+        let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
+            Some(member("core")),
+            std::path::PathBuf::from("/repos/core"),
+            &core_reader,
+            &core_writer,
+        )]);
+
+        let error = release_apply_by_member(
+            &plan,
+            &modules,
+            &targets(&target),
+            &repos,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("a maintainer-owned tag that diverges from HEAD fails closed");
+
+        let message = error.to_string();
+        assert!(message.contains("rust/shared@0.2.0"), "{message}");
+        assert!(message.contains("checked-out HEAD"), "{message}");
+        assert!(
+            core_writer.writes().is_empty(),
+            "no VCS write may happen when a maintainer-owned tag diverges: {:?}",
+            core_writer.writes()
+        );
+        assert!(
+            !target.calls().iter().any(|call| matches!(
+                call,
+                ReleaseCall::ApplyRelease { .. } | ReleaseCall::Publish(_)
+            )),
+            "no mutation or publish may happen when the tag diverges: {:?}",
+            target.calls()
+        );
     }
 }
