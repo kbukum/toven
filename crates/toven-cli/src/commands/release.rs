@@ -22,12 +22,12 @@ use toven_engine_core::vcs::BaselineFlags;
 use toven_engine_release::{
     BuildxImagePhase, BumpOptions, BumpOverrides, BumpReport, ChecksumReport, CosignSigner,
     CosignVerifier, DepgraphReport, GhAssetDownloader, GhAttestationProvenance, ImageOptions,
-    ImageReport, PackageReport, ProcessVersionProbe, ProvenanceOptions, ProvenanceReport,
-    PublishDecision, ReadinessReport, ReleaseApplyOptions, ReleasePlan, ReleaseRehearsal,
-    ReleaseStatus, SbomReport, SignReport, VerifyOptions, VerifyReport, release_bump,
-    release_checksums, release_depgraphs, release_image, release_package, release_plan,
-    release_provenance, release_readiness, release_rehearse, release_run, release_sbom,
-    release_sign, release_status, release_verify,
+    ImageReport, PackageReport, ProcessDelegatedPhase, ProcessVersionProbe, ProvenanceOptions,
+    ProvenanceReport, PublishDecision, ReadinessReport, ReleaseApplyOptions, ReleasePlan,
+    ReleaseRehearsal, ReleaseStatus, SbomReport, SignReport, VerifyOptions, VerifyReport,
+    release_bump, release_checksums, release_depgraphs, release_image, release_package,
+    release_plan, release_provenance, release_readiness, release_rehearse, release_run,
+    release_sbom, release_sign, release_status, release_verify,
 };
 use toven_model::{Event, ModuleRef};
 use toven_ports::{BumpLevel, Provider, PublicationPolicy, Reporter, TaskIntent};
@@ -274,12 +274,14 @@ fn package(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResu
         )
     })?;
     let mut reporter = QuietReporter;
+    let delegated = ProcessDelegatedPhase::new();
     let report = release_package(
         &request,
         &project.document,
         providers,
         target,
         cli.binary.as_deref(),
+        &delegated,
         &mut reporter,
     )?;
     match resolve_output(cli.output, &project.document) {
@@ -307,12 +309,14 @@ fn checksums(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
 fn sign(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
     let signer = CosignSigner::new();
+    let delegated = ProcessDelegatedPhase::new();
     let mut reporter = QuietReporter;
     let report = release_sign(
         &request,
         &project.document,
         providers,
         &signer,
+        &delegated,
         &mut reporter,
     )?;
     match resolve_output(cli.output, &project.document) {
@@ -1011,10 +1015,11 @@ struct PackageRecord {
     source: String,
     format: String,
     bytes: u64,
+    backing: String,
 }
 
 fn render_package_human(report: &PackageReport) {
-    let mut table = OutputTable::new(vec!["Asset", "Source", "Format", "Bytes"])
+    let mut table = OutputTable::new(vec!["Asset", "Source", "Format", "Bytes", "Backing"])
         .with_title(format!("Release packages ({})", report.target));
     for asset in &report.assets {
         table.add_row(vec![
@@ -1022,6 +1027,7 @@ fn render_package_human(report: &PackageReport) {
             asset.source.display().to_string(),
             asset.format.as_str().to_string(),
             asset.bytes.to_string(),
+            asset.backing.to_string(),
         ]);
     }
     println!("{table}");
@@ -1035,6 +1041,7 @@ fn render_package_jsonl(report: &PackageReport) -> AppResult<()> {
             source: asset.source.display().to_string(),
             format: asset.format.as_str().to_string(),
             bytes: asset.bytes,
+            backing: asset.backing.to_string(),
         };
         let line = serde_json::to_string(&record).map_err(AppError::internal)?;
         println!("{line}");
@@ -1084,15 +1091,17 @@ struct SignRecord {
     blob: String,
     signature: String,
     certificate: String,
+    backing: String,
 }
 
 fn render_sign_human(report: &SignReport) {
-    let mut table = OutputTable::new(vec!["Blob", "Signature", "Certificate"])
+    let mut table = OutputTable::new(vec!["Blob", "Signature", "Certificate", "Backing"])
         .with_title("Release signing".to_string());
     table.add_row(vec![
         report.blob.clone(),
         report.signature.clone(),
         report.certificate.clone(),
+        report.backing.to_string(),
     ]);
     println!("{table}");
 }
@@ -1102,6 +1111,7 @@ fn render_sign_jsonl(report: &SignReport) -> AppResult<()> {
         blob: report.blob.clone(),
         signature: report.signature.clone(),
         certificate: report.certificate.clone(),
+        backing: report.backing.to_string(),
     };
     let line = serde_json::to_string(&record).map_err(AppError::internal)?;
     println!("{line}");

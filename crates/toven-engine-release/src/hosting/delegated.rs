@@ -63,6 +63,51 @@ pub fn delegated_request(
     DelegatedPhaseRequest::new(phase, argv, mode, working_dir).with_forward_env(forward_env)
 }
 
+/// Drive a delegated phase through the runner as a **mutation-free preview** and
+/// fail closed on a non-zero tool exit.
+///
+/// The non-mutating asset verbs (`release package`, `release sign`) run the
+/// delegated tool in [`DelegatedPhaseMode::Preview`] (its `--snapshot`/dry-run
+/// equivalent), which produces local artifacts without publishing anything. The
+/// engine still owns selection, ordering, and reporting; this only runs the
+/// tool and classifies its exit, mapping a non-zero exit into a typed error
+/// carrying the tool's captured stderr so the failure is actionable rather than
+/// swallowed.
+///
+/// # Errors
+/// Propagates a spawn/IO failure from the runner and converts a non-zero tool
+/// exit into a typed [`AppError`].
+pub fn run_delegated_preview(
+    phase: ReleasePhase,
+    tool: &DelegatedTool,
+    runner: &dyn DelegatedPhase,
+    working_dir: impl Into<PathBuf>,
+) -> AppResult<()> {
+    let request = delegated_request(
+        phase,
+        tool,
+        DelegatedPhaseMode::Preview,
+        working_dir,
+        Vec::new(),
+    );
+    let outcome = runner.run(&request)?;
+    if !outcome.succeeded() {
+        return Err(AppError::invalid_input(
+            format!("release.phases.{}", phase.as_str()),
+            format!(
+                "delegated {} tool `{}` exited {}: {}",
+                phase.as_str(),
+                tool.tool,
+                outcome
+                    .exit_code
+                    .map_or_else(|| "by signal".to_string(), |code| code.to_string()),
+                outcome.stderr.trim(),
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// [`DelegatedPhase`] runner backed by [`rskit_process`].
 ///
 /// Stateless and cheap to construct; holds no credentials. Secrets are resolved
