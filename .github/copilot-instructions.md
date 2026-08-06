@@ -59,6 +59,8 @@ The vendored `rskit/` submodule is a separate workspace; Toven depends on indivi
 
 Each crate root (`lib.rs`) and responsibility folder (`mod.rs`) stays **declare-only** — submodule declarations and re-exports only, no logic or private items. Enforced by the `declare-only-aggregator` ast-grep rule (`scripts/sg-rules/`, run via `make structure`), which covers both `lib.rs` and `mod.rs`.
 
+Beyond the enforced declare-only gate, splitting a module is **criteria-driven, never automatic** — a prompt to look, not a mandate to split. Two signals: (1) a single non-test file grows past roughly **300–400 lines of real code** (code only — exclude `#[cfg(test)]`/`#[test]` code, comments, and blanks; a soft average) **and** mixes several distinct concerns, so a reader must scan it all — length alone is never the verdict, concern-mixing is; (2) a single module/crate accumulates **more than ~10 non-test files** (excluding `toven-testkit`/`tests`) that fall into **2–3+ separable, loosely-coupled concern groups** — lift each cohesive group into its own concern-named submodule folder (nested `mod.rs`), so a reader lands in the right file *and folder* from the layout alone. A cohesive single-concern file/module is fine at any size. The declare-only gate is enforced; these reorg triggers are advisory (reviewer judgment).
+
 ## Code style
 
 - `cargo fmt` (edition 2024, `max_width = 100`) + `cargo clippy` (`all`/`pedantic`/`nursery` warn).
@@ -66,6 +68,7 @@ Each crate root (`lib.rs`) and responsibility folder (`mod.rs`) stays **declare-
 - `#[must_use]` on `with_*` builder methods; `#[non_exhaustive]` on public enums that may grow.
 - No `unwrap()` / `expect()` in library code (tests are fine).
 - No test-only escape hatches on production public surfaces: a recover-the-inner accessor used only by tests (`into_inner`, `into_sink`, …) is `#[cfg(test)]`-gated or removed; shared doubles expose recording accessors instead.
+- Treat a long positional argument list as a design signal: when several arguments form a cohesive group (a request context, options, run state, …), prefer a builder or parameter struct (`#[derive(Default)]`) for call-site clarity, non-breaking extension, and mis-order safety among same-typed arguments. `rustfmt` already wraps long signatures (`max_width = 100`), so this is not a line-wrap argument — Rust has no named, default, or optional arguments, so a struct or builder is the idiom for optional-input or many-input calls. This is guidance for better structure, not a hard limit — never force artificial grouping or bundle genuinely distinct arguments when doing so would hurt readability.
 - Use rskit's `AppError` / `AppResult` for error handling; preserve the cause.
 - Conventional Commits: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
 
