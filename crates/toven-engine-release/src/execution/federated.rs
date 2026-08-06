@@ -1163,10 +1163,12 @@ mod tests {
         let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![owned]);
         let modules = vec![module("core", "shared")];
         let target = FakeReleaseTarget::new();
-        let core_reader = FakeVcsReader::new().with_tags(vec![toven_ports::TagRef::new(
-            "rust/shared@0.2.0",
-            toven_ports::Oid::new("deadbee"),
-        )]);
+        let core_reader = FakeVcsReader::new()
+            .with_rev_parse("deadbee")
+            .with_tags(vec![toven_ports::TagRef::new(
+                "rust/shared@0.2.0",
+                toven_ports::Oid::new("deadbee"),
+            )]);
         let core_writer = FakeVcsWriter::new();
         let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
             Some(member("core")),
@@ -1253,6 +1255,59 @@ mod tests {
                 ReleaseCall::ApplyRelease { .. } | ReleaseCall::Publish(_)
             )),
             "no mutation or publish may happen when the tag is absent: {:?}",
+            target.calls()
+        );
+    }
+
+    #[test]
+    fn a_maintainer_owned_member_fails_closed_when_the_tag_diverges_from_head() {
+        // The member's tag exists but points at an earlier commit than the
+        // checked-out HEAD. The production `release_apply_by_member` path
+        // packages and publishes from HEAD, so it fails closed rather than
+        // attaching artifacts to a tag that names a different commit — zero VCS
+        // writes, no publish.
+        let mut owned = entry("core", "shared", Version::new(0, 2, 0), 0);
+        owned.entrypoint = toven_model::Entrypoint::Maintainer;
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![owned]);
+        let modules = vec![module("core", "shared")];
+        let target = FakeReleaseTarget::new();
+        let core_reader = FakeVcsReader::new()
+            .with_rev_parse("cafef00d")
+            .with_tags(vec![toven_ports::TagRef::new(
+                "rust/shared@0.2.0",
+                toven_ports::Oid::new("deadbee"),
+            )]);
+        let core_writer = FakeVcsWriter::new();
+        let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
+            Some(member("core")),
+            std::path::PathBuf::from("/repos/core"),
+            &core_reader,
+            &core_writer,
+        )]);
+
+        let error = release_apply_by_member(
+            &plan,
+            &modules,
+            &targets(&target),
+            &repos,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("a maintainer-owned tag that diverges from HEAD fails closed");
+
+        let message = error.to_string();
+        assert!(message.contains("rust/shared@0.2.0"), "{message}");
+        assert!(message.contains("checked-out HEAD"), "{message}");
+        assert!(
+            core_writer.writes().is_empty(),
+            "no VCS write may happen when a maintainer-owned tag diverges: {:?}",
+            core_writer.writes()
+        );
+        assert!(
+            !target.calls().iter().any(|call| matches!(
+                call,
+                ReleaseCall::ApplyRelease { .. } | ReleaseCall::Publish(_)
+            )),
+            "no mutation or publish may happen when the tag diverges: {:?}",
             target.calls()
         );
     }

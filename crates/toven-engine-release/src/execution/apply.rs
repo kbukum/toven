@@ -359,41 +359,71 @@ fn maintainer_apply(
 }
 
 /// Verify every planned release tag already exists for a maintainer-owned
-/// release, failing closed when one is absent.
+/// release and points at the checked-out `HEAD`, failing closed otherwise.
 ///
 /// The planned tag name encodes the planned version (it is rendered from the
 /// module's tag scheme over the planned version), so a tag with that exact name
 /// existing on the remote is the tag the maintainer created for this version. A
 /// missing tag means either the maintainer has not cut the Release yet or the
-/// manifest version and the created tag diverge — in both cases Toven refuses to
-/// proceed rather than creating or moving the tag itself.
+/// manifest version and the created tag diverge.
+///
+/// Existence alone is not enough: a maintainer-owned run packages and publishes
+/// artifacts from the checked-out `HEAD`, so a tag that points at a *different*
+/// commit than `HEAD` (e.g. CI checks out a branch tip while the maintainer tag
+/// references an earlier commit) would attach artifacts built from a commit the
+/// tag does not name — a divergent Release. Every required tag must therefore
+/// resolve to the `HEAD` commit; a diverging tag fails closed just like an
+/// absent one. In neither case does Toven create or move the tag itself.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn verify_maintainer_tags(
     plan: &ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
     reader: &dyn VcsReader,
 ) -> AppResult<()> {
+    let head = reader.rev_parse("HEAD")?;
     let existing = reader.list_tags(None)?;
-    let names: BTreeSet<&str> = existing.iter().map(|tag| tag.name.as_str()).collect();
-    let planned = planned_tag_annotations(plan, module_by_ref)?;
-    let missing: Vec<&str> = planned
-        .keys()
-        .map(String::as_str)
-        .filter(|name| !names.contains(name))
+    let target_by_name: BTreeMap<&str, &toven_ports::Oid> = existing
+        .iter()
+        .map(|tag| (tag.name.as_str(), &tag.target))
         .collect();
-    if missing.is_empty() {
-        return Ok(());
+    let planned = planned_tag_annotations(plan, module_by_ref)?;
+    let mut missing: Vec<&str> = Vec::new();
+    let mut diverging: Vec<String> = Vec::new();
+    for name in planned.keys().map(String::as_str) {
+        match target_by_name.get(name) {
+            None => missing.push(name),
+            Some(target) if **target != head => {
+                diverging.push(format!("{name} -> {}", target.as_str()));
+            }
+            Some(_) => {}
+        }
     }
-    Err(AppError::invalid_input(
-        "release.entrypoint",
-        format!(
-            "maintainer-owned release requires the release tag(s) [{}] to already exist for the \
-             planned version, but they are absent; a maintainer must create the tag and hosted \
-             Release in the forge before Toven publishes against them — Toven never creates or \
-             moves a maintainer-owned tag",
-            missing.join(", ")
-        ),
-    ))
+    if !missing.is_empty() {
+        return Err(AppError::invalid_input(
+            "release.entrypoint",
+            format!(
+                "maintainer-owned release requires the release tag(s) [{}] to already exist for \
+                 the planned version, but they are absent; a maintainer must create the tag and \
+                 hosted Release in the forge before Toven publishes against them — Toven never \
+                 creates or moves a maintainer-owned tag",
+                missing.join(", ")
+            ),
+        ));
+    }
+    if !diverging.is_empty() {
+        return Err(AppError::invalid_input(
+            "release.entrypoint",
+            format!(
+                "maintainer-owned release requires every release tag to point at the checked-out \
+                 HEAD ({}), but [{}] reference other commits; Toven packages and publishes from \
+                 HEAD, so it fails closed rather than attaching artifacts to a divergent tag — \
+                 check out the maintainer's tagged commit before publishing",
+                head.as_str(),
+                diverging.join(", ")
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// single planned value instead of re-deriving the tag from the scheme, so a
@@ -1884,15 +1914,17 @@ mod tests {
     #[test]
     fn a_maintainer_owned_apply_publishes_against_the_existing_tag_without_mutating() {
         // The maintainer already created the tag `rust/core@0.2.0` (and the
-        // hosted Release) in the forge. A maintainer-owned apply verifies that
-        // tag, then publishes the version the registry still lacks against it —
-        // mutating no manifest and creating no commit, tag, or push.
+        // hosted Release) in the forge, pointing at the checked-out HEAD. A
+        // maintainer-owned apply verifies that tag, then publishes the version
+        // the registry still lacks against it — mutating no manifest and
+        // creating no commit, tag, or push.
         let mut owned = entry("core", Version::new(0, 2, 0), true, 0);
         owned.entrypoint = toven_model::Entrypoint::Maintainer;
         let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![owned]);
         let target = FakeReleaseTarget::new();
         let writer = FakeVcsWriter::new();
         let reader = FakeVcsReader::new()
+            .with_rev_parse("deadbee")
             .with_tags(vec![TagRef::new("rust/core@0.2.0", Oid::new("deadbee"))]);
 
         let stats = release_apply(
@@ -1956,6 +1988,50 @@ mod tests {
         assert!(
             writer.writes().is_empty(),
             "no VCS write may happen when a maintainer-owned tag is absent"
+        );
+    }
+
+    #[test]
+    fn a_maintainer_owned_apply_fails_closed_when_the_tag_diverges_from_head() {
+        // The tag exists but points at an earlier commit than the checked-out
+        // HEAD (e.g. CI checked out a branch tip past the maintainer's tag). A
+        // maintainer-owned apply packages and publishes from HEAD, so attaching
+        // artifacts to a tag that names a different commit would produce a
+        // divergent Release — Toven fails closed and touches nothing.
+        let mut owned = entry("core", Version::new(0, 2, 0), true, 0);
+        owned.entrypoint = toven_model::Entrypoint::Maintainer;
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![owned]);
+        let target = FakeReleaseTarget::new();
+        let writer = FakeVcsWriter::new();
+        let reader = FakeVcsReader::new()
+            .with_rev_parse("cafef00d")
+            .with_tags(vec![TagRef::new("rust/core@0.2.0", Oid::new("deadbee"))]);
+
+        let error = release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", target.clone())]),
+            &reader,
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("a maintainer-owned tag that diverges from HEAD fails closed");
+
+        let message = error.to_string();
+        assert!(message.contains("rust/core@0.2.0"), "{message}");
+        assert!(message.contains("checked-out HEAD"), "{message}");
+        assert!(message.contains("cafef00d"), "{message}");
+        assert!(
+            writer.writes().is_empty(),
+            "no VCS write may happen when a maintainer-owned tag diverges from HEAD"
+        );
+        assert!(
+            !target.calls().iter().any(|call| matches!(
+                call,
+                ReleaseCall::Publish(_) | ReleaseCall::ApplyRelease { .. }
+            )),
+            "no publish or mutation may happen when the tag diverges: {:?}",
+            target.calls()
         );
     }
 
