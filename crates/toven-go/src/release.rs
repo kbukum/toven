@@ -24,8 +24,8 @@ use toven_ports::{
 
 use crate::exec::run_go_json;
 
-/// The `CycloneDX` Go SBOM tool Toven invokes argv-first for the Go `provenance`
-/// SBOM phase.
+/// The `CycloneDX` Go SBOM tool Toven invokes argv-first for the Go `sbom`
+/// phase (the [`SbomProducer`] implementation below).
 const SBOM_TOOL: &str = "cyclonedx-gomod";
 
 /// The `CycloneDX` JSON SBOM file suffix Toven writes (`<stem>.cdx.json`), the

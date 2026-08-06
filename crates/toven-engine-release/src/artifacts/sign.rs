@@ -132,6 +132,21 @@ pub fn release_sign(
     let certificate = require_declared_asset(&declared, CERTIFICATE_NAME)?;
 
     let project_root = request.project_root.as_path();
+    let blob_path = safe_join_asset(project_root, blob)?;
+    // The signing policy is that only an already-produced manifest is signed —
+    // it holds for every backing, so the precondition is checked before the
+    // native/delegated dispatch rather than only on the native path (a
+    // delegated tool must not be handed, or asked to sign, a missing manifest).
+    if !file_exists(&blob_path)? {
+        return Err(AppError::invalid_input(
+            "release.sign.manifest",
+            format!(
+                "manifest '{blob}' has not been produced; run `toven release checksums` before \
+                 signing"
+            ),
+        ));
+    }
+
     let signature_path = safe_join_asset(project_root, signature)?;
     let certificate_path = safe_join_asset(project_root, certificate)?;
     for path in [&signature_path, &certificate_path] {
@@ -163,17 +178,6 @@ pub fn release_sign(
             blob.clone(),
             signature.clone(),
             certificate.clone(),
-        ));
-    }
-
-    let blob_path = safe_join_asset(project_root, blob)?;
-    if !file_exists(&blob_path)? {
-        return Err(AppError::invalid_input(
-            "release.sign.manifest",
-            format!(
-                "manifest '{blob}' has not been produced; run `toven release checksums` before \
-                 signing"
-            ),
         ));
     }
 
@@ -658,6 +662,7 @@ mod tests {
     #[test]
     fn delegated_sign_runs_the_tool_preview_and_normalizes_the_produced_sidecars() {
         let root = TempDir::new().unwrap();
+        write_manifest(root.path());
         // The tool produces the detached signature and certificate; Toven's
         // native cosign signer is never invoked under a delegated backing.
         let runner = FakeDelegatedPhase::new()
@@ -691,6 +696,7 @@ mod tests {
     #[test]
     fn delegated_sign_fails_closed_when_a_sidecar_is_not_produced() {
         let root = TempDir::new().unwrap();
+        write_manifest(root.path());
         // The tool produces the signature but not the certificate.
         let runner = FakeDelegatedPhase::new()
             .with_produced_file(root.path().join("dist/SHA256SUMS.sig"), b"sig");
@@ -709,6 +715,37 @@ mod tests {
         )
         .expect_err("a missing delegated sidecar must fail closed");
         assert!(error.to_string().contains("did not produce"), "{error}");
+    }
+
+    #[test]
+    fn delegated_sign_fails_closed_when_the_manifest_has_not_been_produced() {
+        let root = TempDir::new().unwrap();
+        // No SHA256SUMS written to disk: even under a delegated backing, the
+        // signing policy is to sign an already-produced manifest, so the tool
+        // must never be handed a missing manifest.
+        let runner = FakeDelegatedPhase::new()
+            .with_produced_file(root.path().join("dist/SHA256SUMS.sig"), b"sig")
+            .with_produced_file(root.path().join("dist/SHA256SUMS.pem"), b"cert");
+        let provider = delegated_sign_provider();
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let signer = FakeSigner::default();
+        let mut reporter = RecordingReporter::new();
+
+        let error = release_sign(
+            &request(root.path()),
+            &document(),
+            &providers,
+            &signer,
+            &runner,
+            &mut reporter,
+        )
+        .expect_err("a missing manifest must fail closed even for a delegated backing");
+        assert!(
+            error.to_string().contains("has not been produced"),
+            "{error}"
+        );
+        // The delegated tool was never invoked — no preview over a missing manifest.
+        assert!(runner.requests().is_empty());
     }
 
     #[test]
