@@ -117,7 +117,7 @@ jobs:
 
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install "${{ matrix.rust }}" --profile minimal
+          rustup toolchain install "${{ matrix.rust }}" --profile minimal --component clippy,rustfmt
           rustup override set "${{ matrix.rust }}"
 
       - name: Install Go toolchain

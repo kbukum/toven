@@ -24,9 +24,11 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::archive::{self, ArchiveEntry};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir::create_all;
-use rskit_fs::sync_io::file::exists as file_exists;
-use toven_ports::{Provider, Reporter};
+use rskit_fs::sync_io::file::{exists as file_exists, remove_if_exists};
+use toven_model::ReleasePhase;
+use toven_ports::{DelegatedPhase, Provider, Reporter};
 
+use crate::hosting::run_delegated_preview;
 use crate::planning::plan::{release_targets, resolve_release_settings};
 use toven_engine_core::config::Document;
 use toven_engine_core::federation::resolve::PathDriverLocator;
@@ -81,12 +83,17 @@ impl ArchiveFormat {
 pub struct PackagedAsset {
     /// The project-relative asset path written (as declared in `host.assets`).
     pub asset: String,
-    /// The built binary archived into the asset.
+    /// The built binary archived into the asset. For a delegated backing this
+    /// is the produced archive path itself, since the external tool owns the
+    /// build-and-archive step.
     pub source: PathBuf,
     /// The archive format written.
     pub format: ArchiveFormat,
     /// The produced archive size in bytes.
     pub bytes: u64,
+    /// How the asset was produced: `native` (Toven archived a built binary) or
+    /// `delegated` (an external tool produced it and Toven normalized it back).
+    pub backing: &'static str,
 }
 
 /// The typed result of `release package` for one target.
@@ -106,23 +113,30 @@ impl PackageReport {
     }
 }
 
-/// Stage the declared archive assets for `target` from already-built binaries.
+/// Stage the declared archive assets for `target`.
 ///
-/// `binary_override` supplies the built binary explicitly; when `None`, the
-/// binary is located at `target/<target>/release/<member>` under the project
-/// root, mirroring `cargo build --release --target <target>`.
+/// Each declared asset is produced by its owning module's `Package` backing: a
+/// **native** module has Toven archive an already-built binary (`binary_override`
+/// supplies it explicitly; otherwise it is located at
+/// `target/<target>/release/<member>`), while a **delegated** module has an
+/// external tool (e.g. `GoReleaser`) produce the archive — Toven runs the tool's
+/// mutation-free preview once through `delegated`, then normalizes the produced
+/// archive back into the typed report. Toven owns which asset maps to which
+/// target and that the result exists in both backings.
 ///
 /// # Errors
 /// Fails closed with a typed error when the target triple is malformed, no
-/// hosted-release asset is declared for the target, or the built binary is
-/// missing — as well as propagating configuration, discovery, graph, archive,
-/// and I/O failures.
+/// hosted-release asset is declared for the target, the native built binary is
+/// missing, or a delegated tool fails or fails to produce a declared archive —
+/// as well as propagating configuration, discovery, graph, archive, and I/O
+/// failures.
 pub fn release_package(
     request: &PlanRequest,
     document: &Document,
     providers: &[&dyn Provider],
     target: &str,
     binary_override: Option<&Path>,
+    delegated: &dyn DelegatedPhase,
     reporter: &mut dyn Reporter,
 ) -> AppResult<PackageReport> {
     validate_target(target)?;
@@ -137,8 +151,7 @@ pub fn release_package(
     let targets = release_targets(&context)?;
     let settings = resolve_release_settings(&context, &targets)?;
 
-    let declared = crate::artifacts::assets::declared_release_assets(&settings);
-    if declared.is_empty() {
+    if crate::artifacts::assets::declared_release_assets(&settings).is_empty() {
         return Err(AppError::invalid_input(
             "release.host.assets",
             "no hosted-release assets are declared; nothing to package (set \
@@ -148,11 +161,10 @@ pub fn release_package(
 
     let format = ArchiveFormat::for_target(target);
     let suffix = format!("-{target}.{}", format.extension());
-    let matched: Vec<&String> = declared
-        .iter()
-        .filter(|asset| asset_file_name(asset).is_some_and(|name| name.ends_with(&suffix)))
-        .copied()
-        .collect();
+    // Resolve each declared archive asset matching the target to its owning
+    // module's Package backing, first-owner-wins in `ModuleKey` order so a
+    // shared asset is produced once and deterministically.
+    let matched = resolve_matched_assets(&settings, &suffix)?;
     if matched.is_empty() {
         return Err(AppError::invalid_input(
             "release.host.assets",
@@ -164,23 +176,162 @@ pub fn release_package(
     }
 
     let project_root = request.project_root.as_path();
+    // Clear each delegated owner's declared archive before its tool runs, so the
+    // post-preview existence check proves *this* run produced it. Without this, a
+    // stale archive from a prior run plus a tool that exits 0 without rewriting
+    // would be silently accepted — undermining the fail-closed guarantee.
+    for owner in &matched {
+        if matches!(owner.backing, AssetBacking::Delegated(_)) {
+            remove_if_exists(&safe_join_asset(project_root, owner.asset)?)?;
+        }
+    }
+    // Run each distinct delegated tool's preview once — a single preview (e.g.
+    // GoReleaser's `--snapshot`) produces every archive that tool owns, so
+    // re-running it per matched asset would repeat a multi-minute build. Dedup
+    // on the fully-resolved argv so two identically-configured tools collapse to
+    // one run while genuinely distinct invocations each run once.
+    let mut previewed: std::collections::BTreeSet<Vec<String>> = std::collections::BTreeSet::new();
+    for owner in &matched {
+        if let AssetBacking::Delegated(tool) = &owner.backing
+            && previewed.insert(delegated_preview_key(tool))
+        {
+            run_delegated_preview(ReleasePhase::Package, tool, delegated, project_root)?;
+        }
+    }
+
     let mut assets = Vec::with_capacity(matched.len());
-    for asset in matched {
-        assets.push(package_asset(
-            project_root,
-            asset,
-            target,
-            format,
-            &suffix,
-            binary_override,
-        )?);
+    for owner in &matched {
+        assets.push(match &owner.backing {
+            AssetBacking::Native => package_asset_native(
+                project_root,
+                owner.asset,
+                target,
+                format,
+                &suffix,
+                binary_override,
+            )?,
+            AssetBacking::Delegated(_) => {
+                package_asset_delegated(project_root, owner.asset, format)?
+            }
+        });
     }
     assets.sort_by(|left, right| left.asset.cmp(&right.asset));
     Ok(PackageReport::new(target.to_string(), assets))
 }
 
+/// How a declared asset is backed: archived natively by Toven, or produced by a
+/// delegated external tool.
+enum AssetBacking {
+    /// Toven archives an already-built binary.
+    Native,
+    /// An external tool produces the archive.
+    Delegated(toven_ports::DelegatedTool),
+}
+
+/// One declared asset resolved to its owning module's Package backing.
+struct MatchedAsset<'a> {
+    /// The project-relative declared asset path.
+    asset: &'a str,
+    /// The owning module's Package backing.
+    backing: AssetBacking,
+}
+
+/// A stable identity for a delegated tool's preview invocation: its
+/// fully-resolved preview argv (tool name + preview arguments).
+///
+/// Two delegated owners that resolve the same tool and preview arguments share
+/// one preview run — the tool produces every archive once — while genuinely
+/// distinct invocations each run. Keying on the argv, not just the tool name,
+/// keeps differently-configured previews of the same executable distinct.
+fn delegated_preview_key(tool: &toven_ports::DelegatedTool) -> Vec<String> {
+    let mut key = Vec::with_capacity(tool.preview.len() + 1);
+    key.push(tool.tool.clone());
+    key.extend(tool.preview.iter().cloned());
+    key
+}
+
+/// Resolve every declared archive asset matching `suffix` to its owning module's
+/// Package backing, first-owner-wins in `ModuleKey` order so a shared asset is
+/// produced once and deterministically.
+fn resolve_matched_assets<'a>(
+    settings: &'a std::collections::BTreeMap<
+        toven_model::ModuleKey,
+        crate::ResolvedReleaseSettings,
+    >,
+    suffix: &str,
+) -> AppResult<Vec<MatchedAsset<'a>>> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut matched = Vec::new();
+    for resolved in settings.values() {
+        let backing = resolved.phase_backing(ReleasePhase::Package)?;
+        let tool = resolved.delegated_tool(ReleasePhase::Package).cloned();
+        for asset in &resolved.host.assets {
+            if !asset_file_name(asset).is_some_and(|name| name.ends_with(suffix)) {
+                continue;
+            }
+            if !seen.insert(asset.as_str()) {
+                continue;
+            }
+            let backing = if backing.is_native() {
+                AssetBacking::Native
+            } else {
+                // A delegated Package backing always carries its tool: the
+                // config loader rejects a delegated backing without one, and
+                // the plan guard rejects a delegated non-delegable phase.
+                AssetBacking::Delegated(tool.clone().ok_or_else(|| {
+                    AppError::new(
+                        ErrorCode::Internal,
+                        format!(
+                            "asset '{asset}' delegates the package phase but resolved no \
+                             delegated tool"
+                        ),
+                    )
+                })?)
+            };
+            matched.push(MatchedAsset { asset, backing });
+        }
+    }
+    Ok(matched)
+}
+
+/// Normalize a delegated tool's produced archive back into the typed report:
+/// verify the declared asset exists on disk and record its size, failing closed
+/// when the tool did not produce it.
+fn package_asset_delegated(
+    project_root: &Path,
+    asset: &str,
+    format: ArchiveFormat,
+) -> AppResult<PackagedAsset> {
+    let out = safe_join_asset(project_root, asset)?;
+    if !file_exists(&out)? {
+        return Err(AppError::invalid_input(
+            "release.package.delegated",
+            format!(
+                "delegated package tool did not produce the declared asset '{asset}' at '{}'",
+                out.display()
+            ),
+        ));
+    }
+    let bytes = std::fs::metadata(&out)
+        .map(|meta| meta.len())
+        .map_err(|error| {
+            AppError::new(
+                ErrorCode::Internal,
+                format!("cannot stat produced archive '{}': {error}", out.display()),
+            )
+            .with_cause(error)
+        })?;
+    Ok(PackagedAsset {
+        asset: asset.to_string(),
+        source: out,
+        format,
+        bytes,
+        backing: "delegated",
+    })
+}
+
 /// Package a single declared asset from its built binary.
-fn package_asset(
+fn package_asset_native(
     project_root: &Path,
     asset: &str,
     target: &str,
@@ -227,13 +378,7 @@ fn package_asset(
         ));
     }
 
-    let out = safe_join(project_root, asset).map_err(|error| {
-        AppError::invalid_input(
-            "release.host.assets",
-            format!("asset '{asset}' is not a safe project-relative path"),
-        )
-        .with_cause(error)
-    })?;
+    let out = safe_join_asset(project_root, asset)?;
     if let Some(parent) = out.parent() {
         create_all(parent)?;
     }
@@ -258,12 +403,25 @@ fn package_asset(
         source,
         format,
         bytes,
+        backing: "native",
     })
 }
 
 /// The final path component of a project-relative asset path.
 fn asset_file_name(asset: &str) -> Option<&str> {
     Path::new(asset).file_name().and_then(|name| name.to_str())
+}
+
+/// Resolve a declared asset to its safe absolute path under `project_root`,
+/// rejecting a path that would traverse outside the project.
+fn safe_join_asset(project_root: &Path, asset: &str) -> AppResult<PathBuf> {
+    safe_join(project_root, asset).map_err(|error| {
+        AppError::invalid_input(
+            "release.host.assets",
+            format!("asset '{asset}' is not a safe project-relative path"),
+        )
+        .with_cause(error)
+    })
 }
 
 /// Reject a target triple that is empty or carries any character outside the
@@ -299,7 +457,8 @@ mod tests {
         CommonEcosystemConfig, DiscoverResponse, HostConfig, Provider, ReleaseConfig, TaskIntent,
     };
     use toven_testkit::{
-        FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, RecordingReporter,
+        FakeConfiguredAdapter, FakeDelegatedPhase, FakeProvider, FakeReleaseTarget,
+        RecordingReporter,
     };
 
     use super::{ArchiveFormat, release_package};
@@ -370,6 +529,46 @@ mod tests {
         FakeProvider::new(eid("rust")).with_adapter(adapter)
     }
 
+    /// Build a provider whose ecosystem declares `assets` and backs the
+    /// `package` phase with a delegated `goreleaser` tool.
+    fn provider_with_delegated_package(assets: Vec<&str>) -> FakeProvider {
+        use std::collections::BTreeMap;
+
+        use toven_model::ReleasePhase;
+        use toven_ports::{DelegatedTool, PhaseBackingKind, PhaseConfig, PhasesConfig};
+
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![module("core")];
+        let mut phases = BTreeMap::new();
+        phases.insert(
+            ReleasePhase::Package,
+            PhaseConfig {
+                backing: PhaseBackingKind::Delegated,
+                delegated: Some(DelegatedTool {
+                    tool: "goreleaser".into(),
+                    args: Some(vec!["release".into(), "--clean".into()]),
+                    preview: vec!["release".into(), "--snapshot".into(), "--clean".into()],
+                }),
+            },
+        );
+        let common = CommonEcosystemConfig {
+            release: ReleaseConfig {
+                host: Some(HostConfig {
+                    forge: Some("github".to_string()),
+                    assets: Some(assets.into_iter().map(str::to_string).collect()),
+                    ..HostConfig::default()
+                }),
+                phases: Some(PhasesConfig(phases)),
+                ..ReleaseConfig::default()
+            },
+            ..CommonEcosystemConfig::default()
+        };
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_release_target(FakeReleaseTarget::new())
+            .with_common(common);
+        FakeProvider::new(eid("rust")).with_adapter(adapter)
+    }
     /// Write a fake built binary at `target/<triple>/release/<name>` under
     /// `root`, returning its path.
     fn write_built_binary(root: &Path, triple: &str, name: &str) {
@@ -392,6 +591,7 @@ mod tests {
             &providers,
             LINUX,
             None,
+            &FakeDelegatedPhase::new(),
             &mut reporter,
         )
         .unwrap();
@@ -402,12 +602,174 @@ mod tests {
         assert_eq!(asset.asset, "dist/toven-x86_64-unknown-linux-gnu.tar.gz");
         assert_eq!(asset.format, ArchiveFormat::TarGz);
         assert!(asset.bytes > 0);
+        assert_eq!(asset.backing, "native");
         let produced = root
             .path()
             .join("dist/toven-x86_64-unknown-linux-gnu.tar.gz");
         assert!(
             produced.is_file(),
             "archive must be written to the asset path"
+        );
+    }
+
+    #[test]
+    fn delegated_package_runs_the_tool_preview_and_normalizes_the_produced_archive() {
+        let root = TempDir::new().unwrap();
+        let asset_rel = "dist/toven-x86_64-unknown-linux-gnu.tar.gz";
+        // No native binary is built: the delegated tool "produces" the archive
+        // instead, which the runner writes on a successful preview run.
+        let runner = FakeDelegatedPhase::new()
+            .with_produced_file(root.path().join(asset_rel), b"goreleaser-archive-bytes");
+        let provider = provider_with_delegated_package(vec![asset_rel]);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let mut reporter = RecordingReporter::new();
+
+        let report = release_package(
+            &request(root.path()),
+            &document(),
+            &providers,
+            LINUX,
+            None,
+            &runner,
+            &mut reporter,
+        )
+        .unwrap();
+
+        assert_eq!(report.assets.len(), 1);
+        let asset = &report.assets[0];
+        assert_eq!(asset.asset, asset_rel);
+        assert_eq!(asset.backing, "delegated");
+        assert!(asset.bytes > 0);
+        // The tool was driven argv-first as a mutation-free preview (snapshot),
+        // tool-first, for the package phase.
+        let requests = runner.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].argv.first().map(String::as_str),
+            Some("goreleaser")
+        );
+        assert!(requests[0].argv.contains(&"--snapshot".to_string()));
+        assert_eq!(requests[0].mode, toven_ports::DelegatedPhaseMode::Preview);
+    }
+
+    #[test]
+    fn delegated_package_fails_closed_when_the_tool_produces_no_archive() {
+        let root = TempDir::new().unwrap();
+        // The tool exits zero but produces nothing: the declared asset is
+        // missing, so normalization must fail closed rather than report a
+        // phantom archive.
+        let runner = FakeDelegatedPhase::new();
+        let provider =
+            provider_with_delegated_package(vec!["dist/toven-x86_64-unknown-linux-gnu.tar.gz"]);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let mut reporter = RecordingReporter::new();
+
+        let error = release_package(
+            &request(root.path()),
+            &document(),
+            &providers,
+            LINUX,
+            None,
+            &runner,
+            &mut reporter,
+        )
+        .expect_err("a delegated tool that produced no archive must fail closed");
+        assert!(error.to_string().contains("did not produce"), "{error}");
+    }
+
+    #[test]
+    fn delegated_package_fails_closed_on_a_stale_archive_the_tool_did_not_rewrite() {
+        let root = TempDir::new().unwrap();
+        let asset_rel = "dist/toven-x86_64-unknown-linux-gnu.tar.gz";
+        // A stale archive from a prior run sits on disk...
+        let stale = root.path().join(asset_rel);
+        std::fs::create_dir_all(stale.parent().unwrap()).unwrap();
+        std::fs::write(&stale, b"stale-archive-bytes").unwrap();
+        // ...and the tool exits 0 but writes nothing (no `with_produced_file`).
+        let runner = FakeDelegatedPhase::new();
+        let provider = provider_with_delegated_package(vec![asset_rel]);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let mut reporter = RecordingReporter::new();
+
+        let error = release_package(
+            &request(root.path()),
+            &document(),
+            &providers,
+            LINUX,
+            None,
+            &runner,
+            &mut reporter,
+        )
+        .expect_err("a stale archive the tool did not rewrite must fail closed");
+        // The stale archive was cleared before the preview, so the post-run
+        // existence check fails closed instead of reusing it.
+        assert!(error.to_string().contains("did not produce"), "{error}");
+    }
+
+    #[test]
+    fn delegated_package_fails_closed_when_the_tool_exits_non_zero() {
+        let root = TempDir::new().unwrap();
+        let runner = FakeDelegatedPhase::new()
+            .with_exit_code(Some(1))
+            .with_stderr("goreleaser: build failed");
+        let provider =
+            provider_with_delegated_package(vec!["dist/toven-x86_64-unknown-linux-gnu.tar.gz"]);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let mut reporter = RecordingReporter::new();
+
+        let error = release_package(
+            &request(root.path()),
+            &document(),
+            &providers,
+            LINUX,
+            None,
+            &runner,
+            &mut reporter,
+        )
+        .expect_err("a non-zero delegated tool exit must fail closed");
+        let message = error.to_string();
+        assert!(message.contains("goreleaser"), "{message}");
+        assert!(message.contains("exited 1"), "{message}");
+    }
+
+    #[test]
+    fn delegated_package_runs_the_tool_preview_once_for_multiple_owned_assets() {
+        let root = TempDir::new().unwrap();
+        // One delegated owner declares two archives matching the target: a
+        // single GoReleaser `--snapshot` produces both, so the preview must run
+        // exactly once — not once per asset.
+        let first = "dist/app-x86_64-unknown-linux-gnu.tar.gz";
+        let second = "dist/helper-x86_64-unknown-linux-gnu.tar.gz";
+        let runner = FakeDelegatedPhase::new()
+            .with_produced_file(root.path().join(first), b"app-archive")
+            .with_produced_file(root.path().join(second), b"helper-archive");
+        let provider = provider_with_delegated_package(vec![first, second]);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let mut reporter = RecordingReporter::new();
+
+        let report = release_package(
+            &request(root.path()),
+            &document(),
+            &providers,
+            LINUX,
+            None,
+            &runner,
+            &mut reporter,
+        )
+        .unwrap();
+
+        // Both archives are normalized into the report, but the tool ran once.
+        assert_eq!(report.assets.len(), 2);
+        assert!(
+            report
+                .assets
+                .iter()
+                .all(|asset| asset.backing == "delegated")
+        );
+        assert_eq!(
+            runner.requests().len(),
+            1,
+            "a single delegated owner's preview must run once for all its assets"
         );
     }
 
@@ -428,6 +790,7 @@ mod tests {
             &providers,
             LINUX,
             None,
+            &FakeDelegatedPhase::new(),
             &mut reporter,
         )
         .unwrap();
@@ -438,6 +801,7 @@ mod tests {
             &providers,
             LINUX,
             None,
+            &FakeDelegatedPhase::new(),
             &mut reporter,
         )
         .unwrap();
@@ -462,6 +826,7 @@ mod tests {
             &providers,
             WINDOWS,
             None,
+            &FakeDelegatedPhase::new(),
             &mut reporter,
         )
         .unwrap();
@@ -487,6 +852,7 @@ mod tests {
             &providers,
             LINUX,
             None,
+            &FakeDelegatedPhase::new(),
             &mut reporter,
         )
         .expect_err("a missing built binary must fail closed");
@@ -515,6 +881,7 @@ mod tests {
             &providers,
             LINUX,
             None,
+            &FakeDelegatedPhase::new(),
             &mut reporter,
         )
         .expect_err("no asset declared for the target must fail closed");
@@ -537,6 +904,7 @@ mod tests {
             &providers,
             LINUX,
             None,
+            &FakeDelegatedPhase::new(),
             &mut reporter,
         )
         .expect_err("no declared assets must fail closed");
@@ -556,6 +924,7 @@ mod tests {
             &providers,
             "../../etc",
             None,
+            &FakeDelegatedPhase::new(),
             &mut reporter,
         )
         .expect_err("a traversing target triple must fail closed");

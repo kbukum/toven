@@ -104,7 +104,7 @@ toven release sbom --out-dir dist/sbom
 toven release depgraphs --out-dir dist/graphs
 ```
 
-Artifact paths are written to stdout. Unsupported-ecosystem skips are warnings on stderr. Rust SBOM generation currently requires `cargo-cyclonedx`; Go SBOM generation is not implemented.
+Artifact paths are written to stdout. Unsupported-ecosystem skips are warnings on stderr. Rust SBOM generation requires `cargo-cyclonedx`; Go SBOM generation requires `cyclonedx-gomod` and produces a CycloneDX `<module>.cdx.json` per module.
 
 ## Binary release artifacts
 
@@ -119,9 +119,13 @@ toven release verify --no-run                              # presence-check the 
 
 `package` archives an already-built binary for `--target` into the exact declared per-target archive path (globbing and version placeholders are not supported — the `host.assets` list is a set of fixed project-relative paths). `checksums` writes a SHA-256 `SHA256SUMS` covering every declared archive and the SBOM. `sign` produces the keyless Sigstore/cosign signature and certificate over `SHA256SUMS`; it runs only when `[ecosystems.<id>.release.sign] enabled = true` and matches the configured keyless `identity`/`issuer`. `verify` presence- and version-checks the local asset set; with `--download` it fetches every published asset, verifies the Sigstore signature on `SHA256SUMS` first, then checksum-verifies each archive before extraction. `--no-run` skips executing the archived binaries, so the whole multi-target asset set can be verified from a single runner that cannot execute every target.
 
+### Delegating artifact phases to existing tooling
+
+The `package` and `sign` phases can be **backed by an external tool** instead of Toven's native archiver/signer, so an established ecosystem workflow plugs into the Toven-owned flow unchanged. The canonical example is [GoReleaser](https://goreleaser.com): a Go binary module sets `[…release.phases.package] backing = "delegated"` with a `[…release.phases.package.delegated]` tool block (see the [phase-backing config](../config/release.md#release-phases-and-backing)), and Toven runs the tool's mutation-free preview (GoReleaser's `--snapshot`) during `package`, then normalizes the archives it produces at the declared `host.assets` paths back into the same typed JSONL as the native path — each reported asset carries a `backing` of `native` or `delegated`. Toven still owns selection, ordering, tag creation, readiness, the mutation-free preview guarantee, and the single shared hosted Release; only the artifact-production phase is delegated. A delegated backing that cannot preview mutation-free is rejected, and the flow-ownership phases (`select`, `bump`, `tag`, `publish`, `host`) can never be delegated. The `image` and `provenance` phases are delegable in principle but their delegated execution is not yet wired, so a `backing = "delegated"` entry on those phases is rejected at plan time — leave them native for now. Because the flow is language-agnostic, a Go binary module can attach its archives natively or through GoReleaser while its sibling library modules tag in lock-step, all feeding one `v{version}` hosted Release.
+
 ## Container images and provenance
 
-A service-style module — shipped as a container image rather than a registry package or archive — declares a `[…release.image]` block (see the [image config](../config/release.md#container-image-release)). Two verbs complete such a release: `image` publishes the container image, and `provenance` attests SLSA build provenance over what was actually published. Both are backable native or delegated like any other release phase, both preview mutation-free under `--dry-run`, and both require `--yes` for the real mutation because `image` writes to registries and `provenance` writes to the attestation store.
+A service-style module — shipped as a container image rather than a registry package or archive — declares a `[…release.image]` block (see the [image config](../config/release.md#container-image-release)). Two verbs complete such a release: `image` publishes the container image, and `provenance` attests SLSA build provenance over what was actually published. Both run natively today — they are delegable in principle, but delegated `image`/`provenance` execution is not yet wired, so a `backing = "delegated"` entry on them is rejected at plan time. Both preview mutation-free under `--dry-run`, and both require `--yes` for the real mutation because `image` writes to registries and `provenance` writes to the attestation store.
 
 ```bash
 toven release image --dry-run        # preview the references and existing digests, mutating nothing

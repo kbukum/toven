@@ -74,6 +74,25 @@ impl ReleasePhase {
             Self::Provenance => "provenance",
         }
     }
+
+    /// Whether the phase may be backed by a delegated external tool.
+    ///
+    /// Only the artifact-production phases — [`Package`](Self::Package),
+    /// [`Sign`](Self::Sign), [`Image`](Self::Image), and
+    /// [`Provenance`](Self::Provenance) — are delegable. The flow-ownership
+    /// phases ([`Select`](Self::Select), [`Bump`](Self::Bump),
+    /// [`Tag`](Self::Tag), [`Publish`](Self::Publish), [`Host`](Self::Host))
+    /// are never delegated: Toven owns selection, versioning, tag creation,
+    /// registry publication, and the hosted Release so the whole flow is never
+    /// handed to an external tool. A delegated backing on a non-delegable phase
+    /// is a configuration error.
+    #[must_use]
+    pub const fn is_delegable(self) -> bool {
+        matches!(
+            self,
+            Self::Package | Self::Sign | Self::Image | Self::Provenance
+        )
+    }
 }
 
 #[cfg(test)]
@@ -127,5 +146,33 @@ mod tests {
         let error = serde_json::from_str::<ReleasePhase>(r#""packaging""#)
             .expect_err("unknown phase rejected");
         assert!(error.to_string().contains("packaging"), "{error}");
+    }
+
+    #[test]
+    fn only_artifact_production_phases_are_delegable() {
+        // Toven never hands the whole flow to an external tool: it owns
+        // selection, versioning, tag creation, registry publication, and the
+        // hosted Release, so only the artifact-production phases may delegate.
+        for phase in [
+            ReleasePhase::Package,
+            ReleasePhase::Sign,
+            ReleasePhase::Image,
+            ReleasePhase::Provenance,
+        ] {
+            assert!(phase.is_delegable(), "{} must be delegable", phase.as_str());
+        }
+        for phase in [
+            ReleasePhase::Select,
+            ReleasePhase::Bump,
+            ReleasePhase::Tag,
+            ReleasePhase::Publish,
+            ReleasePhase::Host,
+        ] {
+            assert!(
+                !phase.is_delegable(),
+                "{} owns the flow and must never delegate",
+                phase.as_str()
+            );
+        }
     }
 }

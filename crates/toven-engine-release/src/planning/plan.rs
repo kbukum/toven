@@ -264,34 +264,75 @@ fn validate_visibility_compat(
     Ok(())
 }
 
-/// Fail closed when a module resolves a phase to a delegated backing, because
-/// the engine does not yet dispatch delegated phase execution — the per-phase
-/// `DelegatedPhase` runner is wired, but no phase call site routes through it.
+/// Fail closed when a module delegates a phase Toven cannot dispatch through the
+/// [`DelegatedPhase`](toven_ports::DelegatedPhase) runner, so a `backing =
+/// "delegated"` entry never silently degrades to the native path.
 ///
-/// A configured `[…release.phases.<phase>] backing = "delegated"` therefore must
-/// **not** silently run natively: it surfaces here, at plan time and before any
-/// mutation, naming the phase and tool, rather than degrading to the native
-/// path. The delegated-execution dispatch lands with the Go/GoReleaser flow;
-/// until then a delegated backing is a typed, actionable configuration error.
+/// Two rejections, both surfaced at plan time — before any mutation — naming the
+/// phase and tool:
+///
+/// * a **non-delegable** phase ([`ReleasePhase::is_delegable`] is false —
+///   selection, versioning, tag creation, registry publication, the hosted
+///   Release) can never be delegated, because Toven owns the flow; and
+/// * a delegable phase whose delegated execution is **not yet wired** at its
+///   call site (`image`, `provenance`) is rejected until dispatch lands, rather
+///   than accepted and run natively.
+///
+/// The dispatch-wired delegable phases (`package`, `sign`) are accepted; the
+/// engine runs their delegated backing through the runner at the phase call
+/// site.
 fn validate_phase_backing_supported(
     module: &toven_model::Module,
     resolved: &ResolvedReleaseSettings,
 ) -> AppResult<()> {
     for phase in toven_model::ReleasePhase::ALL {
-        if let Some(tool) = resolved.phase_backing(*phase)?.tool() {
+        let backing = resolved.phase_backing(*phase)?;
+        let Some(tool) = backing.tool() else {
+            continue;
+        };
+        if !phase.is_delegable() {
             return Err(AppError::invalid_input(
                 format!("release.phases.{}", phase.as_str()),
                 format!(
-                    "module '{}' delegates the {} phase to '{tool}', but delegated phase \
-                     execution is not yet supported; remove the delegated backing to run the \
-                     phase natively",
+                    "module '{}' delegates the {} phase to '{tool}', but Toven owns the {} phase \
+                     and never delegates it; only the package, sign, image, and provenance phases \
+                     are delegable",
                     module.key(),
+                    phase.as_str(),
+                    phase.as_str(),
+                ),
+            ));
+        }
+        if !phase_delegation_dispatched(*phase) {
+            return Err(AppError::invalid_input(
+                format!("release.phases.{}", phase.as_str()),
+                format!(
+                    "module '{}' delegates the {} phase to '{tool}', but delegated {} execution is \
+                     not yet wired; only the package and sign phases dispatch a delegated backing \
+                     today, so leave the {} phase native (omit its entry) for now",
+                    module.key(),
+                    phase.as_str(),
+                    phase.as_str(),
                     phase.as_str(),
                 ),
             ));
         }
     }
     Ok(())
+}
+
+/// Whether a delegable phase's delegated backing is dispatched through the
+/// runner at its engine call site today.
+///
+/// `package` and `sign` dispatch; `image` and `provenance` are delegable in
+/// principle but their delegated execution is not yet wired, so
+/// [`validate_phase_backing_supported`] rejects delegating them rather than
+/// letting the config silently run native.
+const fn phase_delegation_dispatched(phase: toven_model::ReleasePhase) -> bool {
+    matches!(
+        phase,
+        toven_model::ReleasePhase::Package | toven_model::ReleasePhase::Sign
+    )
 }
 
 /// Whether `registry` names a registry that only hosts public versions. This is
@@ -490,7 +531,7 @@ mod tests {
     }
 
     #[test]
-    fn a_delegated_phase_backing_is_rejected_until_execution_is_wired() {
+    fn a_delegated_delegable_phase_is_accepted() {
         use toven_model::ReleasePhase;
         use toven_ports::{DelegatedTool, PhaseBackingKind, PhaseConfig, PhasesConfig};
 
@@ -512,14 +553,82 @@ mod tests {
         };
         let resolved = ResolvedReleaseSettings::resolve(&ecosystem, None).unwrap();
 
+        assert!(
+            validate_phase_backing_supported(&module("core", "core"), &resolved).is_ok(),
+            "delegating the package phase (delegable) must be accepted"
+        );
+    }
+
+    #[test]
+    fn delegating_a_flow_ownership_phase_is_rejected() {
+        use toven_model::ReleasePhase;
+        use toven_ports::{DelegatedTool, PhaseBackingKind, PhaseConfig, PhasesConfig};
+
+        // Publish is a flow-ownership phase: Toven owns registry publication and
+        // never delegates it, so a delegated backing must fail closed at plan
+        // time rather than degrade to native.
+        let mut phases = BTreeMap::new();
+        phases.insert(
+            ReleasePhase::Publish,
+            PhaseConfig {
+                backing: PhaseBackingKind::Delegated,
+                delegated: Some(DelegatedTool {
+                    tool: "goreleaser".into(),
+                    args: Some(vec!["release".into()]),
+                    preview: vec!["release".into(), "--snapshot".into()],
+                }),
+            },
+        );
+        let ecosystem = ReleaseConfig {
+            phases: Some(PhasesConfig(phases)),
+            ..ReleaseConfig::default()
+        };
+        let resolved = ResolvedReleaseSettings::resolve(&ecosystem, None).unwrap();
+
         let error = validate_phase_backing_supported(&module("core", "core"), &resolved)
-            .expect_err("a delegated backing must fail closed, not run natively");
+            .expect_err("delegating a flow-ownership phase must fail closed");
         let message = error.to_string();
-        assert!(message.contains("package"), "{message}");
+        assert!(message.contains("publish"), "{message}");
         assert!(message.contains("goreleaser"), "{message}");
         assert!(
-            message.contains("not yet supported"),
-            "the error must explain the delegated phase is unwired: {message}"
+            message.contains("never delegates"),
+            "the error must explain Toven owns the phase: {message}"
+        );
+    }
+
+    #[test]
+    fn delegating_a_not_yet_wired_delegable_phase_is_rejected() {
+        use toven_model::ReleasePhase;
+        use toven_ports::{DelegatedTool, PhaseBackingKind, PhaseConfig, PhasesConfig};
+
+        // Provenance is delegable in principle, but its delegated execution is
+        // not yet wired at the call site — accepting it would silently run
+        // native, so it must fail closed until dispatch lands.
+        let mut phases = BTreeMap::new();
+        phases.insert(
+            ReleasePhase::Provenance,
+            PhaseConfig {
+                backing: PhaseBackingKind::Delegated,
+                delegated: Some(DelegatedTool {
+                    tool: "goreleaser".into(),
+                    args: Some(vec!["release".into()]),
+                    preview: vec!["release".into(), "--snapshot".into()],
+                }),
+            },
+        );
+        let ecosystem = ReleaseConfig {
+            phases: Some(PhasesConfig(phases)),
+            ..ReleaseConfig::default()
+        };
+        let resolved = ResolvedReleaseSettings::resolve(&ecosystem, None).unwrap();
+
+        let error = validate_phase_backing_supported(&module("core", "core"), &resolved)
+            .expect_err("delegating a not-yet-wired phase must fail closed");
+        let message = error.to_string();
+        assert!(message.contains("provenance"), "{message}");
+        assert!(
+            message.contains("not yet wired"),
+            "the error must explain dispatch is unimplemented: {message}"
         );
     }
 

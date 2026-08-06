@@ -6,12 +6,15 @@
 //! convention fixes the tag grammar, so a configured `tag_format` is rejected
 //! as a misconfiguration rather than silently ignored.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
+use rskit_fs::sync_io::dir::create_all;
+use rskit_fs::sync_io::file::exists as file_exists;
 use rskit_git::{Inspector, LogReader, RefManager};
-use rskit_process::ProcessSpec;
+use rskit_process::{CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessSpec, run};
 use rskit_version::semver::Version;
 use toven_model::{Module, RepoPath};
 use toven_ports::{
@@ -20,6 +23,77 @@ use toven_ports::{
 };
 
 use crate::exec::run_go_json;
+
+/// The `CycloneDX` Go SBOM tool Toven invokes argv-first for the Go `sbom`
+/// phase (the [`SbomProducer`] implementation below).
+const SBOM_TOOL: &str = "cyclonedx-gomod";
+
+/// The `CycloneDX` JSON SBOM file suffix Toven writes (`<stem>.cdx.json`), the
+/// same canonical name the Rust adapter and the engine's asset-staging use.
+const SBOM_FILE_SUFFIX: &str = "cdx.json";
+
+/// Hard bound on captured SBOM-tool output (256 KiB). The SBOM itself is written
+/// to a file via `-output`, so only the tool's diagnostics flow through captured
+/// output; this only guards against a pathological stream.
+const MAX_SBOM_OUTPUT_BYTES: usize = 256 * 1024;
+
+/// Timeout for one `cyclonedx-gomod` invocation. It resolves the module graph
+/// (which may hit the module proxy), so it is wider than a local `go mod edit`.
+const SBOM_TIMEOUT: Duration = Duration::from_mins(5);
+
+/// The deterministic SBOM file stem for `module` — its short module name, with
+/// any path/scheme separators folded to `-` so the produced artifact is a plain
+/// file name the engine's declared-asset staging matches on.
+fn sbom_stem(module: &Module) -> String {
+    module.id.name.replace(['/', '\\', ':'], "-")
+}
+
+/// Build the argv-only `cyclonedx-gomod` invocation that writes the module's
+/// `CycloneDX` JSON SBOM to `output`.
+///
+/// `mod` describes the module (not an application binary), `-json` selects the
+/// `CycloneDX` JSON format, `-output` pins the destination so the tool writes
+/// straight into Toven's bounded output directory (unlike `cargo cyclonedx`,
+/// which writes next to the manifest), and the trailing directory scopes it to
+/// exactly the module being released.
+fn sbom_argv(output: &Path, module_dir: &Path) -> Vec<String> {
+    vec![
+        "mod".to_string(),
+        "-json".to_string(),
+        "-output".to_string(),
+        output.display().to_string(),
+        module_dir.display().to_string(),
+    ]
+}
+
+/// Run one `cyclonedx-gomod` invocation, bounded and timed-out, surfacing a
+/// timeout or non-zero exit as a typed error. The SBOM is written to a file, so
+/// captured output carries only diagnostics.
+fn run_sbom(spec: &ProcessSpec) -> AppResult<()> {
+    let config = ProcessConfig::default()
+        .with_timeout(Some(SBOM_TIMEOUT))
+        .with_io(ProcessIo::captured(CapturedIo::new().with_output(
+            OutputPolicy::captured().with_max_output_bytes(MAX_SBOM_OUTPUT_BYTES),
+        )));
+    let result = run(spec, &config)?;
+    if result.timed_out {
+        return Err(AppError::new(
+            ErrorCode::Timeout,
+            format!("`{SBOM_TOOL}` timed out"),
+        ));
+    }
+    if !result.success() {
+        return Err(AppError::new(
+            ErrorCode::Internal,
+            format!(
+                "`{SBOM_TOOL}` failed (exit {:?}): {}",
+                result.exit_code,
+                result.stderr.trim()
+            ),
+        ));
+    }
+    Ok(())
+}
 
 /// Release target for Go modules released as git tags.
 #[derive(Debug, Clone, Default)]
@@ -187,12 +261,38 @@ impl Publisher for GoVcsTarget {
     }
 }
 
-/// Go has no SBOM tooling in Toven's release model, so the `provenance` SBOM
-/// phase reports "not applicable" via the [`SbomProducer`] default.
-impl SbomProducer for GoVcsTarget {}
+impl SbomProducer for GoVcsTarget {
+    fn sbom(&self, module: &Module, out_dir: &Path) -> AppResult<Option<Artifact>> {
+        let working_root = self.working_root()?;
+        let module_dir = safe_join(&working_root, module.root.as_path()).map_err(|error| {
+            AppError::invalid_input("release.sbom.module", error.to_string()).with_cause(error)
+        })?;
+        create_all(out_dir)?;
+        // `cyclonedx-gomod` accepts `-output`, so it writes straight into the
+        // bounded output directory under Toven's canonical `<stem>.cdx.json`
+        // name — no next-to-manifest stray files to clean up afterwards.
+        let artifact = out_dir.join(format!("{}.{SBOM_FILE_SUFFIX}", sbom_stem(module)));
+        let spec = ProcessSpec::new(SBOM_TOOL)
+            .args(sbom_argv(&artifact, &module_dir))
+            .dir(&working_root);
+        run_sbom(&spec)?;
+        if !file_exists(&artifact)? {
+            return Err(AppError::new(
+                ErrorCode::Internal,
+                format!(
+                    "`{SBOM_TOOL}` reported success but wrote no SBOM at '{}'",
+                    artifact.display()
+                ),
+            ));
+        }
+        Ok(Some(Artifact::new(artifact)))
+    }
+}
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
     use toven_ports::{ManifestMutator, ReleaseMutation, TagGrammar, VersionSource};
@@ -317,5 +417,32 @@ mod tests {
             .expect_err("missing Go import-path mapping rejected");
 
         assert!(error.to_string().contains("Go import paths"));
+    }
+
+    #[test]
+    fn sbom_argv_is_an_argv_only_cyclonedx_gomod_invocation_scoped_to_the_module() {
+        let argv = super::sbom_argv(
+            Path::new("/out/api.cdx.json"),
+            Path::new("/repo/services/api"),
+        );
+        assert_eq!(
+            argv,
+            vec![
+                "mod".to_string(),
+                "-json".to_string(),
+                "-output".to_string(),
+                "/out/api.cdx.json".to_string(),
+                "/repo/services/api".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn sbom_stem_is_the_short_module_name() {
+        // Go module names are validated to be plain tokens (no separators), so
+        // the stem is the module's short name and is a single file-name token
+        // the engine's declared-asset staging matches on.
+        assert_eq!(super::sbom_stem(&module("api", "services/api")), "api");
+        assert_eq!(super::sbom_stem(&module("gokit", ".")), "gokit");
     }
 }

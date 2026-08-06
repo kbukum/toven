@@ -3,6 +3,6 @@ Release readiness
 ┌────────────┬────────┬─────────────────────────────────────────────┐
 │ Check      │ Result │ Detail                                      │
 ├────────────┼────────┼─────────────────────────────────────────────┤
-│ clean-tree │ fail   │ 2 uncommitted change(s) in the working tree │
+│ clean-tree │ fail   │ 1 uncommitted change(s) in the working tree │
 └────────────┴────────┴─────────────────────────────────────────────┘
   verdict:  no-go

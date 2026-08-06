@@ -19,10 +19,12 @@ use std::time::Duration;
 use rskit_errors::{AppError, AppResult};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir::create_all;
-use rskit_fs::sync_io::file::exists as file_exists;
+use rskit_fs::sync_io::file::{exists as file_exists, remove_if_exists};
 use rskit_process::{CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessSpec, run};
-use toven_ports::{Provider, Reporter, Signer};
+use toven_model::ReleasePhase;
+use toven_ports::{DelegatedPhase, DelegatedTool, Provider, Reporter, Signer};
 
+use crate::hosting::run_delegated_preview;
 use crate::planning::plan::{release_targets, resolve_release_settings};
 use toven_engine_core::config::Document;
 use toven_engine_core::federation::resolve::PathDriverLocator;
@@ -50,33 +52,57 @@ pub struct SignReport {
     pub signature: String,
     /// The project-relative signing-certificate asset that was produced.
     pub certificate: String,
+    /// How the signature was produced: `native` (Toven's cosign signer) or
+    /// `delegated` (an external tool produced it and Toven normalized it back).
+    pub backing: &'static str,
 }
 
 impl SignReport {
-    /// Construct a sign report.
+    /// Construct a native sign report.
     #[must_use]
     pub const fn new(blob: String, signature: String, certificate: String) -> Self {
         Self {
             blob,
             signature,
             certificate,
+            backing: "native",
+        }
+    }
+
+    /// Construct a delegated sign report.
+    #[must_use]
+    pub const fn delegated(blob: String, signature: String, certificate: String) -> Self {
+        Self {
+            blob,
+            signature,
+            certificate,
+            backing: "delegated",
         }
     }
 }
 
 /// Sign the declared `SHA256SUMS` manifest, producing the declared
-/// `SHA256SUMS.sig` + `SHA256SUMS.pem` assets via the supplied [`Signer`].
+/// `SHA256SUMS.sig` + `SHA256SUMS.pem` assets.
+///
+/// The `Sign` phase runs under the release scope's backing: **native** signs
+/// the manifest with the supplied cosign [`Signer`], while **delegated** runs an
+/// external tool's mutation-free preview through `delegated` and then normalizes
+/// the produced signature/certificate sidecars back into the report. Toven owns
+/// signing policy — only the shared `SHA256SUMS` is signed, the outputs are the
+/// declared sidecar assets, and a disabled or failed signer fails the release
+/// closed — in both backings.
 ///
 /// # Errors
 /// Fails closed with a typed error when signing is disabled, the manifest or a
-/// signature sidecar is not declared, the manifest has not been produced, or
-/// the signer fails — as well as propagating configuration, discovery, graph,
-/// and I/O failures.
+/// signature sidecar is not declared, the manifest has not been produced (native
+/// backing), or the signer / delegated tool fails or produces no sidecar — as
+/// well as propagating configuration, discovery, graph, and I/O failures.
 pub fn release_sign(
     request: &PlanRequest,
     document: &Document,
     providers: &[&dyn Provider],
     signer: &dyn Signer,
+    delegated: &dyn DelegatedPhase,
     reporter: &mut dyn Reporter,
 ) -> AppResult<SignReport> {
     let locator = PathDriverLocator::new();
@@ -107,6 +133,10 @@ pub fn release_sign(
 
     let project_root = request.project_root.as_path();
     let blob_path = safe_join_asset(project_root, blob)?;
+    // The signing policy is that only an already-produced manifest is signed —
+    // it holds for every backing, so the precondition is checked before the
+    // native/delegated dispatch rather than only on the native path (a
+    // delegated tool must not be handed, or asked to sign, a missing manifest).
     if !file_exists(&blob_path)? {
         return Err(AppError::invalid_input(
             "release.sign.manifest",
@@ -116,12 +146,47 @@ pub fn release_sign(
             ),
         ));
     }
+
     let signature_path = safe_join_asset(project_root, signature)?;
     let certificate_path = safe_join_asset(project_root, certificate)?;
     for path in [&signature_path, &certificate_path] {
         if let Some(parent) = path.parent() {
             create_all(parent)?;
         }
+    }
+
+    // The scope's `Sign` backing decides how the sidecars are produced; a
+    // delegated backing is dispatched through the runner, native cosign
+    // otherwise.
+    if let Some(tool) = resolve_sign_delegation(&settings)? {
+        // Clear the declared sidecars before the tool runs, so the post-preview
+        // existence check proves *this* run produced them. Without this, stale
+        // `.sig`/`.pem` files from a previous attempt plus a tool that exits 0
+        // without rewriting would be accepted, silently reusing a stale
+        // signature over the manifest.
+        for path in [&signature_path, &certificate_path] {
+            remove_if_exists(path)?;
+        }
+        run_delegated_preview(ReleasePhase::Sign, &tool, delegated, project_root)?;
+        for (path, asset) in [
+            (&signature_path, signature),
+            (&certificate_path, certificate),
+        ] {
+            if !file_exists(path)? {
+                return Err(AppError::invalid_input(
+                    "release.sign.delegated",
+                    format!(
+                        "delegated sign tool did not produce the declared asset '{asset}' at '{}'",
+                        path.display()
+                    ),
+                ));
+            }
+        }
+        return Ok(SignReport::delegated(
+            blob.clone(),
+            signature.clone(),
+            certificate.clone(),
+        ));
     }
 
     signer.sign_blob(
@@ -136,6 +201,46 @@ pub fn release_sign(
         signature.clone(),
         certificate.clone(),
     ))
+}
+
+/// Resolve the scope's `Sign` phase delegation: `Some(tool)` when the modules
+/// that enable signing delegate `Sign` to a single external tool, `None` when
+/// the phase is native everywhere.
+///
+/// The release cuts one signature over the shared `SHA256SUMS`, so a split
+/// backing (some native, some delegated) or divergent delegated tools cannot be
+/// honoured — fail closed rather than silently pick one.
+///
+/// # Errors
+/// Rejects a mixed or divergent `Sign` backing across the enabled modules, and
+/// propagates a configured-but-inconsistent phase entry.
+fn resolve_sign_delegation(
+    settings: &std::collections::BTreeMap<toven_model::ModuleKey, crate::ResolvedReleaseSettings>,
+) -> AppResult<Option<DelegatedTool>> {
+    let mut selected: Option<Option<DelegatedTool>> = None;
+    for resolved in settings.values() {
+        if !resolved.sign.enabled {
+            continue;
+        }
+        let tool = if resolved.phase_backing(ReleasePhase::Sign)?.is_native() {
+            None
+        } else {
+            resolved.delegated_tool(ReleasePhase::Sign).cloned()
+        };
+        match &selected {
+            None => selected = Some(tool),
+            Some(existing) if existing != &tool => {
+                return Err(AppError::invalid_input(
+                    "release.phases.sign",
+                    "enabled modules declare divergent sign backings (native vs delegated, or \
+                     different delegated tools); the release cuts one shared signature and cannot \
+                     honour multiple sign backings",
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(selected.flatten())
 }
 
 /// The signer selection for the release scope: whether signing is enabled and,
@@ -323,7 +428,8 @@ mod tests {
         TaskIntent,
     };
     use toven_testkit::{
-        FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeSigner, RecordingReporter,
+        FakeConfiguredAdapter, FakeDelegatedPhase, FakeProvider, FakeReleaseTarget, FakeSigner,
+        RecordingReporter,
     };
 
     use super::{cosign_argv, release_sign};
@@ -423,6 +529,7 @@ mod tests {
             &document(),
             &providers,
             &signer,
+            &FakeDelegatedPhase::new(),
             &mut reporter,
         )
         .unwrap();
@@ -452,6 +559,7 @@ mod tests {
             &document(),
             &providers,
             &signer,
+            &FakeDelegatedPhase::new(),
             &mut reporter,
         )
         .expect_err("signing disabled must fail closed");
@@ -481,6 +589,7 @@ mod tests {
             &document(),
             &providers,
             &signer,
+            &FakeDelegatedPhase::new(),
             &mut reporter,
         )
         .expect_err("a signer failure must abort the release");
@@ -508,11 +617,172 @@ mod tests {
             &document(),
             &providers,
             &signer,
+            &FakeDelegatedPhase::new(),
             &mut reporter,
         )
         .expect_err("a missing manifest must fail closed");
         assert!(error.to_string().contains("has not been produced"));
         assert_eq!(signer.calls().len(), 0);
+    }
+
+    /// A provider whose enabled `sign` phase delegates to `goreleaser`.
+    fn delegated_sign_provider() -> FakeProvider {
+        use toven_model::ReleasePhase;
+        use toven_ports::{DelegatedTool, PhaseBackingKind, PhaseConfig, PhasesConfig};
+
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![module("core")];
+        let mut phases = BTreeMap::new();
+        phases.insert(
+            ReleasePhase::Sign,
+            PhaseConfig {
+                backing: PhaseBackingKind::Delegated,
+                delegated: Some(DelegatedTool {
+                    tool: "goreleaser".into(),
+                    args: Some(vec!["release".into(), "--clean".into()]),
+                    preview: vec!["release".into(), "--snapshot".into(), "--clean".into()],
+                }),
+            },
+        );
+        let common = CommonEcosystemConfig {
+            release: ReleaseConfig {
+                host: Some(HostConfig {
+                    forge: Some("github".to_string()),
+                    assets: Some(sign_assets().into_iter().map(str::to_string).collect()),
+                    ..HostConfig::default()
+                }),
+                sign: Some(SignConfig {
+                    enabled: true,
+                    ..SignConfig::default()
+                }),
+                phases: Some(PhasesConfig(phases)),
+                ..ReleaseConfig::default()
+            },
+            ..CommonEcosystemConfig::default()
+        };
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_release_target(FakeReleaseTarget::new())
+            .with_common(common);
+        FakeProvider::new(eid("rust")).with_adapter(adapter)
+    }
+
+    #[test]
+    fn delegated_sign_runs_the_tool_preview_and_normalizes_the_produced_sidecars() {
+        let root = TempDir::new().unwrap();
+        write_manifest(root.path());
+        // The tool produces the detached signature and certificate; Toven's
+        // native cosign signer is never invoked under a delegated backing.
+        let runner = FakeDelegatedPhase::new()
+            .with_produced_file(root.path().join("dist/SHA256SUMS.sig"), b"sig")
+            .with_produced_file(root.path().join("dist/SHA256SUMS.pem"), b"cert");
+        let provider = delegated_sign_provider();
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let signer = FakeSigner::default();
+        let mut reporter = RecordingReporter::new();
+
+        let report = release_sign(
+            &request(root.path()),
+            &document(),
+            &providers,
+            &signer,
+            &runner,
+            &mut reporter,
+        )
+        .expect("delegated sign runs");
+
+        assert_eq!(report.backing, "delegated");
+        assert_eq!(report.signature, "dist/SHA256SUMS.sig");
+        // The native signer is bypassed; the tool ran a mutation-free preview.
+        assert_eq!(signer.calls().len(), 0);
+        let requests = runner.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].phase, toven_model::ReleasePhase::Sign);
+        assert_eq!(requests[0].mode, toven_ports::DelegatedPhaseMode::Preview);
+    }
+
+    #[test]
+    fn delegated_sign_fails_closed_when_a_sidecar_is_not_produced() {
+        let root = TempDir::new().unwrap();
+        write_manifest(root.path());
+        // The tool produces the signature but not the certificate.
+        let runner = FakeDelegatedPhase::new()
+            .with_produced_file(root.path().join("dist/SHA256SUMS.sig"), b"sig");
+        let provider = delegated_sign_provider();
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let signer = FakeSigner::default();
+        let mut reporter = RecordingReporter::new();
+
+        let error = release_sign(
+            &request(root.path()),
+            &document(),
+            &providers,
+            &signer,
+            &runner,
+            &mut reporter,
+        )
+        .expect_err("a missing delegated sidecar must fail closed");
+        assert!(error.to_string().contains("did not produce"), "{error}");
+    }
+
+    #[test]
+    fn delegated_sign_fails_closed_when_the_manifest_has_not_been_produced() {
+        let root = TempDir::new().unwrap();
+        // No SHA256SUMS written to disk: even under a delegated backing, the
+        // signing policy is to sign an already-produced manifest, so the tool
+        // must never be handed a missing manifest.
+        let runner = FakeDelegatedPhase::new()
+            .with_produced_file(root.path().join("dist/SHA256SUMS.sig"), b"sig")
+            .with_produced_file(root.path().join("dist/SHA256SUMS.pem"), b"cert");
+        let provider = delegated_sign_provider();
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let signer = FakeSigner::default();
+        let mut reporter = RecordingReporter::new();
+
+        let error = release_sign(
+            &request(root.path()),
+            &document(),
+            &providers,
+            &signer,
+            &runner,
+            &mut reporter,
+        )
+        .expect_err("a missing manifest must fail closed even for a delegated backing");
+        assert!(
+            error.to_string().contains("has not been produced"),
+            "{error}"
+        );
+        // The delegated tool was never invoked — no preview over a missing manifest.
+        assert!(runner.requests().is_empty());
+    }
+
+    #[test]
+    fn delegated_sign_fails_closed_on_a_stale_sidecar_the_tool_did_not_rewrite() {
+        let root = TempDir::new().unwrap();
+        write_manifest(root.path());
+        // Stale sidecars from a previous attempt sit on disk...
+        let dist = root.path().join("dist");
+        std::fs::write(dist.join("SHA256SUMS.sig"), b"stale-sig").unwrap();
+        std::fs::write(dist.join("SHA256SUMS.pem"), b"stale-cert").unwrap();
+        // ...and the tool exits 0 but writes nothing (no `with_produced_file`).
+        let runner = FakeDelegatedPhase::new();
+        let provider = delegated_sign_provider();
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let signer = FakeSigner::default();
+        let mut reporter = RecordingReporter::new();
+
+        let error = release_sign(
+            &request(root.path()),
+            &document(),
+            &providers,
+            &signer,
+            &runner,
+            &mut reporter,
+        )
+        .expect_err("a stale sidecar the tool did not rewrite must fail closed");
+        // The stale files were cleared before the preview, so the post-run
+        // existence check fails closed instead of reusing them.
+        assert!(error.to_string().contains("did not produce"), "{error}");
     }
 
     #[test]

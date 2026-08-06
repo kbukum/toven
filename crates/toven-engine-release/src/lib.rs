@@ -30,7 +30,10 @@ pub use artifacts::{
     release_image, release_package, release_provenance, release_sbom, release_sign, release_verify,
 };
 pub use execution::{ReleaseApplyOptions, release_apply};
-pub use hosting::{GithubReleaseHost, GitlabReleaseHost, ProcessDelegatedPhase, delegated_request};
+pub use hosting::{
+    GithubReleaseHost, GitlabReleaseHost, ProcessDelegatedPhase, delegated_request,
+    run_delegated_preview,
+};
 pub(crate) use model::ReleaseTargets;
 pub use model::{
     ArtifactManifest, BumpOverrides, BumpPolicy, BumpReason, BumpSource, ChangelogEntry,

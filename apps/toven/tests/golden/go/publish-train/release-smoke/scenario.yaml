@@ -26,12 +26,19 @@ steps:
     stdout: { match: normalized }
   - id: 04-release-sbom
     argv: [release, sbom, --out-dir, out/sbom]
+    # The go adapter shells out to the cyclonedx-gomod tool; runners without it
+    # skip just this step green.
+    requires: [cyclonedx-gomod]
     stdout: { match: normalized }
+    # The command prints artifact paths; assert each file is actually written.
+    effects:
+      - file_exists: out/sbom/core.cdx.json
+      - file_exists: out/sbom/train.cdx.json
   - id: 05-release-depgraphs
     argv: [release, depgraphs, --out-dir, out/depgraphs]
     stdout: { match: normalized }
-    # The go train is up to date, so `sbom` writes no per-module artifacts; the
-    # depgraph is still emitted — assert the printed path is a real file.
+    # The depgraph is emitted regardless of release baseline — assert the
+    # printed path is a real file.
     effects:
       - file_exists: out/depgraphs/publish-train-go.dot
   - id: 06-release-publish-dry-run

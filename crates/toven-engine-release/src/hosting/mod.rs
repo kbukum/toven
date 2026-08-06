@@ -10,5 +10,5 @@ pub(crate) mod publish;
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) mod reconcile;
 
-pub use delegated::{ProcessDelegatedPhase, delegated_request};
+pub use delegated::{ProcessDelegatedPhase, delegated_request, run_delegated_preview};
 pub use host::{GithubReleaseHost, GitlabReleaseHost};

@@ -23,6 +23,7 @@ struct FakeDelegatedState {
     stderr: String,
     fail: Option<String>,
     requests: Vec<DelegatedPhaseRequest>,
+    produced: Vec<(std::path::PathBuf, Vec<u8>)>,
 }
 
 impl Default for FakeDelegatedPhase {
@@ -34,6 +35,7 @@ impl Default for FakeDelegatedPhase {
                 stderr: String::new(),
                 fail: None,
                 requests: Vec::new(),
+                produced: Vec::new(),
             })),
         }
     }
@@ -60,10 +62,27 @@ impl FakeDelegatedPhase {
         self
     }
 
+    /// Script the captured standard error the runner reports.
+    #[must_use]
+    pub fn with_stderr(self, stderr: impl Into<String>) -> Self {
+        self.state().stderr = stderr.into();
+        self
+    }
+
     /// Make `run` fail with a typed spawn/IO error (an unspawnable tool).
     #[must_use]
     pub fn with_spawn_failure(self, message: impl Into<String>) -> Self {
         self.state().fail = Some(message.into());
+        self
+    }
+
+    /// Have a successful `run` write `contents` to `path`, simulating the
+    /// external tool producing an artifact (an archive, a signature) that the
+    /// engine then normalizes back into its typed outcome. Parent directories
+    /// are created; the file is written only on a zero-exit run.
+    #[must_use]
+    pub fn with_produced_file(self, path: impl Into<std::path::PathBuf>, contents: &[u8]) -> Self {
+        self.state().produced.push((path.into(), contents.to_vec()));
         self
     }
 
@@ -89,6 +108,29 @@ impl DelegatedPhase for FakeDelegatedPhase {
                 rskit_errors::ErrorCode::Internal,
                 message.clone(),
             ));
+        }
+        // A tool that exits zero produces its declared artifacts, mirroring the
+        // real tool writing archives/signatures the engine then normalizes.
+        if matches!(state.exit_code, Some(0)) {
+            for (path, contents) in state.produced.clone() {
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent).map_err(|error| {
+                        rskit_errors::AppError::new(
+                            rskit_errors::ErrorCode::Internal,
+                            format!("failed to create '{}': {error}", parent.display()),
+                        )
+                    })?;
+                }
+                std::fs::write(&path, &contents).map_err(|error| {
+                    rskit_errors::AppError::new(
+                        rskit_errors::ErrorCode::Internal,
+                        format!(
+                            "failed to write produced artifact '{}': {error}",
+                            path.display()
+                        ),
+                    )
+                })?;
+            }
         }
         Ok(DelegatedPhaseOutcome::new(
             state.exit_code,
