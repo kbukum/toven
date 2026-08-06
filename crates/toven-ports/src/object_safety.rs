@@ -86,6 +86,39 @@ impl DelegatedPhase for FakeDelegatedPhase {
     }
 }
 
+struct FakeImagePhase;
+impl ImagePhase for FakeImagePhase {
+    fn publish_image(
+        &self,
+        _root: &Path,
+        request: &ImageRequest,
+    ) -> AppResult<ImagePublishOutcome> {
+        Ok(ImagePublishOutcome::new(
+            ImageOutcome::Pushed,
+            "sha256:deadbeef",
+            request.registries.clone(),
+            request.sign,
+        ))
+    }
+    fn resolve_digest(&self, _root: &Path, _reference: &str) -> AppResult<Option<String>> {
+        Ok(None)
+    }
+}
+
+struct FakeProvenancePhase;
+impl ProvenancePhase for FakeProvenancePhase {
+    fn attest(
+        &self,
+        _root: &Path,
+        _subjects: &[ProvenanceSubject],
+    ) -> AppResult<ProvenanceOutcome> {
+        Ok(ProvenanceOutcome::Attested)
+    }
+    fn attestation_exists(&self, _root: &Path, _subject: &ProvenanceSubject) -> AppResult<bool> {
+        Ok(false)
+    }
+}
+
 struct FakeSigner;
 impl Signer for FakeSigner {
     fn sign_blob(
@@ -414,6 +447,38 @@ fn port_traits_are_object_safe() {
             None,
         )
         .expect("signs without error");
+
+    // Exercise the ImagePhase port.
+    let image: Box<dyn ImagePhase> = Box::new(FakeImagePhase);
+    let image_outcome = image
+        .publish_image(
+            Path::new("/repo"),
+            &ImageRequest::new("services/api", "toven", "1.0.0")
+                .with_registries(vec!["ghcr.io/acme".into()]),
+        )
+        .expect("publishes image");
+    assert_eq!(image_outcome.outcome, ImageOutcome::Pushed);
+    assert!(
+        image
+            .resolve_digest(Path::new("/repo"), "ghcr.io/acme/toven:1.0.0")
+            .expect("resolves digest")
+            .is_none()
+    );
+
+    // Exercise the ProvenancePhase port.
+    let provenance: Box<dyn ProvenancePhase> = Box::new(FakeProvenancePhase);
+    let subject = ProvenanceSubject::new("toven-x86_64.tar.gz", "sha256:abc");
+    assert_eq!(
+        provenance
+            .attest(Path::new("/repo"), std::slice::from_ref(&subject))
+            .expect("attests"),
+        ProvenanceOutcome::Attested
+    );
+    assert!(
+        !provenance
+            .attestation_exists(Path::new("/repo"), &subject)
+            .expect("checks attestation")
+    );
 
     // Exercise the HookRunner port.
     let hook_runner: Box<dyn HookRunner> = Box::new(FakeHookRunner);

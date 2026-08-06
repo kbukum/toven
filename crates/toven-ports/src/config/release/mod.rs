@@ -13,6 +13,7 @@
 mod changelog;
 mod config;
 mod host;
+mod image;
 mod phases;
 mod policy;
 mod prerelease;
@@ -22,6 +23,7 @@ mod signing;
 pub use changelog::ChangelogConfig;
 pub use config::ReleaseConfig;
 pub use host::HostConfig;
+pub use image::ImageConfig;
 pub use phases::{DelegatedTool, PhaseBackingKind, PhaseConfig, PhasesConfig};
 pub use policy::{BumpLevel, DependentVersion};
 pub use prerelease::PrereleaseConfig;

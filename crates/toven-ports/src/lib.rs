@@ -74,7 +74,7 @@ pub use cache::{CacheStore, CacheWriter};
 pub use config::{
     BumpLevel, ChangelogConfig, CommonEcosystemConfig, CoverageConfig, CoverageProfile,
     CoverageThresholds, DelegatedTool, DependentVersion, Enforcement, HooksConfig, HostConfig,
-    PhaseBackingKind, PhaseConfig, PhasesConfig, PrereleaseConfig, PublicationPolicy,
+    ImageConfig, PhaseBackingKind, PhaseConfig, PhasesConfig, PrereleaseConfig, PublicationPolicy,
     ReleaseConfig, RunStrategy, SignConfig, TaskEntry, TaskOverride,
 };
 pub use discover::{DISCOVERY_SCHEMA_VERSION, DiscoverContext, DiscoverRequest, DiscoverResponse};
@@ -89,9 +89,10 @@ pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
 pub use raw_output::RawOutputSink;
 pub use release::{
     Artifact, AssetDownloader, DelegatedPhase, DelegatedPhaseMode, DelegatedPhaseOutcome,
-    DelegatedPhaseRequest, HostReleaseOutcome, HostedRelease, ManifestMutator, Packager,
-    PhaseBacking, PublishOutcome, Publisher, RegistryCadence, ReleaseAdapter, ReleaseAsset,
-    ReleaseCredentials, ReleaseHost, ReleaseMutation, SUPPORTED_FORGES, SbomProducer,
+    DelegatedPhaseRequest, HostReleaseOutcome, HostedRelease, ImageOutcome, ImagePhase,
+    ImagePublishOutcome, ImageRequest, ManifestMutator, Packager, PhaseBacking, ProvenanceOutcome,
+    ProvenancePhase, ProvenanceSubject, PublishOutcome, Publisher, RegistryCadence, ReleaseAdapter,
+    ReleaseAsset, ReleaseCredentials, ReleaseHost, ReleaseMutation, SUPPORTED_FORGES, SbomProducer,
     SignatureVerifier, Signer, TagGrammar, TagScheme, VersionProbe, VersionSource, Visibility,
     is_supported_forge,
 };

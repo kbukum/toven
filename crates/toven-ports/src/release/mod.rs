@@ -7,11 +7,13 @@ mod credentials;
 mod delegated;
 mod downloader;
 mod host;
+mod image;
 mod mutation;
 mod mutator;
 mod outcome;
 mod packager;
 mod probe;
+mod provenance;
 mod publisher;
 mod registry;
 mod sbom;
@@ -34,11 +36,13 @@ pub use host::{
     HostReleaseOutcome, HostedRelease, ReleaseAsset, ReleaseHost, SUPPORTED_FORGES,
     is_supported_forge,
 };
+pub use image::{ImageOutcome, ImagePhase, ImagePublishOutcome, ImageRequest};
 pub use mutation::ReleaseMutation;
 pub use mutator::ManifestMutator;
 pub use outcome::PublishOutcome;
 pub use packager::Packager;
 pub use probe::VersionProbe;
+pub use provenance::{ProvenanceOutcome, ProvenancePhase, ProvenanceSubject};
 pub use publisher::Publisher;
 pub use registry::RegistryCadence;
 pub use sbom::SbomProducer;

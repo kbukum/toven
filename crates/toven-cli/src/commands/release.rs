@@ -20,11 +20,13 @@ use serde::Serialize;
 use toven_engine_core::plan::PlanRequest;
 use toven_engine_core::vcs::BaselineFlags;
 use toven_engine_release::{
-    BumpOptions, BumpOverrides, BumpReport, ChecksumReport, CosignSigner, CosignVerifier,
-    DepgraphReport, GhAssetDownloader, PackageReport, ProcessVersionProbe, PublishDecision,
-    ReadinessReport, ReleaseApplyOptions, ReleasePlan, ReleaseRehearsal, ReleaseStatus, SbomReport,
-    SignReport, VerifyOptions, VerifyReport, release_bump, release_checksums, release_depgraphs,
-    release_package, release_plan, release_readiness, release_rehearse, release_run, release_sbom,
+    BuildxImagePhase, BumpOptions, BumpOverrides, BumpReport, ChecksumReport, CosignSigner,
+    CosignVerifier, DepgraphReport, GhAssetDownloader, GhAttestationProvenance, ImageOptions,
+    ImageReport, PackageReport, ProcessVersionProbe, ProvenanceOptions, ProvenanceReport,
+    PublishDecision, ReadinessReport, ReleaseApplyOptions, ReleasePlan, ReleaseRehearsal,
+    ReleaseStatus, SbomReport, SignReport, VerifyOptions, VerifyReport, release_bump,
+    release_checksums, release_depgraphs, release_image, release_package, release_plan,
+    release_provenance, release_readiness, release_rehearse, release_run, release_sbom,
     release_sign, release_status, release_verify,
 };
 use toven_model::{Event, ModuleRef};
@@ -68,6 +70,8 @@ pub(crate) fn execute(
         ReleaseAction::Checksums => checksums(providers, project, cli),
         ReleaseAction::Sign => sign(providers, project, cli),
         ReleaseAction::Verify => verify(providers, project, cli),
+        ReleaseAction::Image => image(providers, project, cli),
+        ReleaseAction::Provenance => provenance(providers, project, cli),
         ReleaseAction::Publish if cli.dry_run => rehearse(providers, project, cli),
         ReleaseAction::Bump => bump(providers, project, cli),
         ReleaseAction::Tag | ReleaseAction::Publish => run(providers, project, cli, action),
@@ -344,6 +348,66 @@ fn verify(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResul
     match resolve_output(cli.output, &project.document) {
         OutputKind::Jsonl => render_verify_jsonl(&report)?,
         OutputKind::Human => render_verify_human(&report),
+    }
+    Ok(ExitCode::Success)
+}
+
+/// `release image`: build the configured container image once, push it to the
+/// primary registry plus mirrors immutably, and cosign-sign the pushed digest.
+/// `--dry-run` previews the references and existing digests mutation-free, so it
+/// needs no `--yes`; the real push requires confirmation.
+fn image(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+    if !cli.dry_run {
+        require_release_confirmation(cli.confirm_release)?;
+    }
+    let request = release_request(project)?;
+    let image_phase = BuildxImagePhase::new();
+    let options = ImageOptions {
+        dry_run: cli.dry_run,
+    };
+    let mut reporter = QuietReporter;
+    let report = release_image(
+        &request,
+        &project.document,
+        providers,
+        &image_phase,
+        options,
+        &mut reporter,
+    )?;
+    match resolve_output(cli.output, &project.document) {
+        OutputKind::Jsonl => render_image_jsonl(&report)?,
+        OutputKind::Human => render_image_human(&report),
+    }
+    Ok(ExitCode::Success)
+}
+
+/// `release provenance`: attest SLSA provenance over exactly the published
+/// subjects (the declared `SHA256SUMS` entries plus pushed image digests).
+/// `--dry-run` previews whether an attestation already exists mutation-free, so
+/// it needs no `--yes`; the real attestation requires confirmation.
+fn provenance(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+    if !cli.dry_run {
+        require_release_confirmation(cli.confirm_release)?;
+    }
+    let request = release_request(project)?;
+    let provenance_phase = GhAttestationProvenance::new();
+    let image_phase = BuildxImagePhase::new();
+    let options = ProvenanceOptions {
+        dry_run: cli.dry_run,
+    };
+    let mut reporter = QuietReporter;
+    let report = release_provenance(
+        &request,
+        &project.document,
+        providers,
+        &provenance_phase,
+        &image_phase,
+        options,
+        &mut reporter,
+    )?;
+    match resolve_output(cli.output, &project.document) {
+        OutputKind::Jsonl => render_provenance_jsonl(&report)?,
+        OutputKind::Human => render_provenance_human(&report),
     }
     Ok(ExitCode::Success)
 }
@@ -1099,6 +1163,89 @@ fn render_verify_jsonl(report: &VerifyReport) -> AppResult<()> {
             signature_ok: asset.signature_ok,
             ran: asset.ran,
             reported_version: asset.reported_version.clone(),
+        };
+        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+        println!("{line}");
+    }
+    Ok(())
+}
+
+/// A stable JSON-lines record for one module's `release image` outcome.
+#[derive(Serialize)]
+struct ImageRecord {
+    preview: bool,
+    module: String,
+    references: Vec<String>,
+    digest: Option<String>,
+    signed: bool,
+    status: String,
+}
+
+fn render_image_human(report: &ImageReport) {
+    let title = if report.preview {
+        "Release image (preview)".to_string()
+    } else {
+        "Release image".to_string()
+    };
+    let mut table = OutputTable::new(vec!["Module", "Reference", "Digest", "Signed", "Status"])
+        .with_title(title);
+    for outcome in &report.images {
+        table.add_row(vec![
+            outcome.module.clone(),
+            outcome.references.join(", "),
+            outcome.digest.clone().unwrap_or_else(|| "—".to_string()),
+            if outcome.signed { "yes" } else { "no" }.to_string(),
+            outcome.status.as_str().to_string(),
+        ]);
+    }
+    println!("{table}");
+}
+
+fn render_image_jsonl(report: &ImageReport) -> AppResult<()> {
+    for outcome in &report.images {
+        let record = ImageRecord {
+            preview: report.preview,
+            module: outcome.module.clone(),
+            references: outcome.references.clone(),
+            digest: outcome.digest.clone(),
+            signed: outcome.signed,
+            status: outcome.status.as_str().to_string(),
+        };
+        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+        println!("{line}");
+    }
+    Ok(())
+}
+
+/// A stable JSON-lines record for one `release provenance` subject.
+#[derive(Serialize)]
+struct ProvenanceRecord {
+    preview: bool,
+    status: String,
+    name: String,
+    digest: String,
+}
+
+fn render_provenance_human(report: &ProvenanceReport) {
+    let title = if report.preview {
+        format!("Release provenance (preview, {})", report.status.as_str())
+    } else {
+        format!("Release provenance ({})", report.status.as_str())
+    };
+    let mut table = OutputTable::new(vec!["Subject", "Digest"]).with_title(title);
+    for subject in &report.subjects {
+        table.add_row(vec![subject.name.clone(), subject.digest.clone()]);
+    }
+    println!("{table}");
+}
+
+fn render_provenance_jsonl(report: &ProvenanceReport) -> AppResult<()> {
+    for subject in &report.subjects {
+        let record = ProvenanceRecord {
+            preview: report.preview,
+            status: report.status.as_str().to_string(),
+            name: subject.name.clone(),
+            digest: subject.digest.clone(),
         };
         let line = serde_json::to_string(&record).map_err(AppError::internal)?;
         println!("{line}");

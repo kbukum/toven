@@ -22,10 +22,12 @@ mod planning;
 mod versioning;
 
 pub use artifacts::{
-    ArchiveFormat, ChecksumEntry, ChecksumReport, CosignSigner, CosignVerifier, DepgraphReport,
-    GhAssetDownloader, PackageReport, PackagedAsset, ProcessVersionProbe, SbomReport, SignReport,
-    StagedSbom, VerifiedAsset, VerifyMode, VerifyOptions, VerifyReport, release_checksums,
-    release_depgraphs, release_package, release_sbom, release_sign, release_verify,
+    ArchiveFormat, BuildxImagePhase, ChecksumEntry, ChecksumReport, CosignSigner, CosignVerifier,
+    DepgraphReport, GhAssetDownloader, GhAttestationProvenance, ImageModuleOutcome, ImageOptions,
+    ImagePhaseStatus, ImageReport, PackageReport, PackagedAsset, ProcessVersionProbe,
+    ProvenanceOptions, ProvenancePhaseStatus, ProvenanceReport, SbomReport, SignReport, StagedSbom,
+    VerifiedAsset, VerifyMode, VerifyOptions, VerifyReport, release_checksums, release_depgraphs,
+    release_image, release_package, release_provenance, release_sbom, release_sign, release_verify,
 };
 pub use execution::{ReleaseApplyOptions, release_apply};
 pub use hosting::{GithubReleaseHost, GitlabReleaseHost, ProcessDelegatedPhase, delegated_request};
