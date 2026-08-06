@@ -40,5 +40,4 @@ pub mod coverage;
 pub mod doctor;
 pub mod init;
 pub mod output;
-pub mod release;
 pub mod watch;

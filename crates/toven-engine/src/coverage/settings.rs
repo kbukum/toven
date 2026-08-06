@@ -3,8 +3,8 @@
 //! consumes.
 //!
 //! Precedence (documented): `[modules.<name>.coverage]` > `profiles.<name>` >
-//! `[ecosystems.<id>].coverage` > adapter default. The structural twin of
-//! [`ResolvedReleaseSettings`](crate::release::ResolvedReleaseSettings).
+//! `[ecosystems.<id>].coverage` > adapter default. The structural twin of the
+//! release crate's `ResolvedReleaseSettings`.
 
 use toven_ports::{CoverageConfig, CoverageThresholds, Enforcement, merge_coverage};
 

@@ -2039,6 +2039,7 @@ dependencies = [
  "tokio",
  "toven-engine",
  "toven-engine-core",
+ "toven-engine-release",
  "toven-model",
  "toven-ports",
 ]
@@ -2062,7 +2063,6 @@ version = "0.1.0-alpha.3"
 dependencies = [
  "async-trait",
  "futures",
- "rskit-codec",
  "rskit-component",
  "rskit-config",
  "rskit-errors",
@@ -2070,10 +2070,7 @@ dependencies = [
  "rskit-git",
  "rskit-process",
  "rskit-util",
- "rskit-validation",
- "rskit-version",
  "rskit-worker",
- "serde",
  "serde_json",
  "tokio",
  "tokio-util",
@@ -2101,6 +2098,26 @@ dependencies = [
  "serde",
  "serde_json",
  "toml",
+ "toven-model",
+ "toven-ports",
+ "toven-testkit",
+]
+
+[[package]]
+name = "toven-engine-release"
+version = "0.1.0-alpha.3"
+dependencies = [
+ "rskit-config",
+ "rskit-errors",
+ "rskit-fs",
+ "rskit-git",
+ "rskit-process",
+ "rskit-util",
+ "rskit-version",
+ "serde",
+ "serde_json",
+ "toml",
+ "toven-engine-core",
  "toven-model",
  "toven-ports",
  "toven-testkit",

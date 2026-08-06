@@ -18,7 +18,7 @@ use rskit_errors::{AppError, AppResult};
 use rskit_version::semver::Version;
 use serde::Serialize;
 use toven_engine_core::plan::PlanRequest;
-use toven_engine::release::{
+use toven_engine_release::{
     BumpOptions, BumpOverrides, BumpReport, ChecksumReport, CosignSigner, CosignVerifier,
     DepgraphReport, GhAssetDownloader, PackageReport, ProcessVersionProbe, PublishDecision,
     ReadinessReport, ReleaseApplyOptions, ReleasePlan, ReleaseRehearsal, ReleaseStatus, SbomReport,
