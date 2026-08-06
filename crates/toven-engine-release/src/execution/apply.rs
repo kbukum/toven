@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_util::Template;
-use toven_model::{Module, ModuleKey, RepoPath};
+use toven_model::{Entrypoint, Module, ModuleKey, RepoPath};
 use toven_ports::{
     Artifact, ReleaseAdapter, ReleaseCredentials, ReleaseVar, TagSigner, VcsReader, VcsWriter,
 };
@@ -58,6 +58,7 @@ pub(crate) struct RepoReleaseSettings {
     remote: String,
     branches: BTreeSet<String>,
     commit_message: Option<String>,
+    entrypoint: Entrypoint,
 }
 
 impl RepoReleaseSettings {
@@ -90,6 +91,14 @@ impl RepoReleaseSettings {
     pub(crate) fn commit_message(&self) -> Option<&str> {
         self.commit_message.as_deref()
     }
+
+    /// Who cuts the release for this repository: Toven-owned (the default) or
+    /// maintainer-owned (Toven runs against an existing human-created
+    /// tag/Release).
+    #[must_use]
+    pub(crate) const fn entrypoint(&self) -> Entrypoint {
+        self.entrypoint
+    }
 }
 
 /// Reconcile settings that govern a single commit/push from member plan entries.
@@ -113,6 +122,7 @@ pub(crate) fn reconcile_repo_settings(
         remote: first.remote.clone(),
         branches,
         commit_message: first.commit_message.clone(),
+        entrypoint: first.entrypoint,
     };
     for entry in entries.iter().skip(1) {
         if entry.push != settings.push {
@@ -126,6 +136,9 @@ pub(crate) fn reconcile_repo_settings(
         }
         if entry.commit_message != settings.commit_message {
             return repo_setting_conflict("commit_message", first, entry);
+        }
+        if entry.entrypoint != settings.entrypoint {
+            return repo_setting_conflict("entrypoint", first, entry);
         }
     }
     Ok(settings)
@@ -177,6 +190,16 @@ pub fn release_apply(
         .iter()
         .map(|module| (module.key(), module))
         .collect();
+
+    // A maintainer-owned release runs against a tag/Release a human already
+    // created: the Tag phase is an input, not a mutation. Verify the tags exist
+    // for the planned version and publish against them — no manifest mutation,
+    // no release commit, and nothing tagged or pushed. The hosted Release is
+    // completed by the caller's create-or-verify host phase.
+    if settings.entrypoint().is_maintainer_owned() {
+        return maintainer_apply(plan, &module_by_ref, targets, reader, options, stats);
+    }
+
     // Resolve all pre-commit errors before mutating any manifest.
     preflight_targets(plan, &module_by_ref, targets)?;
     let message = commit_message(plan, &module_by_ref, settings.commit_message())?;
@@ -294,7 +317,85 @@ fn resume_apply(
     }
     Ok(stats)
 }
-/// preflight, the commit message, and the pushed refspecs all anchor on this
+
+/// Apply a maintainer-owned release against an existing, human-created
+/// tag/Release.
+///
+/// In this entrypoint the [`Tag`](toven_model::ReleasePhase::Tag) phase is an
+/// **input**, not a mutation: a maintainer already created the release tag (and
+/// the hosted Release) in the forge — the `release: published` flow — so Toven
+/// verifies every planned tag exists for the planned version, failing closed on
+/// absence or divergence, and then runs only the publish phase. No manifest is
+/// mutated, no release commit is created, and nothing is tagged or pushed: the
+/// version/CHANGELOG decision already merged through the `bump` phase, and the
+/// hosted Release is completed by the caller's create-or-verify host phase.
+/// Toven never creates or moves a maintainer-owned tag.
+fn maintainer_apply(
+    plan: &ReleasePlan,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+    targets: &crate::ReleaseTargets,
+    reader: &dyn VcsReader,
+    options: &ReleaseApplyOptions,
+    mut stats: ReleaseStats,
+) -> AppResult<ReleaseStats> {
+    preflight_targets(plan, module_by_ref, targets)?;
+    verify_maintainer_tags(plan, module_by_ref, reader)?;
+    if options.publish {
+        // The manifest already carries the released version (the maintainer's
+        // version/CHANGELOG PR merged), so packaging mutates nothing; publish
+        // exactly the versions the registry still lacks against the existing
+        // tags.
+        let artifacts = package_publishable(plan, module_by_ref, targets, &mut stats)?;
+        let items = publish_items(plan, module_by_ref, targets, &artifacts)?;
+        publish::run(&items, options.retry_budget, &mut stats).map_err(|error| {
+            forward_recovery_error(
+                "the maintainer-created tags and hosted Release already exist",
+                "publication",
+                error,
+            )
+        })?;
+    }
+    Ok(stats)
+}
+
+/// Verify every planned release tag already exists for a maintainer-owned
+/// release, failing closed when one is absent.
+///
+/// The planned tag name encodes the planned version (it is rendered from the
+/// module's tag scheme over the planned version), so a tag with that exact name
+/// existing on the remote is the tag the maintainer created for this version. A
+/// missing tag means either the maintainer has not cut the Release yet or the
+/// manifest version and the created tag diverge — in both cases Toven refuses to
+/// proceed rather than creating or moving the tag itself.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn verify_maintainer_tags(
+    plan: &ReleasePlan,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+    reader: &dyn VcsReader,
+) -> AppResult<()> {
+    let existing = reader.list_tags(None)?;
+    let names: BTreeSet<&str> = existing.iter().map(|tag| tag.name.as_str()).collect();
+    let planned = planned_tag_annotations(plan, module_by_ref)?;
+    let missing: Vec<&str> = planned
+        .keys()
+        .map(String::as_str)
+        .filter(|name| !names.contains(name))
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(AppError::invalid_input(
+        "release.entrypoint",
+        format!(
+            "maintainer-owned release requires the release tag(s) [{}] to already exist for the \
+             planned version, but they are absent; a maintainer must create the tag and hosted \
+             Release in the forge before Toven publishes against them — Toven never creates or \
+             moves a maintainer-owned tag",
+            missing.join(", ")
+        ),
+    ))
+}
+
 /// single planned value instead of re-deriving the tag from the scheme, so a
 /// run creates, validates, names, and pushes precisely the tag the plan showed
 /// — no second computation that could drift. A planned-version entry always
@@ -957,6 +1058,8 @@ mod tests {
             changelog: ChangelogEntry::new(mkey(name), "changed", Vec::new()),
             changelog_path: "CHANGELOG.md".into(),
             changelog_roll: false,
+            entrypoint: toven_model::Entrypoint::Toven,
+            umbrella: false,
         }
     }
 
@@ -1348,6 +1451,20 @@ mod tests {
 
         let error = reconcile_repo_settings(&[first, second]).expect_err("conflict rejected");
         assert!(error.to_string().contains("push"), "{error}");
+    }
+
+    #[test]
+    fn reconcile_rejects_mixed_entrypoints_in_one_repository() {
+        // A single member shard must be wholly maintainer-owned or wholly
+        // Toven-owned: mixing entrypoints within one repository would leave the
+        // shard's mutation set ambiguous (verify-only vs commit/tag/push), so it
+        // fails closed before any member acts.
+        let first = entry("core", Version::new(1, 0, 0), true, 0);
+        let mut second = entry("util", Version::new(1, 0, 0), true, 1);
+        second.entrypoint = toven_model::Entrypoint::Maintainer;
+
+        let error = reconcile_repo_settings(&[first, second]).expect_err("conflict rejected");
+        assert!(error.to_string().contains("entrypoint"), "{error}");
     }
 
     #[test]
@@ -1762,6 +1879,84 @@ mod tests {
         assert!(message.contains("immutable"), "{message}");
         assert!(message.contains("forward-fix"), "{message}");
         assert!(writer.writes().is_empty(), "no VCS write may happen");
+    }
+
+    #[test]
+    fn a_maintainer_owned_apply_publishes_against_the_existing_tag_without_mutating() {
+        // The maintainer already created the tag `rust/core@0.2.0` (and the
+        // hosted Release) in the forge. A maintainer-owned apply verifies that
+        // tag, then publishes the version the registry still lacks against it —
+        // mutating no manifest and creating no commit, tag, or push.
+        let mut owned = entry("core", Version::new(0, 2, 0), true, 0);
+        owned.entrypoint = toven_model::Entrypoint::Maintainer;
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![owned]);
+        let target = FakeReleaseTarget::new();
+        let writer = FakeVcsWriter::new();
+        let reader = FakeVcsReader::new()
+            .with_tags(vec![TagRef::new("rust/core@0.2.0", Oid::new("deadbee"))]);
+
+        let stats = release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", target.clone())]),
+            &reader,
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect("a maintainer-owned apply publishes against the existing tag");
+
+        assert_eq!(stats.published_modules, 1);
+        assert_eq!(stats.tagged_modules, 0);
+        assert!(
+            writer.writes().is_empty(),
+            "no commit/tag/push may happen in maintainer-owned apply: {:?}",
+            writer.writes()
+        );
+        assert!(
+            !target
+                .calls()
+                .iter()
+                .any(|call| matches!(call, ReleaseCall::ApplyRelease { .. })),
+            "a maintainer-owned apply never mutates a manifest: {:?}",
+            target.calls()
+        );
+        assert!(
+            target
+                .calls()
+                .iter()
+                .any(|call| matches!(call, ReleaseCall::Publish(_))),
+            "a maintainer-owned apply publishes against the existing tag: {:?}",
+            target.calls()
+        );
+    }
+
+    #[test]
+    fn a_maintainer_owned_apply_fails_closed_when_the_release_tag_is_absent() {
+        // No tag exists for the planned version: the maintainer has not cut the
+        // Release yet, or the manifest version and the created tag diverge. Toven
+        // refuses to proceed rather than creating or moving the tag itself.
+        let mut owned = entry("core", Version::new(0, 2, 0), true, 0);
+        owned.entrypoint = toven_model::Entrypoint::Maintainer;
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![owned]);
+        let writer = FakeVcsWriter::new();
+
+        let error = release_apply(
+            &plan,
+            &[module("core")],
+            &targets(vec![("core", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new(),
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect_err("an absent maintainer-owned tag fails closed");
+
+        let message = error.to_string();
+        assert!(message.contains("rust/core@0.2.0"), "{message}");
+        assert!(message.contains("never creates or moves"), "{message}");
+        assert!(
+            writer.writes().is_empty(),
+            "no VCS write may happen when a maintainer-owned tag is absent"
+        );
     }
 
     #[test]

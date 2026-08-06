@@ -101,6 +101,12 @@ pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfi
     if over.phases.is_some() {
         merged.phases.clone_from(&over.phases);
     }
+    if over.entrypoint.is_some() {
+        merged.entrypoint = over.entrypoint;
+    }
+    if over.umbrella.is_some() {
+        merged.umbrella = over.umbrella;
+    }
 
     merged
 }
@@ -255,6 +261,40 @@ mod tests {
     fn empty_override_inherits_base_entirely() {
         let merged = merge_release(&base(), &ReleaseConfig::default());
         assert_eq!(merged, base());
+    }
+
+    #[test]
+    fn override_entrypoint_and_umbrella_replace_base() {
+        use toven_model::Entrypoint;
+
+        let base = ReleaseConfig {
+            entrypoint: Some(Entrypoint::Toven),
+            ..ReleaseConfig::default()
+        };
+        let over = ReleaseConfig {
+            entrypoint: Some(Entrypoint::Maintainer),
+            umbrella: Some(true),
+            ..ReleaseConfig::default()
+        };
+
+        let merged = merge_release(&base, &over);
+
+        assert_eq!(merged.entrypoint, Some(Entrypoint::Maintainer));
+        assert_eq!(merged.umbrella, Some(true));
+    }
+
+    #[test]
+    fn unset_entrypoint_override_inherits_base() {
+        use toven_model::Entrypoint;
+
+        let base = ReleaseConfig {
+            entrypoint: Some(Entrypoint::Maintainer),
+            umbrella: Some(true),
+            ..ReleaseConfig::default()
+        };
+        let merged = merge_release(&base, &ReleaseConfig::default());
+        assert_eq!(merged.entrypoint, Some(Entrypoint::Maintainer));
+        assert_eq!(merged.umbrella, Some(true));
     }
 
     #[test]

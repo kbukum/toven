@@ -281,6 +281,14 @@ pub(crate) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
                 .settings
                 .get(&reference)
                 .is_some_and(|resolved| resolved.changelog.roll),
+            entrypoint: input
+                .settings
+                .get(&reference)
+                .map_or_else(Default::default, |resolved| resolved.entrypoint),
+            umbrella: input
+                .settings
+                .get(&reference)
+                .is_some_and(|resolved| resolved.umbrella),
         });
     }
     entries.sort_by(|left, right| {
@@ -291,9 +299,33 @@ pub(crate) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
     Ok(entries)
 }
 
+/// Resolve the bump decision for a maintainer-owned module: plan exactly the
+/// version its manifest already declares against the tag/Release a maintainer
+/// created out of band (the version decision merged through `release bump`, step
+/// 03). APPLY verifies the maintainer's tag matches this version and publishes,
+/// and registry idempotency decides whether that publish is still needed.
+fn maintainer_decision(
+    input: &BumpInputs<'_>,
+    reference: &ModuleKey,
+    current: &Version,
+) -> BumpDecision {
+    let baseline = input
+        .baselines
+        .get(reference)
+        .and_then(|b| b.version.as_ref());
+    BumpDecision {
+        level: classify(baseline.unwrap_or(&Version::new(0, 0, 0)), current),
+        planned: Some(current.clone()),
+        reason: BumpReason::Manifest,
+        winning_input: BumpSource::Manifest,
+        prerelease_channel: None,
+    }
+}
+
 /// Resolve one module's own-version bump under the documented precedence (argv
 /// `--set-version` > argv level > config level > adapter default), then a
 /// dependency cascade for a dependent that did not itself change.
+#[allow(clippy::too_many_lines)] // a linear walk through the documented bump precedence
 fn resolve_bump(
     input: &BumpInputs<'_>,
     reference: &ModuleKey,
@@ -302,6 +334,12 @@ fn resolve_bump(
 ) -> AppResult<BumpDecision> {
     let settings = input.settings.get(reference);
     let module_ref = &reference.module;
+
+    // A maintainer-owned module keeps the version its manifest already declares
+    // (see `maintainer_decision`); detection, the matrix, and cascades never move it.
+    if settings.is_some_and(|resolved| resolved.entrypoint.is_maintainer_owned()) {
+        return Ok(maintainer_decision(input, reference, current));
+    }
 
     if let Some(version) = input.overrides.set_version(module_ref) {
         if version <= current {
@@ -881,6 +919,58 @@ mod tests {
         });
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn a_maintainer_owned_module_plans_its_declared_version_from_the_manifest() {
+        // A maintainer-owned module publishes the version its manifest already
+        // declares (the fake target reports 0.1.0) against the tag a maintainer
+        // cut: planning neither computes nor moves the version — it plans exactly
+        // the declared version, attributed to the manifest, so APPLY can verify
+        // the tag and publish idempotently.
+        let core = core_module();
+        let key = core.key();
+        let graph = Graph::build(vec![core.clone()], Vec::new()).unwrap();
+        let targets = rust_targets();
+
+        let maintainer = ReleaseConfig {
+            entrypoint: Some(toven_model::Entrypoint::Maintainer),
+            ..ReleaseConfig::default()
+        };
+        let mut settings = BTreeMap::new();
+        settings.insert(key.clone(), settings_for(&maintainer));
+
+        // The module carries the declared version even though change detection
+        // seeded it (the flow forces a maintainer-owned module in regardless of
+        // commits since the baseline).
+        let changed: BTreeSet<_> = std::iter::once(key).collect();
+        let baselines = BTreeMap::new();
+        let changelogs = BTreeMap::new();
+        let modules = vec![core];
+        let edges = Vec::new();
+        let overrides = BumpOverrides::new();
+
+        let entries = plan_entries(&BumpInputs {
+            graph: &graph,
+            modules: &modules,
+            edges: &edges,
+            changed: &changed,
+            baselines: &baselines,
+            changelogs: &changelogs,
+            settings: &settings,
+            targets: &targets,
+            branches: &no_branches(),
+            policy: BumpPolicy::SemverCascade,
+            overrides: &overrides,
+            intent: CutIntent::Mutate,
+        })
+        .unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].planned_version, Some(Version::new(0, 1, 0)));
+        assert_eq!(entries[0].reason, BumpReason::Manifest);
+        assert_eq!(entries[0].winning_input, BumpSource::Manifest);
+        assert!(entries[0].entrypoint.is_maintainer_owned());
     }
 
     #[test]

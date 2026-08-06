@@ -145,13 +145,19 @@ pub fn release_run(
     // The hosted-release phase runs after a pushing publish: it needs the pushed
     // tag on the forge to cut a Release against.
     if options.publish && !options.no_push {
-        let pushed_members = plan
+        // A member is hostable when its release tag is on the forge to cut a
+        // Release against. A Toven-owned member's tag is there only when Toven
+        // pushed it (`push` permits push); a maintainer-owned member's tag is
+        // created and pushed by the maintainer out of band, so it is hostable
+        // regardless of Toven's push policy — `maintainer_apply` already failed
+        // closed if the tag was absent.
+        let hostable_members = plan
             .entries
             .iter()
             .filter(|entry| {
-                settings
-                    .get(&entry.module)
-                    .is_some_and(|resolved| resolved.push.permits_push())
+                settings.get(&entry.module).is_some_and(|resolved| {
+                    resolved.entrypoint.is_maintainer_owned() || resolved.push.permits_push()
+                })
             })
             .map(|entry| entry.module.member.clone())
             .collect::<BTreeSet<_>>();
@@ -159,7 +165,7 @@ pub fn release_run(
             host::planned_host_releases(&plan, &context.federation.modules, &targets, &settings)?;
         let planned = planned
             .into_iter()
-            .filter(|entry| pushed_members.contains(&entry.member))
+            .filter(|entry| hostable_members.contains(&entry.member))
             .collect::<Vec<_>>();
         if !planned.is_empty() {
             let hosts = host::build_hosts(&settings)?;

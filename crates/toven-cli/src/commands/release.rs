@@ -29,7 +29,7 @@ use toven_engine_release::{
     release_plan, release_provenance, release_readiness, release_rehearse, release_run,
     release_sbom, release_sign, release_status, release_verify,
 };
-use toven_model::{Event, ModuleRef};
+use toven_model::{Entrypoint, Event, ModuleRef};
 use toven_ports::{BumpLevel, Provider, PublicationPolicy, Reporter, TaskIntent};
 
 use crate::flags::{Cli, OutputKind, ReleaseAction};
@@ -612,6 +612,8 @@ struct PlanRecord {
     publication: String,
     registry: Option<String>,
     publish_needed: bool,
+    entrypoint: String,
+    umbrella: bool,
     summary: String,
 }
 
@@ -631,6 +633,7 @@ fn render_plan_human(plan: &ReleasePlan) {
         "Level",
         "Reason",
         "Input",
+        "Flow",
         "Publication",
         "Publish",
         "Summary",
@@ -653,6 +656,7 @@ fn render_plan_human(plan: &ReleasePlan) {
             },
             entry.reason.as_str().to_string(),
             entry.winning_input.as_str().to_string(),
+            flow_label(entry.entrypoint, entry.umbrella),
             publication_label(&entry.publication),
             if entry.up_to_date {
                 "up to date".to_string()
@@ -687,6 +691,8 @@ fn render_plan_jsonl(plan: &ReleasePlan) -> AppResult<()> {
             publication: entry.publication.as_str().to_string(),
             registry: entry.publication.registry().map(str::to_string),
             publish_needed: entry.publish_needed,
+            entrypoint: entry.entrypoint.as_str().to_string(),
+            umbrella: entry.umbrella,
             summary: entry.changelog.summary.clone(),
         };
         let line = serde_json::to_string(&record).map_err(AppError::internal)?;
@@ -706,6 +712,8 @@ struct StatusRecord {
     host_forge: Option<String>,
     published_versions: Vec<String>,
     is_published: bool,
+    entrypoint: String,
+    maintainer_tag_present: Option<bool>,
 }
 
 fn render_status_human(status: &ReleaseStatus) {
@@ -715,6 +723,7 @@ fn render_status_human(status: &ReleaseStatus) {
         "Declared",
         "Latest tag",
         "Hosted on",
+        "Flow",
         "Published",
     ])
     .with_title("Release status");
@@ -725,6 +734,7 @@ fn render_status_human(status: &ReleaseStatus) {
             module.declared_version.to_string(),
             module.latest_tag.clone().unwrap_or_else(|| "-".to_string()),
             module.host_forge.clone().unwrap_or_else(|| "-".to_string()),
+            status_flow_label(module.entrypoint, module.maintainer_tag_present),
             if module.is_published { "yes" } else { "no" }.to_string(),
         ]);
     }
@@ -746,6 +756,8 @@ fn render_status_jsonl(status: &ReleaseStatus) -> AppResult<()> {
                 .map(ToString::to_string)
                 .collect(),
             is_published: module.is_published,
+            entrypoint: module.entrypoint.as_str().to_string(),
+            maintainer_tag_present: module.maintainer_tag_present,
         };
         let line = serde_json::to_string(&record).map_err(AppError::internal)?;
         println!("{line}");
@@ -867,6 +879,29 @@ fn publication_label(publication: &PublicationPolicy) -> String {
         || publication.as_str().to_string(),
         |registry| format!("{} ({registry})", publication.as_str()),
     )
+}
+
+/// Human label for a plan entry's release flow: the entrypoint that cuts the
+/// release, with an `umbrella` marker for an aggregate module that fronts a
+/// shared hosted Release.
+fn flow_label(entrypoint: Entrypoint, umbrella: bool) -> String {
+    if umbrella {
+        format!("{} · umbrella", entrypoint.as_str())
+    } else {
+        entrypoint.as_str().to_string()
+    }
+}
+
+/// Human label for a module's release flow in `release status`. For a
+/// maintainer-owned module it surfaces whether the maintainer's release tag for
+/// the declared version is already present — a fail-closed readiness signal
+/// (`tag missing` means Toven cannot yet publish against it).
+fn status_flow_label(entrypoint: Entrypoint, maintainer_tag_present: Option<bool>) -> String {
+    match maintainer_tag_present {
+        Some(true) => format!("{} (tag ready)", entrypoint.as_str()),
+        Some(false) => format!("{} (tag missing)", entrypoint.as_str()),
+        None => entrypoint.as_str().to_string(),
+    }
 }
 
 /// A stable JSON-lines record for one readiness check.

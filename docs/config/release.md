@@ -80,6 +80,8 @@ post = ["docs-build"]
 | `registry` | Registry selection for Rust crate publication: `crates-io` (cargo's default) or a named alternate cargo registry; invalid for Go | No registry, tag-only |
 | `publish` | `false` selects tag-only publication; in a per-module block it also narrows an inherited registry to tag-only | Inherit / registry-driven |
 | `exclude` | Exclude the module from release planning, tagging, registry publication, and hosted releases | `false` |
+| `entrypoint` | Who cuts the release: `toven` (the default — Toven bumps, tags, pushes, and publishes) or `maintainer` (a human already created the tag and hosted Release in the forge; Toven verifies that tag, publishes, and attaches assets against it, mutating nothing) | `toven` |
+| `umbrella` | Mark the module as its train's aggregate representative: it fronts a single hosted Release that aggregates its members' notes, while the members keep independent versions/tags and publish to their registries but cut no individual forge Release. Invalid on an excluded module | `false` |
 | `offline` | Use tags rather than target queries for idempotency; `release status` skips registry lookups too | `false` |
 | `token_env` | Name of the environment variable holding the registry publish token. The publishing adapter reads it at the toolchain boundary and forwards the credential to cargo on the child process (never on argv) under the registry's own variable — `CARGO_REGISTRY_TOKEN` for crates.io, or `CARGO_REGISTRIES_<NAME>_TOKEN` for a named alternate registry; a configured-but-absent variable fails the publish closed. `None` uses the toolchain's ambient credential | None |
 | `visibility` | Requested exposure of the release: `public`, `private`, or `internal`. Enforced fail-closed at the registry-publish boundary: a non-public visibility against a public-only registry (crates.io) is rejected at plan time, and the registry adapter enforces the same rule as a last line of defense. The tag push and hosted forge Release follow the remote repository's own exposure | `public` |
@@ -257,6 +259,18 @@ sign = true                        # cosign-sign the pushed digest, keyless (def
 `name` and `tag` are templates over the same `{version}`/`{ecosystem}`/`{module}`/`{channel}` vocabulary as `tag_format`, validated at config time so a typo like `{verison}` fails the load. `context` and `dockerfile` must be safe project-relative paths (traversal is rejected). Image publication is immutable: pushing a tag that already exists at a different digest fails closed, and recovery is a forward-fix version. Registry credentials are read from the ambient environment only and never placed on argv or logged.
 
 `provenance` needs no config block — [`toven release provenance`](../commands/release.md#container-images-and-provenance) attests over exactly the published subjects: the entries of the declared `host.assets` `SHA256SUMS` manifest and the live digest of every pushed `[…release.image]` reference. A release may declare a manifest, an image, or both; it fails closed when neither is declared.
+
+## Entrypoint flows: Toven-owned and maintainer-owned
+
+The `entrypoint` axis models *who cuts the release*. In the default **Toven-owned** flow Toven runs the whole flow — it bumps versions, writes the release commit, creates and pushes the tag, publishes to the registry, and cuts the hosted Release.
+
+In the **maintainer-owned** flow (`entrypoint = "maintainer"`) a human creates the release tag and hosted Release in the forge first — the GitHub `release: published` pattern — and CI then runs Toven against that existing tag/Release. Here the tag is an **input, not a mutation**: Toven verifies every planned tag already exists for the version the manifest declares, fails closed when one is absent or diverges, and then runs only publish + attach + provenance. It mutates no manifest, creates no release commit, and never creates or moves the tag — the version/CHANGELOG decision already merged out of band (via `release bump`). Because the manifest already declares the released version, planning neither computes nor moves it: it plans exactly the declared version so registry idempotency decides whether the publish is still needed, and the hosted phase completes through the same immutable create-or-verify path as a Toven-owned run.
+
+`release plan` and `release status` surface the entrypoint of every module, and for a maintainer-owned module `release status` reports whether the required release tag for the declared version is already present — a fail-closed preview that the flow is not yet ready when the maintainer has not cut the tag.
+
+## Umbrella trains
+
+An `umbrella = true` module is its train's aggregate representative: it fronts a single hosted `vX.Y.Z` Release whose notes aggregate every member's changelog, while the member crates keep their own independent versions and per-crate tags and publish to their registries — but cut no individual forge Release of their own. This lets a workspace of independently versioned registry crates coexist with one human-created aggregate Release: each crate advances on its own baseline for registry idempotency, and the umbrella module owns the single Release that collects their notes. A member declaring two umbrella modules is a fail-closed configuration error.
 
 ## Release phases and backing
 
