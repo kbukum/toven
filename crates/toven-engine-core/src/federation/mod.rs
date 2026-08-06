@@ -30,12 +30,12 @@
 pub mod baseline;
 pub mod compose;
 pub mod identity;
+pub mod member_repo;
 pub mod members;
 pub mod project;
 pub mod protocol;
 pub mod provision;
 pub mod rebase;
-pub mod member_repo;
 pub mod remote;
 pub mod resolve;
 pub mod serve;

@@ -27,9 +27,9 @@ use toven_ports::{
 };
 
 use crate::apply::{ApplyOptions, apply};
+use crate::output::UnitOutputChannel;
 use toven_engine_core::config::Document;
 use toven_engine_core::federation::baseline::MemberVcsReaders;
-use crate::output::UnitOutputChannel;
 use toven_engine_core::plan::{PlanHost, PlanRequest, Selection, plan};
 
 use toven_ports::{CacheStore, CacheWriter, RawOutputSink};

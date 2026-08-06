@@ -13,8 +13,8 @@ use toven_model::{AbsPath, MemberId, WorkspaceId};
 use toven_ports::{BaselineSpec, ChangeRecord, VcsReader};
 
 use crate::federation::compose::{ComposedFederation, ComposedMember};
-use crate::federation::rebase::member_prefix;
 use crate::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
+use crate::federation::rebase::member_prefix;
 use crate::vcs::{BaselineFlags, BaselineStrategy, VcsReaderSet, rebase_records};
 
 /// Resolved baseline specs keyed by member.

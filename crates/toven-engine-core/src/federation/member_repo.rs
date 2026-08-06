@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use toven_model::MemberId;
 use toven_ports::{VcsReader, VcsWriter};
 
-
 /// One member repo's release VCS ports.
 pub struct MemberReleaseRepo<'a> {
     member: Option<MemberId>,

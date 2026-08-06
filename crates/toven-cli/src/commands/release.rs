@@ -18,6 +18,7 @@ use rskit_errors::{AppError, AppResult};
 use rskit_version::semver::Version;
 use serde::Serialize;
 use toven_engine_core::plan::PlanRequest;
+use toven_engine_core::vcs::BaselineFlags;
 use toven_engine_release::{
     BumpOptions, BumpOverrides, BumpReport, ChecksumReport, CosignSigner, CosignVerifier,
     DepgraphReport, GhAssetDownloader, PackageReport, ProcessVersionProbe, PublishDecision,
@@ -26,7 +27,6 @@ use toven_engine_release::{
     release_package, release_plan, release_readiness, release_rehearse, release_run, release_sbom,
     release_sign, release_status, release_verify,
 };
-use toven_engine_core::vcs::BaselineFlags;
 use toven_model::{Event, ModuleRef};
 use toven_ports::{BumpLevel, Provider, PublicationPolicy, Reporter, TaskIntent};
 

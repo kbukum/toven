@@ -91,10 +91,7 @@ impl MemberAdapters {
 /// Propagates a provider's `configure` failure, or a subtree that cannot be
 /// converted into the TOML value the provider expects.
 #[allow(clippy::redundant_pub_crate)]
-pub fn configure(
-    document: &Document,
-    providers: &[&dyn Provider],
-) -> AppResult<ConfiguredSet> {
+pub fn configure(document: &Document, providers: &[&dyn Provider]) -> AppResult<ConfiguredSet> {
     let mut by_id: BTreeMap<&EcosystemId, &&dyn Provider> = BTreeMap::new();
     for provider in providers {
         if by_id.insert(provider.ecosystem_id(), provider).is_some() {
