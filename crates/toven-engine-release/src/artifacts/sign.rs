@@ -19,7 +19,7 @@ use std::time::Duration;
 use rskit_errors::{AppError, AppResult};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir::create_all;
-use rskit_fs::sync_io::file::exists as file_exists;
+use rskit_fs::sync_io::file::{exists as file_exists, remove_if_exists};
 use rskit_process::{CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessSpec, run};
 use toven_model::ReleasePhase;
 use toven_ports::{DelegatedPhase, DelegatedTool, Provider, Reporter, Signer};
@@ -159,6 +159,14 @@ pub fn release_sign(
     // delegated backing is dispatched through the runner, native cosign
     // otherwise.
     if let Some(tool) = resolve_sign_delegation(&settings)? {
+        // Clear the declared sidecars before the tool runs, so the post-preview
+        // existence check proves *this* run produced them. Without this, stale
+        // `.sig`/`.pem` files from a previous attempt plus a tool that exits 0
+        // without rewriting would be accepted, silently reusing a stale
+        // signature over the manifest.
+        for path in [&signature_path, &certificate_path] {
+            remove_if_exists(path)?;
+        }
         run_delegated_preview(ReleasePhase::Sign, &tool, delegated, project_root)?;
         for (path, asset) in [
             (&signature_path, signature),
@@ -746,6 +754,35 @@ mod tests {
         );
         // The delegated tool was never invoked — no preview over a missing manifest.
         assert!(runner.requests().is_empty());
+    }
+
+    #[test]
+    fn delegated_sign_fails_closed_on_a_stale_sidecar_the_tool_did_not_rewrite() {
+        let root = TempDir::new().unwrap();
+        write_manifest(root.path());
+        // Stale sidecars from a previous attempt sit on disk...
+        let dist = root.path().join("dist");
+        std::fs::write(dist.join("SHA256SUMS.sig"), b"stale-sig").unwrap();
+        std::fs::write(dist.join("SHA256SUMS.pem"), b"stale-cert").unwrap();
+        // ...and the tool exits 0 but writes nothing (no `with_produced_file`).
+        let runner = FakeDelegatedPhase::new();
+        let provider = delegated_sign_provider();
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let signer = FakeSigner::default();
+        let mut reporter = RecordingReporter::new();
+
+        let error = release_sign(
+            &request(root.path()),
+            &document(),
+            &providers,
+            &signer,
+            &runner,
+            &mut reporter,
+        )
+        .expect_err("a stale sidecar the tool did not rewrite must fail closed");
+        // The stale files were cleared before the preview, so the post-run
+        // existence check fails closed instead of reusing them.
+        assert!(error.to_string().contains("did not produce"), "{error}");
     }
 
     #[test]

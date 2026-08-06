@@ -24,7 +24,7 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::archive::{self, ArchiveEntry};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir::create_all;
-use rskit_fs::sync_io::file::exists as file_exists;
+use rskit_fs::sync_io::file::{exists as file_exists, remove_if_exists};
 use toven_model::ReleasePhase;
 use toven_ports::{DelegatedPhase, Provider, Reporter};
 
@@ -176,6 +176,15 @@ pub fn release_package(
     }
 
     let project_root = request.project_root.as_path();
+    // Clear each delegated owner's declared archive before its tool runs, so the
+    // post-preview existence check proves *this* run produced it. Without this, a
+    // stale archive from a prior run plus a tool that exits 0 without rewriting
+    // would be silently accepted — undermining the fail-closed guarantee.
+    for owner in &matched {
+        if matches!(owner.backing, AssetBacking::Delegated(_)) {
+            remove_if_exists(&safe_join_asset(project_root, owner.asset)?)?;
+        }
+    }
     // Run each distinct delegated tool's preview once — a single preview (e.g.
     // GoReleaser's `--snapshot`) produces every archive that tool owns, so
     // re-running it per matched asset would repeat a multi-minute build. Dedup
@@ -293,13 +302,7 @@ fn package_asset_delegated(
     asset: &str,
     format: ArchiveFormat,
 ) -> AppResult<PackagedAsset> {
-    let out = safe_join(project_root, asset).map_err(|error| {
-        AppError::invalid_input(
-            "release.host.assets",
-            format!("asset '{asset}' is not a safe project-relative path"),
-        )
-        .with_cause(error)
-    })?;
+    let out = safe_join_asset(project_root, asset)?;
     if !file_exists(&out)? {
         return Err(AppError::invalid_input(
             "release.package.delegated",
@@ -375,13 +378,7 @@ fn package_asset_native(
         ));
     }
 
-    let out = safe_join(project_root, asset).map_err(|error| {
-        AppError::invalid_input(
-            "release.host.assets",
-            format!("asset '{asset}' is not a safe project-relative path"),
-        )
-        .with_cause(error)
-    })?;
+    let out = safe_join_asset(project_root, asset)?;
     if let Some(parent) = out.parent() {
         create_all(parent)?;
     }
@@ -413,6 +410,18 @@ fn package_asset_native(
 /// The final path component of a project-relative asset path.
 fn asset_file_name(asset: &str) -> Option<&str> {
     Path::new(asset).file_name().and_then(|name| name.to_str())
+}
+
+/// Resolve a declared asset to its safe absolute path under `project_root`,
+/// rejecting a path that would traverse outside the project.
+fn safe_join_asset(project_root: &Path, asset: &str) -> AppResult<PathBuf> {
+    safe_join(project_root, asset).map_err(|error| {
+        AppError::invalid_input(
+            "release.host.assets",
+            format!("asset '{asset}' is not a safe project-relative path"),
+        )
+        .with_cause(error)
+    })
 }
 
 /// Reject a target triple that is empty or carries any character outside the
@@ -665,6 +674,35 @@ mod tests {
             &mut reporter,
         )
         .expect_err("a delegated tool that produced no archive must fail closed");
+        assert!(error.to_string().contains("did not produce"), "{error}");
+    }
+
+    #[test]
+    fn delegated_package_fails_closed_on_a_stale_archive_the_tool_did_not_rewrite() {
+        let root = TempDir::new().unwrap();
+        let asset_rel = "dist/toven-x86_64-unknown-linux-gnu.tar.gz";
+        // A stale archive from a prior run sits on disk...
+        let stale = root.path().join(asset_rel);
+        std::fs::create_dir_all(stale.parent().unwrap()).unwrap();
+        std::fs::write(&stale, b"stale-archive-bytes").unwrap();
+        // ...and the tool exits 0 but writes nothing (no `with_produced_file`).
+        let runner = FakeDelegatedPhase::new();
+        let provider = provider_with_delegated_package(vec![asset_rel]);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let mut reporter = RecordingReporter::new();
+
+        let error = release_package(
+            &request(root.path()),
+            &document(),
+            &providers,
+            LINUX,
+            None,
+            &runner,
+            &mut reporter,
+        )
+        .expect_err("a stale archive the tool did not rewrite must fail closed");
+        // The stale archive was cleared before the preview, so the post-run
+        // existence check fails closed instead of reusing it.
         assert!(error.to_string().contains("did not produce"), "{error}");
     }
 
