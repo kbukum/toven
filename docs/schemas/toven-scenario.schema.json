@@ -14,7 +14,7 @@
     "requires": {
       "type": "array",
       "description": "Toolchain gates; empty or omitted means planning-only.",
-      "items": { "enum": ["cargo", "go", "cargo-cyclonedx"] }
+      "items": { "enum": ["cargo", "go", "cargo-cyclonedx", "cyclonedx-gomod"] }
     },
     "env": {
       "type": "object",
@@ -100,7 +100,7 @@
           "requires": {
             "type": "array",
             "description": "Per-step toolchain gates; a step whose toolchain is absent is skipped green and later steps still run.",
-            "items": { "enum": ["cargo", "go", "cargo-cyclonedx"] }
+            "items": { "enum": ["cargo", "go", "cargo-cyclonedx", "cyclonedx-gomod"] }
           },
           "stdout": { "$ref": "#/definitions/stream" },
           "stderr": { "$ref": "#/definitions/stream" },

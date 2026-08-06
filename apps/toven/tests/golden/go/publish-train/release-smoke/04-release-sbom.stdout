@@ -1,6 +1,8 @@
 
 Release SBOM artifacts
-┌────────┬──────────┐
-│ Module │ Artifact │
-├────────┼──────────┤
-└────────┴──────────┘
+┌──────────┬─────────────────────────┐
+│ Module   │ Artifact                │
+├──────────┼─────────────────────────┤
+│ go:core  │ out/sbom/core.cdx.json  │
+│ go:train │ out/sbom/train.cdx.json │
+└──────────┴─────────────────────────┘

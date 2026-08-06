@@ -40,6 +40,9 @@ pub enum Requires {
     /// The `cargo-cyclonedx` SBOM plugin, probed as a binary on `PATH`.
     #[serde(rename = "cargo-cyclonedx")]
     CargoCyclonedx,
+    /// The `cyclonedx-gomod` SBOM tool, probed as a binary on `PATH`.
+    #[serde(rename = "cyclonedx-gomod")]
+    CyclonedxGomod,
 }
 
 impl Requires {
@@ -50,6 +53,7 @@ impl Requires {
             Self::Cargo => "cargo",
             Self::Go => "go",
             Self::CargoCyclonedx => "cargo-cyclonedx",
+            Self::CyclonedxGomod => "cyclonedx-gomod",
         }
     }
 }

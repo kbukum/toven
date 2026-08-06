@@ -23,10 +23,11 @@ steps:
     exit: 2
     stderr: { match: normalized }
   - id: 04-dirty-tree-artifact
-    argv: [release, sbom, --out-dir, out/sbom]
-    # The rust adapter shells out to the cargo-cyclonedx plugin; runners
-    # without it skip just this step green.
-    requires: [cargo-cyclonedx]
+    # `depgraphs` needs no external toolchain, so it always writes an artifact
+    # and dirties the tree — the precondition the readiness step below asserts.
+    # (`sbom` would gate on cargo-cyclonedx and skip on runners without it,
+    # leaving the tree clean and the readiness rejection unexercised.)
+    argv: [release, depgraphs, --out-dir, out/depgraphs]
     stdout: { match: normalized }
   - id: 05-dirty-tree-readiness-rejected
     argv: [release, readiness]
