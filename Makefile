@@ -15,12 +15,18 @@ export NEXTEST_PROFILE ?= default
 # binary for speed with `make TOVEN=toven check`.
 TOVEN ?= cargo run --quiet --locked -p toven --
 
-.PHONY: check doctor fmt fmt-check lint test test-nextest doctest structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark golden bless verify-release-platform-filter release-dry-run release-plan act-ci act-supply-chain act-release-readiness
+.PHONY: check doctor fmt fmt-check lint test test-nextest doctest structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark golden bless verify-release-platform-filter release-dry-run release-plan act-ci act-supply-chain act-release-readiness check-static
 
 # Canonical local/CI gate for the virtual workspace. Every non-exempt gate
 # resolves through Toven (see the tmp/toven-self-application plan); `fmt-check`
 # is the one documented native exception (a single fast workspace rustfmt pass).
-check: fmt-check lint test structure doc deny verify-release-platform-filter release-dry-run
+check: check-static test
+
+# The non-test half of `check`: every gate except the nextest/doctest suite. CI
+# runs this per toolchain while sharding the nextest suite across runners with
+# `cargo nextest ... --partition`; locally `make check` still runs the identical
+# set of gates via the `check -> check-static + test` composition.
+check-static: fmt-check lint structure doc deny verify-release-platform-filter release-dry-run
 
 # Whole-graph tool audit: report every tool the resolved task graph needs and
 # fail closed if any is missing (never installs). This is the single source of

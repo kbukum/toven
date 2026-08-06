@@ -25,9 +25,11 @@ When a shared capability is missing, improve rskit generically. Do not make rski
 | Module identity and dependency graph | `toven-model` |
 | Task and release vocabulary | `toven-model` and `toven-ports` |
 | Port traits | `toven-ports` |
-| Strict `toven.toml` document loading | `toven-engine` |
-| Planning, scheduling, affected selection, cache coordination | `toven-engine` |
-| Keyless release signing/verification policy (cosign orchestration) | `toven-engine` |
+| Strict `toven.toml` document loading | `toven-engine-core` |
+| PLAN spine, VCS seam, and federation-core (resolve/baseline/compose) | `toven-engine-core` |
+| Scheduling, affected selection, apply, cache coordination, coverage | `toven-engine` |
+| Release orchestration (bump, changelog, packaging, SBOM, hosted publishing) | `toven-engine-release` |
+| Keyless release signing/verification policy (cosign orchestration) | `toven-engine-release` |
 | Rust ecosystem behavior | `toven-rust` |
 | Go ecosystem behavior | `toven-go` |
 | CLI parsing and user-facing output | `toven-cli` |

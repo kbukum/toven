@@ -14,9 +14,9 @@ use std::sync::Arc;
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_util::time::{Clock, FixedClock, SharedClock, system_clock};
 use toven_engine::cache;
-use toven_engine::config::{CanonicalRegistry, Document, ReportFormat, load};
-use toven_engine::federation::{OpenMemberVcsReaders, open_project_vcs};
-use toven_engine::vcs::BaselineFlags;
+use toven_engine_core::config::{CanonicalRegistry, Document, ReportFormat, load};
+use toven_engine_core::federation::{OpenMemberVcsReaders, open_project_vcs};
+use toven_engine_core::vcs::BaselineFlags;
 use toven_model::AbsPath;
 use toven_ports::Provider;
 

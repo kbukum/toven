@@ -15,12 +15,12 @@ use std::collections::BTreeSet;
 
 use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult};
-use toven_engine::federation::resolve::PathDriverLocator;
-use toven_engine::plan::{
+use toven_engine_core::federation::resolve::PathDriverLocator;
+use toven_engine_core::plan::{
     CacheMode, FocusedPlan, FsSourceDigest, NullCache, PlanHost, PlanRequest,
     ProcessToolchainProber, Selection, dependency_graph, plan_focused,
 };
-use toven_engine::vcs::BaselineFlags;
+use toven_engine_core::vcs::BaselineFlags;
 use toven_model::{Event, ExecutionUnit, Graph, ModuleKey, Plan};
 use toven_ports::{Provider, Reporter, TaskIntent};
 

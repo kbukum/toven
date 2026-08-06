@@ -16,7 +16,7 @@ Each skill is a folder with a `SKILL.md` (YAML frontmatter + workflow) and optio
 | [`create-pr`](create-pr/SKILL.md) | Open a reviewer-friendly PR — high-level summary, honest template sections, bound to the baseline. |
 | [`fix-reviews`](fix-reviews/SKILL.md) | Act on PR review comments by pattern — fix every instance across the change set, then commit and resolve the threads. |
 | [`validate`](validate/SKILL.md) | Build/test/lint/format/doc/deny a change through cargo/make, scoped to the affected crates. |
-| [`review`](review/SKILL.md) | Run the eight-pass engineering-baseline review over a diff, crate, or the tree. |
+| [`review`](review/SKILL.md) | Run the nine-pass engineering-baseline review over a diff, crate, or the tree. |
 | [`new-crate`](new-crate/SKILL.md) | Scaffold a new crate — hexagonal layer placement, port rule, workspace wiring, testkit double. |
 | [`rskit-reuse`](rskit-reuse/SKILL.md) | Reuse the vendored rskit foundation for shared concerns; improve rskit generically instead of forking Toven-local copies. |
 | [`release`](release/SKILL.md) | Cut a release — semver bump, CHANGELOG, workspace version, full gates, then tag so CI ships the signed source artifact, SBOM, and provenance (no crates.io publish). |
@@ -25,6 +25,7 @@ Each skill is a folder with a `SKILL.md` (YAML frontmatter + workflow) and optio
 ## Conventions
 
 - Skills are discoverable in Copilot CLI via `/skills`; project skills live under `.github/skills/` (also `.claude/skills` / `.agents/skills` are honored), personal skills under `~/.copilot/skills`.
+- Claude Code slash commands under [`.claude/commands/`](../../.claude/commands/) are **thin routers** to these skills — each `/<name>` points at `.github/skills/<name>/SKILL.md`, which is the single source of truth. Edit the `SKILL.md`, never the router body.
 - Run reviews (`review`) in a **fresh, clean-context agent**, never inline in the session that wrote the code.
 - Validation is scoped to the changed crates: prefer `cargo clippy -p <crate>` / `cargo test -p <crate>` and targeted `make` gates over blanket `--workspace` runs.
 - Initialize the rskit submodule before building or validating: `git submodule update --init --recursive`.

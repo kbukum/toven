@@ -15,11 +15,11 @@ use rskit_cli::{ExitCode, Palette, on_ctrl_c};
 use rskit_errors::{AppError, AppResult};
 use toven_engine::apply::{ApplyOptions, ProcessCommandRunner};
 use toven_engine::cache::FsContentCache;
-use toven_engine::config::ViewMode;
-use toven_engine::federation::MemberVcsReaders;
 use toven_engine::output::UnitOutputChannel;
-use toven_engine::plan::PlanRequest;
 use toven_engine::watch::{RskitFsWatch, WatchSession};
+use toven_engine_core::config::ViewMode;
+use toven_engine_core::federation::MemberVcsReaders;
+use toven_engine_core::plan::PlanRequest;
 use toven_ports::{CommandRunner, Provider, Reporter, SourceDigest, ToolchainProber};
 
 use crate::host::Project;

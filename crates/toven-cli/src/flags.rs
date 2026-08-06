@@ -15,7 +15,7 @@ use std::time::Duration;
 use clap::{Parser, Subcommand, ValueEnum};
 use rskit_errors::{AppError, AppResult};
 use rskit_util::time::parse_duration;
-use toven_engine::vcs::BaselineFlags;
+use toven_engine_core::vcs::BaselineFlags;
 
 /// Default trailing-edge debounce window (ms) for `--watch` when
 /// `--watch-debounce-ms` is not given.
@@ -276,7 +276,7 @@ pub enum OutputKind {
 
 /// How live per-unit output is rendered on a terminal, selected by `--view`.
 ///
-/// Mirrors the engine's [`ViewMode`](toven_engine::config::ViewMode) so a flag
+/// Mirrors the engine's [`ViewMode`](toven_engine_core::config::ViewMode) so a flag
 /// and the `[toven].view` document setting resolve to the same rendering; the
 /// flag wins when both are present.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -294,7 +294,7 @@ pub enum ViewMode {
     Stream,
 }
 
-impl From<ViewMode> for toven_engine::config::ViewMode {
+impl From<ViewMode> for toven_engine_core::config::ViewMode {
     fn from(view: ViewMode) -> Self {
         match view {
             ViewMode::Auto => Self::Auto,

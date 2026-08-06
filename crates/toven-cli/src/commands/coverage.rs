@@ -14,11 +14,11 @@
 use rskit_cli::{ExitCode, OutputTable};
 use rskit_errors::{AppError, AppResult};
 use serde::Serialize;
-use toven_engine::config::ViewMode;
 use toven_engine::coverage::{
     COVERAGE_DIR, CoverageOverrides, CoverageReport, ModuleCoverage, coverage_report,
 };
-use toven_engine::plan::PlanRequest;
+use toven_engine_core::config::ViewMode;
+use toven_engine_core::plan::PlanRequest;
 use toven_model::Event;
 use toven_ports::{Provider, Reporter, TaskIntent};
 

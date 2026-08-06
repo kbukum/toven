@@ -10,12 +10,12 @@ use std::time::Duration;
 
 use common::eid;
 use toven_engine::apply::ApplyOptions;
-use toven_engine::config::{Document, ProjectConfig, TovenConfig};
-use toven_engine::federation::MemberVcsReaders;
-use toven_engine::federation::baseline::MemberVcsReader;
 use toven_engine::output::UnitOutputChannel;
-use toven_engine::plan::{PlanRequest, Selection};
 use toven_engine::watch::WatchSession;
+use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
+use toven_engine_core::federation::MemberVcsReaders;
+use toven_engine_core::federation::baseline::MemberVcsReader;
+use toven_engine_core::plan::{PlanRequest, Selection};
 use toven_model::{
     AbsPath, DepKind, Edge, Event, MemberId, Module, ModuleRef, RepoPath, ToolchainTag, Workspace,
     WorkspaceId,

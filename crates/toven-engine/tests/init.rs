@@ -17,10 +17,10 @@ use common::eid;
 use rskit_fs::TempDir;
 use rskit_fs::sync_io::file::{read_string, write};
 use toml::{Table, Value};
-use toven_engine::config::{CanonicalRegistry, load};
-use toven_engine::federation::MemberVcsReaders;
 use toven_engine::init::init_with;
-use toven_engine::plan::{NullCache, PlanHost, PlanRequest, plan};
+use toven_engine_core::config::{CanonicalRegistry, load};
+use toven_engine_core::federation::MemberVcsReaders;
+use toven_engine_core::plan::{NullCache, PlanHost, PlanRequest, plan};
 use toven_model::{
     AbsPath, DepKind, Edge, Module, ModuleRef, RepoPath, ToolchainTag, Workspace, WorkspaceId,
 };

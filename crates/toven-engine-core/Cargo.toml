@@ -1,0 +1,38 @@
+[package]
+name = "toven-engine-core"
+description = "Toven engine core — the shared PLAN foundation (strict config Document, VCS seam, PLAN spine, umbrella federation) below the engine and release crates"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+toven-model.workspace = true
+toven-ports.workspace = true
+rskit-errors.workspace = true
+rskit-fs.workspace = true
+rskit-git.workspace = true
+rskit-process.workspace = true
+rskit-validation.workspace = true
+rskit-config.workspace = true
+rskit-codec.workspace = true
+rskit-util.workspace = true
+rskit-version.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+
+[features]
+# Statically link a source-built OpenSSL into rskit-git's embedded git2
+# backend, for portable and cross-compiled release builds. Off by default.
+vendored-openssl = ["rskit-git/vendored-openssl"]
+
+[dev-dependencies]
+toven-testkit.workspace = true
+rskit-util.workspace = true
+
+[lints]
+workspace = true
