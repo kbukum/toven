@@ -115,7 +115,7 @@ fn detect_member(
         // since its baseline: the maintainer already cut the tag/Release at the
         // declared manifest version, so planning must reach it to verify that tag
         // and publish idempotently against it — change detection does not gate a
-        // flow whose version decision already merged out of band (step 03).
+        // flow whose version decision already merged out of band via `release bump`.
         if seeds.contains(&module.key()) || resolved.entrypoint.is_maintainer_owned() {
             changes.changed.insert(module.key());
             changes.records.insert(

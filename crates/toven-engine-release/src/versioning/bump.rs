@@ -301,8 +301,8 @@ pub(crate) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
 
 /// Resolve the bump decision for a maintainer-owned module: plan exactly the
 /// version its manifest already declares against the tag/Release a maintainer
-/// created out of band (the version decision merged through `release bump`, step
-/// 03). APPLY verifies the maintainer's tag matches this version and publishes,
+/// created out of band (the version decision already merged through `release
+/// bump`). APPLY verifies the maintainer's tag matches this version and publishes,
 /// and registry idempotency decides whether that publish is still needed.
 fn maintainer_decision(
     input: &BumpInputs<'_>,
