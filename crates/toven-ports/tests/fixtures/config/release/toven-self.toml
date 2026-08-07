@@ -1,0 +1,16 @@
+# Toven-self: one shared tag train for a multi-target binary release.
+[project]
+name = "toven"
+
+[ecosystems.rust.release]
+tag_format = "v{version}"
+publish = false
+offline = true
+
+[ecosystems.rust.release.host]
+forge = "github"
+assets = ["dist/toven-x86_64-unknown-linux-gnu.tar.gz", "dist/SHA256SUMS"]
+
+[ecosystems.rust.release.sign]
+enabled = true
+

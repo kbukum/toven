@@ -1,0 +1,16 @@
+# Image service: one image, a primary registry, a mirror, signing, and SLSA.
+[project]
+name = "api"
+
+[ecosystems.command.release]
+offline = true
+
+[modules."command:api".release.image]
+registry = "ghcr.io/acme"
+mirrors = ["docker.io/acme"]
+name = "api"
+tag = "{version}"
+context = "services/api"
+dockerfile = "services/api/Dockerfile"
+sign = true
+

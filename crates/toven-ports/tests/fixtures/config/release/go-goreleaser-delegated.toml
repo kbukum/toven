@@ -1,0 +1,28 @@
+# Go binary flow with GoReleaser-backed artifact phases.
+[project]
+name = "gokit"
+
+[ecosystems.go.release]
+tag_format = "{module}/v{version}"
+publish = false
+offline = true
+
+[ecosystems.go.release.host]
+forge = "github"
+assets = ["dist/gokit-x86_64-unknown-linux-gnu.tar.gz", "dist/SHA256SUMS"]
+
+[ecosystems.go.release.phases.package]
+backing = "delegated"
+
+[ecosystems.go.release.phases.package.delegated]
+tool = "goreleaser"
+args = ["release", "--clean"]
+preview = ["release", "--snapshot", "--clean"]
+
+[ecosystems.go.release.phases.sign]
+backing = "delegated"
+
+[ecosystems.go.release.phases.sign.delegated]
+tool = "goreleaser"
+args = ["release", "--clean"]
+preview = ["release", "--snapshot", "--clean"]

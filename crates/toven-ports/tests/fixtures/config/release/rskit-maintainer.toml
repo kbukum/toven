@@ -1,0 +1,24 @@
+# rskit: independent registry crates under a maintainer-created Release.
+[project]
+name = "rskit"
+
+[ecosystems.rust.release]
+entrypoint = "maintainer"
+registry = "crates-io"
+offline = true
+
+[modules."rust:core".release]
+tag_format = "core/v{version}"
+
+[modules."rust:contrib".release]
+tag_format = "contrib/v{version}"
+
+[modules."rust:examples".release]
+exclude = true
+
+[modules."rust:fuzz".release]
+exclude = true
+
+[modules."rust:rskit-suite".release]
+umbrella = true
+
