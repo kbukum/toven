@@ -1,0 +1,13 @@
+# Go binary flow with Toven-native artifact phases.
+[project]
+name = "gokit"
+
+[ecosystems.go.release]
+tag_format = "{module}/v{version}"
+publish = false
+offline = true
+
+[ecosystems.go.release.host]
+forge = "github"
+assets = ["dist/gokit-x86_64-unknown-linux-gnu.tar.gz", "dist/SHA256SUMS"]
+

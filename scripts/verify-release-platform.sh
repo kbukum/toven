@@ -6,7 +6,11 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
 
-echo "verify-release-platform: running release fixture matrix (Rust + Go)" >&2
+echo "verify-release-platform: running release engine and fixture matrix" >&2
+cargo test --locked -p toven-engine-release
+cargo test --locked -p toven-ports --test release_fixture_matrix
+
+echo "verify-release-platform: running CLI release scenarios (Rust + Go)" >&2
 filter="${TOVEN_RELEASE_SCENARIO_FILTER:-publish-train/release-}"
 status=0
 output="$(cargo test --locked -p toven --test golden -- "${filter}" 2>&1)" || status=$?
