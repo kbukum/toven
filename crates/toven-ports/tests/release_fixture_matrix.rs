@@ -21,17 +21,35 @@ const CASES: &[(&str, &str)] = &[
 
 fn fixture(name: &str) -> &'static str {
     match name {
-        "toven-self.toml" => include_str!("fixtures/config/release/toven-self.toml"),
+        "toven-self.toml" => include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/config/release/toven-self.toml"
+        )),
         "rskit-maintainer.toml" => {
-            include_str!("fixtures/config/release/rskit-maintainer.toml")
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/config/release/rskit-maintainer.toml"
+            ))
         }
         "mixed-lib-binary.toml" => {
-            include_str!("fixtures/config/release/mixed-lib-binary.toml")
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/config/release/mixed-lib-binary.toml"
+            ))
         }
-        "image-service.toml" => include_str!("fixtures/config/release/image-service.toml"),
-        "go-native.toml" => include_str!("fixtures/config/release/go-native.toml"),
+        "image-service.toml" => include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/config/release/image-service.toml"
+        )),
+        "go-native.toml" => include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/config/release/go-native.toml"
+        )),
         "go-goreleaser-delegated.toml" => {
-            include_str!("fixtures/config/release/go-goreleaser-delegated.toml")
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/config/release/go-goreleaser-delegated.toml"
+            ))
         }
         _ => panic!("unknown release fixture: {name}"),
     }
