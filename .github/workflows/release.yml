@@ -256,15 +256,23 @@ jobs:
           set -eo pipefail
           cargo run --locked -p toven -- release publish --yes --output jsonl | tee release-publish.jsonl
 
-      # Provenance is attached only to artifacts that were actually approved and
-      # published, and covers the exact published file set: `SHA256SUMS` lists
-      # every archive and the SBOM, so attesting its subjects attests them all.
-      # Driven through Toven's own `release provenance` verb (argv-only over
-      # `gh attestation`, idempotent on re-run), not a third-party action.
-      - name: Attest build provenance through Toven
+      # Build provenance is cut here by GitHub's trusted builder over the exact
+      # published file set: `SHA256SUMS` lists every archive and the SBOM, so
+      # attesting its checksum subjects attests them all. Toven does not create
+      # attestations — it verifies them (next step).
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist/SHA256SUMS
+
+      # Provenance covers only artifacts that were actually approved and
+      # published. Toven's own `release provenance` verb (argv-only over
+      # `gh attestation verify`, read-only) asserts that every published subject
+      # now carries the attestation cut above, failing closed if any is missing.
+      - name: Verify build provenance through Toven
         env:
           GH_TOKEN: ${{ github.token }}
-        run: cargo run --locked -p toven -- release provenance --yes --output jsonl | tee release-provenance.jsonl
+        run: cargo run --locked -p toven -- release provenance --output jsonl | tee release-provenance.jsonl
 
       - name: Upload publish record
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

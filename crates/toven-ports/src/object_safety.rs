@@ -107,12 +107,12 @@ impl ImagePhase for FakeImagePhase {
 
 struct FakeProvenancePhase;
 impl ProvenancePhase for FakeProvenancePhase {
-    fn attest(
+    fn verify(
         &self,
         _root: &Path,
         _subjects: &[ProvenanceSubject],
     ) -> AppResult<ProvenanceOutcome> {
-        Ok(ProvenanceOutcome::Attested)
+        Ok(ProvenanceOutcome::Verified)
     }
     fn attestation_exists(&self, _root: &Path, _subject: &ProvenanceSubject) -> AppResult<bool> {
         Ok(false)
@@ -467,12 +467,16 @@ fn port_traits_are_object_safe() {
 
     // Exercise the ProvenancePhase port.
     let provenance: Box<dyn ProvenancePhase> = Box::new(FakeProvenancePhase);
-    let subject = ProvenanceSubject::new("toven-x86_64.tar.gz", "sha256:abc");
+    let subject = ProvenanceSubject::file(
+        "toven-x86_64.tar.gz",
+        "sha256:abc",
+        "dist/toven-x86_64.tar.gz",
+    );
     assert_eq!(
         provenance
-            .attest(Path::new("/repo"), std::slice::from_ref(&subject))
-            .expect("attests"),
-        ProvenanceOutcome::Attested
+            .verify(Path::new("/repo"), std::slice::from_ref(&subject))
+            .expect("verifies"),
+        ProvenanceOutcome::Verified
     );
     assert!(
         !provenance

@@ -96,7 +96,7 @@ Every archive contains one directly runnable binary. The hosted Release also car
 |---|---|---|
 | `build` (per target) | `toven release package --target <triple>` | one packaged archive per target |
 | `assemble` | `toven release sbom` → `checksums` → `sign` → `verify --no-run` | staged SBOM, combined `SHA256SUMS`, its signature, a presence-checked asset set |
-| `publish` | `toven release publish --yes`, then `toven release provenance --yes` | the tag, the hosted Release, and a provenance attestation over the published `SHA256SUMS` |
+| `publish` | `toven release publish --yes`, then `actions/attest-build-provenance`, then `toven release provenance` | the tag, the hosted Release, a build-provenance attestation cut by the trusted builder over `SHA256SUMS`, and Toven's verification that it exists |
 | `verify` | `toven release verify --download` | signature- and checksum-verifies every published asset |
 
 CI provisions the tools (cosign, cargo-cyclonedx, `cross`) and holds the approval gate; Toven drives them. Every target builds with the `vendored-openssl` feature, so rskit-git's embedded git2 backend links a source-built OpenSSL and the released binaries carry no host OpenSSL dependency. The `aarch64-unknown-linux-gnu` target cross-compiles through `cross` for a matching glibc.
@@ -120,7 +120,7 @@ The canary builds the release binary, packages it into its `dist/` archive with 
 - `release sbom` stages the CycloneDX SBOM.
 - `release checksums` writes the combined manifest.
 - `release verify --no-run` presence-checks the whole set without running any target. Local verify is presence-only; signature and checksum are verified only in the hosted `--download` mode.
-- `release provenance --dry-run` queries whether an attestation already exists, without ever attesting.
+- `release provenance --dry-run` reports whether an attestation already exists for each subject, without ever creating one.
 
 `release sign` is exercised too, but only on manual dispatch. Keyless Sigstore/cosign signing writes a permanent, public Rekor transparency-log entry on every run — a real external side effect (it touches no tag, release, or remote). Gating it to `workflow_dispatch` proves the sign path on demand without adding a canary entry on every merge.
 

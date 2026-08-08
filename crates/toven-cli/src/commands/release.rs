@@ -385,14 +385,12 @@ fn image(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult
     Ok(ExitCode::Success)
 }
 
-/// `release provenance`: attest SLSA provenance over exactly the published
-/// subjects (the declared `SHA256SUMS` entries plus pushed image digests).
-/// `--dry-run` previews whether an attestation already exists mutation-free, so
-/// it needs no `--yes`; the real attestation requires confirmation.
+/// `release provenance`: verify that exactly the published subjects (the
+/// declared `SHA256SUMS` entries plus pushed image digests) carry a
+/// build-provenance attestation cut by the CI trusted builder. `--dry-run`
+/// reports presence without failing; the default run fails closed if any
+/// subject lacks an attestation. Read-only, so it needs no `--yes`.
 fn provenance(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
-    if !cli.dry_run {
-        require_release_confirmation(cli.confirm_release)?;
-    }
     let request = release_request(project)?;
     let provenance_phase = GhAttestationProvenance::new();
     let image_phase = BuildxImagePhase::new();

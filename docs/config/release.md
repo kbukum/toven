@@ -351,7 +351,7 @@ sign = true
 
 `name` and `tag` use the same release-template vocabulary as `tag_format`. `context` and `dockerfile` must be safe project-relative paths. Image publication is immutable: pushing an existing tag with a different digest fails closed. Registry credentials come from the ambient environment and never appear on argv or in logs.
 
-`provenance` needs no config block. [`toven release provenance`](../commands/release.md#container-images-and-provenance) attests over the declared `host.assets` `SHA256SUMS` entries and every pushed `[…release.image]` digest. A release may declare a manifest, an image, or both; it fails when neither exists.
+`provenance` needs no config block. [`toven release provenance`](../commands/release.md#container-images-and-provenance) verifies that an attestation exists over the declared `host.assets` `SHA256SUMS` entries and every pushed `[…release.image]` digest; the CI trusted builder (`actions/attest-build-provenance`) creates it. A release may declare a manifest, an image, or both; it fails when neither exists.
 
 ## Entrypoint flows
 
@@ -360,7 +360,7 @@ sign = true
 | Value | Meaning |
 |---|---|
 | `"toven"` | Toven bumps versions, writes the release commit, creates and pushes the tag, publishes, and cuts the hosted Release |
-| `"maintainer"` | A maintainer already created the tag and hosted Release; Toven verifies them, then publishes, attaches assets, and attests provenance |
+| `"maintainer"` | A maintainer already created the tag and hosted Release; Toven verifies them, then publishes, attaches assets, and verifies provenance |
 
 In a maintainer-owned flow, the tag is an input. Toven never creates or moves it, mutates no manifest, and creates no release commit during publish. The manifest already declares the released version, so registry idempotency decides whether publish is still needed.
 

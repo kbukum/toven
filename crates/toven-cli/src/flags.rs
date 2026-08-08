@@ -194,8 +194,8 @@ Examples:
 /// `release provenance` action examples.
 const RELEASE_PROVENANCE_EXAMPLES: &str = "\
 Examples:
-  toven release provenance --dry-run  Preview whether the published subjects already carry an attestation
-  toven release provenance --yes      Attest SLSA provenance over published manifest entries and image digests";
+  toven release provenance --dry-run  Report whether the published subjects carry an attestation, without failing
+  toven release provenance            Verify every published subject carries a build-provenance attestation";
 
 /// `driver` verb examples.
 const DRIVER_EXAMPLES: &str = "\
@@ -845,10 +845,10 @@ pub enum ReleaseAction {
     /// the real push requires `--yes`.
     #[command(after_long_help = RELEASE_IMAGE_EXAMPLES)]
     Image,
-    /// Attest SLSA provenance over exactly the published subjects (declared
-    /// `SHA256SUMS` entries plus pushed image digests); `--dry-run` previews
-    /// whether an attestation already exists mutation-free, the real
-    /// attestation requires `--yes`.
+    /// Verify that exactly the published subjects (declared `SHA256SUMS`
+    /// entries plus pushed image digests) carry a build-provenance attestation
+    /// cut by the CI trusted builder; `--dry-run` reports presence without
+    /// failing, the default run fails closed if any subject lacks one.
     #[allow(clippy::doc_markdown)]
     #[command(after_long_help = RELEASE_PROVENANCE_EXAMPLES)]
     Provenance,
@@ -879,9 +879,9 @@ impl ReleaseAction {
     /// Whether the action performs a version-cut mutation of the working tree,
     /// history, or registry (a version cut, changelog roll, commit, tag, or
     /// publish): `bump`, `tag`, and `publish`. These accept the per-run bump
-    /// argv and require `--yes`. The registry/attestation-store mutations
-    /// (`image` / `provenance`) are *not* version cuts — they take no bump argv
-    /// — so they are classified by [`Self::requires_confirmation`] instead.
+    /// argv and require `--yes`. The registry mutation `image` is *not* a
+    /// version cut — it takes no bump argv — so it is classified by
+    /// [`Self::requires_confirmation`] instead.
     #[must_use]
     pub const fn is_mutating(self) -> bool {
         matches!(self, Self::Bump | Self::Tag | Self::Publish)
@@ -889,24 +889,21 @@ impl ReleaseAction {
 
     /// Whether the action performs a real mutation that must be authorized with
     /// `--yes`: the version-cut family (`bump` / `tag` / `publish`) plus the
-    /// registry/attestation-store mutations (`image` pushes to registries,
-    /// `provenance` writes to the attestation store). Each honors `--dry-run` as
-    /// a mutation-free preview that needs no confirmation.
+    /// registry mutation `image` (which pushes to registries). Each honors
+    /// `--dry-run` as a mutation-free preview that needs no confirmation.
+    /// `provenance` is read-only verification and is deliberately excluded.
     #[must_use]
     pub const fn requires_confirmation(self) -> bool {
-        matches!(
-            self,
-            Self::Bump | Self::Tag | Self::Publish | Self::Image | Self::Provenance
-        )
+        matches!(self, Self::Bump | Self::Tag | Self::Publish | Self::Image)
     }
 
     /// Whether the action is non-mutating and therefore a PLAN-only cut with no
     /// APPLY half (`plan` / `status` / `readiness` / `sbom` / `depgraphs` /
-    /// `package` / `checksums` / `sign` / `verify`). These never bump a
-    /// manifest, tag, or publish; `sbom` and `depgraphs` write artifacts under
-    /// `--out-dir` (see [`Self::writes_artifacts`]) while `package`,
+    /// `package` / `checksums` / `sign` / `verify` / `provenance`). These never
+    /// bump a manifest, tag, or publish; `sbom` and `depgraphs` write artifacts
+    /// under `--out-dir` (see [`Self::writes_artifacts`]) while `package`,
     /// `checksums`, and `sign` materialize their declared release assets in
-    /// place — none touch history.
+    /// place, and `verify`/`provenance` only read — none touch history.
     #[must_use]
     pub const fn is_projection(self) -> bool {
         matches!(
@@ -920,6 +917,7 @@ impl ReleaseAction {
                 | Self::Checksums
                 | Self::Sign
                 | Self::Verify
+                | Self::Provenance
         )
     }
 
@@ -932,10 +930,10 @@ impl ReleaseAction {
 
     /// Whether `--dry-run` is meaningful for the action: `plan` (already a
     /// projection), the rehearsable `publish` pipeline, `bump` (which previews
-    /// the version + changelog mutation without writing), and the
-    /// registry/attestation-store mutations `image` and `provenance` (which
-    /// preview their references/subjects without building, pushing, or
-    /// attesting).
+    /// the version + changelog mutation without writing), the registry mutation
+    /// `image` (which previews its references/digests without building or
+    /// pushing), and `provenance` (whose preview reports subject presence
+    /// without failing on a missing attestation).
     #[must_use]
     pub const fn accepts_dry_run(self) -> bool {
         matches!(
@@ -1285,7 +1283,7 @@ fn gate_init_flags(cli: &Cli, verb: &str, is_init: bool) -> AppResult<()> {
     if cli.confirm_release && !release_confirmation {
         return Err(only_applies(
             "--yes",
-            "toven release bump/tag/publish/image/provenance",
+            "toven release bump/tag/publish/image",
             verb,
         ));
     }
@@ -1972,14 +1970,22 @@ mod tests {
 
     #[test]
     fn yes_confirmation_only_applies_to_mutating_release_actions() {
-        for action in ["bump", "tag", "publish", "image", "provenance"] {
+        for action in ["bump", "tag", "publish", "image"] {
             let cli = parse(&["--yes", "release", action]).expect("parses");
             assert!(cli.confirm_release);
             // `--yes` is release-only now, not an alias of init's `--non-interactive`.
             assert!(!cli.non_interactive);
             assert!(super::gate(&cli).is_ok(), "{action}");
         }
-        for action in ["plan", "status", "readiness", "sbom", "depgraphs"] {
+        // `provenance` is read-only verification, so `--yes` does not apply.
+        for action in [
+            "plan",
+            "status",
+            "readiness",
+            "sbom",
+            "depgraphs",
+            "provenance",
+        ] {
             let cli = parse(&["--yes", "release", action]).expect("parses");
             assert!(super::gate(&cli).is_err(), "{action}");
         }
@@ -2147,6 +2153,11 @@ mod tests {
         assert!(!ReleaseAction::Verify.is_mutating());
         assert!(!ReleaseAction::Verify.writes_artifacts());
         assert!(!ReleaseAction::Verify.accepts_dry_run());
+        assert!(ReleaseAction::Provenance.is_projection());
+        assert!(!ReleaseAction::Provenance.is_mutating());
+        assert!(!ReleaseAction::Provenance.writes_artifacts());
+        assert!(!ReleaseAction::Provenance.requires_confirmation());
+        assert!(ReleaseAction::Provenance.accepts_dry_run());
         assert!(!ReleaseAction::Tag.is_projection());
         assert!(ReleaseAction::Tag.is_mutating());
         assert!(ReleaseAction::Publish.is_mutating());
@@ -2160,16 +2171,14 @@ mod tests {
         assert!(!ReleaseAction::Status.accepts_dry_run());
         assert!(!ReleaseAction::Tag.accepts_dry_run());
         assert!(!ReleaseAction::Readiness.accepts_dry_run());
-        // The registry/attestation-store mutations require `--yes` but are not
-        // version cuts, so they classify via `requires_confirmation`, honor
-        // `--dry-run`, and are neither projections nor version-cut mutations.
-        for action in [ReleaseAction::Image, ReleaseAction::Provenance] {
-            assert!(!action.is_projection());
-            assert!(!action.is_mutating());
-            assert!(!action.writes_artifacts());
-            assert!(action.accepts_dry_run());
-            assert!(action.requires_confirmation());
-        }
+        // `image` is a registry mutation: it requires `--yes` but is not a
+        // version cut, so it classifies via `requires_confirmation`, honors
+        // `--dry-run`, and is neither a projection nor a version-cut mutation.
+        assert!(!ReleaseAction::Image.is_projection());
+        assert!(!ReleaseAction::Image.is_mutating());
+        assert!(!ReleaseAction::Image.writes_artifacts());
+        assert!(ReleaseAction::Image.accepts_dry_run());
+        assert!(ReleaseAction::Image.requires_confirmation());
         assert!(ReleaseAction::Bump.requires_confirmation());
         assert!(ReleaseAction::Tag.requires_confirmation());
         assert!(ReleaseAction::Publish.requires_confirmation());
