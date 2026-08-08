@@ -259,16 +259,20 @@ jobs:
       # Provenance is attached only to artifacts that were actually approved and
       # published, and covers the exact published file set: `SHA256SUMS` lists
       # every archive and the SBOM, so attesting its subjects attests them all.
-      - name: Attest build provenance for the published artifacts
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
-        with:
-          subject-checksums: dist/SHA256SUMS
+      # Driven through Toven's own `release provenance` verb (argv-only over
+      # `gh attestation`, idempotent on re-run), not a third-party action.
+      - name: Attest build provenance through Toven
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: cargo run --locked -p toven -- release provenance --yes --output jsonl | tee release-provenance.jsonl
 
       - name: Upload publish record
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-publish-record
-          path: release-publish.jsonl
+          path: |
+            release-publish.jsonl
+            release-provenance.jsonl
           if-no-files-found: error
           retention-days: 90
 

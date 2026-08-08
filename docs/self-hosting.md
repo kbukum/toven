@@ -35,7 +35,7 @@ The gate includes formatting, linting, nextest, doctests, structure checks, rust
 | Documentation build (mdbook) | Toven `docs-build` task (command ecosystem) |
 | rustfmt workspace check | Native Cargo — the sole documented exception |
 
-`fmt-check` stays native on purpose: `make check` gates the whole workspace in a single fast `cargo fmt --all --check` pass, and the granular `format`/`format-check` rust tasks remain available through Toven. Every other gate — including the ones that were once bespoke Makefile recipes with `command -v` tool guards (`structure`, `deny`, doctests, `docs-build`) — now runs through `toven run <task>`, and the tool-presence guards are replaced by a single [`doctor`](commands/doctor.md) audit.
+`fmt-check` stays native on purpose: `make check` gates the whole workspace in one fast `cargo fmt --all --check` pass. The granular `format`/`format-check` Rust tasks are still available through Toven. Every other gate runs through `toven run <task>`, and per-task `command -v` tool guards are replaced by a single [`doctor`](commands/doctor.md) audit.
 
 `make doctor` (`toven doctor --ensure`) is the single source of truth for required tooling: it walks the resolved task graph, reports every tool its tasks need (`cargo`, `ast-grep`, `mdbook`), and fails closed on a gap. CI provisions against that report and runs it as a fail-fast gate before the rest of the surface, so a missing tool surfaces once, up front, rather than mid-gate.
 
@@ -57,7 +57,7 @@ A protected release workflow must:
 1. Check out the exact source commit with full tag history and submodules.
 2. Install a pinned Toven binary and verify its SHA-256 checksum, keyless Sigstore signature, certificate identity, and provenance.
 3. Run plan, status, readiness, SBOM, dependency graph, and publication rehearsal commands.
-4. Cut the release version from the reviewed manifest. Toven's `[ecosystems.rust.release]` sets `strategy = "manifest"`, so the engine cuts exactly `v${Cargo.toml}` when the declared version is strictly ahead of the last release tag, and fails closed otherwise. The version/CHANGELOG pull request *is* the version decision, so the tag the engine cuts equals the version each `build`-job binary was packaged from, by construction — there is no separate preflight to assert they match.
+4. Cut the release version from the reviewed manifest. `[ecosystems.rust.release]` sets `strategy = "manifest"`, so the engine cuts exactly `v${Cargo.toml}` when the declared version is strictly ahead of the last release tag, and fails closed otherwise. The version/CHANGELOG pull request *is* the version decision: the tag the engine cuts equals the version each `build`-job binary was packaged from, so no separate preflight is needed to assert they match.
 5. Preserve machine-readable stdout and generated evidence as review artifacts.
 6. Require a protected-environment approval tied to the exact commit and preview.
 7. Recheck the branch, clean tree, selected version, and absence of conflicting immutable results.
@@ -86,19 +86,43 @@ The release matrix is:
 | `aarch64-apple-darwin` | `.tar.gz` | `toven-aarch64-apple-darwin.tar.gz` |
 | `x86_64-pc-windows-msvc` | `.zip` | `toven-x86_64-pc-windows-msvc.zip` |
 
-Archive names are fixed and never embed the version: `toven.toml`'s `[ecosystems.rust.release.host]` `assets` list is a set of exact, non-templated project-relative paths (globbing and version placeholders are not implemented — see `crates/toven-ports/src/config/release/host.rs`), so the same static list must resolve on every release. The version lives in the release tag and Release title instead.
+Archive names are fixed and never embed the version. `[ecosystems.rust.release.host].assets` is a set of exact, non-templated project-relative paths (no globbing or version placeholders — see `crates/toven-ports/src/config/release/host.rs`), so the same static list resolves on every release. The version lives in the release tag and Release title.
 
-Every archive contains one directly runnable binary. The hosted Release also contains a CycloneDX SBOM (`toven-sbom.cdx.json`), a combined `SHA256SUMS` covering every archive and the SBOM, that file's keyless Sigstore/cosign signature and certificate (`SHA256SUMS.sig`, `SHA256SUMS.pem`), and a separate GitHub build provenance attestation (not a listed asset; verify it with `gh attestation verify`).
+Every archive contains one directly runnable binary. The hosted Release also carries a CycloneDX SBOM (`toven-sbom.cdx.json`), a combined `SHA256SUMS` over every archive and the SBOM, that file's keyless Sigstore/cosign signature and certificate (`SHA256SUMS.sig`, `SHA256SUMS.pem`), and a separate GitHub build provenance attestation (not a listed asset — verify it with `gh attestation verify`).
 
-`.github/workflows/release.yml` builds this matrix, assembles the fixed `dist/` file set, and runs `toven release publish` behind the protected `release` environment's required-reviewer approval. It is dispatched manually (`workflow_dispatch`) rather than triggered by a `v*` tag push, because `toven release publish` creates that tag itself; a tag-triggered run would race its own immutable-tag preflight. Every asset in the fixed set is produced by an engine verb, not a bash script: the `build` job packages each target with `toven release package --target <triple>`, and the `assemble` job stages the SBOM (`toven release sbom`), writes the combined `SHA256SUMS` over every archive and the SBOM (`toven release checksums`), signs it with the keyless Sigstore/cosign default (`toven release sign`), and presence-checks the whole declared asset set (`toven release verify --no-run`). CI still provisions the tools (cosign, cargo-cyclonedx, `cross`) and holds the approval gate; Toven drives them. Every target builds with the `vendored-openssl` feature, so rskit-git's embedded git2 backend links a source-built OpenSSL (libgit2 is already vendored) and the released binaries carry no host OpenSSL dependency. The cross-compiled `aarch64-unknown-linux-gnu` target builds through `cross` for a matching glibc. Build provenance is attested in the approved `publish` job, over the subjects of the published `SHA256SUMS`, so an attestation exists only for artifacts that were actually approved and published.
+`.github/workflows/release.yml` builds this matrix and publishes it behind the protected `release` environment's required-reviewer approval. It is dispatched manually (`workflow_dispatch`), never triggered by a `v*` tag push: `toven release publish` creates the tag itself, and a tag-triggered run would race its own immutable-tag preflight. Every asset is produced by an engine verb, not a bash script:
 
-After publish, the `verify` job downloads every published asset and runs `toven release verify --download`, which verifies the keyless Sigstore signature on `SHA256SUMS` first, then checksum-verifies every published archive against the now-trusted manifest. The keyless `certificate-identity-regexp` and `certificate-oidc-issuer` it matches against come from `[ecosystems.rust.release.sign]` in `toven.toml`, not a hard-coded string. It runs with `--no-run`: the verb verifies the whole declared asset set at once, and no single hosted runner can execute all five targets (two Linux, two macOS, one Windows), so post-publish verification is signature- and checksum-based across the whole set.
+| Job | What it runs | Result |
+|---|---|---|
+| `build` (per target) | `toven release package --target <triple>` | one packaged archive per target |
+| `assemble` | `toven release sbom` → `checksums` → `sign` → `verify --no-run` | staged SBOM, combined `SHA256SUMS`, its signature, a presence-checked asset set |
+| `publish` | `toven release publish --yes`, then `toven release provenance --yes` | the tag, the hosted Release, and a provenance attestation over the published `SHA256SUMS` |
+| `verify` | `toven release verify --download` | signature- and checksum-verifies every published asset |
+
+CI provisions the tools (cosign, cargo-cyclonedx, `cross`) and holds the approval gate; Toven drives them. Every target builds with the `vendored-openssl` feature, so rskit-git's embedded git2 backend links a source-built OpenSSL and the released binaries carry no host OpenSSL dependency. The `aarch64-unknown-linux-gnu` target cross-compiles through `cross` for a matching glibc.
+
+`verify` runs with `--no-run`: no single hosted runner can execute all five targets (two Linux, two macOS, one Windows), so post-publish verification is signature- and checksum-based across the whole set. The keyless `certificate-identity-regexp` and `certificate-oidc-issuer` it matches come from `[ecosystems.rust.release.sign]` in `toven.toml`, not a hard-coded string.
 
 ## Dogfooding the binary Toven produces
 
-Toven proves its release platform on itself, driving Toven's own work with the binary Toven builds and packages — not a source `cargo run` and not a downloaded release.
+Toven proves its release platform on itself. `.github/workflows/self-canary.yml` runs Toven's own work with the binary Toven builds and packages — not a source `cargo run`, and not a downloaded release. It runs on every push to `main` and needs no published release: it self-generates the binary it dogfoods.
 
-`.github/workflows/self-canary.yml` is that proof. On every push to `main` (and on manual dispatch) it builds the release binary, packages it into its declared `dist/` archive with `toven release package`, extracts that self-generated binary, and then runs Toven's whole toven-driven surface through it: module discovery, `plan check`, the `doctor --ensure` required-tool audit, the full `make check` gate surface (`lint`, `test` — nextest plus the `doctest` task — `doc`, `structure`, `deny`, `docs-build`, `coverage`, `affected`) via `make TOVEN=<binary>`, the `format-check` and `vuln` mapped tasks that `make check` otherwise gates natively, and the full mutation-free release preview (`release plan`/`status`/`readiness`/`sbom`/`depgraphs` and `publish --dry-run`). Nothing after packaging uses a source build, so a green run means the artifact Toven ships can perform every job Toven is built for. It needs no published release: the canary self-generates the binary it dogfoods.
+The canary builds the release binary, packages it into its `dist/` archive with `toven release package`, extracts that binary, and runs everything below **through it**. Nothing after packaging uses a source build, so a green run means the shipped artifact can do every job Toven is built for:
+
+- **Discovery and planning** — `modules`, `plan check`.
+- **Required-tool audit** — `doctor --ensure`.
+- **The full `make check` gate surface** via `make TOVEN=<binary>` — `lint`, `test` (nextest + doctests), `doc`, `structure`, `deny`, `docs-build`, `coverage`, `affected` — plus the `format-check` and `vuln` mapped tasks.
+- **Read-only verbs** — `explain`, `init --print` (asserted to leave the tree clean), `completions`, `cache path`.
+- **Mutation-free release previews** — `release plan`/`status`/`readiness`/`sbom`/`depgraphs` and `publish --dry-run`.
+
+**The assembly path, proven end to end.** `release checksums`/`sign`/`verify`/`provenance` are policy over the *complete* declared asset set — one combined `SHA256SUMS` over every per-target archive and the SBOM. There is no single-target release, so a `build` matrix first produces every archive exactly as `release.yml` does. An `assemble` job then extracts the Linux archive (itself the self-generated binary) and drives the assembly through it, mutation-free:
+
+- `release sbom` stages the CycloneDX SBOM.
+- `release checksums` writes the combined manifest.
+- `release verify --no-run` presence-checks the whole set without running any target. Local verify is presence-only; signature and checksum are verified only in the hosted `--download` mode.
+- `release provenance --dry-run` queries whether an attestation already exists, without ever attesting.
+
+`release sign` is exercised too, but only on manual dispatch. Keyless Sigstore/cosign signing writes a permanent, public Rekor transparency-log entry on every run — a real external side effect (it touches no tag, release, or remote). Gating it to `workflow_dispatch` proves the sign path on demand without adding a canary entry on every merge.
 
 Two related but distinct checks cover the *released* artifact rather than the self-generated one, so the self-canary does not duplicate them:
 
@@ -116,22 +140,25 @@ Workflow-run artifacts are ephemeral. They exist only to make a run reviewable a
 | `release-preview` (preview `release-preview.jsonl`, SBOM, dependency graphs) | `release.yml` | preview | 14 days |
 | `release-archive-<target>` (one packaged per-target archive) | `release.yml` | per-target build | 14 days |
 | `release-dist` (assembled `dist/` with every archive, SBOM, `SHA256SUMS`, signature, certificate) | `release.yml` | assemble | 14 days |
-| `release-publish-record` (`release-publish.jsonl` mutation record) | `release.yml` | publish | 90 days |
+| `release-publish-record` (`release-publish.jsonl` + `release-provenance.jsonl` mutation/provenance record) | `release.yml` | publish | 90 days |
 | `release-archive` (a locally built native-target archive) | `release-readiness.yml` | build | 7 days |
+| `self-canary-release-preview` (`release-preview.jsonl` publish rehearsal) | `self-canary.yml` | dogfood | 14 days |
+| `self-canary-archive-<target>` (one packaged per-target archive) | `self-canary.yml` | per-target build | 14 days |
+| `self-canary-release-dist` (assembled `dist/` + provenance preview, through the self-generated binary) | `self-canary.yml` | assemble | 14 days |
 
-The publish record is kept longest (90 days) because it is the machine-readable record of what an approved mutation actually did. Preview and staging artifacts (14 days) outlive a normal review-and-approve cycle without accumulating indefinitely, and readiness artifacts (7 days) are the shortest-lived because they carry no immutable outcome and are regenerated on every readiness run.
+The publish record is kept longest (90 days): it is the machine-readable record of what an approved mutation did. Preview and staging artifacts (14 days) outlive a normal review-and-approve cycle without piling up. Readiness artifacts (7 days) are shortest-lived — they carry no immutable outcome and regenerate on every run.
 
-None of these windows affect the release itself. The binaries, checksums, signature, certificate, and SBOM attached to the published hosted Release, the immutable version tag, and the separate build provenance attestation are permanent parts of the Release and are not governed by `retention-days`. They persist until the Release is deleted, which the immutable create-or-verify policy below forbids as a repair mechanism. Consumers pin against those published assets, never against a transient workflow-run artifact.
+These windows never affect the release itself. The published binaries, checksums, signature, certificate, SBOM, the immutable version tag, and the build provenance attestation are permanent parts of the hosted Release, not governed by `retention-days`. They persist until the Release is deleted — which the immutable create-or-verify policy below forbids as a repair. Consumers pin against published assets, never against a transient workflow-run artifact.
 
 ## Immutability and recovery
 
 Release tags, registry versions, hosted Releases, and approved assets are immutable. CI must fail if any intended output already exists with different content. A partially completed release is not repaired by moving tags, deleting registry versions, editing release notes, or clobbering assets. Correct the source or workflow, select a forward-fix version, regenerate the preview, and obtain approval again.
 
-The current GitHub host adapter is immutable create-or-verify: it creates the Release, or — when one already exists — reads it back and verifies it matches the intended Release exactly, hard-erroring on any divergence. It never edits release notes, moves tags, or clobbers assets (its argv never contains `edit` or `upload`). One caveat: an existing asset is verified by uploaded name and byte size only, so a divergent asset of identical size would pass verification. Treat published assets as immutable and forward-fix by cutting a new version rather than replacing an asset in place.
+The current GitHub host adapter is **immutable create-or-verify**: it creates the Release, or — if one already exists — reads it back and verifies it matches exactly, hard-erroring on any divergence. It never edits release notes, moves tags, or clobbers assets (its argv never contains `edit` or `upload`). One caveat: an existing asset is verified by uploaded name and byte size only, so a divergent asset of identical size would pass. Treat published assets as immutable and forward-fix by cutting a new version.
 
 ## GitHub Action
 
-The reusable action at `.github/actions/toven` standardizes the install-and-run step as a single pinned `uses:` line. It is a thin wrapper around the same reference contract — it reuses `scripts/install.sh` bundled at the action's pinned commit, so there is no second download or verification path — and adds a runner tool-cache, cosign auto-install, unchanged argument forwarding, and typed `toven`/`version`/`cache-hit` outputs. It never publishes: release policy stays in `toven.toml` and Toven itself, and real publication stays behind each repository's approved release environment.
+The reusable action at `.github/actions/toven` wraps the install-and-run step into one pinned `uses:` line. It reuses `scripts/install.sh` bundled at the action's pinned commit — no second download or verification path — and adds a runner tool-cache, cosign auto-install, unchanged argument forwarding, and typed `toven`/`version`/`cache-hit` outputs. It never publishes: release policy stays in `toven.toml` and Toven itself, behind each repository's approved release environment.
 
 Consumers pin both the action (by commit SHA) and the binary (by `version`):
 
