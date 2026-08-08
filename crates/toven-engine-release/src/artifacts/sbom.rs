@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use rskit_errors::{AppError, AppResult};
+use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir::create_all;
 use rskit_fs::sync_io::file::copy as copy_file;
@@ -97,11 +97,20 @@ pub fn release_sbom(
         // A release-excluded module is outside the release surface (no bump,
         // tag, publish, or hosted-release asset), so it contributes no SBOM —
         // matching the publish/tag scope rather than sweeping demos and fuzz
-        // targets onto the release.
-        if settings
-            .get(&module.key())
-            .is_some_and(|resolved| matches!(resolved.publication, PublicationPolicy::Excluded))
-        {
+        // targets onto the release. Every module with a release target has
+        // resolved settings, so a missing entry is an internal invariant
+        // violation: fail closed rather than silently emit an SBOM for a module
+        // whose release scope is unknown.
+        let resolved = settings.get(&module.key()).ok_or_else(|| {
+            AppError::new(
+                ErrorCode::Internal,
+                format!(
+                    "module '{}' has a release target but no resolved release settings",
+                    module.key()
+                ),
+            )
+        })?;
+        if matches!(resolved.publication, PublicationPolicy::Excluded) {
             continue;
         }
         match target.sbom(module, out_dir)? {
