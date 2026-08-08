@@ -6,6 +6,20 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.1.0-alpha.4] - 2026-08-08
+
+### Added
+
 - Release tags can be signed as annotated Git tags with `[ecosystems.<id>.release] sign_tags = true`. `tag_message` is required for signed tags, `sign_format` selects the Git signing backend (`openpgp`/`gpg`, `ssh`, or `x509`), and `signing_key` pins the non-secret key identifier while still allowing repository Git config inheritance.
 
 ### Changed
