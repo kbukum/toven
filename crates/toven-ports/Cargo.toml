@@ -1,7 +1,7 @@
 [package]
 name = "toven-ports"
 description = "Toven port contracts (Provider, ReleaseTarget, Reporter, Vcs) + shared adapter helpers"
-version.workspace = true
+version = "0.1.0-alpha.4"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
