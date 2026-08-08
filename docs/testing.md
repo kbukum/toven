@@ -6,7 +6,9 @@ The engine that discovers, materializes, runs, normalizes, matches, and (on dema
 
 ## The scenario model
 
-A scenario is a directory containing a `scenario.yaml` and its golden files. The YAML names a fixture repo, an optional scripted git history, a required-toolchain gate, deterministic environment overrides, and an ordered list of **steps**. Each step is one `toven` invocation with its expected exit code, per-stream golden references plus a **matcher**, and declarative **effects**. A step may add its own `requires:` gate for tools beyond the scenario-level gate (for example `requires: [cargo-cyclonedx]` on a step that shells out to the plugin): a step whose toolchain is absent is skipped green and later steps still run.
+A scenario is a directory containing a `scenario.yaml` and its golden files. The YAML names a fixture repo, an optional scripted git history, a required-toolchain gate, deterministic environment overrides, and an ordered list of **steps**. Each step is one `toven` invocation with its expected exit code, per-stream golden references plus a **matcher**, and declarative **effects**.
+
+A step may add its own `requires:` gate for tools beyond the scenario-level gate (for example `requires: [cargo-cyclonedx]` on a step that shells out to the plugin). A step whose toolchain is absent is skipped green, and later steps still run.
 
 ```yaml
 # apps/toven/tests/golden/command/single/apply-cache-session/scenario.yaml
@@ -67,11 +69,18 @@ Because `line-set` does not normalize and every APPLY summary carries a `duratio
 
 ## Determinism
 
-The engine pins everything a scenario needs to be reproducible and safe under the harness's own parallelism: a fixed wall clock (`TOVEN_CLOCK_EPOCH`, so the only wall-clock field — the `run_id` — is stable), pinned git identity and commit dates, `LC_ALL=C`, `TERM=dumb`, a **scenario-scoped cache dir**, and **per-scenario toolchain homes** (`CARGO_HOME`/`GOCACHE`/`GOPATH`) so concurrent real-toolchain steps never contend on a shared package-cache lock. Prefer the toolchain-independent `command` ecosystem for exact APPLY goldens; gate real `cargo`/`go` scenarios with `requires:` so a runner without that toolchain skips the scenario green, and gate steps needing an extra plugin (such as `cargo-cyclonedx`) with a step-level `requires:` so only that step skips.
+The engine pins everything a scenario needs to be reproducible and safe under the harness's own parallelism:
+
+- A fixed wall clock (`TOVEN_CLOCK_EPOCH`), so the only wall-clock field — the `run_id` — is stable.
+- Pinned git identity and commit dates, `LC_ALL=C`, and `TERM=dumb`.
+- A **scenario-scoped cache dir**.
+- **Per-scenario toolchain homes** (`CARGO_HOME`/`GOCACHE`/`GOPATH`), so concurrent real-toolchain steps never contend on a shared package-cache lock.
+
+Prefer the toolchain-independent `command` ecosystem for exact APPLY goldens. Gate real `cargo`/`go` scenarios with `requires:` so a runner without that toolchain skips the scenario green, and gate a step needing an extra plugin (such as `cargo-cyclonedx`) with a step-level `requires:` so only that step skips.
 
 ## Doctests
 
-Doctests are a **Rust-adapter task, not a core Toven concept**. Nextest — the `test` task — cannot execute documentation tests, so the `toven-rust` adapter ships a default `doctest` task that runs `cargo test --doc`. It reuses `TaskKind::Test` (a doctest is semantically a test) under the distinct name `doctest` so it never collides with the nextest `test` task, and it fans out per module exactly like `test`. Because doctests are Rust/cargo-specific, the Go adapter has no `doctest` task by design — that asymmetry is the proof the capability lives in the correct layer.
+Doctests are a **Rust-adapter task, not a core Toven concept**. Nextest — the `test` task — cannot run documentation tests, so the `toven-rust` adapter ships a default `doctest` task that runs `cargo test --doc`. It reuses `TaskKind::Test` (a doctest is a test) under the distinct name `doctest`, so it never collides with the nextest `test` task, and it fans out per module exactly like `test`. The Go adapter has no `doctest` task by design — that asymmetry proves the capability lives in the correct layer.
 
 The canonical gate runs both: `make test` is `test-nextest` plus `doctest`, so a broken doctest fails `make check`. Run doctests alone with `toven run doctest` (or the low-level `cargo test -p <crate> --doc`).
 

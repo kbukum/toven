@@ -1,10 +1,12 @@
 # Measure coverage
 
-`toven coverage` runs the configured coverage task, attributes emitted profiles to modules, aggregates metrics, and applies configured thresholds.
+Run the coverage gate for Rust modules:
 
 ```bash
 toven coverage --workspace rust
 ```
+
+`toven coverage` runs the configured coverage task, attributes emitted profiles to modules, aggregates metrics, and applies configured thresholds.
 
 ## Syntax
 
@@ -37,7 +39,7 @@ JSONL mode emits one module record per stdout line:
 {"module":"rust:core","status":"passed","enforcement":"block","line":{"measured":92.4,"threshold":90.0,"passed":true}}
 ```
 
-## Configuration
+## Configure thresholds
 
 ```toml
 [ecosystems.rust.coverage]
@@ -57,9 +59,9 @@ line = 95.0
 enforcement = "advisory"
 ```
 
-Rust supports line, function, and region metrics. Go coverage supplies line metrics. Unsupported dimensions are not treated as failed measurements.
+Rust supports line, function, and region metrics. Go coverage supplies line metrics. Unsupported dimensions do not fail measurement.
 
-Resolution precedence:
+Threshold precedence:
 
 ```text
 CLI override > module override > named profile > ecosystem setting > adapter default

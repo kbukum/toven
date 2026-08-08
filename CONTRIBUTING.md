@@ -54,7 +54,8 @@ One Cargo workspace (`members = ["crates/*", "apps/*"]`, `exclude = ["rskit"]`),
 
 - `crates/toven-model` (L0) — pure vocabulary (identity, dependency graph, plan, event types) plus graph algorithms; the dependency root.
 - `crates/toven-ports` (L1) — hexagonal port traits and helpers (template, merge, config).
-- `crates/toven-engine`, `crates/toven-rust`, `crates/toven-go`, `crates/toven-command` (L2) — orchestration engine and ecosystem adapters over the ports.
+- `crates/toven-engine-core`, `crates/toven-engine-release`, `crates/toven-engine` (L2) — the PLAN foundation, the release PLAN/APPLY tail, and the rest of PLAN/APPLY coordination.
+- `crates/toven-rust`, `crates/toven-go`, `crates/toven-command` (L2) — ecosystem adapters over the ports.
 - `crates/toven-cli` (L3) — CLI taxonomy, argv-first dispatch, and the stdio/Event projection sinks.
 - `apps/toven`, `apps/toven-rs`, `apps/toven-go` (L4) — thin wiring binaries.
 - `crates/toven-testkit` — dev-only (`publish = false`) shared test surface: fixtures API, port doubles, and sample-repo/git scenario helpers.

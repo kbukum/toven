@@ -211,7 +211,7 @@ Hosted releases use a separate forge port. GitHub integration invokes `gh` with 
 The release is modeled as a **flow**: an ordered set of named phases the engine orchestrates.
 
 ```text
-select → bump → tag → package → sign → publish → host → provenance
+select → bump → tag → package → sign → publish → host → image → provenance
 ```
 
 The phase vocabulary is `ReleasePhase` in `toven-model` — pure, descriptive names, no behavior. For **every** phase, the engine owns four guarantees, independent of how the phase is backed:
@@ -227,22 +227,22 @@ A phase's *implementation* is a swappable seam described by `PhaseBacking` in `t
 
 ### Phase seam decomposition
 
-The ecosystem sliver is a set of **per-phase contracts** in `toven-ports`, composed by the `ReleaseAdapter` marker trait (a blanket impl over all six). `ConfiguredAdapter::release_target` hands the engine one native trait object it resolves per phase, so each phase is independently backed `Native` or `Delegated`. The per-phase traits and the redesign decision behind each:
+The ecosystem sliver is a set of **per-phase contracts** in `toven-ports`, composed by the `ReleaseAdapter` marker trait (a blanket impl over all six). `ConfiguredAdapter::release_target` hands the engine one native trait object it resolves per phase, so each phase is independently backed `Native` or `Delegated`. The per-phase contracts:
 
-| Per-phase contract (method) | Phase | Decision |
+| Contract (method) | Phase | Role |
 | --- | --- | --- |
-| `VersionSource::declared_version` | Bump | Align — a version-read seam under the Bump phase. |
-| `ManifestMutator::apply_release` | Bump | Align — the manifest version-write seam under Bump; the standalone bump verb extracts around it. |
-| `TagGrammar::tag_scheme` | Tag | Align — the tag-grammar seam under the Tag phase. |
-| `Packager::package` | Package | Redesign — its own Package phase contract, delegable. |
-| `SbomProducer::sbom` | Provenance | Redesign — folds into the Provenance phase; the `Ok(None)` default becomes an explicit backing. |
-| `VersionSource::published_versions` | Publish | Align — the registry-query (idempotency) seam under Publish. |
-| `Publisher::publish` | Publish | Redesign — its own Publish phase contract, delegable. |
-| (engine sign) | Sign | Enhance — the engine-owned tag/artifact signing becomes an explicit Sign phase contract. |
-| (engine selection) | Select | Align — the existing selection/cascade/ordering is named as the Select phase. |
-| `ReleaseHost` port | Host | Align — the existing hosted-forge port is named as the Host phase. |
+| `VersionSource::declared_version` | Bump | Read the declared version. |
+| `ManifestMutator::apply_release` | Bump | Write the manifest version. |
+| `TagGrammar::tag_scheme` | Tag | Supply the tag grammar. |
+| `Packager::package` | Package | Package built artifacts (delegable). |
+| `SbomProducer::sbom` | Provenance | Produce the SBOM. |
+| `VersionSource::published_versions` | Publish | Query the registry for idempotency. |
+| `Publisher::publish` | Publish | Publish to the registry (delegable). |
+| engine sign | Sign | Sign tags and artifacts. |
+| engine selection | Select | Select, cascade, and order releasable modules. |
+| `ReleaseHost` port | Host | Create the hosted forge Release. |
 
-A delegated phase is driven through the `DelegatedPhase` port: the engine builds a fully-resolved, argv-first `DelegatedPhaseRequest` (tool-first argument vector, mutation-free preview vs. mutating apply argv, secrets named on the child environment — never on argv) and the engine-side `ProcessDelegatedPhase` runner spawns it via the rskit process port and reports a classified exit.
+A delegated phase runs through the `DelegatedPhase` port. The engine builds a fully-resolved, argv-first `DelegatedPhaseRequest` — a tool-first argument vector, separate mutation-free-preview and mutating-apply argv, and secrets named on the child environment (never on argv). The engine-side `ProcessDelegatedPhase` runner spawns it via the rskit process port and reports a classified exit.
 
 ## Output boundary
 

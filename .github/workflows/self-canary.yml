@@ -15,7 +15,13 @@ name: Self-canary
 # `make check` surface (`lint`/`test`+`doctest`/`doc`/`structure`/`deny`/
 # `docs-build`) plus the `format-check` and `vuln` mapped tasks and the
 # `doctor` required-tool audit — plus the full mutation-free release preview
-# surface.
+# surface, and (in the `assemble` job) the real release-assembly verbs run
+# through the self-generated binary over the whole declared multi-target asset
+# set. Because `release checksums`/`sign`/`verify`/`provenance` are policy over
+# the *complete* declared asset set (one combined `SHA256SUMS` covering every
+# per-target archive and the SBOM — there is no single-target release), the
+# `build` matrix first produces every declared archive, exactly as `release.yml`
+# does; the assembly proof over that full set is what belongs in the canary.
 on:
   push:
     branches:
@@ -128,6 +134,23 @@ jobs:
           "${TOVEN_BIN}" run format-check
           "${TOVEN_BIN}" run vuln
 
+      # Read-only top-level verbs, smoked through the self-generated binary so a
+      # regression in any of them is caught by dogfooding. Each is cheap and
+      # non-mutating; `init --print` renders `toven.toml` to stdout and writes
+      # nothing, asserted by a clean working tree afterwards.
+      - name: Read-only verb smokes through the self-generated binary
+        run: |
+          set -euo pipefail
+          "${TOVEN_BIN}" explain test
+          "${TOVEN_BIN}" init --print --non-interactive --root . >/dev/null
+          "${TOVEN_BIN}" completions bash >/dev/null
+          "${TOVEN_BIN}" cache path
+          test -z "$(git status --porcelain)" || {
+            echo "init --print must not modify the working tree" >&2
+            git status --porcelain >&2
+            exit 1
+          }
+
       # Full mutation-free release preview surface.
       - name: Release previews through the self-generated binary
         run: |
@@ -139,5 +162,182 @@ jobs:
         with:
           name: self-canary-release-preview
           path: release-preview.jsonl
+          if-no-files-found: error
+          retention-days: 14
+
+  # Build and package every declared per-target archive, exactly as
+  # `release.yml`'s `build` job does — the release-assembly verbs are policy
+  # over the *complete* declared asset set (one combined `SHA256SUMS`), so the
+  # canary must produce that full set before it can prove the assembly path.
+  # Build+package from source `cargo` is the legitimate bootstrap (the binary
+  # must exist before it can package itself); the dogfood proof is the
+  # `assemble` job below, which runs the assembly verbs through the
+  # self-generated binary over these archives.
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: false
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            use_cross: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            use_cross: false
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            use_cross: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install "${RUST_VERSION}" --profile minimal
+          rustup override set "${RUST_VERSION}"
+          rustup target add ${{ matrix.target }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@72d126e709cad40056a62344eee609d696d62d33 # v2.7.8
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.use_cross
+        uses: taiki-e/install-action@cb33e69fad06166ca28a42b2575e4dadabf62ee8 # v2
+        with:
+          tool: cross
+
+      - name: Build (native)
+        if: ${{ !matrix.use_cross }}
+        shell: bash
+        run: cargo build --locked --release -p toven --features vendored-openssl --target ${{ matrix.target }}
+
+      - name: Build (cross)
+        if: matrix.use_cross
+        shell: bash
+        run: cross build --locked --release -p toven --features vendored-openssl --target ${{ matrix.target }}
+
+      - name: Package release archive
+        shell: bash
+        run: cargo run --locked -p toven -- release package --target ${{ matrix.target }} --output jsonl
+
+      - name: Upload packaged archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: self-canary-archive-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  # The assembly dogfood: run the real release-assembly verbs through the
+  # self-generated binary over the whole declared multi-target asset set,
+  # entirely mutation-free (no tag/release/remote is touched). The
+  # `x86_64-unknown-linux-gnu` archive built above *is* the self-generated
+  # Linux binary; it is extracted and pinned as `TOVEN_BIN`, then drives:
+  # `release sbom` (stage the CycloneDX SBOM), `release checksums` (write the
+  # combined `SHA256SUMS`), `release verify --no-run` (presence-check the whole
+  # declared set without executing any target — no single runner can run all
+  # five), and `release provenance --dry-run` (query whether an attestation
+  # already exists over the manifest subjects; never attests). `release sign`
+  # runs only on manual dispatch — see its step for why. This proves the exact
+  # assembly path `release.yml` runs, through the artifact Toven ships.
+  assemble:
+    name: Assemble through the self-generated binary
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # cosign keyless signing (Sigstore OIDC)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install "${RUST_VERSION}" --profile minimal
+          rustup override set "${RUST_VERSION}"
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@72d126e709cad40056a62344eee609d696d62d33 # v2.7.8
+
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --locked --version 0.5.9
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v2.6.0
+
+      - name: Download every packaged archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v6
+        with:
+          pattern: self-canary-archive-*
+          path: dist
+          merge-multiple: true
+
+      # The Linux archive is the self-generated binary; pin it for the assembly
+      # verbs below so nothing here runs a source `cargo run`.
+      - name: Extract and select the self-generated binary
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/toven-bin"
+          tar -xzf "dist/toven-${TARGET}.tar.gz" -C "${RUNNER_TEMP}/toven-bin"
+          echo "TOVEN_BIN=${RUNNER_TEMP}/toven-bin/toven" >> "${GITHUB_ENV}"
+          echo "${RUNNER_TEMP}/toven-bin" >> "${GITHUB_PATH}"
+
+      - name: Show the self-generated version
+        run: '"${TOVEN_BIN}" --version'
+
+      # Assemble the full declared asset set through the self-generated binary,
+      # in the same order `release.yml`'s `assemble` job runs, all mutation-free.
+      # Local `verify --no-run` is presence-only (signature/checksum are verified
+      # only in the hosted `--download` mode), and `provenance --dry-run` only
+      # queries the attestation store — neither depends on the signature — so
+      # both run on every push. Signing is split out below.
+      - name: Assemble the release asset set through the self-generated binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          "${TOVEN_BIN}" release sbom --out-dir target/toven/release/sbom --output jsonl
+          "${TOVEN_BIN}" release checksums --output jsonl
+          "${TOVEN_BIN}" release verify --no-run --output jsonl
+          "${TOVEN_BIN}" release provenance --dry-run --output jsonl | tee release-provenance-preview.jsonl
+
+      # `release sign` is keyless Sigstore/cosign: every run appends a permanent,
+      # public entry to the Rekor transparency log — a real external side effect
+      # (though it touches no tag/release/remote). Gated to manual dispatch so
+      # routine pushes to main do not accrue a canary Rekor entry per merge;
+      # `workflow_dispatch` still exercises the full sign path on demand.
+      - name: Sign the manifest through the self-generated binary (on demand)
+        if: github.event_name == 'workflow_dispatch'
+        run: '"${TOVEN_BIN}" release sign --output jsonl'
+
+      - name: List assembled release assets
+        run: ls -la dist
+
+      - name: Upload the assembled release evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: self-canary-release-dist
+          path: |
+            dist/*
+            release-provenance-preview.jsonl
           if-no-files-found: error
           retention-days: 14

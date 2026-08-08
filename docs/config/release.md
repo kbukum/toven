@@ -1,10 +1,14 @@
 # Release configuration
 
-Release policy is declared under `[ecosystems.<id>.release]` and may be overridden under `[modules."<ecosystem>:<name>".release]`. Precedence is:
+Release policy lives under `[ecosystems.<id>.release]`. A module can override it under `[modules."<ecosystem>:<name>".release]`.
+
+Run a read-only preview first:
 
 ```bash
 toven release plan
 ```
+
+Precedence is simple:
 
 ```text
 release CLI override > module release override > ecosystem release policy > adapter default
@@ -12,7 +16,30 @@ release CLI override > module release override > ecosystem release policy > adap
 
 `toven release plan` reports the winning version input for each module.
 
-## Supported configuration
+## Minimal release config
+
+This is enough for a Rust crate release that publishes to crates.io, checks the tree, and requires a changelog entry:
+
+```toml
+[project]
+name = "example"
+
+[ecosystems.rust]
+manifests = "auto"
+
+[ecosystems.rust.release]
+registry = "crates-io"
+readiness = ["clean-tree", "registry-idempotent"]
+
+[ecosystems.rust.release.changelog]
+required = true
+```
+
+For a tag-only release, omit `registry` or set `publish = false` in the same block.
+
+## Full example
+
+Every key below is part of the strict release schema. Use only the fields your repository needs.
 
 ```toml
 [ecosystems.rust.release]
@@ -32,6 +59,8 @@ branches = ["main"]
 registry = "crates-io"
 publish = true
 exclude = false
+entrypoint = "toven"
+umbrella = false
 offline = false
 token_env = "CARGO_REGISTRY_TOKEN"
 visibility = "public"
@@ -44,6 +73,7 @@ branch_channels = { next = "beta" }
 [ecosystems.rust.release.changelog]
 path = "CHANGELOG.md"
 required = true
+roll = false
 
 [ecosystems.rust.release.host]
 forge = "github"
@@ -54,6 +84,7 @@ assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
 
 [ecosystems.rust.release.sign]
 enabled = true
+signer = "release-bot"
 identity = "https://github.com/OWNER/REPO/.github/workflows/release.yml@.*"
 issuer = "https://token.actions.githubusercontent.com"
 
@@ -62,87 +93,102 @@ pre = ["check"]
 post = ["docs-build"]
 ```
 
-| Field | Meaning | Default |
-|---|---|---|
-| `strategy` | Version decision policy: `semver-cascade` (compute the next version from changes) or `manifest` (cut exactly the declared manifest version) | `semver-cascade` |
-| `level` | Changed-module bump: `patch`, `minor`, `major`, or `auto` | `auto` |
-| `dependent_version` | `bump` releases a dependent; `upgrade` only raises its dependency floor | `bump` |
-| `tag_format` | Rust tag template; forbidden for Go | Adapter tag scheme |
-| `tag_message` | Annotated-tag message template | Lightweight tag |
-| `sign_tags` | Sign release tags. Signing is always annotated, so `true` requires `tag_message` (a signed lightweight tag does not exist) and a resolvable signing key; the adapter fails closed with an actionable error when no key is available | `false` (unsigned) |
-| `sign_format` | Signing backend for signed tags, mapped onto git's `gpg.format`: `openpgp` (or the `gpg` alias), `ssh`, or `x509`. Only applies when `sign_tags = true` | Inherit repository `gpg.format` |
-| `signing_key` | Signing key *identifier* for signed tags, mapped onto git's `user.signingkey` (never key material). Only applies when `sign_tags = true` | Inherit repository `user.signingkey` |
-| `commit_message` | Release commit template | Adapter default |
-| `push` | Permit release commit and tag push | `true` |
-| `push_branch` | Push the release commit's branch alongside the tags; `false` pushes tags only for protected release branches | `true` |
-| `remote` | Git remote for release pushes | `origin` |
-| `branches` | Allowed release branches; an empty list permits any branch | Any branch |
-| `registry` | Registry selection for Rust crate publication: `crates-io` (cargo's default) or a named alternate cargo registry; invalid for Go | No registry, tag-only |
-| `publish` | `false` selects tag-only publication; in a per-module block it also narrows an inherited registry to tag-only | Inherit / registry-driven |
-| `exclude` | Exclude the module from release planning, tagging, registry publication, and hosted releases | `false` |
-| `entrypoint` | Who cuts the release: `toven` (the default — Toven bumps, tags, pushes, and publishes) or `maintainer` (a human already created the tag and hosted Release in the forge; Toven verifies that tag, publishes, and attaches assets against it, mutating nothing) | `toven` |
-| `umbrella` | Mark the module as its train's aggregate representative: it fronts a single hosted Release that aggregates its members' notes, while the members keep independent versions/tags and publish to their registries but cut no individual forge Release. Invalid on an excluded module | `false` |
-| `offline` | Use tags rather than target queries for idempotency; `release status` skips registry lookups too | `false` |
-| `token_env` | Name of the environment variable holding the registry publish token. The publishing adapter reads it at the toolchain boundary and forwards the credential to cargo on the child process (never on argv) under the registry's own variable — `CARGO_REGISTRY_TOKEN` for crates.io, or `CARGO_REGISTRIES_<NAME>_TOKEN` for a named alternate registry; a configured-but-absent variable fails the publish closed. `None` uses the toolchain's ambient credential | None |
-| `visibility` | Requested exposure of the release: `public`, `private`, or `internal`. Enforced fail-closed at the registry-publish boundary: a non-public visibility against a public-only registry (crates.io) is rejected at plan time, and the registry adapter enforces the same rule as a last line of defense. The tag push and hosted forge Release follow the remote repository's own exposure | `public` |
-| `readiness` | Named fail-closed checks | None |
-| `hooks` | Pre/post task references run around the release. Each `pre` task runs (deduplicated, in module-key then declaration order) before any mutation — a non-success aborts the release fail-closed before any tag, push, or publish — and each `post` task runs after a successful release. Executed by the injected `HookRunner` port (the CLI resolves each reference through the `run` verb); the reconcile early-return path skips post-hooks. Distinct from `readiness`, which gates rather than performs work | None |
+## Main release keys
 
-Templates accept the documented release variables such as `{ecosystem}`, `{module}`, and `{version}`. Unknown placeholders, blank names, unsafe paths, and unsupported readiness checks fail validation.
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `strategy` | `"semver-cascade"` or `"manifest"` | `"semver-cascade"` | How the next version is chosen |
+| `level` | `"patch"`, `"minor"`, `"major"`, or `"auto"` | `"auto"` | Bump for changed modules |
+| `dependent_version` | `"bump"` or `"upgrade"` | `"bump"` | Whether a dependent gets its own release after a dependency floor changes |
+| `tag_format` | template string | Adapter tag scheme | Release tag template; Rust accepts it, Go rejects it |
+| `tag_message` | template string | Lightweight tag | Annotated-tag message template |
+| `sign_tags` | boolean | `false` | Sign release tags; requires `tag_message` and a resolvable signing key |
+| `sign_format` | `"openpgp"`, `"gpg"`, `"ssh"`, or `"x509"` | Git `gpg.format` | Git signing backend, only with `sign_tags = true` |
+| `signing_key` | string | Git `user.signingkey` | Git signing key identifier, never key material |
+| `commit_message` | template string | Adapter default | Release commit message template |
+| `push` | boolean | `true` | Permit release commit and tag push |
+| `push_branch` | boolean | `true` | Push the release commit branch as well as tags |
+| `remote` | string | `"origin"` | Git remote for release pushes |
+| `branches` | string list | Any branch | Allowed release branches; an empty list permits any branch |
+| `registry` | string | None | Rust registry target; `"crates-io"` uses cargo's default registry |
+| `publish` | boolean | Registry-driven | `false` selects tag-only publication |
+| `exclude` | boolean | `false` | Remove the module from release planning, tagging, publishing, and hosting |
+| `entrypoint` | `"toven"` or `"maintainer"` | `"toven"` | Who creates the tag and hosted Release |
+| `umbrella` | boolean | `false` | Mark the module as the aggregate hosted-Release representative for its train |
+| `offline` | boolean | `false` | Anchor idempotency on tags and skip registry lookups in status |
+| `token_env` | string | None | Environment variable that holds the registry publish token |
+| `visibility` | `"public"`, `"private"`, or `"internal"` | `"public"` | Intended registry exposure |
+| `readiness` | string list | `[]` | Named fail-closed preflight checks |
+| `hooks` | table | None | Pre/post task references run around mutation |
 
-A repository creates one release commit for all selected modules, so `commit_message` must render identically for every module in that repository. Module- or version-specific commit templates are suitable only when the repository releases one module at a time.
+Templates accept release variables such as `{ecosystem}`, `{module}`, `{version}`, and `{channel}`. Unknown placeholders, blank names, and unsafe paths fail config validation. Unsupported readiness checks fail closed during release planning.
 
-A pushing release normally updates both the release commit's branch and the release tags on the remote. When the release branch is protected and rejects direct pushes, set `push_branch = false`: the release then pushes only the tags and leaves the branch ref untouched. `push_branch` is per-repository like the other push settings — every module releasing in one repository must agree on it.
+A repository creates one release commit for all selected modules. `commit_message` must render identically for every module in that repository. Use module- or version-specific commit templates only when the repository releases one module at a time.
 
-## Version and cascade policy
+A pushing release usually updates the release branch and tags. Set `push_branch = false` when a protected release branch rejects direct pushes; Toven then pushes tags only and leaves the branch ref untouched. This setting is per repository, so all modules released together must agree.
 
-`level = "auto"` currently resolves a normal change to a patch and a known breaking signal to a minor bump. Use explicit configuration or CLI overrides when a major bump is required.
+## Version policy
 
-`dependent_version = "bump"` is the safe release default: when a released dependency raises a requirement floor, the dependent receives its own release. `upgrade` changes the dependency requirement without releasing the dependent and should be selected only when the ecosystem and repository intentionally permit that state.
+`level = "auto"` resolves a normal change to a patch and a known breaking signal to a minor bump. Use explicit config or CLI overrides when a major bump is required.
+
+`dependent_version = "bump"` is the safe cascade default. When a released dependency raises a requirement floor, the dependent receives its own release. `"upgrade"` raises the dependency floor without releasing the dependent; use it only when your ecosystem and repository allow that state.
 
 ### Version strategies
 
-`strategy` selects **how the next version is decided**. The rest of the release flow — change detection, dependency cascade, idempotency, tag, publish — is identical for both strategies; only the version-decision node reads `strategy`.
+`strategy` changes only the version-decision step. Change detection, dependency cascade, idempotency, tag, and publish behavior stay the same.
 
-- **`semver-cascade`** (default) — the next version is **computed**: the baseline tag plus the detected changes resolve to a patch, minor, or major bump, a pending prerelease is finalized on a stable bump, and raised dependency floors cascade into dependents. Compose a prerelease channel with `--pre <channel>`.
-- **`manifest`** — the next version is **declared**: Toven cuts exactly `v${manifest version}` when the declared version is strictly ahead of the last release tag. When the declared version is equal to or behind the baseline there is nothing to cut, and the outcome depends on the verb: a read-only preview (`release plan` and the other previews) reports **nothing to release**, while a mutating run (`release tag`/`release publish`) **fails closed** with a typed error ("bump the manifest version before releasing") so it never re-cuts an already-released version. The declared manifest version is the version decision, so the tag equals the workspace version by construction. Because the channel already lives in the declared version string, `--pre` combined with `manifest` is a typed usage error. Explicit argv (`--set-version`/`--patch`/`--minor`/`--major`) still wins over either strategy.
-
-Worked example — baseline release tag versus the declared `Cargo.toml` version:
+- **`semver-cascade`** computes the next version from the baseline tag and detected changes. A stable bump finalizes a pending prerelease, dependency floor changes cascade into dependents, and `--pre <channel>` composes a prerelease channel.
+- **`manifest`** cuts exactly `v${manifest version}` when the manifest version is ahead of the last release tag. If it is equal to or behind the baseline, previews report nothing to release and mutating runs fail closed with a typed error. `--pre` is invalid with `manifest` because the channel already lives in the declared version. Explicit argv such as `--set-version`, `--patch`, `--minor`, and `--major` still wins over either strategy.
 
 | Baseline tag | Declared `Cargo.toml` | `semver-cascade` | `manifest` |
 |---|---|---|---|
-| `0.1.0-alpha.1` | `0.1.0-alpha.1` | `0.1.0` | nothing to release (preview) / fail closed (run) |
+| `0.1.0-alpha.1` | `0.1.0-alpha.1` | `0.1.0` | Nothing to release in preview; fail closed in a run |
 | `0.1.0-alpha.1` | `0.1.0-alpha.2` | `0.1.0` | `0.1.0-alpha.2` |
-| `0.1.0-alpha.2` | `0.1.0` | `0.1.0` | `0.1.0` (finalize, declared) |
+| `0.1.0-alpha.2` | `0.1.0` | `0.1.0` | `0.1.0` |
 | `0.1.0` | `0.1.1` | `0.1.1` | `0.1.1` |
-| `0.1.0` | `0.1.0-alpha.2` | — | nothing to release (preview) / fail closed (run) |
+| `0.1.0` | `0.1.0-alpha.2` | Not applicable | Nothing to release in preview; fail closed in a run |
 
-`manifest` is what lets a workspace cut successive `0.1.0-alpha.2`, `-alpha.3` prereleases from a curated `Cargo.toml`, where `semver-cascade` would always compute past the declared prerelease to the finalized version.
+Use `manifest` when a workspace curates prerelease versions in `Cargo.toml`, such as successive `0.1.0-alpha.2` and `0.1.0-alpha.3` releases.
 
 ## Prereleases
-
-Only declared channels can be selected:
 
 ```toml
 [ecosystems.go.release.prerelease]
 channels = ["alpha", "rc"]
+branch_channels = { next = "alpha" }
 ```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `channels` | string list | `[]` | Allowed semver prerelease channels |
+| `branch_channels` | string map | `{}` | Branch-to-channel defaults |
+
+Only declared channels can be selected:
 
 ```bash
 toven release publish --dry-run --pre alpha
 ```
 
-An undeclared channel is rejected. The channel becomes part of the semantic version and therefore part of the Rust or Go tag. The `branch_channels` map binds a release branch to the channel it cuts, so releasing from a `next` branch can imply a `beta` train without a per-run flag: when no explicit `--pre` is given, the checked-out branch selects the channel. An explicit `--pre <channel>` always wins over the mapping, a branch not present in the map (or a detached HEAD) cuts a stable release, and every mapped channel must be one of the declared `channels`.
+An explicit `--pre <channel>` wins over `branch_channels`. If no `--pre` is set, the checked-out branch may select a mapped channel. A branch not in the map, or a detached HEAD, cuts a stable release. Every mapped channel must appear in `channels`.
 
-## Changelogs
+## Changelog
 
 ```toml
 [ecosystems.rust.release.changelog]
 path = "CHANGELOG.md"
 required = true
+roll = false
 ```
 
-When `required = true`, every directly changed release unit must have a documented entry in the configured changelog before the release proceeds. The check is file-backed: Toven resolves the project-relative `path` (default `CHANGELOG.md`), reads it, and requires a non-empty [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) `## [Unreleased]` section — at least one bullet or prose line under the heading, not just empty `### Added`/`### Fixed` subsections. A missing, unreadable, unsafe, or undocumented changelog fails validation before any mutation. Modules selected only through a dependency cascade are exempt; their release reason is the deterministic dependency-cascade explanation carried in the plan. Toven verifies the changelog but never rewrites it; authoring the `[Unreleased]` entry stays a maintainer action.
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `path` | string | `"CHANGELOG.md"` | Project-relative changelog path |
+| `required` | boolean | `false` | Require a changelog entry for each directly changed release unit |
+| `roll` | boolean | `false` | During `release bump`, move `## [Unreleased]` content under a versioned heading |
+
+When `required = true`, Toven reads the configured file and requires a non-empty Keep a Changelog `## [Unreleased]` section. A bullet or prose line counts; empty subsection headings do not. Missing, unreadable, unsafe, or undocumented changelogs fail before mutation.
+
+Modules selected only through a dependency cascade are exempt. Toven verifies changelog content and, when `roll = true`, relocates existing prose during the bump phase. It never fabricates release notes.
 
 ## Readiness
 
@@ -151,7 +197,27 @@ When `required = true`, every directly changed release unit must have a document
 readiness = ["clean-tree", "registry-idempotent"]
 ```
 
-`clean-tree` and `registry-idempotent` are currently executable. `registry-idempotent` only evaluates registry-published modules; tag-only and excluded modules are ignored by that registry check. A protected publication policy should configure both for registry releases and at least `clean-tree` for tag-only releases.
+| Check | Meaning |
+|---|---|
+| `clean-tree` | Every member working tree must have no uncommitted changes |
+| `registry-idempotent` | Registry-published modules must not declare a version already published to the registry |
+
+`registry-idempotent` ignores tag-only and excluded modules. Use both checks for registry releases, and at least `clean-tree` for tag-only releases. Unknown readiness checks fail closed.
+
+## Hooks
+
+```toml
+[ecosystems.rust.release.hooks]
+pre = ["check"]
+post = ["docs-build"]
+```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `pre` | string list | `[]` | Task references run before any mutation |
+| `post` | string list | `[]` | Task references run after a successful release |
+
+Hooks are task references resolved through the same task model as `toven run`. Pre-hooks run in module-key then declaration order and are deduplicated. A failed pre-hook aborts before any tag, push, or publish. Post-hooks run only after a successful release, and the reconcile early-return path skips them.
 
 ## Hosted forge Releases
 
@@ -162,22 +228,28 @@ draft = false
 assets = ["dist/core.tar.gz", "dist/SHA256SUMS"]
 ```
 
-`forge` selects the hosted-release adapter; `github` and `gitlab` are supported, and any other value is rejected when the config is parsed. Asset paths are project-relative exact paths; glob expansion is not implemented. An unset `prerelease` flag derives from the selected version: a version carrying a prerelease identifier (`0.1.0-alpha.1`) marks the hosted Release as a prerelease, whether it came from `--pre` or from the version the module already declares. An unset `notes` value uses the commit-derived release notes body rendered by the planner.
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `forge` | `"github"` or `"gitlab"` | None | Hosted-release adapter; no hosted Release is cut when unset |
+| `draft` | boolean | `false` | Cut the hosted Release as a draft |
+| `prerelease` | boolean | Derived from the version | Mark the hosted Release as a prerelease |
+| `notes` | string | Changelog-derived notes | Explicit release-note body |
+| `assets` | string list | `[]` | Project-relative exact paths to upload |
 
-`host.assets` is resolved **per module**: a `[modules."rust:app".release.host]` block attaches its assets to that module, and a module that produces no binary artifacts simply declares no `assets`. Assets are not a single ecosystem-wide list — each participating module contributes the archives it owns, so a repository can release registry libraries (no assets) alongside a self-hosted binary app (archive assets) in one release train.
+A shaping field such as `draft`, `prerelease`, `notes`, or `assets` requires `forge`. Asset paths are exact project-relative paths; glob expansion is not implemented. An unset `prerelease` flag derives from the selected version.
 
-The two forges model releases differently, so the adapters honor what each platform can represent rather than pretending parity:
+`host.assets` is resolved per module. A module that produces no binary artifacts should declare no assets. A mixed release can publish registry libraries with no assets and a binary app with archive assets in the same train.
 
-- **GitHub** (`forge = "github"`, via `gh`) supports draft and prerelease flags and uploads assets as named files; an existing Release is verified field-by-field, including each asset's name and byte size.
-- **GitLab** (`forge = "gitlab"`, via `glab`) has no draft release, so a `draft = true` release is **rejected fail-closed** before any `glab` call — cut it on a forge that supports drafts or drop the flag. GitLab also has no prerelease flag, so `prerelease` is recorded intent the adapter cannot set on the forge; it is neither emitted nor verified. GitLab release assets are links (name + URL) with no byte size, so an existing Release is verified by title, notes, and asset **name** only. Creation uses `glab release create --no-update`, so an existing tag is refused rather than edited in place.
+GitHub and GitLab expose different release models:
 
-One release tag is one hosted Release. A `tag_format` that omits the module — `v{version}` for a workspace that shares a single version — maps every module onto the same tag, so those modules collapse into a single hosted Release whose assets and notes are the deduplicated union of the contributing modules, and the shared tag itself is created once for the whole release train. This is what lets a mixed repository — registry libraries plus one self-hosted binary app — release together under a shared `v{version}` tag: the library modules contribute notes but no archives, the binary module contributes its per-target archives, and the collapsed Release carries their union. Modules sharing a tag but disagreeing on `draft` or `prerelease`, or rendering different tag annotations (`tag_message`), are rejected as a configuration error before any mutation.
+- **GitHub** uses `gh`. It supports draft and prerelease flags, uploads assets as named files, and verifies an existing Release field-by-field, including each asset name and byte size.
+- **GitLab** uses `glab`. It has no draft release, so `draft = true` is rejected before any `glab` call. It has no prerelease flag, so prerelease intent is recorded but not emitted or verified. GitLab assets are links with name and URL only, so existing Releases are verified by title, notes, and asset name. Creation uses `glab release create --no-update`, so existing tags are refused rather than edited.
 
-Hosted Release rehearsal is mutation-free. Real hosted Release creation currently runs only after a pushing `release publish`, not after `release tag`.
+One release tag maps to one hosted Release. If `tag_format = "v{version}"` maps several modules to the same tag, their notes and assets collapse into a deduplicated union and the shared tag is created once. Modules sharing a tag must agree on `draft`, `prerelease`, and rendered `tag_message`, or planning fails before mutation.
 
-## Registry and tag-only policy
+Hosted Release rehearsal is mutation-free. Real hosted Release creation runs after a pushing `release publish`, not after `release tag`.
 
-The contract distinguishes:
+## Registry, tag-only, and excluded modules
 
 | Policy | Rust | Go |
 |---|---|---|
@@ -185,98 +257,126 @@ The contract distinguishes:
 | Tag-only | Create the immutable tag without registry publication | The tag is the release |
 | Excluded module | Do not version, tag, publish, or host | Do not version or tag |
 
-Toven resolves publication into a typed policy before planning:
+Toven resolves publication from `exclude`, `publish`, and `registry`:
 
-- `registry = "crates-io"` selects Rust registry publication to crates.io (cargo's default registry).
-- `registry = "<name>"` for any other value selects a **named alternate cargo registry**: the adapter routes the publish via `cargo publish --registry <name>` and reads the publish token from `token_env` into cargo's per-registry variable `CARGO_REGISTRIES_<NAME>_TOKEN` (the name uppercased with non-alphanumerics replaced by `_`), never on argv. The registry itself must be configured in the project's cargo configuration (`[registries.<name>]`). Because a named registry is not the public-only crates.io, a `private`/`internal` `visibility` is **allowed** against it — its own access controls define the exposure.
-- No `registry` selects tag-only publication; Rust crates are not published by default.
-- `publish = false` is an explicit tag-only declaration; in the same block it requires no `registry`, and in a per-module override it narrows an inherited ecosystem registry to tag-only for that one module.
-- `exclude = true` removes the module from release planning entirely; in a per-module override it also narrows an inherited registry to excluded for that one module.
+- `registry = "crates-io"` selects Rust publication to crates.io.
+- `registry = "<name>"` selects a named alternate Cargo registry. Toven runs `cargo publish --registry <name>` and forwards the token through `CARGO_REGISTRIES_<NAME>_TOKEN`, where the name is uppercased and non-alphanumerics become `_`. The registry must be configured in Cargo.
+- No `registry` selects tag-only publication. Rust crates are not published by default.
+- `publish = false` is an explicit tag-only declaration. In a per-module override, it can narrow an inherited ecosystem registry to tag-only for that module.
+- `exclude = true` removes the module from release planning. In a per-module override, it can narrow an inherited ecosystem registry to excluded for that module.
 
-Contradictions are rejected **within a single block**: Go cannot declare a registry, a `registry` target cannot be combined with `publish = false` in the same block, and an excluded module cannot declare registry publication or hosted assets. These same-block rules do not block a more-specific **per-module override from narrowing an inherited policy**: a module that inherits a registry from its ecosystem may set `publish = false` to become tag-only, or `exclude = true` to drop out of the release, without tripping a contradiction. The override merges field-by-field and the resolved policy is recomputed from the merged fields (`exclude` wins, then `publish = false`, then `registry`), so the per-module block that narrows an inherited registry never re-triggers the same-block contradiction check. Registry-published Rust crates are packaged and published during `release publish`; tag-only modules are versioned and tagged but never sent to a package registry.
+Contradictions are rejected inside one block. Go cannot declare a registry. A block cannot combine `registry` with `publish = false`. An excluded module cannot declare registry publication, hosted assets, an image block, or `umbrella = true`.
 
-For Go test-only and benchmark modules, the policy is intentionally explicit: use tag-only release policy or `exclude = true`; path and name heuristics are forbidden. Go registry publication is rejected because Go releases are immutable Git tags.
+Per-module narrowing is allowed because overrides merge field by field and the resolved policy is recomputed after the merge. `exclude` wins, then `publish = false`, then `registry`.
 
 ## Visibility
 
-`visibility` declares the intended exposure of a release — `public` (default), `private`, or `internal`. It resolves like the other release fields: an ecosystem-level value is inherited, a per-module block overrides it field-by-field, and an unset value defaults to `public`, so existing configs keep releasing publicly unchanged. Unknown values are rejected when the config is parsed.
+`visibility` records intended release exposure: `public`, `private`, or `internal`. It resolves like other release fields; ecosystem values are inherited, and module values override them.
 
-A non-public visibility is only honored by a target that can actually restrict exposure. crates.io publishes every version world-readable, so a `private`/`internal` release that targets it is a contradiction. Toven fails that closed at **plan time** — before any tag, push, or publish — with a typed `release.visibility` error naming the module and the public-only registry; the crates.io adapter enforces the same rule at the toolchain boundary as a last line of defense. A tag-only release (no registry publication) has no public-only mutation to conflict with, so it may carry any visibility. A named alternate registry is assumed to support the requested exposure, so a non-public release may target it.
+Toven enforces visibility only where a target can violate it. crates.io is public-only, so a `private` or `internal` release targeting crates.io fails at plan time with a typed `release.visibility` error. The crates.io adapter enforces the same rule at the toolchain boundary. A tag-only release may carry any visibility, and a named alternate registry is assumed to support its own access controls.
 
-The tag push and the hosted forge Release are **visibility-agnostic**: their exposure follows the remote repository, which Toven does not own. Pushing a tag to a private repository leaks nothing, and a forge Release inherits its repository's visibility (a Release has no independent public/private setting), so neither boundary carries a per-Release exposure flag. Visibility is therefore enforced only where a target can actually violate it — the registry publish — and recorded as intent everywhere else.
+Tag pushes and hosted forge Releases follow the remote repository's visibility. A forge Release has no independent public/private setting.
 
-## Signing
+## Tag signing
+
+Use these top-level release keys for signed git tags:
+
+```toml
+[ecosystems.rust.release]
+tag_message = "release {module} {version}"
+sign_tags = true
+sign_format = "ssh"
+signing_key = "release-key"
+```
+
+`sign_tags = true` always creates an annotated tag. It requires `tag_message` and a signing key resolvable from config or git. `sign_format` maps to git `gpg.format`, and `signing_key` maps to git `user.signingkey`. Both are key identifiers, not secrets.
+
+## Artifact signing
 
 ```toml
 [ecosystems.rust.release.sign]
 enabled = true
-# signer = "my-key-ref"   # optional; omit for the keyless Sigstore default
+signer = "release-bot"
 identity = "https://github.com/OWNER/REPO/.github/workflows/release.yml@.*"
 issuer = "https://token.actions.githubusercontent.com"
 ```
 
-Signing is **off by default** and, when enabled, executable by `toven release sign`: it produces a detached signature and certificate over the `SHA256SUMS` manifest with cosign, writing them to the declared `SHA256SUMS.sig`/`SHA256SUMS.pem` assets. With no `signer`, the keyless Sigstore default is used — the signing identity comes from the ambient OIDC token (GitHub Actions), and no private key is stored in Toven configuration; `signer` names a non-secret key/identity selection when a keyed signer is intended. A configured-but-unavailable signer, or a signer failure, fails the release closed.
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `enabled` | boolean | `false` | Enable artifact signing |
+| `signer` | string | Signer default | Non-secret signer identity or key selection |
+| `identity` | string | None | Keyless verification identity regexp for `release verify --download` |
+| `issuer` | string | None | Keyless verification OIDC issuer for `release verify --download` |
 
-`identity` and `issuer` are the keyless **verification** inputs consumed by `toven release verify --download`: the `certificate-identity-regexp` a downloaded signature's certificate must match (the release workflow ref) and the `certificate-oidc-issuer` it must chain to. They are not secrets, and they let any consumer verify against *their own* workflow identity rather than a hard-coded one. Signing must be enabled for a `signer` to be set, and a blank `signer`, `identity`, or `issuer` fails validation.
+`toven release sign` signs the `SHA256SUMS` manifest with cosign and writes `SHA256SUMS.sig` and `SHA256SUMS.pem` sidecar assets. With no `signer`, cosign uses the keyless Sigstore default from the ambient OIDC token. A configured but unavailable signer fails the release closed.
+
+`identity` and `issuer` are verification inputs, not secrets. Signing must be enabled when `signer` is set, and blank `signer`, `identity`, or `issuer` values fail validation.
 
 ## Artifact assembly and verification
 
-Under a hosted-release policy, each binary-producing module's declared `host.assets` are produced end to end by engine verbs — no external packaging, checksum, or signing scripts. The verbs scope to the modules that declare assets, so a mixed repository packages, checksums, signs, and verifies only its binary app while its registry libraries pass through untouched:
+Under a hosted-release policy, modules with `host.assets` can use Toven's release artifact verbs. The verbs scope to modules that declare assets, so registry-only libraries pass through untouched.
 
-- `toven release package --target <triple>` archives an already-built binary (`target/<triple>/release/<binary>`, or an explicit `--binary` path) into its declared per-target archive asset (`.tar.gz`, or `.zip` for a `*windows*` triple, with the `.exe` suffix recorded). It fails closed when the declared asset or the built binary is missing.
+- `toven release package --target <triple>` archives an already-built binary into the declared archive asset for that target. Non-Windows targets use `.tar.gz`; `*windows*` targets use `.zip` and record the `.exe` suffix. It fails when the declared asset or built binary is missing.
 - `toven release sbom` writes the CycloneDX SBOM and stages it into the declared `*.cdx.json` asset.
 - `toven release checksums` digests every declared archive and the SBOM into the `SHA256SUMS` manifest asset, in declared order, using SHA-256.
-- `toven release sign` signs `SHA256SUMS` into its `.sig`/`.pem` sidecar assets (see Signing).
-- `toven release verify` checks the declared archives: in **local** mode it presence-checks every declared archive and, unless `--no-run`, extracts and asserts each reports the decided version; with `--download` it fetches the archives plus `SHA256SUMS` and its signature from the hosted release and verifies them in a hard fail-closed order — the Sigstore signature on `SHA256SUMS` first, then each archive's checksum, then extraction and version check.
+- `toven release sign` signs `SHA256SUMS` into `.sig` and `.pem` sidecars.
+- `toven release verify` checks archives. Local mode presence-checks each archive and, unless `--no-run`, extracts and checks the binary version. `--download` fetches archives plus `SHA256SUMS` and signature assets from the hosted Release, verifies the Sigstore signature first, then checksums, then extraction and version.
 
-Every verb is non-mutating with respect to git history, emits typed JSONL under `--output jsonl`, and fails closed on a missing or mismatched input. CI provisions the external tools (cosign, cargo-cyclonedx) and holds the human approval gate; Toven drives them.
+These verbs do not mutate git history. Under `--output jsonl`, they emit typed JSONL. Missing or mismatched inputs fail closed. CI provides external tools such as cosign and cargo-cyclonedx.
 
 ## Container-image release
 
-A module shipped as a container image declares a `[…release.image]` block. It is required to run the `image` phase (the phase is unusable without it) and drives [`toven release image`](../commands/release.md#container-images-and-provenance): build the image once, push the built digest to the primary registry followed by every mirror, and cosign-sign the pushed digest. An image block on an ecosystem whose module ships no image is rejected at config time, so the block is never a silent no-op.
+A module shipped as a container image declares a `[…release.image]` block. The block is required for `toven release image` and is rejected on an excluded module.
 
 ```toml
 [ecosystems.rust.release.image]
-registry = "ghcr.io/acme"          # primary registry (required)
-mirrors = ["docker.io/acme"]       # additional registries the same digest is pushed to
-name = "toven"                     # image name template
-tag = "{version}"                  # image tag template (default: {version})
-context = "services/api"           # project-relative build context (default: the project root)
-dockerfile = "services/api/Dockerfile"  # project-relative Dockerfile (default: the builder default)
-sign = true                        # cosign-sign the pushed digest, keyless (default: true)
+registry = "ghcr.io/acme"
+mirrors = ["docker.io/acme"]
+name = "toven"
+tag = "{version}"
+context = "services/api"
+dockerfile = "services/api/Dockerfile"
+sign = true
 ```
 
-| Field | Meaning | Default |
-|---|---|---|
-| `registry` | Primary registry the image is pushed to (e.g. `ghcr.io/acme`); must not be blank | Required |
-| `mirrors` | Additional mirror registries the same digest is pushed to | None |
-| `name` | Image name template | Required |
-| `tag` | Image tag template | `{version}` |
-| `context` | Project-relative build context | Project root (`.`) |
-| `dockerfile` | Project-relative Dockerfile path | Builder default (`<context>/Dockerfile`) |
-| `sign` | Cosign-sign the pushed digest, keyless | `true` |
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `registry` | string | Required | Primary registry the image is pushed to |
+| `mirrors` | string list | `[]` | Additional registries that receive the same digest |
+| `name` | template string | Required | Image name template |
+| `tag` | template string | `{version}` | Image tag template |
+| `context` | string | Project root (`.`) | Project-relative build context |
+| `dockerfile` | string | Builder default (`<context>/Dockerfile`) | Project-relative Dockerfile path |
+| `sign` | boolean | `true` | Cosign-sign the pushed digest, keyless |
 
-`name` and `tag` are templates over the same `{version}`/`{ecosystem}`/`{module}`/`{channel}` vocabulary as `tag_format`, validated at config time so a typo like `{verison}` fails the load. `context` and `dockerfile` must be safe project-relative paths (traversal is rejected). Image publication is immutable: pushing a tag that already exists at a different digest fails closed, and recovery is a forward-fix version. Registry credentials are read from the ambient environment only and never placed on argv or logged.
+`name` and `tag` use the same release-template vocabulary as `tag_format`. `context` and `dockerfile` must be safe project-relative paths. Image publication is immutable: pushing an existing tag with a different digest fails closed. Registry credentials come from the ambient environment and never appear on argv or in logs.
 
-`provenance` needs no config block — [`toven release provenance`](../commands/release.md#container-images-and-provenance) attests over exactly the published subjects: the entries of the declared `host.assets` `SHA256SUMS` manifest and the live digest of every pushed `[…release.image]` reference. A release may declare a manifest, an image, or both; it fails closed when neither is declared.
+`provenance` needs no config block. [`toven release provenance`](../commands/release.md#container-images-and-provenance) attests over the declared `host.assets` `SHA256SUMS` entries and every pushed `[…release.image]` digest. A release may declare a manifest, an image, or both; it fails when neither exists.
 
-## Entrypoint flows: Toven-owned and maintainer-owned
+## Entrypoint flows
 
-The `entrypoint` axis models *who cuts the release*. In the default **Toven-owned** flow Toven runs the whole flow — it bumps versions, writes the release commit, creates and pushes the tag, publishes to the registry, and cuts the hosted Release.
+`entrypoint` models who creates the release tag and hosted Release.
 
-In the **maintainer-owned** flow (`entrypoint = "maintainer"`) a human creates the release tag and hosted Release in the forge first — the GitHub `release: published` pattern — and CI then runs Toven against that existing tag/Release. Here the tag is an **input, not a mutation**: Toven verifies every planned tag already exists for the version the manifest declares, fails closed when one is absent or diverges, and then runs only publish + attach + provenance. It mutates no manifest, creates no release commit, and never creates or moves the tag — the version/CHANGELOG decision already merged out of band (via `release bump`). Because the manifest already declares the released version, planning neither computes nor moves it: it plans exactly the declared version so registry idempotency decides whether the publish is still needed, and the hosted phase completes through the same immutable create-or-verify path as a Toven-owned run.
+| Value | Meaning |
+|---|---|
+| `"toven"` | Toven bumps versions, writes the release commit, creates and pushes the tag, publishes, and cuts the hosted Release |
+| `"maintainer"` | A maintainer already created the tag and hosted Release; Toven verifies them, then publishes, attaches assets, and attests provenance |
 
-`release plan` and `release status` surface the entrypoint of every module, and for a maintainer-owned module `release status` reports whether the required release tag for the declared version is already present — a fail-closed preview that the flow is not yet ready when the maintainer has not cut the tag.
+In a maintainer-owned flow, the tag is an input. Toven never creates or moves it, mutates no manifest, and creates no release commit during publish. The manifest already declares the released version, so registry idempotency decides whether publish is still needed.
+
+`release plan` and `release status` show each module's entrypoint. For maintainer-owned modules, `release status` also reports whether the required tag for the declared version exists.
 
 ## Umbrella trains
 
-An `umbrella = true` module is its train's aggregate representative: it fronts a single hosted `vX.Y.Z` Release whose notes aggregate every member's changelog, while the member crates keep their own independent versions and per-crate tags and publish to their registries — but cut no individual forge Release of their own. This lets a workspace of independently versioned registry crates coexist with one human-created aggregate Release: each crate advances on its own baseline for registry idempotency, and the umbrella module owns the single Release that collects their notes. A member declaring two umbrella modules is a fail-closed configuration error.
+`umbrella = true` marks one module as the aggregate representative for a release train. It fronts a single hosted `vX.Y.Z` Release whose notes aggregate every member's changelog. Member crates keep independent versions and tags and can publish to registries, but they cut no individual forge Release.
 
-## Release phases and backing
+A train with two umbrella modules is a configuration error. An excluded module cannot be an umbrella.
 
-The release is a **flow** of ordered phases — `select`, `bump`, `tag`, `package`, `sign`, `publish`, `host`, `image`, `provenance`. Toven owns the flow and enforces its guarantees (mutation-free preview, gated mutation, immutable forward-fix outputs, typed reporting) for every phase. Each phase is *backed* either **natively** (Toven's own code — the default) or **delegated** to an external tool that Toven invokes argv-first while still owning selection, ordering, readiness, safety, and reporting. Delegation is per-phase and opt-in; Toven never hands the whole flow to an external tool.
+## Release phases and delegation
 
-Per-phase backing is declared under `[…release.phases.<phase>]`. A phase with no entry stays native, so the block only names the phases you delegate:
+The release flow has these ordered phases: `select`, `bump`, `tag`, `package`, `sign`, `publish`, `host`, `image`, and `provenance`.
+
+Toven owns the flow guarantees for every phase: mutation-free previews, gated mutation, immutable outputs, forward-fix recovery, and typed reporting. A phase is backed either **natively** by Toven or **delegated** to an external tool. Delegation is per phase and opt-in.
 
 ```toml
 [ecosystems.go.release.phases.package]
@@ -288,17 +388,24 @@ args = ["release", "--clean"]
 preview = ["release", "--snapshot", "--clean"]
 ```
 
-`backing` is `native` (default) or `delegated`; a `delegated` backing requires the `[…delegated]` tool sub-block and a `native` backing must not carry one. `tool` names the executable, `args` are the fixed leading arguments for the real, mutating invocation, and `preview` are the arguments for the tool's **mutation-free preview** (its dry-run/plan equivalent) — argv-first in both cases, and never secrets, which flow through the child-process environment. A delegated phase must be previewable without mutating, so a tool that declares no `preview` arguments is rejected at config time.
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `phases.<phase>.backing` | `"native"` or `"delegated"` | `"native"` | How the phase is backed |
+| `phases.<phase>.delegated.tool` | string | Required for delegated phases | External executable |
+| `phases.<phase>.delegated.args` | string list | None | Fixed leading args for the mutating invocation |
+| `phases.<phase>.delegated.preview` | string list | Required | Mutation-free preview args |
 
-The delegable phases are `package`, `sign`, `image`, and `provenance` — Toven never delegates the flow-ownership phases (`select`, `bump`, `tag`, `publish`, `host`), and a delegated backing on one of them is rejected at plan time. Today the `package` and `sign` phases **dispatch** their delegated backing through the per-phase runner: Toven runs the tool's mutation-free preview during the phase and normalizes the archives/signatures it produces at the declared `host.assets` paths back into the typed report (each reported asset carries a `native`/`delegated` `backing`). GoReleaser is the canonical Go example. Delegated `image`/`provenance` execution is not yet wired, so a `backing = "delegated"` entry on those phases is rejected at plan time (before any mutation) rather than silently running native — leave them native until dispatch lands.
+Only `package`, `sign`, `image`, and `provenance` are delegable. Toven never delegates `select`, `bump`, `tag`, `publish`, or `host`.
 
-## Safety
+A delegated phase must declare preview arguments. Secrets flow through the child-process environment, never argv. `package` and `sign` dispatch delegated backings today. Delegated `image` and `provenance` are rejected at plan time until their dispatch paths are wired, so leave them native.
+
+## Safety rules
 
 - Preview commands must not mutate manifests, commits, tags, registries, or hosted Releases.
 - Real publication requires `--yes`, an allowed branch, and a clean tree.
 - Release tags, registry versions, hosted Releases, and hosted assets are immutable.
-- Tokens remain in environment variables or credential stores: `token_env` names the variable; the secret is read only at the publishing toolchain boundary and never appears on argv, in a log, or in engine memory.
-- Release `hooks` are executed, not ignored: each `pre` task runs before any mutation (a non-success aborts fail-closed before any tag, push, or publish) and each `post` task runs only after a successful release.
+- Tokens stay in environment variables or credential stores. `token_env` names a variable; it never contains the secret value.
+- Pre-hooks run before mutation and abort the release on failure. Post-hooks run only after a successful release.
 - Partial publication is recovered by a newly previewed and approved forward fix.
 
-The clean-tree guardrail has no bypass, and hosted forge Releases are immutable create-or-verify: an existing Release is verified against the intended one (byte-identical on GitHub; by title, notes, and asset name on GitLab) or the run fails with a conflict, never edited in place.
+The clean-tree guardrail has no bypass. Hosted forge Releases are immutable create-or-verify: an existing Release must match the intended one, or the run fails with a conflict and never edits it in place.

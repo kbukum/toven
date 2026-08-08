@@ -1,10 +1,12 @@
 # Run tasks
 
-Run any task defined under `[ecosystems.<id>.tasks.<name>]`.
+Run a task for Rust modules:
 
 ```bash
-toven run test --workspace rust --dry-run
+toven test --workspace rust
 ```
+
+Tasks are defined under `[ecosystems.<id>.tasks.<name>]`. Use `toven run <task>` when a task name collides with a reserved command.
 
 ## Syntax
 
@@ -13,14 +15,12 @@ toven <task> [TOVEN_OPTIONS] [TASK_ARGUMENTS...]
 toven run <task> [TOVEN_OPTIONS] -- [TASK_ARGUMENTS...]
 ```
 
-The explicit `run` form handles task names that collide with reserved commands.
-
 ```bash
 toven check --workspace rust
 toven run structure
 ```
 
-## Execution
+## What happens during a run
 
 A run loads configuration, discovers modules, builds the dependency graph, selects scope, renders argv, checks cache records, and executes misses in dependency waves.
 
@@ -33,11 +33,11 @@ ok rust:cli test
 summary: 2 passed
 ```
 
-Under `--output jsonl`, Toven events use stdout and child output uses stderr.
+With `--output jsonl`, Toven events use stdout and child output uses stderr.
 
 ## Pass task arguments
 
-Toven consumes recognized options at the start of the task argument list. The first token it does not own and everything after it are appended unchanged at `{args}`.
+Toven consumes recognized options at the start of the task argument list. The first token it does not own, and everything after it, is appended unchanged at `{args}`.
 
 ```bash
 toven test --workspace rust integration --nocapture
@@ -59,14 +59,14 @@ Toven does not correct unknown task flags because they may belong to the underly
 
 ## Tool gates as tasks
 
-Tool-specific gates are ordinary tasks, resolved and run through the same machinery — there is no bespoke verb for any of them. Toven drives its own quality gates this way:
+Tool-specific gates are ordinary tasks. Toven resolves and runs them through the same machinery.
 
 | Task | Ecosystem | Resolves to |
 |---|---|---|
-| `structure` | `command` | `ast-grep scan` (the declare-only `lib.rs`/`mod.rs` guard) |
+| `structure` | `command` | `ast-grep scan`, the declare-only `lib.rs` and `mod.rs` guard |
 | `docs-build` | `command` | `mdbook build docs` |
 | `deny` | `rust` | `cargo deny check advisories bans licenses sources` |
-| `doctest` | `rust` | `cargo test --doc …` (the doctests nextest cannot run) |
+| `doctest` | `rust` | `cargo test --doc …`, the doctests nextest cannot run |
 
 ```bash
 toven run structure
@@ -75,7 +75,9 @@ toven run docs-build
 toven run doctest --workspace rust -- --all-features
 ```
 
-The `command` ecosystem is Toven's generic-tool adapter: a tool-specific but language-agnostic gate that has no cargo/go home is declared under `[ecosystems.command.tasks.<name>]`. A cargo-specific but repo-opt-in gate like `deny` (it needs a `deny.toml`) is a declared `[ecosystems.rust.tasks.deny]` task rather than a baked-in adapter default. See the [language- and tool-agnostic core](../engineering.md#language--and-tool-agnostic-core) principle for why each gate lives where it does. Inspect the resolved argv for any of them with `toven explain <task>`.
+The `command` ecosystem is Toven's generic-tool adapter. It owns tool-specific, language-agnostic gates that have no Cargo or Go home. A cargo-specific repo opt-in gate such as `deny` is a declared `[ecosystems.rust.tasks.deny]` task because it needs `deny.toml`.
+
+See the [language- and tool-agnostic core](../engineering.md#language--and-tool-agnostic-core) principle. Inspect any resolved argv with `toven explain <task>`.
 
 ## Select scope
 
@@ -88,7 +90,7 @@ toven test --module rust:toven-cli --dependents
 toven test --module rust:toven-cli --dependencies
 ```
 
-Selectors may be a bare module name, canonical `ecosystem:name`, `workspace/name`, or glob. Ambiguous bare names fail and list qualified candidates.
+Selectors may be a bare module name, canonical `ecosystem:name`, `workspace/name`, or a glob. Ambiguous bare names fail and list qualified candidates.
 
 `--module` and `--workspace` are repeatable. They cannot be combined with `--base` or `--merge-base`.
 

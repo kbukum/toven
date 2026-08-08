@@ -1,12 +1,14 @@
 # Manage drivers
 
-Toven runs each ecosystem through a driver. A driver linked into the running binary is used in-process; otherwise Toven can use an out-of-process driver found on `PATH` or pinned in `[toven.drivers]`. A normal run never installs anything — an absent driver is a warn-and-skip — so provisioning is an explicit, opt-in surface behind these verbs.
+List the drivers Toven can use:
 
 ```bash
 toven driver list
 ```
 
-`driver list` writes its status lines to stdout so they can be piped. Provisioning progress from `driver install` and `driver list --auto-install` uses stderr.
+Toven runs each ecosystem through a driver. A driver linked into the running binary runs in-process. Otherwise Toven can use an out-of-process driver from `PATH` or one pinned in `[toven.drivers]`.
+
+A normal run never installs anything. An absent driver is a warn-and-skip, so provisioning is explicit through these verbs.
 
 ## List driver status
 
@@ -14,14 +16,14 @@ toven driver list
 toven driver list
 ```
 
-Each canonical ecosystem is reported with its resolved state:
+`driver list` writes status lines to stdout. Provisioning progress from `driver install` and `driver list --auto-install` uses stderr.
 
 ```text
 driver: rust -> linked (in this binary)
 driver: go -> absent (run `toven driver install <id>`)
 ```
 
-States: `linked (in this binary)`, `driver on PATH <path>`, `pinned driver <path>`, `pinned driver unavailable …`, and `absent`.
+States are `linked (in this binary)`, `driver on PATH <path>`, `pinned driver <path>`, `pinned driver unavailable …`, and `absent`.
 
 ## Install a driver
 
@@ -29,7 +31,7 @@ States: `linked (in this binary)`, `driver on PATH <path>`, `pinned driver <path
 toven driver install <id>
 ```
 
-Installs the out-of-process driver for ecosystem `<id>` (for example `go`). When `[toven.drivers]` pins a version for that ecosystem, the pinned version is installed. An invalid ecosystem id is a usage error; a failed install is surfaced as a typed error.
+This installs the out-of-process driver for ecosystem `<id>`, such as `go`. When `[toven.drivers]` pins a version for that ecosystem, Toven installs that version. An invalid ecosystem id is a usage error, and a failed install surfaces as a typed error.
 
 ## Auto-install referenced drivers
 
@@ -37,7 +39,7 @@ Installs the out-of-process driver for ecosystem `<id>` (for example `go`). When
 toven driver list --auto-install
 ```
 
-`--auto-install` provisions every **referenced** ecosystem (declared `[ecosystems.*]` sections and `[toven.drivers]` pins) currently resolved as absent, then reports status. It never provisions drivers for canonical ecosystems the project does not use.
+`--auto-install` provisions every referenced ecosystem driver that is absent. Referenced ecosystems come from declared `[ecosystems.*]` sections and `[toven.drivers]` pins. Toven never provisions drivers for canonical ecosystems the project does not use.
 
 ## Pin driver versions
 
@@ -46,6 +48,6 @@ toven driver list --auto-install
 go = { version = "0.4.1" }
 ```
 
-A pin makes `driver install`, `federation sync`, and `--auto-install` install that exact version, keeping provisioning reproducible.
+A pin makes `driver install`, `federation sync`, and `--auto-install` install that exact version. Use pins for reproducible provisioning.
 
-See also [federation](federation.md) for provisioning across composed member repositories.
+See [federation](federation.md) for provisioning across composed member repositories.
