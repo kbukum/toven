@@ -31,7 +31,6 @@
 ## Operate
 
 - [Self-hosting and CI](self-hosting.md)
-- [Release migration](release-migration.md)
 - [Benchmarking](benchmarking.md)
 
 ## Contribute
