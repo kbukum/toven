@@ -18,7 +18,7 @@ git submodule update --init --recursive
 make check
 ```
 
-The repository uses the Rust toolchain pinned by `rust-toolchain.toml`. The language floor is **edition 2024** at a **minimum supported Rust version of 1.94**, declared once in the workspace `[workspace.package]` (`edition`, `rust-version`) and inherited by every crate; treat those two fields as the single source of truth and do not restate a different floor elsewhere.
+The repository uses the Rust toolchain pinned by `rust-toolchain.toml`. The language floor is **edition 2024** at a **minimum Rust version of 1.94**, declared once in `[workspace.package]` (`edition`, `rust-version`) and inherited by every crate. Treat those two fields as the single source of truth; do not restate a different floor elsewhere.
 
 ## Canonical commands
 
@@ -98,7 +98,8 @@ cargo test -p <crate> --doc    # the equivalent low-level cargo escape hatch
 - Validate at every trust boundary.
 - Execute subprocesses as argv unless shell mode is explicitly selected.
 - Never log credentials or place tokens in argv.
-- Bound input and output with hard caps. Bound process lifetime through cooperative cancellation (Ctrl+C tears down every in-flight child) and an opt-in per-unit `--timeout`; task processes carry no default wall-clock ceiling, because legitimate build/test tasks run arbitrarily long. Short-lived tool invocations (metadata probes, `gh`, VCS queries) keep their own fixed internal timeouts.
+- Bound input and output with hard caps.
+- Bound process lifetime through cooperative cancellation: Ctrl+C tears down every in-flight child, and `--timeout` sets an opt-in per-unit ceiling. Task processes carry no default wall-clock limit, because legitimate build/test tasks run arbitrarily long. Short-lived tool calls (metadata probes, `gh`, VCS queries) keep their own fixed internal timeouts.
 - Require explicit approval before release mutation.
 
 ## Observability

@@ -1,10 +1,12 @@
 # Command reference
 
-Toven accepts reserved commands and repository-defined task names.
+Start by listing the modules Toven discovered:
 
 ```bash
 toven modules
 ```
+
+Toven accepts **reserved commands** and repository-defined **task names**. Run `toven <command> --help` for command-specific examples.
 
 ## Command groups
 
@@ -22,18 +24,18 @@ toven modules
 | Provision drivers across composed repos | [`federation`](federation.md) |
 | Generate shell completion scripts | [`completions`](completions.md) |
 
-Run command help:
+## Help
 
 ```bash
 toven --help
 toven release --help
 ```
 
-Help text is written to stdout. Invalid syntax is reported on stderr and returns usage exit code 2.
+Help text is written to stdout. Invalid syntax is reported on stderr and exits with code 2.
 
 ## Configuration discovery
 
-Commands search from the current directory upward for `toven.toml`. Select another file explicitly:
+Commands search upward from the current directory for `toven.toml`. Pass `--config` to choose a file directly.
 
 ```bash
 toven --config path/to/toven.toml modules
@@ -41,13 +43,13 @@ toven --config path/to/toven.toml modules
 
 ## Task passthrough
 
-For a bare task command, Toven consumes its recognized options immediately after the task name. The first unrecognized token starts task argv passthrough.
+For a bare task command, Toven consumes recognized options right after the task name. The first unrecognized token starts task argv passthrough.
 
 ```bash
 toven test --module rust:core --nocapture
 ```
 
-Here `--module rust:core` belongs to Toven and `--nocapture` belongs to the configured test command. Use `--` when a task flag collides with a Toven flag:
+Here `--module rust:core` belongs to Toven. `--nocapture` belongs to the configured test command. Use `--` when a task flag collides with a Toven flag.
 
 ```bash
 toven test -- --dry-run
@@ -67,7 +69,7 @@ toven modules > modules.txt 2> diagnostics.txt
 toven modules --output jsonl > modules.jsonl
 ```
 
-JSONL mode reserves stdout for one JSON object per line. Human framing remains on stderr.
+JSONL mode reserves stdout for one JSON object per line. Human framing stays on stderr.
 
 ## Common options
 
@@ -79,26 +81,26 @@ JSONL mode reserves stdout for one JSON object per line. Human framing remains o
 | `-v`, `--verbose` | Increase human verbosity on execution verbs; repeatable |
 | `-q`, `--quiet` | Reduce human verbosity on execution verbs; repeatable |
 
-`NO_COLOR` disables color when set to a non-empty value.
+`NO_COLOR`, when set to a non-empty value, disables color.
 
 ## Exit codes
 
-Every command maps its outcome to a stable process exit code so automation can branch on the class of failure without parsing text. The taxonomy is pinned by a test.
+Automation can branch on exit codes without parsing text. Clap usage errors, such as unknown flags or bad subcommands, exit 2.
 
 | Code | Meaning |
 |---|---|
 | 0 | Success |
-| 1 | Unclassified failure (including a task/unit that ran and failed) |
-| 2 | Usage error — invalid input, invalid format, or a missing required argument |
-| 3 | Permission — authentication or authorization failure |
-| 4 | Not found — a required resource is missing (for example, no `toven.toml`) |
-| 5 | Conflict — the request conflicts with immutable state (for example, a divergent existing release) |
-| 69 | Unavailable — a remote dependency or service failed |
+| 1 | Unclassified failure, including a task or unit that ran and failed |
+| 2 | Usage error: invalid input, invalid format, or a missing required argument |
+| 3 | Permission: authentication or authorization failure |
+| 4 | Not found: a required resource is missing, such as `toven.toml` |
+| 5 | Conflict: the request conflicts with immutable state, such as a divergent existing release |
+| 69 | Unavailable: a remote dependency or service failed |
 | 75 | Rate limited |
 | 124 | Timed out |
-| 130 | Cancelled (for example, Ctrl+C) |
+| 130 | Cancelled, such as Ctrl+C |
 
-A failing task run exits non-zero; a clean run exits 0. Clap usage errors (unknown flags, bad subcommands) exit 2.
+A clean task run exits 0. A failing task run exits non-zero.
 
 ## Baseline selection
 

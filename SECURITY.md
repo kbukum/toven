@@ -2,12 +2,13 @@
 
 ## Supported Versions
 
-Toven is pre-alpha: no versions have been tagged or published to crates.io yet. Until the first prerelease is cut, security fixes target the `main` branch only. Once prereleases exist, this section will list the supported prerelease lines.
+Toven is in **alpha**. Signed binary prereleases are published on the [Releases page](https://github.com/kbukum/toven/releases); no crate is published to crates.io. Security fixes target the latest alpha line and the `main` branch.
 
 | Version | Supported |
 |---------|-----------|
 | `main` (development branch) | :white_check_mark: |
-| Tagged releases | None yet |
+| Latest alpha prerelease | :white_check_mark: |
+| Older prereleases | :x: |
 
 ## Reporting a Vulnerability
 

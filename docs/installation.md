@@ -43,7 +43,7 @@ scoop install toven
 
 ## Supported binary targets
 
-Each hosted release provides one fixed-name archive per target:
+Each hosted release provides one fixed-name archive per target — `toven-<target>.tar.gz`, except Windows, which uses `.zip`:
 
 | Platform | Rust target |
 |---|---|
@@ -53,9 +53,9 @@ Each hosted release provides one fixed-name archive per target:
 | macOS Apple silicon | `aarch64-apple-darwin` |
 | Windows x86-64 | `x86_64-pc-windows-msvc` |
 
-Each target has one fixed-name archive, `toven-<target>.tar.gz`, except Windows, which uses `toven-<target>.zip`. Archive names never embed the release version — the version lives in the release tag instead. The hosted Release also contains `SHA256SUMS`, a keyless Sigstore signature and certificate for it (`SHA256SUMS.sig`, `SHA256SUMS.pem`), a CycloneDX SBOM, and a GitHub build provenance attestation.
+Archive names never embed the version — it lives in the release tag. The hosted Release also contains `SHA256SUMS`, its keyless Sigstore signature and certificate (`SHA256SUMS.sig`, `SHA256SUMS.pem`), a CycloneDX SBOM, and a GitHub build provenance attestation.
 
-## Install from source today
+## Install from source
 
 Requirements:
 

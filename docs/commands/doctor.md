@@ -1,10 +1,12 @@
 # Audit required tools
 
-`toven doctor` audits the tools the resolved task graph needs and reports which are present or missing. It is Toven's single source of truth for *what* a repository must have installed: tool identity comes from the ecosystem adapter probes and the resolved task argv, so the audit tracks the configured task table rather than a hand-maintained list.
+Check the tools the resolved task graph needs:
 
 ```bash
 toven doctor
 ```
+
+`toven doctor` reports which tools are present or missing. Tool identity comes from ecosystem adapter probes and resolved task argv, so the audit follows the configured task table instead of a hand-maintained list.
 
 ## Syntax
 
@@ -20,7 +22,7 @@ toven doctor --ensure
 
 ## What it reports
 
-`doctor` walks the resolved task graph, collects the distinct tools its tasks invoke (for example `cargo` for the rust tasks, `ast-grep` for `structure`, `mdbook` for `docs-build`), probes each once, and reports its presence and version:
+`doctor` walks the resolved task graph, collects distinct tools, probes each once, and reports presence and version. Shared tools are audited once even when several tasks use them.
 
 ```text
   tool mdbook (mdbook): present (mdbook v0.5.4)
@@ -29,13 +31,13 @@ toven doctor --ensure
 doctor: 3 checked, 0 missing
 ```
 
-A shared tool is audited once even when several tasks use it. Human output uses stderr; `--output jsonl` emits one tool record per stdout line followed by a terminal summary record, so a script can branch on the machine surface.
+Examples include `cargo` for Rust tasks, `ast-grep` for `structure`, and `mdbook` for `docs-build`. Human output uses stderr. With `--output jsonl`, stdout receives one tool record per line plus a terminal summary record.
 
 ## Exit status and provisioning
 
-`doctor` is **report-only by default** and never dials the network or installs anything. The process exit is non-zero when any required tool is missing, so it gates a script the way a failing task does even without opting into provisioning.
+`doctor` is report-only by default. It never dials the network or installs tools. The process exits non-zero when a required tool is missing, so scripts can gate on it before a task run.
 
-`--ensure` turns a gap into a typed, actionable error naming every missing tool (the global `--auto-install` flag is accepted as an equivalent). `doctor` still never installs a per-task tool — it has no installer for them and says so, pointing at the [driver](driver.md) verbs for the only auto-provisionable surface. Use `--ensure` in CI to fail fast with the aggregated report before the gate runs:
+`--ensure` turns gaps into a typed error that names every missing tool. The global `--auto-install` flag is accepted as an equivalent. `doctor` still never installs per-task tools; it points to [driver](driver.md) for the only auto-provisionable surface.
 
 ```bash
 toven doctor --ensure
@@ -45,8 +47,8 @@ toven doctor --ensure
 |---|---|
 | `--ensure` | Turn any missing tool into a typed, actionable error instead of a report-only non-zero exit |
 | `--auto-install` (global) | Accepted as an equivalent to `--ensure`; `doctor` never installs per-task tools |
-| `--output human\|jsonl` | Select the human report (stderr) or the machine-readable stream (stdout) |
+| `--output human\|jsonl` | Select the human report on stderr or the machine-readable stream on stdout |
 
 ## Why it lives in core
 
-Auditing whether the resolved graph has its tools is a language- and tool-agnostic *mechanism*, so it is a Toven-core verb — but tool *identity* still comes from the adapters and the task argv, never a list baked into core. See the [language- and tool-agnostic core](../engineering.md#language--and-tool-agnostic-core) principle.
+Tool auditing is a language- and tool-agnostic mechanism, so it is a Toven-core verb. Tool identity still comes from adapters and task argv, never from a list baked into core. See the [language- and tool-agnostic core](../engineering.md#language--and-tool-agnostic-core) principle.

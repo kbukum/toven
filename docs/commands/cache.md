@@ -1,10 +1,12 @@
 # Manage cache
 
-Toven caches successful, cacheable task units and skips them while all inputs still match.
+Print the cache directory first:
 
 ```bash
 toven cache path
 ```
+
+Toven caches successful, cacheable task units. It skips them while their inputs still match.
 
 ## Resolve the cache path
 
@@ -56,11 +58,11 @@ Example stdout:
 toven cache clean
 ```
 
-Human confirmation is written to stderr. A missing cache directory is treated as already clean.
+Human confirmation is written to stderr. A missing cache directory counts as already clean.
 
 ## Cache inputs
 
-A unit re-runs when any of these change:
+A unit re-runs when any of these inputs change:
 
 - module source
 - dependency results

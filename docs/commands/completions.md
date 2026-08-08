@@ -1,18 +1,22 @@
 # Shell completions
 
-Toven generates a shell completion script for a target shell and prints it to stdout. Nothing is written to disk or to your shell configuration; you redirect or source the output yourself.
+Print a completion script for your shell:
 
-## Print a completion script
+```bash
+toven completions zsh > _toven
+```
+
+Toven writes the script to stdout. It does not write to disk or edit your shell configuration.
+
+## Print a script
 
 ```bash
 toven completions <shell>
 ```
 
-Supported shells: `bash`, `zsh`, `fish`, `powershell`, and `elvish`.
+Supported shells are `bash`, `zsh`, `fish`, `powershell`, and `elvish`. Diagnostics, if any, stay on stderr.
 
-The script is written to stdout so it can be piped or redirected. Diagnostics, if any, stay on stderr.
-
-## Install for your shell
+## Install examples
 
 ```bash
 # zsh: write the script to a directory on your $fpath
@@ -25,8 +29,8 @@ source <(toven completions bash)
 toven completions fish > ~/.config/fish/completions/toven.fish
 ```
 
-Reload your shell (or re-source the file) after installing.
+Reload your shell, or re-source the file, after installing.
 
 ## Scope
 
-Completions reflect the reserved command surface (`init`, `run`, `plan`, `release`, and the rest) and their flags. Repository-defined task names are resolved from `toven.toml` at run time and are not baked into the generated script; type them directly.
+Completions cover reserved commands such as `init`, `run`, `plan`, and `release`, plus their flags. Repository-defined task names come from `toven.toml` at run time, so they are not baked into the generated script. Type them directly.

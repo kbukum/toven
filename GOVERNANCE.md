@@ -4,7 +4,7 @@ This document describes how decisions are made in the Toven project.
 
 ## Project Status
 
-Toven is **pre-alpha**. Backward compatibility is not guaranteed while the core planner, execution model, cache semantics, and discovery adapter interfaces are being finalized. Breaking changes are acceptable when they produce a cleaner long-term design.
+Toven is in **alpha**. Backward compatibility is not guaranteed while the core planner, execution model, cache semantics, and discovery adapter interfaces are being finalized. Breaking changes are acceptable when they produce a cleaner long-term design.
 
 ## Roles
 
@@ -28,7 +28,7 @@ Changes that affect the execution model, cache behavior, security posture, relea
 
 ## Release Process
 
-Releases are cut by maintainers. Each release includes a changelog entry and, via the `Release Readiness` CI workflow triggered on the `v*` tag push, signed build artifacts, an SBOM, and build provenance.
+Releases are cut by maintainers. Each release includes a changelog entry. The `Release` workflow is dispatched manually and gated by a protected environment's required-reviewer approval; it creates the version tag itself and attaches signed build artifacts, an SBOM, and build provenance. See [self-hosting](docs/self-hosting.md).
 
 ## Security Issues
 

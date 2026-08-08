@@ -1,12 +1,12 @@
 # Inspect plans and graphs
 
-Inspection commands are read-only. Use them before executing unfamiliar configuration.
+Start by listing modules:
 
 ```bash
 toven modules
 ```
 
-There is no `toven inspect` command; this page groups the read-only commands: `plan`, `affected`, `explain`, `modules`, `graph`, and `tasks`.
+Inspection commands are read-only. Use them before executing unfamiliar configuration. There is no `toven inspect` command; this page groups `plan`, `affected`, `explain`, `modules`, `graph`, and `tasks`.
 
 ## Plan a task
 
@@ -61,14 +61,14 @@ Example stdout:
 ```text
 unit:  rust@rust#test
   representative:  rust:toven-model
-         modules:  rust:toven-model, rust:toven-ports, rust:toven-command, rust:toven-testkit, rust:toven-engine, rust:toven-go, rust:toven-rust, rust:toven-cli, rust:toven, rust:toven-go-app, rust:toven-rs
+         modules:  rust:toven-model, rust:toven-ports, rust:toven-engine-core, rust:toven-engine-release, rust:toven-engine, rust:toven-rust, rust:toven-go, rust:toven-command, rust:toven-cli, rust:toven-testkit, rust:toven, rust:toven-rs, rust:toven-go-app
           target:  rust:toven-cli
             task:  test
-            argv:  ["cargo", "nextest", "run", "--no-tests=pass", "--manifest-path", "crates/toven-model/Cargo.toml", "-p", "toven-model", "-p", "toven-ports", "-p", "toven-command", "-p", "toven-testkit", "-p", "toven-engine", "-p", "toven-go", "-p", "toven-rust", "-p", "toven-cli", "-p", "toven", "-p", "toven-go-app", "-p", "toven-rs"]
+            argv:  ["cargo", "nextest", "run", "--no-tests=pass", "--manifest-path", "crates/toven-model/Cargo.toml", "-p", "toven-model", "-p", "toven-ports", "-p", "toven-engine-core", "-p", "toven-engine-release", "-p", "toven-engine", "-p", "toven-rust", "-p", "toven-go", "-p", "toven-command", "-p", "toven-cli", "-p", "toven-testkit", "-p", "toven", "-p", "toven-rs", "-p", "toven-go-app"]
       persistent:  false
 ```
 
-Focused explanations show the real execution unit containing the selected module, including co-batched modules.
+Focused explanations show the real execution unit containing the selected module, including modules batched with it.
 
 ## List modules
 
@@ -103,17 +103,13 @@ toven tasks test
 toven tasks --output jsonl
 ```
 
-Without an argument, the command lists resolved tasks by ecosystem. With a task name, it shows the argv template, fan-out policy, persistence, and cache inputs.
+Without an argument, `tasks` lists resolved tasks by ecosystem. With a task name, it shows the argv template, fan-out policy, persistence, and cache inputs.
 
 ## Generate shell completions
-
-```text
-toven completions <bash|zsh|fish|powershell|elvish>
-```
 
 ```bash
 toven completions zsh > _toven
 source <(toven completions bash)
 ```
 
-The completion script is written to stdout. Repository-defined task names are not embedded; use `toven tasks` to discover them.
+Completion scripts support `bash`, `zsh`, `fish`, `powershell`, and `elvish`. The script is written to stdout. Repository-defined task names are not embedded; use `toven tasks` to discover them.
