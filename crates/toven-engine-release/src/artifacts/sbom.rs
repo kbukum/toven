@@ -14,7 +14,7 @@ use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir::create_all;
 use rskit_fs::sync_io::file::copy as copy_file;
 use toven_model::ModuleKey;
-use toven_ports::{Provider, Reporter};
+use toven_ports::{Provider, PublicationPolicy, Reporter};
 
 use crate::ArtifactManifest;
 use crate::planning::plan::{release_targets, resolve_release_settings};
@@ -59,10 +59,11 @@ impl SbomReport {
 
 /// Generate a `CycloneDX` SBOM per releasable module under `out_dir`.
 ///
-/// A module is releasable when its ecosystem adapter exposes a release target.
-/// Each target's SBOM tool is invoked argv-first, bounded to `out_dir`; a
-/// target with no SBOM tooling contributes a skip. The output directory is
-/// created if missing; nothing outside it is touched.
+/// A module is releasable when its ecosystem adapter exposes a release target
+/// and it is not release-excluded. Each target's SBOM tool is invoked
+/// argv-first, bounded to `out_dir`; a target with no SBOM tooling contributes
+/// a skip. The output directory is created if missing; nothing outside it is
+/// touched.
 ///
 /// # Errors
 /// Propagates configuration/discovery/graph failures, output-directory I/O
@@ -83,6 +84,7 @@ pub fn release_sbom(
         reporter,
     )?;
     let targets = release_targets(&context)?;
+    let settings = resolve_release_settings(&context, &targets)?;
 
     create_all(out_dir)?;
     let mut artifacts = Vec::new();
@@ -92,6 +94,16 @@ pub fn release_sbom(
         let Some(target) = targets.get(&key) else {
             continue;
         };
+        // A release-excluded module is outside the release surface (no bump,
+        // tag, publish, or hosted-release asset), so it contributes no SBOM —
+        // matching the publish/tag scope rather than sweeping demos and fuzz
+        // targets onto the release.
+        if settings
+            .get(&module.key())
+            .is_some_and(|resolved| matches!(resolved.publication, PublicationPolicy::Excluded))
+        {
+            continue;
+        }
         match target.sbom(module, out_dir)? {
             Some(artifact) => {
                 artifacts.push(ArtifactManifest::new(
@@ -105,7 +117,6 @@ pub fn release_sbom(
     artifacts.sort_by(|left, right| left.label.cmp(&right.label));
     skipped.sort();
 
-    let settings = resolve_release_settings(&context, &targets)?;
     let staged = stage_sbom_assets(request.project_root.as_path(), &settings, &artifacts)?;
 
     Ok(SbomReport {
@@ -194,7 +205,7 @@ mod tests {
     };
 
     use super::release_sbom;
-    use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
+    use toven_engine_core::config::{Document, ModuleConfig, ProjectConfig, TovenConfig};
     use toven_engine_core::plan::PlanRequest;
 
     fn eid(id: &str) -> EcosystemId {
@@ -224,6 +235,15 @@ mod tests {
             modules: BTreeMap::new(),
             members: Vec::new(),
         }
+    }
+
+    /// A document whose per-module override marks `key` release-excluded.
+    fn document_excluding(key: &str) -> Document {
+        let mut document = document();
+        let mut over = ModuleConfig::default();
+        over.release.exclude = Some(true);
+        document.modules.insert(key.to_string(), over);
+        document
     }
 
     fn request() -> PlanRequest {
@@ -330,6 +350,30 @@ mod tests {
         assert!(report.artifacts.is_empty());
         assert_eq!(report.skipped.len(), 1);
         assert_eq!(report.skipped[0], module("core").key());
+    }
+
+    #[test]
+    fn sbom_omits_a_release_excluded_module() {
+        // A release-excluded module is not part of the release surface, so it
+        // must contribute no SBOM artifact and is not a tooling skip either.
+        let target = FakeReleaseTarget::new().with_sbom_artifact("core.cdx.json");
+        let provider = providers_with(target);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+
+        let out = TempDir::new().unwrap();
+        let mut reporter = RecordingReporter::new();
+
+        let report = release_sbom(
+            &request(),
+            &document_excluding("rust:core"),
+            &providers,
+            out.path(),
+            &mut reporter,
+        )
+        .unwrap();
+
+        assert!(report.artifacts.is_empty());
+        assert!(report.skipped.is_empty());
     }
 
     #[test]
