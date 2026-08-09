@@ -21,7 +21,7 @@ use toven_ports::{
     VcsWriter,
 };
 
-use super::changed::changed_since;
+use super::changed::{changed_between, changed_since};
 use super::commits::commits_since;
 use super::convert::to_oid;
 use super::tags::list_tags;
@@ -140,6 +140,10 @@ impl VcsReader for RskitGitVcs {
 
     fn changed_since(&self, spec: &BaselineSpec) -> AppResult<Vec<ChangeRecord>> {
         changed_since(&self.repo, spec)
+    }
+
+    fn changed_between(&self, from: &str, to: &str) -> AppResult<Vec<ChangeRecord>> {
+        changed_between(&self.repo, from, to)
     }
 
     fn commits_since(

@@ -31,6 +31,7 @@ pub struct FakeVcsReader {
     merge_base_oid: Oid,
     tags: Vec<TagRef>,
     changed: Vec<ChangeRecord>,
+    changed_between: Vec<ChangeRecord>,
     commits: Vec<CommitSummary>,
     worktree: Arc<Mutex<Vec<ChangeRecord>>>,
     worktree_fault: Arc<Mutex<WorktreeStatusFault>>,
@@ -45,6 +46,7 @@ impl Default for FakeVcsReader {
             merge_base_oid: Oid::new("0000000"),
             tags: Vec::new(),
             changed: Vec::new(),
+            changed_between: Vec::new(),
             commits: Vec::new(),
             worktree: Arc::new(Mutex::new(Vec::new())),
             worktree_fault: Arc::new(Mutex::new(WorktreeStatusFault::None)),
@@ -100,6 +102,15 @@ impl FakeVcsReader {
     #[must_use]
     pub fn with_changed_since(mut self, changes: Vec<ChangeRecord>) -> Self {
         self.changed = changes;
+        self
+    }
+
+    /// Script the committed changes returned by `changed_between`. Returned
+    /// regardless of the `from`/`to` arguments — endpoint *resolution* is the
+    /// engine's job, not the double's.
+    #[must_use]
+    pub fn with_changed_between(mut self, changes: Vec<ChangeRecord>) -> Self {
+        self.changed_between = changes;
         self
     }
 
@@ -251,6 +262,10 @@ impl VcsReader for FakeVcsReader {
 
     fn changed_since(&self, _spec: &BaselineSpec) -> AppResult<Vec<ChangeRecord>> {
         Ok(self.changed.clone())
+    }
+
+    fn changed_between(&self, _from: &str, _to: &str) -> AppResult<Vec<ChangeRecord>> {
+        Ok(self.changed_between.clone())
     }
 
     fn commits_since(

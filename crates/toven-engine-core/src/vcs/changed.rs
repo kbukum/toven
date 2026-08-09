@@ -28,6 +28,15 @@ pub(super) fn changed_since(repo: &Repo, spec: &BaselineSpec) -> AppResult<Vec<C
     Ok(diff.into_iter().map(record_from_diff).collect())
 }
 
+/// Committed changes between two arbitrary revisions (`from..to`).
+///
+/// The general two-endpoint diff the change foundation resolves any committed
+/// comparison onto; `changed_since` is the `base..HEAD` special case.
+pub(super) fn changed_between(repo: &Repo, from: &str, to: &str) -> AppResult<Vec<ChangeRecord>> {
+    let diff = repo.diff(from, to)?;
+    Ok(diff.into_iter().map(record_from_diff).collect())
+}
+
 /// Map a single rskit-git [`DiffEntry`] onto a repo-relative [`ChangeRecord`],
 /// preserving the pre-rename path so the engine owns the double-insert.
 fn record_from_diff(entry: DiffEntry) -> ChangeRecord {

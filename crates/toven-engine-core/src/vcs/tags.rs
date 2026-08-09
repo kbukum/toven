@@ -7,7 +7,8 @@
 
 use rskit_errors::AppResult;
 use rskit_git::{RefManager, Repo};
-use toven_ports::TagRef;
+use rskit_version::semver::Version;
+use toven_ports::{TagRef, TagScheme};
 
 use super::convert::to_oid;
 
@@ -19,6 +20,23 @@ pub(super) fn list_tags(repo: &Repo, pattern: Option<&str>) -> AppResult<Vec<Tag
         .filter(|tag| pattern.is_none_or(|glob| glob_match(glob, &tag.name)))
         .map(|tag| TagRef::new(tag.name, to_oid(&tag.target)))
         .collect())
+}
+
+/// Select the newest semver tag matched by `scheme`.
+///
+/// The single home of the max-semver tag selection: parse each tag through
+/// `scheme`, keep the matches, and pick the highest version. Reusable across
+/// the change foundation and the release engine so neither reimplements the
+/// selection.
+#[must_use]
+pub fn latest_matching(scheme: &TagScheme, tags: &[TagRef]) -> Option<(Version, TagRef)> {
+    tags.iter()
+        .filter_map(|tag| {
+            scheme
+                .parse(&tag.name)
+                .map(|version| (version, tag.clone()))
+        })
+        .max_by(|(left, _), (right, _)| left.cmp(right))
 }
 
 /// Match `name` against a minimal shell glob: `*` spans any run, `?` one char,
@@ -46,7 +64,10 @@ fn matches_from(pattern: &[char], name: &[char]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::glob_match;
+    use rskit_version::semver::Version;
+    use toven_ports::{Oid, TagRef, TagScheme};
+
+    use super::{glob_match, latest_matching};
 
     #[test]
     fn prefix_star_matches_module_tags() {
@@ -73,5 +94,28 @@ mod tests {
         assert!(glob_match("a*c", "abbbc"));
         assert!(glob_match("a*c", "ac"));
         assert!(!glob_match("a*c", "ab"));
+    }
+
+    #[test]
+    fn latest_matching_picks_the_highest_matching_semver() {
+        let scheme = TagScheme::new("rust/core@", "");
+        let tags = vec![
+            TagRef::new("rust/core@0.1.0", Oid::new("a")),
+            TagRef::new("go/core@9.9.9", Oid::new("b")),
+            TagRef::new("rust/core@0.2.0", Oid::new("c")),
+        ];
+
+        let (version, tag) = latest_matching(&scheme, &tags).expect("latest tag");
+
+        assert_eq!(version, Version::new(0, 2, 0));
+        assert_eq!(tag.name, "rust/core@0.2.0");
+    }
+
+    #[test]
+    fn latest_matching_returns_none_when_no_tag_matches() {
+        let scheme = TagScheme::new("rust/core@", "");
+        let tags = vec![TagRef::new("go/core@1.0.0", Oid::new("a"))];
+
+        assert!(latest_matching(&scheme, &tags).is_none());
     }
 }

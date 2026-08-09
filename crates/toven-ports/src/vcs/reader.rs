@@ -32,6 +32,15 @@ pub trait VcsReader {
     /// Committed changes from the baseline to `HEAD`.
     fn changed_since(&self, spec: &BaselineSpec) -> AppResult<Vec<ChangeRecord>>;
 
+    /// Committed changes between two arbitrary revisions (`from..to`).
+    ///
+    /// Unlike [`changed_since`](Self::changed_since) — which always diffs a
+    /// baseline against `HEAD` — this diffs any two committed endpoints, so the
+    /// change foundation can resolve commit↔commit, branch↔branch, and
+    /// tag-anchored ranges whose target is not `HEAD`. Records are
+    /// **repo-relative**; baseline *policy* stays in the engine.
+    fn changed_between(&self, from: &str, to: &str) -> AppResult<Vec<ChangeRecord>>;
+
     /// Commits reachable from `HEAD` but not from `since` (a prior release ref),
     /// newest first, optionally restricted to those touching `path_prefix`.
     ///
