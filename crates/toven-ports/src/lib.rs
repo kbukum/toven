@@ -90,11 +90,11 @@ pub use raw_output::RawOutputSink;
 pub use release::{
     Artifact, AssetDownloader, DelegatedPhase, DelegatedPhaseMode, DelegatedPhaseOutcome,
     DelegatedPhaseRequest, HostReleaseOutcome, HostedRelease, ImageOutcome, ImagePhase,
-    ImagePublishOutcome, ImageRequest, ManifestMutator, Packager, PhaseBacking, ProvenanceOutcome,
-    ProvenancePhase, ProvenanceSubject, PublishOutcome, Publisher, RegistryCadence, ReleaseAdapter,
-    ReleaseAsset, ReleaseCredentials, ReleaseHost, ReleaseMutation, SUPPORTED_FORGES, SbomProducer,
-    SignatureVerifier, Signer, TagGrammar, TagScheme, VersionProbe, VersionSource, Visibility,
-    is_supported_forge,
+    ImagePublishOutcome, ImageRequest, ManifestMutator, Packager, PhaseBacking, ProvenanceArtifact,
+    ProvenanceOutcome, ProvenancePhase, ProvenanceSubject, PublishOutcome, Publisher,
+    RegistryCadence, ReleaseAdapter, ReleaseAsset, ReleaseCredentials, ReleaseHost,
+    ReleaseMutation, SUPPORTED_FORGES, SbomProducer, SignatureVerifier, Signer, TagGrammar,
+    TagScheme, VersionProbe, VersionSource, Visibility, is_supported_forge,
 };
 pub use reporter::{PlanReporter, Reporter};
 pub use source::SourceDigest;

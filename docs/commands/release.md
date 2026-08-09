@@ -47,7 +47,7 @@ Planning, status, readiness, dependency graphs, and publication rehearsal do not
 | `sign` | Keyless Sigstore/cosign signature and certificate over `SHA256SUMS` | Local artifacts |
 | `verify` | Presence/version-check local assets, or with `--download` verify the signature and every published archive's checksum | None |
 | `image` | Build the configured container image once, push it to the primary registry plus mirrors, and cosign-sign the pushed digest | Registries |
-| `provenance` | Attest SLSA provenance over exactly the published subjects: declared `SHA256SUMS` manifest entries and every pushed image digest | Attestation store |
+| `provenance` | Verify SLSA provenance exists over exactly the published subjects: declared `SHA256SUMS` manifest entries and every pushed image digest (the CI trusted builder creates it) | None (read-only) |
 | `bump` | Manifest version/floor changes and the rolled changelog, committed or staged with `--no-commit` | Repository working tree |
 | `tag` | Manifest changes, release commit, tags, and configured push | Repository and remote |
 | `publish --dry-run` | Registry and hosted-Release rehearsal | None |
@@ -167,15 +167,15 @@ The phase model treats `image` and `provenance` as delegable in principle, but T
 
 ## Container images and provenance
 
-A service-style module declares a `[…release.image]` block instead of shipping as a registry package or archive. See [container image release config](../config/release.md#container-image-release). Two native verbs complete the release: `image` publishes the container image, and `provenance` attests SLSA build provenance over what was published.
+A service-style module declares a `[…release.image]` block instead of shipping as a registry package or archive. See [container image release config](../config/release.md#container-image-release). Two native verbs complete the release: `image` publishes the container image, and `provenance` verifies SLSA build provenance over what was published.
 
-Both verbs preview mutation-free with `--dry-run`. Real `image` writes to registries, and real `provenance` writes to the attestation store, so both require `--yes`.
+`image` previews mutation-free with `--dry-run`; a real `image` writes to registries, so it requires `--yes`. `provenance` is read-only — it does not create attestations (the CI trusted builder does that with `actions/attest-build-provenance`), it verifies they exist — so it needs no `--yes`; its `--dry-run` reports subject presence without failing.
 
 ```bash
 toven release image --dry-run
 toven release image --yes
 toven release provenance --dry-run
-toven release provenance --yes
+toven release provenance
 ```
 
 `image` runs only for modules that declare an image block. A module without one is skipped. A run where no module declares an image block fails closed.
@@ -186,13 +186,13 @@ Image publication is immutable. Pushing a tag that already exists at a different
 
 Registry credentials come from the ambient environment only. They are never placed on argv or logged. `--dry-run` resolves each reference's existing digest but never builds, pushes, or signs. It reports `would-push` or `already-present`.
 
-`provenance` attests over exactly the approved, published subjects. Subjects are the entries of the declared `SHA256SUMS` manifest, each with a `sha256:` digest, plus the live digest of every pushed image reference.
+`provenance` verifies exactly the approved, published subjects. Subjects are the entries of the declared `SHA256SUMS` manifest, each with a `sha256:` digest and located by its bare project-relative path beside the manifest, plus the live digest of every pushed image reference. Toven shells to `gh attestation verify` (argv-only) — a file subject by its path, an image subject by its digest-pinned `oci://name@sha256:…` reference — against the repository slug it resolves from the working directory, and binds the check to the trusted builder with `--signer-workflow <owner>/<repo>/.github/workflows/release.yml`, so an attestation cut by any other workflow in the same repository does not satisfy it. Before verifying a file subject, Toven hashes its on-disk bytes and fails closed if they do not match the manifest digest it reported. Manifest entries are validated at this trust boundary: a name with a path separator or `..` is rejected rather than allowed to escape the release directory.
 
-`provenance` fails closed when neither a `SHA256SUMS` manifest nor an image is declared, when a declared manifest lists no subjects, or when a declared image resolves to no pushed digest. Run `toven release image` first for image subjects.
+`provenance` fails closed when neither a `SHA256SUMS` manifest nor an image is declared, when a declared manifest lists no subjects, when a declared image resolves to no pushed digest, or — outside `--dry-run` — when any published subject lacks an attestation. Run `toven release image` first for image subjects.
 
-Attestation is immutable and idempotent. Re-running over already-attested subjects reports `already-complete`. The forge token comes from the ambient environment only.
+Verification is read-only and idempotent. A default run reports `verified` once every subject carries an attestation. The forge token comes from the ambient environment only. A missing attestation is recognized only by `gh`'s explicit "no attestations found" result; any other tool failure (auth, an inaccessible private repository, network) fails closed rather than being read as absent.
 
-`--dry-run` queries whether an attestation exists for the subjects and reports `would-attest` or `already-present`. It never writes an attestation. Typed JSONL emits one record per module image for `image` or per subject for `provenance`, with `preview` and resolved `status`; data goes to stdout and warnings go to stderr.
+`--dry-run` reports, per subject, whether an attestation exists as `present` or `missing` and never fails on a missing one — an attested subject is never masked by an unattested sibling. Typed JSONL emits one record per module image for `image` or per subject for `provenance`, with `preview` and the subject's resolved `status`; data goes to stdout and warnings go to stderr.
 
 ## Mutation-free publication rehearsal
 

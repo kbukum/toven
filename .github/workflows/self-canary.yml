@@ -249,10 +249,12 @@ jobs:
   # `release sbom` (stage the CycloneDX SBOM), `release checksums` (write the
   # combined `SHA256SUMS`), `release verify --no-run` (presence-check the whole
   # declared set without executing any target — no single runner can run all
-  # five), and `release provenance --dry-run` (query whether an attestation
-  # already exists over the manifest subjects; never attests). `release sign`
-  # runs only on manual dispatch — see its step for why. This proves the exact
-  # assembly path `release.yml` runs, through the artifact Toven ships.
+  # five), and `release provenance --dry-run` (report whether an attestation
+  # exists over the manifest subjects, read-only; the report-only preview never
+  # fails, so it is green even though this canary cuts no attestation).
+  # `release sign` runs only on manual dispatch — see its step for why. This
+  # proves the exact assembly path `release.yml` runs, through the artifact
+  # Toven ships.
   assemble:
     name: Assemble through the self-generated binary
     needs: build
@@ -308,8 +310,9 @@ jobs:
       # in the same order `release.yml`'s `assemble` job runs, all mutation-free.
       # Local `verify --no-run` is presence-only (signature/checksum are verified
       # only in the hosted `--download` mode), and `provenance --dry-run` only
-      # queries the attestation store — neither depends on the signature — so
-      # both run on every push. Signing is split out below.
+      # reports attestation presence read-only (never failing on a missing one) —
+      # neither depends on the signature — so both run on every push. Signing is
+      # split out below.
       - name: Assemble the release asset set through the self-generated binary
         env:
           GH_TOKEN: ${{ github.token }}

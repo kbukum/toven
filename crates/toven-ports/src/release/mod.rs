@@ -42,7 +42,7 @@ pub use mutator::ManifestMutator;
 pub use outcome::PublishOutcome;
 pub use packager::Packager;
 pub use probe::VersionProbe;
-pub use provenance::{ProvenanceOutcome, ProvenancePhase, ProvenanceSubject};
+pub use provenance::{ProvenanceArtifact, ProvenanceOutcome, ProvenancePhase, ProvenanceSubject};
 pub use publisher::Publisher;
 pub use registry::RegistryCadence;
 pub use sbom::SbomProducer;
