@@ -207,8 +207,18 @@ impl ScriptedResolvedRunner {
 impl ResolvedHookRunner for ScriptedResolvedRunner {
     fn run_resolved(&self, reference: &str, version_map: &std::path::Path) -> AppResult<()> {
         // Read the handed-off map back so a test can assert the task received
-        // the authoritative version map materialized by the engine.
-        let version_map_contents = std::fs::read_to_string(version_map).unwrap_or_default();
+        // the authoritative version map materialized by the engine. Fail closed
+        // if the map is missing or unreadable, so a bad handoff (e.g. the engine
+        // passing an invalid path) surfaces instead of masquerading as empty.
+        let version_map_contents = std::fs::read_to_string(version_map).map_err(|source| {
+            AppError::new(
+                ErrorCode::Internal,
+                format!(
+                    "on-resolved runner could not read handed-off version map '{}': {source}",
+                    version_map.display()
+                ),
+            )
+        })?;
         let (fail, produces, worktree) = {
             let mut state = self.state();
             state.calls.push(ResolvedCall {

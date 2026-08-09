@@ -125,7 +125,7 @@ post = ["docs-build"]
 | `visibility` | `"public"`, `"private"`, or `"internal"` | `"public"` | Intended registry exposure |
 | `readiness` | string list | `[]` | Named fail-closed preflight checks |
 | `version_references` | array of tables | None | Files whose version tokens `release bump` keeps in lock-step with the resolved versions |
-| `on_resolved` | string list | `[]` | Bump mid-mutation task references, each handed the resolved version map |
+| `on_resolved` | string list | None | Bump mid-mutation task references, each handed the resolved version map |
 
 Templates accept release variables such as `{ecosystem}`, `{module}`, `{version}`, and `{channel}`. Unknown placeholders, blank names, and unsafe paths fail config validation. Unsupported readiness checks fail closed.
 
