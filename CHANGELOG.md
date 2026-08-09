@@ -28,6 +28,10 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 - `release provenance` is now a read-only, verify-only projection: attestation creation moves to the trusted builder (`actions/attest-build-provenance`) in the release workflow, and the verb asserts every published subject already carries a build-provenance attestation via the real `gh attestation verify` (file subjects by project-relative path, image subjects by `oci://` reference), failing closed when any subject is unattested. Being read-only, it no longer requires `--yes`, and its `--dry-run` reports subject presence (`present`/`missing`) without failing. Previously it shelled to nonexistent `gh attestation` surfaces and failed closed the first time CI exercised it (#158).
 - Toven now self-hosts its release provenance and assembly verbs in CI: `release.yml` drives `toven release provenance` instead of a third-party action, and the self-canary is a 5-target build matrix plus a dogfood job exercising `package` → `checksums` → `sbom` → `sign` → `verify` → `provenance` over the real asset set. Keyless `release sign` is gated to manual `workflow_dispatch` to avoid stray public Rekor transparency-log entries on merges. Documentation was swept for accuracy and clarity across the command and config reference (#150).
 
+### Fixed
+
+- `release provenance` now classifies an unattested subject correctly: a current `gh` (>= 2.67.0) reports "no attestation exists for this digest" as an HTTP 404 from the repository attestations lookup endpoint and exits non-zero, which the verb previously misread as a hard failure and failed closed. The digest-absence 404 on the `/attestations/` endpoint is now treated as "missing" — distinct from an auth/repository 404, which still fails closed — so `--dry-run` reports unattested subjects as `missing` instead of erroring.
+
 ## [0.1.0-alpha.4] - 2026-08-08
 
 ### Added
