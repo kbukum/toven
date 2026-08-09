@@ -597,3 +597,54 @@ fn a_version_reference_only_change_does_not_trigger_a_bump() {
     assert!(!report.staged, "nothing is staged: {report:?}");
     assert!(writer.writes().is_empty(), "the working tree is untouched");
 }
+
+#[test]
+fn a_failed_version_reference_sync_restores_the_partially_mutated_member() {
+    // Phase-1 undoable guarantee: if version-reference syncing fails after the
+    // manifests/changelog were already written, the member must not be left
+    // partially mutated. An oversized (unreadable) reference file aborts the
+    // sync; the bump surfaces the error and restores the working tree.
+    let oversized = format!(
+        "# core\n\ncore = \"0.1.0\"\n{}",
+        "a".repeat(5 * 1024 * 1024)
+    );
+    let (ws, root, document) = load_version_reference_project(&oversized);
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+
+    let provider = provider_declaring(Version::new(0, 1, 0));
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let (readers, repos) = single_member(&ws, &reader, &writer);
+    let clock = FixedClock::new(FIXED_EPOCH, 0);
+    let mut reporter = toven_testkit::RecordingReporter::new();
+    let result = release_bump(
+        &request(root),
+        &document,
+        &providers,
+        &readers,
+        &repos,
+        &BumpOverrides::new(),
+        &mut reporter,
+        &clock,
+        &BumpOptions::default(),
+    );
+
+    assert!(
+        result.is_err(),
+        "an unreadable reference file aborts the bump: {result:?}"
+    );
+    assert!(
+        writer
+            .writes()
+            .iter()
+            .any(|write| matches!(write, VcsWrite::RestoreWorktree)),
+        "the partially mutated member is restored: {:?}",
+        writer.writes()
+    );
+    assert_no_release_history(&writer.writes());
+}

@@ -530,12 +530,24 @@ fn resolve_bump(
     // `manifest` only when an explicit argv level override forced it — either
     // way the matrix advances the resolved component, never the (guarded)
     // manifest arm.
-    let planned = strategy::next_version(
-        BumpPolicy::SemverCascade,
-        current,
-        level,
-        channel.as_deref(),
-    )?;
+    //
+    // The increment anchors on the released baseline, not the declared manifest,
+    // so a version a prior `release bump` already resolved and merged is not
+    // advanced a second time. In the `bump -> PR -> merge -> tag` flow the
+    // manifest can sit ahead of the last release tag (e.g. a merged 0.1.1 over a
+    // 0.1.0 tag); anchoring on the baseline computes the version this run's
+    // changes call for (0.1.1), and `max(current, target)` cuts the
+    // already-resolved manifest version rather than recomputing another
+    // increment (0.1.2). A module with no baseline (never released) falls back
+    // to the declared version as its anchor, preserving the first-cut behavior.
+    let anchor = input
+        .baselines
+        .get(reference)
+        .and_then(|baseline| baseline.version.as_ref())
+        .unwrap_or(current);
+    let target =
+        strategy::next_version(BumpPolicy::SemverCascade, anchor, level, channel.as_deref())?;
+    let planned = target.max(current.clone());
     Ok(BumpDecision {
         planned: Some(planned),
         level: effective_to_level(level),
@@ -1530,5 +1542,104 @@ mod tests {
 
         assert_eq!(entries[0].planned_version, Some(Version::new(0, 1, 0)));
         assert_eq!(entries[0].reason, BumpReason::Changed);
+    }
+
+    #[test]
+    fn semver_cascade_patches_a_manifest_at_its_baseline() {
+        // Single-phase case: the manifest declares exactly the released baseline
+        // (0.1.0) and has changed since, so a patch advances it to 0.1.1. The
+        // baseline-anchored increment reduces to the plain patch here.
+        let entries = seed_plan(
+            "0.1.0",
+            Some("0.1.0"),
+            BumpPolicy::SemverCascade,
+            &BumpOverrides::new(),
+        )
+        .unwrap();
+
+        assert_eq!(entries[0].planned_version, Some(Version::new(0, 1, 1)));
+        assert_eq!(entries[0].reason, BumpReason::Changed);
+    }
+
+    #[test]
+    fn semver_cascade_cuts_an_already_resolved_manifest_without_double_bumping() {
+        // Regression for the `bump -> PR -> merge -> tag` flow: a stage-only
+        // bump advanced the manifest to 0.1.1 and it merged, but `release tag`
+        // still sees the module changed since the 0.1.0 tag. The semver-cascade
+        // increment anchors on the released baseline, so tag cuts the
+        // already-resolved 0.1.1 rather than recomputing a second patch to 0.1.2.
+        let entries = seed_plan(
+            "0.1.1",
+            Some("0.1.0"),
+            BumpPolicy::SemverCascade,
+            &BumpOverrides::new(),
+        )
+        .unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].planned_version, Some(Version::new(0, 1, 1)));
+    }
+
+    #[test]
+    fn semver_cascade_escalates_from_the_baseline_over_an_already_resolved_patch() {
+        // A patch (0.1.1) was already resolved and merged, then a breaking change
+        // landed. The increment anchors on the 0.1.0 baseline and lifts to a
+        // minor (0.2.0), which wins over the lower already-resolved 0.1.1 — the
+        // cut is `max(current, next(baseline, level))`, not a blind cut of the
+        // declared version.
+        let core = core_module();
+        let key = core.key();
+        let graph = Graph::build(vec![core.clone()], Vec::new()).unwrap();
+
+        let mut targets = ReleaseTargets::new();
+        targets.insert(
+            (None, EcosystemId::new("rust").unwrap()),
+            Box::new(FakeReleaseTarget::new().with_declared_version(Version::new(0, 1, 1)))
+                as Box<dyn ReleaseAdapter>,
+        );
+
+        let mut settings = BTreeMap::new();
+        settings.insert(key.clone(), settings_for(&ReleaseConfig::default()));
+
+        let mut changelogs = BTreeMap::new();
+        changelogs.insert(
+            key.clone(),
+            ChangelogEntry::new(key.clone(), "breaking change", Vec::new()).with_breaking(true),
+        );
+
+        let mut baselines = BTreeMap::new();
+        baselines.insert(
+            key.clone(),
+            ReleaseBaseline::tag(
+                key.clone(),
+                "rust/core@0.1.0",
+                Version::new(0, 1, 0),
+                Oid::new("cafe"),
+            ),
+        );
+
+        let changed: BTreeSet<_> = std::iter::once(key).collect();
+        let modules = vec![core];
+        let edges = Vec::new();
+        let overrides = BumpOverrides::new();
+
+        let entries = plan_entries(&BumpInputs {
+            graph: &graph,
+            modules: &modules,
+            edges: &edges,
+            changed: &changed,
+            baselines: &baselines,
+            changelogs: &changelogs,
+            settings: &settings,
+            targets: &targets,
+            branches: &no_branches(),
+            policy: BumpPolicy::SemverCascade,
+            overrides: &overrides,
+            intent: CutIntent::Verify,
+        })
+        .unwrap();
+
+        assert_eq!(entries[0].level, BumpLevel::Minor);
+        assert_eq!(entries[0].planned_version, Some(Version::new(0, 2, 0)));
     }
 }

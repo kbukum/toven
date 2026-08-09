@@ -226,7 +226,17 @@ pub(crate) fn release_bump_by_member(
                 report.changelogs.extend(prepared_bump.rolled_changelogs);
                 prepared.push((shard, prepared_bump.changed));
             }
-            Err(error) => return Err(restore_bump_prepared(&prepared, repos, error)),
+            Err(error) => {
+                // The current member may already be partially mutated (some
+                // manifests, the changelog, or some reference files written
+                // before the failure). Restore it as well, not only the earlier
+                // completed shards, to honor the phase's undoable guarantee.
+                let error = match repo.writer().restore_worktree() {
+                    Ok(()) => error,
+                    Err(restore) => restore_prepared_failure(error, &restore),
+                };
+                return Err(restore_bump_prepared(&prepared, repos, error));
+            }
         }
     }
 
