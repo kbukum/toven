@@ -141,7 +141,7 @@ fn loads_project_level_verb_hooks() {
 
     assert_eq!(document.hooks[&VerbId::Release].pre, ["fmt-check", "lint"]);
     assert_eq!(document.hooks[&VerbId::Release].post, ["notify-release"]);
-    assert_eq!(document.hooks[&VerbId::Bump].pre, ["validate"]);
+    assert_eq!(document.hooks[&VerbId::Bump].pre, ["validate", "lint"]);
     assert_eq!(document.hooks[&VerbId::Coverage].pre, ["build"]);
 
     // A plain verb resolves to only its own hooks.
@@ -151,8 +151,11 @@ fn loads_project_level_verb_hooks() {
 
     // A release mutation composes the umbrella around its own hooks: the
     // umbrella's `pre` runs first (specific innermost), and its `post` runs last.
+    // Composition is a concatenation, not a set union: `lint` is authored in
+    // both the umbrella and the specific verb, so it is deliberately kept and
+    // runs once per occurrence rather than being de-duplicated.
     let bump = document.hooks_for(VerbId::Bump);
-    assert_eq!(bump.pre, ["fmt-check", "lint", "validate"]);
+    assert_eq!(bump.pre, ["fmt-check", "lint", "validate", "lint"]);
     assert_eq!(bump.post, ["notify-release"]);
 
     // A verb with no configured hooks and no umbrella resolves empty.

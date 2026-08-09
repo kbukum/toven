@@ -11,7 +11,7 @@
 //! are never touched), and idempotent (a file already at the authoritative
 //! versions is left byte-for-byte unchanged and contributes no staged path).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use rskit_errors::{AppError, AppResult};
@@ -57,6 +57,7 @@ pub(crate) fn authoritative_versions(
             if let Some(package) = &module.package {
                 versions.insert(package.clone(), version.clone());
             }
+            versions.insert(module.id.to_string(), version.clone());
             versions.insert(module.id.name.clone(), version);
         }
     }
@@ -68,7 +69,9 @@ pub(crate) fn authoritative_versions(
 ///
 /// A file whose tokens already match is not rewritten and contributes no path,
 /// so a re-run stages nothing. `references` is the repo-scoped union of a
-/// member's declarations; each `(file, pattern)` is applied once.
+/// member's declarations. A file matched by several declarations (or overlapping
+/// globs) is read and written **once**, with every matching pattern applied to
+/// its content in declaration order.
 ///
 /// # Errors
 /// Rejects a malformed pattern or unsafe glob, and propagates a read/write
@@ -79,37 +82,51 @@ pub(crate) fn sync_version_references(
     versions: &BTreeMap<String, Version>,
     root: &Path,
 ) -> AppResult<Vec<RepoPath>> {
-    let mut changed = BTreeSet::new();
+    let mut templates_by_file: BTreeMap<String, Vec<Template<VersionRefToken>>> = BTreeMap::new();
     for reference in references {
         let template = reference.parse_pattern()?;
         for glob in &reference.files {
             for relative in resolve_glob(root, glob)? {
-                let absolute = safe_join(root, &relative).map_err(|error| {
-                    AppError::invalid_input(
-                        "release.version_references.files",
-                        format!(
-                            "version-reference path '{relative}' is not a safe \
-                         project-relative path"
-                        ),
-                    )
-                    .with_cause(error)
-                })?;
-                let text =
-                    read_string_bounded(&absolute, MAX_REFERENCE_BYTES).map_err(|error| {
-                        AppError::invalid_input(
-                            "release.version_references",
-                            format!("version-reference file '{relative}' could not be read"),
-                        )
-                        .with_cause(error)
-                    })?;
-                if let Some(rewritten) = rewrite_content(&text, &template, versions) {
-                    write_atomic(&absolute, rewritten.as_bytes(), REFERENCE_TEMP_PREFIX)?;
-                    changed.insert(RepoPath::new(relative.clone())?);
-                }
+                templates_by_file
+                    .entry(relative)
+                    .or_default()
+                    .push(template.clone());
             }
         }
     }
-    Ok(changed.into_iter().collect())
+    let mut changed = Vec::new();
+    for (relative, templates) in templates_by_file {
+        let absolute = safe_join(root, &relative).map_err(|error| {
+            AppError::invalid_input(
+                "release.version_references.files",
+                format!(
+                    "version-reference path '{relative}' is not a safe \
+                     project-relative path"
+                ),
+            )
+            .with_cause(error)
+        })?;
+        let text = read_string_bounded(&absolute, MAX_REFERENCE_BYTES).map_err(|error| {
+            AppError::invalid_input(
+                "release.version_references",
+                format!("version-reference file '{relative}' could not be read"),
+            )
+            .with_cause(error)
+        })?;
+        let mut content = text;
+        let mut any = false;
+        for template in &templates {
+            if let Some(rewritten) = rewrite_content(&content, template, versions) {
+                content = rewritten;
+                any = true;
+            }
+        }
+        if any {
+            write_atomic(&absolute, content.as_bytes(), REFERENCE_TEMP_PREFIX)?;
+            changed.push(RepoPath::new(relative)?);
+        }
+    }
+    Ok(changed)
 }
 
 /// Resolve a repo-relative `*`/`?` glob to the matching existing **file** paths

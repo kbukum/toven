@@ -504,6 +504,37 @@ fn bump_syncs_a_declared_version_reference() {
 }
 
 #[test]
+fn a_pin_referencing_the_ecosystem_identity_is_synced() {
+    // A pin may reference a module by its `ecosystem:name` identity (e.g.
+    // `rust:core`), not only its bare package name; the authoritative map keys
+    // both forms, so an identity-form pin is rewritten to the post-bump version.
+    let (ws, root, document) = load_version_reference_project("# core\n\nrust:core = \"0.1.0\"\n");
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+    let report = run_bump_reader(
+        &ws,
+        root,
+        &document,
+        &writer,
+        BumpOptions::default(),
+        &provider_declaring(Version::new(0, 1, 0)),
+        &reader,
+    );
+
+    assert_eq!(report.modules[0].new_version, Version::new(0, 1, 1));
+    let readme = std::fs::read_to_string(ws.path().join("README.md")).expect("readme");
+    assert!(
+        readme.contains("rust:core = \"0.1.1\""),
+        "an ecosystem-identity pin is synced to the post-bump version: {readme}"
+    );
+}
+
+#[test]
 fn an_already_synced_version_reference_is_not_restaged() {
     // Idempotency: a README already at the authoritative version is left
     // byte-for-byte unchanged and never joins the staged set, so a re-run stages

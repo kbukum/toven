@@ -10,7 +10,7 @@ pre = ["fmt-check", "lint"]
 post = ["notify-release"]
 
 [hooks.bump]
-pre = ["validate"]
+pre = ["validate", "lint"]
 
 [hooks.coverage]
 pre = ["build"]

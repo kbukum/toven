@@ -62,6 +62,14 @@ impl Document {
     /// umbrella's (specific innermost again). Every other verb uses only its own
     /// hooks. The result is empty when nothing is configured, so a caller can
     /// skip all hook wiring.
+    ///
+    /// Composition is a concatenation, **not** a set union: a reference listed
+    /// in both the umbrella and the specific verb (or repeated within one list)
+    /// is intentionally kept and runs once per occurrence, in the composed
+    /// order. Each `[hooks.<verb>]` block is an explicit, independently authored
+    /// list; de-duplicating across blocks would silently drop a deliberately
+    /// repeated step, so the driver runs exactly what the composition spells
+    /// out.
     #[must_use]
     pub fn hooks_for(&self, verb: VerbId) -> HooksConfig {
         let own = self.hooks.get(&verb).cloned().unwrap_or_default();
