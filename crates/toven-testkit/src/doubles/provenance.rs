@@ -7,6 +7,7 @@
 //! whether an attestation exists (for the report-only preview), and can be
 //! scripted to fail.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -25,6 +26,7 @@ pub struct ProvenanceCall {
 #[derive(Debug, Clone)]
 struct FakeProvenanceState {
     exists: bool,
+    missing: BTreeSet<String>,
     fail: Option<String>,
     calls: Vec<ProvenanceCall>,
 }
@@ -40,6 +42,7 @@ impl Default for FakeProvenancePhase {
         Self {
             inner: Arc::new(Mutex::new(FakeProvenanceState {
                 exists: true,
+                missing: BTreeSet::new(),
                 fail: None,
                 calls: Vec::new(),
             })),
@@ -69,6 +72,15 @@ impl FakeProvenancePhase {
     #[must_use]
     pub fn with_existing(self, exists: bool) -> Self {
         self.state().exists = exists;
+        self
+    }
+
+    /// Script a single named subject as lacking an attestation while others are
+    /// present, so a report-only preview can be exercised with a mix of
+    /// `present` and `missing` subjects.
+    #[must_use]
+    pub fn with_missing(self, name: impl Into<String>) -> Self {
+        self.state().missing.insert(name.into());
         self
     }
 
@@ -107,8 +119,9 @@ impl ProvenancePhase for FakeProvenancePhase {
         Ok(ProvenanceOutcome::Verified)
     }
 
-    fn attestation_exists(&self, _root: &Path, _subject: &ProvenanceSubject) -> AppResult<bool> {
-        Ok(self.state().exists)
+    fn attestation_exists(&self, _root: &Path, subject: &ProvenanceSubject) -> AppResult<bool> {
+        let state = self.state();
+        Ok(state.exists && !state.missing.contains(&subject.name))
     }
 }
 

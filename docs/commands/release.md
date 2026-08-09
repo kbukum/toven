@@ -186,13 +186,13 @@ Image publication is immutable. Pushing a tag that already exists at a different
 
 Registry credentials come from the ambient environment only. They are never placed on argv or logged. `--dry-run` resolves each reference's existing digest but never builds, pushes, or signs. It reports `would-push` or `already-present`.
 
-`provenance` verifies exactly the approved, published subjects. Subjects are the entries of the declared `SHA256SUMS` manifest, each with a `sha256:` digest and located by its project-relative path, plus the live digest of every pushed image reference. Toven shells to `gh attestation verify` (argv-only) — a file subject by its path, an image subject by its `oci://` reference — against the repository slug it resolves from the working directory.
+`provenance` verifies exactly the approved, published subjects. Subjects are the entries of the declared `SHA256SUMS` manifest, each with a `sha256:` digest and located by its bare project-relative path beside the manifest, plus the live digest of every pushed image reference. Toven shells to `gh attestation verify` (argv-only) — a file subject by its path, an image subject by its digest-pinned `oci://name@sha256:…` reference — against the repository slug it resolves from the working directory, and binds the check to the trusted builder with `--signer-workflow .github/workflows/release.yml`, so an attestation cut by any other workflow in the same repository does not satisfy it. Before verifying a file subject, Toven hashes its on-disk bytes and fails closed if they do not match the manifest digest it reported. Manifest entries are validated at this trust boundary: a name with a path separator or `..` is rejected rather than allowed to escape the release directory.
 
 `provenance` fails closed when neither a `SHA256SUMS` manifest nor an image is declared, when a declared manifest lists no subjects, when a declared image resolves to no pushed digest, or — outside `--dry-run` — when any published subject lacks an attestation. Run `toven release image` first for image subjects.
 
-Verification is read-only and idempotent. A default run reports `verified` once every subject carries an attestation. The forge token comes from the ambient environment only.
+Verification is read-only and idempotent. A default run reports `verified` once every subject carries an attestation. The forge token comes from the ambient environment only. A missing attestation is recognized only by `gh`'s explicit "no attestations found" result; any other tool failure (auth, an inaccessible private repository, network) fails closed rather than being read as absent.
 
-`--dry-run` reports whether an attestation exists for each subject as `present` or `missing` and never fails on a missing one. Typed JSONL emits one record per module image for `image` or per subject for `provenance`, with `preview` and resolved `status`; data goes to stdout and warnings go to stderr.
+`--dry-run` reports, per subject, whether an attestation exists as `present` or `missing` and never fails on a missing one — an attested subject is never masked by an unattested sibling. Typed JSONL emits one record per module image for `image` or per subject for `provenance`, with `preview` and the subject's resolved `status`; data goes to stdout and warnings go to stderr.
 
 ## Mutation-free publication rehearsal
 

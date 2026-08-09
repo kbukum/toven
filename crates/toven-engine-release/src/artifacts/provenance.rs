@@ -26,6 +26,7 @@ use rskit_fs::sync_io::file::read_string_bounded;
 use rskit_process::{
     CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessResult, ProcessSpec, run,
 };
+use rskit_util::hash::sha256::sha256_reader;
 use toven_ports::{
     ProvenanceArtifact, ProvenanceOutcome, ProvenancePhase, ProvenanceSubject, Provider, Reporter,
 };
@@ -39,6 +40,12 @@ use toven_engine_core::plan::{PlanRequest, prepare_front};
 /// provenance subjects. A declared asset whose file name is exactly this is the
 /// manifest; one beginning `SHA256SUMS.` is a signature sidecar, not a subject.
 const MANIFEST_NAME: &str = "SHA256SUMS";
+
+/// The trusted-builder workflow whose attestations provenance verification will
+/// accept. `--repo` alone lets any workflow in the repository satisfy the check;
+/// binding `--signer-workflow` to the repository-relative path of the release
+/// workflow requires the attestation to have been cut by that specific builder.
+const TRUSTED_SIGNER_WORKFLOW: &str = ".github/workflows/release.yml";
 
 /// Hard bound on captured tool output (256 KiB).
 const MAX_PROVENANCE_OUTPUT_BYTES: usize = 256 * 1024;
@@ -75,14 +82,29 @@ impl ProvenancePhaseStatus {
     }
 }
 
+/// A single subject's provenance result within a [`ProvenanceReport`].
+///
+/// Each subject carries its own resolved [`ProvenancePhaseStatus`] so that a
+/// `--dry-run` preview reports `present`/`missing` **per subject** — an attested
+/// subject is never masked by an unattested sibling. In an enforced run every
+/// listed subject is `Verified` (the phase fails closed before producing a
+/// report when any subject is missing).
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ProvenanceSubjectReport {
+    /// The published subject this result covers.
+    pub subject: ProvenanceSubject,
+    /// This subject's resolved status.
+    pub status: ProvenancePhaseStatus,
+}
+
 /// A read-only projection of the provenance phase over the release scope.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ProvenanceReport {
     /// Whether this report is a mutation-free `--dry-run` preview.
     pub preview: bool,
-    /// The subjects the attestation covers, in manifest order.
-    pub subjects: Vec<ProvenanceSubject>,
-    /// The resolved status of the phase.
+    /// The per-subject results, in manifest order.
+    pub subjects: Vec<ProvenanceSubjectReport>,
+    /// The aggregate status of the phase.
     pub status: ProvenancePhaseStatus,
 }
 
@@ -135,26 +157,42 @@ pub fn release_provenance(
     let image_requests = super::image::resolved_image_requests(&context, &targets, &settings)?;
     let subjects = published_subjects(project_root, &settings, &image_requests, image_phase)?;
 
-    let status = if options.dry_run {
+    let (subject_reports, status) = if options.dry_run {
+        let mut reports = Vec::with_capacity(subjects.len());
         let mut all_present = true;
-        for subject in &subjects {
-            if !provenance_phase.attestation_exists(project_root, subject)? {
+        for subject in subjects {
+            let present = provenance_phase.attestation_exists(project_root, &subject)?;
+            if !present {
                 all_present = false;
             }
+            let status = if present {
+                ProvenancePhaseStatus::Present
+            } else {
+                ProvenancePhaseStatus::Missing
+            };
+            reports.push(ProvenanceSubjectReport { subject, status });
         }
-        if all_present {
+        let aggregate = if all_present {
             ProvenancePhaseStatus::Present
         } else {
             ProvenancePhaseStatus::Missing
-        }
+        };
+        (reports, aggregate)
     } else {
         provenance_phase.verify(project_root, &subjects)?;
-        ProvenancePhaseStatus::Verified
+        let reports = subjects
+            .into_iter()
+            .map(|subject| ProvenanceSubjectReport {
+                subject,
+                status: ProvenancePhaseStatus::Verified,
+            })
+            .collect();
+        (reports, ProvenancePhaseStatus::Verified)
     };
 
     Ok(ProvenanceReport {
         preview: options.dry_run,
-        subjects,
+        subjects: subject_reports,
         status,
     })
 }
@@ -285,10 +323,14 @@ fn subject_file_path(manifest_rel: &str, name: &str) -> String {
 }
 
 /// Reject a manifest entry whose digest is not a 64-char lowercase-hex sha256,
-/// or whose name is empty or could be mistaken for a flag on the attestation
-/// argv (a leading `-`). The name flows into the `gh attestation verify` argv
-/// (as the subject's project-relative path), so it is validated at this trust
-/// boundary.
+/// or whose name is not a safe bare file name sitting beside the manifest. The
+/// name flows into the `gh attestation verify` argv as the subject's
+/// project-relative path (joined onto the manifest directory) *and* is hashed
+/// off disk, so a name that is empty, could be mistaken for a flag (a leading
+/// `-`), or escapes the manifest directory (a path separator, `.`, or `..`)
+/// would let an untrusted manifest read or verify a file outside the release
+/// directory. It is validated at this trust boundary; Toven's own manifests
+/// list bare file names.
 fn validate_manifest_entry(line: &str, hex: &str, name: &str) -> AppResult<()> {
     let is_lower_hex = hex.len() == 64
         && hex
@@ -308,6 +350,15 @@ fn validate_manifest_entry(line: &str, hex: &str, name: &str) -> AppResult<()> {
             format!(
                 "malformed manifest line '{line}' (subject name must be non-empty and not begin \
                  with '-')"
+            ),
+        ));
+    }
+    if name.contains('/') || name.contains('\\') || name == "." || name == ".." {
+        return Err(AppError::invalid_input(
+            "release.provenance.manifest",
+            format!(
+                "unsafe manifest entry '{name}': a subject name must be a bare file name beside \
+                 the manifest, with no path separators or '..'"
             ),
         ));
     }
@@ -367,13 +418,17 @@ impl GhAttestationProvenance {
     }
 
     /// Whether an attestation exists for `subject` in `repo`, classifying the
-    /// `gh attestation verify` result explicitly.
+    /// `gh attestation verify` result explicitly. A file subject's on-disk bytes
+    /// are hashed and compared to the manifest digest first, so a file that no
+    /// longer matches the digest Toven reported fails closed before `gh` (which
+    /// would otherwise silently re-hash and attest whatever is on disk).
     fn attestation_exists_in(
         &self,
         root: &Path,
         subject: &ProvenanceSubject,
         repo: &str,
     ) -> AppResult<bool> {
+        ensure_file_matches_digest(root, subject)?;
         let result = self.run(root, verify_argv(subject, repo))?;
         if result.success() {
             return Ok(true);
@@ -439,15 +494,14 @@ impl ProvenancePhase for GhAttestationProvenance {
 }
 
 /// Whether `gh attestation verify` reported the specific absence condition that
-/// the verification and preview treat as "no attestation for this subject" — a
-/// missing attestation surfaces as an HTTP 404 or a "no attestations found"
-/// message. Auth, network, malformed argv, and other tool failures fail closed.
+/// the verification and preview treat as "no attestation for this subject":
+/// `gh` reports it as "no attestations found". Every other non-zero result —
+/// auth/token errors, an inaccessible private repository (which GitHub also
+/// surfaces as HTTP 404), network failures, malformed argv — fails closed
+/// rather than being misread as a benignly absent attestation.
 fn attestation_not_found(result: &ProcessResult) -> bool {
     let output = format!("{}\n{}", result.stdout, result.stderr).to_ascii_lowercase();
-    output.contains("no attestations found")
-        || output.contains("no attestation found")
-        || output.contains("http 404")
-        || output.contains("not found")
+    output.contains("no attestations found") || output.contains("no attestation found")
 }
 
 /// Convert a non-zero tool result into a typed fail-closed error with bounded
@@ -486,11 +540,17 @@ fn repo_view_argv() -> Vec<String> {
 /// Build the argv-only `gh attestation verify` invocation that checks whether an
 /// attestation exists for `subject` in `repo`. A file subject is verified by its
 /// project-relative path (resolved against the working directory the command
-/// runs in); an image subject by its `oci://` reference.
+/// runs in); an image subject by its digest-pinned `oci://` reference, so the
+/// registry cannot resolve the tag to a different digest than the one Toven
+/// collected. Verification is bound to the trusted builder via
+/// `--signer-workflow`, so an attestation cut by any other workflow in the same
+/// repository does not satisfy the check.
 fn verify_argv(subject: &ProvenanceSubject, repo: &str) -> Vec<String> {
     let target = match &subject.artifact {
         ProvenanceArtifact::File(path) => path.clone(),
-        ProvenanceArtifact::Image(reference) => format!("oci://{reference}"),
+        ProvenanceArtifact::Image(reference) => {
+            format!("oci://{reference}@{}", subject.digest)
+        }
     };
     vec![
         "attestation".to_string(),
@@ -498,7 +558,54 @@ fn verify_argv(subject: &ProvenanceSubject, repo: &str) -> Vec<String> {
         target,
         "--repo".to_string(),
         repo.to_string(),
+        "--signer-workflow".to_string(),
+        TRUSTED_SIGNER_WORKFLOW.to_string(),
     ]
+}
+
+/// Hash a file subject's on-disk bytes and require them to match the manifest
+/// digest Toven collected, failing closed on any mismatch. Image subjects carry
+/// their digest in the pinned `oci://` reference instead, so this is a no-op for
+/// them.
+///
+/// # Errors
+/// Fails closed when the file cannot be read or its computed sha256 differs from
+/// the manifest digest.
+fn ensure_file_matches_digest(root: &Path, subject: &ProvenanceSubject) -> AppResult<()> {
+    let ProvenanceArtifact::File(rel) = &subject.artifact else {
+        return Ok(());
+    };
+    let path = safe_join(root, rel).map_err(|error| {
+        AppError::invalid_input(
+            "release.provenance.subject",
+            format!("subject '{rel}' is not a safe project-relative path"),
+        )
+        .with_cause(error)
+    })?;
+    let mut file = std::fs::File::open(&path).map_err(|error| {
+        AppError::new(
+            ErrorCode::Internal,
+            format!("cannot open subject '{rel}' to verify its digest: {error}"),
+        )
+        .with_cause(error)
+    })?;
+    let actual = sha256_reader(&mut file)?.to_hex();
+    let expected = subject
+        .digest
+        .strip_prefix("sha256:")
+        .unwrap_or(&subject.digest);
+    if !actual.eq_ignore_ascii_case(expected) {
+        return Err(AppError::new(
+            ErrorCode::Internal,
+            format!(
+                "subject '{rel}' on disk has digest sha256:{actual} but the manifest declares \
+                 sha256:{expected}; refusing to verify a file that does not match what was reported"
+            ),
+        )
+        .with_detail("field", "release.provenance.subject")
+        .with_detail("subject", subject.name.clone()));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -520,8 +627,8 @@ mod tests {
     };
 
     use super::{
-        ProvenanceOptions, ProvenancePhaseStatus, release_provenance, repo_view_argv,
-        subject_file_path, verify_argv,
+        ProvenanceOptions, ProvenancePhaseStatus, ensure_file_matches_digest, release_provenance,
+        repo_view_argv, subject_file_path, verify_argv,
     };
     use rskit_version::semver::Version;
     use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
@@ -672,22 +779,34 @@ mod tests {
         assert_eq!(report.status, ProvenancePhaseStatus::Verified);
         // Subjects are exactly the manifest entries, sha256:-prefixed, each
         // located by its project-relative path beside the manifest.
-        let names: Vec<&str> = report.subjects.iter().map(|s| s.name.as_str()).collect();
+        let names: Vec<&str> = report
+            .subjects
+            .iter()
+            .map(|s| s.subject.name.as_str())
+            .collect();
         assert_eq!(names, vec!["toven.tar.gz", "toven-sbom.cdx.json"]);
         assert!(
             report
                 .subjects
                 .iter()
-                .all(|s| s.digest.starts_with("sha256:"))
+                .all(|s| s.subject.digest.starts_with("sha256:"))
+        );
+        assert!(
+            report
+                .subjects
+                .iter()
+                .all(|s| s.status == ProvenancePhaseStatus::Verified)
         );
         assert_eq!(
-            report.subjects[0].artifact,
+            report.subjects[0].subject.artifact,
             ProvenanceArtifact::File("dist/toven.tar.gz".to_string())
         );
         // The adapter was handed exactly those subjects, once.
         let calls = phase.calls();
         assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].subjects, report.subjects);
+        let handed: Vec<ProvenanceSubject> =
+            report.subjects.iter().map(|s| s.subject.clone()).collect();
+        assert_eq!(calls[0].subjects, handed);
     }
 
     #[test]
@@ -808,7 +927,11 @@ mod tests {
         )
         .expect("provenance runs");
 
-        let names: Vec<&str> = report.subjects.iter().map(|s| s.name.as_str()).collect();
+        let names: Vec<&str> = report
+            .subjects
+            .iter()
+            .map(|s| s.subject.name.as_str())
+            .collect();
         assert!(names.contains(&"toven.tar.gz"), "{names:?}");
         assert!(
             names.contains(&"ghcr.io/acme/toven:1.0.0"),
@@ -817,11 +940,11 @@ mod tests {
         let image_subject = report
             .subjects
             .iter()
-            .find(|s| s.name == "ghcr.io/acme/toven:1.0.0")
+            .find(|s| s.subject.name == "ghcr.io/acme/toven:1.0.0")
             .expect("image subject present");
-        assert_eq!(image_subject.digest, "sha256:img");
+        assert_eq!(image_subject.subject.digest, "sha256:img");
         assert_eq!(
-            image_subject.artifact,
+            image_subject.subject.artifact,
             ProvenanceArtifact::Image("ghcr.io/acme/toven:1.0.0".to_string())
         );
     }
@@ -847,7 +970,7 @@ mod tests {
         .expect("image-only provenance runs");
 
         assert_eq!(report.subjects.len(), 1);
-        assert_eq!(report.subjects[0].name, "ghcr.io/acme/toven:1.0.0");
+        assert_eq!(report.subjects[0].subject.name, "ghcr.io/acme/toven:1.0.0");
     }
 
     #[test]
@@ -958,15 +1081,29 @@ mod tests {
             argv.windows(2).any(|pair| pair == ["--repo", "acme/toven"]),
             "{argv:?}"
         );
-        // The digest never reaches the argv: gh recomputes it from the file.
+        // Verification is bound to the trusted builder, not just the repo.
+        assert!(
+            argv.windows(2)
+                .any(|pair| pair == ["--signer-workflow", ".github/workflows/release.yml"]),
+            "{argv:?}"
+        );
+        // The digest never reaches the argv: gh recomputes it from the file
+        // (Toven pre-checks the file bytes against the manifest digest itself).
         assert!(!argv.iter().any(|token| token == "sha256:abc"));
     }
 
     #[test]
-    fn verify_argv_targets_an_image_subject_by_oci_reference() {
+    fn verify_argv_pins_an_image_subject_to_its_digest() {
         let subject = ProvenanceSubject::image("ghcr.io/acme/toven:1.0.0", "sha256:img");
         let argv = verify_argv(&subject, "acme/toven");
-        assert_eq!(argv[2], "oci://ghcr.io/acme/toven:1.0.0");
+        // The image is pinned by digest so the registry cannot resolve the tag
+        // to a different digest than the one Toven collected.
+        assert_eq!(argv[2], "oci://ghcr.io/acme/toven:1.0.0@sha256:img");
+        assert!(
+            argv.windows(2)
+                .any(|pair| pair == ["--signer-workflow", ".github/workflows/release.yml"]),
+            "{argv:?}"
+        );
     }
 
     #[test]
@@ -987,5 +1124,110 @@ mod tests {
             subject_file_path("SHA256SUMS", "toven.tar.gz"),
             "toven.tar.gz"
         );
+    }
+
+    #[test]
+    fn dry_run_reports_each_subject_present_or_missing_independently() {
+        let root = TempDir::new().unwrap();
+        write_manifest(
+            root.path(),
+            &[
+                ("a".repeat(64).as_str(), "toven.tar.gz"),
+                ("b".repeat(64).as_str(), "toven-sbom.cdx.json"),
+            ],
+        );
+        let provider = provider_with_assets(vec![
+            "dist/toven.tar.gz",
+            "dist/SHA256SUMS",
+            "dist/toven-sbom.cdx.json",
+        ]);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        // The archive is attested; the SBOM is not.
+        let phase = FakeProvenancePhase::new().with_missing("toven-sbom.cdx.json");
+        let mut reporter = RecordingReporter::new();
+
+        let report = release_provenance(
+            &request(root.path()),
+            &document(),
+            &providers,
+            &phase,
+            &FakeImagePhase::new(),
+            ProvenanceOptions { dry_run: true },
+            &mut reporter,
+        )
+        .expect("preview runs");
+
+        // The aggregate is Missing, but each subject keeps its own result: the
+        // attested archive is not masked by the unattested SBOM.
+        assert_eq!(report.status, ProvenancePhaseStatus::Missing);
+        let archive = report
+            .subjects
+            .iter()
+            .find(|s| s.subject.name == "toven.tar.gz")
+            .expect("archive subject");
+        let sbom = report
+            .subjects
+            .iter()
+            .find(|s| s.subject.name == "toven-sbom.cdx.json")
+            .expect("sbom subject");
+        assert_eq!(archive.status, ProvenancePhaseStatus::Present);
+        assert_eq!(sbom.status, ProvenancePhaseStatus::Missing);
+    }
+
+    #[test]
+    fn rejects_a_traversing_manifest_entry() {
+        let root = TempDir::new().unwrap();
+        write_manifest(root.path(), &[("a".repeat(64).as_str(), "../secret")]);
+        let provider = provider_with_assets(vec!["dist/toven.tar.gz", "dist/SHA256SUMS"]);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let phase = FakeProvenancePhase::new();
+        let mut reporter = RecordingReporter::new();
+
+        let error = release_provenance(
+            &request(root.path()),
+            &document(),
+            &providers,
+            &phase,
+            &FakeImagePhase::new(),
+            ProvenanceOptions::default(),
+            &mut reporter,
+        )
+        .expect_err("a traversing manifest entry must be rejected");
+        assert!(error.to_string().contains("bare file name"), "{error}");
+    }
+
+    #[test]
+    fn file_digest_check_accepts_a_matching_file_and_rejects_a_mismatch() {
+        let root = TempDir::new().unwrap();
+        let dist = root.path().join("dist");
+        std::fs::create_dir_all(&dist).unwrap();
+        std::fs::write(dist.join("toven.tar.gz"), b"").unwrap();
+        // The sha256 of an empty file is a well-known vector.
+        let empty = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+        let matching = ProvenanceSubject::file(
+            "toven.tar.gz",
+            format!("sha256:{empty}"),
+            "dist/toven.tar.gz",
+        );
+        ensure_file_matches_digest(root.path(), &matching).expect("matching digest passes");
+
+        let mismatch = ProvenanceSubject::file(
+            "toven.tar.gz",
+            "sha256:".to_string() + &"0".repeat(64),
+            "dist/toven.tar.gz",
+        );
+        let error =
+            ensure_file_matches_digest(root.path(), &mismatch).expect_err("mismatch fails closed");
+        assert!(error.to_string().contains("does not match"), "{error}");
+    }
+
+    #[test]
+    fn image_subject_skips_the_file_digest_check() {
+        let root = TempDir::new().unwrap();
+        let subject = ProvenanceSubject::image("ghcr.io/acme/toven:1.0.0", "sha256:img");
+        // No file exists, but an image subject carries its digest in the pinned
+        // reference, so the on-disk check is a no-op.
+        ensure_file_matches_digest(root.path(), &subject).expect("image subject is a no-op");
     }
 }

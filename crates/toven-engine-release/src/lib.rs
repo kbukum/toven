@@ -25,9 +25,10 @@ pub use artifacts::{
     ArchiveFormat, BuildxImagePhase, ChecksumEntry, ChecksumReport, CosignSigner, CosignVerifier,
     DepgraphReport, GhAssetDownloader, GhAttestationProvenance, ImageModuleOutcome, ImageOptions,
     ImagePhaseStatus, ImageReport, PackageReport, PackagedAsset, ProcessVersionProbe,
-    ProvenanceOptions, ProvenancePhaseStatus, ProvenanceReport, SbomReport, SignReport, StagedSbom,
-    VerifiedAsset, VerifyMode, VerifyOptions, VerifyReport, release_checksums, release_depgraphs,
-    release_image, release_package, release_provenance, release_sbom, release_sign, release_verify,
+    ProvenanceOptions, ProvenancePhaseStatus, ProvenanceReport, ProvenanceSubjectReport,
+    SbomReport, SignReport, StagedSbom, VerifiedAsset, VerifyMode, VerifyOptions, VerifyReport,
+    release_checksums, release_depgraphs, release_image, release_package, release_provenance,
+    release_sbom, release_sign, release_verify,
 };
 pub use execution::{ReleaseApplyOptions, release_apply};
 pub use hosting::{

@@ -1275,20 +1275,24 @@ fn render_provenance_human(report: &ProvenanceReport) {
     } else {
         format!("Release provenance ({})", report.status.as_str())
     };
-    let mut table = OutputTable::new(vec!["Subject", "Digest"]).with_title(title);
-    for subject in &report.subjects {
-        table.add_row(vec![subject.name.clone(), subject.digest.clone()]);
+    let mut table = OutputTable::new(vec!["Subject", "Digest", "Status"]).with_title(title);
+    for entry in &report.subjects {
+        table.add_row(vec![
+            entry.subject.name.clone(),
+            entry.subject.digest.clone(),
+            entry.status.as_str().to_string(),
+        ]);
     }
     println!("{table}");
 }
 
 fn render_provenance_jsonl(report: &ProvenanceReport) -> AppResult<()> {
-    for subject in &report.subjects {
+    for entry in &report.subjects {
         let record = ProvenanceRecord {
             preview: report.preview,
-            status: report.status.as_str().to_string(),
-            name: subject.name.clone(),
-            digest: subject.digest.clone(),
+            status: entry.status.as_str().to_string(),
+            name: entry.subject.name.clone(),
+            digest: entry.subject.digest.clone(),
         };
         let line = serde_json::to_string(&record).map_err(AppError::internal)?;
         println!("{line}");

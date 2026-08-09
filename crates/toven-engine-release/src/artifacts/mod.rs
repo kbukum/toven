@@ -21,7 +21,7 @@ pub use image::{
 pub use package::{ArchiveFormat, PackageReport, PackagedAsset, release_package};
 pub use provenance::{
     GhAttestationProvenance, ProvenanceOptions, ProvenancePhaseStatus, ProvenanceReport,
-    release_provenance,
+    ProvenanceSubjectReport, release_provenance,
 };
 pub use sbom::{SbomReport, StagedSbom, release_sbom};
 pub use sign::{CosignSigner, SignReport, release_sign};
