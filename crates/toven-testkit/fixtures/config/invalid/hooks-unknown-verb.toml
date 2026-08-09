@@ -1,0 +1,9 @@
+# An unrecognized verb key under [hooks] must fail the strict parse.
+[project]
+name = "hooks-unknown-verb"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+
+[hooks.frobnicate]
+pre = ["build"]

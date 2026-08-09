@@ -1,0 +1,16 @@
+# Project-level per-verb lifecycle hooks.
+[project]
+name = "verb-hooks"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+
+[hooks.release]
+pre = ["fmt-check", "lint"]
+post = ["notify-release"]
+
+[hooks.bump]
+pre = ["validate", "lint"]
+
+[hooks.coverage]
+pre = ["build"]

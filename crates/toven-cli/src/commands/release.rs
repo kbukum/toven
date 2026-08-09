@@ -3,8 +3,8 @@
 //! `plan` and `status` are read-only projections over the engine release spine
 //! — they render typed data on stdout and never mutate a manifest, tag, or
 //! registry. `bump` runs only the version + changelog mutation phase, then
-//! commits the release (or, with `--no-commit`, stages it for a pull request)
-//! without tagging, pushing, or publishing. `tag` and `publish` drive the
+//! stages the mutation for a pull request without committing, tagging, pushing,
+//! or publishing. `tag` and `publish` drive the
 //! mutating release pipeline ([`release_run`]): `tag` stops after the release
 //! commit/tag/push, `publish` continues to the registry. `publish` under
 //! `--dry-run` instead runs a no-mutation rehearsal ([`release_rehearse`]) that
@@ -17,6 +17,7 @@ use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult};
 use rskit_version::semver::Version;
 use serde::Serialize;
+use toven_engine_core::config::VerbId;
 use toven_engine_core::plan::PlanRequest;
 use toven_engine_core::vcs::BaselineFlags;
 use toven_engine_release::{
@@ -466,6 +467,10 @@ fn run(
         ..ReleaseApplyOptions::default()
     };
     let hooks = crate::commands::hook::CliHookRunner::new(providers, project, cli);
+    let verb = match action {
+        ReleaseAction::Publish => VerbId::Publish,
+        _ => VerbId::Tag,
+    };
     release_run(
         &request,
         &project.document,
@@ -475,6 +480,7 @@ fn run(
         &overrides,
         sink,
         &hooks,
+        verb,
         &options,
     )?;
     Ok(ExitCode::Success)
@@ -490,10 +496,16 @@ fn require_release_confirmation(confirmed: bool) -> AppResult<()> {
     ))
 }
 
-/// `release bump`: run only the version + changelog mutation phase, then commit
-/// the release (or, with `--no-commit`, stage it for a pull request). Never
-/// tags, pushes, or publishes. `--dry-run` previews the mutation without
-/// writing, so it needs no `--yes` confirmation.
+/// `release bump`: run only the version + changelog mutation phase, then stage
+/// the mutation for a pull request. Never commits, tags, pushes, or publishes —
+/// the commit/tag/push is `release tag` / `release publish` after the staged
+/// change merges. `--dry-run` previews the mutation without writing, so it needs
+/// no `--yes` confirmation.
+///
+/// The project-level `[hooks.bump]` (composed with the umbrella `[hooks.release]`)
+/// wrap a real bump: `pre` runs fail-closed before the mutation, `post` after it
+/// stages successfully. A `--dry-run` preview mutates nothing, so it runs no
+/// hooks.
 fn bump(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     if !cli.dry_run {
         require_release_confirmation(cli.confirm_release)?;
@@ -505,26 +517,33 @@ fn bump(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<
     let overrides = build_overrides(cli)?;
     let clock = crate::host::resolve_clock()?;
     let options = BumpOptions {
-        no_commit: cli.no_commit,
         dry_run: cli.dry_run,
     };
-    let mut reporter = QuietReporter;
-    let report = release_bump(
-        &request,
-        &project.document,
-        providers,
-        &readers,
-        &repos,
-        &overrides,
-        &mut reporter,
-        clock.as_ref(),
-        &options,
-    )?;
-    match resolve_output(cli.output, &project.document) {
-        OutputKind::Jsonl => render_bump_jsonl(&report)?,
-        OutputKind::Human => render_bump_human(&report),
-    }
-    Ok(ExitCode::Success)
+    let lifecycle = if cli.dry_run {
+        toven_ports::HooksConfig::default()
+    } else {
+        project.document.hooks_for(VerbId::Bump)
+    };
+    let hook_runner = crate::commands::hook::CliHookRunner::new(providers, project, cli);
+    crate::commands::hook::run_with_lifecycle(&lifecycle, &hook_runner, || {
+        let mut reporter = QuietReporter;
+        let report = release_bump(
+            &request,
+            &project.document,
+            providers,
+            &readers,
+            &repos,
+            &overrides,
+            &mut reporter,
+            clock.as_ref(),
+            &options,
+        )?;
+        match resolve_output(cli.output, &project.document) {
+            OutputKind::Jsonl => render_bump_jsonl(&report)?,
+            OutputKind::Human => render_bump_human(&report),
+        }
+        Ok(ExitCode::Success)
+    })
 }
 
 /// A stable JSON-lines record for one `release bump` module outcome.
@@ -534,7 +553,7 @@ struct BumpRecord {
     old_version: String,
     new_version: String,
     manifests: Vec<String>,
-    committed: bool,
+    staged: bool,
     dry_run: bool,
     changelogs: Vec<String>,
 }
@@ -547,7 +566,7 @@ fn render_bump_jsonl(report: &BumpReport) -> AppResult<()> {
             old_version: module.old_version.to_string(),
             new_version: module.new_version.to_string(),
             manifests: module.manifests.clone(),
-            committed: report.committed,
+            staged: report.staged,
             dry_run: report.dry_run,
             changelogs: report.changelogs.clone(),
         };
@@ -566,10 +585,10 @@ fn render_bump_human(report: &BumpReport) {
     }
     let disposition = if report.dry_run {
         "dry-run (nothing written)"
-    } else if report.committed {
-        "committed"
+    } else if report.staged {
+        "staged for a pull request"
     } else {
-        "staged (no commit)"
+        "nothing to stage"
     };
     let title = format!("Release bump — {disposition}");
     let mut table = OutputTable::new(vec!["Module", "From", "To", "Manifests"]).with_title(title);

@@ -174,7 +174,7 @@ impl VcsWriter for RskitGitVcs {
     }
 
     fn stage(&self, paths: &[&str]) -> AppResult<()> {
-        // Stage exactly the release-mutated paths for a PR-first `bump --no-commit`
+        // Stage exactly the release-mutated paths for a PR-first `bump`
         // run, leaving the maintainer to create the commit.
         self.repo.stage(paths)
     }

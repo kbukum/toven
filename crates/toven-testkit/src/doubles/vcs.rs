@@ -175,7 +175,7 @@ pub enum VcsWrite {
         /// Repo-relative paths supplied to the write port.
         paths: Vec<String>,
     },
-    /// A `stage` call with its exact staged paths (PR-first `bump --no-commit`).
+    /// A `stage` call with its exact staged paths (PR-first `bump`).
     Stage {
         /// Repo-relative paths supplied to the write port.
         paths: Vec<String>,
@@ -266,7 +266,7 @@ impl FakeVcsWriter {
     }
 
     /// Make `stage` fail with a typed internal error after recording the call —
-    /// e.g. to model a PR-first `bump --no-commit` staging failure.
+    /// e.g. to model a PR-first `bump` staging failure.
     #[must_use]
     pub fn with_stage_failure(mut self, message: impl Into<String>) -> Self {
         self.fail_stage = Some(message.into());

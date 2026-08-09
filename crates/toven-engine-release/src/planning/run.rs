@@ -9,19 +9,17 @@
 //! [`ReleaseStats`] — keeping the discovery/target wiring engine-owned so the
 //! CLI stays a thin caller.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use rskit_errors::AppResult;
-use toven_model::ModuleKey;
 use toven_ports::{HookPhase, HookRunner, Provider, Reporter};
 
 use crate::execution::federated::release_apply_by_member;
 use crate::hosting::host;
 use crate::hosting::reconcile;
-use crate::model::settings::ResolvedReleaseSettings;
 use crate::planning::plan::{plan_with_context, release_targets, resolve_release_settings};
 use crate::{BumpOverrides, ReleaseApplyOptions, ReleaseStats};
-use toven_engine_core::config::Document;
+use toven_engine_core::config::{Document, VerbId};
 use toven_engine_core::federation::baseline::MemberVcsReaders;
 use toven_engine_core::federation::member_repo::MemberReleaseRepos;
 use toven_engine_core::federation::resolve::PathDriverLocator;
@@ -41,11 +39,12 @@ use toven_engine_core::plan::{PlanRequest, prepare_front};
 /// a forge Release over the one topological order. `--no-push` (a non-pushing
 /// APPLY) skips the phase, consistent with the tag push it depends on.
 ///
-/// Configured `[…release].hooks` run through the injected [`HookRunner`]: every
-/// resolved `pre` reference runs before **any** mutation (a failing `pre` hook
-/// aborts the release before the reconcile pre-pass, mutation, or publish), and
-/// every resolved `post` reference runs after a fully successful release.
-/// References are de-duplicated across modules and run in a deterministic order.
+/// The project-level `[hooks.<verb>]` for `verb` (composed with the umbrella
+/// `[hooks.release]`) run through the injected [`HookRunner`]: every resolved
+/// `pre` reference runs before **any** mutation (a failing `pre` hook aborts the
+/// release before the reconcile pre-pass, mutation, or publish), and every
+/// resolved `post` reference runs after a fully successful release (the
+/// reconcile short-circuit deliberately skips them).
 ///
 /// # Errors
 /// Propagates configuration/discovery/graph failures, release-plan failures,
@@ -61,6 +60,7 @@ pub fn release_run(
     overrides: &BumpOverrides,
     reporter: &mut dyn Reporter,
     hooks: &dyn HookRunner,
+    verb: VerbId,
     options: &ReleaseApplyOptions,
 ) -> AppResult<ReleaseStats> {
     let locator = PathDriverLocator::new();
@@ -73,17 +73,19 @@ pub fn release_run(
     )?;
     let targets = release_targets(&context)?;
 
-    // Resolve settings once up front and reuse the same map for every phase of
-    // the run — the lifecycle hooks, the reconcile pre-pass, and the hosted
-    // phase — so hook collection and reconciliation see one consistent
-    // resolution. `pre` hooks run before the reconcile pre-pass and every
-    // mutation below, so a failing gate (e.g. a test task) aborts the release
-    // before anything is written, tagged, or published; `post` hooks reuse it
-    // after success.
-    let settings = resolve_release_settings(&context, &targets)?;
-    for reference in collect_hook_refs(&settings, HookPhase::Pre) {
-        hooks.run_hook(HookPhase::Pre, &reference)?;
+    // The project-level lifecycle hooks for this verb (composed with the
+    // umbrella `[hooks.release]`). `pre` hooks run before the reconcile pre-pass
+    // and every mutation below, so a failing gate (e.g. a test task) aborts the
+    // release before anything is written, tagged, or published; `post` hooks run
+    // after a fully successful run.
+    let lifecycle = document.hooks_for(verb);
+    for reference in &lifecycle.pre {
+        hooks.run_hook(HookPhase::Pre, reference)?;
     }
+
+    // Resolve settings once up front and reuse the same map for the reconcile
+    // pre-pass and the hosted phase so both see one consistent resolution.
+    let settings = resolve_release_settings(&context, &targets)?;
 
     // Reconcile pre-pass: complete a hosted Release for the already-published
     // current version before planning any bump. A run that published the tag and
@@ -125,7 +127,7 @@ pub fn release_run(
         readers,
         overrides,
         &targets,
-        crate::versioning::bump::CutIntent::Mutate,
+        crate::versioning::bump::CutIntent::Verify,
     )?;
     let mut stats =
         release_apply_by_member(&plan, &context.federation.modules, &targets, repos, options)?;
@@ -188,33 +190,10 @@ pub fn release_run(
     // `post` hooks run only after a fully successful release (the reconcile
     // pre-pass short-circuit above intentionally skips them: it completes a prior
     // release's missing hosted Release, not a fresh mutation).
-    for reference in collect_hook_refs(&settings, HookPhase::Post) {
-        hooks.run_hook(HookPhase::Post, &reference)?;
+    for reference in &lifecycle.post {
+        hooks.run_hook(HookPhase::Post, reference)?;
     }
     Ok(stats)
-}
-
-/// Collect the `phase` hook references across all resolved modules, de-duplicated
-/// and in a deterministic order (module-key order, then declaration order within
-/// a module). A hook naming the same task in two modules runs once.
-fn collect_hook_refs(
-    settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
-    phase: HookPhase,
-) -> Vec<String> {
-    let mut seen = BTreeSet::new();
-    let mut references = Vec::new();
-    for resolved in settings.values() {
-        let hooks = match phase {
-            HookPhase::Pre => &resolved.hooks.pre,
-            HookPhase::Post => &resolved.hooks.post,
-        };
-        for reference in hooks {
-            if seen.insert(reference.clone()) {
-                references.push(reference.clone());
-            }
-        }
-    }
-    references
 }
 
 #[cfg(test)]
@@ -223,7 +202,7 @@ mod tests {
 
     use rskit_config::RawValue;
     use serde_json::json;
-    use toven_model::{AbsPath, EcosystemId, Module, ModuleKey, ModuleRef, RepoPath};
+    use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
     use toven_ports::{
         BaselineSpec, ChangeRecord, ChangeStatus, CommonEcosystemConfig, DiscoverResponse,
         HostConfig, Provider, ReleaseConfig, TaskIntent,
@@ -233,9 +212,9 @@ mod tests {
         RecordingHookRunner, RecordingReporter,
     };
 
-    use super::{ResolvedReleaseSettings, collect_hook_refs, release_run};
+    use super::release_run;
     use crate::{BumpOverrides, ReleaseApplyOptions};
-    use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
+    use toven_engine_core::config::{Document, ProjectConfig, TovenConfig, VerbId};
     use toven_engine_core::federation::baseline::MemberVcsReaders;
     use toven_engine_core::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
     use toven_engine_core::plan::{PlanRequest, Selection};
@@ -277,7 +256,28 @@ mod tests {
             ecosystems,
             modules: BTreeMap::new(),
             members: Vec::new(),
+            hooks: BTreeMap::new(),
         }
+    }
+
+    /// A document whose `[hooks.tag]` carries `pre`/`post` references, so the
+    /// tag-verb release run (the default `ReleaseApplyOptions`) drives them.
+    fn document_with_hooks(pre: &[&str], post: &[&str]) -> Document {
+        let mut document = document();
+        document.hooks.insert(
+            VerbId::Tag,
+            toven_ports::HooksConfig {
+                pre: pre
+                    .iter()
+                    .map(|reference| (*reference).to_string())
+                    .collect(),
+                post: post
+                    .iter()
+                    .map(|reference| (*reference).to_string())
+                    .collect(),
+            },
+        );
+        document
     }
 
     fn provider_with_host_and_push(push: bool) -> FakeProvider {
@@ -339,6 +339,7 @@ mod tests {
             &BumpOverrides::new(),
             &mut reporter,
             &RecordingHookRunner::new(),
+            VerbId::Publish,
             &ReleaseApplyOptions {
                 no_push: true,
                 publish: true,
@@ -379,6 +380,7 @@ mod tests {
             &BumpOverrides::new(),
             &mut reporter,
             &RecordingHookRunner::new(),
+            VerbId::Publish,
             &ReleaseApplyOptions {
                 no_push: false,
                 publish: true,
@@ -434,6 +436,7 @@ mod tests {
             &BumpOverrides::new(),
             &mut reporter,
             &RecordingHookRunner::new(),
+            VerbId::Publish,
             &ReleaseApplyOptions {
                 no_push: true,
                 publish: true,
@@ -463,24 +466,15 @@ mod tests {
         );
     }
 
-    /// A rust `core` module whose ecosystem release config carries `pre`/`post`
-    /// hooks (tag-only, so the unit test needs no forge/registry mutation).
-    fn provider_with_hooks(pre: &[&str], post: &[&str]) -> FakeProvider {
+    /// A rust `core` module released tag-only (so the unit test needs no
+    /// forge/registry mutation). Hooks now live on the [`Document`], not the
+    /// release config, so this only shapes the module.
+    fn tag_only_core_provider() -> FakeProvider {
         let mut response = DiscoverResponse::new(eid());
         response.modules = vec![module("core")];
         let common = CommonEcosystemConfig {
             release: ReleaseConfig {
                 push: Some(false),
-                hooks: Some(toven_ports::HooksConfig {
-                    pre: pre
-                        .iter()
-                        .map(|reference| (*reference).to_string())
-                        .collect(),
-                    post: post
-                        .iter()
-                        .map(|reference| (*reference).to_string())
-                        .collect(),
-                }),
                 ..ReleaseConfig::default()
             },
             ..CommonEcosystemConfig::default()
@@ -500,7 +494,7 @@ mod tests {
     // commit, tag, or push may happen, so a maintainer's gate is honored.
     #[test]
     fn a_failing_pre_hook_aborts_the_release_before_any_mutation() {
-        let provider = provider_with_hooks(&["gate"], &["notify"]);
+        let provider = tag_only_core_provider();
         let providers: Vec<&dyn Provider> = vec![&provider];
         let plan_reader = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
             "crates/core/src/lib.rs",
@@ -520,13 +514,14 @@ mod tests {
 
         let error = release_run(
             &request(),
-            &document(),
+            &document_with_hooks(&["gate"], &["notify"]),
             &providers,
             &readers,
             &repos,
             &BumpOverrides::new(),
             &mut reporter,
             &hooks,
+            VerbId::Tag,
             &ReleaseApplyOptions::default(),
         )
         .expect_err("a failing pre hook fails the release closed");
@@ -553,7 +548,7 @@ mod tests {
     // right order around the release.
     #[test]
     fn pre_hooks_run_before_the_mutation_and_post_hooks_after_success() {
-        let provider = provider_with_hooks(&["build"], &["notify"]);
+        let provider = tag_only_core_provider();
         let providers: Vec<&dyn Provider> = vec![&provider];
         let plan_reader = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
             "crates/core/src/lib.rs",
@@ -573,13 +568,14 @@ mod tests {
 
         let stats = release_run(
             &request(),
-            &document(),
+            &document_with_hooks(&["build"], &["notify"]),
             &providers,
             &readers,
             &repos,
             &BumpOverrides::new(),
             &mut reporter,
             &hooks,
+            VerbId::Tag,
             &ReleaseApplyOptions::default(),
         )
         .expect("the release runs");
@@ -599,47 +595,6 @@ mod tests {
                 },
             ],
             "pre runs, then the mutation, then post"
-        );
-    }
-
-    fn settings_with_pre(pre: &[&str]) -> ResolvedReleaseSettings {
-        let config = ReleaseConfig {
-            hooks: Some(toven_ports::HooksConfig {
-                pre: pre
-                    .iter()
-                    .map(|reference| (*reference).to_string())
-                    .collect(),
-                post: Vec::new(),
-            }),
-            ..ReleaseConfig::default()
-        };
-        ResolvedReleaseSettings::resolve(&config, None).unwrap()
-    }
-
-    // `collect_hook_refs` collects across every module in module-key order (not
-    // insertion order), preserves each module's declaration order, and runs a
-    // reference shared by two modules once.
-    #[test]
-    fn collect_hook_refs_dedupes_across_modules_in_module_key_order() {
-        let mut settings = BTreeMap::new();
-        // Insert the later module first so a passing result can only come from
-        // the BTreeMap's key ordering, never insertion order.
-        settings.insert(
-            ModuleKey::bare(mref("zeta")),
-            settings_with_pre(&["shared", "z"]),
-        );
-        settings.insert(
-            ModuleKey::bare(mref("alpha")),
-            settings_with_pre(&["a", "shared"]),
-        );
-
-        let references = collect_hook_refs(&settings, toven_ports::HookPhase::Pre);
-
-        assert_eq!(
-            references,
-            vec!["a".to_string(), "shared".to_string(), "z".to_string()],
-            "alpha (module-key order) first with its declaration order kept, then zeta's \
-             new refs, with the shared task deduplicated"
         );
     }
 }

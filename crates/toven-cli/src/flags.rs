@@ -134,8 +134,7 @@ Examples:
 /// `release bump` action examples.
 const RELEASE_BUMP_EXAMPLES: &str = "\
 Examples:
-  toven release bump --yes         Rewrite versions + changelog and commit (no tag/push/publish)
-  toven release bump --no-commit --yes  Stage the version/changelog change for a pull request
+  toven release bump --yes         Stage the version + changelog change for a pull request (no commit/tag/push)
   toven release bump --dry-run     Preview the version + changelog mutation without writing";
 
 /// `release publish` action examples.
@@ -543,10 +542,6 @@ pub struct Cli {
     /// Release only: skip pushing the release commit and tags.
     #[arg(long, global = true, help_heading = "Release")]
     pub no_push: bool,
-    /// Release bump only: stage the version/changelog mutation for a pull
-    /// request instead of creating the release commit.
-    #[arg(long, global = true, help_heading = "Release")]
-    pub no_commit: bool,
     /// Release tag/publish only: force `<module>` to bump at the patch level
     /// (repeatable). Highest precedence with the other level flags and
     /// `--set-version`; a module named in two level flags or a level flag plus
@@ -797,8 +792,9 @@ pub enum ReleaseAction {
     Tag,
     /// Run only the version + changelog mutation phase: rewrite each module's
     /// manifest version and dependency floors and, where configured, roll the
-    /// changelog, then commit the release (or, with `--no-commit`, stage it for
-    /// a pull request). Never tags, pushes, or publishes.
+    /// changelog, then stage the mutation for a pull request. Never commits,
+    /// tags, pushes, or publishes — the commit/tag/push is `release tag` /
+    /// `release publish` after the staged change merges.
     #[command(after_long_help = RELEASE_BUMP_EXAMPLES)]
     Bump,
     /// Run the full release pipeline (commit, tag, push, publish); `--dry-run`
@@ -1035,15 +1031,10 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     let is_coverage = matches!(cli.command, Command::Coverage);
 
     // `--no-push` is a tag/publish rehearsal flag: `bump` never pushes (it only
-    // mutates + commits/stages) and the read-only projections never touch
-    // history, so it belongs only to the pushing mutating actions.
+    // mutates + stages) and the read-only projections never touch history, so it
+    // belongs only to the pushing mutating actions.
     if cli.no_push && (!mutating_release || is_bump) {
         return Err(only_applies("--no-push", "toven release tag/publish", verb));
-    }
-    // `--no-commit` stages the `bump` mutation for a pull request, so it belongs
-    // only to `release bump`.
-    if cli.no_commit && !is_bump {
-        return Err(only_applies("--no-commit", "toven release bump", verb));
     }
     gate_out_dir_flag(cli, verb)?;
     gate_package_flags(cli, verb)?;
@@ -1956,16 +1947,13 @@ mod tests {
     }
 
     #[test]
-    fn no_commit_only_applies_to_release_bump() {
-        let ok = parse(&["--no-commit", "--yes", "release", "bump"]).expect("parses");
-        assert!(ok.no_commit);
-        assert!(super::gate(&ok).is_ok());
-        for action in ["plan", "status", "tag", "publish"] {
-            let cli = parse(&["--no-commit", "release", action]).expect("parses");
-            assert!(super::gate(&cli).is_err(), "--no-commit on {action}");
-        }
-        let on_task = parse(&["--no-commit", "plan", "build"]).expect("parses");
-        assert!(super::gate(&on_task).is_err(), "--no-commit on a task verb");
+    fn no_commit_flag_is_removed() {
+        // `release bump` is write-only by default (it stages, never commits), so
+        // the `--no-commit` flag was removed entirely — clap must reject it.
+        assert!(
+            parse(&["--no-commit", "--yes", "release", "bump"]).is_err(),
+            "--no-commit is no longer a recognized flag"
+        );
     }
 
     #[test]

@@ -40,6 +40,7 @@ pub(crate) fn detect(
     readers: &MemberVcsReaders<'_>,
     targets: &ReleaseTargets,
     settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
+    intent: crate::versioning::bump::CutIntent,
 ) -> AppResult<ReleaseChanges> {
     let mut changes = ReleaseChanges {
         changed: BTreeSet::new(),
@@ -54,6 +55,7 @@ pub(crate) fn detect(
             reader,
             targets,
             settings,
+            intent,
             &mut changes,
         )?;
     }
@@ -66,6 +68,7 @@ fn detect_member(
     reader: &MemberVcsReader<'_>,
     targets: &ReleaseTargets,
     settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
+    intent: crate::versioning::bump::CutIntent,
     changes: &mut ReleaseChanges,
 ) -> AppResult<()> {
     let member = reader.member();
@@ -75,6 +78,15 @@ fn detect_member(
     // for each module (O(modules × tags)). `tag::latest` parses and filters by the
     // module's prefix from this shared snapshot instead.
     let tags = reader.reader().list_tags(None)?;
+
+    // Version-reference files (READMEs/docs whose pins `bump` rewrites) are
+    // downstream artifacts of the version decision, not inputs to it: their only
+    // expected diff is a synced version token. Filtering them from the seed set
+    // keeps a synced-only file from re-triggering a bump — the native mirror of
+    // rskit's tool-generated-change filter. The set is repo-scoped (the union of
+    // every module's declared references) and empty for a project that declares
+    // none, so detection is unchanged there.
+    let reference_globs = version_reference_globs(settings);
 
     for module in context
         .federation
@@ -106,17 +118,25 @@ fn detect_member(
         };
         let mut module_changes = reader.umbrella_records(&reader.reader().changed_since(&spec)?);
         module_changes.extend(worktree.iter().cloned());
+        if !reference_globs.is_empty() {
+            module_changes
+                .retain(|record| !path_matches_any(&reference_globs, record.path.as_path()));
+        }
         let seeds = toven_engine_core::plan::changed_seeds(
             &module_changes,
             &context.graph,
             &context.federation,
         );
-        // A maintainer-owned module is always evaluated even with no commits
-        // since its baseline: the maintainer already cut the tag/Release at the
-        // declared manifest version, so planning must reach it to verify that tag
-        // and publish idempotently against it — change detection does not gate a
-        // flow whose version decision already merged out of band via `release bump`.
-        if seeds.contains(&module.key()) || resolved.entrypoint.is_maintainer_owned() {
+        // A maintainer-owned module is force-included only on the
+        // verify-and-publish path: the maintainer already cut the tag/Release at
+        // the declared manifest version, so `plan`/`publish` must reach it to
+        // verify that tag and publish idempotently against it. The `bump` path
+        // must NOT force-include it — a maintainer-owned module that is not ahead
+        // of its baseline has nothing to advance, so an all-maintainer-owned
+        // workspace with no changes yields an empty bump plan (a genuine no-op).
+        let force_maintainer =
+            intent.forces_maintainer_owned() && resolved.entrypoint.is_maintainer_owned();
+        if seeds.contains(&module.key()) || force_maintainer {
             changes.changed.insert(module.key());
             changes.records.insert(
                 module.key(),
@@ -212,4 +232,31 @@ fn target_for<'a>(targets: &'a ReleaseTargets, module: &Module) -> Option<&'a dy
     targets
         .get(&(module.member.clone(), module.id.ecosystem.clone()))
         .map(Box::as_ref)
+}
+
+/// The repo-scoped union of the version-reference file globs declared across a
+/// project's resolved release settings.
+fn version_reference_globs(settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>) -> Vec<String> {
+    let mut globs = BTreeSet::new();
+    for resolved in settings.values() {
+        for reference in &resolved.version_references {
+            for glob in &reference.files {
+                globs.insert(glob.clone());
+            }
+        }
+    }
+    globs.into_iter().collect()
+}
+
+/// Whether a repo-relative path matches any of the version-reference globs.
+///
+/// The change seam renders repo-relative records with a leading `./` (the
+/// single-repo member prefix), so the rendering is normalized before matching a
+/// glob authored without that prefix (e.g. `README.md`, `crates/*/README.md`).
+fn path_matches_any(globs: &[String], path: &std::path::Path) -> bool {
+    let rendered = path.to_string_lossy().replace('\\', "/");
+    let normalized = rendered.strip_prefix("./").unwrap_or(&rendered);
+    globs
+        .iter()
+        .any(|glob| rskit_util::glob::glob_match(glob, normalized))
 }

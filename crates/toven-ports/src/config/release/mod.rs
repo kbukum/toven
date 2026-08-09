@@ -5,8 +5,7 @@
 //! vocabulary it composes ([`BumpLevel`]/[`DependentVersion`],
 //! [`PrereleaseConfig`], [`ChangelogConfig`], [`SignConfig`],
 //! plus [`PhasesConfig`] as the per-phase native-or-delegated backing map).
-//! Pre/post hooks reuse the shared, verb-agnostic
-//! [`HooksConfig`](crate::config::HooksConfig). `PhasesConfig` is a
+//! `PhasesConfig` is a
 //! [`ReleaseConfig`] field, so the strict loader accepts `[…release.phases]` and
 //! the engine resolves each phase's backing from it.
 
@@ -19,6 +18,7 @@ mod policy;
 mod prerelease;
 mod publication;
 mod signing;
+mod version_reference;
 
 pub use changelog::ChangelogConfig;
 pub use config::ReleaseConfig;
@@ -29,3 +29,4 @@ pub use policy::{BumpLevel, DependentVersion};
 pub use prerelease::PrereleaseConfig;
 pub use publication::PublicationPolicy;
 pub use signing::SignConfig;
+pub use version_reference::{VERSION_REF_TOKENS, VersionRefToken, VersionReferenceConfig};

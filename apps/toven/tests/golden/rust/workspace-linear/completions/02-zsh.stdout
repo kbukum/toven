@@ -64,7 +64,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -136,7 +135,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -201,7 +199,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -265,7 +262,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -336,7 +332,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -399,7 +394,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -462,7 +456,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -525,7 +518,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -588,7 +580,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -651,7 +642,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -714,7 +704,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -777,7 +766,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -840,7 +828,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -903,7 +890,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -966,7 +952,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -1029,7 +1014,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -1092,7 +1076,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -1155,7 +1138,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -1298,7 +1280,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -1361,7 +1342,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -1425,7 +1405,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -1488,7 +1467,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -1552,7 +1530,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -1615,7 +1592,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -1678,7 +1654,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -1741,7 +1716,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -1804,7 +1778,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -1867,7 +1840,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -1932,7 +1904,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -1995,7 +1966,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -2059,7 +2029,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -2130,7 +2099,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -2194,7 +2162,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -2289,7 +2256,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -2360,7 +2326,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -2423,7 +2388,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -2518,7 +2482,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -2589,7 +2552,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -2652,7 +2614,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -2715,7 +2676,6 @@ dot\:"Graphviz DOT"))' \
 '*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
 '--no-push[Release only\: skip pushing the release commit and tags]' \
-'--no-commit[Release bump only\: stage the version/changelog mutation for a pull request instead of creating the release commit]' \
 '--offline[Release tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
 '--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
 '--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
@@ -3314,7 +3274,7 @@ _toven__subcmd__help__subcmd__release_commands() {
 'plan:Show the release plan — bumped versions, changelog, and publish order — without mutating anything' \
 'status:Show each module'\''s declared version versus what is published and tagged (read-only)' \
 'tag:Cut the release\: bump manifests, commit, tag, and push — without publishing to the registry' \
-'bump:Run only the version + changelog mutation phase\: rewrite each module'\''s manifest version and dependency floors and, where configured, roll the changelog, then commit the release (or, with \`--no-commit\`, stage it for a pull request). Never tags, pushes, or publishes' \
+'bump:Run only the version + changelog mutation phase\: rewrite each module'\''s manifest version and dependency floors and, where configured, roll the changelog, then stage the mutation for a pull request. Never commits, tags, pushes, or publishes — the commit/tag/push is \`release tag\` / \`release publish\` after the staged change merges' \
 'publish:Run the full release pipeline (commit, tag, push, publish); \`--dry-run\` rehearses the publish order and per-module would-publish/already-published verdicts without mutating anything' \
 'readiness:Evaluate the fail-closed release-readiness preflight (configured go/no-go checks) without mutating anything' \
 'sbom:Generate a CycloneDX SBOM per releasable module under \`--out-dir\` (read-only)' \
@@ -3429,7 +3389,7 @@ _toven__subcmd__release_commands() {
 'plan:Show the release plan — bumped versions, changelog, and publish order — without mutating anything' \
 'status:Show each module'\''s declared version versus what is published and tagged (read-only)' \
 'tag:Cut the release\: bump manifests, commit, tag, and push — without publishing to the registry' \
-'bump:Run only the version + changelog mutation phase\: rewrite each module'\''s manifest version and dependency floors and, where configured, roll the changelog, then commit the release (or, with \`--no-commit\`, stage it for a pull request). Never tags, pushes, or publishes' \
+'bump:Run only the version + changelog mutation phase\: rewrite each module'\''s manifest version and dependency floors and, where configured, roll the changelog, then stage the mutation for a pull request. Never commits, tags, pushes, or publishes — the commit/tag/push is \`release tag\` / \`release publish\` after the staged change merges' \
 'publish:Run the full release pipeline (commit, tag, push, publish); \`--dry-run\` rehearses the publish order and per-module would-publish/already-published verdicts without mutating anything' \
 'readiness:Evaluate the fail-closed release-readiness preflight (configured go/no-go checks) without mutating anything' \
 'sbom:Generate a CycloneDX SBOM per releasable module under \`--out-dir\` (read-only)' \
@@ -3465,7 +3425,7 @@ _toven__subcmd__release__subcmd__help_commands() {
 'plan:Show the release plan — bumped versions, changelog, and publish order — without mutating anything' \
 'status:Show each module'\''s declared version versus what is published and tagged (read-only)' \
 'tag:Cut the release\: bump manifests, commit, tag, and push — without publishing to the registry' \
-'bump:Run only the version + changelog mutation phase\: rewrite each module'\''s manifest version and dependency floors and, where configured, roll the changelog, then commit the release (or, with \`--no-commit\`, stage it for a pull request). Never tags, pushes, or publishes' \
+'bump:Run only the version + changelog mutation phase\: rewrite each module'\''s manifest version and dependency floors and, where configured, roll the changelog, then stage the mutation for a pull request. Never commits, tags, pushes, or publishes — the commit/tag/push is \`release tag\` / \`release publish\` after the staged change merges' \
 'publish:Run the full release pipeline (commit, tag, push, publish); \`--dry-run\` rehearses the publish order and per-module would-publish/already-published verdicts without mutating anything' \
 'readiness:Evaluate the fail-closed release-readiness preflight (configured go/no-go checks) without mutating anything' \
 'sbom:Generate a CycloneDX SBOM per releasable module under \`--out-dir\` (read-only)' \

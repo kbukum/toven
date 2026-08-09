@@ -7,5 +7,6 @@ pub(crate) mod apply;
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) mod federated;
 mod mutate;
+mod version_sync;
 
 pub use apply::{ReleaseApplyOptions, release_apply};

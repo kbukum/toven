@@ -42,6 +42,9 @@ pub(super) fn structural(document: &Document, canonical: &CanonicalRegistry) -> 
     for (reference, module) in &document.modules {
         validate_module(reference, module, canonical)?;
     }
+    for (verb, hooks) in &document.hooks {
+        hooks.validate(&format!("hooks.{}", verb.as_str()))?;
+    }
     Ok(())
 }
 

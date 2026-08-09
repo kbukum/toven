@@ -3,13 +3,14 @@
 //! Drives the public [`release_bump`] facade with per-member VCS doubles and
 //! asserts the bump verb performs **only** the version + changelog mutation
 //! half of a release: it rewrites manifests, rolls the configured changelog, and
-//! either commits the release (the default) or stages it for a pull request
-//! (`--no-commit`) — never tagging, pushing, or publishing. `--dry-run` reports
-//! the planned mutation without writing anything.
+//! **stages** the mutation for a pull request — never committing, tagging,
+//! pushing, or publishing. `--dry-run` reports the planned mutation without
+//! writing anything.
 
 use std::collections::BTreeSet;
 
 use rskit_util::time::FixedClock;
+use rskit_version::semver::Version;
 use toven_engine_core::config::{CanonicalRegistry, Document, load};
 use toven_engine_core::federation::MemberVcsReaders;
 use toven_engine_core::federation::baseline::MemberVcsReader;
@@ -19,7 +20,9 @@ use toven_engine_release::{BumpOptions, BumpOverrides, release_bump};
 use toven_model::{
     AbsPath, EcosystemId, Module, ModuleRef, RepoPath, ToolchainTag, Workspace, WorkspaceId,
 };
-use toven_ports::{DiscoverResponse, Provider, TaskIntent};
+use toven_ports::{
+    ChangeRecord, ChangeStatus, DiscoverResponse, Oid, Provider, TagRef, TaskIntent,
+};
 use toven_testkit::workspace::workspace;
 use toven_testkit::{
     FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, FakeVcsWriter, VcsWrite,
@@ -101,6 +104,52 @@ fn load_project(roll: bool) -> (toven_testkit::TestWorkspace, AbsPath, Document)
     (ws, root, document)
 }
 
+/// Load a single-repo project whose `core` module is **maintainer-owned** — the
+/// human already cut the tag/Release at the declared manifest version, so
+/// `release bump` has nothing to advance on it.
+fn load_maintainer_project() -> (toven_testkit::TestWorkspace, AbsPath, Document) {
+    let ws = workspace("release-bump-maintainer");
+    let body = "[project]\nname = \"solo\"\n\n[ecosystems.rust]\nmanifests = [\"Cargo.toml\"]\n\n[modules.\"rust:core\".release]\npush = false\nentrypoint = \"maintainer\"\ncommit_message = \"release {module} {version}\"\n";
+    let path = ws
+        .write_file("toven.toml", body.as_bytes())
+        .expect("write project");
+    let root = AbsPath::new(ws.path().to_path_buf()).expect("absolute root");
+    let document = load(&path, &BTreeSet::new(), &CanonicalRegistry::model())
+        .expect("project loads")
+        .document;
+    (ws, root, document)
+}
+
+/// A release tag anchoring `core` at `version` in the default `rust/core@`
+/// scheme the fake target reports.
+fn core_tag(version: &str) -> TagRef {
+    TagRef::new(format!("rust/core@{version}"), Oid::new("cafe"))
+}
+
+/// Load a single-repo project whose `core` module declares a version reference
+/// pinning itself in `README.md`, seeding the README with `readme` content.
+fn load_version_reference_project(
+    readme: &str,
+) -> (toven_testkit::TestWorkspace, AbsPath, Document) {
+    let ws = workspace("release-bump-version-ref");
+    let body = "[project]\nname = \"solo\"\n\n[ecosystems.rust]\nmanifests = [\"Cargo.toml\"]\n\n[modules.\"rust:core\".release]\npush = false\ncommit_message = \"release {module} {version}\"\n\n[[modules.\"rust:core\".release.version_references]]\nfiles = [\"README.md\"]\npattern = \"{module} = \\\"{version}\\\"\"\n";
+    let path = ws
+        .write_file("toven.toml", body.as_bytes())
+        .expect("write project");
+    ws.write_file("README.md", readme.as_bytes())
+        .expect("write readme");
+    let root = AbsPath::new(ws.path().to_path_buf()).expect("absolute root");
+    let document = load(&path, &BTreeSet::new(), &CanonicalRegistry::model())
+        .expect("project loads")
+        .document;
+    (ws, root, document)
+}
+
+/// Build the single-`core` provider around a release target declaring `version`.
+fn provider_declaring(version: Version) -> FakeProvider {
+    provider_with_target(FakeReleaseTarget::new().with_declared_version(version))
+}
+
 /// Build the single-member reader/repo bindings around one shared writer double.
 fn single_member<'a>(
     ws: &toven_testkit::TestWorkspace,
@@ -139,9 +188,28 @@ fn run_bump_with(
     options: BumpOptions,
     provider: &FakeProvider,
 ) -> toven_engine_release::BumpReport {
+    run_bump_reader(
+        ws,
+        root,
+        document,
+        writer,
+        options,
+        provider,
+        &FakeVcsReader::new(),
+    )
+}
+
+fn run_bump_reader(
+    ws: &toven_testkit::TestWorkspace,
+    root: AbsPath,
+    document: &Document,
+    writer: &FakeVcsWriter,
+    options: BumpOptions,
+    provider: &FakeProvider,
+    reader: &FakeVcsReader,
+) -> toven_engine_release::BumpReport {
     let providers: Vec<&dyn Provider> = vec![provider];
-    let reader = FakeVcsReader::new();
-    let (readers, repos) = single_member(ws, &reader, writer);
+    let (readers, repos) = single_member(ws, reader, writer);
     let clock = FixedClock::new(FIXED_EPOCH, 0);
     let mut reporter = toven_testkit::RecordingReporter::new();
     release_bump(
@@ -170,55 +238,40 @@ fn stages(log: &[VcsWrite]) -> usize {
         .count()
 }
 
-/// No bump run may ever tag, push, or publish — that is the tag/publish half.
+/// No bump run may ever commit, tag, push, or publish — bump only ever stages
+/// the mutation for a pull request; the commit/tag/push half is `release tag` /
+/// `release publish`.
 fn assert_no_release_history(log: &[VcsWrite]) {
     assert!(
-        !log.iter()
-            .any(|write| matches!(write, VcsWrite::CreateTag { .. } | VcsWrite::Push { .. })),
-        "bump must never tag or push: {log:?}"
+        !log.iter().any(|write| matches!(
+            write,
+            VcsWrite::Commit { .. } | VcsWrite::CreateTag { .. } | VcsWrite::Push { .. }
+        )),
+        "bump must never commit, tag, or push: {log:?}"
     );
 }
 
 #[test]
-fn bump_commits_the_release_by_default() {
+fn bump_stages_the_release_by_default() {
+    // The default `release bump` stages the version/changelog mutation for a
+    // pull request — it never creates the release commit. Cutting the commit is
+    // the job of `release tag` / `release publish` after the staged change
+    // merges (bump → branch → PR → merge → tag/publish).
     let (ws, root, document) = load_project(false);
-    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    let writer = FakeVcsWriter::new().with_commit_oid("unused");
     let report = run_bump(&ws, root, &document, &writer, BumpOptions::default());
 
-    assert!(
-        report.committed,
-        "the default bump creates the release commit"
-    );
+    assert!(report.staged, "the default bump stages the mutation");
     assert!(!report.dry_run);
     assert_eq!(report.modules.len(), 1, "one module is bumped: {report:?}");
 
     let log = writer.writes();
-    assert_eq!(commits(&log), 1, "exactly one release commit: {log:?}");
-    assert_eq!(stages(&log), 0, "the default path does not bare-stage");
-    assert_no_release_history(&log);
-    assert!(
-        log.iter().any(|write| matches!(
-            write,
-            VcsWrite::Commit { message, .. } if message == "release core 0.1.0"
-        )),
-        "the configured commit message is used: {log:?}"
-    );
-}
-
-#[test]
-fn no_commit_stages_the_mutation_for_a_pull_request() {
-    let (ws, root, document) = load_project(false);
-    let writer = FakeVcsWriter::new();
-    let options = BumpOptions {
-        no_commit: true,
-        dry_run: false,
-    };
-    let report = run_bump(&ws, root, &document, &writer, options);
-
-    assert!(!report.committed, "--no-commit leaves the commit to the PR");
-    let log = writer.writes();
     assert_eq!(stages(&log), 1, "the mutation is staged: {log:?}");
-    assert_eq!(commits(&log), 0, "--no-commit creates no commit: {log:?}");
+    assert_eq!(
+        commits(&log),
+        0,
+        "the default bump creates no commit: {log:?}"
+    );
     assert_no_release_history(&log);
 }
 
@@ -226,14 +279,11 @@ fn no_commit_stages_the_mutation_for_a_pull_request() {
 fn dry_run_previews_without_writing() {
     let (ws, root, document) = load_project(true);
     let writer = FakeVcsWriter::new();
-    let options = BumpOptions {
-        no_commit: false,
-        dry_run: true,
-    };
+    let options = BumpOptions { dry_run: true };
     let report = run_bump(&ws, root, &document, &writer, options);
 
     assert!(report.dry_run);
-    assert!(!report.committed, "a preview commits nothing");
+    assert!(!report.staged, "a preview stages nothing");
     assert_eq!(report.modules.len(), 1, "the planned bump is reported");
     assert!(
         report.modules[0].manifests.is_empty(),
@@ -280,18 +330,18 @@ fn bump_rolls_the_configured_changelog() {
     assert!(
         log.iter().any(|write| matches!(
             write,
-            VcsWrite::Commit { paths, .. } if paths.iter().any(|path| path == "CHANGELOG.md")
+            VcsWrite::Stage { paths, .. } if paths.iter().any(|path| path == "CHANGELOG.md")
         )),
-        "the rolled changelog is staged into the release commit: {log:?}"
+        "the rolled changelog is staged for the pull request: {log:?}"
     );
     assert_no_release_history(&log);
 }
 
 #[test]
-fn a_tag_only_bump_that_rewrites_nothing_reports_no_commit() {
+fn a_tag_only_bump_that_rewrites_nothing_stages_nothing() {
     // A tag-only ecosystem rewrites no manifest and (here) rolls no changelog,
-    // so the default `bump` has nothing to commit. `committed` must reflect that
-    // no release commit was created, not the requested commit disposition.
+    // so the default `bump` has nothing to stage. `staged` must reflect that no
+    // mutation reached the working tree.
     let (ws, root, document) = load_project(false);
     let writer = FakeVcsWriter::new().with_commit_oid("unused");
     let report = run_bump_with(
@@ -304,8 +354,8 @@ fn a_tag_only_bump_that_rewrites_nothing_reports_no_commit() {
     );
 
     assert!(
-        !report.committed,
-        "a bump that rewrote nothing must not claim a commit: {report:?}"
+        !report.staged,
+        "a bump that rewrote nothing must not claim a stage: {report:?}"
     );
     assert_eq!(report.modules.len(), 1, "the module is still planned");
     assert!(
@@ -317,4 +367,284 @@ fn a_tag_only_bump_that_rewrites_nothing_reports_no_commit() {
     assert_eq!(commits(&log), 0, "nothing is committed: {log:?}");
     assert_eq!(stages(&log), 0, "nothing is staged: {log:?}");
     assert_no_release_history(&log);
+}
+
+#[test]
+fn an_all_maintainer_owned_workspace_with_no_change_is_a_no_op() {
+    // rskit-shaped case: every module is maintainer-owned and its manifest
+    // already declares the released version (a tag anchors it), with nothing
+    // changed since. The publish path force-includes maintainer-owned modules to
+    // verify their tags, but `bump` must not — a bump that advances nothing does
+    // nothing: no plan, no rewrite, no changelog roll, no stage.
+    let (ws, root, document) = load_maintainer_project();
+    let writer = FakeVcsWriter::new().with_commit_oid("unused");
+    let reader = FakeVcsReader::new().with_tags(vec![core_tag("0.1.0")]);
+    let report = run_bump_reader(
+        &ws,
+        root,
+        &document,
+        &writer,
+        BumpOptions::default(),
+        &provider_declaring(Version::new(0, 1, 0)),
+        &reader,
+    );
+
+    assert!(
+        report.modules.is_empty(),
+        "nothing advanced, so no module is bumped: {report:?}"
+    );
+    assert!(
+        report.changelogs.is_empty(),
+        "no changelog is rolled: {report:?}"
+    );
+    assert!(!report.staged, "a no-op bump stages nothing: {report:?}");
+    assert!(!report.dry_run);
+
+    let log = writer.writes();
+    assert!(
+        log.is_empty(),
+        "a no-op bump leaves the working tree untouched — no stage, no commit: {log:?}"
+    );
+    assert_no_release_history(&log);
+}
+
+#[test]
+fn a_module_changed_since_its_tag_still_enters_the_bump_plan() {
+    // The change-gate keeps modules that genuinely advanced: a module with a real
+    // Conventional-Commit change since its release tag is bumped even though the
+    // maintainer-owned force-include is gone.
+    let (ws, root, document) = load_project(false);
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+    let report = run_bump_reader(
+        &ws,
+        root,
+        &document,
+        &writer,
+        BumpOptions::default(),
+        &provider_declaring(Version::new(0, 1, 0)),
+        &reader,
+    );
+
+    assert_eq!(
+        report.modules.len(),
+        1,
+        "the changed module still enters the bump plan: {report:?}"
+    );
+    assert_eq!(report.modules[0].old_version, Version::new(0, 1, 0));
+    assert_eq!(
+        report.modules[0].new_version,
+        Version::new(0, 1, 1),
+        "a real change advances the version: {report:?}"
+    );
+    assert!(report.staged, "the changed module is staged: {report:?}");
+}
+
+/// Extract the staged repo-relative paths recorded by the writer double.
+fn staged_paths(log: &[VcsWrite]) -> Vec<String> {
+    log.iter()
+        .filter_map(|write| match write {
+            VcsWrite::Stage { paths, .. } => Some(paths.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
+#[test]
+fn bump_syncs_a_declared_version_reference() {
+    // A genuinely-changed module bumps 0.1.0 -> 0.1.1; its README pin is
+    // rewritten to the authoritative post-bump version, inside the bump
+    // mutation and staged with the manifest. A prose line mentioning a
+    // version-shaped string but not matching the pin pattern is untouched.
+    let (ws, root, document) = load_version_reference_project(
+        "# core\n\ncore = \"0.1.0\"\n\nWe shipped core 0.0.9 last week.\n",
+    );
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+    let report = run_bump_reader(
+        &ws,
+        root,
+        &document,
+        &writer,
+        BumpOptions::default(),
+        &provider_declaring(Version::new(0, 1, 0)),
+        &reader,
+    );
+
+    assert!(report.staged, "the mutation is staged: {report:?}");
+    assert_eq!(report.modules[0].new_version, Version::new(0, 1, 1));
+
+    let readme = std::fs::read_to_string(ws.path().join("README.md")).expect("readme");
+    assert!(
+        readme.contains("core = \"0.1.1\""),
+        "the pin is synced to the post-bump version: {readme}"
+    );
+    assert!(
+        readme.contains("We shipped core 0.0.9 last week."),
+        "prose that does not match the pin pattern is untouched: {readme}"
+    );
+
+    let staged = staged_paths(&writer.writes());
+    assert!(
+        staged.iter().any(|path| path == "README.md"),
+        "the synced version reference is staged with the manifest: {staged:?}"
+    );
+    assert_no_release_history(&writer.writes());
+}
+
+#[test]
+fn a_pin_referencing_the_ecosystem_identity_is_synced() {
+    // A pin may reference a module by its `ecosystem:name` identity (e.g.
+    // `rust:core`), not only its bare package name; the authoritative map keys
+    // both forms, so an identity-form pin is rewritten to the post-bump version.
+    let (ws, root, document) = load_version_reference_project("# core\n\nrust:core = \"0.1.0\"\n");
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+    let report = run_bump_reader(
+        &ws,
+        root,
+        &document,
+        &writer,
+        BumpOptions::default(),
+        &provider_declaring(Version::new(0, 1, 0)),
+        &reader,
+    );
+
+    assert_eq!(report.modules[0].new_version, Version::new(0, 1, 1));
+    let readme = std::fs::read_to_string(ws.path().join("README.md")).expect("readme");
+    assert!(
+        readme.contains("rust:core = \"0.1.1\""),
+        "an ecosystem-identity pin is synced to the post-bump version: {readme}"
+    );
+}
+
+#[test]
+fn an_already_synced_version_reference_is_not_restaged() {
+    // Idempotency: a README already at the authoritative version is left
+    // byte-for-byte unchanged and never joins the staged set, so a re-run stages
+    // no version-reference file.
+    let (ws, root, document) = load_version_reference_project("# core\n\ncore = \"0.1.1\"\n");
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+    let report = run_bump_reader(
+        &ws,
+        root,
+        &document,
+        &writer,
+        BumpOptions::default(),
+        &provider_declaring(Version::new(0, 1, 0)),
+        &reader,
+    );
+
+    assert_eq!(report.modules[0].new_version, Version::new(0, 1, 1));
+    let readme = std::fs::read_to_string(ws.path().join("README.md")).expect("readme");
+    assert_eq!(
+        readme, "# core\n\ncore = \"0.1.1\"\n",
+        "an already-current reference is untouched: {readme}"
+    );
+    let staged = staged_paths(&writer.writes());
+    assert!(
+        !staged.iter().any(|path| path == "README.md"),
+        "an unchanged reference is not staged: {staged:?}"
+    );
+}
+
+#[test]
+fn a_version_reference_only_change_does_not_trigger_a_bump() {
+    // A worktree/diff whose only changed path is a declared version-reference
+    // file must not seed a bump — the file follows versions, it does not drive
+    // them (the native tool-generated-change filter).
+    let (ws, root, document) = load_version_reference_project("# core\n\ncore = \"0.1.0\"\n");
+    let writer = FakeVcsWriter::new().with_commit_oid("unused");
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new("README.md", ChangeStatus::Modified)]);
+    let report = run_bump_reader(
+        &ws,
+        root,
+        &document,
+        &writer,
+        BumpOptions::default(),
+        &provider_declaring(Version::new(0, 1, 0)),
+        &reader,
+    );
+
+    assert!(
+        report.modules.is_empty(),
+        "a version-reference-only diff advances nothing: {report:?}"
+    );
+    assert!(!report.staged, "nothing is staged: {report:?}");
+    assert!(writer.writes().is_empty(), "the working tree is untouched");
+}
+
+#[test]
+fn a_failed_version_reference_sync_restores_the_partially_mutated_member() {
+    // Phase-1 undoable guarantee: if version-reference syncing fails after the
+    // manifests/changelog were already written, the member must not be left
+    // partially mutated. An oversized (unreadable) reference file aborts the
+    // sync; the bump surfaces the error and restores the working tree.
+    let oversized = format!(
+        "# core\n\ncore = \"0.1.0\"\n{}",
+        "a".repeat(5 * 1024 * 1024)
+    );
+    let (ws, root, document) = load_version_reference_project(&oversized);
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+
+    let provider = provider_declaring(Version::new(0, 1, 0));
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let (readers, repos) = single_member(&ws, &reader, &writer);
+    let clock = FixedClock::new(FIXED_EPOCH, 0);
+    let mut reporter = toven_testkit::RecordingReporter::new();
+    let result = release_bump(
+        &request(root),
+        &document,
+        &providers,
+        &readers,
+        &repos,
+        &BumpOverrides::new(),
+        &mut reporter,
+        &clock,
+        &BumpOptions::default(),
+    );
+
+    assert!(
+        result.is_err(),
+        "an unreadable reference file aborts the bump: {result:?}"
+    );
+    assert!(
+        writer
+            .writes()
+            .iter()
+            .any(|write| matches!(write, VcsWrite::RestoreWorktree)),
+        "the partially mutated member is restored: {:?}",
+        writer.writes()
+    );
+    assert_no_release_history(&writer.writes());
 }

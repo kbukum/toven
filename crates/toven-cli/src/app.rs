@@ -12,6 +12,7 @@ use clap::Parser;
 use clap::error::ErrorKind;
 use rskit_cli::{ErrorRenderer, ExitCode};
 use rskit_errors::{AppError, AppResult};
+use toven_engine_core::config::VerbId;
 use toven_engine_core::plan::addressable_task_names;
 use toven_engine_core::vcs::BaselineFlags;
 use toven_ports::{Provider, TaskIntent};
@@ -142,6 +143,28 @@ fn resolve_report(cli: &Cli, project: &Project) -> Report {
     )
 }
 
+/// Wrap a verb body in its project-level lifecycle hooks.
+///
+/// Resolves the composed `pre`/`post` hooks for `verb` from the loaded document
+/// and runs `body` through [`commands::hook::run_with_lifecycle`] using the real
+/// [`CliHookRunner`]: every `pre` reference runs fail-closed before the body, and
+/// every `post` reference runs only after the body exits successfully. An
+/// unconfigured verb runs the body directly, so it pays no hook cost.
+fn with_hooks(
+    providers: &[&dyn Provider],
+    cli: &Cli,
+    project: &Project,
+    verb: VerbId,
+    body: impl FnOnce() -> AppResult<ExitCode>,
+) -> AppResult<ExitCode> {
+    let hooks = project.document.hooks_for(verb);
+    if hooks.is_empty() {
+        return body();
+    }
+    let runner = commands::hook::CliHookRunner::new(providers, project, cli);
+    commands::hook::run_with_lifecycle(&hooks, &runner, body)
+}
+
 fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
     flags::gate(cli)?;
 
@@ -158,27 +181,31 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
         Command::External(tokens) => dispatch_task(providers, cli, tokens),
         Command::Run { task, passthrough } => {
             let project = load(providers, cli, true)?;
-            let report = resolve_report(cli, &project);
-            commands::run::execute(
-                providers,
-                &project,
-                report,
-                intent_for(task),
-                passthrough.clone(),
-                cli.fail_fast,
-                cli.no_cache,
-                cli.refresh,
-                cli.timeout,
-                cli.is_plan_only(),
-                global_watch(cli),
-                cli.view.map(Into::into),
-                cli.jobs,
-                &global_selection(cli),
-            )
+            with_hooks(providers, cli, &project, VerbId::Run, || {
+                let report = resolve_report(cli, &project);
+                commands::run::execute(
+                    providers,
+                    &project,
+                    report,
+                    intent_for(task),
+                    passthrough.clone(),
+                    cli.fail_fast,
+                    cli.no_cache,
+                    cli.refresh,
+                    cli.timeout,
+                    cli.is_plan_only(),
+                    global_watch(cli),
+                    cli.view.map(Into::into),
+                    cli.jobs,
+                    &global_selection(cli),
+                )
+            })
         }
         Command::Plan { task } => {
             let project = load(providers, cli, true)?;
-            plan_command(providers, cli, &project, task)
+            with_hooks(providers, cli, &project, VerbId::Plan, || {
+                plan_command(providers, cli, &project, task)
+            })
         }
         Command::Release { action } => {
             let project = load(providers, cli, false)?;
@@ -186,7 +213,9 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
         }
         Command::Coverage => {
             let project = load(providers, cli, true)?;
-            commands::coverage::execute(providers, &project, cli)
+            with_hooks(providers, cli, &project, VerbId::Coverage, || {
+                commands::coverage::execute(providers, &project, cli)
+            })
         }
         Command::Explain { task } => {
             let project = load(providers, cli, false)?;
@@ -220,8 +249,10 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
         }
         Command::Doctor { ensure } => {
             let project = load(providers, cli, false)?;
-            let report = resolve_report(cli, &project);
-            commands::doctor::doctor(providers, &project, report, *ensure || cli.auto_install)
+            with_hooks(providers, cli, &project, VerbId::Doctor, || {
+                let report = resolve_report(cli, &project);
+                commands::doctor::doctor(providers, &project, report, *ensure || cli.auto_install)
+            })
         }
         Command::Completions { shell } => Ok(commands::completions::completions(*shell)),
         Command::Cache { action } => {
@@ -329,23 +360,25 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
     let view = flags.view.or(cli.view).map(Into::into);
     let jobs = flags.jobs.or(cli.jobs);
 
-    commands::run::execute(
-        providers,
-        &project,
-        report,
-        intent_for(&invocation.task),
-        invocation.passthrough,
-        fail_fast,
-        no_cache,
-        refresh,
-        unit_timeout,
-        plan_only,
-        watch,
-        view,
-        jobs,
-        &selection,
-    )
-    .map_err(|error| advise_builtin_typo(&invocation.task, error))
+    with_hooks(providers, cli, &project, VerbId::Run, || {
+        commands::run::execute(
+            providers,
+            &project,
+            report,
+            intent_for(&invocation.task),
+            invocation.passthrough,
+            fail_fast,
+            no_cache,
+            refresh,
+            unit_timeout,
+            plan_only,
+            watch,
+            view,
+            jobs,
+            &selection,
+        )
+        .map_err(|error| advise_builtin_typo(&invocation.task, error))
+    })
 }
 
 /// When a bare-task dispatch fails because the token is not a resolvable task,

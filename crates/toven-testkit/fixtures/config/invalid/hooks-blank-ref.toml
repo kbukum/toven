@@ -1,0 +1,9 @@
+# A blank hook task reference must be rejected by validation.
+[project]
+name = "hooks-blank-ref"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+
+[hooks.release]
+pre = ["  "]

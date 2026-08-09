@@ -3,11 +3,11 @@
 //!
 //! `bump` performs **only** the `bump` phase — it rewrites each module's
 //! manifest version and dependency floors and, where configured, rolls the
-//! changelog, then either creates the release commit (the default) or leaves the
-//! mutation staged for a maintainer's pull request (`--no-commit`). It never
-//! tags, pushes, publishes, or cuts a hosted Release: in the real Toven/rskit
-//! flow the version/CHANGELOG change *is* the release decision, and tag/publish
-//! come after it merges.
+//! changelog, then **stages** the mutation for a maintainer's pull request. It
+//! never commits, tags, pushes, publishes, or cuts a hosted Release: in the real
+//! Toven/rskit flow `bump` stages the version/CHANGELOG change for review
+//! (bump → branch → PR → merge), and creating the release commit/tag/push comes
+//! after it merges via `release tag` / `release publish`.
 //!
 //! Like [`release_run`](crate::release_run) this facade prepares the shared PLAN
 //! front matter once, derives the plan and targets from it, then runs the
@@ -32,9 +32,6 @@ use toven_engine_core::plan::{PlanRequest, prepare_front};
 /// Runtime options for the standalone `release bump` phase.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Default)]
 pub struct BumpOptions {
-    /// Stage the version/changelog mutation for a pull request instead of
-    /// creating the release commit.
-    pub no_commit: bool,
     /// Preview the mutation without writing manifests, the changelog, or git
     /// state.
     pub dry_run: bool,
@@ -60,9 +57,10 @@ pub struct BumpModuleOutcome {
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct BumpReport {
-    /// Whether the run created the release commit. `false` when `--no-commit`
-    /// staged the change for a pull request or `--dry-run` previewed it.
-    pub committed: bool,
+    /// Whether the run staged a mutation for a pull request. `false` when the
+    /// run advanced nothing (a no-op) or `--dry-run` previewed it without
+    /// writing.
+    pub staged: bool,
     /// Whether the run was a mutation-free preview.
     pub dry_run: bool,
     /// Per-module version transitions in plan order.
@@ -73,16 +71,15 @@ pub struct BumpReport {
 }
 
 impl BumpReport {
-    /// A report for a run that committed nothing yet — the initial state the
+    /// A report for a run that staged nothing yet — the initial state the
     /// per-member tail builds on, and the terminal report for an up-to-date
-    /// project with nothing to bump. `committed` starts `false` and is set only
-    /// once a member actually creates the release commit, so a no-op run, a
-    /// `--no-commit` staging run, and a `--dry-run` preview all report
-    /// `committed = false` truthfully.
+    /// project with nothing to bump. `staged` starts `false` and is set only
+    /// once a member actually stages a mutation, so a no-op run and a
+    /// `--dry-run` preview both report `staged = false` truthfully.
     #[must_use]
     pub(crate) const fn empty(options: BumpOptions) -> Self {
         Self {
-            committed: false,
+            staged: false,
             dry_run: options.dry_run,
             modules: Vec::new(),
             changelogs: Vec::new(),
@@ -91,8 +88,7 @@ impl BumpReport {
 }
 
 /// Run the standalone `bump` phase: plan the release, then mutate manifests and
-/// roll the changelog per member, creating the release commit or staging it for
-/// a pull request.
+/// roll the changelog per member, staging the mutation for a pull request.
 ///
 /// `readers` are the per-member change seams and `repos` the per-member
 /// commit/stage ports; a single-repo project is the N=1 degenerate member.
@@ -103,7 +99,7 @@ impl BumpReport {
 /// # Errors
 /// Propagates configuration/discovery/graph failures, release-plan failures, and
 /// mutation failures (clean-tree/branch guardrails, manifest mutation, changelog
-/// roll, staging or commit).
+/// roll, staging).
 #[allow(clippy::too_many_arguments)]
 pub fn release_bump(
     request: &PlanRequest,
@@ -131,7 +127,7 @@ pub fn release_bump(
         readers,
         overrides,
         &targets,
-        crate::versioning::bump::CutIntent::Mutate,
+        crate::versioning::bump::CutIntent::Bump,
     )?;
     let date = today(clock)?;
     release_bump_by_member(
@@ -170,27 +166,14 @@ mod tests {
     use super::{BumpOptions, BumpReport};
 
     #[test]
-    fn empty_report_never_claims_a_commit() {
-        // A run with nothing to bump commits nothing, so the terminal report
-        // must read `committed = false` for every disposition — including the
-        // default (commit) options, which only earns `committed` once a member
-        // actually creates the release commit.
-        for options in [
-            BumpOptions::default(),
-            BumpOptions {
-                no_commit: true,
-                dry_run: false,
-            },
-            BumpOptions {
-                no_commit: false,
-                dry_run: true,
-            },
-        ] {
+    fn empty_report_never_claims_a_stage() {
+        // A run with nothing to bump stages nothing, so the terminal report must
+        // read `staged = false` for both the default and the `--dry-run`
+        // disposition — `staged` is earned only once a member actually stages a
+        // mutation.
+        for options in [BumpOptions::default(), BumpOptions { dry_run: true }] {
             let report = BumpReport::empty(options);
-            assert!(
-                !report.committed,
-                "empty report claims a commit: {report:?}"
-            );
+            assert!(!report.staged, "empty report claims a stage: {report:?}");
             assert_eq!(report.dry_run, options.dry_run);
             assert!(report.modules.is_empty());
             assert!(report.changelogs.is_empty());

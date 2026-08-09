@@ -75,7 +75,8 @@ pub use config::{
     BumpLevel, ChangelogConfig, CommonEcosystemConfig, CoverageConfig, CoverageProfile,
     CoverageThresholds, DelegatedTool, DependentVersion, Enforcement, HooksConfig, HostConfig,
     ImageConfig, PhaseBackingKind, PhaseConfig, PhasesConfig, PrereleaseConfig, PublicationPolicy,
-    ReleaseConfig, RunStrategy, SignConfig, TaskEntry, TaskOverride,
+    ReleaseConfig, RunStrategy, SignConfig, TaskEntry, TaskOverride, VERSION_REF_TOKENS,
+    VersionRefToken, VersionReferenceConfig,
 };
 pub use discover::{DISCOVERY_SCHEMA_VERSION, DiscoverContext, DiscoverRequest, DiscoverResponse};
 pub use driver::{DriverLocator, DriverWizard};

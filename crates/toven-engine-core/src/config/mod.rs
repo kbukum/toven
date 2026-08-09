@@ -26,6 +26,7 @@ mod reference;
 mod registry;
 mod settings;
 mod validate;
+mod verb;
 
 pub use dispatch::{Dispatch, dispatch};
 pub use document::Document;
@@ -38,3 +39,4 @@ pub use project::ProjectConfig;
 pub use reference::ModuleRefSyntax;
 pub use registry::CanonicalRegistry;
 pub use settings::{CacheConfig, GitConfig, ReportFormat, TovenConfig, ViewMode};
+pub use verb::VerbId;

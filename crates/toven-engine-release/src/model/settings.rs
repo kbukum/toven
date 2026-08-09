@@ -7,9 +7,9 @@
 use rskit_errors::AppResult;
 use toven_model::{Entrypoint, ReleasePhase};
 use toven_ports::{
-    BumpLevel, ChangelogConfig, DependentVersion, HooksConfig, HostConfig, ImageConfig,
-    PhaseBacking, PhasesConfig, PrereleaseConfig, PublicationPolicy, ReleaseConfig, SignConfig,
-    SignFormat, Visibility, merge_release,
+    BumpLevel, ChangelogConfig, DependentVersion, HostConfig, ImageConfig, PhaseBacking,
+    PhasesConfig, PrereleaseConfig, PublicationPolicy, ReleaseConfig, SignConfig, SignFormat,
+    VersionReferenceConfig, Visibility, merge_release,
 };
 
 use crate::versioning::strategy;
@@ -131,8 +131,6 @@ pub struct ResolvedReleaseSettings {
     pub sign: SignConfig,
     /// Recognized checks composing `release readiness`.
     pub readiness: Vec<String>,
-    /// Optional pre/post release hooks.
-    pub hooks: HooksConfig,
     /// Hosted forge Release settings.
     pub host: ResolvedHostSettings,
     /// Container-image phase settings; `None` = the module runs no image phase.
@@ -147,6 +145,9 @@ pub struct ResolvedReleaseSettings {
     /// contributes its members' notes to the shared hosted Release and does not
     /// publish to a registry unless it is itself a registry package.
     pub umbrella: bool,
+    /// Version references: files whose embedded version tokens `release bump`
+    /// keeps in lock-step with the authoritative post-bump versions.
+    pub version_references: Vec<VersionReferenceConfig>,
 }
 
 impl ResolvedReleaseSettings {
@@ -248,12 +249,12 @@ impl ResolvedReleaseSettings {
             visibility: config.visibility.unwrap_or_default(),
             sign: config.sign.clone().unwrap_or_default(),
             readiness: config.readiness.clone().unwrap_or_default(),
-            hooks: config.hooks.clone().unwrap_or_default(),
             host: ResolvedHostSettings::from_config(config.host.as_ref()),
             image: config.image.clone(),
             phases: config.phases.clone().unwrap_or_default(),
             entrypoint: config.entrypoint.unwrap_or_default(),
             umbrella: config.umbrella.unwrap_or(false),
+            version_references: config.version_references.clone().unwrap_or_default(),
         })
     }
 }

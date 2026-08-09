@@ -605,7 +605,7 @@ pub(crate) fn stage_and_commit(
 
 /// Stage exactly the release-mutated paths without creating a commit.
 ///
-/// The PR-first `bump --no-commit` path stages the version/changelog mutation
+/// The PR-first `bump` path stages the version/changelog mutation
 /// for a maintainer's pull request instead of cutting the release commit,
 /// reusing the same repo-relative path set [`stage_and_commit`] would commit.
 #[allow(clippy::redundant_pub_crate)]
@@ -1090,6 +1090,7 @@ mod tests {
             changelog_roll: false,
             entrypoint: toven_model::Entrypoint::Toven,
             umbrella: false,
+            version_references: Vec::new(),
         }
     }
 

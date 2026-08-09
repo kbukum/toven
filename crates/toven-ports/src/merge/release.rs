@@ -89,9 +89,6 @@ pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfi
     if over.readiness.is_some() {
         merged.readiness.clone_from(&over.readiness);
     }
-    if over.hooks.is_some() {
-        merged.hooks.clone_from(&over.hooks);
-    }
     if over.host.is_some() {
         merged.host.clone_from(&over.host);
     }
@@ -106,6 +103,11 @@ pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfi
     }
     if over.umbrella.is_some() {
         merged.umbrella = over.umbrella;
+    }
+    if over.version_references.is_some() {
+        merged
+            .version_references
+            .clone_from(&over.version_references);
     }
 
     merged

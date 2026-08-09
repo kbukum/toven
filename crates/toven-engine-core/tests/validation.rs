@@ -21,6 +21,19 @@ fn unknown_top_level_key_is_rejected() {
 }
 
 #[test]
+fn unknown_hook_verb_key_is_rejected() {
+    // `[hooks.frobnicate]` names no known verb; the closed `VerbId` map key plus
+    // `deny_unknown_fields` reject it during decode.
+    assert_rejected("invalid/hooks-unknown-verb.toml", &["rust"]);
+}
+
+#[test]
+fn blank_hook_task_reference_is_rejected() {
+    // A whitespace-only `pre`/`post` entry fails structural validation.
+    assert_rejected("invalid/hooks-blank-ref.toml", &["rust"]);
+}
+
+#[test]
 fn duplicate_group_identity_is_rejected() {
     // Single-file duplicate group: TOML itself rejects the redefined
     // `[groups.core]` table header during decode.
