@@ -971,8 +971,10 @@ mod tests {
         let gateway = entry("gateway", "core", Version::new(2, 0, 0), 1);
         let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![billing, gateway]);
         let modules = [module("billing", "core"), module("gateway", "core")];
-        let module_by_ref: BTreeMap<ModuleKey, &Module> =
-            modules.iter().map(|module| (module.key(), module)).collect();
+        let module_by_ref: BTreeMap<ModuleKey, &Module> = modules
+            .iter()
+            .map(|module| (module.key(), module))
+            .collect();
 
         let map = resolved_version_map(&plan, &module_by_ref);
 
@@ -1007,8 +1009,10 @@ mod tests {
         let shared = entry("billing", "core", Version::new(1, 2, 3), 0);
         let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![shared]);
         let modules = [module("billing", "core")];
-        let module_by_ref: BTreeMap<ModuleKey, &Module> =
-            modules.iter().map(|module| (module.key(), module)).collect();
+        let module_by_ref: BTreeMap<ModuleKey, &Module> = modules
+            .iter()
+            .map(|module| (module.key(), module))
+            .collect();
 
         let map = resolved_version_map(&plan, &module_by_ref);
 
