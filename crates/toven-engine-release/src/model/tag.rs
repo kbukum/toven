@@ -1,6 +1,7 @@
 //! Release tag formatting and parsing.
 
 use rskit_version::semver::Version;
+use toven_engine_core::vcs::latest_matching;
 use toven_ports::{TagRef, TagScheme};
 
 /// Format a release tag through the target-owned scheme.
@@ -10,17 +11,13 @@ pub(crate) fn format(scheme: &TagScheme, version: &Version) -> String {
     scheme.format(version)
 }
 
-/// Parse a release tag through the target-owned scheme.
-fn parse(scheme: &TagScheme, name: &str) -> Option<Version> {
-    scheme.parse(name)
-}
-
 /// Select the newest semver tag matched by `scheme`.
+///
+/// A thin delegating wrapper over the change foundation's shared
+/// [`latest_matching`] so the max-semver selection has a single home.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn latest(scheme: &TagScheme, tags: &[TagRef]) -> Option<(Version, TagRef)> {
-    tags.iter()
-        .filter_map(|tag| parse(scheme, &tag.name).map(|version| (version, tag.clone())))
-        .max_by(|(left, _), (right, _)| left.cmp(right))
+    latest_matching(scheme, tags)
 }
 
 #[cfg(test)]

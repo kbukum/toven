@@ -301,6 +301,9 @@ impl VcsReader for FakeVcs {
     fn changed_since(&self, _spec: &BaselineSpec) -> AppResult<Vec<ChangeRecord>> {
         Ok(Vec::new())
     }
+    fn changed_between(&self, _from: &str, _to: &str) -> AppResult<Vec<ChangeRecord>> {
+        Ok(Vec::new())
+    }
     fn commits_since(
         &self,
         _since: Option<&str>,

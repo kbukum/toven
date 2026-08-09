@@ -1,13 +1,14 @@
 //! Per-target release tag grammar.
 
 use rskit_version::semver::Version;
+use serde::{Deserialize, Serialize};
 
 /// A release tag grammar that surrounds a semantic version with fixed text.
 ///
 /// Ecosystem targets own how this scheme is constructed for each module. The
 /// engine only formats and parses through the returned value, so Rust can use
 /// `rust/core@1.2.3` while Go can use `cache/redis/v1.2.3`.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub struct TagScheme {
     prefix: String,
     suffix: String,
