@@ -546,8 +546,10 @@ fn repo_view_argv() -> Vec<String> {
 /// runs in); an image subject by its digest-pinned `oci://` reference, so the
 /// registry cannot resolve the tag to a different digest than the one Toven
 /// collected. Verification is bound to the trusted builder via
-/// `--signer-workflow`, so an attestation cut by any other workflow in the same
-/// repository does not satisfy the check.
+/// `--signer-workflow <owner>/<repo>/.github/workflows/release.yml` (the
+/// repository-qualified form `gh` matches against the signing certificate SAN),
+/// so an attestation cut by any other workflow in the same repository does not
+/// satisfy the check.
 fn verify_argv(subject: &ProvenanceSubject, repo: &str) -> Vec<String> {
     let target = match &subject.artifact {
         ProvenanceArtifact::File(path) => path.clone(),
@@ -562,7 +564,7 @@ fn verify_argv(subject: &ProvenanceSubject, repo: &str) -> Vec<String> {
         "--repo".to_string(),
         repo.to_string(),
         "--signer-workflow".to_string(),
-        TRUSTED_SIGNER_WORKFLOW.to_string(),
+        format!("{repo}/{TRUSTED_SIGNER_WORKFLOW}"),
     ]
 }
 
@@ -1084,10 +1086,11 @@ mod tests {
             argv.windows(2).any(|pair| pair == ["--repo", "acme/toven"]),
             "{argv:?}"
         );
-        // Verification is bound to the trusted builder, not just the repo.
+        // Verification is bound to the trusted builder, not just the repo, via
+        // the repository-qualified workflow path gh matches on.
         assert!(
-            argv.windows(2)
-                .any(|pair| pair == ["--signer-workflow", ".github/workflows/release.yml"]),
+            argv.windows(2).any(|pair| pair
+                == ["--signer-workflow", "acme/toven/.github/workflows/release.yml"]),
             "{argv:?}"
         );
         // The digest never reaches the argv: gh recomputes it from the file
@@ -1103,8 +1106,8 @@ mod tests {
         // to a different digest than the one Toven collected.
         assert_eq!(argv[2], "oci://ghcr.io/acme/toven:1.0.0@sha256:img");
         assert!(
-            argv.windows(2)
-                .any(|pair| pair == ["--signer-workflow", ".github/workflows/release.yml"]),
+            argv.windows(2).any(|pair| pair
+                == ["--signer-workflow", "acme/toven/.github/workflows/release.yml"]),
             "{argv:?}"
         );
     }
