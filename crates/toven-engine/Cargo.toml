@@ -1,7 +1,7 @@
 [package]
 name = "toven-engine"
 description = "Toven engine orchestration — strict config Document, PLAN change selection, and APPLY execution over rskit ports"
-version.workspace = true
+version = "0.1.0-alpha.5"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
