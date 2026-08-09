@@ -252,7 +252,7 @@ pub(crate) fn release_bump_by_member(
     // before anything is staged, handing each task the authoritative version
     // map. The task's edits join the staged set; a failure restores every
     // already-mutated member and stages nothing.
-    run_on_resolved_hooks(plan, &versions, &mut prepared, repos, resolved_runner)?;
+    run_on_resolved_hooks(plan, &module_by_ref, &mut prepared, repos, resolved_runner)?;
 
     // Phase 2: stage the mutation for a PR, per member. A member that rewrote
     // nothing (a tag-only ecosystem with no rolled changelog) has nothing to
@@ -361,7 +361,7 @@ fn member_on_resolved(plan: &ReleasePlan) -> Vec<String> {
 /// nothing.
 fn run_on_resolved_hooks(
     plan: &ReleasePlan,
-    versions: &BTreeMap<String, Version>,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
     prepared: &mut [(&MemberReleaseShard, Vec<RepoPath>)],
     repos: &MemberReleaseRepos<'_>,
     runner: &dyn ResolvedHookRunner,
@@ -370,8 +370,18 @@ fn run_on_resolved_hooks(
     if references.is_empty() {
         return Ok(());
     }
-    let scratch = rskit_fs::TempDir::new()?;
-    let map_path = write_version_map(&scratch, versions)?;
+    // The temp-dir creation and version-map write run after every member has
+    // already been mutated, so a failure here must undo those tracked edits —
+    // route both through the same phase-1 restore as the snapshot read below.
+    let versions = resolved_version_map(plan, module_by_ref);
+    let scratch = match rskit_fs::TempDir::new() {
+        Ok(scratch) => scratch,
+        Err(error) => return Err(restore_bump_prepared(prepared, repos, error)),
+    };
+    let map_path = match write_version_map(&scratch, &versions) {
+        Ok(map_path) => map_path,
+        Err(error) => return Err(restore_bump_prepared(prepared, repos, error)),
+    };
     // Snapshot each member's untracked set before the hooks run. The clean-tree
     // guard proved the pre-bump tree empty, so this captures only phase-1's own
     // first-time output — letting the failure path delete exactly the untracked
@@ -416,11 +426,63 @@ fn join_hook_edits(
     Ok(())
 }
 
-/// Materialize the authoritative `key → version` map as a stable JSON object at
+/// Build the collision-free `key → post-bump version` map handed to the bump
+/// `on-resolved` hooks.
+///
+/// Unlike the native-sync map ([`authoritative_versions`](version_sync::authoritative_versions)),
+/// which folds every alias into one flat map and lets a later module win a
+/// shared alias, this map must never silently drop or mis-associate a planned
+/// module. Each planned module therefore always contributes its **canonical
+/// member-qualified key** ([`ModuleKey`] `Display`: `member/ecosystem:name`, or
+/// `ecosystem:name` in the single-repo case), which is unique per module. The
+/// convenience aliases (package name, `ecosystem:name`, and bare name) are added
+/// **only when unambiguous** — an alias claimed by two or more modules (two
+/// ecosystems both exposing `core`, or the same `ecosystem:name` in different
+/// federation members) is omitted rather than overwritten, so a task never reads
+/// a wrong version through a colliding alias. Every module stays reachable by its
+/// canonical key regardless.
+fn resolved_version_map(
+    plan: &ReleasePlan,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+) -> BTreeMap<String, Version> {
+    let mut canonical = BTreeMap::new();
+    let mut alias_owners: BTreeMap<String, Option<Version>> = BTreeMap::new();
+    for entry in &plan.entries {
+        let version = entry
+            .planned_version
+            .clone()
+            .unwrap_or_else(|| entry.current_version.clone());
+        let Some(module) = module_by_ref.get(&entry.module) else {
+            continue;
+        };
+        canonical.insert(entry.module.to_string(), version.clone());
+        let mut aliases = vec![module.id.to_string(), module.id.name.clone()];
+        if let Some(package) = &module.package {
+            aliases.push(package.clone());
+        }
+        for alias in aliases {
+            alias_owners
+                .entry(alias)
+                .and_modify(|owner| *owner = None)
+                .or_insert_with(|| Some(version.clone()));
+        }
+    }
+    for (alias, owner) in alias_owners {
+        // Keep an alias only when a single module claimed it, and never let it
+        // shadow a canonical member-qualified key.
+        if let Some(version) = owner {
+            canonical.entry(alias).or_insert(version);
+        }
+    }
+    canonical
+}
+
+/// Materialize the resolved `key → version` map as a stable JSON object at
 /// `versions.json` under `scratch`, returning its absolute path for the
-/// argv-first hand-off. Keys are the module package name, `ecosystem:name`
-/// identity, and bare name a pin may reference; values are the post-bump version
-/// strings. `BTreeMap` iteration keeps the object deterministically ordered.
+/// argv-first hand-off. Keys are each module's canonical member-qualified
+/// identity plus any unambiguous package/`ecosystem:name`/bare-name alias (see
+/// [`resolved_version_map`]); values are the post-bump version strings.
+/// `BTreeMap` iteration keeps the object deterministically ordered.
 ///
 /// # Errors
 /// Propagates a serialization or temp-file write failure.
@@ -894,6 +956,69 @@ mod tests {
             Box::new(gateway.clone()),
         );
         map
+    }
+
+    #[test]
+    fn resolved_version_map_keeps_every_module_and_drops_ambiguous_aliases() {
+        use std::collections::BTreeMap;
+
+        use super::resolved_version_map;
+
+        // Two federation members each expose `rust:core`: the bare name `core`
+        // and the `ecosystem:name` `rust:core` are ambiguous across members,
+        // while each member bumps to a distinct version.
+        let billing = entry("billing", "core", Version::new(1, 0, 0), 0);
+        let gateway = entry("gateway", "core", Version::new(2, 0, 0), 1);
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![billing, gateway]);
+        let modules = [module("billing", "core"), module("gateway", "core")];
+        let module_by_ref: BTreeMap<ModuleKey, &Module> =
+            modules.iter().map(|module| (module.key(), module)).collect();
+
+        let map = resolved_version_map(&plan, &module_by_ref);
+
+        // Every module stays reachable by its canonical member-qualified key,
+        // with its own version — neither is dropped or shadowed.
+        assert_eq!(
+            map.get("billing/rust:core"),
+            Some(&Version::new(1, 0, 0)),
+            "billing's canonical key resolves to its own version: {map:?}"
+        );
+        assert_eq!(
+            map.get("gateway/rust:core"),
+            Some(&Version::new(2, 0, 0)),
+            "gateway's canonical key resolves to its own version: {map:?}"
+        );
+        // The ambiguous aliases are omitted rather than resolving to a wrong,
+        // last-writer-wins version.
+        assert!(
+            !map.contains_key("core") && !map.contains_key("rust:core"),
+            "an alias two members share is dropped, not silently overwritten: {map:?}"
+        );
+    }
+
+    #[test]
+    fn resolved_version_map_keeps_unambiguous_aliases() {
+        use std::collections::BTreeMap;
+
+        use super::resolved_version_map;
+
+        // A single module owns `core`/`rust:core` outright, so both aliases stay
+        // alongside its canonical key.
+        let shared = entry("billing", "core", Version::new(1, 2, 3), 0);
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![shared]);
+        let modules = [module("billing", "core")];
+        let module_by_ref: BTreeMap<ModuleKey, &Module> =
+            modules.iter().map(|module| (module.key(), module)).collect();
+
+        let map = resolved_version_map(&plan, &module_by_ref);
+
+        for key in ["billing/rust:core", "rust:core", "core"] {
+            assert_eq!(
+                map.get(key),
+                Some(&Version::new(1, 2, 3)),
+                "an unambiguous module is reachable by '{key}': {map:?}"
+            );
+        }
     }
 
     #[test]
