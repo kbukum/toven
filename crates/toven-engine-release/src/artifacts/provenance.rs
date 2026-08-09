@@ -42,9 +42,12 @@ use toven_engine_core::plan::{PlanRequest, prepare_front};
 const MANIFEST_NAME: &str = "SHA256SUMS";
 
 /// The trusted-builder workflow whose attestations provenance verification will
-/// accept. `--repo` alone lets any workflow in the repository satisfy the check;
-/// binding `--signer-workflow` to the repository-relative path of the release
+/// accept, as a repository-relative path. `--repo` alone lets any workflow in
+/// the repository satisfy the check; binding `--signer-workflow` to this
 /// workflow requires the attestation to have been cut by that specific builder.
+/// `gh` expects an `<owner>/<repo>/<path>` value (matched against the signing
+/// certificate SAN), so the resolved repository slug is prefixed at argv-build
+/// time — see [`verify_argv`].
 const TRUSTED_SIGNER_WORKFLOW: &str = ".github/workflows/release.yml";
 
 /// Hard bound on captured tool output (256 KiB).
