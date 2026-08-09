@@ -9,7 +9,7 @@
 
 use std::collections::BTreeSet;
 
-use toven_engine_core::config::{CanonicalRegistry, Document, load};
+use toven_engine_core::config::{CanonicalRegistry, Document, VerbId, load};
 use toven_engine_core::federation::MemberVcsReaders;
 use toven_engine_core::federation::baseline::MemberVcsReader;
 use toven_engine_core::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
@@ -157,6 +157,7 @@ fn release_shards_history_mutations_per_member_repo() {
         &BumpOverrides::new(),
         &mut reporter,
         &hooks,
+        VerbId::Tag,
         &options,
     )
     .expect("federated release runs");

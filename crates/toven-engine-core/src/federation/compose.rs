@@ -242,6 +242,7 @@ mod tests {
             ecosystems: BTreeMap::new(),
             modules: std::collections::BTreeMap::new(),
             members,
+            hooks: BTreeMap::new(),
         }
     }
 

@@ -132,3 +132,29 @@ fn loads_per_module_release_override() {
         "unset override fields stay None so the ecosystem default shows through"
     );
 }
+
+#[test]
+fn loads_project_level_verb_hooks() {
+    use toven_engine_core::config::VerbId;
+
+    let document = load_fixture("valid/verb-hooks.toml", &["rust"]);
+
+    assert_eq!(document.hooks[&VerbId::Release].pre, ["fmt-check", "lint"]);
+    assert_eq!(document.hooks[&VerbId::Release].post, ["notify-release"]);
+    assert_eq!(document.hooks[&VerbId::Bump].pre, ["validate"]);
+    assert_eq!(document.hooks[&VerbId::Coverage].pre, ["build"]);
+
+    // A plain verb resolves to only its own hooks.
+    let coverage = document.hooks_for(VerbId::Coverage);
+    assert_eq!(coverage.pre, ["build"]);
+    assert!(coverage.post.is_empty());
+
+    // A release mutation composes the umbrella around its own hooks: the
+    // umbrella's `pre` runs first (specific innermost), and its `post` runs last.
+    let bump = document.hooks_for(VerbId::Bump);
+    assert_eq!(bump.pre, ["fmt-check", "lint", "validate"]);
+    assert_eq!(bump.post, ["notify-release"]);
+
+    // A verb with no configured hooks and no umbrella resolves empty.
+    assert!(document.hooks_for(VerbId::Doctor).is_empty());
+}

@@ -72,7 +72,14 @@ pub(crate) fn plan_with_context(
     intent: bump::CutIntent,
 ) -> AppResult<ReleasePlan> {
     let settings = resolve_release_settings(context, targets)?;
-    let changes = change::detect(context, overrides.base(), readers, targets, &settings)?;
+    let changes = change::detect(
+        context,
+        overrides.base(),
+        readers,
+        targets,
+        &settings,
+        intent,
+    )?;
     validate_required_changelogs(request.project_root.as_path(), &changes, &settings)?;
     let branches = current_branches(readers);
     plan_with_changes(
@@ -663,6 +670,7 @@ mod tests {
             ecosystems,
             modules: std::collections::BTreeMap::new(),
             members: Vec::new(),
+            hooks: std::collections::BTreeMap::new(),
         }
     }
 
@@ -684,6 +692,7 @@ mod tests {
             ecosystems,
             modules: std::collections::BTreeMap::new(),
             members: Vec::new(),
+            hooks: std::collections::BTreeMap::new(),
         }
     }
 

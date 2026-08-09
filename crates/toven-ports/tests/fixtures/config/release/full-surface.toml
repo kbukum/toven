@@ -28,10 +28,6 @@ roll = true
 enabled = true
 signer = "release-bot"
 
-[hooks]
-pre = ["fmt-check"]
-post = ["announce"]
-
 [host]
 forge = "github"
 draft = false

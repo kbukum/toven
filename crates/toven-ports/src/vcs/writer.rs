@@ -24,7 +24,7 @@ pub trait VcsWriter {
     /// Stage exactly the repo-relative `paths` the release mutated without
     /// creating a commit.
     ///
-    /// The PR-first `bump` phase (`--no-commit`) uses this to leave the version
+    /// The PR-first `bump` phase uses this to leave the version
     /// and changelog mutation staged in the index for a maintainer to review and
     /// commit into their own pull request, instead of cutting the release commit
     /// itself. Like [`commit`](Self::commit), the paths are precisely the

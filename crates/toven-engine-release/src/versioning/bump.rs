@@ -34,25 +34,54 @@ pub(crate) struct BumpInputs<'a> {
     pub(crate) branches: &'a BTreeMap<Option<MemberId>, String>,
     pub(crate) policy: BumpPolicy,
     pub(crate) overrides: &'a BumpOverrides,
-    /// Whether this cut is a read-only projection or a mutating run.
+    /// Whether this cut is a read-only projection, a `bump`, or a
+    /// verify-and-publish run — see [`CutIntent`].
     pub(crate) intent: CutIntent,
 }
 
 /// Whether a bump plan is a read-only projection (`release plan` and the other
-/// previews) or the cut a mutating run (`release tag`/`publish`) will apply.
+/// previews), the standalone `release bump` mutation, or the cut a
+/// verify-and-publish run (`release tag`/`publish`) will apply.
 ///
-/// The distinction only matters for the `manifest` policy: a projection reports
-/// a manifest version that is not ahead of its released baseline as
-/// nothing-to-release, whereas a mutating run fails closed so it never re-cuts
-/// an already-released version.
+/// Two axes differ across the three intents:
+/// - **manifest floor.** A projection reports a manifest version that is not
+///   ahead of its released baseline as nothing-to-release; a `bump` likewise
+///   drops it (there is nothing to advance); only a verify run fails closed so
+///   it never re-cuts an already-released version.
+/// - **maintainer-owned reach.** `plan`/`publish` force-include every
+///   maintainer-owned module to verify its out-of-band tag; `bump` must not —
+///   a maintainer-owned module whose manifest is not ahead of its baseline has
+///   nothing to bump, so it stays out of the bump set.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) enum CutIntent {
     /// A read-only projection: a not-ahead manifest version is a no-op, not an
     /// error.
     Preview,
-    /// A mutating cut: a not-ahead manifest version fails closed.
-    Mutate,
+    /// The standalone `release bump` mutation: a not-ahead manifest version is a
+    /// no-op (nothing to advance), and maintainer-owned modules are not
+    /// force-included.
+    Bump,
+    /// A verify-and-publish cut (`release tag`/`publish`): a not-ahead manifest
+    /// version fails closed, and maintainer-owned modules are force-included to
+    /// verify their tags.
+    Verify,
+}
+
+impl CutIntent {
+    /// Whether a manifest version that is not ahead of its released baseline
+    /// fails the run closed (`Verify`) rather than resolving to
+    /// nothing-to-release (`Preview`/`Bump`).
+    const fn not_ahead_is_fatal(self) -> bool {
+        matches!(self, Self::Verify)
+    }
+
+    /// Whether change detection force-includes every maintainer-owned module to
+    /// verify its out-of-band tag. Only the verify-and-publish path does; a
+    /// `bump` reaches a maintainer-owned module only when it genuinely changed.
+    pub(crate) const fn forces_maintainer_owned(self) -> bool {
+        matches!(self, Self::Verify)
+    }
 }
 
 /// The resolved own-version bump for one module, before idempotency pre-skip.
@@ -289,6 +318,10 @@ pub(crate) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
                 .settings
                 .get(&reference)
                 .is_some_and(|resolved| resolved.umbrella),
+            version_references: input
+                .settings
+                .get(&reference)
+                .map_or_else(Vec::new, |resolved| resolved.version_references.clone()),
         });
     }
     entries.sort_by(|left, right| {
@@ -310,12 +343,12 @@ pub(crate) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
 /// allowed — that is the steady state a maintainer-owned re-run verifies and
 /// republishes idempotently — but `current < baseline` means the manifest was
 /// left behind the latest release, which would publish an older semver version
-/// than already shipped. That fails closed under [`CutIntent::Mutate`] and drops
+/// than already shipped. That fails closed under [`CutIntent::Verify`] and drops
 /// from a [`CutIntent::Preview`] projection (nothing safely releasable), exactly
 /// like the `manifest` policy's baseline floor.
 ///
 /// # Errors
-/// Fails closed under [`CutIntent::Mutate`] when the declared version is behind
+/// Fails closed under [`CutIntent::Verify`] when the declared version is behind
 /// the released baseline.
 fn maintainer_decision(
     input: &BumpInputs<'_>,
@@ -329,15 +362,8 @@ fn maintainer_decision(
     if let Some(base) = baseline
         && current < base
     {
-        return match input.intent {
-            CutIntent::Preview => Ok(BumpDecision {
-                level: BumpLevel::Patch,
-                planned: None,
-                reason: BumpReason::Manifest,
-                winning_input: BumpSource::Manifest,
-                prerelease_channel: None,
-            }),
-            CutIntent::Mutate => Err(AppError::invalid_input(
+        if input.intent.not_ahead_is_fatal() {
+            return Err(AppError::invalid_input(
                 "release.entrypoint",
                 format!(
                     "maintainer-owned module '{}' declares {current}, behind the released \
@@ -346,8 +372,17 @@ fn maintainer_decision(
                          newer before publishing.",
                     reference.module
                 ),
-            )),
-        };
+            ));
+        }
+        // A projection or a `bump` treats a manifest behind its baseline as
+        // nothing safely releasable: no planned version, so the entry drops.
+        return Ok(BumpDecision {
+            level: BumpLevel::Patch,
+            planned: None,
+            reason: BumpReason::Manifest,
+            winning_input: BumpSource::Manifest,
+            prerelease_channel: None,
+        });
     }
     Ok(BumpDecision {
         level: classify(baseline.unwrap_or(&Version::new(0, 0, 0)), current),
@@ -518,11 +553,11 @@ fn resolve_bump(
 /// version is always cut. When the declared version is at or below the released
 /// baseline there is nothing to cut, and the guard resolves by `intent`: a
 /// [`CutIntent::Preview`] reports `None` (nothing to release) so the projection
-/// stays safe to run anywhere, while a [`CutIntent::Mutate`] fails closed so a
+/// stays safe to run anywhere, while a [`CutIntent::Verify`] fails closed so a
 /// run never re-cuts an already-released version.
 ///
 /// # Errors
-/// Fails closed under [`CutIntent::Mutate`] when the declared version is at or
+/// Fails closed under [`CutIntent::Verify`] when the declared version is at or
 /// below the released baseline, with an actionable message telling the operator
 /// to bump the manifest first.
 fn manifest_target(
@@ -532,16 +567,21 @@ fn manifest_target(
     intent: CutIntent,
 ) -> AppResult<Option<Version>> {
     match baseline {
-        Some(base) if current <= base => match intent {
-            CutIntent::Preview => Ok(None),
-            CutIntent::Mutate => Err(AppError::invalid_input(
-                "release.strategy",
-                format!(
-                    "strategy = \"manifest\": module '{module_ref}' declares {current}, not ahead \
-                     of the released baseline {base}. Bump the manifest version before releasing."
-                ),
-            )),
-        },
+        Some(base) if current <= base => {
+            if intent.not_ahead_is_fatal() {
+                Err(AppError::invalid_input(
+                    "release.strategy",
+                    format!(
+                        "strategy = \"manifest\": module '{module_ref}' declares {current}, not \
+                         ahead of the released baseline {base}. Bump the manifest version before \
+                         releasing."
+                    ),
+                ))
+            } else {
+                // A projection or a `bump` reports nothing to release.
+                Ok(None)
+            }
+        }
         _ => Ok(Some(current.clone())),
     }
 }
@@ -909,7 +949,7 @@ mod tests {
             branches: &no_branches(),
             policy: BumpPolicy::SemverCascade,
             overrides: &overrides,
-            intent: CutIntent::Mutate,
+            intent: CutIntent::Verify,
         })
         .unwrap();
 
@@ -952,7 +992,7 @@ mod tests {
             branches: &no_branches(),
             policy: BumpPolicy::SemverCascade,
             overrides: &overrides,
-            intent: CutIntent::Mutate,
+            intent: CutIntent::Verify,
         });
 
         assert!(result.is_err());
@@ -999,7 +1039,7 @@ mod tests {
             branches: &no_branches(),
             policy: BumpPolicy::SemverCascade,
             overrides: &overrides,
-            intent: CutIntent::Mutate,
+            intent: CutIntent::Verify,
         })
         .unwrap();
 
@@ -1056,7 +1096,7 @@ mod tests {
             branches: &no_branches(),
             policy: BumpPolicy::SemverCascade,
             overrides: &overrides,
-            intent: CutIntent::Mutate,
+            intent: CutIntent::Verify,
         })
         .expect_err("a maintainer-owned version behind the baseline fails closed");
 
@@ -1114,7 +1154,7 @@ mod tests {
             branches: &no_branches(),
             policy: BumpPolicy::SemverCascade,
             overrides: &overrides,
-            intent: CutIntent::Mutate,
+            intent: CutIntent::Verify,
         })
         .expect("a maintainer-owned re-run at the baseline version is allowed");
 
@@ -1165,7 +1205,7 @@ mod tests {
             branches: &no_branches(),
             policy: BumpPolicy::SemverCascade,
             overrides: &overrides,
-            intent: CutIntent::Mutate,
+            intent: CutIntent::Verify,
         })
         .unwrap();
 
@@ -1224,7 +1264,7 @@ mod tests {
             branches: &no_branches(),
             policy: BumpPolicy::SemverCascade,
             overrides: &overrides,
-            intent: CutIntent::Mutate,
+            intent: CutIntent::Verify,
         })
         .unwrap();
 
@@ -1252,7 +1292,7 @@ mod tests {
         policy: BumpPolicy,
         overrides: &BumpOverrides,
     ) -> AppResult<Vec<ReleaseEntry>> {
-        seed_plan_with_intent(declared, baseline, policy, overrides, CutIntent::Mutate)
+        seed_plan_with_intent(declared, baseline, policy, overrides, CutIntent::Verify)
     }
 
     /// Plan a single `rust/core` seed as [`seed_plan`], choosing the cut

@@ -148,6 +148,7 @@ mod tests {
             ecosystems: sections,
             modules: std::collections::BTreeMap::new(),
             members: Vec::new(),
+            hooks: std::collections::BTreeMap::new(),
         }
     }
 

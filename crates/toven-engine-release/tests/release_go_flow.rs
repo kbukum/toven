@@ -65,6 +65,7 @@ fn document() -> Document {
         ecosystems,
         modules: BTreeMap::new(),
         members: Vec::new(),
+        hooks: std::collections::BTreeMap::new(),
     }
 }
 

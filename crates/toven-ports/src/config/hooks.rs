@@ -1,9 +1,9 @@
 //! Lifecycle hooks vocabulary: recognized task references run before/after a
 //! verb's mutation.
 //!
-//! This is a **verb-agnostic** concern — release is the first consumer, but any
-//! lifecycle verb can embed [`HooksConfig`] to let a user compose pre/post steps
-//! from the same task model that drives every other verb.
+//! This is a **verb-agnostic** concern. A project attaches [`HooksConfig`] to
+//! any verb through the project-level `[hooks.<verb>]` map, letting a user
+//! compose pre/post steps from the same task model that drives every other verb.
 
 use rskit_errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};

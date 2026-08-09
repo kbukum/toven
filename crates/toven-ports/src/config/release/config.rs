@@ -7,13 +7,12 @@ use rskit_util::Template;
 use serde::{Deserialize, Serialize};
 use toven_model::Entrypoint;
 
-use crate::config::HooksConfig;
 use crate::release::Visibility;
 use crate::template::ReleaseVar;
 
 use super::{
     BumpLevel, ChangelogConfig, DependentVersion, HostConfig, ImageConfig, PhasesConfig,
-    PrereleaseConfig, PublicationPolicy, SignConfig,
+    PrereleaseConfig, PublicationPolicy, SignConfig, VersionReferenceConfig,
 };
 
 /// The declarative release surface (`[ecosystems.<id>].release` and the
@@ -120,10 +119,6 @@ pub struct ReleaseConfig {
     /// `None` = inherit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub readiness: Option<Vec<String>>,
-    /// Optional pre/post release hooks (recognized task references); `None` =
-    /// inherit.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hooks: Option<HooksConfig>,
     /// Hosted forge Release settings (the phase after tag/registry publish);
     /// `None` = inherit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -151,6 +146,11 @@ pub struct ReleaseConfig {
     /// registry package (`registry` + `publish`). `None` = not an umbrella.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub umbrella: Option<bool>,
+    /// Version references: files whose embedded version tokens `release bump`
+    /// keeps in lock-step with the authoritative post-bump versions, rewritten
+    /// inside the bump mutation and staged with the manifests. `None` = none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_references: Option<Vec<VersionReferenceConfig>>,
 }
 
 impl ReleaseConfig {
@@ -189,9 +189,6 @@ impl ReleaseConfig {
         }
         if let Some(sign) = &self.sign {
             sign.validate(&format!("{field}.sign"))?;
-        }
-        if let Some(hooks) = &self.hooks {
-            hooks.validate(&format!("{field}.hooks"))?;
         }
         if let Some(host) = &self.host {
             host.validate(&format!("{field}.host"))?;
@@ -246,6 +243,11 @@ impl ReleaseConfig {
         }
         if let Some(readiness) = &self.readiness {
             validate_nonblank_entries(&format!("{field}.readiness"), readiness)?;
+        }
+        if let Some(references) = &self.version_references {
+            for (index, reference) in references.iter().enumerate() {
+                reference.validate(&format!("{field}.version_references[{index}]"))?;
+            }
         }
         Ok(())
     }
@@ -321,7 +323,6 @@ mod tests {
         assert!(changelog.required);
         assert!(changelog.roll);
         assert!(config.sign.as_ref().expect("sign set").enabled);
-        assert_eq!(config.hooks.as_ref().expect("hooks set").pre, ["fmt-check"]);
         assert_eq!(
             config.host.as_ref().expect("host set").forge.as_deref(),
             Some("github")

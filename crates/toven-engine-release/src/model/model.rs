@@ -2,7 +2,10 @@
 
 use rskit_version::semver::Version;
 use toven_model::{Entrypoint, ModuleKey};
-use toven_ports::{BumpLevel, Oid, PublicationPolicy, ReleaseMutation, TagSigner, Visibility};
+use toven_ports::{
+    BumpLevel, Oid, PublicationPolicy, ReleaseMutation, TagSigner, VersionReferenceConfig,
+    Visibility,
+};
 
 /// The engine-owned named bump policy.
 ///
@@ -322,6 +325,11 @@ pub struct ReleaseEntry {
     /// contributes its members' notes to the shared hosted Release without
     /// publishing separately unless it is itself a registry package.
     pub umbrella: bool,
+    /// Version references resolved for this module: files whose embedded version
+    /// tokens the `bump` mutation keeps in lock-step with the authoritative
+    /// post-bump versions. Repo-scoped in effect — the mutation applies the
+    /// union across a member's entries once.
+    pub version_references: Vec<VersionReferenceConfig>,
 }
 
 /// Immutable release plan produced by the release PLAN tail.
@@ -611,6 +619,7 @@ mod tests {
             changelog_roll: false,
             entrypoint: toven_model::Entrypoint::Toven,
             umbrella: false,
+            version_references: Vec::new(),
         };
 
         let plan = ReleasePlan::new(

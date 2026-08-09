@@ -2042,6 +2042,7 @@ dependencies = [
  "toven-engine-release",
  "toven-model",
  "toven-ports",
+ "toven-testkit",
 ]
 
 [[package]]

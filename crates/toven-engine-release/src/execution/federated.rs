@@ -6,14 +6,16 @@
 //! the member commits so registry work still follows the federated publish
 //! order.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
+use rskit_version::semver::Version;
 use toven_model::{MemberId, Module, ModuleKey, RepoPath};
 use toven_ports::Artifact;
 
 use crate::execution::apply;
+use crate::execution::version_sync;
 use crate::hosting::publish;
 use crate::{ReleaseApplyOptions, ReleasePlan, ReleaseStats};
 use toven_engine_core::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
@@ -146,20 +148,20 @@ pub(crate) fn release_apply_by_member(
 /// Runs only the version + changelog mutation half of a release, per member:
 /// each member gets its own branch and clean-tree guardrail, its manifests are
 /// rewritten and its configured changelog rolled, and the mutation is then
-/// either committed (the default) or staged for a pull request (`--no-commit`).
-/// No tag, push, publish, or hosted Release is produced. `date` stamps a rolled
-/// changelog's versioned heading; `options.dry_run` reports the planned mutation
-/// without writing.
+/// **staged** for a pull request. No commit, tag, push, publish, or hosted
+/// Release is produced — creating the release commit/tag/push is the job of
+/// `release tag` / `release publish` after the staged change merges. `date`
+/// stamps a rolled changelog's versioned heading; `options.dry_run` reports the
+/// planned mutation without writing.
 ///
-/// The mutation runs in two phases so it stays undoable up to the first commit:
-/// every member's manifests and changelog are written first, and any failure
-/// restores the already-mutated members' working trees before surfacing. Only
-/// once all members are prepared are the per-member commits/stages created.
+/// The mutation runs in two phases so it stays undoable: every member's
+/// manifests and changelog are written first, and any failure restores the
+/// already-mutated members' working trees before surfacing. Only once all
+/// members are prepared are the per-member stages created.
 ///
 /// # Errors
 /// Returns a typed error when a member repo port is missing, a clean-tree or
-/// branch guardrail trips, or member mutation/changelog-roll/staging/commit
-/// fails.
+/// branch guardrail trips, or member mutation/changelog-roll/staging fails.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn release_bump_by_member(
     plan: &ReleasePlan,
@@ -200,10 +202,22 @@ pub(crate) fn release_bump_by_member(
 
     // Phase 1 (undoable): mutate manifests and roll the changelog for every
     // member. A failure restores each already-mutated member before surfacing.
+    //
+    // The authoritative post-bump version map is built once from the whole plan
+    // so a version reference resolves cross-module (and cross-member) against a
+    // single source of truth.
+    let versions = version_sync::authoritative_versions(plan, &module_by_ref);
     let mut prepared: Vec<(&MemberReleaseShard, Vec<RepoPath>)> = Vec::new();
     for shard in &shards {
         let repo = repo_for(repos, shard.member.as_ref())?;
-        match bump_prepare_member(&shard.plan, &module_by_ref, targets, repo.root(), date) {
+        match bump_prepare_member(
+            &shard.plan,
+            &module_by_ref,
+            targets,
+            repo.root(),
+            date,
+            &versions,
+        ) {
             Ok(prepared_bump) => {
                 report.modules.extend(bump_module_outcomes(
                     &shard.plan,
@@ -216,25 +230,17 @@ pub(crate) fn release_bump_by_member(
         }
     }
 
-    // Phase 2: create the release commit, or stage the mutation for a PR, per
-    // member. A member that rewrote nothing (a tag-only ecosystem with no rolled
-    // changelog) has nothing to commit or stage, so `report.committed` reflects
-    // whether any member's release commit was actually created rather than the
-    // requested disposition.
+    // Phase 2: stage the mutation for a PR, per member. A member that rewrote
+    // nothing (a tag-only ecosystem with no rolled changelog) has nothing to
+    // stage, so `report.staged` reflects whether any member's mutation was
+    // actually staged rather than the requested disposition.
     for (shard, changed) in &prepared {
         if changed.is_empty() {
             continue;
         }
         let repo = repo_for(repos, shard.member.as_ref())?;
-        if options.no_commit {
-            apply::stage_only(repo.writer(), changed)?;
-        } else {
-            let settings = apply::reconcile_repo_settings(&shard.plan.entries)?;
-            let message =
-                apply::commit_message(&shard.plan, &module_by_ref, settings.commit_message())?;
-            apply::stage_and_commit(repo.writer(), changed, &message)?;
-            report.committed = true;
-        }
+        apply::stage_only(repo.writer(), changed)?;
+        report.staged = true;
     }
     Ok(report)
 }
@@ -251,14 +257,20 @@ struct PreparedBump {
     rolled_changelogs: Vec<String>,
 }
 
-/// Mutate one member's manifests and roll its changelog, returning the staged
-/// path set, the per-module manifest paths, and the rolled changelog paths.
+/// Mutate one member's manifests, roll its changelog, and sync its declared
+/// version references, returning the staged path set, the per-module manifest
+/// paths, and the rolled changelog paths.
+///
+/// `versions` is the whole-plan authoritative version map; the version-reference
+/// sync resolves each member-declared file glob under `root` and rewrites its
+/// pins against that one map, joining the rewritten paths to the staged set.
 fn bump_prepare_member(
     plan: &ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
     targets: &crate::ReleaseTargets,
     root: &Path,
     date: &str,
+    versions: &BTreeMap<String, Version>,
 ) -> AppResult<PreparedBump> {
     use crate::execution::mutate;
 
@@ -267,6 +279,9 @@ fn bump_prepare_member(
     let rolled = mutate::roll_changelogs(plan, root, date)?;
     let mut changed = mutate::staged_paths(&mutated_manifests);
     changed.extend(rolled.iter().cloned());
+    let references = member_version_references(plan);
+    let synced = version_sync::sync_version_references(&references, versions, root)?;
+    changed.extend(synced);
     let rolled_changelogs = rolled
         .iter()
         .map(|path| path.as_path().to_string_lossy().into_owned())
@@ -276,6 +291,22 @@ fn bump_prepare_member(
         mutated_manifests,
         rolled_changelogs,
     })
+}
+
+/// The repo-scoped union of the version references declared across a member's
+/// plan entries, deduplicated so a reference inherited by every module is
+/// applied once.
+fn member_version_references(plan: &ReleasePlan) -> Vec<toven_ports::VersionReferenceConfig> {
+    let mut seen = BTreeSet::new();
+    let mut references = Vec::new();
+    for entry in &plan.entries {
+        for reference in &entry.version_references {
+            if seen.insert((reference.files.clone(), reference.pattern.clone())) {
+                references.push(reference.clone());
+            }
+        }
+    }
+    references
 }
 
 /// Restore every already-mutated member's working tree after a phase-1 failure,
@@ -619,6 +650,7 @@ mod tests {
             changelog_roll: false,
             entrypoint: toven_model::Entrypoint::Toven,
             umbrella: false,
+            version_references: Vec::new(),
         }
     }
 

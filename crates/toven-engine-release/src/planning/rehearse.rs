@@ -59,7 +59,7 @@ pub fn release_rehearse(
         readers,
         overrides,
         &targets,
-        crate::versioning::bump::CutIntent::Mutate,
+        crate::versioning::bump::CutIntent::Verify,
     )?;
     let settings = resolve_release_settings(&context, &targets)?;
     let pushed_members = if no_push {
@@ -197,6 +197,7 @@ mod tests {
             ecosystems,
             modules: std::collections::BTreeMap::new(),
             members: Vec::new(),
+            hooks: std::collections::BTreeMap::new(),
         }
     }
 
