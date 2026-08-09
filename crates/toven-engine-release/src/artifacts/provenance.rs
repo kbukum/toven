@@ -1090,7 +1090,10 @@ mod tests {
         // the repository-qualified workflow path gh matches on.
         assert!(
             argv.windows(2).any(|pair| pair
-                == ["--signer-workflow", "acme/toven/.github/workflows/release.yml"]),
+                == [
+                    "--signer-workflow",
+                    "acme/toven/.github/workflows/release.yml"
+                ]),
             "{argv:?}"
         );
         // The digest never reaches the argv: gh recomputes it from the file
@@ -1107,7 +1110,10 @@ mod tests {
         assert_eq!(argv[2], "oci://ghcr.io/acme/toven:1.0.0@sha256:img");
         assert!(
             argv.windows(2).any(|pair| pair
-                == ["--signer-workflow", "acme/toven/.github/workflows/release.yml"]),
+                == [
+                    "--signer-workflow",
+                    "acme/toven/.github/workflows/release.yml"
+                ]),
             "{argv:?}"
         );
     }
