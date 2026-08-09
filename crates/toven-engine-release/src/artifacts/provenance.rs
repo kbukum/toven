@@ -497,14 +497,31 @@ impl ProvenancePhase for GhAttestationProvenance {
 }
 
 /// Whether `gh attestation verify` reported the specific absence condition that
-/// the verification and preview treat as "no attestation for this subject":
-/// `gh` reports it as "no attestations found". Every other non-zero result —
-/// auth/token errors, an inaccessible private repository (which GitHub also
-/// surfaces as HTTP 404), network failures, malformed argv — fails closed
-/// rather than being misread as a benignly absent attestation.
+/// the verification and preview treat as "no attestation for this subject". A
+/// current `gh` (>= 2.67.0) surfaces "no attestation exists for this digest" as
+/// an HTTP 404 from the repository attestations lookup endpoint
+/// (`/repos/<owner>/<repo>/attestations/<digest>`) and exits non-zero; older
+/// builds print "no attestations found" instead. Both are the same absence
+/// signal. Because the repository slug is resolved via `gh repo view` before any
+/// verification runs, accessibility is already established, so a 404 *on the
+/// attestations endpoint* is the digest being unattested — not an inaccessible
+/// repository. Every other non-zero result — auth/token errors, network
+/// failures, malformed argv, a 404 that never reached the attestations endpoint
+/// — fails closed rather than being misread as a benignly absent attestation.
 fn attestation_not_found(result: &ProcessResult) -> bool {
     let output = format!("{}\n{}", result.stdout, result.stderr).to_ascii_lowercase();
-    output.contains("no attestations found") || output.contains("no attestation found")
+    output.contains("no attestations found")
+        || output.contains("no attestation found")
+        || attestations_endpoint_not_found(&output)
+}
+
+/// Whether the combined tool output is an HTTP 404 from the repository
+/// attestations lookup endpoint, which `gh attestation verify` returns when no
+/// attestation exists for the queried digest. Matching the `/attestations/`
+/// path keeps this distinct from an auth/repository 404 that never reached the
+/// attestations lookup.
+fn attestations_endpoint_not_found(lowercased_output: &str) -> bool {
+    lowercased_output.contains("404") && lowercased_output.contains("/attestations/")
 }
 
 /// Convert a non-zero tool result into a typed fail-closed error with bounded
@@ -632,8 +649,9 @@ mod tests {
     };
 
     use super::{
-        ProvenanceOptions, ProvenancePhaseStatus, ensure_file_matches_digest, release_provenance,
-        repo_view_argv, subject_file_path, verify_argv,
+        ProvenanceOptions, ProvenancePhaseStatus, attestation_not_found,
+        ensure_file_matches_digest, release_provenance, repo_view_argv, subject_file_path,
+        verify_argv,
     };
     use rskit_version::semver::Version;
     use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
@@ -1242,5 +1260,50 @@ mod tests {
         // No file exists, but an image subject carries its digest in the pinned
         // reference, so the on-disk check is a no-op.
         ensure_file_matches_digest(root.path(), &subject).expect("image subject is a no-op");
+    }
+
+    fn failed_gh(stderr: &str) -> super::ProcessResult {
+        super::ProcessResult::completed(
+            Some(1),
+            Vec::new(),
+            stderr.as_bytes().to_vec(),
+            false,
+            false,
+            std::time::Duration::from_millis(1),
+            false,
+            false,
+        )
+    }
+
+    #[test]
+    fn classifies_the_no_attestations_message_as_absent() {
+        assert!(attestation_not_found(&failed_gh(
+            "Error: no attestations found for subject"
+        )));
+    }
+
+    #[test]
+    fn classifies_an_attestations_endpoint_404_as_absent() {
+        // A current gh (>= 2.67.0) surfaces an unattested digest as an HTTP 404
+        // on the attestations lookup endpoint and exits non-zero.
+        let stderr = "Error: HTTP 404: Not Found (https://api.github.com/repos/kbukum/toven/\
+                      attestations/sha256:02d56dac?per_page=30&predicate_type=https%3A%2F%2F\
+                      slsa.dev%2Fprovenance%2Fv1)";
+        assert!(attestation_not_found(&failed_gh(stderr)));
+    }
+
+    #[test]
+    fn fails_closed_on_a_non_attestation_404() {
+        // A 404 that never reached the attestations lookup (e.g. an inaccessible
+        // repository) is not an absence signal and must fail closed.
+        let stderr = "Error: HTTP 404: Not Found (https://api.github.com/repos/kbukum/toven)";
+        assert!(!attestation_not_found(&failed_gh(stderr)));
+    }
+
+    #[test]
+    fn fails_closed_on_an_auth_error() {
+        assert!(!attestation_not_found(&failed_gh(
+            "Error: HTTP 401: Bad credentials"
+        )));
     }
 }
