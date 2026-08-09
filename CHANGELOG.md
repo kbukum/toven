@@ -16,6 +16,18 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Security
 
+## [0.1.0-alpha.5] - 2026-08-09
+
+### Added
+
+- Change-gated, stage-only `release bump`: the verb now resolves an authoritative `module → post-bump version` map across the project and seeds only modules with a genuine diff since baseline, staging the manifest edits without committing so a tag-only run that rewrites nothing stages nothing. Symmetric per-verb hooks (`[hooks.bump]` / `[hooks.tag]` / `[hooks.publish]`) compose with the umbrella hooks in nested order (`[umbrella.pre, own.pre] → body → [own.post, umbrella.post]`), and a native, format-preserving, idempotent version-reference sync rewrites declared files' pinned version tokens to the post-bump versions during `bump` (rskit `Template` `{module}`/`{version}` placeholders, no `regex` dependency); a synced-only diff is treated as tool-generated and never re-triggers a bump (#159).
+- A bump `on-resolved` hook seam: argv-first task references that run after every member's version decision and native version-reference sync but before staging, each handed the authoritative post-bump `module → version` map materialized to a generated file whose path is passed argv-first (no implicit shell). Such a hook can rewrite related files the native sync doesn't cover, and its edits join the same staged set as the manifests. The seam fails closed with no partial state — a failing hook, or a failing working-tree read on either side of it, restores every mutated member and deletes exactly the untracked files the hooks created (bounded by `MAX_UNTRACKED_PATHS`) so nothing wedges the next bump's clean-tree guard (#160).
+
+### Changed
+
+- `release provenance` is now a read-only, verify-only projection: attestation creation moves to the trusted builder (`actions/attest-build-provenance`) in the release workflow, and the verb asserts every published subject already carries a build-provenance attestation via the real `gh attestation verify` (file subjects by project-relative path, image subjects by `oci://` reference), failing closed when any subject is unattested. Being read-only, it no longer requires `--yes`, and its `--dry-run` reports subject presence (`present`/`missing`) without failing. Previously it shelled to nonexistent `gh attestation` surfaces and failed closed the first time CI exercised it (#158).
+- Toven now self-hosts its release provenance and assembly verbs in CI: `release.yml` drives `toven release provenance` instead of a third-party action, and the self-canary is a 5-target build matrix plus a dogfood job exercising `package` → `checksums` → `sbom` → `sign` → `verify` → `provenance` over the real asset set. Keyless `release sign` is gated to manual `workflow_dispatch` to avoid stray public Rekor transparency-log entries on merges. Documentation was swept for accuracy and clarity across the command and config reference (#150).
+
 ## [0.1.0-alpha.4] - 2026-08-08
 
 ### Added
