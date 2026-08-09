@@ -1,4 +1,4 @@
-//! Release tag formatting and parsing.
+//! Release tag formatting and latest-tag selection.
 
 use rskit_version::semver::Version;
 use toven_engine_core::vcs::latest_matching;
