@@ -262,7 +262,7 @@ set edit:completion:arg-completer[toven] = {|@words|
             cand sign 'Sign the `SHA256SUMS` manifest into its declared detached-signature and certificate sidecar assets with cosign; non-mutating'
             cand verify 'Verify the declared release archives — locally (presence + reported version) or, with `--download`, against the hosted release (signature + checksum + reported version); non-mutating'
             cand image 'Build the configured container image once, push it to the primary registry plus mirrors immutably, and cosign-sign the pushed digest; `--dry-run` previews the references and existing digests mutation-free, the real push requires `--yes`'
-            cand provenance 'Attest SLSA provenance over exactly the published subjects (declared `SHA256SUMS` entries plus pushed image digests); `--dry-run` previews whether an attestation already exists mutation-free, the real attestation requires `--yes`'
+            cand provenance 'Verify that exactly the published subjects (declared `SHA256SUMS` entries plus pushed image digests) carry a build-provenance attestation cut by the CI trusted builder; `--dry-run` reports presence without failing, the default run fails closed if any subject lacks one'
             cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'toven;release;plan'= {
@@ -1021,7 +1021,7 @@ set edit:completion:arg-completer[toven] = {|@words|
             cand sign 'Sign the `SHA256SUMS` manifest into its declared detached-signature and certificate sidecar assets with cosign; non-mutating'
             cand verify 'Verify the declared release archives — locally (presence + reported version) or, with `--download`, against the hosted release (signature + checksum + reported version); non-mutating'
             cand image 'Build the configured container image once, push it to the primary registry plus mirrors immutably, and cosign-sign the pushed digest; `--dry-run` previews the references and existing digests mutation-free, the real push requires `--yes`'
-            cand provenance 'Attest SLSA provenance over exactly the published subjects (declared `SHA256SUMS` entries plus pushed image digests); `--dry-run` previews whether an attestation already exists mutation-free, the real attestation requires `--yes`'
+            cand provenance 'Verify that exactly the published subjects (declared `SHA256SUMS` entries plus pushed image digests) carry a build-provenance attestation cut by the CI trusted builder; `--dry-run` reports presence without failing, the default run fails closed if any subject lacks one'
             cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'toven;release;help;plan'= {
@@ -2303,7 +2303,7 @@ set edit:completion:arg-completer[toven] = {|@words|
             cand sign 'Sign the `SHA256SUMS` manifest into its declared detached-signature and certificate sidecar assets with cosign; non-mutating'
             cand verify 'Verify the declared release archives — locally (presence + reported version) or, with `--download`, against the hosted release (signature + checksum + reported version); non-mutating'
             cand image 'Build the configured container image once, push it to the primary registry plus mirrors immutably, and cosign-sign the pushed digest; `--dry-run` previews the references and existing digests mutation-free, the real push requires `--yes`'
-            cand provenance 'Attest SLSA provenance over exactly the published subjects (declared `SHA256SUMS` entries plus pushed image digests); `--dry-run` previews whether an attestation already exists mutation-free, the real attestation requires `--yes`'
+            cand provenance 'Verify that exactly the published subjects (declared `SHA256SUMS` entries plus pushed image digests) carry a build-provenance attestation cut by the CI trusted builder; `--dry-run` reports presence without failing, the default run fails closed if any subject lacks one'
         }
         &'toven;help;release;plan'= {
         }
