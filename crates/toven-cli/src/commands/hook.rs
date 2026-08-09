@@ -12,7 +12,7 @@
 
 use rskit_cli::ExitCode;
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_ports::{HookPhase, HookRunner, HooksConfig, Provider, TaskIntent};
+use toven_ports::{HookPhase, HookRunner, HooksConfig, Provider, ResolvedHookRunner, TaskIntent};
 
 use crate::commands::run::WatchFlags;
 use crate::commands::selection::TaskSelection;
@@ -75,25 +75,27 @@ impl<'a> CliHookRunner<'a> {
     }
 }
 
-impl HookRunner for CliHookRunner<'_> {
-    fn run_hook(&self, phase: HookPhase, reference: &str) -> AppResult<()> {
-        // A hook runs the named task across the whole workspace (default
-        // selection), fail-fast so a gate stops on the first failing unit. An
-        // unknown reference fails during scheduling; a non-zero task result is
-        // mapped to a typed error so the release aborts (pre) or is reported
-        // as failed (post).
+impl CliHookRunner<'_> {
+    /// Run the task named `reference` across the whole workspace (default
+    /// selection), fail-fast, appending `passthrough` to its argv — the shared
+    /// task-run path behind both the whole-verb hooks and the bump `on-resolved`
+    /// seam.
+    ///
+    /// An unknown reference fails during scheduling; a non-zero task result is
+    /// mapped to a typed error by the caller.
+    fn run_task(&self, reference: &str, passthrough: Vec<String>) -> AppResult<ExitCode> {
         let report = Report::resolve(
             self.cli.output,
             self.cli.verbosity(),
             self.cli.color_choice(),
             &self.project.document,
         );
-        let code = crate::commands::run::execute(
+        crate::commands::run::execute(
             self.providers,
             self.project,
             report,
             TaskIntent::resolve(reference),
-            Vec::new(),
+            passthrough,
             true,
             self.cli.no_cache,
             self.cli.refresh,
@@ -106,7 +108,18 @@ impl HookRunner for CliHookRunner<'_> {
             None,
             self.cli.jobs,
             &TaskSelection::default(),
-        )?;
+        )
+    }
+}
+
+impl HookRunner for CliHookRunner<'_> {
+    fn run_hook(&self, phase: HookPhase, reference: &str) -> AppResult<()> {
+        // A hook runs the named task across the whole workspace (default
+        // selection), fail-fast so a gate stops on the first failing unit. An
+        // unknown reference fails during scheduling; a non-zero task result is
+        // mapped to a typed error so the release aborts (pre) or is reported
+        // as failed (post).
+        let code = self.run_task(reference, Vec::new())?;
         if code == ExitCode::Success {
             Ok(())
         } else {
@@ -115,6 +128,26 @@ impl HookRunner for CliHookRunner<'_> {
                 format!(
                     "the {} release hook task '{reference}' failed (exit code {})",
                     phase.as_str(),
+                    code.as_i32()
+                ),
+            ))
+        }
+    }
+}
+
+impl ResolvedHookRunner for CliHookRunner<'_> {
+    fn run_resolved(&self, reference: &str, version_map: &std::path::Path) -> AppResult<()> {
+        // The bump `on-resolved` task receives the authoritative version-map
+        // path argv-first (appended to its argv, no implicit shell), so it can
+        // rewrite related files the native version-reference sync does not cover.
+        let code = self.run_task(reference, vec![version_map.to_string_lossy().into_owned()])?;
+        if code == ExitCode::Success {
+            Ok(())
+        } else {
+            Err(AppError::new(
+                ErrorCode::ExternalService,
+                format!(
+                    "the bump on-resolved hook task '{reference}' failed (exit code {})",
                     code.as_i32()
                 ),
             ))

@@ -12,13 +12,19 @@ use std::path::Path;
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_version::semver::Version;
 use toven_model::{MemberId, Module, ModuleKey, RepoPath};
-use toven_ports::Artifact;
+use toven_ports::{Artifact, ChangeStatus, ResolvedHookRunner};
 
 use crate::execution::apply;
 use crate::execution::version_sync;
 use crate::hosting::publish;
 use crate::{ReleaseApplyOptions, ReleasePlan, ReleaseStats};
 use toven_engine_core::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
+
+/// Upper bound on the untracked paths a member's working tree may report at the
+/// on-resolved seam before the bump treats the tree as pathological and fails
+/// closed. Mirrors the source-tree walk bound so a runaway hook cannot force an
+/// unbounded snapshot or deletion sweep.
+const MAX_UNTRACKED_PATHS: usize = 100_000;
 
 /// Apply one federated release plan across member repos.
 ///
@@ -169,6 +175,7 @@ pub(crate) fn release_bump_by_member(
     targets: &crate::ReleaseTargets,
     repos: &MemberReleaseRepos<'_>,
     date: &str,
+    resolved_runner: &dyn ResolvedHookRunner,
     options: crate::BumpOptions,
 ) -> AppResult<crate::BumpReport> {
     use crate::BumpReport;
@@ -239,6 +246,13 @@ pub(crate) fn release_bump_by_member(
             }
         }
     }
+
+    // On-resolved seam: run the bump-scoped mid-mutation hooks now that every
+    // member's version decision and native version-reference sync are done but
+    // before anything is staged, handing each task the authoritative version
+    // map. The task's edits join the staged set; a failure restores every
+    // already-mutated member and stages nothing.
+    run_on_resolved_hooks(plan, &versions, &mut prepared, repos, resolved_runner)?;
 
     // Phase 2: stage the mutation for a PR, per member. A member that rewrote
     // nothing (a tag-only ecosystem with no rolled changelog) has nothing to
@@ -317,6 +331,201 @@ fn member_version_references(plan: &ReleasePlan) -> Vec<toven_ports::VersionRefe
         }
     }
     references
+}
+
+/// The repo-scoped union of the `on-resolved` task references declared across a
+/// member's plan entries, deduplicated and in first-seen order so a reference
+/// inherited by every module runs once.
+fn member_on_resolved(plan: &ReleasePlan) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    let mut references = Vec::new();
+    for entry in &plan.entries {
+        for reference in &entry.on_resolved {
+            if seen.insert(reference.clone()) {
+                references.push(reference.clone());
+            }
+        }
+    }
+    references
+}
+
+/// Run the bump `on-resolved` hooks (if any) after every member's version
+/// decision and native version-reference sync but before staging, then join the
+/// working-tree edits each task produced to the corresponding member's staged
+/// set.
+///
+/// The authoritative version map is materialized once to a generated file
+/// **outside** the repo (so the file never itself becomes a staged untracked
+/// change) and its path is handed to each task argv-first. A failing task
+/// restores every already-mutated member and surfaces the failure, staging
+/// nothing.
+fn run_on_resolved_hooks(
+    plan: &ReleasePlan,
+    versions: &BTreeMap<String, Version>,
+    prepared: &mut [(&MemberReleaseShard, Vec<RepoPath>)],
+    repos: &MemberReleaseRepos<'_>,
+    runner: &dyn ResolvedHookRunner,
+) -> AppResult<()> {
+    let references = member_on_resolved(plan);
+    if references.is_empty() {
+        return Ok(());
+    }
+    let scratch = rskit_fs::TempDir::new()?;
+    let map_path = write_version_map(&scratch, versions)?;
+    // Snapshot each member's untracked set before the hooks run. The clean-tree
+    // guard proved the pre-bump tree empty, so this captures only phase-1's own
+    // first-time output — letting the failure path delete exactly the untracked
+    // files the hooks introduce and leave no partial state behind. A snapshot
+    // read that itself fails happens before any hook has run, so only phase-1's
+    // tracked mutations need rolling back.
+    let before = match untracked_snapshots(prepared, repos) {
+        Ok(before) => before,
+        Err(error) => return Err(restore_bump_prepared(prepared, repos, error)),
+    };
+    for reference in &references {
+        if let Err(error) = runner.run_resolved(reference, &map_path) {
+            return Err(abort_on_resolved(prepared, repos, &before, error));
+        }
+    }
+    // Joining the hook edits can itself fail (a status read or path parse) after
+    // the hooks already mutated tracked files and produced untracked output;
+    // route that through the same abort so no partial state survives.
+    if let Err(error) = join_hook_edits(prepared, repos) {
+        return Err(abort_on_resolved(prepared, repos, &before, error));
+    }
+    Ok(())
+}
+
+/// Join each member's hook-produced working-tree edits into its staged path set,
+/// index-aligned with `prepared`: any path the tree now reports that the member
+/// did not already stage is a hook edit and joins the staged set.
+fn join_hook_edits(
+    prepared: &mut [(&MemberReleaseShard, Vec<RepoPath>)],
+    repos: &MemberReleaseRepos<'_>,
+) -> AppResult<()> {
+    for (shard, changed) in prepared.iter_mut() {
+        let repo = repo_for(repos, shard.member.as_ref())?;
+        let mut seen: BTreeSet<RepoPath> = changed.iter().cloned().collect();
+        for record in repo.reader().worktree_status()? {
+            let path = RepoPath::new(record.path)?;
+            if seen.insert(path.clone()) {
+                changed.push(path);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Materialize the authoritative `key → version` map as a stable JSON object at
+/// `versions.json` under `scratch`, returning its absolute path for the
+/// argv-first hand-off. Keys are the module package name, `ecosystem:name`
+/// identity, and bare name a pin may reference; values are the post-bump version
+/// strings. `BTreeMap` iteration keeps the object deterministically ordered.
+///
+/// # Errors
+/// Propagates a serialization or temp-file write failure.
+fn write_version_map(
+    scratch: &rskit_fs::TempDir,
+    versions: &BTreeMap<String, Version>,
+) -> AppResult<std::path::PathBuf> {
+    let rendered: BTreeMap<&String, String> = versions
+        .iter()
+        .map(|(key, version)| (key, version.to_string()))
+        .collect();
+    let json = serde_json::to_vec_pretty(&rendered).map_err(|error| {
+        AppError::new(
+            ErrorCode::Internal,
+            "the bump on-resolved version map could not be serialized to JSON",
+        )
+        .with_cause(error)
+    })?;
+    scratch.write_file("versions.json", &json)
+}
+
+/// The repo-relative untracked paths of every prepared member, index-aligned
+/// with `prepared`, so the on-resolved failure path can tell hook-created files
+/// apart from phase-1's own first-time output.
+fn untracked_snapshots(
+    prepared: &[(&MemberReleaseShard, Vec<RepoPath>)],
+    repos: &MemberReleaseRepos<'_>,
+) -> AppResult<Vec<BTreeSet<std::path::PathBuf>>> {
+    prepared
+        .iter()
+        .map(|(shard, _)| untracked_paths(repo_for(repos, shard.member.as_ref())?))
+        .collect()
+}
+
+/// The repo-relative paths a member's working tree reports as untracked.
+///
+/// # Errors
+/// Fails closed when the tree reports more than [`MAX_UNTRACKED_PATHS`]
+/// untracked paths, so a runaway on-resolved hook cannot force an unbounded
+/// snapshot or deletion sweep. The clean-tree guard proved the pre-bump tree
+/// empty, so this bounds a hook's own first-time output, never expected state.
+fn untracked_paths(repo: &MemberReleaseRepo) -> AppResult<BTreeSet<std::path::PathBuf>> {
+    let mut paths = BTreeSet::new();
+    for record in repo.reader().worktree_status()? {
+        if record.status != ChangeStatus::Added {
+            continue;
+        }
+        if paths.len() >= MAX_UNTRACKED_PATHS {
+            return Err(AppError::new(
+                ErrorCode::Internal,
+                format!(
+                    "an on-resolved hook left more than {MAX_UNTRACKED_PATHS} untracked files in '{}'; \
+                     remove the stray files and retry the bump",
+                    repo.root().display()
+                ),
+            ));
+        }
+        paths.insert(record.path);
+    }
+    Ok(paths)
+}
+
+/// Abort a bump after an on-resolved hook fails: delete the untracked files the
+/// hooks introduced in every member (paths untracked now but absent from
+/// `before`), then roll every mutated member's tracked files back to `HEAD`, so
+/// no partial mutation survives. Cleanup runs before the tracked restore because
+/// `restore_worktree` intentionally leaves untracked files in place.
+fn abort_on_resolved(
+    prepared: &[(&MemberReleaseShard, Vec<RepoPath>)],
+    repos: &MemberReleaseRepos<'_>,
+    before: &[BTreeSet<std::path::PathBuf>],
+    error: AppError,
+) -> AppError {
+    for ((shard, _), before) in prepared.iter().zip(before) {
+        let repo = match repo_for(repos, shard.member.as_ref()) {
+            Ok(repo) => repo,
+            Err(restore) => return restore_prepared_failure(error, &restore),
+        };
+        if let Err(cleanup) = remove_new_untracked(repo, before) {
+            return restore_prepared_failure(error, &cleanup);
+        }
+    }
+    restore_bump_prepared(prepared, repos, error)
+}
+
+/// Delete the untracked files a member gained since `before` — the on-resolved
+/// hooks' brand-new output — leaving pre-existing untracked paths untouched.
+fn remove_new_untracked(
+    repo: &MemberReleaseRepo,
+    before: &BTreeSet<std::path::PathBuf>,
+) -> AppResult<()> {
+    for path in untracked_paths(repo)? {
+        if before.contains(&path) {
+            continue;
+        }
+        let absolute = rskit_fs::safe_join(repo.root(), &path).map_err(|error| {
+            AppError::new(
+                ErrorCode::Internal,
+                "an on-resolved hook produced an untracked path outside the member repo",
+            )
+            .with_cause(error)
+        })?;
+        rskit_fs::sync_io::file::remove_if_exists(&absolute)?;
+    }
+    Ok(())
 }
 
 /// Restore every already-mutated member's working tree after a phase-1 failure,
@@ -661,6 +870,7 @@ mod tests {
             entrypoint: toven_model::Entrypoint::Toven,
             umbrella: false,
             version_references: Vec::new(),
+            on_resolved: Vec::new(),
         }
     }
 

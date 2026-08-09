@@ -148,6 +148,10 @@ pub struct ResolvedReleaseSettings {
     /// Version references: files whose embedded version tokens `release bump`
     /// keeps in lock-step with the authoritative post-bump versions.
     pub version_references: Vec<VersionReferenceConfig>,
+    /// Bump `on-resolved` hooks: argv-first task references run mid-bump (after
+    /// the version decision and native version-reference sync, before staging),
+    /// each handed the authoritative post-bump version map.
+    pub on_resolved: Vec<String>,
 }
 
 impl ResolvedReleaseSettings {
@@ -255,6 +259,7 @@ impl ResolvedReleaseSettings {
             entrypoint: config.entrypoint.unwrap_or_default(),
             umbrella: config.umbrella.unwrap_or(false),
             version_references: config.version_references.clone().unwrap_or_default(),
+            on_resolved: config.on_resolved.clone().unwrap_or_default(),
         })
     }
 }

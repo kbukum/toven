@@ -18,7 +18,7 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_util::time::{Clock, datetime_from_epoch_secs};
 use rskit_version::semver::Version;
 use toven_model::ModuleKey;
-use toven_ports::{Provider, Reporter};
+use toven_ports::{Provider, Reporter, ResolvedHookRunner};
 
 use crate::BumpOverrides;
 use crate::execution::federated::release_bump_by_member;
@@ -94,12 +94,14 @@ impl BumpReport {
 /// commit/stage ports; a single-repo project is the N=1 degenerate member.
 /// `overrides` carry the per-run bump argv (level flags, set-version, prerelease
 /// channel, base, offline). `clock` supplies the date stamped into a rolled
-/// changelog's versioned heading.
+/// changelog's versioned heading. `resolved_runner` runs the bump `on-resolved`
+/// hooks at the mid-mutation seam (after the version decision and native
+/// version-reference sync, before staging).
 ///
 /// # Errors
 /// Propagates configuration/discovery/graph failures, release-plan failures, and
 /// mutation failures (clean-tree/branch guardrails, manifest mutation, changelog
-/// roll, staging).
+/// roll, `on-resolved` hook, staging).
 #[allow(clippy::too_many_arguments)]
 pub fn release_bump(
     request: &PlanRequest,
@@ -110,6 +112,7 @@ pub fn release_bump(
     overrides: &BumpOverrides,
     reporter: &mut dyn Reporter,
     clock: &dyn Clock,
+    resolved_runner: &dyn ResolvedHookRunner,
     options: &BumpOptions,
 ) -> AppResult<BumpReport> {
     let locator = PathDriverLocator::new();
@@ -136,6 +139,7 @@ pub fn release_bump(
         &targets,
         repos,
         &date,
+        resolved_runner,
         *options,
     )
 }

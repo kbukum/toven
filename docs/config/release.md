@@ -88,7 +88,12 @@ signer = "release-bot"
 identity = "https://github.com/OWNER/REPO/.github/workflows/release.yml@.*"
 issuer = "https://token.actions.githubusercontent.com"
 
-[ecosystems.rust.release.hooks]
+[[ecosystems.rust.release.version_references]]
+files = ["README.md"]
+pattern = '{module} = "{version}"'
+
+# Project-level lifecycle hooks wrap the verb (see the configuration guide).
+[hooks.release]
 pre = ["check"]
 post = ["docs-build"]
 ```
@@ -119,9 +124,12 @@ post = ["docs-build"]
 | `token_env` | string | None | Environment variable that holds the registry publish token |
 | `visibility` | `"public"`, `"private"`, or `"internal"` | `"public"` | Intended registry exposure |
 | `readiness` | string list | `[]` | Named fail-closed preflight checks |
-| `hooks` | table | None | Pre/post task references run around mutation |
+| `version_references` | array of tables | None | Files whose version tokens `release bump` keeps in lock-step with the resolved versions |
+| `on_resolved` | string list | `[]` | Bump mid-mutation task references, each handed the resolved version map |
 
-Templates accept release variables such as `{ecosystem}`, `{module}`, `{version}`, and `{channel}`. Unknown placeholders, blank names, and unsafe paths fail config validation. Unsupported readiness checks fail closed during release planning.
+Templates accept release variables such as `{ecosystem}`, `{module}`, `{version}`, and `{channel}`. Unknown placeholders, blank names, and unsafe paths fail config validation. Unsupported readiness checks fail closed.
+
+Project-level lifecycle hooks (`pre`/`post` task references around a verb) live under `[hooks.<verb>]`, not the release config — see [Lifecycle hooks](README.md#lifecycle-hooks).
 
 A repository creates one release commit for all selected modules. `commit_message` must render identically for every module in that repository. Use module- or version-specific commit templates only when the repository releases one module at a time.
 
@@ -204,20 +212,37 @@ readiness = ["clean-tree", "registry-idempotent"]
 
 `registry-idempotent` ignores tag-only and excluded modules. Use both checks for registry releases, and at least `clean-tree` for tag-only releases. Unknown readiness checks fail closed.
 
-## Hooks
+## Version references
+
+`release bump` keeps declared version tokens outside the manifest — README examples, docs, install snippets — in lock-step with the versions it resolves. Declare them per ecosystem or per module:
 
 ```toml
-[ecosystems.rust.release.hooks]
-pre = ["check"]
-post = ["docs-build"]
+[[ecosystems.rust.release.version_references]]
+files = ["README.md", "crates/*/README.md"]
+pattern = '{module} = "{version}"'
 ```
 
-| Key | Type | Default | Meaning |
-|---|---|---|---|
-| `pre` | string list | `[]` | Task references run before any mutation |
-| `post` | string list | `[]` | Task references run after a successful release |
+| Key | Type | Meaning |
+|---|---|---|
+| `files` | string list | Repo-relative file globs (`*`/`?`) whose lines carry version pins |
+| `pattern` | string | Per-line pin pattern, a template over `{module}` and `{version}` |
 
-Hooks are task references resolved through the same task model as `toven run`. Pre-hooks run in module-key then declaration order and are deduplicated. A failed pre-hook aborts before any tag, push, or publish. Post-hooks run only after a successful release, and the reconcile early-return path skips them.
+During the bump mutation the engine rewrites only the `{version}` token of each line that matches the whole `pattern` and whose captured `{module}` resolves to a bumped version, against the authoritative post-bump version map. The rewrite is native (no shell), format-preserving (prose and non-matching lines are untouched), and idempotent (a line already at the resolved version is left byte-for-byte unchanged). The rewritten files are staged with the manifests.
+
+## Bump on-resolved hooks
+
+When a version-reference pattern cannot express the edit — regenerating a lockfile, a generated table, or a doc from the resolved versions — `on_resolved` runs task references mid-bump:
+
+```toml
+[modules."rust:core".release]
+on_resolved = ["sync-versions", "regen-readme"]
+```
+
+Each reference is an ordinary task, resolved through the same task model as [`toven run`](../commands/run.md). The hooks run **after** every module's version is decided and its native version references are synced, but **before** anything is staged. Toven materializes the authoritative `key → version` map as a JSON file **outside** the repository and hands its path to each task argv-first (appended to the task's argv, no implicit shell), so the task can rewrite related files from the resolved versions. The map keys each module by its package name, its `ecosystem:name` identity, and its bare name.
+
+The working-tree edits each task produces join the same staged set as the manifests. A failing `on_resolved` task aborts the bump closed: every already-mutated module is restored and the untracked files the hooks created are removed, so nothing is staged and no partial state survives.
+
+`on_resolved` differs from `[hooks.bump]`: a `[hooks.bump]` `pre` runs before versions are known and its `post` runs after staging, so neither can contribute intra-mutation staged edits. `on_resolved` runs inside the mutation with the resolved versions in hand.
 
 ## Hosted forge Releases
 

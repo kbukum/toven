@@ -48,7 +48,7 @@ Planning, status, readiness, dependency graphs, and publication rehearsal do not
 | `verify` | Presence/version-check local assets, or with `--download` verify the signature and every published archive's checksum | None |
 | `image` | Build the configured container image once, push it to the primary registry plus mirrors, and cosign-sign the pushed digest | Registries |
 | `provenance` | Verify SLSA provenance exists over exactly the published subjects: declared `SHA256SUMS` manifest entries and every pushed image digest (the CI trusted builder creates it) | None (read-only) |
-| `bump` | Manifest version/floor changes and the rolled changelog, committed or staged with `--no-commit` | Repository working tree |
+| `bump` | Manifest version/floor changes and the rolled changelog, **staged** for a pull request (never committed) | Repository working tree |
 | `tag` | Manifest changes, release commit, tags, and configured push | Repository and remote |
 | `publish --dry-run` | Registry and hosted-Release rehearsal | None |
 | `publish` | `tag` behavior followed by target publication and configured hosted Releases | Repository, remote, target, and forge |
@@ -229,25 +229,25 @@ Conflicting overrides fail before mutation.
 
 ```bash
 toven release bump --yes
-toven release bump --no-commit --yes
 toven release bump --dry-run
 toven release bump --output jsonl
 ```
 
-`bump` runs only the version decision phase. It rewrites each selected module's manifest version and dependency floors. Where configured, it also rolls the changelog.
+`bump` runs only the version decision phase. It is **change-gated**: only modules that actually advanced (a direct change or a dependency cascade) enter the bump; a workspace with nothing to release is a clean no-op that reports `nothing to bump`. For each bumped module it rewrites the manifest version and dependency floors and, where configured, rolls the changelog.
 
-By default, `bump` creates the release commit. With `--no-commit`, it leaves the mutation staged for a maintainer pull request. It never tags, pushes, publishes, or cuts a hosted Release. In the Toven and rskit release flow, the version and changelog change is the release decision; tag and publish follow after it merges.
+`bump` is **write-only**: it leaves the manifest and changelog mutation **staged** in the index for a maintainer to review and land through their own pull request. It never commits, tags, pushes, publishes, or cuts a hosted Release. In the Toven and rskit release flow the version and changelog change *is* the release decision; `tag` and `publish` own the commit, tags, and push, and run after the staged change merges. The workflow is: `toven release bump` → review the staged diff → open a branch and pull request → merge → `toven release tag` / `toven release publish`.
 
-`bump`, `tag`, and `publish` share the same manifest-mutation prefix through the `ManifestMutator` phase contract. The versions a `bump` commit carries are exactly the versions a later `tag` would produce. The same version-input flags apply: `--patch`, `--minor`, `--major`, `--set-version`, `--pre`, and `--base`.
+`bump`, `tag`, and `publish` share the same manifest-mutation prefix through the `ManifestMutator` phase contract. The versions a `bump` stages are exactly the versions a later `tag` would produce. The same version-input flags apply: `--patch`, `--minor`, `--major`, `--set-version`, `--pre`, and `--base`.
 
-A mutating `bump` requires `--yes`. It checks the allowed branch and a clean worktree before mutation. `--dry-run` previews planned version transitions and changelog paths without writing, so it does not need `--yes`. `--no-commit` is valid only on `bump`; `--no-push` is not, because `bump` never pushes.
+A mutating `bump` requires `--yes`. It checks the allowed branch and a clean worktree before mutation. `--dry-run` previews planned version transitions and changelog paths without writing, so it does not need `--yes`. `bump` takes no `--no-push` (it never pushes) and no commit flag (it never commits).
+
+Mid-mutation, after every module's version is decided and its native version references are synced but before anything is staged, `bump` runs the configured `on_resolved` hooks (see [Release configuration](../config/release.md#bump-on-resolved-hooks)). Each such task is handed the authoritative post-bump version map and its file edits join the same staged set; a failing task aborts the bump and restores every mutated module, leaving nothing staged.
 
 | Option | Meaning |
 |---|---|
-| `--no-commit` | Stage the manifest/changelog mutation for a pull request instead of committing |
 | `--dry-run` | Preview the version transitions and changelog roll without writing |
 
-Typed JSONL emits one record per bumped module. Each record carries `module`, `old_version`, `new_version`, rewritten `manifests`, whether the run `committed`, and rolled `changelogs`. Data goes to stdout and warnings go to stderr.
+Typed JSONL emits one record per bumped module. Each record carries `module`, `old_version`, `new_version`, rewritten `manifests`, whether the run `staged` the mutation, whether it was a `dry_run`, and rolled `changelogs`. Data goes to stdout and warnings go to stderr.
 
 ### Changelog rolling
 

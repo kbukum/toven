@@ -84,7 +84,7 @@ pub use exec::{
     CommandRunner, HeldProcess, Invocation, InvocationEnvPolicy, InvocationEnvironment,
     OutputObserver, RunOutcome, StartOutcome,
 };
-pub use hook::{HookPhase, HookRunner};
+pub use hook::{HookPhase, HookRunner, ResolvedHookRunner};
 pub use merge::{merge_coverage, merge_release, merge_task};
 pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
 pub use raw_output::RawOutputSink;

@@ -330,6 +330,10 @@ pub struct ReleaseEntry {
     /// post-bump versions. Repo-scoped in effect — the mutation applies the
     /// union across a member's entries once.
     pub version_references: Vec<VersionReferenceConfig>,
+    /// Bump `on-resolved` task references resolved for this module. Repo-scoped
+    /// in effect — the mutation runs the union across a member's entries once,
+    /// after the native version-reference sync and before staging.
+    pub on_resolved: Vec<String>,
 }
 
 /// Immutable release plan produced by the release PLAN tail.
@@ -620,6 +624,7 @@ mod tests {
             entrypoint: toven_model::Entrypoint::Toven,
             umbrella: false,
             version_references: Vec::new(),
+            on_resolved: Vec::new(),
         };
 
         let plan = ReleasePlan::new(

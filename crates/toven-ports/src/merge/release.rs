@@ -109,6 +109,9 @@ pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfi
             .version_references
             .clone_from(&over.version_references);
     }
+    if over.on_resolved.is_some() {
+        merged.on_resolved.clone_from(&over.on_resolved);
+    }
 
     merged
 }

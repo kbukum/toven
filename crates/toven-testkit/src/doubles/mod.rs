@@ -29,7 +29,7 @@ pub use cache::{FakeCacheStore, RecordingCacheStore, RecordingCacheWriter};
 pub use delegated::FakeDelegatedPhase;
 pub use driver::{FakeDriverLocator, FakeDriverWizard};
 pub use exec::FakeCommandRunner;
-pub use hook::{HookCall, RecordingHookRunner};
+pub use hook::{HookCall, RecordingHookRunner, ResolvedCall, ScriptedResolvedRunner};
 pub use host::{FakeReleaseHost, HostCall};
 pub use image::{FakeImagePhase, ImageCall};
 pub use provenance::{FakeProvenancePhase, ProvenanceCall};

@@ -151,6 +151,12 @@ pub struct ReleaseConfig {
     /// inside the bump mutation and staged with the manifests. `None` = none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version_references: Option<Vec<VersionReferenceConfig>>,
+    /// Bump `on-resolved` hooks: argv-first task references run after the
+    /// version decision and native version-reference sync but before staging,
+    /// each handed the authoritative post-bump version map so its file edits
+    /// join the staged set. `None` = none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_resolved: Option<Vec<String>>,
 }
 
 impl ReleaseConfig {
@@ -248,6 +254,9 @@ impl ReleaseConfig {
             for (index, reference) in references.iter().enumerate() {
                 reference.validate(&format!("{field}.version_references[{index}]"))?;
             }
+        }
+        if let Some(on_resolved) = &self.on_resolved {
+            validate_nonblank_entries(&format!("{field}.on_resolved"), on_resolved)?;
         }
         Ok(())
     }
@@ -509,5 +518,37 @@ mod tests {
             .expect_err("umbrella on an excluded module rejected");
         assert!(error.to_string().contains("umbrella"), "{error}");
         assert!(error.to_string().contains("excluded"), "{error}");
+    }
+
+    #[test]
+    fn parses_on_resolved_bump_hooks() {
+        let config = parse(
+            r#"
+            on_resolved = ["sync-versions", "regen-readme"]
+            "#,
+        )
+        .expect("parses");
+        assert_eq!(
+            config.on_resolved,
+            Some(vec![
+                "sync-versions".to_string(),
+                "regen-readme".to_string()
+            ])
+        );
+        config.validate("ecosystems.rust.release").expect("valid");
+    }
+
+    #[test]
+    fn validate_rejects_a_blank_on_resolved_reference() {
+        let config = parse(
+            r#"
+            on_resolved = ["  "]
+            "#,
+        )
+        .expect("parses");
+        let error = config
+            .validate("ecosystems.rust.release")
+            .expect_err("a blank on-resolved reference is rejected");
+        assert!(error.to_string().contains("on_resolved"), "{error}");
     }
 }
