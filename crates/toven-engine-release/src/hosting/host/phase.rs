@@ -420,6 +420,7 @@ mod tests {
             entrypoint: toven_model::Entrypoint::Toven,
             umbrella: false,
             version_references: Vec::new(),
+            on_resolved: Vec::new(),
         }
     }
 

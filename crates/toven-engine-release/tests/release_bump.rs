@@ -25,7 +25,8 @@ use toven_ports::{
 };
 use toven_testkit::workspace::workspace;
 use toven_testkit::{
-    FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, FakeVcsWriter, VcsWrite,
+    FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, FakeVcsWriter,
+    ScriptedResolvedRunner, VcsWrite,
 };
 
 /// `2024-06-15T00:00:00Z` — the fixed clock the bump verb stamps into a rolled
@@ -150,6 +151,21 @@ fn provider_declaring(version: Version) -> FakeProvider {
     provider_with_target(FakeReleaseTarget::new().with_declared_version(version))
 }
 
+/// Load a single-repo project whose `core` module declares an `on-resolved`
+/// bump hook running the `sync-extra` task reference.
+fn load_on_resolved_project() -> (toven_testkit::TestWorkspace, AbsPath, Document) {
+    let ws = workspace("release-bump-on-resolved");
+    let body = "[project]\nname = \"solo\"\n\n[ecosystems.rust]\nmanifests = [\"Cargo.toml\"]\n\n[modules.\"rust:core\".release]\npush = false\ncommit_message = \"release {module} {version}\"\non_resolved = [\"sync-extra\"]\n";
+    let path = ws
+        .write_file("toven.toml", body.as_bytes())
+        .expect("write project");
+    let root = AbsPath::new(ws.path().to_path_buf()).expect("absolute root");
+    let document = load(&path, &BTreeSet::new(), &CanonicalRegistry::model())
+        .expect("project loads")
+        .document;
+    (ws, root, document)
+}
+
 /// Build the single-member reader/repo bindings around one shared writer double.
 fn single_member<'a>(
     ws: &toven_testkit::TestWorkspace,
@@ -212,6 +228,7 @@ fn run_bump_reader(
     let (readers, repos) = single_member(ws, reader, writer);
     let clock = FixedClock::new(FIXED_EPOCH, 0);
     let mut reporter = toven_testkit::RecordingReporter::new();
+    let resolved = ScriptedResolvedRunner::new();
     release_bump(
         &request(root),
         document,
@@ -221,6 +238,7 @@ fn run_bump_reader(
         &BumpOverrides::new(),
         &mut reporter,
         &clock,
+        &resolved,
         &options,
     )
     .expect("bump runs")
@@ -622,6 +640,7 @@ fn a_failed_version_reference_sync_restores_the_partially_mutated_member() {
     let (readers, repos) = single_member(&ws, &reader, &writer);
     let clock = FixedClock::new(FIXED_EPOCH, 0);
     let mut reporter = toven_testkit::RecordingReporter::new();
+    let resolved = ScriptedResolvedRunner::new();
     let result = release_bump(
         &request(root),
         &document,
@@ -631,6 +650,7 @@ fn a_failed_version_reference_sync_restores_the_partially_mutated_member() {
         &BumpOverrides::new(),
         &mut reporter,
         &clock,
+        &resolved,
         &BumpOptions::default(),
     );
 
@@ -647,4 +667,392 @@ fn a_failed_version_reference_sync_restores_the_partially_mutated_member() {
         writer.writes()
     );
     assert_no_release_history(&writer.writes());
+}
+
+#[test]
+fn a_snapshot_read_failure_before_the_hooks_restores_the_member() {
+    // The pre-hook untracked snapshot is a working-tree read that can itself
+    // fail after phase-1 already mutated the member's tracked files. Because no
+    // hook has run yet, there is nothing untracked to remove — but the tracked
+    // mutation must still roll back so the failed bump leaves no partial state.
+    let (ws, root, document) = load_on_resolved_project();
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    // Fail the snapshot read: it is the first working-tree read after phase-1
+    // prepares the member and before any hook runs (an empty tree at that
+    // point, so a state-based fault cannot target it — the ordinal can).
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )])
+        .with_worktree_status_failure_on_call(3, "snapshot read faulted");
+    let resolved = ScriptedResolvedRunner::producing(
+        reader.worktree_handle(),
+        vec![ChangeRecord::new("GENERATED.txt", ChangeStatus::Added)],
+    );
+    let result = run_bump_resolved(
+        &ws,
+        root,
+        &document,
+        &writer,
+        &reader,
+        &provider_declaring(Version::new(0, 1, 0)),
+        &resolved,
+    );
+
+    assert!(
+        result.is_err(),
+        "a snapshot read failure aborts the bump: {result:?}"
+    );
+    assert!(
+        resolved.calls().is_empty(),
+        "the snapshot faults before any hook runs: {:?}",
+        resolved.calls()
+    );
+    assert!(
+        writer
+            .writes()
+            .iter()
+            .any(|write| matches!(write, VcsWrite::RestoreWorktree)),
+        "the mutated member is restored even when the snapshot read fails: {:?}",
+        writer.writes()
+    );
+}
+
+#[test]
+fn a_join_read_failure_after_the_hooks_aborts_and_cleans_up() {
+    // After the hooks succeed, joining their edits reads the working tree again;
+    // that read can fault while the tree carries both the tracked mutation and
+    // the hooks' brand-new untracked output. The abort must still delete the
+    // untracked files and restore the tracked mutation — no partial state.
+    let (ws, root, document) = load_on_resolved_project();
+    let generated = ws
+        .write_file("GENERATED.txt", b"scratch output\n")
+        .expect("write generated file");
+    assert!(generated.exists(), "the generated file exists pre-abort");
+
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    // The hook succeeds and reports its untracked output, dirtying the tree;
+    // the very next (join) read is the first non-empty read, and it faults.
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )])
+        .with_worktree_status_failure_when_dirty("join read faulted");
+    let resolved = ScriptedResolvedRunner::producing(
+        reader.worktree_handle(),
+        vec![ChangeRecord::new("GENERATED.txt", ChangeStatus::Added)],
+    );
+    let result = run_bump_resolved(
+        &ws,
+        root,
+        &document,
+        &writer,
+        &reader,
+        &provider_declaring(Version::new(0, 1, 0)),
+        &resolved,
+    );
+
+    assert!(
+        result.is_err(),
+        "a join read failure aborts the bump: {result:?}"
+    );
+    assert_eq!(
+        resolved.calls().len(),
+        1,
+        "the join read faults only after the hook succeeded: {:?}",
+        resolved.calls()
+    );
+    assert!(
+        !generated.exists(),
+        "the untracked file the hook created is removed on abort"
+    );
+    assert!(
+        writer
+            .writes()
+            .iter()
+            .any(|write| matches!(write, VcsWrite::RestoreWorktree)),
+        "the mutated member is still restored: {:?}",
+        writer.writes()
+    );
+}
+
+/// Drive `release_bump` for a single member with an explicit `on-resolved`
+/// runner and reader, returning the report (or the typed failure).
+fn run_bump_resolved(
+    ws: &toven_testkit::TestWorkspace,
+    root: AbsPath,
+    document: &Document,
+    writer: &FakeVcsWriter,
+    reader: &FakeVcsReader,
+    provider: &FakeProvider,
+    resolved: &ScriptedResolvedRunner,
+) -> rskit_errors::AppResult<toven_engine_release::BumpReport> {
+    let providers: Vec<&dyn Provider> = vec![provider];
+    let (readers, repos) = single_member(ws, reader, writer);
+    let clock = FixedClock::new(FIXED_EPOCH, 0);
+    let mut reporter = toven_testkit::RecordingReporter::new();
+    release_bump(
+        &request(root),
+        document,
+        &providers,
+        &readers,
+        &repos,
+        &BumpOverrides::new(),
+        &mut reporter,
+        &clock,
+        resolved,
+        &BumpOptions::default(),
+    )
+}
+
+#[test]
+fn an_on_resolved_hook_receives_the_version_map_and_stages_its_edits() {
+    // The bump `on-resolved` seam runs after the version decision (core
+    // 0.1.0 -> 0.1.1), is handed the authoritative version map, and its file
+    // edit joins the staged set alongside the manifest.
+    let (ws, root, document) = load_on_resolved_project();
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+    // The scripted task produces a `VERSIONS.txt` edit into the shared worktree
+    // handle on success — the reader reports it only after the clean-tree guard
+    // has already observed an empty tree.
+    let resolved = ScriptedResolvedRunner::producing(
+        reader.worktree_handle(),
+        vec![ChangeRecord::new("VERSIONS.txt", ChangeStatus::Added)],
+    );
+    let report = run_bump_resolved(
+        &ws,
+        root,
+        &document,
+        &writer,
+        &reader,
+        &provider_declaring(Version::new(0, 1, 0)),
+        &resolved,
+    )
+    .expect("bump runs");
+
+    assert!(report.staged, "the mutation is staged: {report:?}");
+
+    let calls = resolved.calls();
+    assert_eq!(calls.len(), 1, "the on-resolved hook ran once: {calls:?}");
+    assert_eq!(calls[0].reference, "sync-extra");
+    assert!(
+        calls[0].version_map_contents.contains("0.1.1")
+            && calls[0].version_map_contents.contains("core"),
+        "the hook received the authoritative post-bump version map: {}",
+        calls[0].version_map_contents
+    );
+
+    let staged = staged_paths(&writer.writes());
+    assert!(
+        staged.iter().any(|path| path == "VERSIONS.txt"),
+        "the on-resolved task's edit is staged with the manifest: {staged:?}"
+    );
+    assert_no_release_history(&writer.writes());
+}
+
+#[test]
+fn a_failing_on_resolved_hook_aborts_and_restores_the_member() {
+    // A failing `on-resolved` task fails the bump closed: the already-mutated
+    // member is restored and nothing is staged.
+    let (ws, root, document) = load_on_resolved_project();
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+    let resolved = ScriptedResolvedRunner::failing_on("sync-extra");
+    let result = run_bump_resolved(
+        &ws,
+        root,
+        &document,
+        &writer,
+        &reader,
+        &provider_declaring(Version::new(0, 1, 0)),
+        &resolved,
+    );
+
+    assert!(
+        result.is_err(),
+        "a failing on-resolved hook aborts the bump: {result:?}"
+    );
+    assert!(
+        writer
+            .writes()
+            .iter()
+            .any(|write| matches!(write, VcsWrite::RestoreWorktree)),
+        "the mutated member is restored: {:?}",
+        writer.writes()
+    );
+    assert!(
+        !writer
+            .writes()
+            .iter()
+            .any(|write| matches!(write, VcsWrite::Stage { .. })),
+        "nothing is staged when the on-resolved hook fails: {:?}",
+        writer.writes()
+    );
+}
+
+#[test]
+fn a_failing_on_resolved_hook_removes_the_untracked_files_it_created() {
+    // A task that creates working-tree files and *then* fails must leave no
+    // partial state. `restore_worktree` intentionally leaves untracked files in
+    // place, so the abort path deletes the brand-new untracked files the hook
+    // introduced before rolling the member's tracked mutation back.
+    let (ws, root, document) = load_on_resolved_project();
+    // The task's brand-new output exists on disk when the hook fails.
+    let generated = ws
+        .write_file("GENERATED.txt", b"scratch output\n")
+        .expect("write generated file");
+    assert!(generated.exists(), "the generated file exists pre-abort");
+
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+    // The task reports the untracked file only after the clean-tree guard has
+    // observed an empty tree, then fails.
+    let resolved = ScriptedResolvedRunner::producing_then_failing(
+        reader.worktree_handle(),
+        vec![ChangeRecord::new("GENERATED.txt", ChangeStatus::Added)],
+        "sync-extra",
+    );
+    let result = run_bump_resolved(
+        &ws,
+        root,
+        &document,
+        &writer,
+        &reader,
+        &provider_declaring(Version::new(0, 1, 0)),
+        &resolved,
+    );
+
+    assert!(
+        result.is_err(),
+        "a failing on-resolved hook aborts the bump: {result:?}"
+    );
+    assert!(
+        !generated.exists(),
+        "the untracked file the failing hook created is removed on abort"
+    );
+    assert!(
+        writer
+            .writes()
+            .iter()
+            .any(|write| matches!(write, VcsWrite::RestoreWorktree)),
+        "the mutated member is still restored: {:?}",
+        writer.writes()
+    );
+}
+
+#[test]
+fn an_on_resolved_abort_still_restores_when_untracked_cleanup_faults() {
+    // The failing hook creates an untracked file, and the abort's cleanup status
+    // read then faults. Cleanup is best-effort, so the tracked restore must still
+    // run — the bump may not strand the manifest/changelog mutation just because
+    // it could not delete the stray untracked file.
+    let (ws, root, document) = load_on_resolved_project();
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )])
+        // The pre-bump tree and pre-hook snapshot read clean; the first dirty
+        // read — the abort's untracked-cleanup enumeration — faults.
+        .with_worktree_status_failure_when_dirty("status read unavailable mid-abort");
+    let resolved = ScriptedResolvedRunner::producing_then_failing(
+        reader.worktree_handle(),
+        vec![ChangeRecord::new("GENERATED.txt", ChangeStatus::Added)],
+        "sync-extra",
+    );
+    let result = run_bump_resolved(
+        &ws,
+        root,
+        &document,
+        &writer,
+        &reader,
+        &provider_declaring(Version::new(0, 1, 0)),
+        &resolved,
+    );
+
+    assert!(
+        result.is_err(),
+        "a failing on-resolved hook aborts the bump: {result:?}"
+    );
+    assert!(
+        writer
+            .writes()
+            .iter()
+            .any(|write| matches!(write, VcsWrite::RestoreWorktree)),
+        "the tracked mutation is restored even when untracked cleanup faults: {:?}",
+        writer.writes()
+    );
+    assert!(
+        !writer
+            .writes()
+            .iter()
+            .any(|write| matches!(write, VcsWrite::Stage { .. })),
+        "nothing is staged when the on-resolved hook fails: {:?}",
+        writer.writes()
+    );
+}
+
+#[test]
+fn a_runaway_on_resolved_hook_that_floods_the_worktree_fails_closed() {
+    // A hook that produces more than the untracked-path cap of working-tree files
+    // must fail the join closed rather than build and stage an unbounded set.
+    let (ws, root, document) = load_on_resolved_project();
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+    // Just over the cap, reported only after the clean-tree guard observed an
+    // empty tree, so the successful-hook join path hits the bound.
+    let flood: Vec<ChangeRecord> = (0..=100_000)
+        .map(|index| ChangeRecord::new(format!("gen/file-{index}.txt"), ChangeStatus::Added))
+        .collect();
+    let resolved = ScriptedResolvedRunner::producing(reader.worktree_handle(), flood);
+    let result = run_bump_resolved(
+        &ws,
+        root,
+        &document,
+        &writer,
+        &reader,
+        &provider_declaring(Version::new(0, 1, 0)),
+        &resolved,
+    );
+
+    let error = result.expect_err("a worktree-flooding on-resolved hook fails closed");
+    assert!(
+        error.to_string().contains("new working-tree paths"),
+        "the failure names the runaway-hook bound: {error}"
+    );
+    assert!(
+        !writer
+            .writes()
+            .iter()
+            .any(|write| matches!(write, VcsWrite::Stage { .. })),
+        "an unbounded hook output is never staged: {:?}",
+        writer.writes()
+    );
 }

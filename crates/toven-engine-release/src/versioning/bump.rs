@@ -322,6 +322,10 @@ pub(crate) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
                 .settings
                 .get(&reference)
                 .map_or_else(Vec::new, |resolved| resolved.version_references.clone()),
+            on_resolved: input
+                .settings
+                .get(&reference)
+                .map_or_else(Vec::new, |resolved| resolved.on_resolved.clone()),
         });
     }
     entries.sort_by(|left, right| {

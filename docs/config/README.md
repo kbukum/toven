@@ -31,6 +31,7 @@ Generate a starter file with [`toven init`](../commands/init.md).
 | `[ecosystems.<id>]` | No | Discovery, run strategy, tasks, coverage, and release policy for one adapter |
 | `[modules."<ecosystem>:<name>"]` | No | Per-module release and coverage overrides |
 | `[groups.<name>]` | No | Named module sets, guardrails, run strategy, and sparse task overrides |
+| `[hooks.<verb>]` | No | Project-level `pre`/`post` lifecycle hooks that wrap a command |
 | `[[overlays]]` | No | Explicit dependency edges native metadata cannot express |
 | `[[members]]` | No | Federated repository members |
 
@@ -267,6 +268,46 @@ base_ref = "origin/main"
 | `base_ref` | string | Member default | Per-member change baseline |
 
 Each member keeps its own `toven.toml`. The umbrella composes their modules into one graph.
+
+## Lifecycle hooks
+
+`[hooks.<verb>]` attaches project-level `pre`/`post` task references to a Toven command, so a workspace can wrap a verb with checks and follow-ups without changing argv. The verb key is a fixed, validated name — an unknown key fails config validation.
+
+```toml
+[hooks.run]
+pre = ["fmt-check"]
+
+[hooks.release]
+pre = ["fmt-check", "lint"]
+post = ["notify-release"]
+
+[hooks.bump]
+pre = ["validate"]
+```
+
+| Verb key | Wraps |
+|---|---|
+| `run` | `toven run <task>` (and the bare argv-first task form) |
+| `plan` | `toven plan <task>` |
+| `coverage` | `toven coverage` |
+| `doctor` | `toven doctor` |
+| `release` | Every release mutation — the umbrella around `bump`/`tag`/`publish` |
+| `bump` | `toven release bump` |
+| `tag` | `toven release tag` |
+| `publish` | `toven release publish` |
+
+Each block takes two optional string lists:
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `pre` | string list | `[]` | Task references run before the verb, fail-closed |
+| `post` | string list | `[]` | Task references run after the verb succeeds |
+
+Hooks are ordinary task references, resolved through the same task model as [`toven run`](../commands/run.md) and executed argv-first with no implicit shell. A `pre` hook runs before the command does any work; a non-zero `pre` hook aborts the command before any mutation. A `post` hook runs only after the command succeeds.
+
+The release family composes with its umbrella: `[hooks.release]` wraps `[hooks.bump]`, `[hooks.tag]`, and `[hooks.publish]`, with the specific verb innermost. For a `release bump`, the effective `pre` sequence is the umbrella's `pre` followed by `bump`'s `pre`, and the effective `post` sequence is `bump`'s `post` followed by the umbrella's `post`. A `release` reconcile that short-circuits (nothing to cut) skips the `post` hooks.
+
+For the bump-specific mid-mutation `on_resolved` seam — which runs *inside* the bump after versions are decided and is handed the resolved version map — see [Release configuration](release.md#bump-on-resolved-hooks).
 
 ## Coverage and release
 

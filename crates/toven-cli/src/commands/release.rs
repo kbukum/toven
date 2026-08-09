@@ -536,6 +536,7 @@ fn bump(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<
             &overrides,
             &mut reporter,
             clock.as_ref(),
+            &hook_runner,
             &options,
         )?;
         match resolve_output(cli.output, &project.document) {

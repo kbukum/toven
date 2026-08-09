@@ -58,8 +58,8 @@ pub use doubles::{
     FakeReleaseTarget, FakeSignatureVerifier, FakeSigner, FakeSourceDigest, FakeVcsReader,
     FakeVcsWriter, FakeVersionProbe, HookCall, HostCall, ImageCall, ProvenanceCall,
     RecordingCacheStore, RecordingCacheWriter, RecordingHookRunner, RecordingRawOutputSink,
-    RecordingReporter, ReleaseCall, ScriptedAnswers, ScriptedToolchainProber, ScriptedWatchSource,
-    SignerCall, VcsWrite, VerifyCall, WatchCall,
+    RecordingReporter, ReleaseCall, ResolvedCall, ScriptedAnswers, ScriptedResolvedRunner,
+    ScriptedToolchainProber, ScriptedWatchSource, SignerCall, VcsWrite, VerifyCall, WatchCall,
 };
 pub use fixtures::{
     FIXTURES_ROOT, coverage_profile_string, document, document_path, document_string, ecosystem,

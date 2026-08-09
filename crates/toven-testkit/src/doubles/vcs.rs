@@ -8,7 +8,7 @@
 //! [`SampleRepo`](crate::repo::SampleRepo) instead.
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use toven_ports::{
@@ -19,7 +19,11 @@ use toven_ports::{
 ///
 /// All fields default to empty / `"0000000"`; set them with the `with_*`
 /// builders. `changed_since` returns the scripted records regardless of the
-/// baseline spec — baseline *policy* is the engine's job, not the port's.
+/// baseline spec — baseline *policy* is the engine's job, not the port's. The
+/// working-tree status is held behind a shared handle so a test can mutate it
+/// *after* construction — modelling a tree that is clean at the release
+/// clean-tree guard but carries edits a mid-mutation `on-resolved` hook then
+/// produces (see [`FakeVcsReader::worktree_handle`]).
 #[derive(Debug, Clone)]
 pub struct FakeVcsReader {
     branch: Option<String>,
@@ -28,7 +32,8 @@ pub struct FakeVcsReader {
     tags: Vec<TagRef>,
     changed: Vec<ChangeRecord>,
     commits: Vec<CommitSummary>,
-    worktree: Vec<ChangeRecord>,
+    worktree: Arc<Mutex<Vec<ChangeRecord>>>,
+    worktree_fault: Arc<Mutex<WorktreeStatusFault>>,
     ignored: Vec<PathBuf>,
 }
 
@@ -41,7 +46,8 @@ impl Default for FakeVcsReader {
             tags: Vec::new(),
             changed: Vec::new(),
             commits: Vec::new(),
-            worktree: Vec::new(),
+            worktree: Arc::new(Mutex::new(Vec::new())),
+            worktree_fault: Arc::new(Mutex::new(WorktreeStatusFault::None)),
             ignored: Vec::new(),
         }
     }
@@ -108,9 +114,57 @@ impl FakeVcsReader {
 
     /// Script the working-tree changes returned by `worktree_status`.
     #[must_use]
-    pub fn with_worktree_status(mut self, changes: Vec<ChangeRecord>) -> Self {
-        self.worktree = changes;
+    pub fn with_worktree_status(self, changes: Vec<ChangeRecord>) -> Self {
+        *self
+            .worktree
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = changes;
         self
+    }
+
+    /// Make the *first* `worktree_status` call that observes a non-empty tree
+    /// fail once with a typed internal error, then recover. Models a status read
+    /// that faults after a mid-mutation `on-resolved` hook has already produced
+    /// working-tree churn, so the abort path (which reads the tree again to
+    /// clean up) still sees a working read.
+    #[must_use]
+    pub fn with_worktree_status_failure_when_dirty(self, message: impl Into<String>) -> Self {
+        *self
+            .worktree_fault
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            WorktreeStatusFault::OnceWhenDirty(message.into());
+        self
+    }
+
+    /// Make the `n`-th `worktree_status` call (1-based) fail once with a typed
+    /// internal error, then recover. Models a status read that faults at a
+    /// precise point in the flow — e.g. the pre-hook untracked snapshot, taken
+    /// while the tree is still empty — so a later cleanup read still succeeds.
+    #[must_use]
+    pub fn with_worktree_status_failure_on_call(
+        self,
+        call: usize,
+        message: impl Into<String>,
+    ) -> Self {
+        *self
+            .worktree_fault
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = WorktreeStatusFault::OnceOnCall {
+            call,
+            seen: 0,
+            message: message.into(),
+        };
+        self
+    }
+
+    /// A shared handle to the working-tree status, so a test (or a scripted
+    /// mid-mutation hook double) can append changes *after* the reader is
+    /// constructed and after the clean-tree guard has already observed an empty
+    /// tree.
+    #[must_use]
+    pub fn worktree_handle(&self) -> Arc<Mutex<Vec<ChangeRecord>>> {
+        Arc::clone(&self.worktree)
     }
 
     /// Script the paths reported as git-ignored.
@@ -118,6 +172,58 @@ impl FakeVcsReader {
     pub fn with_ignored(mut self, paths: Vec<PathBuf>) -> Self {
         self.ignored = paths;
         self
+    }
+}
+
+/// A one-shot fault the [`FakeVcsReader`] injects into `worktree_status`, so a
+/// test can model a status read that faults at a precise point in a release
+/// flow and then recovers (letting a subsequent cleanup read succeed).
+#[derive(Debug, Clone)]
+enum WorktreeStatusFault {
+    /// No fault: every read succeeds.
+    None,
+    /// Fail the first read that observes a non-empty tree, then recover.
+    OnceWhenDirty(String),
+    /// Fail the `call`-th read (1-based), then recover.
+    OnceOnCall {
+        /// The 1-based ordinal to fail on.
+        call: usize,
+        /// How many reads have been observed so far.
+        seen: usize,
+        /// The failure message.
+        message: String,
+    },
+}
+
+impl WorktreeStatusFault {
+    /// Advance the fault for one `worktree_status` call over `status`, returning
+    /// the failure message when this call should fault (and disarming so later
+    /// reads recover).
+    fn fire(&mut self, status: &[ChangeRecord]) -> Option<String> {
+        match self {
+            Self::None => None,
+            Self::OnceWhenDirty(message) => {
+                if status.is_empty() {
+                    return None;
+                }
+                let message = message.clone();
+                *self = Self::None;
+                Some(message)
+            }
+            Self::OnceOnCall {
+                call,
+                seen,
+                message,
+            } => {
+                *seen += 1;
+                if *seen != *call {
+                    return None;
+                }
+                let message = message.clone();
+                *self = Self::None;
+                Some(message)
+            }
+        }
     }
 }
 
@@ -156,7 +262,20 @@ impl VcsReader for FakeVcsReader {
     }
 
     fn worktree_status(&self) -> AppResult<Vec<ChangeRecord>> {
-        Ok(self.worktree.clone())
+        let status = self
+            .worktree
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let fault = self
+            .worktree_fault
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .fire(&status);
+        if let Some(message) = fault {
+            return Err(AppError::new(ErrorCode::Internal, message));
+        }
+        Ok(status)
     }
 
     fn is_ignored(&self, repo_relative: &Path) -> AppResult<bool> {
