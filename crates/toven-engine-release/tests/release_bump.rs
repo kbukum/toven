@@ -959,3 +959,100 @@ fn a_failing_on_resolved_hook_removes_the_untracked_files_it_created() {
         writer.writes()
     );
 }
+
+#[test]
+fn an_on_resolved_abort_still_restores_when_untracked_cleanup_faults() {
+    // The failing hook creates an untracked file, and the abort's cleanup status
+    // read then faults. Cleanup is best-effort, so the tracked restore must still
+    // run — the bump may not strand the manifest/changelog mutation just because
+    // it could not delete the stray untracked file.
+    let (ws, root, document) = load_on_resolved_project();
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )])
+        // The pre-bump tree and pre-hook snapshot read clean; the first dirty
+        // read — the abort's untracked-cleanup enumeration — faults.
+        .with_worktree_status_failure_when_dirty("status read unavailable mid-abort");
+    let resolved = ScriptedResolvedRunner::producing_then_failing(
+        reader.worktree_handle(),
+        vec![ChangeRecord::new("GENERATED.txt", ChangeStatus::Added)],
+        "sync-extra",
+    );
+    let result = run_bump_resolved(
+        &ws,
+        root,
+        &document,
+        &writer,
+        &reader,
+        &provider_declaring(Version::new(0, 1, 0)),
+        &resolved,
+    );
+
+    assert!(
+        result.is_err(),
+        "a failing on-resolved hook aborts the bump: {result:?}"
+    );
+    assert!(
+        writer
+            .writes()
+            .iter()
+            .any(|write| matches!(write, VcsWrite::RestoreWorktree)),
+        "the tracked mutation is restored even when untracked cleanup faults: {:?}",
+        writer.writes()
+    );
+    assert!(
+        !writer
+            .writes()
+            .iter()
+            .any(|write| matches!(write, VcsWrite::Stage { .. })),
+        "nothing is staged when the on-resolved hook fails: {:?}",
+        writer.writes()
+    );
+}
+
+#[test]
+fn a_runaway_on_resolved_hook_that_floods_the_worktree_fails_closed() {
+    // A hook that produces more than the untracked-path cap of working-tree files
+    // must fail the join closed rather than build and stage an unbounded set.
+    let (ws, root, document) = load_on_resolved_project();
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+    // Just over the cap, reported only after the clean-tree guard observed an
+    // empty tree, so the successful-hook join path hits the bound.
+    let flood: Vec<ChangeRecord> = (0..=100_000)
+        .map(|index| ChangeRecord::new(format!("gen/file-{index}.txt"), ChangeStatus::Added))
+        .collect();
+    let resolved = ScriptedResolvedRunner::producing(reader.worktree_handle(), flood);
+    let result = run_bump_resolved(
+        &ws,
+        root,
+        &document,
+        &writer,
+        &reader,
+        &provider_declaring(Version::new(0, 1, 0)),
+        &resolved,
+    );
+
+    let error = result.expect_err("a worktree-flooding on-resolved hook fails closed");
+    assert!(
+        error.to_string().contains("new working-tree paths"),
+        "the failure names the runaway-hook bound: {error}"
+    );
+    assert!(
+        !writer
+            .writes()
+            .iter()
+            .any(|write| matches!(write, VcsWrite::Stage { .. })),
+        "an unbounded hook output is never staged: {:?}",
+        writer.writes()
+    );
+}

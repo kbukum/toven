@@ -416,9 +416,18 @@ fn join_hook_edits(
     for (shard, changed) in prepared.iter_mut() {
         let repo = repo_for(repos, shard.member.as_ref())?;
         let mut seen: BTreeSet<RepoPath> = changed.iter().cloned().collect();
+        // Bound the hook-produced additions like the failure-path snapshot does,
+        // so a runaway hook cannot force an unbounded staged set. (Enumeration
+        // itself is still bounded only by the VCS status port; a truly streaming
+        // bound would require that port to accept a limit.)
+        let mut added = 0usize;
         for record in repo.reader().worktree_status()? {
             let path = RepoPath::new(record.path)?;
             if seen.insert(path.clone()) {
+                if added >= MAX_UNTRACKED_PATHS {
+                    return Err(runaway_hook_paths(repo));
+                }
+                added += 1;
                 changed.push(path);
             }
         }
@@ -531,18 +540,25 @@ fn untracked_paths(repo: &MemberReleaseRepo) -> AppResult<BTreeSet<std::path::Pa
             continue;
         }
         if paths.len() >= MAX_UNTRACKED_PATHS {
-            return Err(AppError::new(
-                ErrorCode::Internal,
-                format!(
-                    "an on-resolved hook left more than {MAX_UNTRACKED_PATHS} untracked files in '{}'; \
-                     remove the stray files and retry the bump",
-                    repo.root().display()
-                ),
-            ));
+            return Err(runaway_hook_paths(repo));
         }
         paths.insert(record.path);
     }
     Ok(paths)
+}
+
+/// The fail-closed error for a member whose working tree carries more than
+/// [`MAX_UNTRACKED_PATHS`] hook-produced paths, so a runaway on-resolved hook
+/// cannot force an unbounded snapshot, deletion sweep, or staged set.
+fn runaway_hook_paths(repo: &MemberReleaseRepo) -> AppError {
+    AppError::new(
+        ErrorCode::Internal,
+        format!(
+            "an on-resolved hook left more than {MAX_UNTRACKED_PATHS} new working-tree paths in '{}'; \
+             remove the stray files and retry the bump",
+            repo.root().display()
+        ),
+    )
 }
 
 /// Abort a bump after an on-resolved hook fails: delete the untracked files the
@@ -550,22 +566,37 @@ fn untracked_paths(repo: &MemberReleaseRepo) -> AppResult<BTreeSet<std::path::Pa
 /// `before`), then roll every mutated member's tracked files back to `HEAD`, so
 /// no partial mutation survives. Cleanup runs before the tracked restore because
 /// `restore_worktree` intentionally leaves untracked files in place.
+///
+/// Cleanup is best-effort: a failure to enumerate or delete one member's
+/// untracked files must never skip the tracked restore below, or the abort would
+/// strand tracked manifest/version-reference mutations and break the atomic-abort
+/// guarantee. The first cleanup failure is accumulated, cleanup continues for the
+/// remaining members, and the tracked restore always runs; a surfaced cleanup
+/// failure is folded into the returned error as a detail.
 fn abort_on_resolved(
     prepared: &[(&MemberReleaseShard, Vec<RepoPath>)],
     repos: &MemberReleaseRepos<'_>,
     before: &[BTreeSet<std::path::PathBuf>],
     error: AppError,
 ) -> AppError {
+    let mut cleanup_failure: Option<AppError> = None;
     for ((shard, _), before) in prepared.iter().zip(before) {
         let repo = match repo_for(repos, shard.member.as_ref()) {
             Ok(repo) => repo,
-            Err(restore) => return restore_prepared_failure(error, &restore),
+            Err(cleanup) => {
+                cleanup_failure.get_or_insert(cleanup);
+                continue;
+            }
         };
         if let Err(cleanup) = remove_new_untracked(repo, before) {
-            return restore_prepared_failure(error, &cleanup);
+            cleanup_failure.get_or_insert(cleanup);
         }
     }
-    restore_bump_prepared(prepared, repos, error)
+    let restored = restore_bump_prepared(prepared, repos, error);
+    match cleanup_failure {
+        Some(cleanup) => restored.with_detail("untracked_cleanup_error", cleanup.to_string()),
+        None => restored,
+    }
 }
 
 /// Delete the untracked files a member gained since `before` — the on-resolved
