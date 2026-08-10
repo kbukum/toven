@@ -9,6 +9,7 @@
 //! [`ReleaseConfig`] field, so the strict loader accepts `[…release.phases]` and
 //! the engine resolves each phase's backing from it.
 
+mod baseline;
 mod changelog;
 mod config;
 mod host;
@@ -18,8 +19,10 @@ mod policy;
 mod prerelease;
 mod publication;
 mod signing;
+mod tag_mode;
 mod version_reference;
 
+pub use baseline::BaselineSourceConfig;
 pub use changelog::ChangelogConfig;
 pub use config::ReleaseConfig;
 pub use host::HostConfig;
@@ -29,4 +32,5 @@ pub use policy::{BumpLevel, DependentVersion};
 pub use prerelease::PrereleaseConfig;
 pub use publication::PublicationPolicy;
 pub use signing::SignConfig;
+pub use tag_mode::TagMode;
 pub use version_reference::{VERSION_REF_TOKENS, VersionRefToken, VersionReferenceConfig};

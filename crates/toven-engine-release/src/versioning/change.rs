@@ -90,6 +90,13 @@ fn detect_member(
     // none, so detection is unchanged there.
     let reference_globs = version_reference_globs(settings);
 
+    // The umbrella module's tag scheme, computed once per member: when a member
+    // declares an umbrella module its per-module baselines anchor on the shared
+    // umbrella tag + registry rather than on per-module tags the umbrella layout
+    // never cuts (the rskit case). A member with no umbrella keeps the
+    // per-module own-tag baseline unchanged.
+    let umbrella_scheme = member_umbrella_scheme(context, member, targets, settings)?;
+
     for module in context
         .federation
         .modules
@@ -103,11 +110,12 @@ fn detect_member(
             continue;
         };
         let scheme = target.tag_scheme(module, resolved.tag_format.as_deref())?;
+        let source = resolve_baseline_source(resolved.baseline, scheme, umbrella_scheme.as_ref())?;
         let Some(spec) = baseline_spec(
             module,
             base_override,
             &tags,
-            scheme,
+            &source,
             target,
             &mut changes.baselines,
         )?
@@ -183,35 +191,31 @@ fn collect_commits(
 
 /// Resolve the diff baseline for one module's release change detection.
 ///
-/// A release baseline answers "what changed **since the last release**". This
-/// step anchors on the module's own latest release tag via the shared
-/// [`resolve_baseline`] resolver with [`BaselineSource::OwnTag`] — the
-/// behavior-preserving default; the registry/umbrella-anchored sources are
-/// wired into detection in a later step. `--base` overrides the diff ref
-/// explicitly *when a release tag exists*, while the tag continues to anchor
-/// idempotency.
+/// A release baseline answers "what changed **since the last release**". The
+/// module's [`BaselineSource`] — its own release tag, a shared umbrella tag, or
+/// the registry's max published version (composed by
+/// [`default_baseline_source`]) — is resolved to a concrete
+/// [`ReleaseBaseline`] by the shared [`resolve_baseline`] resolver. `--base`
+/// overrides the diff ref explicitly *when a released anchor exists*, while the
+/// anchor's version continues to anchor idempotency.
 ///
-/// When no release tag exists the module has never been released, so `None` is
-/// returned and the caller treats the module as an *initial release*: every
-/// module is unreleased, and nothing has been published yet to diff against.
-/// `--base` is deliberately **not** honored in that case, and neither is a
-/// branch ref such as `[project].base_ref` — diffing a never-released module
-/// against `origin/main` reports no changes on that branch and would silently
-/// plan an empty first release.
+/// When the source resolves no anchor at all the module has never been
+/// released, so `None` is returned and the caller treats the module as an
+/// *initial release*: every module is unreleased, and nothing has been
+/// published yet to diff against. `--base` is deliberately **not** honored in
+/// that case, and neither is a branch ref such as `[project].base_ref` —
+/// diffing a never-released module against `origin/main` reports no changes on
+/// that branch and would silently plan an empty first release.
 fn baseline_spec(
     module: &Module,
     base_override: Option<&str>,
     tags: &[TagRef],
-    scheme: TagScheme,
+    source: &BaselineSource,
     version_source: &dyn toven_ports::VersionSource,
     baselines: &mut BTreeMap<ModuleKey, ReleaseBaseline>,
 ) -> AppResult<Option<BaselineSpec>> {
-    let baseline = crate::versioning::baseline::resolve_baseline(
-        module,
-        &BaselineSource::own_tag(scheme),
-        version_source,
-        tags,
-    )?;
+    let baseline =
+        crate::versioning::baseline::resolve_baseline(module, source, version_source, tags)?;
 
     // No anchor at all: the module has never been released, so it is always an
     // initial release. `--base` is not honored here — a never-released module
@@ -234,6 +238,117 @@ fn baseline_spec(
     };
     baselines.insert(module.key(), baseline);
     Ok(Some(BaselineSpec::explicit(diff_ref)))
+}
+
+/// Resolve the [`BaselineSource`] for a module from its configured `baseline`
+/// selector, the module's own tag scheme, and the member's umbrella tag scheme.
+///
+/// An unset `baseline` config keeps the behavior-preserving engine default: a
+/// member that declares an umbrella module anchors every module's baseline on
+/// the shared umbrella tag *and* the registry's max published version — the
+/// `max(registry, umbrella-tag)` composition a Rust-style workspace needs, where
+/// crates carry per-crate tag schemes the single umbrella tag never matches. A
+/// member with no umbrella keeps the per-module own-tag baseline, so a
+/// per-module-tag ecosystem (Go) and a single-repo project are unchanged.
+///
+/// An explicit `baseline` selects the source directly, bypassing the
+/// umbrella-presence inference: the module then carries exactly the source it
+/// names.
+///
+/// # Errors
+/// A source that references the umbrella tag (`umbrella-tag`,
+/// `registry+umbrella`) requires the member to declare an umbrella module. Plan
+/// validation rejects the mismatch up front; this is the defense-in-depth guard
+/// that fails closed with a typed error rather than silently degrading.
+fn resolve_baseline_source(
+    config: Option<toven_ports::BaselineSourceConfig>,
+    own_scheme: TagScheme,
+    umbrella_scheme: Option<&TagScheme>,
+) -> AppResult<BaselineSource> {
+    use toven_ports::BaselineSourceConfig;
+
+    let umbrella = |scheme: Option<&TagScheme>| {
+        scheme.cloned().map(BaselineSource::umbrella_tag).ok_or_else(|| {
+            rskit_errors::AppError::invalid_input(
+                "release.baseline",
+                "an umbrella-anchored baseline requires the member to declare an umbrella module, \
+                 but none is declared",
+            )
+        })
+    };
+
+    match config {
+        None => Ok(umbrella_scheme.map_or_else(
+            || BaselineSource::own_tag(own_scheme),
+            |scheme| BaselineSource::registry(BaselineSource::umbrella_tag(scheme.clone())),
+        )),
+        Some(BaselineSourceConfig::OwnTag) => Ok(BaselineSource::own_tag(own_scheme)),
+        Some(BaselineSourceConfig::UmbrellaTag) => umbrella(umbrella_scheme),
+        Some(BaselineSourceConfig::Registry) => Ok(BaselineSource::registry(
+            BaselineSource::own_tag(own_scheme),
+        )),
+        Some(BaselineSourceConfig::RegistryUmbrella) => {
+            Ok(BaselineSource::registry(umbrella(umbrella_scheme)?))
+        }
+        Some(other) => Err(rskit_errors::AppError::invalid_input(
+            "release.baseline",
+            format!("unsupported baseline source '{}'", other.as_str()),
+        )),
+    }
+}
+
+/// The umbrella module's tag scheme for one member, when the member declares an
+/// umbrella module.
+///
+/// The umbrella tag anchors every module's baseline in an umbrella layout, so
+/// its scheme is resolved once per member rather than per module. A member with
+/// no umbrella module returns `None` and each module keeps its own-tag baseline.
+///
+/// # Errors
+/// A member that declares more than one `umbrella = true` module is a
+/// fail-closed configuration error: the umbrella tag would be ambiguous. This is
+/// the defense-in-depth guard on the unset-baseline default path, which infers
+/// the umbrella anchor from umbrella presence and so never reaches the explicit
+/// selector check in `validate_tag_mode_and_baseline`. Also propagates
+/// [`TagGrammar::tag_scheme`](toven_ports::TagGrammar::tag_scheme) failures for
+/// the umbrella module's configured tag format.
+fn member_umbrella_scheme(
+    context: &PlanContext,
+    member: Option<&toven_model::MemberId>,
+    targets: &ReleaseTargets,
+    settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
+) -> AppResult<Option<TagScheme>> {
+    let mut umbrella: Option<(&Module, TagScheme)> = None;
+    for module in context
+        .federation
+        .modules
+        .iter()
+        .filter(|module| module.member.as_ref() == member)
+    {
+        let Some(resolved) = settings.get(&module.key()) else {
+            continue;
+        };
+        if !resolved.umbrella {
+            continue;
+        }
+        let Some(target) = target_for(targets, module) else {
+            continue;
+        };
+        let scheme = target.tag_scheme(module, resolved.tag_format.as_deref())?;
+        if let Some((existing, _)) = &umbrella {
+            return Err(rskit_errors::AppError::invalid_input(
+                "release.umbrella",
+                format!(
+                    "member declares more than one umbrella module ('{}' and '{}'); a train has a \
+                     single umbrella representative",
+                    existing.key(),
+                    module.key()
+                ),
+            ));
+        }
+        umbrella = Some((module, scheme));
+    }
+    Ok(umbrella.map(|(_, scheme)| scheme))
 }
 
 /// The diff ref a baseline compares its files against.
@@ -286,9 +401,72 @@ fn path_matches_any(globs: &[String], path: &std::path::Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use toven_ports::Oid;
+    use toven_ports::{BaselineSourceConfig, Oid, TagScheme};
 
-    use super::diff_ref;
+    use super::{diff_ref, resolve_baseline_source};
+    use crate::model::BaselineSource;
+
+    fn own() -> TagScheme {
+        TagScheme::new("rust/core@", "")
+    }
+
+    fn umbrella() -> TagScheme {
+        TagScheme::new("v", "")
+    }
+
+    #[test]
+    fn unset_baseline_without_umbrella_is_own_tag() {
+        let source = resolve_baseline_source(None, own(), None).expect("resolves");
+        assert!(matches!(source, BaselineSource::OwnTag { .. }));
+    }
+
+    #[test]
+    fn unset_baseline_with_umbrella_is_registry_over_umbrella() {
+        let source = resolve_baseline_source(None, own(), Some(&umbrella())).expect("resolves");
+        assert!(matches!(
+            source,
+            BaselineSource::Registry { diff } if matches!(*diff, BaselineSource::UmbrellaTag { .. })
+        ));
+    }
+
+    #[test]
+    fn explicit_own_tag_ignores_the_umbrella_scheme() {
+        let source =
+            resolve_baseline_source(Some(BaselineSourceConfig::OwnTag), own(), Some(&umbrella()))
+                .expect("resolves");
+        assert!(matches!(source, BaselineSource::OwnTag { .. }));
+    }
+
+    #[test]
+    fn explicit_registry_anchors_the_diff_on_the_own_tag() {
+        let source = resolve_baseline_source(Some(BaselineSourceConfig::Registry), own(), None)
+            .expect("resolves");
+        assert!(matches!(
+            source,
+            BaselineSource::Registry { diff } if matches!(*diff, BaselineSource::OwnTag { .. })
+        ));
+    }
+
+    #[test]
+    fn registry_umbrella_composes_registry_over_the_umbrella_tag() {
+        let source = resolve_baseline_source(
+            Some(BaselineSourceConfig::RegistryUmbrella),
+            own(),
+            Some(&umbrella()),
+        )
+        .expect("resolves");
+        assert!(matches!(
+            source,
+            BaselineSource::Registry { diff } if matches!(*diff, BaselineSource::UmbrellaTag { .. })
+        ));
+    }
+
+    #[test]
+    fn umbrella_backed_source_without_an_umbrella_scheme_fails_closed() {
+        let error = resolve_baseline_source(Some(BaselineSourceConfig::UmbrellaTag), own(), None)
+            .expect_err("umbrella-anchored baseline requires an umbrella module");
+        assert!(error.to_string().contains("umbrella"), "{error}");
+    }
 
     #[test]
     fn explicit_base_override_wins_over_the_anchor_commit() {

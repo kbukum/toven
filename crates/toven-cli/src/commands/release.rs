@@ -31,7 +31,9 @@ use toven_engine_release::{
     release_sbom, release_sign, release_status, release_verify,
 };
 use toven_model::{Entrypoint, Event, ModuleRef};
-use toven_ports::{BumpLevel, Provider, PublicationPolicy, Reporter, TaskIntent};
+use toven_ports::{
+    BaselineSourceConfig, BumpLevel, Provider, PublicationPolicy, Reporter, TagMode, TaskIntent,
+};
 
 use crate::flags::{Cli, OutputKind, ReleaseAction};
 use crate::host::{Project, Report, new_run_id, resolve_output};
@@ -621,6 +623,8 @@ struct PlanRecord {
     current_version: String,
     planned_version: Option<String>,
     tag: Option<String>,
+    tag_mode: String,
+    baseline_source: String,
     level: Option<String>,
     reason: String,
     winning_input: String,
@@ -648,6 +652,8 @@ fn render_plan_human(plan: &ReleasePlan) {
         "Current",
         "Planned",
         "Tag",
+        "Tag mode",
+        "Baseline",
         "Level",
         "Reason",
         "Input",
@@ -667,6 +673,8 @@ fn render_plan_human(plan: &ReleasePlan) {
                 .as_ref()
                 .map_or_else(|| "-".to_string(), ToString::to_string),
             entry.planned_tag.clone().unwrap_or_else(|| "-".to_string()),
+            tag_mode_label(entry.tag_mode).to_string(),
+            baseline_source_label(entry.baseline_source).to_string(),
             if entry.planned_version.is_some() {
                 entry.level.as_str().to_string()
             } else {
@@ -697,6 +705,8 @@ fn render_plan_jsonl(plan: &ReleasePlan) -> AppResult<()> {
             current_version: entry.current_version.to_string(),
             planned_version: entry.planned_version.as_ref().map(ToString::to_string),
             tag: entry.planned_tag.clone(),
+            tag_mode: tag_mode_label(entry.tag_mode).to_string(),
+            baseline_source: baseline_source_label(entry.baseline_source).to_string(),
             level: entry
                 .planned_version
                 .as_ref()
@@ -908,6 +918,18 @@ fn flow_label(entrypoint: Entrypoint, umbrella: bool) -> String {
     } else {
         entrypoint.as_str().to_string()
     }
+}
+
+/// Human/JSONL label for a module's effective tag mode; an unset mode reports
+/// `default` (the adapter-resolved layout).
+fn tag_mode_label(mode: Option<TagMode>) -> &'static str {
+    mode.map_or("default", TagMode::as_str)
+}
+
+/// Human/JSONL label for a module's effective baseline source; an unset source
+/// reports `default` (inferred from umbrella presence).
+fn baseline_source_label(source: Option<BaselineSourceConfig>) -> &'static str {
+    source.map_or("default", BaselineSourceConfig::as_str)
 }
 
 /// Human label for a module's release flow in `release status`. For a
