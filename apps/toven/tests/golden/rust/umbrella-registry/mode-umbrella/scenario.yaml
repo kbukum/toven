@@ -1,0 +1,18 @@
+# Umbrella tag mode: only the shared `v0.1.0` umbrella tag exists and every crate
+# baselines on `max(registry, umbrella-tag)`. Only `kit-core` changed since the
+# umbrella tag, so it bumps and cascades to `kit-suite`; `kit-util` is unchanged
+# and stays out of the plan. The projection reports `tag_mode = umbrella` and
+# `baseline_source = registry+umbrella`.
+repo: rust/umbrella-registry
+requires: [cargo]
+git:
+  commits:
+    - msg: "change kit-core after the umbrella tag"
+      touch: ["crates/kit-core/src/lib.rs"]
+  tags:
+    - { name: v0.1.0, at: 0 }
+steps:
+  - id: 01-release-plan
+    argv: [release, plan, --output, jsonl]
+    config: toven.umbrella.toml
+    stdout: { match: normalized }

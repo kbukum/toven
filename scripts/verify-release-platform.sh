@@ -7,7 +7,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
 
 echo "verify-release-platform: running release engine and fixture matrix" >&2
-cargo test --locked -p toven-engine-release
+cargo test --locked -p toven-release
 cargo test --locked -p toven-ports --test release_fixture_matrix
 
 echo "verify-release-platform: running CLI release scenarios (Rust + Go)" >&2

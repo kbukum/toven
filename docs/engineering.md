@@ -49,7 +49,7 @@ Lower layers never import higher layers. Ecosystem adapters do not import the en
 
 ## Language- and tool-agnostic core
 
-Toven's core (`toven-model`, `toven-ports`, `toven-engine-core`, `toven-engine-release`, `toven-engine`, `toven-cli`) is language- and tool-agnostic: it orchestrates a task graph but knows nothing about cargo, go, mdbook, or ast-grep. Every language- or tool-specific gate lives in an adapter or in configuration, never as a hard-coded verb in core. The test for where a gate belongs is what it is bound to, not what is convenient:
+Toven's core (`toven-model`, `toven-ports`, `toven-core`, `toven-release`, `toven-engine`, `toven-cli`) is language- and tool-agnostic: it orchestrates a task graph but knows nothing about cargo, go, mdbook, or ast-grep. Every language- or tool-specific gate lives in an adapter or in configuration, never as a hard-coded verb in core. The test for where a gate belongs is what it is bound to, not what is convenient:
 
 | Gate | Nature | Home |
 |---|---|---|

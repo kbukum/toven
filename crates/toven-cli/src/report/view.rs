@@ -8,7 +8,7 @@
 //! keeping piped, redirected, `--output jsonl`, and CI runs unchanged.
 
 use rskit_process::PtySize;
-use toven_engine_core::config::ViewMode;
+use toven_core::config::ViewMode;
 
 use super::tiles::TILE_TAIL_LINES;
 

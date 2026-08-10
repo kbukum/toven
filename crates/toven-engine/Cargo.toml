@@ -12,7 +12,7 @@ publish = false
 [dependencies]
 toven-model.workspace = true
 toven-ports.workspace = true
-toven-engine-core.workspace = true
+toven-core.workspace = true
 toven-exec.workspace = true
 rskit-errors.workspace = true
 rskit-fs = { workspace = true, features = ["watch"] }

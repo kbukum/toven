@@ -1,0 +1,29 @@
+# An umbrella-facade Rust workspace (`kit-suite -> kit-core -> kit-util`) that
+# cuts a single umbrella `v{version}` tag while each crate is versioned and
+# baselined against the registry — the registry+umbrella release model a
+# crates.io workspace uses (one repo tag for traceability, crates.io as the
+# per-crate registry). This is the exact configuration whose change-gating
+# regressed to `From == To`: it relies entirely on the per-ecosystem Rust
+# adapter defaults (registry+umbrella baseline, `both` tag mode) with no explicit
+# `tag_mode`/`baseline` knobs. Sibling `toven.<mode>.toml` variants pin each tag
+# mode and the maintainer entrypoint for the goldens.
+[project]
+name = "umbrella-registry-rust"
+
+[toven]
+include = ["_profiles/rust-tasks.toml"]
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"
+
+[ecosystems.rust.release]
+registry = "crates-io"
+offline = true
+push_branch = false
+
+# `kit-suite` is the umbrella facade: it cuts the shared `v{version}` tag; the
+# other crates keep the default `rust/<crate>@<version>` per-crate scheme.
+[modules."rust:kit-suite".release]
+umbrella = true
+tag_format = "v{version}"

@@ -43,7 +43,7 @@ Effects assert side-effects after a step runs: `cache_entries` (a count comparis
 
 Fixture repos are real, minimal, buildable trees under `crates/toven-testkit/fixtures/repos/`, named by ecosystem and topology so `repo ↔ scenario ↔ output` is obvious. Each is materialized to a temp dir and `git init`-ed with pinned identity and dates before a scenario runs, and every step runs with the repo root as the working directory.
 
-- `rust/` — `single`, `workspace-linear` (`app → corelib → util`), `workspace-diamond`, `multi-workspace`, `workspace-inherited`, `publish-train` (release config), `onboarding` (no `toven.toml`).
+- `rust/` — `single`, `workspace-linear` (`app → corelib → util`), `workspace-diamond`, `multi-workspace`, `workspace-inherited`, `publish-train` (release config), `umbrella-registry` (registry+umbrella release baseline, per-tag-mode variants), `onboarding` (no `toven.toml`).
 - `go/` — `single`, `work-linear` (`go.work`), `versioned`.
 - `command/` — `single` (echo-only, deterministic), `failing`, `multi-task`.
 - `polyglot/umbrella` — rust + go + command in one tree.

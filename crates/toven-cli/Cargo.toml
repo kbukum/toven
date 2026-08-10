@@ -12,9 +12,9 @@ publish = false
 [dependencies]
 toven-model.workspace = true
 toven-ports.workspace = true
-toven-engine-core.workspace = true
+toven-core.workspace = true
 toven-engine.workspace = true
-toven-engine-release.workspace = true
+toven-release.workspace = true
 toven-exec.workspace = true
 rskit-errors.workspace = true
 rskit-version.workspace = true
@@ -36,8 +36,8 @@ toven-testkit.workspace = true
 # portable and cross-compiled release builds. Off by default.
 vendored-openssl = [
     "toven-engine/vendored-openssl",
-    "toven-engine-release/vendored-openssl",
-    "toven-engine-core/vendored-openssl",
+    "toven-release/vendored-openssl",
+    "toven-core/vendored-openssl",
 ]
 
 [lints]

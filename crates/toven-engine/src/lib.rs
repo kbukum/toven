@@ -2,15 +2,15 @@
 //!
 //! Layer 2b of the hexagonal architecture: the engine that drives the ports
 //! ([`toven_ports`]) over the shared vocabulary ([`toven_model`]) on top of the
-//! shared PLAN foundation ([`toven_engine_core`]). It owns the APPLY execution
+//! shared PLAN foundation ([`toven_core`]). It owns the APPLY execution
 //! tail plus the standalone engine concerns — apply, cache, coverage, output,
 //! watch, init, and doctor — while config, the VCS seam, the PLAN spine, and
-//! umbrella federation now live in [`toven_engine_core`] and the release tail
-//! lives in [`toven_engine_release`](../toven_engine_release/index.html).
+//! umbrella federation now live in [`toven_core`] and the release tail
+//! lives in [`toven_release`](../toven_release/index.html).
 //!
 //! The engine injects the write side of the cache port defined in
 //! [`toven_ports`] — [`CacheWriter`](toven_ports::CacheWriter) — over the pure
-//! PLAN spine that [`toven_engine_core`] owns; the concrete filesystem backend
+//! PLAN spine that [`toven_core`] owns; the concrete filesystem backend
 //! ([`cache::FsContentCache`]) lives here.
 //!
 //! ## Modules

@@ -1,0 +1,20 @@
+# The headline registry+umbrella change-gating case (the rskit `From == To`
+# fix): a single umbrella tag `v0.1.0` is the only release history, per-crate
+# versions are declared, and only `kit-core` changed since the umbrella tag.
+# Change-gating must bump only `kit-core` (a real diff, 0.1.0 -> 0.1.1,
+# `From != To`) and cascade to its dependent `kit-suite`, while the untouched
+# `kit-util` never joins the plan. The config sets no `tag_mode`/`baseline`, so
+# the projection proves the Rust adapter defaults resolve to `tag_mode = both`
+# and `baseline_source = registry+umbrella` with no explicit knobs.
+repo: rust/umbrella-registry
+requires: [cargo]
+git:
+  commits:
+    - msg: "change kit-core after the umbrella tag"
+      touch: ["crates/kit-core/src/lib.rs"]
+  tags:
+    - { name: v0.1.0, at: 0 }
+steps:
+  - id: 01-release-plan
+    argv: [release, plan, --output, jsonl]
+    stdout: { match: normalized }

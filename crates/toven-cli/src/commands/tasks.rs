@@ -10,7 +10,7 @@
 
 use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult};
-use toven_engine_core::plan::{TaskCatalog, TaskSummary, task_catalog};
+use toven_core::plan::{TaskCatalog, TaskSummary, task_catalog};
 use toven_ports::Provider;
 
 use crate::flags::OutputKind;

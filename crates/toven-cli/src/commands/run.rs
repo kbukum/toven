@@ -10,12 +10,12 @@
 
 use rskit_cli::{ExitCode, on_ctrl_c};
 use rskit_errors::AppResult;
-use toven_engine::apply::{ApplyOptions, apply};
-use toven_engine::cache::FsContentCache;
-use toven_engine_core::config::ViewMode;
-use toven_engine_core::plan::{
+use toven_core::config::ViewMode;
+use toven_core::plan::{
     CacheMode, FsSourceDigest, PlanHost, PlanRequest, ProcessToolchainProber, plan,
 };
+use toven_engine::apply::{ApplyOptions, apply};
+use toven_engine::cache::FsContentCache;
 use toven_model::{CacheVerdict, Event, Plan, RunStats};
 use toven_ports::{PlanReporter, Provider, Reporter, TaskIntent};
 

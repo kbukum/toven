@@ -17,8 +17,8 @@
 
 use rskit_cli::ExitCode;
 use rskit_errors::{AppError, AppResult, ErrorCode};
+use toven_core::plan::ProcessToolchainProber;
 use toven_engine::doctor::{ToolAudit, ToolProbeOutcome, audit_streaming};
-use toven_engine_core::plan::ProcessToolchainProber;
 use toven_model::{Event, ToolStatus};
 use toven_ports::{Provider, Reporter};
 

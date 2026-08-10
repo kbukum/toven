@@ -1,0 +1,24 @@
+# Per-module tag mode: every crate carries its own `rust/<crate>@<version>` tag
+# and baselines on that own tag (the Go-style model, exercised here on a Rust
+# workspace). No umbrella tag is cut even though `kit-suite` is the umbrella
+# facade. Selects `--config toven.per-module.toml`.
+[project]
+name = "umbrella-registry-rust"
+
+[toven]
+include = ["_profiles/rust-tasks.toml"]
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"
+
+[ecosystems.rust.release]
+registry = "crates-io"
+offline = true
+push_branch = false
+tag_mode = "per-module"
+baseline = "own-tag"
+
+[modules."rust:kit-suite".release]
+umbrella = true
+tag_format = "v{version}"

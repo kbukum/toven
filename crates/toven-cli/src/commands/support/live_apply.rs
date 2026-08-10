@@ -13,9 +13,9 @@ use std::sync::Arc;
 
 use rskit_cli::Palette;
 use rskit_errors::{AppError, AppResult};
+use toven_core::config::ViewMode;
 use toven_engine::apply::ProcessCommandRunner;
 use toven_engine::output::UnitOutputChannel;
-use toven_engine_core::config::ViewMode;
 use toven_ports::{CommandRunner, RawOutputSink};
 
 use crate::host::Project;

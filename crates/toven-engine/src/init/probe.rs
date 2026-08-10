@@ -14,8 +14,8 @@ use rskit_errors::{AppError, AppResult};
 use toven_model::EcosystemId;
 use toven_ports::{AnswerProvider, DriverLocator, DriverWizard, EcosystemFragment, Provider};
 
-use toven_engine_core::config::CanonicalRegistry;
-use toven_engine_core::federation;
+use toven_core::config::CanonicalRegistry;
+use toven_core::federation;
 
 /// The production [`DriverWizard`]: spawns `program __init` and runs the
 /// federated config-less two-round-trip wizard exchange, answering each
