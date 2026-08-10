@@ -2038,12 +2038,12 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "toven-core",
  "toven-engine",
- "toven-engine-core",
- "toven-engine-release",
  "toven-exec",
  "toven-model",
  "toven-ports",
+ "toven-release",
  "toven-testkit",
 ]
 
@@ -2058,6 +2058,27 @@ dependencies = [
  "toml",
  "toven-model",
  "toven-ports",
+]
+
+[[package]]
+name = "toven-core"
+version = "0.1.0-alpha.5"
+dependencies = [
+ "rskit-codec",
+ "rskit-config",
+ "rskit-errors",
+ "rskit-fs",
+ "rskit-git",
+ "rskit-process",
+ "rskit-util",
+ "rskit-validation",
+ "rskit-version",
+ "serde",
+ "serde_json",
+ "toml",
+ "toven-model",
+ "toven-ports",
+ "toven-testkit",
 ]
 
 [[package]]
@@ -2079,49 +2100,8 @@ dependencies = [
  "tokio-util",
  "toml",
  "toml_edit",
- "toven-engine-core",
+ "toven-core",
  "toven-exec",
- "toven-model",
- "toven-ports",
- "toven-testkit",
-]
-
-[[package]]
-name = "toven-engine-core"
-version = "0.1.0-alpha.5"
-dependencies = [
- "rskit-codec",
- "rskit-config",
- "rskit-errors",
- "rskit-fs",
- "rskit-git",
- "rskit-process",
- "rskit-util",
- "rskit-validation",
- "rskit-version",
- "serde",
- "serde_json",
- "toml",
- "toven-model",
- "toven-ports",
- "toven-testkit",
-]
-
-[[package]]
-name = "toven-engine-release"
-version = "0.1.0-alpha.5"
-dependencies = [
- "rskit-config",
- "rskit-errors",
- "rskit-fs",
- "rskit-git",
- "rskit-process",
- "rskit-util",
- "rskit-version",
- "serde",
- "serde_json",
- "toml",
- "toven-engine-core",
  "toven-model",
  "toven-ports",
  "toven-testkit",
@@ -2170,7 +2150,7 @@ dependencies = [
  "rskit-errors",
  "serde_json",
  "toven-cli",
- "toven-engine-core",
+ "toven-core",
  "toven-exec",
  "toven-go",
  "toven-model",
@@ -2207,6 +2187,26 @@ dependencies = [
  "tokio-util",
  "toml",
  "toven-model",
+]
+
+[[package]]
+name = "toven-release"
+version = "0.1.0-alpha.5"
+dependencies = [
+ "rskit-config",
+ "rskit-errors",
+ "rskit-fs",
+ "rskit-git",
+ "rskit-process",
+ "rskit-util",
+ "rskit-version",
+ "serde",
+ "serde_json",
+ "toml",
+ "toven-core",
+ "toven-model",
+ "toven-ports",
+ "toven-testkit",
 ]
 
 [[package]]

@@ -1,0 +1,23 @@
+# Umbrella tag mode: only the single umbrella `v{version}` tag is cut, and every
+# crate baselines on `max(registry, umbrella-tag)`. This is the canonical
+# registry+umbrella workspace layout. Selects `--config toven.umbrella.toml`.
+[project]
+name = "umbrella-registry-rust"
+
+[toven]
+include = ["_profiles/rust-tasks.toml"]
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"
+
+[ecosystems.rust.release]
+registry = "crates-io"
+offline = true
+push_branch = false
+tag_mode = "umbrella"
+baseline = "registry+umbrella"
+
+[modules."rust:kit-suite".release]
+umbrella = true
+tag_format = "v{version}"

@@ -1,0 +1,19 @@
+# Per-module tag mode: each crate carries its own `rust/<crate>@0.1.0` tag and
+# baselines on that own tag. Only `kit-core` changed since its tag, so it bumps
+# and cascades to `kit-suite`; `kit-util` is unchanged and stays out of the plan.
+# The projection reports `tag_mode = per-module` and `baseline_source = own-tag`.
+repo: rust/umbrella-registry
+requires: [cargo]
+git:
+  commits:
+    - msg: "change kit-core after the per-crate tags"
+      touch: ["crates/kit-core/src/lib.rs"]
+  tags:
+    - { name: "rust/kit-util@0.1.0", at: 0 }
+    - { name: "rust/kit-core@0.1.0", at: 0 }
+    - { name: "rust/kit-suite@0.1.0", at: 0 }
+steps:
+  - id: 01-release-plan
+    argv: [release, plan, --output, jsonl]
+    config: toven.per-module.toml
+    stdout: { match: normalized }

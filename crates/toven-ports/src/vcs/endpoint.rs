@@ -2,7 +2,7 @@
 //!
 //! Pure vocabulary: a [`DiffEndpoint`] names *where* one side of a comparison
 //! lives (the working tree, `HEAD`, a named ref, an object id, or the latest
-//! tag matching a scheme) without performing any git call. The engine-core
+//! tag matching a scheme) without performing any git call. The core
 //! change foundation resolves a [`DiffRange`] of two endpoints onto the
 //! [`VcsReader`](super::VcsReader) seam, so every verb expresses "what changed
 //! between two points" the same way.

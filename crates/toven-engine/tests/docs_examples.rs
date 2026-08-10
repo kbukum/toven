@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use common::{canonical, loaded};
 use rskit_fs::TempDir;
 use rskit_fs::sync_io::file::{read_string_bounded, write};
-use toven_engine_core::config::load;
+use toven_core::config::load;
 use toven_testkit::assert_ok;
 
 /// Upper bound on a doc file read (generous; these are small Markdown files).

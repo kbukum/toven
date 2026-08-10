@@ -5,7 +5,7 @@
 //! installs a driver (an absent driver is warn + skip in the engine's four-way
 //! dispatch), so installing/syncing is isolated here behind its own verbs. Each
 //! action is a thin caller over the engine's
-//! [`federation::provision`](toven_engine_core::federation::provision) functions.
+//! [`federation::provision`](toven_core::federation::provision) functions.
 //! The `list`/`status` **listing bodies** print to **stdout** (they are query
 //! output a user pipes, like `modules`/`tasks`), while provisioning progress
 //! (`install`/`sync`) and errors stay on **stderr**, and `stdout` otherwise
@@ -14,10 +14,10 @@
 
 use rskit_cli::{ErrorRenderer, ExitCode};
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_engine_core::federation::provision::{
+use toven_core::federation::provision::{
     self, DriverState, DriverStatus, install_driver, version_pin,
 };
-use toven_engine_core::federation::resolve::PathDriverLocator;
+use toven_core::federation::resolve::PathDriverLocator;
 use toven_model::EcosystemId;
 use toven_ports::Provider;
 
@@ -26,7 +26,7 @@ use crate::host::Project;
 
 /// Run the hidden `toven-<eco> __serve` port-server loop over stdio.
 ///
-/// Drives the engine's framed [`serve`](toven_engine_core::federation::serve) loop
+/// Drives the engine's framed [`serve`](toven_core::federation::serve) loop
 /// with the in-proc `providers`: stdin/stdout carry the request/response frame
 /// stream and any failure is rendered to stderr. Never panics — a transport or
 /// handshake failure maps to a process [`ExitCode`].
@@ -34,7 +34,7 @@ use crate::host::Project;
 pub(crate) fn serve(providers: &[&dyn Provider]) -> ExitCode {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
-    match toven_engine_core::federation::serve(providers, stdin.lock(), stdout.lock()) {
+    match toven_core::federation::serve(providers, stdin.lock(), stdout.lock()) {
         Ok(()) => ExitCode::Success,
         Err(error) => {
             let (rendered, code) = ErrorRenderer::default().render(&error);
@@ -47,7 +47,7 @@ pub(crate) fn serve(providers: &[&dyn Provider]) -> ExitCode {
 /// Run the hidden `toven-<eco> __init` config-less wizard exchange.
 ///
 /// Drives the engine's framed
-/// [`serve_wizard`](toven_engine_core::federation::serve_wizard) loop with the
+/// [`serve_wizard`](toven_core::federation::serve_wizard) loop with the
 /// in-proc `providers`: stdin carries the umbrella's wizard probe/answers,
 /// stdout the reply frames, and any failure is rendered to stderr. Never
 /// panics.
@@ -55,7 +55,7 @@ pub(crate) fn serve(providers: &[&dyn Provider]) -> ExitCode {
 pub(crate) fn init_wizard(providers: &[&dyn Provider]) -> ExitCode {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
-    match toven_engine_core::federation::serve_wizard(providers, stdin.lock(), stdout.lock()) {
+    match toven_core::federation::serve_wizard(providers, stdin.lock(), stdout.lock()) {
         Ok(()) => ExitCode::Success,
         Err(error) => {
             let (rendered, code) = ErrorRenderer::default().render(&error);

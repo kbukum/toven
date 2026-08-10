@@ -37,8 +37,8 @@ rskit-config = { version = "0.2.0-alpha.4", path = "rskit/core/rskit-config", de
 rskit-cli = { version = "0.2.0-alpha.5", path = "rskit/core/rskit-cli" }
 toven-model = { path = "crates/toven-model" }
 toven-ports = { path = "crates/toven-ports" }
-toven-engine-core = { path = "crates/toven-engine-core" }
-toven-engine-release = { path = "crates/toven-engine-release" }
+toven-core = { path = "crates/toven-core" }
+toven-release = { path = "crates/toven-release" }
 toven-engine = { path = "crates/toven-engine" }
 toven-exec = { path = "crates/toven-exec" }
 toven-cli = { path = "crates/toven-cli" }

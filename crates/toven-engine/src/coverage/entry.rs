@@ -19,11 +19,11 @@ use super::aggregate::{CoverageInputs, aggregate};
 use super::read::{COVERAGE_DIR, read_profiles};
 use super::report::CoverageReport;
 use super::settings::{CoverageOverrides, ResolvedCoverageSettings};
-use toven_engine_core::config::Document;
-use toven_engine_core::federation::baseline::MemberVcsReaders;
-use toven_engine_core::federation::resolve::PathDriverLocator;
-use toven_engine_core::plan::affected::{active_modules, changed_for_members};
-use toven_engine_core::plan::{PlanRequest, Selection, prepare_front};
+use toven_core::config::Document;
+use toven_core::federation::baseline::MemberVcsReaders;
+use toven_core::federation::resolve::PathDriverLocator;
+use toven_core::plan::affected::{active_modules, changed_for_members};
+use toven_core::plan::{PlanRequest, Selection, prepare_front};
 
 /// Aggregate and gate the coverage profiles emitted for `request`'s scope.
 ///

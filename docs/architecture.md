@@ -8,8 +8,8 @@ Toven is a hexagonal Rust workspace. Domain types sit at the center, ports defin
 L0  crates/toven-model
 L1  crates/toven-ports
 L1.5 crates/toven-exec
-L2a crates/toven-engine-core
-L2b crates/toven-engine-release
+L2a crates/toven-core
+L2b crates/toven-release
 L2b crates/toven-engine
 L2  crates/toven-rust
 L2  crates/toven-go
@@ -18,17 +18,17 @@ L3  crates/toven-cli
 L4  apps/toven, apps/toven-rs, apps/toven-go
 ```
 
-Dependencies point downward only. `toven-exec` is a focused L1.5 utility that owns the concrete subprocess runners; the three engine crates share layer 2: `toven-engine-core` is the PLAN foundation, and `toven-engine-release` and `toven-engine` are peers above it.
+Dependencies point downward only. `toven-exec` is a focused L1.5 utility that owns the concrete subprocess runners; the three engine crates share layer 2: `toven-core` is the PLAN foundation, and `toven-release` and `toven-engine` are peers above it.
 
 ```mermaid
 flowchart TB
     model["L0 · toven-model"]
     ports["L1 · toven-ports"]
     exec["L1.5 · toven-exec"]
-    core["L2a · toven-engine-core"]
-    release["L2b · toven-engine-release"]
+    core["L2a · toven-core"]
+    release["L2b · toven-release"]
     engine["L2b · toven-engine"]
-    eco["L2 · toven-rust / toven-go / toven-command"]
+    ecosystems["L2 · toven-rust / toven-go / toven-command"]
     cli["L3 · toven-cli"]
     apps["L4 · apps/*"]
 
@@ -38,22 +38,25 @@ flowchart TB
     release --> core
     engine --> core
     engine --> exec
-    eco --> ports
+    ecosystems --> ports
     cli --> engine
     cli --> release
+    cli --> core
     cli --> exec
-    cli --> eco
     apps --> cli
+    apps --> ecosystems
     apps --> exec
 ```
+
+Only the thin `apps/*` binaries wire the ecosystem adapters (`toven-rust`, `toven-go`, `toven-command`) into the CLI; `toven-cli` itself depends on the engine crates and the shared foundation, never on a concrete ecosystem adapter.
 
 | Crate | Responsibility |
 |---|---|
 | `toven-model` | Identity, graph, plan, event, and release vocabulary |
 | `toven-ports` | Adapter contracts and shared configuration values |
 | `toven-exec` | The concrete subprocess runners (`ProcessToolRunner`, `ProcessCommandRunner`, persistent spawn) and the shared argv→`ProcessSpec` lowering |
-| `toven-engine-core` | Strict `toven.toml` loading, the VCS seam, the PLAN spine, and federation-core |
-| `toven-engine-release` | Release PLAN/APPLY: bump, changelog, packaging, checksums, SBOM, signing, hosted publishing |
+| `toven-core` | Strict `toven.toml` loading, the VCS seam, the PLAN spine, and federation-core |
+| `toven-release` | Release PLAN/APPLY: bump, changelog, packaging, checksums, SBOM, signing, hosted publishing |
 | `toven-engine` | Apply, cache, coverage, output, watch, init, doctor, and the rskit-backed port adapters |
 | `toven-rust` | Cargo discovery and Rust task/release behavior |
 | `toven-go` | Go discovery and Go task/release behavior |

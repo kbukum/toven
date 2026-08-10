@@ -1,0 +1,7 @@
+[package]
+name = "kit-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kit-util = { path = "../kit-util", version = "0.1.0" }

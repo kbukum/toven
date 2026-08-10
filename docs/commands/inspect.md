@@ -61,10 +61,10 @@ Example stdout:
 ```text
 unit:  rust@rust#test
   representative:  rust:toven-model
-         modules:  rust:toven-model, rust:toven-ports, rust:toven-engine-core, rust:toven-engine-release, rust:toven-engine, rust:toven-rust, rust:toven-go, rust:toven-command, rust:toven-cli, rust:toven-testkit, rust:toven, rust:toven-rs, rust:toven-go-app
+         modules:  rust:toven-model, rust:toven-ports, rust:toven-core, rust:toven-release, rust:toven-engine, rust:toven-rust, rust:toven-go, rust:toven-command, rust:toven-cli, rust:toven-testkit, rust:toven, rust:toven-rs, rust:toven-go-app
           target:  rust:toven-cli
             task:  test
-            argv:  ["cargo", "nextest", "run", "--no-tests=pass", "--manifest-path", "crates/toven-model/Cargo.toml", "-p", "toven-model", "-p", "toven-ports", "-p", "toven-engine-core", "-p", "toven-engine-release", "-p", "toven-engine", "-p", "toven-rust", "-p", "toven-go", "-p", "toven-command", "-p", "toven-cli", "-p", "toven-testkit", "-p", "toven", "-p", "toven-rs", "-p", "toven-go-app"]
+            argv:  ["cargo", "nextest", "run", "--no-tests=pass", "--manifest-path", "crates/toven-model/Cargo.toml", "-p", "toven-model", "-p", "toven-ports", "-p", "toven-core", "-p", "toven-release", "-p", "toven-engine", "-p", "toven-rust", "-p", "toven-go", "-p", "toven-command", "-p", "toven-cli", "-p", "toven-testkit", "-p", "toven", "-p", "toven-rs", "-p", "toven-go-app"]
       persistent:  false
 ```
 

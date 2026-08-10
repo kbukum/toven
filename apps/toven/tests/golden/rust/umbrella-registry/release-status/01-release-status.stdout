@@ -1,0 +1,9 @@
+
+Release status
+┌────────────────┬──────────────────────┬──────────┬────────────┬───────────┬──────────────────────────┬───────────┐
+│ Module         │ Publication          │ Declared │ Latest tag │ Hosted on │ Flow                     │ Published │
+├────────────────┼──────────────────────┼──────────┼────────────┼───────────┼──────────────────────────┼───────────┤
+│ rust:kit-core  │ registry (crates-io) │ 0.1.0    │ -          │ -         │ maintainer (tag missing) │ no        │
+│ rust:kit-suite │ registry (crates-io) │ 0.1.0    │ v0.1.0     │ -         │ maintainer (tag ready)   │ yes       │
+│ rust:kit-util  │ registry (crates-io) │ 0.1.0    │ -          │ -         │ maintainer (tag missing) │ no        │
+└────────────────┴──────────────────────┴──────────┴────────────┴───────────┴──────────────────────────┴───────────┘

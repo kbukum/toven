@@ -7,8 +7,8 @@
 //! explicit selection) maps to the same engine intent everywhere.
 
 use rskit_errors::{AppError, AppResult};
-use toven_engine_core::plan::{ModuleSelector, Selection};
-use toven_engine_core::vcs::{BaselineFlags, BaselineStrategy};
+use toven_core::plan::{ModuleSelector, Selection};
+use toven_core::vcs::{BaselineFlags, BaselineStrategy};
 
 /// The CLI-sourced inputs that determine the engine [`Selection`].
 ///
@@ -113,8 +113,8 @@ impl TaskSelection {
 #[cfg(test)]
 mod tests {
     use super::TaskSelection;
-    use toven_engine_core::plan::{ModuleSelector, Selection};
-    use toven_engine_core::vcs::BaselineFlags;
+    use toven_core::plan::{ModuleSelector, Selection};
+    use toven_core::vcs::BaselineFlags;
 
     fn selection() -> TaskSelection {
         TaskSelection::default()

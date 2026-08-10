@@ -1,0 +1,25 @@
+# Maintainer entrypoint on the registry+umbrella model: the maintainer owns
+# version bumps and cuts the umbrella tag, so Toven verifies the declared
+# versions and tag readiness rather than computing bumps. This is the faithful
+# rskit shape (registry+umbrella baseline, `both` tag mode from the Rust
+# adapter default, `entrypoint = "maintainer"`, tags-only push). Selects
+# `--config toven.maintainer.toml`.
+[project]
+name = "umbrella-registry-rust"
+
+[toven]
+include = ["_profiles/rust-tasks.toml"]
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"
+
+[ecosystems.rust.release]
+registry = "crates-io"
+offline = true
+push_branch = false
+entrypoint = "maintainer"
+
+[modules."rust:kit-suite".release]
+umbrella = true
+tag_format = "v{version}"

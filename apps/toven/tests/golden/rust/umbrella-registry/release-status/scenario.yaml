@@ -1,0 +1,17 @@
+# The `release status` projection under the faithful rskit maintainer flow: a
+# human-readable table showing per-crate publication, declared version, the
+# single umbrella `v0.1.0` latest tag on `kit-suite`, and the maintainer flow
+# (tag ready for the umbrella, tag missing for the per-crate schemes).
+repo: rust/umbrella-registry
+requires: [cargo]
+git:
+  commits:
+    - msg: "change kit-core after the umbrella tag"
+      touch: ["crates/kit-core/src/lib.rs"]
+  tags:
+    - { name: v0.1.0, at: 0 }
+steps:
+  - id: 01-release-status
+    argv: [release, status]
+    config: toven.maintainer.toml
+    stdout: { match: normalized }

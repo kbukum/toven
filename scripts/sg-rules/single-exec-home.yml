@@ -25,15 +25,15 @@ ignores:
   # the toolchain-existence prober behind the `ToolchainProber` port — a
   # captured, bounded, timed one-shot `{tool} --version` probe on a distinct
   # port seam (not the `ToolRunner` one-shot seam), owned by the PLAN spine.
-  - crates/toven-engine-core/src/plan/toolchain.rs
+  - crates/toven-core/src/plan/toolchain.rs
   # Documented exclusions (different shape than a captured one-shot tool):
   # the long-lived framed-RPC duplex driver child (piped stdin/stdout held for
   # the session — a transport, not a `ToolRunner` invocation).
-  - crates/toven-engine-core/src/federation/remote/process.rs
+  - crates/toven-core/src/federation/remote/process.rs
   # the `cargo install` driver provisioner, which streams installer output to
   # the inherited terminal uncaptured (`InheritedIo`), not the captured
   # `ToolOutcome` shape.
-  - crates/toven-engine-core/src/federation/provision.rs
+  - crates/toven-core/src/federation/provision.rs
   # the tmux pane launcher — a deliberate terminal-UI spawn boundary in the
   # report layer, argv-first and fail-closed.
   - crates/toven-cli/src/report/panes.rs
