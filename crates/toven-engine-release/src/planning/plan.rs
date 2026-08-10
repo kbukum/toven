@@ -267,7 +267,7 @@ fn umbrella_selector(
 fn check_umbrella_count(module_id: &str, selector: &str, count: usize) -> AppResult<()> {
     if count == 0 {
         return Err(AppError::invalid_input(
-            "release.tag_mode",
+            "release.umbrella",
             format!(
                 "module '{module_id}' selects '{selector}', which anchors on the member's umbrella \
                  tag, but the member declares no umbrella module; mark one module `umbrella = \
