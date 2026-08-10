@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::AppResult;
-use toven_model::{Module, ModuleKey};
+use toven_model::{EcosystemId, Module, ModuleKey};
 use toven_ports::{
     BaselineSpec, ChangeRecord, CommitSummary, Oid, ReleaseAdapter, TagRef, TagScheme,
 };
@@ -90,12 +90,14 @@ fn detect_member(
     // none, so detection is unchanged there.
     let reference_globs = version_reference_globs(settings);
 
-    // The umbrella module's tag scheme, computed once per member: when a member
-    // declares an umbrella module its per-module baselines anchor on the shared
-    // umbrella tag + registry rather than on per-module tags the umbrella layout
-    // never cuts (the rskit case). A member with no umbrella keeps the
-    // per-module own-tag baseline unchanged.
-    let umbrella_scheme = member_umbrella_scheme(context, member, targets, settings)?;
+    // The umbrella module's tag scheme, computed once per release train (a
+    // member scoped to one ecosystem): when a train declares an umbrella module
+    // its per-module baselines anchor on the shared umbrella tag + registry
+    // rather than on per-module tags the umbrella layout never cuts (the rskit
+    // case). Scoping by ecosystem keeps a Rust umbrella from perturbing a Go
+    // train in the same member — each train resolves its own umbrella, and a
+    // train with none keeps the per-module own-tag baseline unchanged.
+    let mut umbrella_schemes: BTreeMap<EcosystemId, Option<TagScheme>> = BTreeMap::new();
 
     for module in context
         .federation
@@ -108,6 +110,14 @@ fn detect_member(
         };
         let Some(target) = target_for(targets, module) else {
             continue;
+        };
+        let umbrella_scheme = if let Some(scheme) = umbrella_schemes.get(&module.id.ecosystem) {
+            scheme.clone()
+        } else {
+            let scheme =
+                train_umbrella_scheme(context, member, &module.id.ecosystem, targets, settings)?;
+            umbrella_schemes.insert(module.id.ecosystem.clone(), scheme.clone());
+            scheme
         };
         let scheme = target.tag_scheme(module, resolved.tag_format.as_deref())?;
         let source = resolve_baseline_source(resolved.baseline, scheme, umbrella_scheme.as_ref())?;
@@ -297,24 +307,27 @@ fn resolve_baseline_source(
     }
 }
 
-/// The umbrella module's tag scheme for one member, when the member declares an
-/// umbrella module.
+/// The umbrella module's tag scheme for one release *train* — a member scoped
+/// to a single ecosystem — when that train declares an umbrella module.
 ///
-/// The umbrella tag anchors every module's baseline in an umbrella layout, so
-/// its scheme is resolved once per member rather than per module. A member with
-/// no umbrella module returns `None` and each module keeps its own-tag baseline.
+/// The umbrella tag anchors every train member's baseline in an umbrella
+/// layout, so its scheme is resolved once per train rather than per module. A
+/// train with no umbrella module returns `None` and each of its modules keeps
+/// its own-tag baseline — so declaring a Rust umbrella never perturbs a Go
+/// train in the same member, whose modules stay on their own tags.
 ///
 /// # Errors
-/// A member that declares more than one `umbrella = true` module is a
+/// A train that declares more than one `umbrella = true` module is a
 /// fail-closed configuration error: the umbrella tag would be ambiguous. This is
 /// the defense-in-depth guard on the unset-baseline default path, which infers
 /// the umbrella anchor from umbrella presence and so never reaches the explicit
 /// selector check in `validate_tag_mode_and_baseline`. Also propagates
 /// [`TagGrammar::tag_scheme`](toven_ports::TagGrammar::tag_scheme) failures for
 /// the umbrella module's configured tag format.
-fn member_umbrella_scheme(
+fn train_umbrella_scheme(
     context: &PlanContext,
     member: Option<&toven_model::MemberId>,
+    ecosystem: &EcosystemId,
     targets: &ReleaseTargets,
     settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
 ) -> AppResult<Option<TagScheme>> {
@@ -323,7 +336,7 @@ fn member_umbrella_scheme(
         .federation
         .modules
         .iter()
-        .filter(|module| module.member.as_ref() == member)
+        .filter(|module| module.member.as_ref() == member && &module.id.ecosystem == ecosystem)
     {
         let Some(resolved) = settings.get(&module.key()) else {
             continue;
@@ -339,8 +352,8 @@ fn member_umbrella_scheme(
             return Err(rskit_errors::AppError::invalid_input(
                 "release.umbrella",
                 format!(
-                    "member declares more than one umbrella module ('{}' and '{}'); a train has a \
-                     single umbrella representative",
+                    "ecosystem '{ecosystem}' declares more than one umbrella module ('{}' and \
+                     '{}'); a train has a single umbrella representative",
                     existing.key(),
                     module.key()
                 ),

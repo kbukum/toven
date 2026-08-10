@@ -435,3 +435,139 @@ fn a_registry_outage_downgrades_to_the_umbrella_tag_anchor() {
         "the changed crate still advances off the umbrella-tag anchor: {core:?}"
     );
 }
+
+/// A Go provider exposing a single `api` module with the default per-module
+/// `go/<name>@` tag scheme and `0.1.0` declared/published — no umbrella.
+fn go_provider() -> FakeProvider {
+    let go = EcosystemId::new("go").expect("go ecosystem id");
+    let mut response = DiscoverResponse::new(go.clone());
+    response.modules.push(Module::new(
+        ModuleRef::new(go.clone(), "api").expect("go module ref"),
+        RepoPath::new("services/api").expect("api path"),
+    ));
+    let common = CommonEcosystemConfig {
+        release: ReleaseConfig {
+            offline: Some(true),
+            ..ReleaseConfig::default()
+        },
+        ..CommonEcosystemConfig::default()
+    };
+    let adapter = FakeConfiguredAdapter::new(go.clone())
+        .with_response(response)
+        .with_common(common)
+        .with_release_target(
+            FakeReleaseTarget::new()
+                .with_declared_version(Version::new(0, 1, 0))
+                .with_published_versions(vec![Version::new(0, 1, 0)]),
+        );
+    FakeProvider::new(go).with_adapter(adapter)
+}
+
+/// A single repository holding both a Rust umbrella train (`suite` cuts the
+/// shared `v{version}` tag) and an independent Go module on its own
+/// `go/api@<version>` tag, with a source edit in the Go module after its tag.
+fn mixed_rust_go_repo() -> (TestWorkspace, AbsPath, Document) {
+    let ws = TestWorkspace::new("release-mixed-rust-go");
+    let scenario = GitScenario::init(ws.path()).expect("git init");
+    scenario
+        .commit_file(
+            "toven.toml",
+            concat!(
+                "[project]\n",
+                "name = \"workspace\"\n\n",
+                "[ecosystems.rust]\n\n",
+                "[ecosystems.rust.release]\n",
+                "registry = \"crates-io\"\n",
+                "offline = true\n\n",
+                "[ecosystems.go]\n\n",
+                "[ecosystems.go.release]\n",
+                "offline = true\n\n",
+                // Only the Rust train declares an umbrella; the Go module keeps
+                // its own-tag baseline and must not inherit the Rust umbrella.
+                "[modules.\"rust:suite\".release]\n",
+                "umbrella = true\n",
+                "tag_format = \"v{version}\"\n",
+                "push = false\n",
+            ),
+            "config",
+        )
+        .expect("commit config");
+    scenario
+        .commit_file("crates/suite/src/lib.rs", "//! suite\n", "baseline suite")
+        .expect("suite baseline");
+    scenario
+        .commit_file("crates/core/src/lib.rs", "pub fn a() {}\n", "baseline core")
+        .expect("core baseline");
+    scenario
+        .commit_file("crates/util/src/lib.rs", "pub fn b() {}\n", "baseline util")
+        .expect("util baseline");
+    scenario
+        .commit_file("services/api/main.go", "package main\n", "baseline api")
+        .expect("api baseline");
+    scenario
+        .tag("v0.1.0", "release v0.1.0")
+        .expect("tag the rust umbrella baseline");
+    scenario
+        .tag("go/api@0.1.0", "release go/api@0.1.0")
+        .expect("tag the go module baseline");
+    // Only the Go module changes after the tags.
+    scenario
+        .commit_file(
+            "services/api/main.go",
+            "package main\n\nfunc main() {}\n",
+            "a go change to release",
+        )
+        .expect("go change commit");
+
+    let root = AbsPath::new(ws.path().to_path_buf()).expect("absolute root");
+    let document = load(
+        ws.path().join("toven.toml"),
+        &BTreeSet::new(),
+        &CanonicalRegistry::model(),
+    )
+    .expect("document loads")
+    .document;
+    (ws, root, document)
+}
+
+#[test]
+fn a_rust_umbrella_does_not_perturb_a_go_train_in_the_same_repo() {
+    // The umbrella scheme is scoped to a release train (member + ecosystem): a
+    // Rust umbrella must not flip an unset Go baseline from its own-tag scheme to
+    // registry-over-the-Rust-umbrella tag.
+    let (ws, root, document) = mixed_rust_go_repo();
+    let rust = umbrella_provider();
+    let go = go_provider();
+    let providers: Vec<&dyn Provider> = vec![&rust, &go];
+    let reader = RskitGitVcs::open(ws.path()).expect("open reader");
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("HEAD"));
+    let mut reporter = RecordingReporter::new();
+
+    let plan = release_plan(
+        &request(root),
+        &document,
+        &providers,
+        &readers,
+        &BumpOverrides::new(),
+        &mut reporter,
+    )
+    .expect("mixed-ecosystem plan");
+
+    let api = plan
+        .entries
+        .iter()
+        .find(|entry| entry.module.to_string() == "go:api")
+        .expect("the changed go module is in the plan");
+    assert_ne!(
+        api.reason,
+        BumpReason::InitialRelease,
+        "the go module anchors on its own tag, not treated as a first release: {api:?}"
+    );
+    let baseline = api.baseline.as_ref().expect("go baseline recorded");
+    assert_eq!(
+        baseline.tag.as_deref(),
+        Some("go/api@0.1.0"),
+        "the go module keeps its own-tag baseline and does not inherit the rust umbrella: \
+         {baseline:?}"
+    );
+}
