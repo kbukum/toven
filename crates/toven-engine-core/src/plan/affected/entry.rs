@@ -12,8 +12,9 @@ use crate::plan::configure::MemberAdapters;
 use crate::plan::discover::Federation;
 use crate::plan::request::{PlanRequest, Selection};
 
-use super::changed::{changed_for_members, changed_seeds, unclassified_paths};
+use super::changed::changed_for_members;
 use super::select::explicit_seeds;
+use crate::plan::ownership::{changed_seeds, unclassified_paths};
 
 /// The resolved active module set plus any forced-full-activation diagnostic.
 ///

@@ -11,9 +11,10 @@ use toven_model::{
 use toven_ports::{BaselineSpec, ChangeRecord, ChangeStatus};
 use toven_testkit::FakeVcsReader;
 
-use super::{active_modules, changed_records_for_module};
+use super::active_modules;
 use crate::federation::baseline::{MemberVcsReader, MemberVcsReaders};
 use crate::plan::discover::Federation;
+use crate::plan::ownership::changed_records_for_module;
 use crate::plan::request::{PlanRequest, Selection};
 use toven_model::ModuleSelector;
 

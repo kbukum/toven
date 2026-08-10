@@ -17,7 +17,6 @@ mod select;
 #[cfg(test)]
 mod tests;
 
-#[allow(clippy::redundant_pub_crate)]
-pub use changed::{changed_for_members, changed_records_for_module, changed_seeds};
+pub use changed::changed_for_members;
 #[allow(clippy::redundant_pub_crate)]
 pub use entry::{active_modules, restrict_to_task_defining};
