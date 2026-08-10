@@ -152,7 +152,67 @@ fn plan_with_changes(
         intent,
     })?;
 
+    validate_umbrella_tag_cut(context, settings, &entries)?;
+
     Ok(ReleasePlan::new(policy, entries))
+}
+
+/// Fail closed when the umbrella tag mode would release a train member with no
+/// tag at all.
+///
+/// In [`TagMode::Umbrella`] a member's only tag is the shared umbrella tag, cut
+/// solely by the umbrella module's own entry, and no per-module tags are
+/// created. If the train releases other members but the umbrella module is not
+/// itself bumped, it has no entry, so the umbrella tag is never cut and those
+/// members would commit and publish entirely untagged. Refuse at plan time,
+/// before any mutation, rather than relying on the umbrella module also
+/// receiving a version bump. ([`TagMode::Both`] still cuts each changed
+/// member's per-module tag, so it stays anchored even when the umbrella module
+/// is unbumped.)
+fn validate_umbrella_tag_cut(
+    context: &PlanContext,
+    settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
+    entries: &[crate::ReleaseEntry],
+) -> AppResult<()> {
+    let released_members: std::collections::BTreeSet<Option<MemberId>> = entries
+        .iter()
+        .filter(|entry| entry.planned_version.is_some())
+        .map(|entry| entry.module.member.clone())
+        .collect();
+    for module in &context.federation.modules {
+        let Some(resolved) = settings.get(&module.key()) else {
+            continue;
+        };
+        if !resolved.umbrella {
+            continue;
+        }
+        // Only pure `Umbrella` mode leaves a released member untagged; a mode
+        // that also cuts per-module tags keeps changed members anchored.
+        let umbrella_only = resolved
+            .tag_mode
+            .is_some_and(|mode| mode.creates_umbrella_tag() && !mode.creates_per_module_tags());
+        if !umbrella_only || !released_members.contains(&module.member) {
+            continue;
+        }
+        let umbrella_released = entries
+            .iter()
+            .any(|entry| entry.module == module.key() && entry.planned_version.is_some());
+        if !umbrella_released {
+            return Err(AppError::invalid_input(
+                "release.umbrella",
+                format!(
+                    "tag mode 'umbrella' cuts only the member's umbrella tag from the umbrella \
+                     module '{}', but the release bumps other members of its train without \
+                     bumping the umbrella module, so the umbrella tag would never be cut and those \
+                     members would publish untagged; ensure the umbrella module is released (for \
+                     example by depending on its train members) or choose a per-module or both \
+                     tag mode",
+                    module.key()
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Resolve the release targets declared by each configured ecosystem adapter.

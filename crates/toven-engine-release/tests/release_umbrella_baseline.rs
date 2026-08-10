@@ -300,9 +300,96 @@ fn two_umbrella_modules_fail_closed_on_the_inferred_baseline_path() {
     );
 }
 
+/// A committed repository in explicit `umbrella` tag mode where only a
+/// non-umbrella crate changes, so the umbrella module is not bumped and its
+/// entry never appears in the plan.
+fn umbrella_mode_repo() -> (TestWorkspace, AbsPath, Document) {
+    let ws = TestWorkspace::new("release-umbrella-mode");
+    let scenario = GitScenario::init(ws.path()).expect("git init");
+    scenario
+        .commit_file(
+            "toven.toml",
+            concat!(
+                "[project]\n",
+                "name = \"workspace\"\n\n",
+                "[ecosystems.rust]\n\n",
+                "[ecosystems.rust.release]\n",
+                "registry = \"crates-io\"\n",
+                "offline = true\n\n",
+                // The umbrella module governs the shared umbrella tag; in
+                // `umbrella` mode it is the only tag the train cuts.
+                "[modules.\"rust:suite\".release]\n",
+                "umbrella = true\n",
+                "tag_mode = \"umbrella\"\n",
+                "tag_format = \"v{version}\"\n",
+                "push = false\n",
+            ),
+            "config",
+        )
+        .expect("commit config");
+    scenario
+        .commit_file("crates/suite/src/lib.rs", "//! suite\n", "baseline suite")
+        .expect("suite baseline");
+    scenario
+        .commit_file("crates/core/src/lib.rs", "pub fn a() {}\n", "baseline core")
+        .expect("core baseline");
+    scenario
+        .commit_file("crates/util/src/lib.rs", "pub fn b() {}\n", "baseline util")
+        .expect("util baseline");
+    scenario
+        .tag("v0.1.0", "release v0.1.0")
+        .expect("tag the shared umbrella baseline");
+    scenario
+        .commit_file(
+            "crates/core/src/lib.rs",
+            "pub fn a() -> u32 { 1 }\n",
+            "a core change to release",
+        )
+        .expect("core change commit");
+
+    let root = AbsPath::new(ws.path().to_path_buf()).expect("absolute root");
+    let document = load(
+        ws.path().join("toven.toml"),
+        &BTreeSet::new(),
+        &CanonicalRegistry::model(),
+    )
+    .expect("document loads")
+    .document;
+    (ws, root, document)
+}
+
+#[test]
+fn umbrella_mode_without_the_umbrella_bumping_fails_closed() {
+    // In `umbrella` tag mode the shared `v{version}` tag is cut only by the
+    // umbrella module. When only a non-umbrella crate changes, the umbrella
+    // module is not bumped and has no entry, so the train would publish with no
+    // tag at all. Planning must refuse rather than anchor the release on nothing.
+    let (ws, root, document) = umbrella_mode_repo();
+    let provider = umbrella_provider();
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = RskitGitVcs::open(ws.path()).expect("open reader");
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("HEAD"));
+    let mut reporter = RecordingReporter::new();
+
+    let error = release_plan(
+        &request(root),
+        &document,
+        &providers,
+        &readers,
+        &BumpOverrides::new(),
+        &mut reporter,
+    )
+    .expect_err("umbrella mode must not release a train without cutting the umbrella tag");
+
+    let message = error.to_string();
+    assert!(
+        message.contains("umbrella tag would never be cut") && message.contains("publish untagged"),
+        "the error explains the uncut umbrella tag and untagged publish: {message}"
+    );
+}
+
 #[test]
 fn a_registry_outage_downgrades_to_the_umbrella_tag_anchor() {
-    // crates.io is unreachable, but the manifest still declares a version and
     // the umbrella tag still anchors the diff: change detection must complete on
     // the umbrella-tag anchor rather than aborting the whole run.
     let (ws, root, document) = umbrella_repo();
