@@ -16,8 +16,9 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_version::semver::Version;
 use toven_model::{Module, ModuleRef, RepoPath};
 use toven_ports::{
-    Artifact, ManifestMutator, Packager, PublishOutcome, Publisher, ReleaseCredentials,
-    ReleaseMutation, SbomProducer, TagGrammar, TagScheme, VersionSource, Visibility,
+    Artifact, BaselineSourceConfig, ManifestMutator, Packager, PublishOutcome, Publisher,
+    ReleaseCredentials, ReleaseDefaults, ReleaseDefaultsSource, ReleaseMutation, SbomProducer,
+    TagGrammar, TagMode, TagScheme, VersionSource, Visibility,
 };
 
 /// A single call recorded by [`FakeReleaseTarget`].
@@ -79,6 +80,7 @@ struct FakeReleaseState {
     fail_published_read: Option<String>,
     sbom_artifact: Option<String>,
     fail_sbom: Option<String>,
+    release_defaults: ReleaseDefaults,
     calls: Vec<ReleaseCall>,
     publish_token_envs: Vec<Option<String>>,
     publish_registries: Vec<Option<String>>,
@@ -103,6 +105,10 @@ impl Default for FakeReleaseTarget {
                 fail_published_read: None,
                 sbom_artifact: Some("sbom/fake.cdx.json".to_string()),
                 fail_sbom: None,
+                release_defaults: ReleaseDefaults::new(
+                    BaselineSourceConfig::RegistryUmbrella,
+                    TagMode::Both,
+                ),
                 calls: Vec::new(),
                 publish_token_envs: Vec::new(),
                 publish_registries: Vec::new(),
@@ -216,6 +222,18 @@ impl FakeReleaseTarget {
         self
     }
 
+    /// Override the adapter's declared default release model (baseline anchor and
+    /// tag mode). Defaults to the registry-backed model
+    /// ([`BaselineSourceConfig::RegistryUmbrella`] / [`TagMode::Both`]), so a
+    /// test that leaves the `baseline`/`tag_mode` knobs unset resolves the same
+    /// umbrella/registry-anchored default a Rust-style workspace uses; set it to
+    /// model a per-module-tag ecosystem (Go) instead.
+    #[must_use]
+    pub fn with_release_defaults(self, defaults: ReleaseDefaults) -> Self {
+        self.state().release_defaults = defaults;
+        self
+    }
+
     /// Make the version-read calls (`declared_version` and `published_versions`)
     /// fail with a typed internal error — e.g. to model a target that cannot
     /// resolve a version for a module that has never been released.
@@ -315,6 +333,12 @@ impl TagGrammar for FakeReleaseTarget {
             format!("{}/{}@", module.id.ecosystem.as_str(), module.id.name),
             "",
         ))
+    }
+}
+
+impl ReleaseDefaultsSource for FakeReleaseTarget {
+    fn release_defaults(&self) -> ReleaseDefaults {
+        self.state().release_defaults
     }
 }
 
@@ -444,7 +468,8 @@ mod tests {
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
     use toven_ports::{
-        Artifact, PublishOutcome, Publisher, ReleaseCredentials, VersionSource, Visibility,
+        Artifact, BaselineSourceConfig, PublishOutcome, Publisher, ReleaseCredentials,
+        ReleaseDefaults, ReleaseDefaultsSource, TagMode, VersionSource, Visibility,
     };
 
     use super::FakeReleaseTarget;
@@ -455,6 +480,24 @@ mod tests {
                 .expect("valid ref"),
             RepoPath::new("crates/errors").expect("valid path"),
         )
+    }
+
+    #[test]
+    fn release_defaults_default_to_the_registry_backed_model_and_are_overridable() {
+        let target = FakeReleaseTarget::new();
+        assert_eq!(
+            target.release_defaults(),
+            ReleaseDefaults::new(BaselineSourceConfig::RegistryUmbrella, TagMode::Both)
+        );
+
+        let go_like = target.with_release_defaults(ReleaseDefaults::new(
+            BaselineSourceConfig::OwnTag,
+            TagMode::PerModule,
+        ));
+        assert_eq!(
+            go_like.release_defaults(),
+            ReleaseDefaults::new(BaselineSourceConfig::OwnTag, TagMode::PerModule)
+        );
     }
 
     #[test]

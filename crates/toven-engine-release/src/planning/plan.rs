@@ -6,7 +6,7 @@ use std::path::Path;
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::file::read_string_bounded;
-use toven_model::{MemberId, ModuleKey};
+use toven_model::{EcosystemId, MemberId, ModuleKey};
 use toven_ports::{Provider, PublicationPolicy, Reporter};
 
 use toven_engine_core::config::Document;
@@ -299,8 +299,51 @@ pub(crate) fn resolve_release_settings(
         validate_phase_backing_supported(module, &resolved_settings)?;
         resolved.insert(module.key(), resolved_settings);
     }
+    apply_adapter_release_defaults(context, targets, &mut resolved);
     validate_tag_mode_and_baseline(context, &resolved)?;
     Ok(resolved)
+}
+
+/// Fold each releaseable module's ecosystem adapter default tag mode and
+/// baseline source into its [`ResolvedReleaseSettings`], completing the
+/// documented precedence `[modules.<name>.release]` > `[ecosystems.<id>].release`
+/// > adapter default. An explicit config value is left untouched.
+///
+/// An adapter's umbrella-anchored default (the registry-backed Rust model's
+/// `registry+umbrella` baseline / `both` tag mode) is degraded to its per-module
+/// counterpart for a train that does not declare exactly one umbrella module, so
+/// an adapter default never forces an umbrella layout a train cannot satisfy —
+/// mirroring change detection, which resolves the umbrella anchor per train
+/// (member + ecosystem). A per-module ecosystem (Go) declares an own-tag /
+/// per-module default that is unaffected by umbrella presence.
+fn apply_adapter_release_defaults(
+    context: &PlanContext,
+    targets: &crate::ReleaseTargets,
+    resolved: &mut BTreeMap<ModuleKey, ResolvedReleaseSettings>,
+) {
+    let mut umbrella_count: BTreeMap<(Option<MemberId>, EcosystemId), usize> = BTreeMap::new();
+    for module in &context.federation.modules {
+        if resolved
+            .get(&module.key())
+            .is_some_and(|settings| settings.umbrella)
+        {
+            *umbrella_count
+                .entry((module.member.clone(), module.id.ecosystem.clone()))
+                .or_default() += 1;
+        }
+    }
+    for module in &context.federation.modules {
+        let train = (module.member.clone(), module.id.ecosystem.clone());
+        let Some(target) = targets.get(&train) else {
+            continue;
+        };
+        let defaults = target.release_defaults();
+        let train_has_single_umbrella =
+            umbrella_count.get(&train).copied().unwrap_or_default() == 1;
+        if let Some(settings) = resolved.get_mut(&module.key()) {
+            settings.apply_adapter_defaults(defaults, train_has_single_umbrella);
+        }
+    }
 }
 
 /// The human-facing selector name when a module's tag mode or baseline requires

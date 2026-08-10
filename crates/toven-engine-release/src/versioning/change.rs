@@ -253,17 +253,14 @@ fn baseline_spec(
 /// Resolve the [`BaselineSource`] for a module from its configured `baseline`
 /// selector, the module's own tag scheme, and the member's umbrella tag scheme.
 ///
-/// An unset `baseline` config keeps the behavior-preserving engine default: a
-/// member that declares an umbrella module anchors every module's baseline on
-/// the shared umbrella tag *and* the registry's max published version — the
-/// `max(registry, umbrella-tag)` composition a Rust-style workspace needs, where
-/// crates carry per-crate tag schemes the single umbrella tag never matches. A
-/// member with no umbrella keeps the per-module own-tag baseline, so a
-/// per-module-tag ecosystem (Go) and a single-repo project are unchanged.
-///
-/// An explicit `baseline` selects the source directly, bypassing the
-/// umbrella-presence inference: the module then carries exactly the source it
-/// names.
+/// The `baseline` selector is resolved from config, folded over the ecosystem
+/// adapter's default in [`resolve_release_settings`](crate::planning::plan), so
+/// in the release pipeline it is always `Some`: a registry-backed ecosystem
+/// (Rust) resolves `registry+umbrella` when its train declares an umbrella
+/// module (the `max(registry, umbrella-tag)` composition, where crates carry
+/// per-crate tag schemes the single umbrella tag never matches) and `own-tag`
+/// otherwise, while a per-module-tag ecosystem (Go) resolves `own-tag`. `None`
+/// is a defensive fallback that anchors on the module's own tag.
 ///
 /// # Errors
 /// A source that references the umbrella tag (`umbrella-tag`,
@@ -288,11 +285,10 @@ fn resolve_baseline_source(
     };
 
     match config {
-        None => Ok(umbrella_scheme.map_or_else(
-            || BaselineSource::own_tag(own_scheme),
-            |scheme| BaselineSource::registry(BaselineSource::umbrella_tag(scheme.clone())),
-        )),
-        Some(BaselineSourceConfig::OwnTag) => Ok(BaselineSource::own_tag(own_scheme)),
+        // The pipeline folds the adapter default upstream, so an unset selector
+        // only reaches here off the release path; fall back to the module's own
+        // tag rather than inferring an umbrella anchor twice.
+        None | Some(BaselineSourceConfig::OwnTag) => Ok(BaselineSource::own_tag(own_scheme)),
         Some(BaselineSourceConfig::UmbrellaTag) => umbrella(umbrella_scheme),
         Some(BaselineSourceConfig::Registry) => Ok(BaselineSource::registry(
             BaselineSource::own_tag(own_scheme),
@@ -428,18 +424,18 @@ mod tests {
     }
 
     #[test]
-    fn unset_baseline_without_umbrella_is_own_tag() {
+    fn unset_baseline_falls_back_to_own_tag() {
+        // The pipeline folds the adapter default upstream, so an unset selector
+        // only reaches the resolver off the release path; it anchors on the
+        // module's own tag rather than inferring an umbrella anchor.
         let source = resolve_baseline_source(None, own(), None).expect("resolves");
         assert!(matches!(source, BaselineSource::OwnTag { .. }));
     }
 
     #[test]
-    fn unset_baseline_with_umbrella_is_registry_over_umbrella() {
+    fn unset_baseline_ignores_the_umbrella_scheme() {
         let source = resolve_baseline_source(None, own(), Some(&umbrella())).expect("resolves");
-        assert!(matches!(
-            source,
-            BaselineSource::Registry { diff } if matches!(*diff, BaselineSource::UmbrellaTag { .. })
-        ));
+        assert!(matches!(source, BaselineSource::OwnTag { .. }));
     }
 
     #[test]
