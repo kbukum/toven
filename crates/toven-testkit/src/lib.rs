@@ -53,13 +53,13 @@ pub use assertions::{
 };
 pub use doubles::{
     CountingToolchainProber, EMPTY_IDENTITY, FakeAssetDownloader, FakeCacheStore,
-    FakeCommandRunner, FakeConfiguredAdapter, FakeDelegatedPhase, FakeDriverLocator,
-    FakeDriverWizard, FakeImagePhase, FakeProvenancePhase, FakeProvider, FakeReleaseHost,
-    FakeReleaseTarget, FakeSignatureVerifier, FakeSigner, FakeSourceDigest, FakeVcsReader,
-    FakeVcsWriter, FakeVersionProbe, HookCall, HostCall, ImageCall, ProvenanceCall,
-    RecordingCacheStore, RecordingCacheWriter, RecordingHookRunner, RecordingRawOutputSink,
-    RecordingReporter, ReleaseCall, ResolvedCall, ScriptedAnswers, ScriptedResolvedRunner,
-    ScriptedToolchainProber, ScriptedWatchSource, SignerCall, VcsWrite, VerifyCall, WatchCall,
+    FakeCommandRunner, FakeConfiguredAdapter, FakeDriverLocator, FakeDriverWizard, FakeImagePhase,
+    FakeProvenancePhase, FakeProvider, FakeReleaseHost, FakeReleaseTarget, FakeSignatureVerifier,
+    FakeSigner, FakeSourceDigest, FakeToolRunner, FakeVcsReader, FakeVcsWriter, FakeVersionProbe,
+    HookCall, HostCall, ImageCall, ProvenanceCall, RecordingCacheStore, RecordingCacheWriter,
+    RecordingHookRunner, RecordingRawOutputSink, RecordingReporter, ReleaseCall, ResolvedCall,
+    ScriptedAnswers, ScriptedResolvedRunner, ScriptedToolchainProber, ScriptedWatchSource,
+    SignerCall, VcsWrite, VerifyCall, WatchCall,
 };
 pub use fixtures::{
     FIXTURES_ROOT, coverage_profile_string, document, document_path, document_string, ecosystem,

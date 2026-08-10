@@ -26,7 +26,7 @@ use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir::create_all;
 use rskit_fs::sync_io::file::{exists as file_exists, remove_if_exists};
 use toven_model::ReleasePhase;
-use toven_ports::{DelegatedPhase, Provider, Reporter};
+use toven_ports::{Provider, Reporter, ToolRunner};
 
 use crate::hosting::run_delegated_preview;
 use crate::planning::plan::{release_targets, resolve_release_settings};
@@ -136,7 +136,7 @@ pub fn release_package(
     providers: &[&dyn Provider],
     target: &str,
     binary_override: Option<&Path>,
-    delegated: &dyn DelegatedPhase,
+    tool_runner: &dyn ToolRunner,
     reporter: &mut dyn Reporter,
 ) -> AppResult<PackageReport> {
     validate_target(target)?;
@@ -195,7 +195,7 @@ pub fn release_package(
         if let AssetBacking::Delegated(tool) = &owner.backing
             && previewed.insert(delegated_preview_key(tool))
         {
-            run_delegated_preview(ReleasePhase::Package, tool, delegated, project_root)?;
+            run_delegated_preview(ReleasePhase::Package, tool, tool_runner, project_root)?;
         }
     }
 
@@ -457,8 +457,7 @@ mod tests {
         CommonEcosystemConfig, DiscoverResponse, HostConfig, Provider, ReleaseConfig, TaskIntent,
     };
     use toven_testkit::{
-        FakeConfiguredAdapter, FakeDelegatedPhase, FakeProvider, FakeReleaseTarget,
-        RecordingReporter,
+        FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeToolRunner, RecordingReporter,
     };
 
     use super::{ArchiveFormat, release_package};
@@ -592,7 +591,7 @@ mod tests {
             &providers,
             LINUX,
             None,
-            &FakeDelegatedPhase::new(),
+            &FakeToolRunner::new(),
             &mut reporter,
         )
         .unwrap();
@@ -619,7 +618,7 @@ mod tests {
         let asset_rel = "dist/toven-x86_64-unknown-linux-gnu.tar.gz";
         // No native binary is built: the delegated tool "produces" the archive
         // instead, which the runner writes on a successful preview run.
-        let runner = FakeDelegatedPhase::new()
+        let runner = FakeToolRunner::new()
             .with_produced_file(root.path().join(asset_rel), b"goreleaser-archive-bytes");
         let provider = provider_with_delegated_package(vec![asset_rel]);
         let providers: Vec<&dyn Provider> = vec![&provider];
@@ -650,7 +649,6 @@ mod tests {
             Some("goreleaser")
         );
         assert!(requests[0].argv.contains(&"--snapshot".to_string()));
-        assert_eq!(requests[0].mode, toven_ports::DelegatedPhaseMode::Preview);
     }
 
     #[test]
@@ -659,7 +657,7 @@ mod tests {
         // The tool exits zero but produces nothing: the declared asset is
         // missing, so normalization must fail closed rather than report a
         // phantom archive.
-        let runner = FakeDelegatedPhase::new();
+        let runner = FakeToolRunner::new();
         let provider =
             provider_with_delegated_package(vec!["dist/toven-x86_64-unknown-linux-gnu.tar.gz"]);
         let providers: Vec<&dyn Provider> = vec![&provider];
@@ -687,7 +685,7 @@ mod tests {
         std::fs::create_dir_all(stale.parent().unwrap()).unwrap();
         std::fs::write(&stale, b"stale-archive-bytes").unwrap();
         // ...and the tool exits 0 but writes nothing (no `with_produced_file`).
-        let runner = FakeDelegatedPhase::new();
+        let runner = FakeToolRunner::new();
         let provider = provider_with_delegated_package(vec![asset_rel]);
         let providers: Vec<&dyn Provider> = vec![&provider];
         let mut reporter = RecordingReporter::new();
@@ -710,7 +708,7 @@ mod tests {
     #[test]
     fn delegated_package_fails_closed_when_the_tool_exits_non_zero() {
         let root = TempDir::new().unwrap();
-        let runner = FakeDelegatedPhase::new()
+        let runner = FakeToolRunner::new()
             .with_exit_code(Some(1))
             .with_stderr("goreleaser: build failed");
         let provider =
@@ -741,7 +739,7 @@ mod tests {
         // exactly once — not once per asset.
         let first = "dist/app-x86_64-unknown-linux-gnu.tar.gz";
         let second = "dist/helper-x86_64-unknown-linux-gnu.tar.gz";
-        let runner = FakeDelegatedPhase::new()
+        let runner = FakeToolRunner::new()
             .with_produced_file(root.path().join(first), b"app-archive")
             .with_produced_file(root.path().join(second), b"helper-archive");
         let provider = provider_with_delegated_package(vec![first, second]);
@@ -791,7 +789,7 @@ mod tests {
             &providers,
             LINUX,
             None,
-            &FakeDelegatedPhase::new(),
+            &FakeToolRunner::new(),
             &mut reporter,
         )
         .unwrap();
@@ -802,7 +800,7 @@ mod tests {
             &providers,
             LINUX,
             None,
-            &FakeDelegatedPhase::new(),
+            &FakeToolRunner::new(),
             &mut reporter,
         )
         .unwrap();
@@ -827,7 +825,7 @@ mod tests {
             &providers,
             WINDOWS,
             None,
-            &FakeDelegatedPhase::new(),
+            &FakeToolRunner::new(),
             &mut reporter,
         )
         .unwrap();
@@ -853,7 +851,7 @@ mod tests {
             &providers,
             LINUX,
             None,
-            &FakeDelegatedPhase::new(),
+            &FakeToolRunner::new(),
             &mut reporter,
         )
         .expect_err("a missing built binary must fail closed");
@@ -882,7 +880,7 @@ mod tests {
             &providers,
             LINUX,
             None,
-            &FakeDelegatedPhase::new(),
+            &FakeToolRunner::new(),
             &mut reporter,
         )
         .expect_err("no asset declared for the target must fail closed");
@@ -905,7 +903,7 @@ mod tests {
             &providers,
             LINUX,
             None,
-            &FakeDelegatedPhase::new(),
+            &FakeToolRunner::new(),
             &mut reporter,
         )
         .expect_err("no declared assets must fail closed");
@@ -925,7 +923,7 @@ mod tests {
             &providers,
             "../../etc",
             None,
-            &FakeDelegatedPhase::new(),
+            &FakeToolRunner::new(),
             &mut reporter,
         )
         .expect_err("a traversing target triple must fail closed");

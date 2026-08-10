@@ -18,8 +18,9 @@
 //!   configured adapter seam, plus the [`wizard`] onboarding steps.
 //! - [`release`] — [`ReleaseAdapter`] and the per-phase contracts
 //!   ([`VersionSource`], [`TagGrammar`], [`Packager`], [`ManifestMutator`],
-//!   [`Publisher`], [`SbomProducer`]) plus the [`DelegatedPhase`] delegation
-//!   seam: the thin ecosystem release sliver, resolved per phase.
+//!   [`Publisher`], [`SbomProducer`]): the thin ecosystem release sliver,
+//!   resolved per phase. One-shot external release tools run through the shared
+//!   [`ToolRunner`] seam.
 //! - [`reporter`] — [`Reporter`]: the observability output port.
 //! - [`raw_output`] — [`RawOutputSink`]: the raw child-output sink port
 //!   (sibling of [`Reporter`]; fed by the engine's `UnitOutputChannel`).
@@ -32,9 +33,9 @@
 //!   filesystem digest lives in the engine).
 //! - [`cache`] — [`CacheStore`] (read, PLAN) + [`CacheWriter`] (write, APPLY):
 //!   the injected cache-record seam (concrete backend lives in the engine).
-//! - [`exec`] — [`CommandRunner`]: the injected process-execution seam consumed
-//!   by the APPLY wave walk (concrete `rskit-process` runner lives in the
-//!   engine).
+//! - [`exec`] — [`CommandRunner`] (async streaming APPLY seam) and
+//!   [`ToolRunner`] (synchronous one-shot tool seam); concrete
+//!   `rskit-process` runners live in the engine.
 //! - [`hook`] — [`HookRunner`]: the injected lifecycle-hook seam that runs a
 //!   configured pre/post task reference (concrete PLAN→APPLY runner lives in the
 //!   CLI).
@@ -82,15 +83,14 @@ pub use discover::{DISCOVERY_SCHEMA_VERSION, DiscoverContext, DiscoverRequest, D
 pub use driver::{DriverLocator, DriverWizard};
 pub use exec::{
     CommandRunner, HeldProcess, Invocation, InvocationEnvPolicy, InvocationEnvironment,
-    OutputObserver, RunOutcome, StartOutcome,
+    OutputObserver, RunOutcome, StartOutcome, ToolInvocation, ToolOutcome, ToolRunner,
 };
 pub use hook::{HookPhase, HookRunner, ResolvedHookRunner};
 pub use merge::{merge_coverage, merge_release, merge_task};
 pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
 pub use raw_output::RawOutputSink;
 pub use release::{
-    Artifact, AssetDownloader, DelegatedPhase, DelegatedPhaseMode, DelegatedPhaseOutcome,
-    DelegatedPhaseRequest, HostReleaseOutcome, HostedRelease, ImageOutcome, ImagePhase,
+    Artifact, AssetDownloader, HostReleaseOutcome, HostedRelease, ImageOutcome, ImagePhase,
     ImagePublishOutcome, ImageRequest, ManifestMutator, Packager, PhaseBacking, ProvenanceArtifact,
     ProvenanceOutcome, ProvenancePhase, ProvenanceSubject, PublishOutcome, Publisher,
     RegistryCadence, ReleaseAdapter, ReleaseAsset, ReleaseCredentials, ReleaseDefaults,

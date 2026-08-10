@@ -468,7 +468,7 @@ fn validate_visibility_compat(
 }
 
 /// Fail closed when a module delegates a phase Toven cannot dispatch through the
-/// [`DelegatedPhase`](toven_ports::DelegatedPhase) runner, so a `backing =
+/// shared [`ToolRunner`](toven_ports::ToolRunner) seam, so a `backing =
 /// "delegated"` entry never silently degrades to the native path.
 ///
 /// Two rejections, both surfaced at plan time — before any mutation — naming the

@@ -32,7 +32,7 @@ pub use artifacts::{
 };
 pub use execution::{ReleaseApplyOptions, release_apply};
 pub use hosting::{
-    GithubReleaseHost, GitlabReleaseHost, ProcessDelegatedPhase, delegated_request,
+    DelegatedPhaseMode, GithubReleaseHost, GitlabReleaseHost, delegated_request,
     run_delegated_preview,
 };
 pub(crate) use model::ReleaseTargets;

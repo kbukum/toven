@@ -1,6 +1,6 @@
 //! Hosted-release delivery: the per-forge `ReleaseHost` adapters and their
 //! phase, the published-but-unhosted reconcile flow, the bounded publish loop,
-//! and the delegated-phase process runner.
+//! and the delegated-phase tool runner.
 
 mod delegated;
 #[allow(clippy::redundant_pub_crate)]
@@ -10,5 +10,5 @@ pub(crate) mod publish;
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) mod reconcile;
 
-pub use delegated::{ProcessDelegatedPhase, delegated_request, run_delegated_preview};
+pub use delegated::{DelegatedPhaseMode, delegated_request, run_delegated_preview};
 pub use host::{GithubReleaseHost, GitlabReleaseHost};

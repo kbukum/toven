@@ -7,7 +7,7 @@
 //!   per-target `host.assets` archive (deterministic `tar.gz`, and a Windows
 //!   `.zip` carrying the `.exe` member), reporting `backing = "native"`;
 //! * **delegated** — the Go `Package` phase is backed by `GoReleaser` through the
-//!   `DelegatedPhase` runner: Toven drives a mutation-free `--snapshot` preview,
+//!   `ToolRunner` seam: Toven drives a mutation-free `--snapshot` preview,
 //!   then normalizes the tool-produced archive back into the typed report as
 //!   `backing = "delegated"`; and
 //! * **multi-module** — in a Go multi-module fixture the binary module attaches
@@ -33,7 +33,7 @@ use toven_ports::{
     PhaseConfig, PhasesConfig, Provider, ReleaseConfig, TaskIntent,
 };
 use toven_testkit::{
-    FakeConfiguredAdapter, FakeDelegatedPhase, FakeProvider, FakeReleaseTarget, RecordingReporter,
+    FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeToolRunner, RecordingReporter,
 };
 
 const LINUX: &str = "x86_64-unknown-linux-gnu";
@@ -152,7 +152,7 @@ fn native_packages_a_built_go_binary_into_the_declared_tar_gz() {
         &providers,
         LINUX,
         Some(binary.as_path()),
-        &FakeDelegatedPhase::new(),
+        &FakeToolRunner::new(),
         &mut reporter,
     )
     .expect("native go package runs");
@@ -185,7 +185,7 @@ fn native_packages_a_built_go_binary_into_a_windows_zip() {
         &providers,
         WINDOWS,
         Some(binary.as_path()),
-        &FakeDelegatedPhase::new(),
+        &FakeToolRunner::new(),
         &mut reporter,
     )
     .expect("native go windows package runs");
@@ -206,7 +206,7 @@ fn goreleaser_delegated_package_runs_a_snapshot_preview_and_normalizes_the_archi
     let asset_rel = "dist/cli-x86_64-unknown-linux-gnu.tar.gz";
     // No binary is built natively: GoReleaser "produces" the archive, which the
     // runner writes on a successful mutation-free preview.
-    let runner = FakeDelegatedPhase::new()
+    let runner = FakeToolRunner::new()
         .with_produced_file(root.path().join(asset_rel), b"goreleaser-archive");
     let provider = go_provider(vec![asset_rel], true);
     let providers: Vec<&dyn Provider> = vec![&provider];
@@ -230,8 +230,6 @@ fn goreleaser_delegated_package_runs_a_snapshot_preview_and_normalizes_the_archi
     // GoReleaser was driven argv-first, tool-first, as a mutation-free snapshot.
     let requests = runner.requests();
     assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].phase, ReleasePhase::Package);
-    assert_eq!(requests[0].mode, toven_ports::DelegatedPhaseMode::Preview);
     assert_eq!(
         requests[0].argv.first().map(String::as_str),
         Some("goreleaser")
@@ -243,7 +241,7 @@ fn goreleaser_delegated_package_runs_a_snapshot_preview_and_normalizes_the_archi
 fn goreleaser_delegated_package_fails_closed_when_no_archive_is_produced() {
     let root = TempDir::new().unwrap();
     // The tool exits zero but produces nothing.
-    let runner = FakeDelegatedPhase::new();
+    let runner = FakeToolRunner::new();
     let provider = go_provider(vec!["dist/cli-x86_64-unknown-linux-gnu.tar.gz"], true);
     let providers: Vec<&dyn Provider> = vec![&provider];
     let mut reporter = RecordingReporter::new();
@@ -272,10 +270,10 @@ fn only_the_binary_module_attaches_archives_across_backings() {
         let asset_rel = "dist/cli-x86_64-unknown-linux-gnu.tar.gz";
         let binary_path = root.path().join("bin/cli");
         let runner = if delegated {
-            FakeDelegatedPhase::new().with_produced_file(root.path().join(asset_rel), b"archive")
+            FakeToolRunner::new().with_produced_file(root.path().join(asset_rel), b"archive")
         } else {
             write_go_binary(root.path(), "bin/cli");
-            FakeDelegatedPhase::new()
+            FakeToolRunner::new()
         };
         let binary = if delegated {
             None

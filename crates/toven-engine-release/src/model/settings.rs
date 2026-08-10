@@ -175,7 +175,7 @@ impl ResolvedReleaseSettings {
     /// The delegated tool backing `phase`, if the phase delegates.
     ///
     /// Returns `None` for a native (or unconfigured) phase. The engine folds
-    /// this into an argv-first [`DelegatedPhaseRequest`](toven_ports::DelegatedPhaseRequest)
+    /// this into an argv-first [`ToolInvocation`](toven_ports::ToolInvocation)
     /// (via [`delegated_request`](crate::delegated_request)) when a
     /// phase resolves [`PhaseBacking::Delegated`].
     #[must_use]

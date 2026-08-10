@@ -18,38 +18,27 @@ use rskit_errors::{AppError, AppResult};
 use rskit_version::semver::Version;
 use serde::Serialize;
 use toven_engine_core::config::VerbId;
+use toven_engine_core::exec::ProcessToolRunner;
 use toven_engine_core::plan::PlanRequest;
 use toven_engine_core::vcs::BaselineFlags;
 use toven_engine_release::{
     BuildxImagePhase, BumpOptions, BumpOverrides, BumpReport, ChecksumReport, CosignSigner,
     CosignVerifier, DepgraphReport, GhAssetDownloader, GhAttestationProvenance, ImageOptions,
-    ImageReport, PackageReport, ProcessDelegatedPhase, ProcessVersionProbe, ProvenanceOptions,
-    ProvenanceReport, PublishDecision, ReadinessReport, ReleaseApplyOptions, ReleasePlan,
-    ReleaseRehearsal, ReleaseStatus, SbomReport, SignReport, VerifyOptions, VerifyReport,
-    release_bump, release_checksums, release_depgraphs, release_image, release_package,
-    release_plan, release_provenance, release_readiness, release_rehearse, release_run,
-    release_sbom, release_sign, release_status, release_verify,
+    ImageReport, PackageReport, ProcessVersionProbe, ProvenanceOptions, ProvenanceReport,
+    PublishDecision, ReadinessReport, ReleaseApplyOptions, ReleasePlan, ReleaseRehearsal,
+    ReleaseStatus, SbomReport, SignReport, VerifyOptions, VerifyReport, release_bump,
+    release_checksums, release_depgraphs, release_image, release_package, release_plan,
+    release_provenance, release_readiness, release_rehearse, release_run, release_sbom,
+    release_sign, release_status, release_verify,
 };
-use toven_model::{Entrypoint, Event, ModuleRef};
+use toven_model::{Entrypoint, ModuleRef};
 use toven_ports::{
     BaselineSourceConfig, BumpLevel, Provider, PublicationPolicy, Reporter, TagMode, TaskIntent,
 };
 
+use crate::commands::support::QuietReporter;
 use crate::flags::{Cli, OutputKind, ReleaseAction};
 use crate::host::{Project, Report, new_run_id, resolve_output};
-
-/// A quiet [`Reporter`] for the read-only release projections: the projection
-/// itself is the stdout payload, so only warnings are surfaced (on stderr).
-struct QuietReporter;
-
-impl Reporter for QuietReporter {
-    fn emit(&mut self, event: &Event) -> AppResult<()> {
-        if let Event::Warning { message } = event {
-            eprintln!("warning: {message}");
-        }
-        Ok(())
-    }
-}
 
 /// Dispatch a `toven release <action>` invocation.
 ///
@@ -277,14 +266,14 @@ fn package(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResu
         )
     })?;
     let mut reporter = QuietReporter;
-    let delegated = ProcessDelegatedPhase::new();
+    let tool_runner = ProcessToolRunner::new();
     let report = release_package(
         &request,
         &project.document,
         providers,
         target,
         cli.binary.as_deref(),
-        &delegated,
+        &tool_runner,
         &mut reporter,
     )?;
     match resolve_output(cli.output, &project.document) {
@@ -312,14 +301,14 @@ fn checksums(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
 fn sign(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
     let signer = CosignSigner::new();
-    let delegated = ProcessDelegatedPhase::new();
+    let tool_runner = ProcessToolRunner::new();
     let mut reporter = QuietReporter;
     let report = release_sign(
         &request,
         &project.document,
         providers,
         &signer,
-        &delegated,
+        &tool_runner,
         &mut reporter,
     )?;
     match resolve_output(cli.output, &project.document) {

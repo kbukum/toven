@@ -80,17 +80,6 @@ impl ReleaseDefaultsSource for FakeReleaseTarget {
     }
 }
 
-struct FakeDelegatedPhase;
-impl DelegatedPhase for FakeDelegatedPhase {
-    fn run(&self, _request: &DelegatedPhaseRequest) -> AppResult<DelegatedPhaseOutcome> {
-        Ok(DelegatedPhaseOutcome {
-            exit_code: Some(0),
-            stdout: String::new(),
-            stderr: String::new(),
-        })
-    }
-}
-
 struct FakeImagePhase;
 impl ImagePhase for FakeImagePhase {
     fn publish_image(
@@ -264,6 +253,13 @@ impl HeldProcess for FakeHeldProcess {
     }
 }
 
+struct FakeToolRunner;
+impl ToolRunner for FakeToolRunner {
+    fn run(&self, _invocation: &ToolInvocation) -> AppResult<ToolOutcome> {
+        Ok(ToolOutcome::new(Some(0), String::new(), String::new()))
+    }
+}
+
 struct FakeCommandRunner;
 #[async_trait::async_trait]
 impl CommandRunner for FakeCommandRunner {
@@ -433,18 +429,6 @@ fn port_traits_are_object_safe() {
     let direct_artifact = release.package(&module).expect("packages");
     assert_eq!(direct_artifact.path, artifact.path);
 
-    // Exercise the DelegatedPhase port.
-    let delegated: Box<dyn DelegatedPhase> = Box::new(FakeDelegatedPhase);
-    let outcome = delegated
-        .run(&DelegatedPhaseRequest::new(
-            toven_model::ReleasePhase::Package,
-            vec!["goreleaser".into(), "release".into()],
-            DelegatedPhaseMode::Preview,
-            "/repo",
-        ))
-        .expect("runs delegated phase");
-    assert!(outcome.succeeded());
-
     // Exercise the Signer port.
     let signer: Box<dyn Signer> = Box::new(FakeSigner);
     signer
@@ -588,6 +572,11 @@ fn port_traits_are_object_safe() {
     assert_eq!(held.unit_id(), "rust:fake#run");
     held.shutdown().expect("shuts down");
     let _runner: &dyn CommandRunner = &*runner;
+    let tool_runner: Box<dyn ToolRunner> = Box::new(FakeToolRunner);
+    let tool_outcome = tool_runner
+        .run(&ToolInvocation::new(vec!["true".into()]))
+        .expect("runs tool");
+    assert!(tool_outcome.succeeded());
 }
 
 #[test]
