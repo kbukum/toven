@@ -47,6 +47,8 @@ strategy = "semver-cascade"
 level = "auto"
 dependent_version = "bump"
 tag_format = "{ecosystem}/{module}@{version}"
+tag_mode = "per-module"
+baseline = "own-tag"
 tag_message = "release {module} {version}"
 sign_tags = true
 sign_format = "openpgp"
@@ -106,6 +108,8 @@ post = ["docs-build"]
 | `level` | `"patch"`, `"minor"`, `"major"`, or `"auto"` | `"auto"` | Bump for changed modules |
 | `dependent_version` | `"bump"` or `"upgrade"` | `"bump"` | Whether a dependent gets its own release after a dependency floor changes |
 | `tag_format` | template string | Adapter tag scheme | Release tag template; Rust accepts it, Go rejects it |
+| `tag_mode` | `"per-module"`, `"umbrella"`, or `"both"` | Adapter default | Which tags the train creates (see [Tag modes and baseline sources](#tag-modes-and-baseline-sources)) |
+| `baseline` | `"own-tag"`, `"umbrella-tag"`, `"registry"`, or `"registry+umbrella"` | Adapter default | Where change detection anchors this module's baseline |
 | `tag_message` | template string | Lightweight tag | Annotated-tag message template |
 | `sign_tags` | boolean | `false` | Sign release tags; requires `tag_message` and a resolvable signing key |
 | `sign_format` | `"openpgp"`, `"gpg"`, `"ssh"`, or `"x509"` | Git `gpg.format` | Git signing backend, only with `sign_tags = true` |
@@ -396,6 +400,79 @@ In a maintainer-owned flow, the tag is an input. Toven never creates or moves it
 `umbrella = true` marks one module as the aggregate representative for a release train. It fronts a single hosted `vX.Y.Z` Release whose notes aggregate every member's changelog. Member crates keep independent versions and tags and can publish to registries, but they cut no individual forge Release.
 
 A train with two umbrella modules is a configuration error. An excluded module cannot be an umbrella.
+
+## Tag modes and baseline sources
+
+Two orthogonal knobs describe how a release train tags and how it decides what changed. Both are optional and resolve to a per-ecosystem adapter default, so an existing `toven.toml` keeps its behavior without declaring either.
+
+`tag_mode` chooses **which tags a run creates**:
+
+| Value | Tags created |
+|---|---|
+| `per-module` | One tag per released module from its own `tag_format`. The umbrella module's own tag is not created. |
+| `umbrella` | Only the single umbrella module's tag (e.g. `v1.2.3`); per-module tags are skipped. |
+| `both` | Per-module tags for traceability **and** the umbrella tag. |
+
+`baseline` chooses **where change detection anchors** a module's baseline — the point a run diffs against to decide whether the module changed and how far to bump:
+
+| Value | Anchor |
+|---|---|
+| `own-tag` | The module's own latest matching release tag. |
+| `umbrella-tag` | The member's umbrella tag: both the anchor version and the diff ref come from it. |
+| `registry` | The registry's max published version for idempotency; the diff ref is the module's own tag. |
+| `registry+umbrella` | `max(registry, umbrella-tag)` for the version, with the diff ref from the umbrella tag. |
+
+`tag_mode` governs tag creation, `umbrella = true` marks *which* module is the umbrella, and `baseline` governs change gating. The three are independent, so a train can, for example, create `both` tag layouts while gating each crate on `registry+umbrella`.
+
+The two knobs compose with the existing semantics without redefining them: `umbrella` still marks the aggregate hosted-Release representative, `entrypoint = "maintainer"` still verifies rather than creates tags — verifying whichever tags the mode implies, including the umbrella tag under `umbrella` or `both` — and `push_branch` and `exclude` are unchanged.
+
+```mermaid
+flowchart LR
+    subgraph tag["tag_mode — what is created"]
+        pm["per-module<br/>rust/core@1.2.0"]
+        um["umbrella<br/>v1.2.0"]
+        bo["both<br/>rust/core@1.2.0 + v1.2.0"]
+    end
+    subgraph base["baseline — what change gating diffs against"]
+        ot["own-tag"]
+        ut["umbrella-tag"]
+        rg["registry"]
+        ru["registry+umbrella<br/>max(registry, umbrella-tag)"]
+    end
+    Go["Go default"] --> pm
+    Go --> ot
+    Rust["Rust default"] --> bo
+    Rust --> ru
+```
+
+### Per-ecosystem defaults
+
+The defaults encode the difference between the two registry models. For **Rust**, crates.io is the registry and git tags are traceability, so the default is `tag_mode = "both"` with a `baseline = "registry+umbrella"` anchor: per-crate tags plus one umbrella `v{version}` tag, and gating on `max(crates.io max published, version-at-the-umbrella-tag)`. For **Go**, per-module tags *are* the registry — `go get` needs them — so the default is `tag_mode = "per-module"` with `baseline = "own-tag"`.
+
+This is why a Rust workspace with a single umbrella `vX.Y.Z` tag, per-crate crates.io history, and only some crates changed bumps just the changed crates (and their dependency cascade): the registry+umbrella anchor gives each crate a real baseline even though it has no per-crate tag. Earlier releases treated every such crate as an initial release and advanced nothing.
+
+An umbrella-anchored default is only applied when the train declares exactly one umbrella module. If it declares none, the Rust default degrades to `tag_mode = "per-module"` / `baseline = "own-tag"` rather than demanding an umbrella the train never cuts. An explicit `umbrella-tag` or `registry+umbrella` value with no umbrella module declared is a plan-time typed error.
+
+### Registry-failure downgrade
+
+A `registry` or `registry+umbrella` baseline consults the ecosystem registry only to raise the idempotency anchor. When that lookup fails — an offline run, a registry outage — change detection does not abort. It downgrades to the umbrella-tag (or own-tag) anchor and completes, so a transient registry problem never blocks a release plan.
+
+### Overriding the defaults
+
+Both knobs follow the standard precedence — module override, then ecosystem policy, then adapter default:
+
+```toml
+# Force per-crate-tag baselines on a Rust module that opts out of the registry anchor.
+[modules."rust:core".release]
+baseline = "own-tag"
+tag_mode = "per-module"
+```
+
+`release plan` reports the effective tag mode and baseline source per module (the `Tag mode` and `Baseline` columns, or `tag_mode` and `baseline_source` under `--output jsonl`), so the resolved choice is visible without inspecting config.
+
+### Migration
+
+No existing field is removed and no existing `toven.toml` needs edits. `tag_mode` and `baseline` are optional; when unset they resolve to the per-ecosystem defaults above. The visible change is a behavioral default, not a config break: a Rust workspace that previously anchored every module on its own tag now anchors on `registry+umbrella`, so an umbrella-tagged workspace change-gates correctly instead of treating each crate as an initial release. A project that genuinely wants the old per-crate-tag baseline opts in with an explicit `baseline = "own-tag"`. Go behavior is unchanged.
 
 ## Release phases and delegation
 

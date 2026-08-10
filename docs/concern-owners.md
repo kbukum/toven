@@ -27,6 +27,7 @@ When a shared capability is missing, improve rskit generically. Do not make rski
 | Port traits | `toven-ports` |
 | Strict `toven.toml` document loading | `toven-core` |
 | PLAN spine, VCS seam, and federation-core (resolve/baseline/compose) | `toven-core` |
+| Change foundation (diff-range resolution) and path→owning-module resolver | `toven-core` |
 | Concrete subprocess runners (`ProcessToolRunner`, `ProcessCommandRunner`, persistent spawn) and the shared argv→`ProcessSpec` lowering | `toven-exec` |
 | Scheduling, affected selection, apply, cache coordination, coverage | `toven-engine` |
 | Release orchestration (bump, changelog, packaging, SBOM, hosted publishing) | `toven-release` |

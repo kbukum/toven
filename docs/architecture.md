@@ -198,9 +198,31 @@ Affected planning changes the active subgraph, not the dependency rules. For exa
 | Batchable | Compatible modules in a wave | Dependency-safe batches | Tools that accept multiple package selectors |
 | Per-module | One unit per module | Dependency waves | Isolation, module-specific output, or non-batchable tools |
 
+## Change foundation
+
+"What changed between two points" is one reusable concern, not a per-verb reimplementation. The `toven-core` change foundation resolves a `DiffRange` of two `DiffEndpoint`s onto the read-only `VcsReader` git seam. An endpoint is the working tree, `HEAD`, a named ref, an object id, or the latest tag matching a scheme, so the foundation answers every comparison the verbs need from one place:
+
+```text
+commit↔commit   branch↔branch   commit↔tag   branch↔tag
+working-tree↔{branch,tag,commit}   current↔latest-matching-tag
+```
+
+`resolve_range` resolves each endpoint to a concrete ref (or the working tree), then maps the pair onto the seam: a working-tree target composes committed `from..HEAD` with working-tree status, and two committed endpoints diff directly. Baseline *policy* — merge-base selection, `--base` and config precedence — stays in the engine's `BaselineStrategy`; the foundation only resolves endpoints and diffs. "Latest matching tag" is a reusable primitive here rather than release-private code.
+
+A single path→owning-module resolver classifies each changed path to the module that owns it, failing closed to a full plan on any unclassified path. Both affected-task selection and release change gating consume the one foundation and the one resolver, so a commit-range diff, a working-tree preview, and a release baseline all agree on what changed and who owns it.
+
 ## Process execution
 
 Commands are argument vectors by default. User argv is not rewritten. Runtime output is observed and projected by the CLI layer; libraries return typed results and do not print.
+
+Process execution runs through two runner seams in `toven-ports`, and the `{args}` splice runs through the single template renderer. The seams share the argv-first invocation vocabulary and differ only in shape:
+
+- `CommandRunner` is the async, streaming, cancellable, persistent-aware seam the APPLY wave walk drives.
+- `ToolRunner` is the synchronous one-shot seam behind every "spawn one argv-first tool, forward named secrets by environment, gate on its exit" call site — release delegation, artifact verification and signing, hosted-release CLIs, and toolchain probes.
+
+Both concrete adapters (`ProcessCommandRunner`, `ProcessToolRunner`) live in `toven-exec` over the rskit process port, and exit-code classification is single-sourced: `ToolOutcome::require_success` maps a one-shot tool's exit the way the wave gate maps a task's, so tasks, hooks, and delegated phases fail identically. Secrets flow through the child environment, never argv.
+
+Only `toven-cli` prints, so the reporter, runtime, and runner assembly the CLI commands share lives in one place (`commands/support`); `run`, `watch`, `coverage`, and `release` consume it instead of re-deriving their own setup.
 
 On Unix terminals, live units may use PTYs to preserve color and progress rendering. Non-terminal and unsupported environments use deterministic stream output.
 
@@ -252,7 +274,7 @@ The ecosystem sliver is a set of **per-phase contracts** in `toven-ports`, compo
 | engine selection | Select | Select, cascade, and order releasable modules. |
 | `ReleaseHost` port | Host | Create the hosted forge Release. |
 
-A delegated phase runs through the `DelegatedPhase` port. The engine builds a fully-resolved, argv-first `DelegatedPhaseRequest` — a tool-first argument vector, separate mutation-free-preview and mutating-apply argv, and secrets named on the child environment (never on argv). The engine-side `ProcessDelegatedPhase` runner spawns it via the rskit process port and reports a classified exit.
+A delegated phase runs through the shared `ToolRunner` seam. The engine builds a fully-resolved, argv-first tool invocation — a tool-first argument vector, separate mutation-free-preview and mutating-apply argv, and secrets named on the child environment (never on argv) — and gates on the classified exit through the same `require_success` mapping every one-shot tool uses. The concrete `ProcessToolRunner` in `toven-exec` spawns it via the rskit process port.
 
 ## Output boundary
 
