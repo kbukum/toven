@@ -139,6 +139,32 @@ impl ReleaseBaseline {
         }
     }
 
+    /// Construct a baseline anchored on a registry or umbrella source.
+    ///
+    /// Unlike [`tag`](Self::tag) — a same-module release tag that supplies the
+    /// tag name, version, and commit together — an anchored baseline may carry a
+    /// version (the registry's max published version, or the version an umbrella
+    /// tag denotes) and a diff ref (`tag`/`target`) that originate from
+    /// *different* anchors, and either may be absent: a registry version with no
+    /// tag commit to diff file changes against, or an umbrella tag whose commit
+    /// anchors the diff. A baseline that carries at least one of a version or a
+    /// diff ref is **not** an initial release — the module has a released anchor
+    /// even without a tag of its own.
+    #[must_use]
+    pub const fn anchored(
+        module: ModuleKey,
+        tag: Option<String>,
+        version: Option<Version>,
+        target: Option<Oid>,
+    ) -> Self {
+        Self {
+            module,
+            tag,
+            version,
+            target,
+        }
+    }
+
     /// Construct the baseline of a module that has never been released.
     ///
     /// There is no prior release tag and no substitute ref to diff against:
@@ -155,9 +181,14 @@ impl ReleaseBaseline {
     }
 
     /// Whether this baseline marks a module that has never been released.
+    ///
+    /// A module is an initial release only when it has **no** anchor of any kind
+    /// — no release tag, no anchored version, and no diff ref. A registry- or
+    /// umbrella-anchored baseline carries a version and/or a diff ref, so it is
+    /// change-gated against that anchor rather than treated as a first release.
     #[must_use]
     pub const fn is_initial(&self) -> bool {
-        self.tag.is_none()
+        self.tag.is_none() && self.version.is_none() && self.target.is_none()
     }
 }
 

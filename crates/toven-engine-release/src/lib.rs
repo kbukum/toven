@@ -37,9 +37,9 @@ pub use hosting::{
 };
 pub(crate) use model::ReleaseTargets;
 pub use model::{
-    ArtifactManifest, BumpOverrides, BumpPolicy, BumpReason, BumpSource, ChangelogEntry,
-    HostRehearsal, PublishDecision, PushPolicy, RehearsalVerdict, ReleaseBaseline, ReleaseEntry,
-    ReleaseModuleStatus, ReleasePlan, ReleaseRehearsal, ReleaseStats, ReleaseStatus,
+    ArtifactManifest, BaselineSource, BumpOverrides, BumpPolicy, BumpReason, BumpSource,
+    ChangelogEntry, HostRehearsal, PublishDecision, PushPolicy, RehearsalVerdict, ReleaseBaseline,
+    ReleaseEntry, ReleaseModuleStatus, ReleasePlan, ReleaseRehearsal, ReleaseStats, ReleaseStatus,
     ResolvedHostSettings, ResolvedReleaseSettings,
 };
 pub use planning::{

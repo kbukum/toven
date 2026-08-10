@@ -13,7 +13,10 @@
 //! - `configure` — bakes each ecosystem subtree into a `ConfiguredAdapter`.
 //! - `discover` — full federation union (workspaces/modules/edges + overlays).
 //! - `graph` — `Graph::build` plus the deferred SEMANTIC config validation.
-//! - `affected` — longest-prefix change mapper + blast radius + closure.
+//! - `affected` — resolve a request's selection to the active module set
+//!   (explicit selectors / changed-path composition + closure).
+//! - `ownership` — the shared path→owning-module resolver (longest-prefix roots
+//!   + blast radius) consumed by both affected-selection and release.
 //! - `toolchain` — per-active-workspace `{tool, version}` resolution.
 //! - `schedule` — `RunStrategy` relaxation → federated waves → per-module
 //!   units.
@@ -29,6 +32,7 @@ pub(crate) mod front;
 mod graph;
 mod host;
 mod overrides;
+pub(crate) mod ownership;
 mod pipeline;
 mod request;
 mod schedule;
@@ -47,5 +51,5 @@ pub use source::FsSourceDigest;
 pub use toolchain::ProcessToolchainProber;
 pub use toven_model::ModuleSelector;
 
-pub use affected::{changed_records_for_module, changed_seeds};
 pub use front::{PlanContext, prepare as prepare_front};
+pub use ownership::{changed_records_for_module, changed_seeds};
