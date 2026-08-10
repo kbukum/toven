@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_ports::{ToolInvocation, ToolOutcome, ToolRunner};
+use toven_ports::{ToolInvocation, ToolOutcome, ToolRunner, Truncation};
 
 /// A [`ToolRunner`] with a scripted outcome and invocation recording.
 #[derive(Debug, Clone)]
@@ -25,6 +25,7 @@ struct FakeToolState {
     stderr: String,
     timed_out: bool,
     cancelled: bool,
+    truncated: Truncation,
     fail: Option<String>,
     sequence: Option<VecDeque<ToolOutcome>>,
     requests: Vec<ToolInvocation>,
@@ -40,6 +41,7 @@ impl Default for FakeToolRunner {
                 stderr: String::new(),
                 timed_out: false,
                 cancelled: false,
+                truncated: Truncation::default(),
                 fail: None,
                 sequence: None,
                 requests: Vec::new(),
@@ -88,6 +90,20 @@ impl FakeToolRunner {
     #[must_use]
     pub fn with_cancelled(self, cancelled: bool) -> Self {
         self.state().cancelled = cancelled;
+        self
+    }
+
+    /// Report the captured output as truncated at the output bound — the tool
+    /// produced more than its cap, so the returned stdout/stderr are incomplete.
+    #[must_use]
+    pub fn with_truncated(self, stdout_truncated: bool, stderr_truncated: bool) -> Self {
+        {
+            let mut state = self.state();
+            state.truncated = Truncation {
+                stdout: stdout_truncated,
+                stderr: stderr_truncated,
+            };
+        }
         self
     }
 
@@ -172,7 +188,8 @@ impl ToolRunner for FakeToolRunner {
         Ok(
             ToolOutcome::new(state.exit_code, state.stdout.clone(), state.stderr.clone())
                 .timed_out_flag(state.timed_out)
-                .cancelled_flag(state.cancelled),
+                .cancelled_flag(state.cancelled)
+                .truncated_flags(state.truncated.stdout, state.truncated.stderr),
         )
     }
 }

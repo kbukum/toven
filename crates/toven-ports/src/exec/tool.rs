@@ -19,6 +19,35 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 
 use super::InvocationEnvironment;
 
+/// A secret forwarded to the child under a *different* name than its ambient
+/// source.
+///
+/// The rename companion to [`ToolInvocation::forward_env`]: `source` names the
+/// ambient environment variable the runner resolves at run time, and `child`
+/// is the variable the tool actually reads (e.g. a configured
+/// `MY_REGISTRY_TOKEN` handed to cargo as `CARGO_REGISTRY_TOKEN`). Like
+/// `forward_env`, the value is resolved inside the runner and never enters the
+/// invocation, so it is never cloned into a recorded [`ToolInvocation`], placed
+/// on argv, or logged.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ForwardEnvAs {
+    /// Ambient environment variable the runner resolves at run time.
+    pub source: String,
+    /// Variable name the child process reads the resolved value under.
+    pub child: String,
+}
+
+impl ForwardEnvAs {
+    /// Map an ambient `source` variable onto the `child` name the tool reads.
+    #[must_use]
+    pub fn new(source: impl Into<String>, child: impl Into<String>) -> Self {
+        Self {
+            source: source.into(),
+            child: child.into(),
+        }
+    }
+}
+
 /// One fully-resolved synchronous tool invocation.
 ///
 /// The `argv` is complete and user-owned (`argv[0]` is the program); the runner
@@ -28,7 +57,10 @@ use super::InvocationEnvironment;
 /// [`with_environment`](Self::with_environment) to opt into a hermetic policy.
 /// Secrets are never placed on `argv` and never logged;
 /// [`forward_env`](Self::forward_env) names the ambient secrets the runner
-/// resolves and guarantees are present for the child.
+/// resolves and guarantees are present for the child, and
+/// [`forward_env_as`](Self::forward_env_as) does the same for the rename case
+/// where the child reads the value under a different name. In both forms the
+/// runner resolves the value at run time — it never enters the invocation.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ToolInvocation {
     /// Fully resolved argument vector (`argv[0]` is the program).
@@ -41,6 +73,10 @@ pub struct ToolInvocation {
     /// Names of ambient environment variables the child may read (secrets by
     /// name only — the runner resolves each non-empty value at run time).
     pub forward_env: Vec<String>,
+    /// Ambient secrets forwarded to the child under a *different* name than
+    /// their source (secrets by name only — the runner resolves each non-empty
+    /// value at run time; the value never enters the invocation).
+    pub forward_env_as: Vec<ForwardEnvAs>,
     /// Optional wall-clock bound; `None` runs unbounded.
     pub timeout: Option<Duration>,
     /// Optional cap on captured stdout/stderr bytes; `None` uses the runner
@@ -65,6 +101,7 @@ impl ToolInvocation {
             working_dir: None,
             environment: InvocationEnvironment::inherit_parent(BTreeMap::new()),
             forward_env: Vec::new(),
+            forward_env_as: Vec::new(),
             timeout: None,
             max_output_bytes: None,
             stdin: None,
@@ -89,6 +126,13 @@ impl ToolInvocation {
     #[must_use]
     pub fn with_forward_env(mut self, names: Vec<String>) -> Self {
         self.forward_env = names;
+        self
+    }
+
+    /// Forward ambient secrets to the child under a renamed variable.
+    #[must_use]
+    pub fn with_forward_env_as(mut self, mappings: Vec<ForwardEnvAs>) -> Self {
+        self.forward_env_as = mappings;
         self
     }
 
@@ -126,13 +170,35 @@ impl ToolInvocation {
     }
 }
 
+/// Which captured streams overflowed the runner's output bound.
+///
+/// A grouped companion to a [`ToolOutcome`]: truncation is a property of the
+/// captured output, so the per-stream flags travel together rather than as
+/// loose booleans on the outcome.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Default)]
+pub struct Truncation {
+    /// Standard output was truncated at the output bound.
+    pub stdout: bool,
+    /// Standard error was truncated at the output bound.
+    pub stderr: bool,
+}
+
+impl Truncation {
+    /// Whether either captured stream was truncated at the bound.
+    #[must_use]
+    pub const fn any(self) -> bool {
+        self.stdout || self.stderr
+    }
+}
+
 /// The classified result of one synchronous tool invocation.
 ///
 /// The runner reports what happened — the exit code and captured output, plus
-/// whether the tool was killed by timeout or cancellation — and never decides
-/// policy: a non-zero exit is a valid outcome, not an error. Callers gate on it
-/// via [`succeeded`](Self::succeeded) or map it to a typed error with the
-/// shared [`require_success`](Self::require_success).
+/// whether the tool was killed by timeout or cancellation and whether its
+/// output overflowed the bound — and never decides policy: a non-zero exit is a
+/// valid outcome, not an error. Callers gate on it via
+/// [`succeeded`](Self::succeeded) or map it to a typed error with the shared
+/// [`require_success`](Self::require_success).
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct ToolOutcome {
@@ -146,6 +212,8 @@ pub struct ToolOutcome {
     pub timed_out: bool,
     /// Whether the tool was cancelled by the caller.
     pub cancelled: bool,
+    /// Which captured streams overflowed the runner's output bound.
+    pub truncated: Truncation,
 }
 
 impl ToolOutcome {
@@ -162,6 +230,10 @@ impl ToolOutcome {
             stderr: stderr.into(),
             timed_out: false,
             cancelled: false,
+            truncated: Truncation {
+                stdout: false,
+                stderr: false,
+            },
         }
     }
 
@@ -179,26 +251,73 @@ impl ToolOutcome {
         self
     }
 
-    /// Whether the tool completed with a zero exit and was neither timed out nor
-    /// cancelled.
+    /// Record whether captured stdout/stderr were truncated at the bound.
+    #[must_use]
+    pub const fn truncated_flags(mut self, stdout_truncated: bool, stderr_truncated: bool) -> Self {
+        self.truncated = Truncation {
+            stdout: stdout_truncated,
+            stderr: stderr_truncated,
+        };
+        self
+    }
+
+    /// Whether the tool completed with a zero exit, was neither timed out nor
+    /// cancelled, and its captured output was not truncated at the bound.
+    ///
+    /// Truncation is a failure: a bounded invocation whose output overflowed the
+    /// cap yielded incomplete data, so a consumer must never treat it as a clean
+    /// success (a `cargo metadata` JSON blob cut mid-stream is not valid).
     #[must_use]
     pub const fn succeeded(&self) -> bool {
-        matches!(self.exit_code, Some(0)) && !self.timed_out && !self.cancelled
+        matches!(self.exit_code, Some(0))
+            && !self.timed_out
+            && !self.cancelled
+            && !self.truncated.any()
     }
 
     /// Map a non-success outcome to a typed error, or return `Ok(())`.
     ///
-    /// This is the single shared exit-classification used by every fail-closed
-    /// tool call site, so a timeout, cancellation, non-zero exit, or
-    /// signal-kill produces the same typed error shape everywhere. `context`
-    /// names the operation (e.g. `` "delegated package tool `goreleaser`" ``)
-    /// and the captured stderr is attached so the failure is actionable.
+    /// The fail-closed gate for a **delegated external tool** (release
+    /// packaging, artifact signing/verification, hosted-release CLIs): a
+    /// timeout, cancellation, output-bound overflow, non-zero exit, or
+    /// signal-kill becomes the same typed error shape everywhere. A non-zero or
+    /// signal exit is classified [`ErrorCode::ExternalService`] — the downstream
+    /// tool failed. `context` names the operation (e.g. ``"delegated package
+    /// tool `goreleaser`"``) and the captured stderr is attached so the failure
+    /// is actionable. For a *local* tool read whose failure is a repository/
+    /// configuration problem (`cargo metadata`, `go mod edit`), use
+    /// [`require_read_success`](Self::require_read_success) instead.
     ///
     /// # Errors
     /// Returns [`ErrorCode::Cancelled`] / [`ErrorCode::Timeout`] for an
-    /// interrupted run and [`ErrorCode::ExternalService`] for a non-zero or
-    /// signal-terminated exit.
+    /// interrupted run, [`ErrorCode::Internal`] for a truncated (bound-
+    /// overflowing) capture, and [`ErrorCode::ExternalService`] for a non-zero
+    /// or signal-terminated exit.
     pub fn require_success(&self, context: &str) -> AppResult<()> {
+        self.classify(context, ErrorCode::ExternalService)
+    }
+
+    /// Map a non-success **local tool read** to a typed error, or `Ok(())`.
+    ///
+    /// The sibling of [`require_success`](Self::require_success) for a tool
+    /// Toven runs to read the repository's own state (`cargo metadata`,
+    /// `go mod edit -json`): a non-zero or signal exit is a
+    /// repository/configuration fault, so it is classified
+    /// [`ErrorCode::Internal`] (matching the rskit `ProcessResult::check`
+    /// convention) rather than [`ErrorCode::ExternalService`], which would
+    /// mislabel a broken manifest as a downstream-service outage.
+    ///
+    /// # Errors
+    /// Returns [`ErrorCode::Cancelled`] / [`ErrorCode::Timeout`] for an
+    /// interrupted run and [`ErrorCode::Internal`] for a truncated capture, a
+    /// non-zero exit, or a signal-terminated exit.
+    pub fn require_read_success(&self, context: &str) -> AppResult<()> {
+        self.classify(context, ErrorCode::Internal)
+    }
+
+    /// Shared exit classification: interruption and output-bound overflow map to
+    /// fixed codes; a non-zero or signal exit maps to `failure_code`.
+    fn classify(&self, context: &str, failure_code: ErrorCode) -> AppResult<()> {
         if self.cancelled {
             return Err(
                 AppError::new(ErrorCode::Cancelled, format!("{context} was cancelled"))
@@ -211,15 +330,22 @@ impl ToolOutcome {
                     .with_detail("timed_out", true),
             );
         }
+        if self.truncated.any() {
+            return Err(AppError::new(
+                ErrorCode::Internal,
+                format!("{context} output exceeded the captured-output bound"),
+            )
+            .with_detail("truncated", true));
+        }
         match self.exit_code {
             Some(0) => Ok(()),
             Some(code) => Err(AppError::new(
-                ErrorCode::ExternalService,
+                failure_code,
                 format!("{context} exited {code}: {}", self.stderr.trim()),
             )
             .with_detail("exit_code", code)),
             None => Err(AppError::new(
-                ErrorCode::ExternalService,
+                failure_code,
                 format!("{context} was terminated by a signal"),
             )
             .with_detail("killed", true)),
@@ -257,6 +383,10 @@ mod tests {
         let invocation = ToolInvocation::new(vec!["gh".into(), "release".into()])
             .with_working_dir("/repo")
             .with_forward_env(vec!["GITHUB_TOKEN".into()])
+            .with_forward_env_as(vec![super::ForwardEnvAs::new(
+                "MY_REGISTRY_TOKEN",
+                "CARGO_REGISTRY_TOKEN",
+            )])
             .with_timeout(std::time::Duration::from_secs(5))
             .with_max_output_bytes(1024);
 
@@ -266,6 +396,13 @@ mod tests {
             Some(std::path::Path::new("/repo"))
         );
         assert_eq!(invocation.forward_env, vec!["GITHUB_TOKEN".to_string()]);
+        assert_eq!(
+            invocation.forward_env_as,
+            vec![super::ForwardEnvAs::new(
+                "MY_REGISTRY_TOKEN",
+                "CARGO_REGISTRY_TOKEN"
+            )]
+        );
         assert_eq!(invocation.timeout, Some(std::time::Duration::from_secs(5)));
         assert_eq!(invocation.max_output_bytes, Some(1024));
     }
@@ -284,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn succeeded_requires_zero_exit_and_no_interruption() {
+    fn succeeded_requires_zero_exit_no_interruption_and_no_truncation() {
         assert!(ToolOutcome::new(Some(0), "", "").succeeded());
         assert!(!ToolOutcome::new(Some(1), "", "").succeeded());
         assert!(
@@ -297,6 +434,51 @@ mod tests {
                 .cancelled_flag(true)
                 .succeeded()
         );
+        // A zero-exit tool whose captured output overflowed the bound yielded
+        // incomplete data, so it must not read as a clean success.
+        assert!(
+            !ToolOutcome::new(Some(0), "", "")
+                .truncated_flags(true, false)
+                .succeeded()
+        );
+    }
+
+    #[test]
+    fn require_success_fails_closed_on_a_truncated_capture() {
+        // A bounded invocation that overflowed its cap is an error even on a
+        // zero exit — the metadata consumer would otherwise parse a JSON blob
+        // cut mid-stream. Truncation is a local-bound fault, so it is `Internal`
+        // for both the delegated and the read-side classifiers.
+        let delegated = ToolOutcome::new(Some(0), "", "")
+            .truncated_flags(true, false)
+            .require_success("delegated tool")
+            .expect_err("truncated output fails closed");
+        assert_eq!(delegated.code(), ErrorCode::Internal);
+        assert!(delegated.to_string().contains("exceeded"), "{delegated}");
+
+        let read = ToolOutcome::new(Some(0), "", "")
+            .truncated_flags(false, true)
+            .require_read_success("metadata tool")
+            .expect_err("truncated output fails closed");
+        assert_eq!(read.code(), ErrorCode::Internal);
+    }
+
+    #[test]
+    fn require_read_success_classifies_a_local_read_failure_as_internal() {
+        // A `cargo metadata` / `go mod edit` failure is a repository/config
+        // fault, not a downstream-service outage — so a non-zero or signal exit
+        // is `Internal`, matching the rskit `ProcessResult::check` convention.
+        let nonzero = ToolOutcome::new(Some(101), "", "no such manifest")
+            .require_read_success("metadata tool `cargo`")
+            .expect_err("non-zero is an error");
+        assert_eq!(nonzero.code(), ErrorCode::Internal);
+        assert!(nonzero.to_string().contains("cargo"), "{nonzero}");
+        assert!(nonzero.to_string().contains("manifest"), "{nonzero}");
+
+        let signal = ToolOutcome::new(None, "", "")
+            .require_read_success("metadata tool `cargo`")
+            .expect_err("signal-kill is an error");
+        assert_eq!(signal.code(), ErrorCode::Internal);
     }
 
     #[test]

@@ -52,7 +52,8 @@ const EDIT_TIMEOUT: Duration = Duration::new(120, 0);
 /// surfacing timeout / non-zero exit as typed errors.
 ///
 /// # Errors
-/// Returns a typed error when the process times out or exits non-zero.
+/// Returns a typed error when the process times out, overflows its output
+/// bound, or exits non-zero.
 pub(crate) fn run_go_json(
     invocation: ToolInvocation,
     label: &str,
@@ -69,9 +70,9 @@ pub(crate) fn run_go_json(
             format!("`{label}` timed out"),
         ));
     }
-    if !outcome.succeeded() {
-        outcome.require_success(&format!("go tool `go` ({label})"))?;
-    }
+    // `go mod edit -json` reads the repository's own module graph, so a failure
+    // is a repository/config fault (`Internal`), not a downstream-service outage.
+    outcome.require_read_success(&format!("go tool `go` ({label})"))?;
     Ok(outcome.stdout)
 }
 
@@ -123,7 +124,10 @@ mod tests {
         )
         .expect_err("non-zero go is rejected");
 
-        assert_eq!(error.code(), ErrorCode::ExternalService);
+        // A `go mod edit` failure is a repository/config fault, so it classifies
+        // `Internal` — matching the pre-seam behavior, not the delegated-tool
+        // `ExternalService`.
+        assert_eq!(error.code(), ErrorCode::Internal);
         let requests = runner.requests();
         assert_eq!(requests.len(), 1);
         assert_eq!(
@@ -132,5 +136,25 @@ mod tests {
         );
         assert_eq!(requests[0].timeout, Some(super::EDIT_TIMEOUT));
         assert_eq!(requests[0].max_output_bytes, Some(super::MAX_OUTPUT_BYTES));
+    }
+
+    #[test]
+    fn run_go_json_output_that_overflows_the_bound_fails_closed() {
+        // A truncated `go mod edit -json` capture is incomplete JSON; the seam
+        // must reject it rather than hand a cut document to the caller.
+        let runner = FakeToolRunner::new()
+            .with_exit_code(Some(0))
+            .with_stdout("{ \"Module\": {")
+            .with_truncated(true, false);
+
+        let error = run_go_json(
+            go_command(["mod", "edit", "-json", "go.mod"], Path::new("/repo")),
+            "go mod edit",
+            &runner,
+        )
+        .expect_err("a truncated capture is rejected");
+
+        assert_eq!(error.code(), ErrorCode::Internal);
+        assert!(error.to_string().contains("exceeded"), "{error}");
     }
 }

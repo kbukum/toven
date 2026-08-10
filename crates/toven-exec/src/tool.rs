@@ -40,7 +40,8 @@ impl ToolRunner for ProcessToolRunner {
         Ok(
             ToolOutcome::new(result.exit_code, result.stdout, result.stderr)
                 .timed_out_flag(result.timed_out)
-                .cancelled_flag(result.cancelled),
+                .cancelled_flag(result.cancelled)
+                .truncated_flags(result.stdout_truncated, result.stderr_truncated),
         )
     }
 }
@@ -151,5 +152,42 @@ mod tests {
             .require_success("sleep")
             .expect_err("timeout fails closed");
         assert_eq!(error.code(), rskit_errors::ErrorCode::Timeout);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn piped_stdin_reaches_the_tool() {
+        // The stdin lowering (`spec::tool_config`) is exercised end to end: bytes
+        // handed to `with_stdin` must arrive on the child's standard input.
+        let outcome = ProcessToolRunner::new()
+            .run(&ToolInvocation::new(vec!["/bin/cat".into()]).with_stdin(b"piped-notes".to_vec()))
+            .expect("runs");
+        assert!(outcome.succeeded());
+        assert_eq!(outcome.stdout, "piped-notes");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_overflowing_capture_is_reported_as_truncated_and_fails_closed() {
+        // A tool that exits zero but overruns the output bound must not read as a
+        // clean success: the truncation flag rides through to the outcome so a
+        // consumer of the (now incomplete) output fails closed.
+        let outcome = ProcessToolRunner::new()
+            .run(
+                &ToolInvocation::new(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "printf 'aaaaaaaaaa'".into(),
+                ])
+                .with_max_output_bytes(4),
+            )
+            .expect("runs");
+        assert_eq!(outcome.exit_code, Some(0));
+        assert!(outcome.truncated.stdout);
+        assert!(!outcome.succeeded());
+        let error = outcome
+            .require_success("bounded tool")
+            .expect_err("truncated output fails closed");
+        assert_eq!(error.code(), rskit_errors::ErrorCode::Internal);
     }
 }

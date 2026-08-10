@@ -8,8 +8,8 @@ message: >-
   annotated allow-listed execution homes. Route one-shot tools through an
   injected `&dyn ToolRunner` (the shared `toven-exec` `ProcessToolRunner`) and
   APPLY units through `ProcessCommandRunner`; do not re-wire
-  spawn/capture/timeout/env policy per call site (see step 10 and
-  docs/concern-owners.md — `toven-exec` owns the concrete runners).
+  spawn/capture/timeout/env policy per call site (see docs/concern-owners.md —
+  `toven-exec` owns the concrete runners).
 files:
   # Only production source is guarded; declare-only aggregators and tests are
   # covered elsewhere.
@@ -43,8 +43,13 @@ ignores:
   - crates/toven-testkit/src/exec.rs
 rule:
   any:
-    # A fully-qualified one-shot spawn call.
+    # A fully-qualified one-shot spawn call for any of the four rskit-process
+    # entry points — a qualified call needs no import, so the import-grant
+    # patterns below cannot see it.
     - pattern: rskit_process::run($$$)
+    - pattern: rskit_process::run_with_cancel($$$)
+    - pattern: rskit_process::start_persistent($$$)
+    - pattern: rskit_process::start_persistent_with_cancel($$$)
     # A raw `std::process::Command` builder (either import form).
     - pattern: Command::new($$$)
     - pattern: std::process::Command::new($$$)

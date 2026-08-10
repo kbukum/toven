@@ -48,10 +48,12 @@ const fn env_policy(policy: InvocationEnvPolicy) -> EnvPolicy {
 /// Lower a one-shot [`ToolInvocation`] into its [`ProcessSpec`].
 ///
 /// The shared [`base_spec`] plus the tool-shape extras: the invocation's
-/// working directory and named-secret forwarding. Each forwarded name is
-/// resolved from the ambient environment at run time via
-/// [`rskit_util::env::get_non_empty`]; an unset or empty name is skipped rather
-/// than forwarded blank, and no value is ever placed on argv.
+/// working directory and named-secret forwarding. Each forwarded name (both the
+/// same-name [`forward_env`](ToolInvocation::forward_env) and the renamed
+/// [`forward_env_as`](ToolInvocation::forward_env_as)) is resolved from the
+/// ambient environment at run time via [`rskit_util::env::get_non_empty`]; an
+/// unset or empty name is skipped rather than forwarded blank, and no value is
+/// ever placed on argv or retained on the invocation.
 ///
 /// # Errors
 /// Returns [`AppError::invalid_input`] when the invocation's argv is empty.
@@ -63,6 +65,11 @@ pub fn tool_spec(invocation: &ToolInvocation) -> AppResult<ProcessSpec> {
     for name in &invocation.forward_env {
         if let Some(value) = rskit_util::env::get_non_empty(name) {
             spec = spec.env(name.clone(), value);
+        }
+    }
+    for mapping in &invocation.forward_env_as {
+        if let Some(value) = rskit_util::env::get_non_empty(&mapping.source) {
+            spec = spec.env(mapping.child.clone(), value);
         }
     }
     Ok(spec)

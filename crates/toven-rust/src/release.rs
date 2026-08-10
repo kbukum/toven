@@ -24,10 +24,10 @@ use rskit_version::semver::Version;
 use toml_edit::{DocumentMut, Item, value};
 use toven_model::{Module, RepoPath};
 use toven_ports::{
-    Artifact, BaselineSourceConfig, ManifestMutator, Packager, PublishOutcome, Publisher,
-    RegistryCadence, ReleaseCredentials, ReleaseDefaults, ReleaseDefaultsSource, ReleaseMutation,
-    ReleaseVar, SbomProducer, TagGrammar, TagMode, TagScheme, ToolInvocation, ToolOutcome,
-    ToolRunner, VersionSource, Visibility,
+    Artifact, BaselineSourceConfig, ForwardEnvAs, ManifestMutator, Packager, PublishOutcome,
+    Publisher, RegistryCadence, ReleaseCredentials, ReleaseDefaults, ReleaseDefaultsSource,
+    ReleaseMutation, ReleaseVar, SbomProducer, TagGrammar, TagMode, TagScheme, ToolInvocation,
+    ToolOutcome, ToolRunner, VersionSource, Visibility,
 };
 
 /// Hard bound on a `Cargo.toml` read (4 MiB) — manifests are tiny; this only
@@ -115,7 +115,7 @@ impl CargoRegistryTarget {
     /// workspace layout — `cargo metadata` reports the effective directory.
     fn target_directory(&self, manifest: &Path) -> AppResult<PathBuf> {
         let output = self.cargo_metadata_command(Self::working_root()?, manifest)?;
-        output.require_success("metadata tool `cargo`")?;
+        output.require_read_success("metadata tool `cargo`")?;
         let metadata = rskit_codec::decode::<cargo_metadata::Metadata>(
             &rskit_codec::JsonCodec::default(),
             &output.stdout,
@@ -148,15 +148,16 @@ impl CargoRegistryTarget {
         self.cargo_with_env(working_dir, args, None, MAX_CARGO_OUTPUT_BYTES)
     }
 
-    /// Run `cargo`, bounded and timed-out, optionally injecting one environment
-    /// variable into the child process (used to hand cargo the registry token as
-    /// `CARGO_REGISTRY_TOKEN` without ever placing it on argv). The inherited
-    /// parent environment is preserved; `extra_env` only adds/overrides one entry.
+    /// Run `cargo`, bounded and timed-out, optionally forwarding the registry
+    /// token to the child under the name cargo reads (`CARGO_REGISTRY_TOKEN`)
+    /// *by ambient-variable name* — the runner resolves the value at run time,
+    /// so the secret is never placed on argv and never crosses the seam by
+    /// value. The inherited parent environment is preserved.
     fn cargo_with_env<I>(
         &self,
         working_dir: PathBuf,
         args: I,
-        extra_env: Option<(String, String)>,
+        secret: Option<ForwardEnvAs>,
         max_output_bytes: usize,
     ) -> AppResult<ToolOutcome>
     where
@@ -168,11 +169,8 @@ impl CargoRegistryTarget {
             .with_working_dir(working_dir)
             .with_timeout(CARGO_COMMAND_TIMEOUT)
             .with_max_output_bytes(max_output_bytes);
-        if let Some((key, value)) = extra_env {
-            let mut vars = std::collections::BTreeMap::new();
-            vars.insert(key, value);
-            invocation = invocation
-                .with_environment(toven_ports::InvocationEnvironment::inherit_parent(vars));
+        if let Some(mapping) = secret {
+            invocation = invocation.with_forward_env_as(vec![mapping]);
         }
         self.runner.run(&invocation)
     }
@@ -213,7 +211,7 @@ impl CargoRegistryTarget {
     /// `cargo metadata --no-deps` (which reports members only).
     fn workspace_member_dirs(&self, manifest: &Path) -> AppResult<Vec<PathBuf>> {
         let output = self.cargo_metadata_command(Self::working_root()?, manifest)?;
-        output.require_success("metadata tool `cargo`")?;
+        output.require_read_success("metadata tool `cargo`")?;
         let metadata = rskit_codec::decode::<cargo_metadata::Metadata>(
             &rskit_codec::JsonCodec::default(),
             &output.stdout,
@@ -356,10 +354,11 @@ impl Publisher for CargoRegistryTarget {
             ));
         }
         let path = Self::manifest_path(module)?;
-        // Read the registry token only here, at the toolchain boundary, and hand
-        // it to cargo through the child process environment — never on argv and
-        // never through engine memory. `None` lets cargo resolve its ambient
-        // credential as usual.
+        // Resolve the registry-token *mapping* here, at the toolchain boundary —
+        // which ambient variable holds the token and which name cargo reads it
+        // under — and hand only those names across the seam. The runner resolves
+        // the value at run time, so it never touches argv or engine memory.
+        // `None` lets cargo resolve its ambient credential as usual.
         let token = registry_token_injection(credentials, rskit_util::env::get_non_empty)?;
         let output = self.cargo_with_env(
             Self::working_root()?,
@@ -536,38 +535,44 @@ fn sbom_argv(manifest: &Path, stem: &str) -> Vec<String> {
     ]
 }
 
-/// Resolve the registry-token environment injection for a publish attempt.
+/// Resolve the registry-token environment mapping for a publish attempt.
 ///
 /// Given the publish `credentials` and an environment accessor `env` (a
-/// variable name → its non-empty value), return the registry's token
-/// environment variable and its value (`CARGO_REGISTRY_TOKEN` for crates.io,
-/// or `CARGO_REGISTRIES_<NAME>_TOKEN` for a named alternate registry) that
-/// cargo must see on its child environment, or `None` when no `token_env` is
-/// configured (cargo falls back to its ambient credential). A configured-but-absent/empty variable is a
-/// typed error — the maintainer named an explicit credential source that is not
-/// present, so fail closed rather than silently attempt an unauthenticated
-/// publish. The accessor is a parameter so the resolution logic is unit-tested
+/// variable name → its non-empty value), return the [`ForwardEnvAs`] mapping the
+/// runner uses to forward the token to cargo: the configured ambient
+/// `token_env` as the `source`, and the name cargo reads (`CARGO_REGISTRY_TOKEN`
+/// for crates.io, or `CARGO_REGISTRIES_<NAME>_TOKEN` for a named alternate
+/// registry) as the `child`. Returns `None` when no `token_env` is configured
+/// (cargo falls back to its ambient credential). The accessor is consulted only
+/// to fail closed on a configured-but-absent/empty variable — the maintainer
+/// named an explicit credential source that is not present, so error rather
+/// than silently attempt an unauthenticated publish — and the value is
+/// **discarded**, never returned, so the secret never crosses the seam by
+/// value. The accessor is a parameter so the resolution logic is unit-tested
 /// without touching the real process environment.
 fn registry_token_injection<F>(
     credentials: &ReleaseCredentials,
     env: F,
-) -> AppResult<Option<(String, String)>>
+) -> AppResult<Option<ForwardEnvAs>>
 where
     F: Fn(&str) -> Option<String>,
 {
     let Some(name) = credentials.registry_token_env() else {
         return Ok(None);
     };
-    let value = env(name).ok_or_else(|| {
-        AppError::invalid_input(
+    if env(name).is_none() {
+        return Err(AppError::invalid_input(
             "release.token_env",
             format!(
                 "release.token_env names environment variable '{name}', but it is unset or \
                  empty; export the registry token there before publishing"
             ),
-        )
-    })?;
-    Ok(Some((cargo_token_env_name(credentials.registry()), value)))
+        ));
+    }
+    Ok(Some(ForwardEnvAs::new(
+        name,
+        cargo_token_env_name(credentials.registry()),
+    )))
 }
 
 /// Whether `registry` names the cargo default registry (crates.io) rather than
@@ -879,7 +884,7 @@ mod tests {
 
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, ModuleRef};
-    use toven_ports::ReleaseMutation;
+    use toven_ports::{ForwardEnvAs, ReleaseMutation};
 
     use toml_edit::Item;
 
@@ -1041,9 +1046,10 @@ core = \"1.4.2\"    # A core crate
 
     #[test]
     fn registry_token_injection_maps_a_configured_var_to_cargo_registry_token() {
-        // A configured token_env is read from the (test-supplied) environment and
-        // handed to cargo under CARGO_REGISTRY_TOKEN — the name cargo reads —
-        // never on argv.
+        // A configured token_env is forwarded to cargo under CARGO_REGISTRY_TOKEN
+        // — the name cargo reads — by name only; the value is never carried back
+        // across the seam. The accessor confirms presence (fail-closed) but its
+        // value is discarded.
         let credentials = ReleaseCredentials::new(Some("MY_REGISTRY_TOKEN".into()), None);
         let injected = registry_token_injection(&credentials, |name| {
             (name == "MY_REGISTRY_TOKEN").then(|| "s3cr3t".to_string())
@@ -1051,15 +1057,18 @@ core = \"1.4.2\"    # A core crate
         .expect("a present token var resolves");
         assert_eq!(
             injected,
-            Some(("CARGO_REGISTRY_TOKEN".to_string(), "s3cr3t".to_string()))
+            Some(ForwardEnvAs::new(
+                "MY_REGISTRY_TOKEN",
+                "CARGO_REGISTRY_TOKEN"
+            ))
         );
     }
 
     #[test]
     fn registry_token_injection_targets_a_named_registry_token_var() {
-        // A named alternate registry reads the same configured source var, but
-        // hands the secret to cargo under CARGO_REGISTRIES_<NAME>_TOKEN — the
-        // name cargo reads for that registry — never on argv.
+        // A named alternate registry forwards the same configured source var to
+        // cargo under CARGO_REGISTRIES_<NAME>_TOKEN — the name cargo reads for
+        // that registry — by name only.
         let credentials = ReleaseCredentials::new(Some("CI_TOKEN".into()), Some("my-corp".into()));
         let injected = registry_token_injection(&credentials, |name| {
             (name == "CI_TOKEN").then(|| "s3cr3t".to_string())
@@ -1067,9 +1076,9 @@ core = \"1.4.2\"    # A core crate
         .expect("a present token var resolves");
         assert_eq!(
             injected,
-            Some((
-                "CARGO_REGISTRIES_MY_CORP_TOKEN".to_string(),
-                "s3cr3t".to_string()
+            Some(ForwardEnvAs::new(
+                "CI_TOKEN",
+                "CARGO_REGISTRIES_MY_CORP_TOKEN"
             ))
         );
     }

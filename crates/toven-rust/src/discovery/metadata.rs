@@ -107,11 +107,9 @@ fn run_metadata(
             format!("`cargo metadata` for '{manifest}' timed out"),
         ));
     }
-    if !outcome.succeeded() {
-        outcome.require_success(&format!(
-            "metadata tool `cargo` (`cargo metadata` for '{manifest}')"
-        ))?;
-    }
+    outcome.require_read_success(&format!(
+        "metadata tool `cargo` (`cargo metadata` for '{manifest}')"
+    ))?;
 
     rskit_codec::decode::<cargo_metadata::Metadata>(
         &rskit_codec::JsonCodec::default(),
@@ -354,7 +352,10 @@ mod tests {
         let error = run_metadata(Path::new("/repo"), "Cargo.toml", &runner)
             .expect_err("non-zero cargo is rejected");
 
-        assert_eq!(error.code(), ErrorCode::ExternalService);
+        // A `cargo metadata` failure is a repository/config fault, not a
+        // downstream-service outage — so it classifies `Internal`, matching the
+        // pre-seam behavior rather than the delegated-tool `ExternalService`.
+        assert_eq!(error.code(), ErrorCode::Internal);
         let requests = runner.requests();
         assert_eq!(requests.len(), 1);
         assert_eq!(
@@ -375,5 +376,21 @@ mod tests {
             requests[0].max_output_bytes,
             Some(super::MAX_METADATA_BYTES)
         );
+    }
+
+    #[test]
+    fn cargo_metadata_output_that_overflows_the_bound_fails_closed() {
+        // A `cargo metadata` blob that overran the capture cap is incomplete
+        // JSON; the seam must reject it rather than parse a truncated document.
+        let runner = FakeToolRunner::new()
+            .with_exit_code(Some(0))
+            .with_stdout("{ \"packages\": [")
+            .with_truncated(true, false);
+
+        let error = run_metadata(Path::new("/repo"), "Cargo.toml", &runner)
+            .expect_err("a truncated capture is rejected");
+
+        assert_eq!(error.code(), ErrorCode::Internal);
+        assert!(error.to_string().contains("exceeded"), "{error}");
     }
 }
