@@ -20,5 +20,6 @@ pub(crate) mod introspect;
 pub(crate) mod release;
 pub(crate) mod run;
 pub(crate) mod selection;
+pub(crate) mod support;
 pub(crate) mod tasks;
 pub(crate) mod watch;

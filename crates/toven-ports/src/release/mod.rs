@@ -5,7 +5,6 @@ mod artifact;
 mod backing;
 mod credentials;
 mod defaults;
-mod delegated;
 mod downloader;
 mod host;
 mod image;
@@ -30,9 +29,6 @@ pub use artifact::Artifact;
 pub use backing::PhaseBacking;
 pub use credentials::ReleaseCredentials;
 pub use defaults::{ReleaseDefaults, ReleaseDefaultsSource};
-pub use delegated::{
-    DelegatedPhase, DelegatedPhaseMode, DelegatedPhaseOutcome, DelegatedPhaseRequest,
-};
 pub use downloader::AssetDownloader;
 pub use host::{
     HostReleaseOutcome, HostedRelease, ReleaseAsset, ReleaseHost, SUPPORTED_FORGES,

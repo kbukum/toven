@@ -8,23 +8,21 @@
 //! cooperative Ctrl-C cancellation. The `release` lifecycle lives in its own
 //! [`commands::release`](crate::commands::release) module.
 
-use std::sync::Arc;
-
 use rskit_cli::{ExitCode, on_ctrl_c};
-use rskit_errors::{AppError, AppResult};
-use toven_engine::apply::{ApplyOptions, ProcessCommandRunner, apply};
+use rskit_errors::AppResult;
+use toven_engine::apply::{ApplyOptions, apply};
 use toven_engine::cache::FsContentCache;
-use toven_engine::output::UnitOutputChannel;
 use toven_engine_core::config::ViewMode;
 use toven_engine_core::plan::{
     CacheMode, FsSourceDigest, PlanHost, PlanRequest, ProcessToolchainProber, plan,
 };
 use toven_model::{CacheVerdict, Event, Plan, RunStats};
-use toven_ports::{CommandRunner, PlanReporter, Provider, Reporter, TaskIntent};
+use toven_ports::{PlanReporter, Provider, Reporter, TaskIntent};
 
 use crate::commands::selection::TaskSelection;
+use crate::commands::support::{LiveApplyBinding, build_live_apply_host};
 use crate::host::{Project, Report, new_run_id};
-use crate::report::{configure_live_output, exit_code};
+use crate::report::exit_code;
 
 /// Whether a task run should enter watch mode, and its debounce window.
 ///
@@ -172,22 +170,21 @@ pub(crate) fn execute(
     // PTY sizing live units run under. The machine JSON projection, a non-terminal
     // stderr, and `--view stream` all pin the byte-stable stream shape; tiles/panes
     // require a Unix PTY (a no-op elsewhere).
-    let (configured_runner, raw_sink) = configure_live_output(
-        ProcessCommandRunner::new(project.project_root.as_path()),
-        effective_view,
-        report.forces_stream_output(),
-        report.stderr_palette(),
-        plan.units.len(),
-        options.max_parallel,
-        &pane_dir,
+    let host = build_live_apply_host(
+        project,
+        &LiveApplyBinding {
+            view: effective_view,
+            force_stream: report.forces_stream_output(),
+            palette: report.stderr_palette(),
+            unit_count: plan.units.len(),
+            max_parallel: options.max_parallel,
+            pane_dir: &pane_dir,
+        },
     )?;
-    let runner: Arc<dyn CommandRunner> = Arc::new(configured_runner);
-    let mut output = UnitOutputChannel::new(raw_sink);
+    let runner = host.runner;
+    let mut output = host.output;
+    let runtime = host.runtime;
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(AppError::internal)?;
     let summary = runtime.block_on(async {
         // Install Ctrl+C → cooperative cancellation. The token is threaded into APPLY
         // (not raced against it): on interrupt the engine SIGTERMs every in-flight

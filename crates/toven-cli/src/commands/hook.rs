@@ -120,18 +120,10 @@ impl HookRunner for CliHookRunner<'_> {
         // mapped to a typed error so the release aborts (pre) or is reported
         // as failed (post).
         let code = self.run_task(reference, Vec::new())?;
-        if code == ExitCode::Success {
-            Ok(())
-        } else {
-            Err(AppError::new(
-                ErrorCode::ExternalService,
-                format!(
-                    "the {} release hook task '{reference}' failed (exit code {})",
-                    phase.as_str(),
-                    code.as_i32()
-                ),
-            ))
-        }
+        gate_hook_result(
+            code,
+            &format!("the {} release hook task '{reference}'", phase.as_str()),
+        )
     }
 }
 
@@ -141,17 +133,32 @@ impl ResolvedHookRunner for CliHookRunner<'_> {
         // path argv-first (appended to its argv, no implicit shell), so it can
         // rewrite related files the native version-reference sync does not cover.
         let code = self.run_task(reference, vec![version_map.to_string_lossy().into_owned()])?;
-        if code == ExitCode::Success {
-            Ok(())
-        } else {
-            Err(AppError::new(
-                ErrorCode::ExternalService,
-                format!(
-                    "the bump on-resolved hook task '{reference}' failed (exit code {})",
-                    code.as_i32()
-                ),
-            ))
-        }
+        gate_hook_result(
+            code,
+            &format!("the bump on-resolved hook task '{reference}'"),
+        )
+    }
+}
+
+/// Map a hook task's terminal [`ExitCode`] to `Ok`/`Err` uniformly.
+///
+/// Both the whole-verb hooks and the bump `on-resolved` seam run a named task
+/// through the same run path and gate its result identically: success passes,
+/// any non-success exit becomes a typed [`ErrorCode::ExternalService`] error
+/// naming the task and its exit code, so a failing hook fails closed the same
+/// way everywhere.
+///
+/// # Errors
+/// Returns [`ErrorCode::ExternalService`] when `code` is not
+/// [`ExitCode::Success`].
+fn gate_hook_result(code: ExitCode, context: &str) -> AppResult<()> {
+    if code == ExitCode::Success {
+        Ok(())
+    } else {
+        Err(AppError::new(
+            ErrorCode::ExternalService,
+            format!("{context} failed (exit code {})", code.as_i32()),
+        ))
     }
 }
 

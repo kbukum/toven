@@ -19,29 +19,16 @@ use toven_engine::coverage::{
 };
 use toven_engine_core::config::ViewMode;
 use toven_engine_core::plan::PlanRequest;
-use toven_model::Event;
-use toven_ports::{Provider, Reporter, TaskIntent};
+use toven_ports::{Provider, TaskIntent};
 
 use crate::commands::run::WatchFlags;
 use crate::commands::selection::TaskSelection;
+use crate::commands::support::QuietReporter;
 use crate::flags::{Cli, DEFAULT_WATCH_DEBOUNCE_MS, OutputKind};
 use crate::host::{Project, Report, new_run_id, resolve_output};
 
 /// The recognized task name the coverage verb runs and gates.
 const COVERAGE_TASK: &str = "coverage";
-
-/// A quiet [`Reporter`] for the aggregation pass: the verdict table is the
-/// stdout payload, so only warnings are surfaced (on stderr).
-struct QuietReporter;
-
-impl Reporter for QuietReporter {
-    fn emit(&mut self, event: &Event) -> AppResult<()> {
-        if let Event::Warning { message } = event {
-            eprintln!("warning: {message}");
-        }
-        Ok(())
-    }
-}
 
 /// Dispatch `toven coverage`: measure, aggregate, gate, and report.
 ///

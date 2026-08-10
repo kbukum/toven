@@ -8,22 +8,21 @@
 //! to the engine loop on a Tokio runtime.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 use rskit_cli::{ExitCode, Palette, on_ctrl_c};
-use rskit_errors::{AppError, AppResult};
-use toven_engine::apply::{ApplyOptions, ProcessCommandRunner};
+use rskit_errors::AppResult;
+use toven_engine::apply::ApplyOptions;
 use toven_engine::cache::FsContentCache;
-use toven_engine::output::UnitOutputChannel;
 use toven_engine::watch::{RskitFsWatch, WatchSession};
 use toven_engine_core::config::ViewMode;
 use toven_engine_core::federation::MemberVcsReaders;
 use toven_engine_core::plan::PlanRequest;
-use toven_ports::{CommandRunner, Provider, Reporter, SourceDigest, ToolchainProber};
+use toven_ports::{Provider, Reporter, SourceDigest, ToolchainProber};
 
+use crate::commands::support::{LiveApplyBinding, build_live_apply_host};
 use crate::host::Project;
-use crate::report::{configure_live_output, exit_code};
+use crate::report::exit_code;
 
 /// The resolved live-output binding for a watched run: which view to render and
 /// the color/PTY inputs the sink needs, carried as one value so the watch host
@@ -78,23 +77,22 @@ pub(crate) fn run_watch(
     // size varies per rerun, so the unit count is unknown here (passed as `0`):
     // `auto` therefore resolves to tiles rather than panes, while an explicit
     // `--view panes` still self-caps, keeping a large rerun bounded.
-    let (configured_runner, raw_sink) = configure_live_output(
-        ProcessCommandRunner::new(project.project_root.as_path()),
-        live.view,
-        live.force_stream,
-        live.palette,
-        0,
-        apply_options.max_parallel,
-        &live.pane_dir,
+    let host = build_live_apply_host(
+        project,
+        &LiveApplyBinding {
+            view: live.view,
+            force_stream: live.force_stream,
+            palette: live.palette,
+            unit_count: 0,
+            max_parallel: apply_options.max_parallel,
+            pane_dir: &live.pane_dir,
+        },
     )?;
-    let runner: Arc<dyn CommandRunner> = Arc::new(configured_runner);
-    let mut output = UnitOutputChannel::new(raw_sink);
+    let runner = host.runner;
+    let mut output = host.output;
+    let runtime = host.runtime;
     let watch = RskitFsWatch::new();
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(AppError::internal)?;
     let summary = runtime.block_on(async {
         // Ctrl+C is shared with APPLY: it cancels the in-flight run and breaks the
         // watch loop, so a single interrupt exits cleanly with the last summary.

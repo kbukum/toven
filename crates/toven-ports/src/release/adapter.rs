@@ -17,7 +17,7 @@ use super::{
 /// [`ConfiguredAdapter::release_target`](crate::provider::ConfiguredAdapter::release_target)
 /// can hand back one native trait object the engine resolves per phase. Each
 /// phase can independently be backed `Native` (this adapter) or `Delegated` (an
-/// external tool via [`DelegatedPhase`](super::DelegatedPhase)); the composite
+/// external tool driven through the shared `ToolRunner` seam); the composite
 /// never bundles behavior that would make delegation all-or-nothing.
 ///
 /// The blanket implementation makes any type that satisfies all per-phase

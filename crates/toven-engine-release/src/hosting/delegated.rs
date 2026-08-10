@@ -1,27 +1,24 @@
-//! [`ProcessDelegatedPhase`] — the concrete [`DelegatedPhase`] runner, backed by
-//! the rskit process port.
+//! Delegated-phase execution — building the argv-first [`ToolInvocation`] for a
+//! delegated release tool and driving it through the shared [`ToolRunner`] seam.
 //!
-//! The engine owns selection, ordering, readiness, safety, and reporting; this
+//! The engine owns selection, ordering, readiness, safety, and reporting; the
 //! runner owns exactly one mechanical step — spawn the fully-resolved argument
 //! vector, forward the named secrets through the child-process environment, and
-//! report the classified exit. It mirrors `release verify`'s tool runner: a
-//! bounded, captured output and a single shared timeout, argv-only.
+//! report the classified exit. It shares the one [`ToolRunner`] seam with
+//! `release verify`, hosted-release CLIs, and every other one-shot tool call, so
+//! nothing here re-wires `rskit-process` or re-implements exit mapping.
 //!
 //! Secrets never touch argv or logs. A delegated phase names the environment
-//! variables its tool may read ([`DelegatedPhaseRequest::forward_env`]); the
-//! runner resolves each name from the ambient environment via
-//! [`rskit_util::env::get_non_empty`] and sets it on the child, so the value
-//! flows to the tool by environment only.
+//! variables its tool may read; the invocation forwards each name and the runner
+//! resolves its non-empty value from the ambient environment, so the value flows
+//! to the tool by environment only.
 
 use std::path::PathBuf;
 use std::time::Duration;
 
-use rskit_errors::{AppError, AppResult, ErrorCode};
-use rskit_process::{CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessSpec, run};
+use rskit_errors::AppResult;
 use toven_model::ReleasePhase;
-use toven_ports::{
-    DelegatedPhase, DelegatedPhaseMode, DelegatedPhaseOutcome, DelegatedPhaseRequest, DelegatedTool,
-};
+use toven_ports::{DelegatedTool, ToolInvocation, ToolOutcome, ToolRunner};
 
 /// Shared timeout for a delegated-phase invocation, matching the release-verify
 /// tool timeout so no delegated tool waits unbounded.
@@ -32,7 +29,21 @@ const DELEGATED_TIMEOUT: Duration = Duration::from_mins(5);
 /// output.
 const MAX_DELEGATED_OUTPUT_BYTES: usize = 256 * 1024;
 
-/// Build the argv-first [`DelegatedPhaseRequest`] for one delegated phase.
+/// The mutation posture that selects a delegated tool's argument vector.
+///
+/// [`Preview`](Self::Preview) uses the tool's mandatory mutation-free preview
+/// arguments (its dry-run/plan equivalent); [`Apply`](Self::Apply) uses its
+/// real, mutating arguments. The engine chooses the posture; the tool name is
+/// always the first argv element, so the invocation is argv-first with no shell.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum DelegatedPhaseMode {
+    /// Run the tool's mutation-free preview (dry-run/snapshot) arguments.
+    Preview,
+    /// Run the tool's real, mutating arguments.
+    Apply,
+}
+
+/// Build the argv-first [`ToolInvocation`] for one delegated phase.
 ///
 /// The mutation posture selects the argument vector: [`DelegatedPhaseMode::Preview`]
 /// uses the tool's mandatory mutation-free preview arguments (its dry-run/plan
@@ -42,12 +53,11 @@ const MAX_DELEGATED_OUTPUT_BYTES: usize = 256 * 1024;
 /// the environment variables the child may read; the runner resolves their
 /// values from the ambient environment.
 pub fn delegated_request(
-    phase: ReleasePhase,
     tool: &DelegatedTool,
     mode: DelegatedPhaseMode,
     working_dir: impl Into<PathBuf>,
     forward_env: Vec<String>,
-) -> DelegatedPhaseRequest {
+) -> ToolInvocation {
     let mut argv = Vec::new();
     argv.push(tool.tool.clone());
     match mode {
@@ -56,11 +66,13 @@ pub fn delegated_request(
                 argv.extend(args.iter().cloned());
             }
         }
-        // Preview and any future non-mutating posture default to the mandatory
-        // mutation-free preview argv, so an unrecognized mode never mutates.
-        _ => argv.extend(tool.preview.iter().cloned()),
+        DelegatedPhaseMode::Preview => argv.extend(tool.preview.iter().cloned()),
     }
-    DelegatedPhaseRequest::new(phase, argv, mode, working_dir).with_forward_env(forward_env)
+    ToolInvocation::new(argv)
+        .with_working_dir(working_dir)
+        .with_forward_env(forward_env)
+        .with_timeout(DELEGATED_TIMEOUT)
+        .with_max_output_bytes(MAX_DELEGATED_OUTPUT_BYTES)
 }
 
 /// Drive a delegated phase through the runner as a **mutation-free preview** and
@@ -70,130 +82,36 @@ pub fn delegated_request(
 /// delegated tool in [`DelegatedPhaseMode::Preview`] (its `--snapshot`/dry-run
 /// equivalent), which produces local artifacts without publishing anything. The
 /// engine still owns selection, ordering, and reporting; this only runs the
-/// tool and classifies its exit, mapping a non-zero exit into a typed error
+/// tool and classifies its exit through the shared
+/// [`ToolOutcome::require_success`], mapping a non-zero exit into a typed error
 /// carrying the tool's captured stderr so the failure is actionable rather than
 /// swallowed.
 ///
 /// # Errors
-/// Propagates a spawn/IO failure from the runner and converts a non-zero tool
-/// exit into a typed [`AppError`].
+/// Propagates a spawn/IO failure from the runner and converts a non-zero exit,
+/// timeout, or signal-kill into a typed error.
 pub fn run_delegated_preview(
     phase: ReleasePhase,
     tool: &DelegatedTool,
-    runner: &dyn DelegatedPhase,
+    runner: &dyn ToolRunner,
     working_dir: impl Into<PathBuf>,
 ) -> AppResult<()> {
-    let request = delegated_request(
-        phase,
-        tool,
-        DelegatedPhaseMode::Preview,
-        working_dir,
-        Vec::new(),
-    );
-    let outcome = runner.run(&request)?;
-    if !outcome.succeeded() {
-        return Err(AppError::invalid_input(
-            format!("release.phases.{}", phase.as_str()),
-            format!(
-                "delegated {} tool `{}` exited {}: {}",
-                phase.as_str(),
-                tool.tool,
-                outcome
-                    .exit_code
-                    .map_or_else(|| "by signal".to_string(), |code| code.to_string()),
-                outcome.stderr.trim(),
-            ),
-        ));
-    }
-    Ok(())
-}
-
-/// [`DelegatedPhase`] runner backed by [`rskit_process`].
-///
-/// Stateless and cheap to construct; holds no credentials. Secrets are resolved
-/// from the ambient environment at run time by the names the request forwards,
-/// never stored on the runner and never placed on argv.
-#[derive(Debug, Clone, Default)]
-pub struct ProcessDelegatedPhase;
-
-impl ProcessDelegatedPhase {
-    /// Construct a process-backed delegated-phase runner.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-
-impl DelegatedPhase for ProcessDelegatedPhase {
-    fn run(&self, request: &DelegatedPhaseRequest) -> AppResult<DelegatedPhaseOutcome> {
-        let (program, args) = request.argv.split_first().ok_or_else(|| {
-            AppError::new(
-                ErrorCode::InvalidInput,
-                "delegated phase request has an empty argv",
-            )
-            .with_detail("phase", request.phase.as_str())
-        })?;
-
-        let mut spec = ProcessSpec::new(program)
-            .args(args.iter().cloned())
-            .dir(&request.working_dir);
-        // Forward named secrets by environment only: resolve each name from the
-        // ambient environment and set it on the child. A name that is unset or
-        // empty is skipped rather than forwarded as blank, and no value is ever
-        // placed on argv or logged.
-        for name in &request.forward_env {
-            if let Some(value) = rskit_util::env::get_non_empty(name) {
-                spec = spec.env(name.clone(), value);
-            }
-        }
-
-        let config = ProcessConfig::default()
-            .with_timeout(Some(DELEGATED_TIMEOUT))
-            .with_io(ProcessIo::captured(CapturedIo::new().with_output(
-                OutputPolicy::captured().with_max_output_bytes(MAX_DELEGATED_OUTPUT_BYTES),
-            )));
-
-        let result = run(&spec, &config)?;
-        // Timeout and cancellation are not a normal tool exit — surface them as
-        // typed errors. A non-zero exit, by contrast, is a valid classified
-        // outcome the engine maps against the phase's guarantees.
-        if result.timed_out {
-            return Err(AppError::new(
-                ErrorCode::Timeout,
-                format!(
-                    "delegated {} tool `{program}` timed out",
-                    request.phase.as_str()
-                ),
-            )
-            .with_detail("phase", request.phase.as_str())
-            .with_detail("timed_out", true));
-        }
-        if result.cancelled {
-            return Err(AppError::new(
-                ErrorCode::Cancelled,
-                format!(
-                    "delegated {} tool `{program}` was cancelled",
-                    request.phase.as_str()
-                ),
-            )
-            .with_detail("phase", request.phase.as_str()));
-        }
-
-        Ok(DelegatedPhaseOutcome::new(
-            result.exit_code,
-            result.stdout,
-            result.stderr,
-        ))
-    }
+    let invocation = delegated_request(tool, DelegatedPhaseMode::Preview, working_dir, Vec::new());
+    let outcome: ToolOutcome = runner.run(&invocation)?;
+    outcome.require_success(&format!(
+        "delegated {} tool `{}`",
+        phase.as_str(),
+        tool.tool
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use toven_model::ReleasePhase;
-    use toven_ports::{DelegatedPhase, DelegatedPhaseMode, DelegatedTool};
-    use toven_testkit::FakeDelegatedPhase;
+    use toven_ports::DelegatedTool;
+    use toven_testkit::FakeToolRunner;
 
-    use super::{ProcessDelegatedPhase, delegated_request};
+    use super::{DelegatedPhaseMode, delegated_request, run_delegated_preview};
 
     fn goreleaser() -> DelegatedTool {
         DelegatedTool {
@@ -205,8 +123,7 @@ mod tests {
 
     #[test]
     fn preview_mode_builds_the_mutation_free_argv_tool_first() {
-        let request = delegated_request(
-            ReleasePhase::Package,
+        let invocation = delegated_request(
             &goreleaser(),
             DelegatedPhaseMode::Preview,
             "/repo",
@@ -214,7 +131,7 @@ mod tests {
         );
 
         assert_eq!(
-            request.argv,
+            invocation.argv,
             vec![
                 "goreleaser".to_string(),
                 "release".into(),
@@ -222,15 +139,16 @@ mod tests {
                 "--clean".into(),
             ]
         );
-        assert_eq!(request.tool(), Some("goreleaser"));
-        assert_eq!(request.mode, DelegatedPhaseMode::Preview);
-        assert_eq!(request.working_dir, std::path::Path::new("/repo"));
+        assert_eq!(invocation.program(), Some("goreleaser"));
+        assert_eq!(
+            invocation.working_dir(),
+            Some(std::path::Path::new("/repo"))
+        );
     }
 
     #[test]
     fn apply_mode_builds_the_mutating_argv_tool_first() {
-        let request = delegated_request(
-            ReleasePhase::Package,
+        let invocation = delegated_request(
             &goreleaser(),
             DelegatedPhaseMode::Apply,
             "/repo",
@@ -238,66 +156,58 @@ mod tests {
         );
 
         assert_eq!(
-            request.argv,
+            invocation.argv,
             vec!["goreleaser".to_string(), "release".into(), "--clean".into()]
         );
     }
 
     #[test]
     fn secrets_are_named_on_forward_env_never_on_argv() {
-        let request = delegated_request(
-            ReleasePhase::Publish,
+        let invocation = delegated_request(
             &goreleaser(),
             DelegatedPhaseMode::Preview,
             "/repo",
             vec!["GITHUB_TOKEN".into(), "REGISTRY_TOKEN".into()],
         );
 
-        assert_eq!(request.forward_env, vec!["GITHUB_TOKEN", "REGISTRY_TOKEN"]);
-        // The secret variable *names* may appear as env keys, but never their
-        // values, and no token value is ever placed on argv.
+        assert_eq!(
+            invocation.forward_env,
+            vec!["GITHUB_TOKEN", "REGISTRY_TOKEN"]
+        );
         assert!(
-            request.argv.iter().all(|arg| !arg.contains("TOKEN")),
+            invocation.argv.iter().all(|arg| !arg.contains("TOKEN")),
             "argv leaked a secret: {:?}",
-            request.argv
+            invocation.argv
         );
     }
 
     #[test]
     fn the_engine_drives_a_delegated_preview_argv_first_through_the_runner() {
-        let runner = FakeDelegatedPhase::new().with_exit_code(Some(0));
-        let request = delegated_request(
-            ReleasePhase::Package,
-            &goreleaser(),
-            DelegatedPhaseMode::Preview,
-            "/repo",
-            vec!["GITHUB_TOKEN".into()],
-        );
+        let runner = FakeToolRunner::new().with_exit_code(Some(0));
 
-        let outcome = runner.run(&request).expect("preview runs");
+        run_delegated_preview(ReleasePhase::Package, &goreleaser(), &runner, "/repo")
+            .expect("preview runs");
 
-        assert!(outcome.succeeded());
         let recorded = runner.requests();
         assert_eq!(recorded.len(), 1);
-        assert_eq!(recorded[0].mode, DelegatedPhaseMode::Preview);
-        assert_eq!(
-            recorded[0].argv.first().map(String::as_str),
-            Some("goreleaser")
-        );
+        assert_eq!(recorded[0].program(), Some("goreleaser"));
         assert!(recorded[0].argv.contains(&"--snapshot".to_string()));
     }
 
     #[test]
-    fn an_empty_argv_is_a_typed_error() {
-        let runner = ProcessDelegatedPhase::new();
-        let request = toven_ports::DelegatedPhaseRequest::new(
-            ReleasePhase::Package,
-            Vec::new(),
-            DelegatedPhaseMode::Preview,
-            "/repo",
-        );
+    fn a_non_zero_exit_is_a_typed_error_carrying_stderr() {
+        let runner = FakeToolRunner::new()
+            .with_exit_code(Some(1))
+            .with_stderr("goreleaser: build failed");
 
-        let error = runner.run(&request).expect_err("empty argv is rejected");
-        assert!(error.to_string().contains("empty argv"), "{error}");
+        let error = run_delegated_preview(ReleasePhase::Package, &goreleaser(), &runner, "/repo")
+            .expect_err("non-zero exit fails closed");
+
+        // A delegated tool that ran and failed is an external-service failure
+        // (CLI exit 69), not a usage error — pin the taxonomy so the shared
+        // `require_success` mapping cannot silently drift.
+        assert_eq!(error.code(), rskit_errors::ErrorCode::ExternalService);
+        assert!(error.to_string().contains("goreleaser"), "{error}");
+        assert!(error.to_string().contains("exited 1"), "{error}");
     }
 }
