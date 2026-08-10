@@ -1,15 +1,19 @@
 //! [`ProcessToolRunner`] — the concrete synchronous [`ToolRunner`], backed by
 //! the rskit process port.
 //!
-//! Composes `rskit-process`'s blocking [`run`] with Toven's argv-first policy:
-//! captured, bounded output; an optional wall-clock timeout; the explicit
-//! environment policy; and named-secret forwarding resolved from the ambient
-//! environment at run time. It never decides success/failure policy — it maps
-//! the process result straight into a [`ToolOutcome`] the caller classifies.
+//! Composes the shared argv→[`ProcessSpec`](rskit_process::ProcessSpec)
+//! lowering ([`spec`](super::spec)) with `rskit-process`'s blocking
+//! [`run`](rskit_process::run): captured, bounded output; an optional
+//! wall-clock timeout; the explicit environment policy; and named-secret
+//! forwarding resolved from the ambient environment at run time. It never
+//! decides success/failure policy — it maps the process result straight into a
+//! [`ToolOutcome`] the caller classifies.
 
-use rskit_errors::{AppError, AppResult};
-use rskit_process::{CapturedIo, EnvPolicy, ProcessConfig, ProcessIo, ProcessSpec, run};
-use toven_ports::{InvocationEnvPolicy, ToolInvocation, ToolOutcome, ToolRunner};
+use rskit_errors::AppResult;
+use rskit_process::run;
+use toven_ports::{ToolInvocation, ToolOutcome, ToolRunner};
+
+use crate::spec::{tool_config, tool_spec};
 
 /// The production [`ToolRunner`].
 ///
@@ -30,47 +34,14 @@ impl ProcessToolRunner {
 
 impl ToolRunner for ProcessToolRunner {
     fn run(&self, invocation: &ToolInvocation) -> AppResult<ToolOutcome> {
-        let (program, args) = invocation
-            .argv
-            .split_first()
-            .ok_or_else(|| AppError::invalid_input("tool.argv", "must include a program"))?;
-
-        let mut spec = ProcessSpec::new(program)
-            .args(args.iter().cloned())
-            .env_policy(match invocation.environment.policy {
-                InvocationEnvPolicy::ExplicitOnly => EnvPolicy::Empty,
-                InvocationEnvPolicy::InheritParent => EnvPolicy::Inherit,
-            })
-            .envs(invocation.environment.vars.clone());
-        if let Some(dir) = invocation.working_dir() {
-            spec = spec.dir(dir);
-        }
-        // Forward named secrets by environment only: resolve each from the
-        // ambient environment and set it on the child. A name that is unset or
-        // empty is skipped rather than forwarded blank, and no value is ever
-        // placed on argv or logged.
-        for name in &invocation.forward_env {
-            if let Some(value) = rskit_util::env::get_non_empty(name) {
-                spec = spec.env(name.clone(), value);
-            }
-        }
-
-        // `with_timeout(None)` clears rskit-process's inherited 30s default so an
-        // invocation without a declared bound runs unbounded; a declared bound is
-        // honored. Captured output stays bounded by the runner default cap unless
-        // the invocation narrows it further.
-        let mut config = ProcessConfig::default()
-            .with_io(ProcessIo::captured(CapturedIo::new()))
-            .with_timeout(invocation.timeout);
-        if let Some(max_output_bytes) = invocation.max_output_bytes {
-            config = config.with_max_output_bytes(max_output_bytes);
-        }
-
+        let spec = tool_spec(invocation)?;
+        let config = tool_config(invocation);
         let result = run(&spec, &config)?;
         Ok(
             ToolOutcome::new(result.exit_code, result.stdout, result.stderr)
                 .timed_out_flag(result.timed_out)
-                .cancelled_flag(result.cancelled),
+                .cancelled_flag(result.cancelled)
+                .truncated_flags(result.stdout_truncated, result.stderr_truncated),
         )
     }
 }
@@ -79,7 +50,7 @@ impl ToolRunner for ProcessToolRunner {
 mod tests {
     use std::collections::BTreeMap;
 
-    use toven_ports::{InvocationEnvironment, ToolInvocation, ToolRunner};
+    use toven_ports::{ForwardEnvAs, InvocationEnvironment, ToolInvocation, ToolRunner};
 
     use super::ProcessToolRunner;
 
@@ -181,5 +152,62 @@ mod tests {
             .require_success("sleep")
             .expect_err("timeout fails closed");
         assert_eq!(error.code(), rskit_errors::ErrorCode::Timeout);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn piped_stdin_reaches_the_tool() {
+        // The stdin lowering (`spec::tool_config`) is exercised end to end: bytes
+        // handed to `with_stdin` must arrive on the child's standard input.
+        let outcome = ProcessToolRunner::new()
+            .run(&ToolInvocation::new(vec!["/bin/cat".into()]).with_stdin(b"piped-notes".to_vec()))
+            .expect("runs");
+        assert!(outcome.succeeded());
+        assert_eq!(outcome.stdout, "piped-notes");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_overflowing_capture_is_reported_as_truncated_and_fails_closed() {
+        // A tool that exits zero but overruns the output bound must not read as a
+        // clean success: the truncation flag rides through to the outcome so a
+        // consumer of the (now incomplete) output fails closed.
+        let outcome = ProcessToolRunner::new()
+            .run(
+                &ToolInvocation::new(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "printf 'aaaaaaaaaa'".into(),
+                ])
+                .with_max_output_bytes(4),
+            )
+            .expect("runs");
+        assert_eq!(outcome.exit_code, Some(0));
+        assert!(outcome.truncated.stdout);
+        assert!(!outcome.succeeded());
+        let error = outcome
+            .require_success("bounded tool")
+            .expect_err("truncated output fails closed");
+        assert_eq!(error.code(), rskit_errors::ErrorCode::Internal);
+    }
+
+    #[test]
+    fn a_missing_renamed_secret_source_fails_closed() {
+        // `forward_env_as` is a required rename: a configured source that is
+        // unset at run time must be a typed error, never a silent skip that lets
+        // a publish proceed with an unintended (or no) credential. The source
+        // name is guaranteed absent, so no environment mutation is needed.
+        let error = ProcessToolRunner::new()
+            .run(
+                &ToolInvocation::new(vec!["/bin/echo".into()]).with_forward_env_as(vec![
+                    ForwardEnvAs::new(
+                        "TOVEN_EXEC_DEFINITELY_UNSET_SECRET_SOURCE",
+                        "CARGO_REGISTRY_TOKEN",
+                    ),
+                ]),
+            )
+            .expect_err("a missing required secret source fails closed");
+        assert_eq!(error.code(), rskit_errors::ErrorCode::InvalidInput);
+        assert!(error.to_string().contains("unset or empty"), "{error}");
     }
 }

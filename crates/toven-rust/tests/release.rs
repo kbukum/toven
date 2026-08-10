@@ -4,11 +4,18 @@
 //! materialized sample repo via a `CurrentDirGuard` — which serializes the
 //! process-wide change and restores the previous directory on drop.
 
+use std::sync::Arc;
+
 use rskit_version::semver::Version;
+use toven_exec::ProcessToolRunner;
 use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
 use toven_ports::{ManifestMutator, Packager, Publisher, ReleaseMutation, VersionSource};
 use toven_rust::CargoRegistryTarget;
 use toven_testkit::{CurrentDirGuard, SampleRepo};
+
+fn target() -> CargoRegistryTarget {
+    CargoRegistryTarget::new(Arc::new(ProcessToolRunner::new()))
+}
 
 fn app_module() -> Module {
     let id = ModuleRef::new(EcosystemId::new("rust").unwrap(), "app").unwrap();
@@ -23,7 +30,7 @@ fn reads_the_declared_version_from_the_manifest() {
     let repo = SampleRepo::materialize("rust/single").expect("materialize");
     let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
 
-    let version = CargoRegistryTarget::new()
+    let version = target()
         .declared_version(&app_module())
         .expect("declared version");
     assert_eq!(version, Version::new(0, 1, 0));
@@ -34,7 +41,7 @@ fn apply_release_rewrites_the_declared_version() {
     let repo = SampleRepo::materialize("rust/single").expect("materialize");
     let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
 
-    let target = CargoRegistryTarget::new();
+    let target = target();
     let module = app_module();
     target
         .apply_release(&module, &ReleaseMutation::version(Version::new(0, 2, 0)))
@@ -49,7 +56,7 @@ fn reads_a_version_inherited_from_the_workspace_root() {
     let repo = SampleRepo::materialize("rust/workspace-inherited").expect("materialize");
     let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
 
-    let version = CargoRegistryTarget::new()
+    let version = target()
         .declared_version(&app_module())
         .expect("inherited version resolves from [workspace.package]");
     assert_eq!(version, Version::new(0, 3, 0));
@@ -75,7 +82,7 @@ fn does_not_inherit_a_workspace_version_from_above_the_working_root() {
 
     let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
 
-    let error = CargoRegistryTarget::new()
+    let error = target()
         .declared_version(&app_module())
         .expect_err("inherited version above the working root must not resolve");
     assert!(
@@ -91,7 +98,7 @@ fn package_builds_a_publishable_artifact() {
     let repo = SampleRepo::materialize("rust/single").expect("materialize");
     let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
 
-    let target = CargoRegistryTarget::new();
+    let target = target();
     let module = app_module();
 
     let artifact = target.package(&module).expect("cargo package");
@@ -105,7 +112,7 @@ fn publish_surfaces_manifest_resolution_failures_before_cargo_runs() {
     let repo = SampleRepo::materialize("rust/single").expect("materialize");
     let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
 
-    let target = CargoRegistryTarget::new();
+    let target = target();
     let mut module = app_module();
     module.manifest = Some(RepoPath::new("missing/Cargo.toml").unwrap());
 

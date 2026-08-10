@@ -3,6 +3,8 @@
 //! TOML.
 
 use rskit_config::RawValue;
+use std::sync::Arc;
+use toven_exec::ProcessToolRunner;
 use toven_go::GoProvider;
 use toven_model::{AbsPath, DepKind, EcosystemId, ModuleRef};
 use toven_ports::{ConfiguredAdapter, DiscoverRequest, Provider};
@@ -28,7 +30,7 @@ fn fixture_string(rel: &str) -> String {
 fn configure(adapter_config: &str) -> Box<dyn ConfiguredAdapter> {
     let raw_text = fixture_string(adapter_config);
     let raw = raw_subtree(&raw_text);
-    GoProvider::new()
+    GoProvider::new(Arc::new(ProcessToolRunner::new()))
         .expect("provider")
         .configure(raw)
         .expect("configure")

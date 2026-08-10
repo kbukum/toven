@@ -16,7 +16,6 @@ rskit-errors.workspace = true
 rskit-config.workspace = true
 rskit-cli.workspace = true
 rskit-codec.workspace = true
-rskit-process.workspace = true
 rskit-fs.workspace = true
 rskit-git.workspace = true
 rskit-version.workspace = true
@@ -32,6 +31,7 @@ cargo_metadata.workspace = true
 vendored-openssl = ["rskit-git/vendored-openssl"]
 
 [dev-dependencies]
+toven-exec.workspace = true
 toven-testkit.workspace = true
 
 [lints]

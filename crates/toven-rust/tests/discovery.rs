@@ -2,6 +2,9 @@
 //! metadata` against fixture workspaces. Configs come from testkit fixtures —
 //! no inline TOML.
 
+use std::sync::Arc;
+
+use toven_exec::ProcessToolRunner;
 use toven_model::{AbsPath, DepKind, EcosystemId, ModuleRef};
 use toven_ports::{ConfiguredAdapter, DiscoverRequest, Provider};
 use toven_rust::RustProvider;
@@ -11,7 +14,7 @@ use toven_testkit::fixtures;
 fn configure(adapter_config: &str) -> Box<dyn ConfiguredAdapter> {
     let raw_text = fixtures::ecosystem_string("rust", adapter_config).expect("adapter fixture");
     let raw = toven_testkit::raw_subtree(&raw_text).expect("valid adapter toml");
-    RustProvider::new()
+    RustProvider::new(Arc::new(ProcessToolRunner::new()))
         .expect("provider")
         .configure(raw)
         .expect("configure")

@@ -2,13 +2,16 @@
 //! (detect → questionnaire → render), and release-target exposure. Configs come
 //! from testkit fixtures.
 
+use std::sync::Arc;
+
 use rskit_fs::TempDir;
 use toven_ports::{Answer, Answers, Provider, QuestionKind, RunStrategy};
 use toven_rust::RustProvider;
+use toven_testkit::doubles::FakeToolRunner;
 use toven_testkit::{SampleRepo, fixtures};
 
 fn provider() -> RustProvider {
-    RustProvider::new().expect("provider")
+    RustProvider::new(Arc::new(FakeToolRunner::new())).expect("provider")
 }
 
 fn configure(adapter_config: &str) -> Box<dyn toven_ports::ConfiguredAdapter> {

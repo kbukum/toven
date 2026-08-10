@@ -8,7 +8,7 @@
 //! actually published — the entries of the declared `SHA256SUMS` manifest (each
 //! archive/SBOM and its digest) and the live digest of every pushed image
 //! reference — so verification covers the released bytes and nothing else. The
-//! only reusable primitive is "run a subprocess" ([`rskit_process`]);
+//! only reusable primitive is "run a subprocess" (the shared [`ToolRunner`]);
 //! [`GhAttestationProvenance`] shells to `gh attestation verify` argv-only,
 //! reading the ambient forge token from the environment — it embeds no secret
 //! and captures none.
@@ -19,16 +19,15 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::file::read_string_bounded;
-use rskit_process::{
-    CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessResult, ProcessSpec, run,
-};
 use rskit_util::hash::sha256::sha256_reader;
 use toven_ports::{
     ProvenanceArtifact, ProvenanceOutcome, ProvenancePhase, ProvenanceSubject, Provider, Reporter,
+    ToolInvocation, ToolOutcome, ToolRunner,
 };
 
 use crate::planning::plan::{release_targets, resolve_release_settings};
@@ -375,24 +374,27 @@ fn asset_file_name(asset: &str) -> Option<&str> {
 
 /// A `gh attestation`-backed [`ProvenancePhase`].
 ///
-/// Construction is stateless bar a lazily-resolved repository slug. `gh` is
-/// invoked argv-only through [`rskit_process`]; the ambient forge token the
-/// runner provides is inherited from the environment, and no secret is placed
-/// on argv or captured. `gh attestation verify` requires an explicit
-/// `--owner`/`--repo` (unlike `gh release`, it does not infer the repository
-/// from the working directory), so the adapter resolves the `owner/name` slug
-/// once via `gh repo view` and caches it.
-#[derive(Debug, Clone)]
+/// Construction injects the shared [`ToolRunner`] plus a lazily-resolved
+/// repository slug. `gh` is invoked argv-only through the runner; the ambient
+/// forge token the runner provides is inherited from the environment, and no
+/// secret is placed on argv or captured. `gh attestation verify` requires an
+/// explicit `--owner`/`--repo` (unlike `gh release`, it does not infer the
+/// repository from the working directory), so the adapter resolves the
+/// `owner/name` slug once via `gh repo view` and caches it.
+#[derive(Clone)]
 pub struct GhAttestationProvenance {
+    runner: Arc<dyn ToolRunner>,
     timeout: std::time::Duration,
     repo: std::sync::Arc<std::sync::OnceLock<String>>,
 }
 
 impl GhAttestationProvenance {
-    /// Construct a `gh attestation` provenance phase with the default timeout.
+    /// Construct a `gh attestation` provenance phase driven through `runner`
+    /// with the default timeout.
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(runner: Arc<dyn ToolRunner>) -> Self {
         Self {
+            runner,
             timeout: PROVENANCE_TIMEOUT,
             repo: std::sync::Arc::new(std::sync::OnceLock::new()),
         }
@@ -404,11 +406,11 @@ impl GhAttestationProvenance {
         if let Some(slug) = self.repo.get() {
             return Ok(slug.clone());
         }
-        let result = self.run(root, repo_view_argv())?;
-        if !result.success() {
-            return Err(process_failure("release.provenance.repo", "gh", &result));
+        let outcome = self.run(root, repo_view_argv())?;
+        if !outcome.succeeded() {
+            return Err(process_failure("release.provenance.repo", "gh", &outcome));
         }
-        let slug = result.stdout.trim().to_string();
+        let slug = outcome.stdout.trim().to_string();
         if slug.is_empty() {
             return Err(AppError::new(
                 ErrorCode::Internal,
@@ -432,36 +434,31 @@ impl GhAttestationProvenance {
         repo: &str,
     ) -> AppResult<bool> {
         ensure_file_matches_digest(root, subject)?;
-        let result = self.run(root, verify_argv(subject, repo))?;
-        if result.success() {
+        let outcome = self.run(root, verify_argv(subject, repo))?;
+        if outcome.succeeded() {
             return Ok(true);
         }
-        if attestation_not_found(&result) {
+        if attestation_not_found(&outcome) {
             return Ok(false);
         }
         Err(process_failure(
             "release.provenance.attestation",
             "gh",
-            &result,
+            &outcome,
         ))
     }
 
-    /// Run an argv-only `gh` invocation rooted at `root`, returning its captured
-    /// result for explicit outcome classification.
-    fn run(&self, root: &Path, argv: Vec<String>) -> AppResult<ProcessResult> {
-        let spec = ProcessSpec::new("gh").args(argv).dir(root);
-        let config = ProcessConfig::default()
-            .with_timeout(Some(self.timeout))
-            .with_io(ProcessIo::captured(CapturedIo::new().with_output(
-                OutputPolicy::captured().with_max_output_bytes(MAX_PROVENANCE_OUTPUT_BYTES),
-            )));
-        run(&spec, &config)
-    }
-}
-
-impl Default for GhAttestationProvenance {
-    fn default() -> Self {
-        Self::new()
+    /// Run an argv-only `gh` invocation rooted at `root` through the shared
+    /// runner, returning its classified outcome for explicit classification.
+    fn run(&self, root: &Path, argv: Vec<String>) -> AppResult<ToolOutcome> {
+        let mut full_argv = Vec::with_capacity(argv.len() + 1);
+        full_argv.push("gh".to_string());
+        full_argv.extend(argv);
+        let invocation = ToolInvocation::new(full_argv)
+            .with_working_dir(root)
+            .with_timeout(self.timeout)
+            .with_max_output_bytes(MAX_PROVENANCE_OUTPUT_BYTES);
+        self.runner.run(&invocation)
     }
 }
 
@@ -508,8 +505,8 @@ impl ProvenancePhase for GhAttestationProvenance {
 /// repository. Every other non-zero result — auth/token errors, network
 /// failures, malformed argv, a 404 that never reached the attestations endpoint
 /// — fails closed rather than being misread as a benignly absent attestation.
-fn attestation_not_found(result: &ProcessResult) -> bool {
-    let output = format!("{}\n{}", result.stdout, result.stderr).to_ascii_lowercase();
+fn attestation_not_found(outcome: &ToolOutcome) -> bool {
+    let output = format!("{}\n{}", outcome.stdout, outcome.stderr).to_ascii_lowercase();
     output.contains("no attestations found")
         || output.contains("no attestation found")
         || attestations_endpoint_not_found(&output)
@@ -524,16 +521,16 @@ fn attestations_endpoint_not_found(lowercased_output: &str) -> bool {
     lowercased_output.contains("404") && lowercased_output.contains("/attestations/")
 }
 
-/// Convert a non-zero tool result into a typed fail-closed error with bounded
+/// Convert a non-zero tool outcome into a typed fail-closed error with bounded
 /// captured diagnostics.
-fn process_failure(field: &str, program: &str, result: &ProcessResult) -> AppError {
+fn process_failure(field: &str, program: &str, outcome: &ToolOutcome) -> AppError {
     let mut message = format!(
         "{program} exited with code {}; refusing to treat the result as absent",
-        result
+        outcome
             .exit_code
             .map_or_else(|| "unknown".to_string(), |code| code.to_string())
     );
-    let stderr = result.stderr.trim();
+    let stderr = outcome.stderr.trim();
     if !stderr.is_empty() {
         message.push_str(": ");
         message.push_str(stderr);
@@ -634,8 +631,10 @@ fn ensure_file_matches_digest(root: &Path, subject: &ProvenanceSubject) -> AppRe
 mod tests {
     use std::collections::BTreeMap;
     use std::path::Path;
+    use std::sync::Arc;
 
     use rskit_config::RawValue;
+    use rskit_errors::ErrorCode;
     use rskit_fs::TempDir;
     use serde_json::json;
     use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
@@ -645,18 +644,18 @@ mod tests {
     };
     use toven_testkit::{
         FakeConfiguredAdapter, FakeImagePhase, FakeProvenancePhase, FakeProvider,
-        FakeReleaseTarget, RecordingReporter,
+        FakeReleaseTarget, FakeToolRunner, RecordingReporter,
     };
 
     use super::{
-        ProvenanceOptions, ProvenancePhaseStatus, attestation_not_found,
+        GhAttestationProvenance, ProvenanceOptions, ProvenancePhaseStatus, attestation_not_found,
         ensure_file_matches_digest, release_provenance, repo_view_argv, subject_file_path,
         verify_argv,
     };
     use rskit_version::semver::Version;
     use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
     use toven_engine_core::plan::PlanRequest;
-    use toven_ports::{ProvenanceArtifact, ProvenanceSubject};
+    use toven_ports::{ProvenanceArtifact, ProvenancePhase, ProvenanceSubject};
 
     fn eid(id: &str) -> EcosystemId {
         EcosystemId::new(id).unwrap()
@@ -1262,17 +1261,8 @@ mod tests {
         ensure_file_matches_digest(root.path(), &subject).expect("image subject is a no-op");
     }
 
-    fn failed_gh(stderr: &str) -> super::ProcessResult {
-        super::ProcessResult::completed(
-            Some(1),
-            Vec::new(),
-            stderr.as_bytes().to_vec(),
-            false,
-            false,
-            std::time::Duration::from_millis(1),
-            false,
-            false,
-        )
+    fn failed_gh(stderr: &str) -> super::ToolOutcome {
+        super::ToolOutcome::new(Some(1), String::new(), stderr.to_string())
     }
 
     #[test]
@@ -1305,5 +1295,127 @@ mod tests {
         assert!(!attestation_not_found(&failed_gh(
             "Error: HTTP 401: Bad credentials"
         )));
+    }
+
+    #[test]
+    fn gh_attestation_verify_builds_repo_and_subject_argv_first() {
+        let runner = FakeToolRunner::new().with_stdout("acme/toven\n");
+        let phase = GhAttestationProvenance::new(Arc::new(runner.clone()));
+        let subject = ProvenanceSubject::image("ghcr.io/acme/toven:1.0.0", "sha256:img");
+
+        phase
+            .verify(Path::new("/repo"), std::slice::from_ref(&subject))
+            .expect("provenance verifies");
+
+        let requests = runner.requests();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(
+            requests[0].argv,
+            vec![
+                "gh",
+                "repo",
+                "view",
+                "--json",
+                "nameWithOwner",
+                "--jq",
+                ".nameWithOwner",
+            ]
+        );
+        assert_eq!(
+            requests[1].argv,
+            vec![
+                "gh",
+                "attestation",
+                "verify",
+                "oci://ghcr.io/acme/toven:1.0.0@sha256:img",
+                "--repo",
+                "acme/toven",
+                "--signer-workflow",
+                "acme/toven/.github/workflows/release.yml",
+            ]
+        );
+        assert!(
+            requests
+                .iter()
+                .all(|request| request.forward_env.is_empty())
+        );
+        assert!(
+            requests
+                .iter()
+                .flat_map(|request| &request.argv)
+                .all(|arg| !arg.contains("ghp_secret")),
+            "argv leaked a token value: {requests:?}"
+        );
+    }
+
+    #[test]
+    fn gh_attestation_absence_is_not_a_tool_failure() {
+        let runner = FakeToolRunner::new().with_stdout("acme/toven\n");
+        let phase = GhAttestationProvenance::new(Arc::new(runner.clone()));
+        let subject = ProvenanceSubject::image("ghcr.io/acme/toven:1.0.0", "sha256:img");
+        assert!(
+            phase
+                .attestation_exists(Path::new("/repo"), &subject)
+                .expect("initial attestation check succeeds")
+        );
+        let runner_state = runner.clone();
+        let _ = runner_state
+            .with_exit_code(Some(1))
+            .with_stderr("no attestations found for subject");
+
+        let missing = phase
+            .attestation_exists(Path::new("/repo"), &subject)
+            .expect("missing attestation is absence");
+
+        assert!(!missing);
+        let requests = runner.requests();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[2].argv[0], "gh");
+        assert_eq!(&requests[2].argv[1..3], &["attestation", "verify"]);
+    }
+
+    #[test]
+    fn gh_attestation_real_failure_maps_to_process_failure() {
+        let runner = FakeToolRunner::new().with_stdout("acme/toven\n");
+        let phase = GhAttestationProvenance::new(Arc::new(runner.clone()));
+        let subject = ProvenanceSubject::image("ghcr.io/acme/toven:1.0.0", "sha256:img");
+        assert!(
+            phase
+                .attestation_exists(Path::new("/repo"), &subject)
+                .expect("initial attestation check succeeds")
+        );
+        let _ = runner
+            .with_exit_code(Some(1))
+            .with_stderr("HTTP 401: Bad credentials");
+
+        let error = phase
+            .attestation_exists(Path::new("/repo"), &subject)
+            .expect_err("auth failure fails closed");
+
+        assert_eq!(error.code(), ErrorCode::Internal);
+        assert!(
+            error.to_string().contains("gh exited with code 1"),
+            "{error}"
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("refusing to treat the result as absent"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn gh_attestation_repo_spawn_failure_surfaces() {
+        let runner = FakeToolRunner::new().with_spawn_failure("gh not found");
+        let phase = GhAttestationProvenance::new(Arc::new(runner));
+        let subject = ProvenanceSubject::image("ghcr.io/acme/toven:1.0.0", "sha256:img");
+
+        let error = phase
+            .verify(Path::new("/repo"), &[subject])
+            .expect_err("spawn failure surfaces");
+
+        assert_eq!(error.code(), ErrorCode::Internal);
+        assert!(error.to_string().contains("gh not found"), "{error}");
     }
 }

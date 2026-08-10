@@ -1,13 +1,16 @@
 //! Behavioral tests for the provider surface: configure, the init wizard
 //! (detect → questionnaire → render), and release-target gating.
 
+use std::sync::Arc;
+
 use rskit_config::RawValue;
 use rskit_fs::TempDir;
 use toven_go::GoProvider;
 use toven_ports::{Provider, RunStrategy};
+use toven_testkit::doubles::FakeToolRunner;
 
 fn provider() -> GoProvider {
-    GoProvider::new().expect("provider")
+    GoProvider::new(Arc::new(FakeToolRunner::new())).expect("provider")
 }
 
 fn raw_subtree(toml: &str) -> RawValue {

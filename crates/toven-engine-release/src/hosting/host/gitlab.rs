@@ -31,18 +31,17 @@
 //!   a new version rather than replacing an asset in place.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::path::safe_join;
 use rskit_fs::sync_io::file;
-use rskit_process::{
-    CapturedIo, InputPolicy, OutputPolicy, ProcessConfig, ProcessIo, ProcessResult, ProcessSpec,
-    run,
-};
 use serde::Deserialize;
-use toven_ports::{HostReleaseOutcome, HostedRelease, ReleaseHost};
+use toven_ports::{
+    HostReleaseOutcome, HostedRelease, ReleaseHost, ToolInvocation, ToolOutcome, ToolRunner,
+};
 
 /// Maximum retained stdout/stderr for a `glab` command (64 KiB each).
 const MAX_GLAB_OUTPUT_BYTES: usize = 64 * 1024;
@@ -51,14 +50,16 @@ const MAX_GLAB_OUTPUT_BYTES: usize = 64 * 1024;
 const GLAB_COMMAND_TIMEOUT: Duration = Duration::from_mins(2);
 
 /// The GitLab hosted-release adapter.
-#[derive(Debug, Clone, Default)]
-pub struct GitlabReleaseHost;
+#[derive(Clone)]
+pub struct GitlabReleaseHost {
+    runner: Arc<dyn ToolRunner>,
+}
 
 impl GitlabReleaseHost {
-    /// Construct the GitLab hosted-release adapter.
+    /// Construct the GitLab hosted-release adapter driven through `runner`.
     #[must_use]
-    pub const fn new() -> Self {
-        Self
+    pub fn new(runner: Arc<dyn ToolRunner>) -> Self {
+        Self { runner }
     }
 }
 
@@ -89,13 +90,13 @@ impl ReleaseHost for GitlabReleaseHost {
         // it in place, so create-or-verify stays immutable even though `glab
         // release create` updates by default.
         let notes = release.notes.as_bytes();
-        let created = glab(root, create_argv(release), notes)?;
-        if created.success() {
+        let created = self.glab(root, create_argv(release), notes)?;
+        if created.succeeded() {
             return Ok(HostReleaseOutcome::Created);
         }
         if !release_already_exists(&created) {
             // Not an idempotent re-run: surface the real `glab` failure.
-            created.check()?;
+            created.require_success("hosted-release tool `glab`")?;
         }
 
         // The Release already exists. Hosted publication is immutable: read the
@@ -103,16 +104,16 @@ impl ReleaseHost for GitlabReleaseHost {
         // Release is an idempotent re-run; any divergence is a conflict the
         // operator forward-fixes with a new version — never an edit or a
         // clobbering re-upload.
-        let viewed = glab(root, view_argv(&release.tag), &[])?;
-        viewed.check()?;
+        let viewed = self.glab(root, view_argv(&release.tag), &[])?;
+        viewed.require_success("hosted-release tool `glab`")?;
         let existing = parse_existing(&viewed.stdout)?;
         reconcile(release, &local, &existing)?;
         Ok(HostReleaseOutcome::AlreadyComplete)
     }
 
     fn release_exists(&self, root: &Path, tag: &str) -> AppResult<bool> {
-        let viewed = glab(root, view_argv(tag), &[])?;
-        if viewed.success() {
+        let viewed = self.glab(root, view_argv(tag), &[])?;
+        if viewed.succeeded() {
             return Ok(true);
         }
         if release_not_found(&viewed) {
@@ -120,7 +121,7 @@ impl ReleaseHost for GitlabReleaseHost {
         }
         // A real `glab` failure (auth, network, rate limit): surface it rather
         // than silently treating the Release as absent and creating a duplicate.
-        viewed.check()?;
+        viewed.require_success("hosted-release tool `glab`")?;
         Ok(false)
     }
 }
@@ -133,18 +134,18 @@ impl ReleaseHost for GitlabReleaseHost {
 /// A broader match would misclassify unrelated failures — a missing project, an
 /// auth error, or a rate limit — as an absent Release and drive the reconcile
 /// path to create a duplicate instead of surfacing the real error.
-fn release_not_found(output: &ProcessResult) -> bool {
+fn release_not_found(output: &ToolOutcome) -> bool {
     combined_lower(output).contains("release does not exist")
 }
 
 /// Whether a failed `glab release create --no-update` failed because the Release
 /// already exists — the idempotent re-run signal.
-fn release_already_exists(output: &ProcessResult) -> bool {
+fn release_already_exists(output: &ToolOutcome) -> bool {
     combined_lower(output).contains("already exists")
 }
 
 /// The lowercased stdout+stderr of a `glab` result, for signal matching.
-fn combined_lower(output: &ProcessResult) -> String {
+fn combined_lower(output: &ToolOutcome) -> String {
     format!("{}\n{}", output.stdout, output.stderr).to_ascii_lowercase()
 }
 
@@ -360,16 +361,22 @@ fn normalize_line_endings(text: &str) -> String {
     text.replace("\r\n", "\n")
 }
 
-fn glab(root: &Path, args: Vec<String>, stdin: &[u8]) -> AppResult<ProcessResult> {
-    let spec = ProcessSpec::new("glab").args(args).dir(PathBuf::from(root));
-    let config = ProcessConfig::default()
-        .with_timeout(Some(GLAB_COMMAND_TIMEOUT))
-        .with_io(ProcessIo::captured(
-            CapturedIo::new()
-                .with_input(InputPolicy::Bytes(stdin.to_vec()))
-                .with_output(OutputPolicy::captured().with_max_output_bytes(MAX_GLAB_OUTPUT_BYTES)),
-        ));
-    run(&spec, &config)
+impl GitlabReleaseHost {
+    /// Run an argv-only `glab` invocation rooted at `root` through the shared
+    /// runner, piping `stdin` to the tool and returning its classified outcome.
+    fn glab(&self, root: &Path, args: Vec<String>, stdin: &[u8]) -> AppResult<ToolOutcome> {
+        let mut full_argv = Vec::with_capacity(args.len() + 1);
+        full_argv.push("glab".to_string());
+        full_argv.extend(args);
+        let mut invocation = ToolInvocation::new(full_argv)
+            .with_working_dir(root)
+            .with_timeout(GLAB_COMMAND_TIMEOUT)
+            .with_max_output_bytes(MAX_GLAB_OUTPUT_BYTES);
+        if !stdin.is_empty() {
+            invocation = invocation.with_stdin(stdin.to_vec());
+        }
+        self.runner.run(&invocation)
+    }
 }
 
 #[cfg(test)]
@@ -378,28 +385,20 @@ mod tests {
 
     use rskit_fs::TempDir;
     use toven_ports::{HostedRelease, ReleaseAsset, ReleaseHost};
+    use toven_testkit::doubles::FakeToolRunner;
 
     use super::{
-        ExistingRelease, GitlabReleaseHost, ProcessResult, asset_link_name, create_argv,
-        parse_existing, reconcile, release_already_exists, release_not_found, validate_assets,
-        view_argv,
+        ExistingRelease, GitlabReleaseHost, asset_link_name, create_argv, parse_existing,
+        reconcile, release_already_exists, release_not_found, validate_assets, view_argv,
     };
+    use toven_ports::ToolOutcome;
 
     fn release() -> HostedRelease {
         HostedRelease::new("rust/core@1.2.3", "core 1.2.3", "the notes")
     }
 
-    fn failed(stderr: &str) -> ProcessResult {
-        ProcessResult::completed(
-            Some(1),
-            Vec::new(),
-            stderr.as_bytes().to_vec(),
-            false,
-            false,
-            std::time::Duration::from_millis(0),
-            false,
-            false,
-        )
+    fn failed(stderr: &str) -> ToolOutcome {
+        ToolOutcome::new(Some(1), String::new(), stderr.to_string())
     }
 
     #[test]
@@ -477,7 +476,7 @@ mod tests {
         // The draft fail-closed gate runs first in `ensure_release`, before any
         // asset validation or `glab` spawn, so a draft never leaks out as a
         // normal visible Release. `.` is a valid root the code never reaches.
-        let error = GitlabReleaseHost::new()
+        let error = GitlabReleaseHost::new(std::sync::Arc::new(FakeToolRunner::new()))
             .ensure_release(std::path::Path::new("."), &release().with_draft(true))
             .expect_err("a draft release must fail closed on GitLab");
         let message = error.to_string();

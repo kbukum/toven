@@ -1,9 +1,11 @@
 //! [`RustAdapter`] — the configured cargo adapter the engine drives.
 
+use std::sync::Arc;
+
 use rskit_errors::AppResult;
 use toven_ports::{
     CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, ReleaseAdapter,
-    RunStrategy, TaskKind, ToolchainProbe,
+    RunStrategy, TaskKind, ToolRunner, ToolchainProbe,
 };
 
 use crate::config::RustConfig;
@@ -17,22 +19,23 @@ use crate::toolchain;
 /// Constructed by [`RustProvider::configure`](toven_ports::Provider::configure)
 /// and held by the engine as `dyn ConfiguredAdapter`. The runnable task table
 /// is read from the parsed config (`common().tasks`), not from the adapter.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RustAdapter {
     config: RustConfig,
+    runner: Arc<dyn ToolRunner>,
 }
 
 impl RustAdapter {
     /// Construct an adapter from a baked config.
     #[must_use]
-    pub const fn new(config: RustConfig) -> Self {
-        Self { config }
+    pub fn new(config: RustConfig, runner: Arc<dyn ToolRunner>) -> Self {
+        Self { config, runner }
     }
 }
 
 impl ConfiguredAdapter for RustAdapter {
     fn discover(&self, request: &DiscoverRequest) -> AppResult<DiscoverResponse> {
-        discovery::discover(&self.config, request)
+        discovery::discover(&self.config, request, self.runner.as_ref())
     }
 
     fn toolchain_probe(&self) -> ToolchainProbe {
@@ -47,7 +50,9 @@ impl ConfiguredAdapter for RustAdapter {
     }
 
     fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
-        Ok(Some(Box::new(CargoRegistryTarget::new())))
+        Ok(Some(Box::new(CargoRegistryTarget::new(
+            self.runner.clone(),
+        ))))
     }
 
     fn common(&self) -> &CommonEcosystemConfig {

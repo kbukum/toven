@@ -7,11 +7,13 @@
 //! contribute no configured sections.
 
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use rskit_cli::ExitCode as CliExit;
 use toven_command::CommandProvider;
+use toven_exec::ProcessToolRunner;
 use toven_go::GoProvider;
-use toven_ports::Provider;
+use toven_ports::{Provider, ToolRunner};
 use toven_rust::RustProvider;
 
 fn main() -> ExitCode {
@@ -24,8 +26,9 @@ fn main() -> ExitCode {
 
 /// Build the bundled provider set and run the CLI, returning the process code.
 fn wire_and_run() -> rskit_errors::AppResult<CliExit> {
-    let rust = RustProvider::new()?;
-    let go = GoProvider::new()?;
+    let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
+    let rust = RustProvider::new(runner.clone())?;
+    let go = GoProvider::new(runner)?;
     let command = CommandProvider::new()?;
     let providers: Vec<&dyn Provider> = vec![&rust, &go, &command];
     Ok(toven_cli::run(&providers))

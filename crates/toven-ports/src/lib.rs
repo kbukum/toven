@@ -82,8 +82,9 @@ pub use config::{
 pub use discover::{DISCOVERY_SCHEMA_VERSION, DiscoverContext, DiscoverRequest, DiscoverResponse};
 pub use driver::{DriverLocator, DriverWizard};
 pub use exec::{
-    CommandRunner, HeldProcess, Invocation, InvocationEnvPolicy, InvocationEnvironment,
-    OutputObserver, RunOutcome, StartOutcome, ToolInvocation, ToolOutcome, ToolRunner,
+    CommandRunner, ForwardEnvAs, HeldProcess, Invocation, InvocationEnvPolicy,
+    InvocationEnvironment, OutputObserver, RunOutcome, StartOutcome, ToolInvocation, ToolOutcome,
+    ToolRunner, Truncation,
 };
 pub use hook::{HookPhase, HookRunner, ResolvedHookRunner};
 pub use merge::{merge_coverage, merge_release, merge_task};

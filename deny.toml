@@ -26,6 +26,7 @@ confidence-threshold = 0.8
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+allow-wildcard-paths = true
 deny = []
 skip-tree = [
     { crate = "rskit-validation", reason = "rskit submodule crate uses path-only internal workspace dependencies", depth = 0 },

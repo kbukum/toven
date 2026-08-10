@@ -10,9 +10,10 @@
 //! CLI stays a thin caller.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use rskit_errors::AppResult;
-use toven_ports::{HookPhase, HookRunner, Provider, Reporter};
+use toven_ports::{HookPhase, HookRunner, Provider, Reporter, ToolRunner};
 
 use crate::execution::federated::release_apply_by_member;
 use crate::hosting::host;
@@ -62,6 +63,7 @@ pub fn release_run(
     hooks: &dyn HookRunner,
     verb: VerbId,
     options: &ReleaseApplyOptions,
+    runner: &Arc<dyn ToolRunner>,
 ) -> AppResult<ReleaseStats> {
     let locator = PathDriverLocator::new();
     let context = prepare_front(
@@ -98,7 +100,7 @@ pub fn release_run(
     // short-circuits the run only when it actually creates a missing Release, so
     // a legitimate new release is never blocked.
     if options.publish && !options.no_push {
-        let hosts = host::build_hosts(&settings)?;
+        let hosts = host::build_hosts(&settings, runner)?;
         let mut stats = ReleaseStats::new(0);
         let created = reconcile::reconcile_hosted_releases(
             &context.federation.modules,
@@ -170,7 +172,7 @@ pub fn release_run(
             .filter(|entry| hostable_members.contains(&entry.member))
             .collect::<Vec<_>>();
         if !planned.is_empty() {
-            let hosts = host::build_hosts(&settings)?;
+            let hosts = host::build_hosts(&settings, runner)?;
             host::run_host_phase(
                 &planned,
                 &hosts,
@@ -214,6 +216,14 @@ mod tests {
 
     use super::release_run;
     use crate::{BumpOverrides, ReleaseApplyOptions};
+    use std::sync::Arc;
+    use toven_ports::ToolRunner;
+    use toven_testkit::doubles::FakeToolRunner;
+
+    fn test_runner() -> Arc<dyn ToolRunner> {
+        Arc::new(FakeToolRunner::new())
+    }
+
     use toven_engine_core::config::{Document, ProjectConfig, TovenConfig, VerbId};
     use toven_engine_core::federation::baseline::MemberVcsReaders;
     use toven_engine_core::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
@@ -345,6 +355,7 @@ mod tests {
                 publish: true,
                 ..ReleaseApplyOptions::default()
             },
+            &test_runner(),
         )
         .unwrap();
 
@@ -386,6 +397,7 @@ mod tests {
                 publish: true,
                 ..ReleaseApplyOptions::default()
             },
+            &test_runner(),
         )
         .unwrap();
 
@@ -442,6 +454,7 @@ mod tests {
                 publish: true,
                 ..ReleaseApplyOptions::default()
             },
+            &test_runner(),
         )
         .unwrap();
 
@@ -523,6 +536,7 @@ mod tests {
             &hooks,
             VerbId::Tag,
             &ReleaseApplyOptions::default(),
+            &test_runner(),
         )
         .expect_err("a failing pre hook fails the release closed");
 
@@ -577,6 +591,7 @@ mod tests {
             &hooks,
             VerbId::Tag,
             &ReleaseApplyOptions::default(),
+            &test_runner(),
         )
         .expect("the release runs");
 

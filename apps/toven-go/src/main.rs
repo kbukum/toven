@@ -5,10 +5,12 @@
 //! process code.
 
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use rskit_cli::ExitCode as CliExit;
+use toven_exec::ProcessToolRunner;
 use toven_go::GoProvider;
-use toven_ports::Provider;
+use toven_ports::{Provider, ToolRunner};
 
 fn main() -> ExitCode {
     let code = match wire_and_run() {
@@ -20,7 +22,8 @@ fn main() -> ExitCode {
 
 /// Build the Go provider and run the CLI, returning the process code.
 fn wire_and_run() -> rskit_errors::AppResult<CliExit> {
-    let provider = GoProvider::new()?;
+    let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
+    let provider = GoProvider::new(runner)?;
     let providers: Vec<&dyn Provider> = vec![&provider];
     Ok(toven_cli::run(&providers))
 }

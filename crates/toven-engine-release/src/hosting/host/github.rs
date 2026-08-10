@@ -23,18 +23,17 @@
 //! deliberately does not do.)
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::path::safe_join;
 use rskit_fs::sync_io::file;
-use rskit_process::{
-    CapturedIo, InputPolicy, OutputPolicy, ProcessConfig, ProcessIo, ProcessResult, ProcessSpec,
-    run,
-};
 use serde::Deserialize;
-use toven_ports::{HostReleaseOutcome, HostedRelease, ReleaseHost};
+use toven_ports::{
+    HostReleaseOutcome, HostedRelease, ReleaseHost, ToolInvocation, ToolOutcome, ToolRunner,
+};
 
 /// Maximum retained stdout/stderr for a `gh` command (64 KiB each).
 const MAX_GH_OUTPUT_BYTES: usize = 64 * 1024;
@@ -43,14 +42,16 @@ const MAX_GH_OUTPUT_BYTES: usize = 64 * 1024;
 const GH_COMMAND_TIMEOUT: Duration = Duration::from_mins(2);
 
 /// The GitHub hosted-release adapter.
-#[derive(Debug, Clone, Default)]
-pub struct GithubReleaseHost;
+#[derive(Clone)]
+pub struct GithubReleaseHost {
+    runner: Arc<dyn ToolRunner>,
+}
 
 impl GithubReleaseHost {
-    /// Construct the GitHub hosted-release adapter.
+    /// Construct the GitHub hosted-release adapter driven through `runner`.
     #[must_use]
-    pub const fn new() -> Self {
-        Self
+    pub fn new(runner: Arc<dyn ToolRunner>) -> Self {
+        Self { runner }
     }
 }
 
@@ -66,13 +67,13 @@ impl ReleaseHost for GithubReleaseHost {
         let local = fingerprint_assets(root, release)?;
 
         let notes = release.notes.as_bytes();
-        let created = gh(root, create_argv(release), notes)?;
-        if created.success() {
+        let created = self.gh(root, create_argv(release), notes)?;
+        if created.succeeded() {
             return Ok(HostReleaseOutcome::Created);
         }
         if !release_already_exists(&created) {
             // Not an idempotent re-run: surface the real `gh` failure.
-            created.check()?;
+            created.require_success("hosted-release tool `gh`")?;
         }
 
         // The Release already exists. Hosted publication is immutable: read the
@@ -80,16 +81,16 @@ impl ReleaseHost for GithubReleaseHost {
         // identical Release is an idempotent re-run; any divergence is a
         // conflict the operator forward-fixes with a new version — never an edit
         // or a clobbering re-upload.
-        let viewed = gh(root, view_argv(&release.tag), &[])?;
-        viewed.check()?;
+        let viewed = self.gh(root, view_argv(&release.tag), &[])?;
+        viewed.require_success("hosted-release tool `gh`")?;
         let existing = parse_existing(&viewed.stdout)?;
         reconcile(release, &local, &existing)?;
         Ok(HostReleaseOutcome::AlreadyComplete)
     }
 
     fn release_exists(&self, root: &Path, tag: &str) -> AppResult<bool> {
-        let viewed = gh(root, exists_argv(tag), &[])?;
-        if viewed.success() {
+        let viewed = self.gh(root, exists_argv(tag), &[])?;
+        if viewed.succeeded() {
             return Ok(true);
         }
         if release_not_found(&viewed) {
@@ -97,7 +98,7 @@ impl ReleaseHost for GithubReleaseHost {
         }
         // A real `gh` failure (auth, network, rate limit): surface it rather
         // than silently treating the Release as absent and creating a duplicate.
-        viewed.check()?;
+        viewed.require_success("hosted-release tool `gh`")?;
         Ok(false)
     }
 }
@@ -110,7 +111,7 @@ impl ReleaseHost for GithubReleaseHost {
 /// — a missing repository, a permission/auth error, or a rate limit — as an
 /// absent Release and drive the reconcile path to create a duplicate instead of
 /// surfacing the real error.
-fn release_not_found(output: &ProcessResult) -> bool {
+fn release_not_found(output: &ToolOutcome) -> bool {
     let combined = format!("{}\n{}", output.stdout, output.stderr).to_ascii_lowercase();
     combined.contains("release not found")
 }
@@ -129,7 +130,7 @@ fn exists_argv(tag: &str) -> Vec<String> {
 
 /// Whether a failed `gh release create` failed because the Release already
 /// exists — the idempotent re-run signal.
-fn release_already_exists(output: &ProcessResult) -> bool {
+fn release_already_exists(output: &ToolOutcome) -> bool {
     let combined = format!("{}\n{}", output.stdout, output.stderr).to_ascii_lowercase();
     combined.contains("already exists")
 }
@@ -364,45 +365,46 @@ fn normalize_line_endings(text: &str) -> String {
     text.replace("\r\n", "\n")
 }
 
-fn gh(root: &Path, args: Vec<String>, stdin: &[u8]) -> AppResult<ProcessResult> {
-    let spec = ProcessSpec::new("gh").args(args).dir(PathBuf::from(root));
-    let config = ProcessConfig::default()
-        .with_timeout(Some(GH_COMMAND_TIMEOUT))
-        .with_io(ProcessIo::captured(
-            CapturedIo::new()
-                .with_input(InputPolicy::Bytes(stdin.to_vec()))
-                .with_output(OutputPolicy::captured().with_max_output_bytes(MAX_GH_OUTPUT_BYTES)),
-        ));
-    run(&spec, &config)
+impl GithubReleaseHost {
+    /// Run an argv-only `gh` invocation rooted at `root` through the shared
+    /// runner, piping `stdin` to the tool and returning its classified outcome.
+    fn gh(&self, root: &Path, args: Vec<String>, stdin: &[u8]) -> AppResult<ToolOutcome> {
+        let mut full_argv = Vec::with_capacity(args.len() + 1);
+        full_argv.push("gh".to_string());
+        full_argv.extend(args);
+        let mut invocation = ToolInvocation::new(full_argv)
+            .with_working_dir(root)
+            .with_timeout(GH_COMMAND_TIMEOUT)
+            .with_max_output_bytes(MAX_GH_OUTPUT_BYTES);
+        if !stdin.is_empty() {
+            invocation = invocation.with_stdin(stdin.to_vec());
+        }
+        self.runner.run(&invocation)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::sync::Arc;
 
+    use rskit_errors::ErrorCode;
     use rskit_fs::TempDir;
-    use toven_ports::{HostedRelease, ReleaseAsset};
+    use toven_ports::{HostReleaseOutcome, HostedRelease, ReleaseAsset, ReleaseHost};
+    use toven_testkit::FakeToolRunner;
 
     use super::{
-        ExistingRelease, ProcessResult, create_argv, exists_argv, fingerprint_assets,
-        parse_existing, reconcile, release_not_found, view_argv,
+        ExistingRelease, GithubReleaseHost, create_argv, exists_argv, fingerprint_assets,
+        parse_existing, reconcile, release_already_exists, release_not_found, view_argv,
     };
+    use toven_ports::ToolOutcome;
 
     fn release() -> HostedRelease {
         HostedRelease::new("rust/core@1.2.3", "core 1.2.3", "the notes")
     }
 
-    fn failed_view(stderr: &str) -> ProcessResult {
-        ProcessResult::completed(
-            Some(1),
-            Vec::new(),
-            stderr.as_bytes().to_vec(),
-            false,
-            false,
-            std::time::Duration::from_millis(0),
-            false,
-            false,
-        )
+    fn failed_view(stderr: &str) -> ToolOutcome {
+        ToolOutcome::new(Some(1), String::new(), stderr.to_string())
     }
 
     #[test]
@@ -642,5 +644,141 @@ mod tests {
             .expect_err("colliding upload names fail closed");
 
         assert!(error.to_string().contains("same name 'app.tgz'"), "{error}");
+    }
+
+    #[test]
+    fn release_already_exists_matches_the_create_refusal() {
+        assert!(release_already_exists(&failed_view(
+            "Release rust/core@1.2.3 already exists"
+        )));
+        assert!(!release_already_exists(&failed_view("HTTP 500")));
+    }
+
+    #[test]
+    fn ensure_release_creates_with_argv_first_and_notes_on_stdin() {
+        let temp = TempDir::new().expect("temp dir");
+        temp.write_file("dist/core.tgz", b"payload")
+            .expect("stage asset");
+        let release = HostedRelease::new(
+            "rust/core@1.2.3",
+            "core 1.2.3",
+            "release notes with ghp_secret_token",
+        )
+        .with_assets(vec![ReleaseAsset::new("dist/core.tgz")]);
+        let runner = FakeToolRunner::new();
+        let host = GithubReleaseHost::new(Arc::new(runner.clone()));
+
+        let outcome = host
+            .ensure_release(temp.path(), &release)
+            .expect("release created");
+
+        assert_eq!(outcome, HostReleaseOutcome::Created);
+        let requests = runner.requests();
+        assert_eq!(requests.len(), 1);
+        let request = &requests[0];
+        assert_eq!(
+            &request.argv[0..4],
+            &["gh", "release", "create", "rust/core@1.2.3"]
+        );
+        assert!(
+            request
+                .argv
+                .windows(2)
+                .any(|pair| pair == ["--title", "core 1.2.3"])
+        );
+        assert!(
+            request
+                .argv
+                .windows(2)
+                .any(|pair| pair == ["--notes-file", "-"])
+        );
+        assert!(request.argv.iter().any(|arg| arg == "dist/core.tgz"));
+        assert_eq!(
+            request.stdin.as_deref(),
+            Some("release notes with ghp_secret_token".as_bytes())
+        );
+        assert!(
+            request.argv.iter().all(|arg| !arg.contains("ghp_secret")),
+            "argv leaked notes/token content: {:?}",
+            request.argv
+        );
+        assert!(request.forward_env.is_empty());
+    }
+
+    #[test]
+    fn ensure_release_non_zero_create_is_a_typed_host_tool_error() {
+        let temp = TempDir::new().expect("temp dir");
+        temp.write_file("dist/core.tgz", b"payload")
+            .expect("stage asset");
+        let release = release().with_assets(vec![ReleaseAsset::new("dist/core.tgz")]);
+        let runner = FakeToolRunner::new()
+            .with_exit_code(Some(1))
+            .with_stderr("HTTP 500");
+        let host = GithubReleaseHost::new(Arc::new(runner));
+
+        let error = host
+            .ensure_release(temp.path(), &release)
+            .expect_err("genuine create failure fails closed");
+
+        assert_eq!(error.code(), ErrorCode::ExternalService);
+        assert!(
+            error.to_string().contains("hosted-release tool `gh`"),
+            "{error}"
+        );
+        assert!(error.to_string().contains("exited 1"), "{error}");
+    }
+
+    #[test]
+    fn release_exists_builds_read_only_argv_and_classifies_absence() {
+        let runner = FakeToolRunner::new()
+            .with_exit_code(Some(1))
+            .with_stderr("release not found");
+        let host = GithubReleaseHost::new(Arc::new(runner.clone()));
+
+        let exists = host
+            .release_exists(std::path::Path::new("/repo"), "rust/core@1.2.3")
+            .expect("missing release is absence");
+
+        assert!(!exists);
+        let requests = runner.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].argv,
+            vec!["gh", "release", "view", "rust/core@1.2.3", "--json", "name",]
+        );
+    }
+
+    #[test]
+    fn ensure_release_reconciles_an_already_existing_release_from_non_success_create() {
+        let temp = TempDir::new().expect("temp dir");
+        temp.write_file("dist/core.tgz", b"payload")
+            .expect("stage asset");
+        let release = release().with_assets(vec![ReleaseAsset::new("dist/core.tgz")]);
+        let existing = r#"{"name":"core 1.2.3","body":"the notes","isDraft":false,
+            "isPrerelease":false,"assets":[{"name":"core.tgz","size":7}]}"#;
+        let runner = FakeToolRunner::new().with_outcomes(vec![
+            ToolOutcome::new(Some(1), String::new(), "release already exists"),
+            ToolOutcome::new(Some(0), existing, String::new()),
+        ]);
+        let host = GithubReleaseHost::new(Arc::new(runner.clone()));
+
+        let outcome = host
+            .ensure_release(temp.path(), &release)
+            .expect("identical existing release is idempotent");
+
+        assert_eq!(outcome, HostReleaseOutcome::AlreadyComplete);
+        let requests = runner.requests();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(&requests[0].argv[0..3], &["gh", "release", "create"]);
+        assert_eq!(
+            &requests[1].argv[0..4],
+            &["gh", "release", "view", "rust/core@1.2.3"]
+        );
+        assert!(
+            requests[1]
+                .argv
+                .windows(2)
+                .any(|pair| pair == ["--json", "name,body,isDraft,isPrerelease,assets"])
+        );
     }
 }

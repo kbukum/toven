@@ -10,10 +10,11 @@
 //! the phase entirely, consistent with tag push.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use toven_model::{MemberId, Module, ModuleKey};
-use toven_ports::{HostedRelease, ReleaseAsset, ReleaseHost};
+use toven_ports::{HostedRelease, ReleaseAsset, ReleaseHost, ToolRunner};
 
 use super::github::GithubReleaseHost;
 use super::gitlab::GitlabReleaseHost;
@@ -52,6 +53,7 @@ pub(crate) struct PlannedHostRelease {
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn build_hosts(
     settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
+    runner: &Arc<dyn ToolRunner>,
 ) -> AppResult<ReleaseHosts> {
     let mut hosts = ReleaseHosts::new();
     for forge in settings
@@ -61,15 +63,15 @@ pub(crate) fn build_hosts(
         if hosts.contains_key(forge) {
             continue;
         }
-        hosts.insert(forge.to_string(), build_host(forge)?);
+        hosts.insert(forge.to_string(), build_host(forge, runner)?);
     }
     Ok(hosts)
 }
 
-fn build_host(forge: &str) -> AppResult<Box<dyn ReleaseHost>> {
+fn build_host(forge: &str, runner: &Arc<dyn ToolRunner>) -> AppResult<Box<dyn ReleaseHost>> {
     match forge {
-        FORGE_GITHUB => Ok(Box::new(GithubReleaseHost::new())),
-        FORGE_GITLAB => Ok(Box::new(GitlabReleaseHost::new())),
+        FORGE_GITHUB => Ok(Box::new(GithubReleaseHost::new(runner.clone()))),
+        FORGE_GITLAB => Ok(Box::new(GitlabReleaseHost::new(runner.clone()))),
         other => Err(AppError::invalid_input(
             "release.host.forge",
             format!("unsupported forge '{other}'; supported forges are 'github' and 'gitlab'"),
@@ -358,6 +360,14 @@ mod tests {
     use super::{
         PlannedHostRelease, build_hosts, merge_planned, planned_host_releases, run_host_phase,
     };
+    use std::sync::Arc;
+    use toven_ports::ToolRunner;
+    use toven_testkit::doubles::FakeToolRunner;
+
+    fn test_runner() -> Arc<dyn ToolRunner> {
+        Arc::new(FakeToolRunner::new())
+    }
+
     use crate::ResolvedReleaseSettings;
     use crate::{
         BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PushPolicy, ReleaseEntry, ReleasePlan,
@@ -827,7 +837,7 @@ mod tests {
             forge: Some("bitbucket".into()),
             ..HostConfig::default()
         };
-        let Err(error) = build_hosts(&settings("core", Some(host))) else {
+        let Err(error) = build_hosts(&settings("core", Some(host)), &test_runner()) else {
             panic!("unsupported forge must be rejected");
         };
         assert!(error.to_string().contains("bitbucket"), "{error}");
@@ -835,7 +845,7 @@ mod tests {
 
     #[test]
     fn build_hosts_resolves_github() {
-        let hosts = build_hosts(&settings("core", Some(github_host()))).unwrap();
+        let hosts = build_hosts(&settings("core", Some(github_host())), &test_runner()).unwrap();
         assert!(hosts.contains_key("github"));
     }
 
@@ -845,7 +855,7 @@ mod tests {
             forge: Some("gitlab".into()),
             ..HostConfig::default()
         };
-        let hosts = build_hosts(&settings("core", Some(host))).unwrap();
+        let hosts = build_hosts(&settings("core", Some(host)), &test_runner()).unwrap();
         assert!(hosts.contains_key("gitlab"));
     }
 }

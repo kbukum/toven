@@ -1,0 +1,66 @@
+id: single-exec-home
+language: rust
+severity: error
+message: >-
+  a raw subprocess spawn — `std::process::Command::new`, or importing/calling a
+  raw spawn entry point from the rskit process port (`run`, `run_with_cancel`,
+  `start_persistent`, `start_persistent_with_cancel`) — may appear only at the
+  annotated allow-listed execution homes. Route one-shot tools through an
+  injected `&dyn ToolRunner` (the shared `toven-exec` `ProcessToolRunner`) and
+  APPLY units through `ProcessCommandRunner`; do not re-wire
+  spawn/capture/timeout/env policy per call site (see docs/concern-owners.md —
+  `toven-exec` owns the concrete runners).
+files:
+  # Only production source is guarded; declare-only aggregators and tests are
+  # covered elsewhere.
+  - crates/*/src/**/*.rs
+  - apps/*/src/**/*.rs
+ignores:
+  # --- Allow-listed execution homes (exhaustive, each annotated) ---
+  # The two concrete runners `toven-exec` owns: the sync one-shot
+  # `ProcessToolRunner` (`tool.rs`, `rskit_process::run`) and the async
+  # streaming `ProcessCommandRunner` + persistent spawn (`command.rs`).
+  - crates/toven-exec/src/tool.rs
+  - crates/toven-exec/src/command.rs
+  # the toolchain-existence prober behind the `ToolchainProber` port — a
+  # captured, bounded, timed one-shot `{tool} --version` probe on a distinct
+  # port seam (not the `ToolRunner` one-shot seam), owned by the PLAN spine.
+  - crates/toven-engine-core/src/plan/toolchain.rs
+  # Documented exclusions (different shape than a captured one-shot tool):
+  # the long-lived framed-RPC duplex driver child (piped stdin/stdout held for
+  # the session — a transport, not a `ToolRunner` invocation).
+  - crates/toven-engine-core/src/federation/remote/process.rs
+  # the `cargo install` driver provisioner, which streams installer output to
+  # the inherited terminal uncaptured (`InheritedIo`), not the captured
+  # `ToolOutcome` shape.
+  - crates/toven-engine-core/src/federation/provision.rs
+  # the tmux pane launcher — a deliberate terminal-UI spawn boundary in the
+  # report layer, argv-first and fail-closed.
+  - crates/toven-cli/src/report/panes.rs
+  # the dev-only testkit harness spawn — the single shared blocking path the
+  # smoke/scenario harnesses use to run the built binary itself and capture its
+  # streams (not a `ToolRunner` tool invocation).
+  - crates/toven-testkit/src/exec.rs
+rule:
+  any:
+    # A fully-qualified one-shot spawn call for any of the four rskit-process
+    # entry points — a qualified call needs no import, so the import-grant
+    # patterns below cannot see it.
+    - pattern: rskit_process::run($$$)
+    - pattern: rskit_process::run_with_cancel($$$)
+    - pattern: rskit_process::start_persistent($$$)
+    - pattern: rskit_process::start_persistent_with_cancel($$$)
+    # A raw `std::process::Command` builder (either import form).
+    - pattern: Command::new($$$)
+    - pattern: std::process::Command::new($$$)
+    # Importing a raw spawn entry point grants the capability regardless of the
+    # later call form (`use rskit_process::run; ... run(&spec, &config)`), which
+    # a qualified-call pattern alone cannot see — the real call convention here
+    # bare-imports `run`. Guard the capability grant itself.
+    - pattern: use rskit_process::run;
+    - pattern: use rskit_process::run_with_cancel;
+    - pattern: use rskit_process::start_persistent;
+    - pattern: use rskit_process::start_persistent_with_cancel;
+    - all:
+        - pattern: "use rskit_process::{$$$}"
+        - regex: '\b(run|run_with_cancel|start_persistent|start_persistent_with_cancel)\b'

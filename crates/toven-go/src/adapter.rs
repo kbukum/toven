@@ -1,9 +1,11 @@
 //! [`GoAdapter`] — the configured `go` adapter the engine drives.
 
+use std::sync::Arc;
+
 use rskit_errors::AppResult;
 use toven_ports::{
     CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, ReleaseAdapter,
-    RunStrategy, TaskKind, ToolchainProbe,
+    RunStrategy, TaskKind, ToolRunner, ToolchainProbe,
 };
 
 use crate::config::GoConfig;
@@ -17,22 +19,23 @@ use crate::toolchain;
 /// Constructed by [`GoProvider::configure`](toven_ports::Provider::configure)
 /// and held by the engine as `dyn ConfiguredAdapter`. The runnable task table
 /// is read from the parsed config (`common().tasks`), not from the adapter.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GoAdapter {
     config: GoConfig,
+    runner: Arc<dyn ToolRunner>,
 }
 
 impl GoAdapter {
     /// Construct an adapter from a baked config.
     #[must_use]
-    pub const fn new(config: GoConfig) -> Self {
-        Self { config }
+    pub fn new(config: GoConfig, runner: Arc<dyn ToolRunner>) -> Self {
+        Self { config, runner }
     }
 }
 
 impl ConfiguredAdapter for GoAdapter {
     fn discover(&self, request: &DiscoverRequest) -> AppResult<DiscoverResponse> {
-        discovery::discover(&self.config, request)
+        discovery::discover(&self.config, request, self.runner.as_ref())
     }
 
     fn toolchain_probe(&self) -> ToolchainProbe {
@@ -47,7 +50,7 @@ impl ConfiguredAdapter for GoAdapter {
     }
 
     fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
-        Ok(Some(Box::new(GoVcsTarget::new())))
+        Ok(Some(Box::new(GoVcsTarget::new(self.runner.clone()))))
     }
 
     fn common(&self) -> &CommonEcosystemConfig {

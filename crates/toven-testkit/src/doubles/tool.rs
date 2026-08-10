@@ -6,10 +6,11 @@
 //! driven through a boxed trait object is observable from the handle a test
 //! keeps.
 
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_ports::{ToolInvocation, ToolOutcome, ToolRunner};
+use toven_ports::{ToolInvocation, ToolOutcome, ToolRunner, Truncation};
 
 /// A [`ToolRunner`] with a scripted outcome and invocation recording.
 #[derive(Debug, Clone)]
@@ -24,7 +25,9 @@ struct FakeToolState {
     stderr: String,
     timed_out: bool,
     cancelled: bool,
+    truncated: Truncation,
     fail: Option<String>,
+    sequence: Option<VecDeque<ToolOutcome>>,
     requests: Vec<ToolInvocation>,
     produced: Vec<(std::path::PathBuf, Vec<u8>)>,
 }
@@ -38,7 +41,9 @@ impl Default for FakeToolRunner {
                 stderr: String::new(),
                 timed_out: false,
                 cancelled: false,
+                truncated: Truncation::default(),
                 fail: None,
+                sequence: None,
                 requests: Vec::new(),
                 produced: Vec::new(),
             })),
@@ -88,10 +93,36 @@ impl FakeToolRunner {
         self
     }
 
+    /// Report the captured output as truncated at the output bound — the tool
+    /// produced more than its cap, so the returned stdout/stderr are incomplete.
+    #[must_use]
+    pub fn with_truncated(self, stdout_truncated: bool, stderr_truncated: bool) -> Self {
+        {
+            let mut state = self.state();
+            state.truncated = Truncation {
+                stdout: stdout_truncated,
+                stderr: stderr_truncated,
+            };
+        }
+        self
+    }
+
     /// Make `run` fail with a typed spawn/IO error (an unspawnable tool).
     #[must_use]
     pub fn with_spawn_failure(self, message: impl Into<String>) -> Self {
         self.state().fail = Some(message.into());
+        self
+    }
+
+    /// Script a distinct outcome per successive `run`, in order — for callers
+    /// that invoke the same tool more than once and depend on the responses
+    /// differing (a create that reports "already exists", then a view that
+    /// returns the existing state). Each `run` pops the next outcome; once the
+    /// sequence is exhausted, `run` fails with a typed error rather than
+    /// silently reusing the last outcome, so an over-invocation is caught.
+    #[must_use]
+    pub fn with_outcomes(self, outcomes: impl IntoIterator<Item = ToolOutcome>) -> Self {
+        self.state().sequence = Some(outcomes.into_iter().collect());
         self
     }
 
@@ -123,6 +154,14 @@ impl ToolRunner for FakeToolRunner {
         if let Some(message) = &state.fail {
             return Err(AppError::new(ErrorCode::Internal, message.clone()));
         }
+        if let Some(sequence) = state.sequence.as_mut() {
+            return sequence.pop_front().ok_or_else(|| {
+                AppError::new(
+                    ErrorCode::Internal,
+                    "FakeToolRunner scripted outcome sequence exhausted",
+                )
+            });
+        }
         // A tool that exits zero produces its declared artifacts, mirroring the
         // real tool writing archives/signatures the engine then normalizes.
         if matches!(state.exit_code, Some(0)) && !state.timed_out && !state.cancelled {
@@ -149,14 +188,16 @@ impl ToolRunner for FakeToolRunner {
         Ok(
             ToolOutcome::new(state.exit_code, state.stdout.clone(), state.stderr.clone())
                 .timed_out_flag(state.timed_out)
-                .cancelled_flag(state.cancelled),
+                .cancelled_flag(state.cancelled)
+                .truncated_flags(state.truncated.stdout, state.truncated.stderr),
         )
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use toven_ports::{ToolInvocation, ToolRunner};
+    use rskit_errors::ErrorCode;
+    use toven_ports::{ToolInvocation, ToolOutcome, ToolRunner};
 
     use super::FakeToolRunner;
 
@@ -170,6 +211,26 @@ mod tests {
         assert!(!outcome.succeeded());
         assert_eq!(outcome.exit_code, Some(2));
         assert_eq!(runner.requests(), vec![invocation]);
+    }
+
+    #[test]
+    fn scripted_outcomes_are_returned_in_order_then_exhaust_with_a_typed_error() {
+        let runner = FakeToolRunner::new().with_outcomes(vec![
+            ToolOutcome::new(Some(1), String::new(), "already exists"),
+            ToolOutcome::new(Some(0), "existing", String::new()),
+        ]);
+        let invocation = ToolInvocation::new(vec!["gh".into(), "release".into()]);
+
+        assert_eq!(runner.run(&invocation).expect("first").exit_code, Some(1));
+        let second = runner.run(&invocation).expect("second");
+        assert_eq!(second.exit_code, Some(0));
+        assert_eq!(second.stdout, "existing");
+
+        let exhausted = runner
+            .run(&invocation)
+            .expect_err("third exhausts the sequence");
+        assert_eq!(exhausted.code(), ErrorCode::Internal);
+        assert_eq!(runner.requests().len(), 3);
     }
 
     #[test]

@@ -1,0 +1,23 @@
+[package]
+name = "toven-exec"
+description = "Toven exec — the concrete tool runners (sync ProcessToolRunner, async streaming ProcessCommandRunner, persistent spawn) and the shared argv→ProcessSpec lowering they compose"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+toven-model.workspace = true
+toven-ports.workspace = true
+rskit-errors.workspace = true
+rskit-process.workspace = true
+rskit-util.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+[lints]
+workspace = true

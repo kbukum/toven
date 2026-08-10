@@ -7,6 +7,7 @@ Toven is a hexagonal Rust workspace. Domain types sit at the center, ports defin
 ```text
 L0  crates/toven-model
 L1  crates/toven-ports
+L1.5 crates/toven-exec
 L2a crates/toven-engine-core
 L2b crates/toven-engine-release
 L2b crates/toven-engine
@@ -17,12 +18,13 @@ L3  crates/toven-cli
 L4  apps/toven, apps/toven-rs, apps/toven-go
 ```
 
-Dependencies point downward only. The three engine crates share layer 2: `toven-engine-core` is the PLAN foundation, and `toven-engine-release` and `toven-engine` are peers above it.
+Dependencies point downward only. `toven-exec` is a focused L1.5 utility that owns the concrete subprocess runners; the three engine crates share layer 2: `toven-engine-core` is the PLAN foundation, and `toven-engine-release` and `toven-engine` are peers above it.
 
 ```mermaid
 flowchart TB
     model["L0 · toven-model"]
     ports["L1 · toven-ports"]
+    exec["L1.5 · toven-exec"]
     core["L2a · toven-engine-core"]
     release["L2b · toven-engine-release"]
     engine["L2b · toven-engine"]
@@ -31,20 +33,25 @@ flowchart TB
     apps["L4 · apps/*"]
 
     ports --> model
+    exec --> ports
     core --> ports
     release --> core
     engine --> core
+    engine --> exec
     eco --> ports
     cli --> engine
     cli --> release
+    cli --> exec
     cli --> eco
     apps --> cli
+    apps --> exec
 ```
 
 | Crate | Responsibility |
 |---|---|
 | `toven-model` | Identity, graph, plan, event, and release vocabulary |
 | `toven-ports` | Adapter contracts and shared configuration values |
+| `toven-exec` | The concrete subprocess runners (`ProcessToolRunner`, `ProcessCommandRunner`, persistent spawn) and the shared argv→`ProcessSpec` lowering |
 | `toven-engine-core` | Strict `toven.toml` loading, the VCS seam, the PLAN spine, and federation-core |
 | `toven-engine-release` | Release PLAN/APPLY: bump, changelog, packaging, checksums, SBOM, signing, hosted publishing |
 | `toven-engine` | Apply, cache, coverage, output, watch, init, doctor, and the rskit-backed port adapters |

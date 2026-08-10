@@ -25,4 +25,4 @@ pub use invocation::Invocation;
 pub use outcome::{HeldProcess, RunOutcome, StartOutcome};
 pub use output::OutputObserver;
 pub use runner::CommandRunner;
-pub use tool::{ToolInvocation, ToolOutcome, ToolRunner};
+pub use tool::{ForwardEnvAs, ToolInvocation, ToolOutcome, ToolRunner, Truncation};

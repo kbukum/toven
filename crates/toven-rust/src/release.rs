@@ -10,6 +10,7 @@
 //! a success-shaped fallback.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
@@ -18,17 +19,15 @@ use rskit_fs::sync_io::file::{
     exists, move_file, read_string_bounded, remove_if_exists, write_atomic_replace,
 };
 use rskit_fs::{canonicalize, safe_join};
-use rskit_process::{
-    CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessResult, ProcessSpec, run,
-};
 use rskit_util::{Template, TemplatePart};
 use rskit_version::semver::Version;
 use toml_edit::{DocumentMut, Item, value};
 use toven_model::{Module, RepoPath};
 use toven_ports::{
-    Artifact, BaselineSourceConfig, ManifestMutator, Packager, PublishOutcome, Publisher,
-    RegistryCadence, ReleaseCredentials, ReleaseDefaults, ReleaseDefaultsSource, ReleaseMutation,
-    ReleaseVar, SbomProducer, TagGrammar, TagMode, TagScheme, VersionSource, Visibility,
+    Artifact, BaselineSourceConfig, ForwardEnvAs, ManifestMutator, Packager, PublishOutcome,
+    Publisher, RegistryCadence, ReleaseCredentials, ReleaseDefaults, ReleaseDefaultsSource,
+    ReleaseMutation, ReleaseVar, SbomProducer, TagGrammar, TagMode, TagScheme, ToolInvocation,
+    ToolOutcome, ToolRunner, VersionSource, Visibility,
 };
 
 /// Hard bound on a `Cargo.toml` read (4 MiB) — manifests are tiny; this only
@@ -64,14 +63,16 @@ const CARGO_COMMAND_TIMEOUT: Duration = Duration::from_mins(2);
 ///
 /// Resolves each module's repo-relative `manifest` against the process working
 /// directory (the engine runs from the repository root).
-#[derive(Debug, Default, Clone, Copy)]
-pub struct CargoRegistryTarget;
+#[derive(Clone)]
+pub struct CargoRegistryTarget {
+    runner: Arc<dyn ToolRunner>,
+}
 
 impl CargoRegistryTarget {
     /// Construct the crates.io target.
     #[must_use]
-    pub const fn new() -> Self {
-        Self
+    pub fn new(runner: Arc<dyn ToolRunner>) -> Self {
+        Self { runner }
     }
 
     /// Resolve a module's repo-relative manifest to an absolute path under the
@@ -112,9 +113,9 @@ impl CargoRegistryTarget {
     /// Resolve the cargo target directory for `manifest`, honoring
     /// `CARGO_TARGET_DIR`, `.cargo/config.toml` `build.target-dir`, and the
     /// workspace layout — `cargo metadata` reports the effective directory.
-    fn target_directory(manifest: &Path) -> AppResult<PathBuf> {
-        let output = cargo_metadata_command(Self::working_root()?, manifest)?;
-        output.check()?;
+    fn target_directory(&self, manifest: &Path) -> AppResult<PathBuf> {
+        let output = self.cargo_metadata_command(Self::working_root()?, manifest)?;
+        output.require_read_success("metadata tool `cargo`")?;
         let metadata = rskit_codec::decode::<cargo_metadata::Metadata>(
             &rskit_codec::JsonCodec::default(),
             &output.stdout,
@@ -139,6 +140,102 @@ impl CargoRegistryTarget {
             AppError::new(ErrorCode::Internal, "failed to read current directory").with_cause(error)
         })
     }
+
+    fn cargo<I>(&self, working_dir: PathBuf, args: I) -> AppResult<ToolOutcome>
+    where
+        I: IntoIterator<Item = String>,
+    {
+        self.cargo_with_env(working_dir, args, None, MAX_CARGO_OUTPUT_BYTES)
+    }
+
+    /// Run `cargo`, bounded and timed-out, optionally forwarding the registry
+    /// token to the child under the name cargo reads (`CARGO_REGISTRY_TOKEN`)
+    /// *by ambient-variable name* — the runner resolves the value at run time,
+    /// so the secret is never placed on argv and never crosses the seam by
+    /// value. The inherited parent environment is preserved.
+    fn cargo_with_env<I>(
+        &self,
+        working_dir: PathBuf,
+        args: I,
+        secret: Option<ForwardEnvAs>,
+        max_output_bytes: usize,
+    ) -> AppResult<ToolOutcome>
+    where
+        I: IntoIterator<Item = String>,
+    {
+        let mut full_argv = vec!["cargo".to_string()];
+        full_argv.extend(args);
+        let mut invocation = ToolInvocation::new(full_argv)
+            .with_working_dir(working_dir)
+            .with_timeout(CARGO_COMMAND_TIMEOUT)
+            .with_max_output_bytes(max_output_bytes);
+        if let Some(mapping) = secret {
+            invocation = invocation.with_forward_env_as(vec![mapping]);
+        }
+        self.runner.run(&invocation)
+    }
+
+    /// Run `cargo metadata --no-deps` for `manifest`, bounded and timed-out, to
+    /// read the effective target directory. `metadata` output can be large for big
+    /// workspaces, so this uses a wider output bound than the registry commands.
+    fn cargo_metadata_command(
+        &self,
+        working_dir: PathBuf,
+        manifest: &Path,
+    ) -> AppResult<ToolOutcome> {
+        self.cargo_with_env(
+            working_dir,
+            [
+                "metadata".to_string(),
+                "--no-deps".to_string(),
+                "--format-version".to_string(),
+                "1".to_string(),
+                "--manifest-path".to_string(),
+                manifest.display().to_string(),
+            ],
+            None,
+            MAX_METADATA_OUTPUT_BYTES,
+        )
+    }
+
+    fn remove_sbom_strays(
+        &self,
+        manifest: &Path,
+        stem: &str,
+        preserve: Option<&Path>,
+    ) -> AppResult<()> {
+        remove_stray_sbom_files(&self.workspace_member_dirs(manifest)?, stem, preserve)
+    }
+
+    /// The directory of each workspace member manifest, resolved via
+    /// `cargo metadata --no-deps` (which reports members only).
+    fn workspace_member_dirs(&self, manifest: &Path) -> AppResult<Vec<PathBuf>> {
+        let output = self.cargo_metadata_command(Self::working_root()?, manifest)?;
+        output.require_read_success("metadata tool `cargo`")?;
+        let metadata = rskit_codec::decode::<cargo_metadata::Metadata>(
+            &rskit_codec::JsonCodec::default(),
+            &output.stdout,
+        )
+        .map_err(|error| {
+            AppError::new(
+                ErrorCode::InvalidFormat,
+                format!(
+                    "failed to parse `cargo metadata` output for '{}'",
+                    manifest.display()
+                ),
+            )
+            .with_cause(error)
+        })?;
+        let workspace_root = metadata.workspace_root.as_std_path();
+        Ok(metadata
+            .packages
+            .iter()
+            .filter(|package| metadata.workspace_members.contains(&package.id))
+            .filter_map(|package| package.manifest_path.parent())
+            .filter(|dir| dir.starts_with(workspace_root))
+            .map(|dir| dir.as_std_path().to_path_buf())
+            .collect())
+    }
 }
 
 impl VersionSource for CargoRegistryTarget {
@@ -155,7 +252,7 @@ impl VersionSource for CargoRegistryTarget {
         // the best-effort "latest published" set the port contract allows — the publish
         // loop's `AlreadyPublished` classification is the authoritative idempotency
         // backstop for older versions.
-        let output = cargo(
+        let output = self.cargo(
             Self::working_root()?,
             [
                 "search".to_string(),
@@ -164,7 +261,7 @@ impl VersionSource for CargoRegistryTarget {
                 "1".to_string(),
             ],
         )?;
-        output.check()?;
+        output.require_success("registry query tool `cargo`")?;
         Ok(parse_cargo_search_versions(&package, &output.stdout))
     }
 }
@@ -189,7 +286,7 @@ impl ReleaseDefaultsSource for CargoRegistryTarget {
 impl Packager for CargoRegistryTarget {
     fn package(&self, module: &Module) -> AppResult<Artifact> {
         let path = Self::manifest_path(module)?;
-        let output = cargo(
+        let output = self.cargo(
             Self::working_root()?,
             [
                 "package".to_string(),
@@ -198,9 +295,9 @@ impl Packager for CargoRegistryTarget {
                 "--allow-dirty".to_string(),
             ],
         )?;
-        output.check()?;
+        output.require_success("release tool `cargo`")?;
 
-        let artifact = Self::target_directory(&path)?.join("package").join(format!(
+        let artifact = self.target_directory(&path)?.join("package").join(format!(
             "{}-{}.crate",
             package_name(module),
             self.declared_version(module)?
@@ -257,13 +354,19 @@ impl Publisher for CargoRegistryTarget {
             ));
         }
         let path = Self::manifest_path(module)?;
-        // Read the registry token only here, at the toolchain boundary, and hand
-        // it to cargo through the child process environment — never on argv and
-        // never through engine memory. `None` lets cargo resolve its ambient
-        // credential as usual.
+        // Resolve the registry-token *mapping* here, at the toolchain boundary —
+        // which ambient variable holds the token and which name cargo reads it
+        // under — and hand only those names across the seam. The runner resolves
+        // the value at run time, so it never touches argv or engine memory.
+        // `None` lets cargo resolve its ambient credential as usual.
         let token = registry_token_injection(credentials, rskit_util::env::get_non_empty)?;
-        let output = cargo_with_env(Self::working_root()?, publish_argv(&path, registry), token)?;
-        classify_publish(*self, module, &output)
+        let output = self.cargo_with_env(
+            Self::working_root()?,
+            publish_argv(&path, registry),
+            token,
+            MAX_CARGO_OUTPUT_BYTES,
+        )?;
+        classify_publish(self, module, &output)
     }
 }
 
@@ -272,8 +375,8 @@ impl SbomProducer for CargoRegistryTarget {
         let manifest = Self::manifest_path(module)?;
         create_all(out_dir)?;
         let stem = package_name(module);
-        let output = cargo(Self::working_root()?, sbom_argv(&manifest, &stem))?;
-        output.check()?;
+        let output = self.cargo(Self::working_root()?, sbom_argv(&manifest, &stem))?;
+        output.require_success("sbom tool `cargo`")?;
         // `cargo cyclonedx` ignores the process working directory and writes its
         // output next to the manifest; the filename suffix is version-specific (0.5.x
         // writes `<stem>.json`). Locate whichever file it produced, then move it into
@@ -295,7 +398,7 @@ impl SbomProducer for CargoRegistryTarget {
         // SBOM next to *every* member manifest, not just the requested one. Remove
         // those sibling copies so the manifest tree is left clean and only the
         // artifact under `out_dir` remains.
-        remove_sbom_strays(&manifest, &stem, Some(&artifact))?;
+        self.remove_sbom_strays(&manifest, &stem, Some(&artifact))?;
         Ok(Some(Artifact::new(artifact)))
     }
 }
@@ -392,10 +495,6 @@ fn first_existing(candidates: &[PathBuf]) -> AppResult<Option<PathBuf>> {
 /// workspace members. The requested module's own copy has already been moved
 /// into `out_dir`, so every remaining `<stem>.{cdx.json,json}` under a member
 /// directory is a redundant sibling copy safe to delete.
-fn remove_sbom_strays(manifest: &Path, stem: &str, preserve: Option<&Path>) -> AppResult<()> {
-    remove_stray_sbom_files(&workspace_member_dirs(manifest)?, stem, preserve)
-}
-
 /// Delete every `<stem>.{cdx.json,json}` file found directly in `dirs`.
 fn remove_stray_sbom_files(dirs: &[PathBuf], stem: &str, preserve: Option<&Path>) -> AppResult<()> {
     for dir in dirs {
@@ -419,36 +518,6 @@ fn should_remove_sbom(candidate: &Path, preserve: Option<&Path>) -> AppResult<bo
     Ok(canonicalize(candidate)? != canonicalize(preserve)?)
 }
 
-/// The directory of each workspace member manifest, resolved via
-/// `cargo metadata --no-deps` (which reports members only).
-fn workspace_member_dirs(manifest: &Path) -> AppResult<Vec<PathBuf>> {
-    let output = cargo_metadata_command(CargoRegistryTarget::working_root()?, manifest)?;
-    output.check()?;
-    let metadata = rskit_codec::decode::<cargo_metadata::Metadata>(
-        &rskit_codec::JsonCodec::default(),
-        &output.stdout,
-    )
-    .map_err(|error| {
-        AppError::new(
-            ErrorCode::InvalidFormat,
-            format!(
-                "failed to parse `cargo metadata` output for '{}'",
-                manifest.display()
-            ),
-        )
-        .with_cause(error)
-    })?;
-    let workspace_root = metadata.workspace_root.as_std_path();
-    Ok(metadata
-        .packages
-        .iter()
-        .filter(|package| metadata.workspace_members.contains(&package.id))
-        .filter_map(|package| package.manifest_path.parent())
-        .filter(|dir| dir.starts_with(workspace_root))
-        .map(|dir| dir.as_std_path().to_path_buf())
-        .collect())
-}
-
 /// Build the argv-only `cargo cyclonedx` invocation for `manifest`.
 ///
 /// cyclonedx ignores the process working directory and writes next to each
@@ -466,69 +535,44 @@ fn sbom_argv(manifest: &Path, stem: &str) -> Vec<String> {
     ]
 }
 
-fn cargo<I>(working_dir: PathBuf, args: I) -> AppResult<ProcessResult>
-where
-    I: IntoIterator<Item = String>,
-{
-    cargo_with_env(working_dir, args, None)
-}
-
-/// Run `cargo`, bounded and timed-out, optionally injecting one environment
-/// variable into the child process (used to hand cargo the registry token as
-/// `CARGO_REGISTRY_TOKEN` without ever placing it on argv). The inherited
-/// parent environment is preserved; `extra_env` only adds/overrides one entry.
-fn cargo_with_env<I>(
-    working_dir: PathBuf,
-    args: I,
-    extra_env: Option<(String, String)>,
-) -> AppResult<ProcessResult>
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut spec = ProcessSpec::new("cargo").args(args).dir(working_dir);
-    if let Some((key, value)) = extra_env {
-        spec = spec.env(key, value);
-    }
-    let config = ProcessConfig::default()
-        .with_timeout(Some(CARGO_COMMAND_TIMEOUT))
-        .with_io(ProcessIo::captured(CapturedIo::new().with_output(
-            OutputPolicy::captured().with_max_output_bytes(MAX_CARGO_OUTPUT_BYTES),
-        )));
-    run(&spec, &config)
-}
-
-/// Resolve the registry-token environment injection for a publish attempt.
+/// Resolve the registry-token environment mapping for a publish attempt.
 ///
 /// Given the publish `credentials` and an environment accessor `env` (a
-/// variable name → its non-empty value), return the registry's token
-/// environment variable and its value (`CARGO_REGISTRY_TOKEN` for crates.io,
-/// or `CARGO_REGISTRIES_<NAME>_TOKEN` for a named alternate registry) that
-/// cargo must see on its child environment, or `None` when no `token_env` is
-/// configured (cargo falls back to its ambient credential). A configured-but-absent/empty variable is a
-/// typed error — the maintainer named an explicit credential source that is not
-/// present, so fail closed rather than silently attempt an unauthenticated
-/// publish. The accessor is a parameter so the resolution logic is unit-tested
+/// variable name → its non-empty value), return the [`ForwardEnvAs`] mapping the
+/// runner uses to forward the token to cargo: the configured ambient
+/// `token_env` as the `source`, and the name cargo reads (`CARGO_REGISTRY_TOKEN`
+/// for crates.io, or `CARGO_REGISTRIES_<NAME>_TOKEN` for a named alternate
+/// registry) as the `child`. Returns `None` when no `token_env` is configured
+/// (cargo falls back to its ambient credential). The accessor is consulted only
+/// to fail closed on a configured-but-absent/empty variable — the maintainer
+/// named an explicit credential source that is not present, so error rather
+/// than silently attempt an unauthenticated publish — and the value is
+/// **discarded**, never returned, so the secret never crosses the seam by
+/// value. The accessor is a parameter so the resolution logic is unit-tested
 /// without touching the real process environment.
 fn registry_token_injection<F>(
     credentials: &ReleaseCredentials,
     env: F,
-) -> AppResult<Option<(String, String)>>
+) -> AppResult<Option<ForwardEnvAs>>
 where
     F: Fn(&str) -> Option<String>,
 {
     let Some(name) = credentials.registry_token_env() else {
         return Ok(None);
     };
-    let value = env(name).ok_or_else(|| {
-        AppError::invalid_input(
+    if env(name).is_none() {
+        return Err(AppError::invalid_input(
             "release.token_env",
             format!(
                 "release.token_env names environment variable '{name}', but it is unset or \
                  empty; export the registry token there before publishing"
             ),
-        )
-    })?;
-    Ok(Some((cargo_token_env_name(credentials.registry()), value)))
+        ));
+    }
+    Ok(Some(ForwardEnvAs::new(
+        name,
+        cargo_token_env_name(credentials.registry()),
+    )))
 }
 
 /// Whether `registry` names the cargo default registry (crates.io) rather than
@@ -586,28 +630,6 @@ fn cargo_registry_env_key(registry: &str) -> String {
         .collect()
 }
 
-/// Run `cargo metadata --no-deps` for `manifest`, bounded and timed-out, to
-/// read the effective target directory. `metadata` output can be large for big
-/// workspaces, so this uses a wider output bound than the registry commands.
-fn cargo_metadata_command(working_dir: PathBuf, manifest: &Path) -> AppResult<ProcessResult> {
-    let spec = ProcessSpec::new("cargo")
-        .args([
-            "metadata".to_string(),
-            "--no-deps".to_string(),
-            "--format-version".to_string(),
-            "1".to_string(),
-            "--manifest-path".to_string(),
-            manifest.display().to_string(),
-        ])
-        .dir(working_dir);
-    let config = ProcessConfig::default()
-        .with_timeout(Some(CARGO_COMMAND_TIMEOUT))
-        .with_io(ProcessIo::captured(CapturedIo::new().with_output(
-            OutputPolicy::captured().with_max_output_bytes(MAX_METADATA_OUTPUT_BYTES),
-        )));
-    run(&spec, &config)
-}
-
 fn package_name(module: &Module) -> String {
     module
         .package
@@ -630,11 +652,11 @@ fn parse_cargo_search_versions(package: &str, stdout: &str) -> Vec<Version> {
 }
 
 fn classify_publish(
-    target: CargoRegistryTarget,
+    target: &CargoRegistryTarget,
     module: &Module,
-    output: &ProcessResult,
+    output: &ToolOutcome,
 ) -> AppResult<PublishOutcome> {
-    if output.success() {
+    if output.succeeded() {
         return Ok(PublishOutcome::Published);
     }
 
@@ -661,7 +683,9 @@ fn classify_publish(
         });
     }
 
-    output.check().map(|_| PublishOutcome::Published)
+    output
+        .require_success("publish tool `cargo`")
+        .map(|()| PublishOutcome::Published)
 }
 
 fn fallback_retry_after(is_new_release: bool, now: SystemTime) -> Option<SystemTime> {
@@ -860,7 +884,7 @@ mod tests {
 
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, ModuleRef};
-    use toven_ports::ReleaseMutation;
+    use toven_ports::{ForwardEnvAs, ReleaseMutation};
 
     use toml_edit::Item;
 
@@ -1022,9 +1046,10 @@ core = \"1.4.2\"    # A core crate
 
     #[test]
     fn registry_token_injection_maps_a_configured_var_to_cargo_registry_token() {
-        // A configured token_env is read from the (test-supplied) environment and
-        // handed to cargo under CARGO_REGISTRY_TOKEN — the name cargo reads —
-        // never on argv.
+        // A configured token_env is forwarded to cargo under CARGO_REGISTRY_TOKEN
+        // — the name cargo reads — by name only; the value is never carried back
+        // across the seam. The accessor confirms presence (fail-closed) but its
+        // value is discarded.
         let credentials = ReleaseCredentials::new(Some("MY_REGISTRY_TOKEN".into()), None);
         let injected = registry_token_injection(&credentials, |name| {
             (name == "MY_REGISTRY_TOKEN").then(|| "s3cr3t".to_string())
@@ -1032,15 +1057,18 @@ core = \"1.4.2\"    # A core crate
         .expect("a present token var resolves");
         assert_eq!(
             injected,
-            Some(("CARGO_REGISTRY_TOKEN".to_string(), "s3cr3t".to_string()))
+            Some(ForwardEnvAs::new(
+                "MY_REGISTRY_TOKEN",
+                "CARGO_REGISTRY_TOKEN"
+            ))
         );
     }
 
     #[test]
     fn registry_token_injection_targets_a_named_registry_token_var() {
-        // A named alternate registry reads the same configured source var, but
-        // hands the secret to cargo under CARGO_REGISTRIES_<NAME>_TOKEN — the
-        // name cargo reads for that registry — never on argv.
+        // A named alternate registry forwards the same configured source var to
+        // cargo under CARGO_REGISTRIES_<NAME>_TOKEN — the name cargo reads for
+        // that registry — by name only.
         let credentials = ReleaseCredentials::new(Some("CI_TOKEN".into()), Some("my-corp".into()));
         let injected = registry_token_injection(&credentials, |name| {
             (name == "CI_TOKEN").then(|| "s3cr3t".to_string())
@@ -1048,9 +1076,9 @@ core = \"1.4.2\"    # A core crate
         .expect("a present token var resolves");
         assert_eq!(
             injected,
-            Some((
-                "CARGO_REGISTRIES_MY_CORP_TOKEN".to_string(),
-                "s3cr3t".to_string()
+            Some(ForwardEnvAs::new(
+                "CI_TOKEN",
+                "CARGO_REGISTRIES_MY_CORP_TOKEN"
             ))
         );
     }
@@ -1203,11 +1231,18 @@ core = \"0.2.0\"
 
 #[cfg(test)]
 mod tag_scheme_tests {
+    use std::sync::Arc;
+
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
     use toven_ports::TagGrammar;
+    use toven_testkit::doubles::FakeToolRunner;
 
     use super::CargoRegistryTarget;
+
+    fn target() -> CargoRegistryTarget {
+        CargoRegistryTarget::new(Arc::new(FakeToolRunner::new()))
+    }
 
     fn module() -> Module {
         Module::new(
@@ -1218,9 +1253,7 @@ mod tag_scheme_tests {
 
     #[test]
     fn default_tag_scheme_preserves_existing_rust_tags() {
-        let scheme = CargoRegistryTarget::new()
-            .tag_scheme(&module(), None)
-            .expect("scheme");
+        let scheme = target().tag_scheme(&module(), None).expect("scheme");
 
         assert_eq!(scheme.format(&Version::new(1, 2, 3)), "rust/core@1.2.3");
         assert_eq!(scheme.parse("rust/core@1.2.3"), Some(Version::new(1, 2, 3)));
@@ -1233,7 +1266,7 @@ mod tag_scheme_tests {
         // crates.io is the registry and one umbrella tag anchors the workspace:
         // the baseline is `max(registry, umbrella-tag)` and both per-crate and
         // umbrella tags are cut.
-        let defaults = CargoRegistryTarget::new().release_defaults();
+        let defaults = target().release_defaults();
         assert_eq!(defaults.baseline, BaselineSourceConfig::RegistryUmbrella);
         assert_eq!(defaults.tag_mode, TagMode::Both);
     }
@@ -1246,7 +1279,7 @@ mod tag_scheme_tests {
         // last line of defense: a private/internal exposure is rejected before
         // any cargo invocation, with a typed, actionable error.
         let artifact = Artifact::new(std::path::PathBuf::from("crates/core"));
-        let error = CargoRegistryTarget::new()
+        let error = target()
             .publish(
                 &module(),
                 &artifact,
@@ -1272,7 +1305,7 @@ mod tag_scheme_tests {
         // allowed to proceed (here it fails later, at manifest resolution — never
         // at the visibility gate).
         let artifact = Artifact::new(std::path::PathBuf::from("crates/core"));
-        let error = CargoRegistryTarget::new()
+        let error = target()
             .publish(
                 &module(),
                 &artifact,
@@ -1290,7 +1323,7 @@ mod tag_scheme_tests {
 
     #[test]
     fn override_tag_scheme_splits_around_version() {
-        let scheme = CargoRegistryTarget::new()
+        let scheme = target()
             .tag_scheme(&module(), Some("{module}/v{version}-release"))
             .expect("scheme");
 
@@ -1299,7 +1332,7 @@ mod tag_scheme_tests {
 
     #[test]
     fn override_without_version_is_rejected() {
-        let error = CargoRegistryTarget::new()
+        let error = target()
             .tag_scheme(&module(), Some("{module}"))
             .expect_err("missing version rejected");
 
@@ -1312,7 +1345,7 @@ mod tag_scheme_tests {
         // already part of `{version}` (e.g. `1.0.0-rc.1`), so a `{channel}` in a tag
         // template would always render empty. Reject it instead of silently dropping
         // it.
-        let error = CargoRegistryTarget::new()
+        let error = target()
             .tag_scheme(&module(), Some("{module}-{channel}/v{version}"))
             .expect_err("channel placeholder rejected");
 

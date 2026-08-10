@@ -17,8 +17,8 @@ use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult};
 use rskit_version::semver::Version;
 use serde::Serialize;
+use std::sync::Arc;
 use toven_engine_core::config::VerbId;
-use toven_engine_core::exec::ProcessToolRunner;
 use toven_engine_core::plan::PlanRequest;
 use toven_engine_core::vcs::BaselineFlags;
 use toven_engine_release::{
@@ -31,9 +31,11 @@ use toven_engine_release::{
     release_provenance, release_readiness, release_rehearse, release_run, release_sbom,
     release_sign, release_status, release_verify,
 };
+use toven_exec::ProcessToolRunner;
 use toven_model::{Entrypoint, ModuleRef};
 use toven_ports::{
     BaselineSourceConfig, BumpLevel, Provider, PublicationPolicy, Reporter, TagMode, TaskIntent,
+    ToolRunner,
 };
 
 use crate::commands::support::QuietReporter;
@@ -300,15 +302,15 @@ fn checksums(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
 /// detached-signature and certificate sidecars with cosign, mutating no history.
 fn sign(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
-    let signer = CosignSigner::new();
-    let tool_runner = ProcessToolRunner::new();
+    let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
+    let signer = CosignSigner::new(runner.clone());
     let mut reporter = QuietReporter;
     let report = release_sign(
         &request,
         &project.document,
         providers,
         &signer,
-        &tool_runner,
+        runner.as_ref(),
         &mut reporter,
     )?;
     match resolve_output(cli.output, &project.document) {
@@ -323,9 +325,10 @@ fn sign(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<
 /// (signature + checksum + reported version) — mutating nothing.
 fn verify(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
-    let downloader = GhAssetDownloader::new();
-    let verifier = CosignVerifier::new();
-    let probe = ProcessVersionProbe::new();
+    let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
+    let downloader = GhAssetDownloader::new(runner.clone());
+    let verifier = CosignVerifier::new(runner.clone());
+    let probe = ProcessVersionProbe::new(runner.clone());
     let options = VerifyOptions {
         download: cli.download,
         run: !cli.no_run,
@@ -357,7 +360,8 @@ fn image(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult
         require_release_confirmation(cli.confirm_release)?;
     }
     let request = release_request(project)?;
-    let image_phase = BuildxImagePhase::new();
+    let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
+    let image_phase = BuildxImagePhase::new(runner.clone());
     let options = ImageOptions {
         dry_run: cli.dry_run,
     };
@@ -384,8 +388,9 @@ fn image(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult
 /// subject lacks an attestation. Read-only, so it needs no `--yes`.
 fn provenance(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
-    let provenance_phase = GhAttestationProvenance::new();
-    let image_phase = BuildxImagePhase::new();
+    let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
+    let provenance_phase = GhAttestationProvenance::new(runner.clone());
+    let image_phase = BuildxImagePhase::new(runner.clone());
     let options = ProvenanceOptions {
         dry_run: cli.dry_run,
     };
@@ -462,6 +467,7 @@ fn run(
         ReleaseAction::Publish => VerbId::Publish,
         _ => VerbId::Tag,
     };
+    let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
     release_run(
         &request,
         &project.document,
@@ -473,6 +479,7 @@ fn run(
         &hooks,
         verb,
         &options,
+        &runner,
     )?;
     Ok(ExitCode::Success)
 }

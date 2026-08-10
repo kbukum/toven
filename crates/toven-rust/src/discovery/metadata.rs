@@ -2,8 +2,8 @@
 //! parse the result, and fold it into the unified `{workspaces, modules,
 //! edges}` [`DiscoverResponse`].
 //!
-//! `cargo metadata` is invoked through `rskit-process` (captured, bounded,
-//! timed-out — never a shell string) and the JSON is parsed with the
+//! `cargo metadata` is invoked through the injected one-shot [`ToolRunner`]
+//! seam (captured, bounded, timed-out — never a shell string) and the JSON is parsed with the
 //! `cargo_metadata` types. Cross-manifest path dependencies become intra-
 //! ecosystem [`Edge`]s, so a Rust project spanning several Cargo workspaces
 //! surfaces as one module + edge set.
@@ -14,11 +14,10 @@ use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
-use rskit_process::{CapturedIo, ProcessConfig, ProcessIo, ProcessSpec, run};
 use toven_model::{
     DepKind, EcosystemId, Edge, Module, ModuleRef, RepoPath, ToolchainTag, Workspace, WorkspaceId,
 };
-use toven_ports::{DiscoverRequest, DiscoverResponse};
+use toven_ports::{DiscoverRequest, DiscoverResponse, ToolInvocation, ToolRunner};
 
 use crate::config::RustConfig;
 use crate::discovery::blast;
@@ -39,6 +38,7 @@ const CARGO_TOOL: &str = "cargo";
 pub(crate) fn discover(
     config: &RustConfig,
     request: &DiscoverRequest,
+    runner: &dyn ToolRunner,
 ) -> AppResult<DiscoverResponse> {
     let ecosystem = rust_id()?;
     let project_root = request.project_root.as_path();
@@ -48,7 +48,7 @@ pub(crate) fn discover(
     let mut path_deps: Vec<(String, String, DepKind)> = Vec::new();
 
     for manifest in manifests::resolve(config, project_root)? {
-        let metadata = run_metadata(project_root, &manifest)?;
+        let metadata = run_metadata(project_root, &manifest, runner)?;
         fold_metadata(
             &ecosystem,
             project_root,
@@ -75,7 +75,11 @@ fn rust_id() -> AppResult<EcosystemId> {
 }
 
 /// Run `cargo metadata --no-deps` for one manifest and parse its JSON output.
-fn run_metadata(project_root: &Path, manifest: &str) -> AppResult<cargo_metadata::Metadata> {
+fn run_metadata(
+    project_root: &Path,
+    manifest: &str,
+    runner: &dyn ToolRunner,
+) -> AppResult<cargo_metadata::Metadata> {
     let manifest_abs = safe_join(project_root, Path::new(manifest)).map_err(|error| {
         AppError::invalid_input(
             "ecosystems.rust.manifests",
@@ -83,46 +87,33 @@ fn run_metadata(project_root: &Path, manifest: &str) -> AppResult<cargo_metadata
         )
     })?;
 
-    let spec = ProcessSpec::new(CARGO_TOOL)
-        .arg("metadata")
-        .arg("--no-deps")
-        .arg("--format-version")
-        .arg("1")
-        .arg("--manifest-path")
-        .arg(&manifest_abs)
-        .dir(project_root);
-    let config = ProcessConfig::default()
-        .with_io(ProcessIo::captured(CapturedIo::new()))
-        .with_timeout(Some(METADATA_TIMEOUT))
-        .with_max_output_bytes(MAX_METADATA_BYTES);
+    let invocation = ToolInvocation::new(vec![
+        CARGO_TOOL.to_string(),
+        "metadata".to_string(),
+        "--no-deps".to_string(),
+        "--format-version".to_string(),
+        "1".to_string(),
+        "--manifest-path".to_string(),
+        manifest_abs.display().to_string(),
+    ])
+    .with_working_dir(project_root)
+    .with_timeout(METADATA_TIMEOUT)
+    .with_max_output_bytes(MAX_METADATA_BYTES);
 
-    let result = run(&spec, &config)?;
-    if result.timed_out {
+    let outcome = runner.run(&invocation)?;
+    if outcome.timed_out {
         return Err(AppError::new(
             ErrorCode::Timeout,
             format!("`cargo metadata` for '{manifest}' timed out"),
         ));
     }
-    if result.stdout_truncated || result.stderr_truncated {
-        return Err(AppError::new(
-            ErrorCode::Internal,
-            format!("`cargo metadata` output for '{manifest}' exceeded {MAX_METADATA_BYTES} bytes"),
-        ));
-    }
-    if !result.success() {
-        return Err(AppError::new(
-            ErrorCode::Internal,
-            format!(
-                "`cargo metadata` for '{manifest}' failed (exit {:?}): {}",
-                result.exit_code,
-                result.stderr.trim()
-            ),
-        ));
-    }
+    outcome.require_read_success(&format!(
+        "metadata tool `cargo` (`cargo metadata` for '{manifest}')"
+    ))?;
 
     rskit_codec::decode::<cargo_metadata::Metadata>(
         &rskit_codec::JsonCodec::default(),
-        &result.stdout,
+        &outcome.stdout,
     )
     .map_err(|error| {
         AppError::new(
@@ -280,9 +271,11 @@ fn workspace_id(root: &RepoPath) -> AppResult<WorkspaceId> {
 mod tests {
     use std::path::Path;
 
+    use rskit_errors::ErrorCode;
     use toven_model::{DepKind, RepoPath};
+    use toven_testkit::doubles::FakeToolRunner;
 
-    use super::{dep_kind, manifest_parent, repo_relative, workspace_id};
+    use super::{dep_kind, manifest_parent, repo_relative, run_metadata, workspace_id};
 
     #[test]
     fn repo_relative_strips_project_root() {
@@ -348,5 +341,56 @@ mod tests {
             dep_kind(cargo_metadata::DependencyKind::Normal),
             DepKind::Normal
         );
+    }
+
+    #[test]
+    fn cargo_metadata_uses_the_injected_tool_runner() {
+        let runner = FakeToolRunner::new()
+            .with_exit_code(Some(2))
+            .with_stderr("metadata failed");
+
+        let error = run_metadata(Path::new("/repo"), "Cargo.toml", &runner)
+            .expect_err("non-zero cargo is rejected");
+
+        // A `cargo metadata` failure is a repository/config fault, not a
+        // downstream-service outage — so it classifies `Internal`, matching the
+        // pre-seam behavior rather than the delegated-tool `ExternalService`.
+        assert_eq!(error.code(), ErrorCode::Internal);
+        let requests = runner.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].argv,
+            vec![
+                "cargo".to_string(),
+                "metadata".to_string(),
+                "--no-deps".to_string(),
+                "--format-version".to_string(),
+                "1".to_string(),
+                "--manifest-path".to_string(),
+                "/repo/Cargo.toml".to_string(),
+            ]
+        );
+        assert_eq!(requests[0].working_dir(), Some(Path::new("/repo")));
+        assert_eq!(requests[0].timeout, Some(super::METADATA_TIMEOUT));
+        assert_eq!(
+            requests[0].max_output_bytes,
+            Some(super::MAX_METADATA_BYTES)
+        );
+    }
+
+    #[test]
+    fn cargo_metadata_output_that_overflows_the_bound_fails_closed() {
+        // A `cargo metadata` blob that overran the capture cap is incomplete
+        // JSON; the seam must reject it rather than parse a truncated document.
+        let runner = FakeToolRunner::new()
+            .with_exit_code(Some(0))
+            .with_stdout("{ \"packages\": [")
+            .with_truncated(true, false);
+
+        let error = run_metadata(Path::new("/repo"), "Cargo.toml", &runner)
+            .expect_err("a truncated capture is rejected");
+
+        assert_eq!(error.code(), ErrorCode::Internal);
+        assert!(error.to_string().contains("exceeded"), "{error}");
     }
 }
