@@ -3,6 +3,8 @@
 //! changelog generation.
 
 #[allow(clippy::redundant_pub_crate)]
+pub(crate) mod baseline;
+#[allow(clippy::redundant_pub_crate)]
 pub(crate) mod bump;
 mod bump_verb;
 #[allow(clippy::redundant_pub_crate)]

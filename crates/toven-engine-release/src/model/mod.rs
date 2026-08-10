@@ -3,6 +3,7 @@
 //! and overrides, resolved release/host settings, resolved targets, artifact
 //! manifests, and release-tag formatting.
 
+mod baseline_source;
 mod manifest;
 #[allow(clippy::module_inception)]
 mod model;
@@ -13,6 +14,7 @@ pub(crate) mod settings;
 pub(crate) mod tag;
 mod targets;
 
+pub use baseline_source::BaselineSource;
 pub use manifest::ArtifactManifest;
 pub use model::{
     BumpPolicy, BumpReason, BumpSource, ChangelogEntry, HostRehearsal, PublishDecision, PushPolicy,

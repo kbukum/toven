@@ -14,7 +14,7 @@ use toven_ports::{BaselineSpec, ChangeRecord, CommitSummary, ReleaseAdapter, Tag
 use toven_engine_core::federation::baseline::{MemberVcsReader, MemberVcsReaders};
 use toven_engine_core::plan::PlanContext;
 
-use crate::model::tag;
+use crate::model::BaselineSource;
 use crate::{ReleaseBaseline, ReleaseTargets, ResolvedReleaseSettings};
 
 /// Per-module change-detection output.
@@ -75,8 +75,8 @@ fn detect_member(
     let worktree = reader.umbrella_records(&reader.reader().worktree_status()?);
     // List every tag once: the VCS adapter enumerates all tags and filters
     // in-memory, so a per-module `list_tags(<glob>)` would re-scan the full tag set
-    // for each module (O(modules × tags)). `tag::latest` parses and filters by the
-    // module's prefix from this shared snapshot instead.
+    // for each module (O(modules × tags)). The baseline resolver parses and filters
+    // by the module's prefix from this shared snapshot instead.
     let tags = reader.reader().list_tags(None)?;
 
     // Version-reference files (READMEs/docs whose pins `bump` rewrites) are
@@ -105,9 +105,11 @@ fn detect_member(
             module,
             base_override,
             &tags,
-            &scheme,
+            scheme,
+            target,
             &mut changes.baselines,
-        ) else {
+        )?
+        else {
             changes.changed.insert(module.key());
             changes.records.insert(module.key(), Vec::new());
             changes.commits.insert(
@@ -179,9 +181,12 @@ fn collect_commits(
 
 /// Resolve the diff baseline for one module's release change detection.
 ///
-/// A release baseline answers "what changed **since the last release**", so the
-/// only baseline is the module's latest release tag. `--base` overrides the diff
-/// ref explicitly *when a release tag exists*, while the tag continues to anchor
+/// A release baseline answers "what changed **since the last release**". This
+/// step anchors on the module's own latest release tag via the shared
+/// [`resolve_baseline`] resolver with [`BaselineSource::OwnTag`] — the
+/// behavior-preserving default; the registry/umbrella-anchored sources are
+/// wired into detection in a later step. `--base` overrides the diff ref
+/// explicitly *when a release tag exists*, while the tag continues to anchor
 /// idempotency.
 ///
 /// When no release tag exists the module has never been released, so `None` is
@@ -195,37 +200,39 @@ fn baseline_spec(
     module: &Module,
     base_override: Option<&str>,
     tags: &[TagRef],
-    scheme: &TagScheme,
+    scheme: TagScheme,
+    version_source: &dyn toven_ports::VersionSource,
     baselines: &mut BTreeMap<ModuleKey, ReleaseBaseline>,
-) -> Option<BaselineSpec> {
-    // The only baseline is the module's own latest release tag; it also carries
-    // the version that offline idempotency anchors on.
-    let Some((version, release_tag)) = tag::latest(scheme, tags) else {
-        // No release tag: the module has never been released, so it is always an
-        // initial release. `--base` is not honored here — a never-released module
-        // has nothing to diff against, and letting a branch ref stand in would
-        // silently plan an empty first release.
-        baselines.insert(module.key(), ReleaseBaseline::initial(module.key()));
-        return None;
-    };
+) -> AppResult<Option<BaselineSpec>> {
+    let baseline = crate::versioning::baseline::resolve_baseline(
+        module,
+        &BaselineSource::own_tag(scheme),
+        version_source,
+        tags,
+    )?;
 
-    baselines.insert(
-        module.key(),
-        ReleaseBaseline::tag(
-            module.key(),
-            release_tag.name.clone(),
-            version,
-            release_tag.target.clone(),
-        ),
-    );
+    // No anchor at all: the module has never been released, so it is always an
+    // initial release. `--base` is not honored here — a never-released module
+    // has nothing to diff against, and letting a branch ref stand in would
+    // silently plan an empty first release.
+    if baseline.is_initial() {
+        baselines.insert(module.key(), baseline);
+        return Ok(None);
+    }
 
-    // `--base` overrides the diff ref (default: the release tag) while the tag
-    // still anchors idempotency.
+    // `--base` overrides the diff ref (default: the release tag commit) while the
+    // tag still anchors idempotency.
     let diff_ref = base_override.map_or_else(
-        || release_tag.target.as_str().to_string(),
+        || {
+            baseline
+                .target
+                .as_ref()
+                .map_or_else(String::new, |target| target.as_str().to_string())
+        },
         ToString::to_string,
     );
-    Some(BaselineSpec::explicit(diff_ref))
+    baselines.insert(module.key(), baseline);
+    Ok(Some(BaselineSpec::explicit(diff_ref)))
 }
 
 fn target_for<'a>(targets: &'a ReleaseTargets, module: &Module) -> Option<&'a dyn ReleaseAdapter> {
