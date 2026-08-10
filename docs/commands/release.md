@@ -64,17 +64,17 @@ toven release status [--output human|jsonl]
 
 The plan is deterministic and follows dependency order. Repeated runs over unchanged state produce identical output.
 
-Each plan entry reports the current and planned version, exact release tag, bump level, direct-change or dependency-cascade reason, winning version input, release flow, publication policy, and whether registry publication is needed. The tag is either the tag a Toven-owned run would create or, for a maintainer-owned module, the existing tag Toven verifies. The release flow includes its `entrypoint`; aggregate modules carry an `umbrella` marker.
+Each plan entry reports the current and planned version, exact release tag, effective tag mode and baseline source, bump level, direct-change or dependency-cascade reason, winning version input, release flow, publication policy, and whether registry publication is needed. The tag is either the tag a Toven-owned run would create or, for a maintainer-owned module, the existing tag Toven verifies. The release flow includes its `entrypoint`; aggregate modules carry an `umbrella` marker. The `Tag mode` and `Baseline` columns show the resolved [tag mode and baseline source](../config/release.md#tag-modes-and-baseline-sources).
 
-JSONL also carries the 1-based publication `order`, cascade origin, prerelease channel, publication policy, registry identifier when one exists, `entrypoint`, and `umbrella` flag. Human and JSONL output both appear in publication order.
+JSONL also carries the 1-based publication `order`, cascade origin, prerelease channel, publication policy, registry identifier when one exists, `tag_mode`, `baseline_source`, `entrypoint`, and `umbrella` flag. Human and JSONL output both appear in publication order.
 
-`release status` reports each module's flow and `entrypoint`. For maintainer-owned modules, it reports whether the required release tag for the declared version exists. Human output uses `tag ready` or `tag missing`; JSONL uses `maintainer_tag_present`. A maintainer-owned module cannot publish until its tag exists. See [entrypoint flows](../config/release.md#entrypoint-flows-toven-owned-and-maintainer-owned).
+`release status` reports each module's flow and `entrypoint`. For maintainer-owned modules, it reports whether the required release tag for the declared version exists. Human output uses `tag ready` or `tag missing`; JSONL uses `maintainer_tag_present`. A maintainer-owned module cannot publish until its tag exists. See [entrypoint flows](../config/release.md#entrypoint-flows).
 
 ## Release baseline
 
-Release change detection asks what changed since the module's latest release tag. It does not use a branch ref by default. `[project].base_ref` and `[[members]].base_ref` apply to changed-selection commands such as `toven affected`.
+Release change detection asks what changed since a module's baseline. The baseline source is configurable per ecosystem and per module — the module's own latest release tag, the member's umbrella tag, the registry's max published version, or `registry+umbrella` — and resolves to a per-ecosystem default (`registry+umbrella` for Rust, `own-tag` for Go). See [tag modes and baseline sources](../config/release.md#tag-modes-and-baseline-sources) for the full model and defaults. Release detection does not use a branch ref by default; `[project].base_ref` and `[[members]].base_ref` apply to changed-selection commands such as `toven affected`.
 
-Use `--base <REF>` to override a release diff explicitly. A module with no release tag always joins the plan as an initial release with reason `initial-release`. Its first release cuts the version the module already declares, such as `0.1.0-alpha.1`, instead of bumping past it.
+Use `--base <REF>` to override a release diff explicitly. A module with no resolvable baseline always joins the plan as an initial release with reason `initial-release`. Its first release cuts the version the module already declares, such as `0.1.0-alpha.1`, instead of bumping past it.
 
 Explicit version argv still wins when you want a deliberate first bump: `--patch`, `--minor`, `--major`, `--set-version`, or `--pre`.
 
