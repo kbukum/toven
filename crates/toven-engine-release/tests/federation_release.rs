@@ -159,6 +159,8 @@ fn release_shards_history_mutations_per_member_repo() {
         &hooks,
         VerbId::Tag,
         &options,
+        &(std::sync::Arc::new(toven_testkit::doubles::FakeToolRunner::new())
+            as std::sync::Arc<dyn toven_ports::ToolRunner>),
     )
     .expect("federated release runs");
 

@@ -5,9 +5,11 @@
 //! process code. Adding or swapping ecosystems is a one-line change here.
 
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use rskit_cli::ExitCode as CliExit;
-use toven_ports::Provider;
+use toven_exec::ProcessToolRunner;
+use toven_ports::{Provider, ToolRunner};
 use toven_rust::RustProvider;
 
 fn main() -> ExitCode {
@@ -20,7 +22,8 @@ fn main() -> ExitCode {
 
 /// Build the Rust provider and run the CLI, returning the process code.
 fn wire_and_run() -> rskit_errors::AppResult<CliExit> {
-    let provider = RustProvider::new()?;
+    let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
+    let provider = RustProvider::new(runner)?;
     let providers: Vec<&dyn Provider> = vec![&provider];
     Ok(toven_cli::run(&providers))
 }

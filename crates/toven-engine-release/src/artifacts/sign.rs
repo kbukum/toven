@@ -5,8 +5,8 @@
 //! `[…release.sign]`, the outputs are the declared `SHA256SUMS.sig` +
 //! `SHA256SUMS.pem` assets, and that a disabled or failed signer fails the
 //! release closed (never an unsigned publish). The only reusable primitive is
-//! "run a subprocess" ([`rskit_process`]); [`CosignSigner`] shells to the
-//! runner-installed `cosign` binary argv-only, inheriting the ambient OIDC
+//! "run a subprocess" (the shared [`ToolRunner`]); [`CosignSigner`] shells to
+//! the runner-installed `cosign` binary argv-only, inheriting the ambient OIDC
 //! identity — it embeds no signer and captures no secret.
 //!
 //! The verb is non-mutating: it never bumps a manifest, tags, or publishes. It
@@ -14,15 +14,15 @@
 //! declared signature/certificate asset paths.
 
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir::create_all;
 use rskit_fs::sync_io::file::{exists as file_exists, remove_if_exists};
-use rskit_process::{CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessSpec, run};
 use toven_model::ReleasePhase;
-use toven_ports::{DelegatedTool, Provider, Reporter, Signer, ToolRunner};
+use toven_ports::{DelegatedTool, Provider, Reporter, Signer, ToolInvocation, ToolRunner};
 
 use crate::hosting::run_delegated_preview;
 use crate::planning::plan::{release_targets, resolve_release_settings};
@@ -333,28 +333,25 @@ fn asset_file_name(asset: &str) -> Option<&str> {
 
 /// A keyless-or-keyed Sigstore [`Signer`] backed by the `cosign` binary.
 ///
-/// Construction is stateless: the identity selection is supplied per call from
-/// resolved release config. The binary is invoked argv-only through
-/// [`rskit_process`]; the ambient OIDC environment the CI runner provides is
-/// inherited, and no secret is placed on argv or captured.
-#[derive(Debug, Clone)]
+/// Construction injects the shared [`ToolRunner`]; the identity selection is
+/// supplied per call from resolved release config. The binary is invoked
+/// argv-only through the runner; the ambient OIDC environment the CI runner
+/// provides is inherited, and no secret is placed on argv or captured.
+#[derive(Clone)]
 pub struct CosignSigner {
+    runner: Arc<dyn ToolRunner>,
     timeout: Duration,
 }
 
 impl CosignSigner {
-    /// Construct a cosign signer with the default per-invocation timeout.
+    /// Construct a cosign signer driven through `runner` with the default
+    /// per-invocation timeout.
     #[must_use]
-    pub const fn new() -> Self {
+    pub fn new(runner: Arc<dyn ToolRunner>) -> Self {
         Self {
+            runner,
             timeout: COSIGN_TIMEOUT,
         }
-    }
-}
-
-impl Default for CosignSigner {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -366,15 +363,14 @@ impl Signer for CosignSigner {
         certificate: &Path,
         signer: Option<&str>,
     ) -> AppResult<()> {
-        let spec =
-            ProcessSpec::new("cosign").args(cosign_argv(blob, signature, certificate, signer)?);
-        let config = ProcessConfig::default()
-            .with_timeout(Some(self.timeout))
-            .with_io(ProcessIo::captured(CapturedIo::new().with_output(
-                OutputPolicy::captured().with_max_output_bytes(MAX_COSIGN_OUTPUT_BYTES),
-            )));
-        run(&spec, &config)?.check()?;
-        Ok(())
+        let mut argv = vec!["cosign".to_string()];
+        argv.extend(cosign_argv(blob, signature, certificate, signer)?);
+        let invocation = ToolInvocation::new(argv)
+            .with_timeout(self.timeout)
+            .with_max_output_bytes(MAX_COSIGN_OUTPUT_BYTES);
+        self.runner
+            .run(&invocation)?
+            .require_success("sign tool `cosign`")
     }
 }
 

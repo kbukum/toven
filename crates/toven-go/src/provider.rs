@@ -1,12 +1,13 @@
 //! [`GoProvider`] — the stateless, id-registered `go` entry point.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use rskit_config::{RawValue, deserialize_subtree};
 use rskit_errors::AppResult;
 use toven_model::EcosystemId;
 use toven_ports::{
-    Answers, ConfiguredAdapter, Detection, EcosystemFragment, Provider, Questionnaire,
+    Answers, ConfiguredAdapter, Detection, EcosystemFragment, Provider, Questionnaire, ToolRunner,
 };
 
 use crate::adapter::GoAdapter;
@@ -15,9 +16,10 @@ use crate::{detect, questionnaire, render};
 
 /// The Go ecosystem provider: bakes `[ecosystems.go]` into a [`GoAdapter`] and
 /// drives the Go onboarding wizard.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GoProvider {
     ecosystem: EcosystemId,
+    runner: Arc<dyn ToolRunner>,
 }
 
 impl GoProvider {
@@ -26,9 +28,10 @@ impl GoProvider {
     /// # Errors
     /// Returns an error only if the static `"go"` id ever fails validation,
     /// which cannot happen for this constant.
-    pub fn new() -> AppResult<Self> {
+    pub fn new(runner: Arc<dyn ToolRunner>) -> AppResult<Self> {
         Ok(Self {
             ecosystem: EcosystemId::new("go")?,
+            runner,
         })
     }
 }
@@ -43,7 +46,7 @@ impl Provider for GoProvider {
         for (key, entry) in &config.common.tasks {
             entry.materialize("go", key)?;
         }
-        Ok(Box::new(GoAdapter::new(config)))
+        Ok(Box::new(GoAdapter::new(config, self.runner.clone())))
     }
 
     fn detect(&self, project_root: &Path) -> AppResult<Option<Detection>> {
@@ -61,10 +64,17 @@ impl Provider for GoProvider {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use rskit_config::RawValue;
     use toven_ports::Provider;
+    use toven_testkit::doubles::FakeToolRunner;
 
     use super::GoProvider;
+
+    fn provider() -> GoProvider {
+        GoProvider::new(Arc::new(FakeToolRunner::new())).expect("provider")
+    }
 
     fn raw_subtree(toml: &str) -> RawValue {
         rskit_codec::decode(&rskit_codec::TomlCodec, toml).expect("raw subtree")
@@ -72,27 +82,27 @@ mod tests {
 
     #[test]
     fn provider_serves_the_go_ecosystem() {
-        let provider = GoProvider::new().unwrap();
+        let provider = provider();
         assert_eq!(provider.ecosystem_id().as_str(), "go");
     }
 
     #[test]
     fn configure_rejects_unknown_section_field() {
-        let provider = GoProvider::new().unwrap();
+        let provider = provider();
         let raw = raw_subtree("bogus = true");
         assert!(provider.configure(raw).is_err());
     }
 
     #[test]
     fn configure_accepts_empty_section_with_defaults() {
-        let provider = GoProvider::new().unwrap();
+        let provider = provider();
         let raw = raw_subtree("");
         provider.configure(raw).expect("configures");
     }
 
     #[test]
     fn configure_rejects_task_entry_with_empty_argv() {
-        let provider = GoProvider::new().unwrap();
+        let provider = provider();
         let raw = raw_subtree("[tasks.test]\nargv = []\n");
         let Err(error) = provider.configure(raw) else {
             panic!("empty argv should be rejected")

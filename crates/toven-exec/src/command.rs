@@ -1,24 +1,34 @@
-//! Concrete rskit-process-backed [`CommandRunner`](toven_ports::CommandRunner).
+//! The async streaming [`ProcessCommandRunner`] and the persistent-process
+//! spawn helper, both backed by the rskit process port.
+//!
+//! Peers of the synchronous [`ProcessToolRunner`](super::ProcessToolRunner):
+//! they drive the wave-oriented APPLY shape (streaming/cancellable capture,
+//! the `fail_if_output` gate, persistent readiness) rather than the one-shot
+//! captured shape, but they share the same argv→[`ProcessSpec`] lowering
+//! ([`base_spec`](super::spec::base_spec)) so the argv guard and env-policy
+//! mapping live in exactly one place. The engine APPLY walk composes these
+//! runners; the held-set/teardown orchestration around a returned
+//! [`HeldProcess`] stays in the engine.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use rskit_errors::{AppError, AppResult};
+use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_process::{
-    CapturedIo, EnvPolicy, ObservedIo, OutputObserver as ProcessOutputObserver, OutputPolicy,
-    ProcessConfig, ProcessIo, ProcessSpec, SignalPolicy, run_with_cancel,
+    CapturedIo, ObservedIo, OutputObserver as ProcessOutputObserver, OutputPolicy,
+    PersistentConfig, PersistentOutputObserver, PersistentReadiness, ProcessConfig, ProcessIo,
+    ProcessSpec, SignalPolicy, persistent_start_error_kind, run_with_cancel,
+    start_persistent_with_cancel,
 };
 #[cfg(unix)]
 use rskit_process::{PtyIo, PtySize};
 use tokio_util::sync::CancellationToken;
-use toven_model::{OutputStream, UnitOutput};
+use toven_model::{ExecutionReadiness, OutputStream, UnitOutput};
 use toven_ports::{
-    CommandRunner, Invocation, InvocationEnvPolicy, OutputObserver, RunOutcome, StartOutcome,
+    CommandRunner, HeldProcess, Invocation, OutputObserver, RunOutcome, StartOutcome,
 };
-
-use super::persistent::lifecycle;
 
 /// Runs command invocations with `rskit-process`.
 pub struct ProcessCommandRunner {
@@ -240,7 +250,7 @@ impl CommandRunner for ProcessCommandRunner {
         cancel: CancellationToken,
         output: OutputObserver,
     ) -> AppResult<StartOutcome> {
-        lifecycle::start_persistent(
+        start_persistent(
             invocation,
             &self.project_root,
             &self.process_config,
@@ -252,19 +262,133 @@ impl CommandRunner for ProcessCommandRunner {
     }
 }
 
-pub(super) fn spec(invocation: &Invocation, project_root: &Path) -> AppResult<ProcessSpec> {
-    let (program, args) = invocation
-        .argv
-        .split_first()
-        .ok_or_else(|| AppError::invalid_input("argv", "must include a program"))?;
-    Ok(ProcessSpec::new(program)
-        .args(args.iter().cloned())
-        .dir(project_root)
-        .env_policy(match invocation.environment.policy {
-            InvocationEnvPolicy::ExplicitOnly => EnvPolicy::Empty,
-            InvocationEnvPolicy::InheritParent => EnvPolicy::Inherit,
+/// Lower an APPLY [`Invocation`] into a project-rooted [`ProcessSpec`].
+///
+/// The shared argv/env-policy lowering ([`base_spec`](super::spec::base_spec))
+/// plus the APPLY-shape extra: the run's project root as the working
+/// directory. Both the streaming runner and the persistent-spawn helper drive
+/// through here so the argv guard and env-policy mapping exist in exactly one
+/// place.
+fn spec(invocation: &Invocation, project_root: &Path) -> AppResult<ProcessSpec> {
+    Ok(
+        super::spec::base_spec(&invocation.argv, &invocation.environment, "argv")?
+            .dir(project_root),
+    )
+}
+
+/// Start a persistent invocation and wait until readiness succeeds or fails.
+async fn start_persistent(
+    invocation: &Invocation,
+    project_root: &Path,
+    process_config: &ProcessConfig,
+    shutdown_grace: std::time::Duration,
+    cancel: CancellationToken,
+    output: OutputObserver,
+) -> AppResult<StartOutcome> {
+    let spec = spec(invocation, project_root)?;
+    let persistent_config = PersistentConfig::default()
+        .with_readiness(readiness(invocation, project_root)?)
+        .with_readiness_timeout(invocation.readiness_timeout)
+        .with_shutdown_grace_period(shutdown_grace)
+        .with_output_observer(process_observer(&invocation.unit_id, output));
+    let unit_id = invocation.unit_id.clone();
+    let process_config = process_config.clone();
+    let run = tokio::task::spawn_blocking(move || {
+        start_persistent_with_cancel(&spec, &process_config, &persistent_config, cancel)
+    })
+    .await
+    .map_err(AppError::internal)?;
+
+    match run {
+        Ok(run) => Ok(StartOutcome::Ready {
+            output: Vec::new(),
+            process: Box::new(ProcessHeldProcess {
+                unit_id,
+                process: Arc::new(Mutex::new(Some(run.process))),
+            }),
+        }),
+        Err(error)
+            if persistent_start_error_kind(&error).is_some()
+                || matches!(error.code(), ErrorCode::Timeout) =>
+        {
+            Ok(StartOutcome::FailedReadiness {
+                output: readiness_error_output(&unit_id, &error),
+            })
+        }
+        Err(error) => Err(error),
+    }
+}
+
+struct ProcessHeldProcess {
+    unit_id: String,
+    process: Arc<Mutex<Option<rskit_process::PersistentProcess>>>,
+}
+
+impl HeldProcess for ProcessHeldProcess {
+    fn unit_id(&self) -> &str {
+        &self.unit_id
+    }
+
+    fn shutdown(self: Box<Self>) -> AppResult<()> {
+        let process = self
+            .process
+            .lock()
+            .map_err(|_| AppError::new(ErrorCode::Internal, "persistent process lock poisoned"))?
+            .take();
+        if let Some(process) = process {
+            process.shutdown()?;
+        }
+        Ok(())
+    }
+}
+
+fn readiness(invocation: &Invocation, project_root: &Path) -> AppResult<PersistentReadiness> {
+    match &invocation.readiness {
+        ExecutionReadiness::Started => Ok(PersistentReadiness::Started),
+        ExecutionReadiness::OutputContains(value) => {
+            Ok(PersistentReadiness::OutputContains(value.clone()))
+        }
+        ExecutionReadiness::Command(argv) => {
+            // Run the readiness probe under the same explicit environment as the main
+            // invocation so it inherits the task's PATH allowlist and vars; otherwise
+            // common probe tools (`curl`, `sh`, …) may fail to spawn even when the
+            // persistent command itself runs fine.
+            let probe = Invocation::new("readiness", argv.clone())
+                .with_environment(invocation.environment.clone());
+            spec(&probe, project_root).map(PersistentReadiness::Command)
+        }
+    }
+}
+
+fn process_observer(unit_id: &str, output: OutputObserver) -> PersistentOutputObserver {
+    let stdout_unit = unit_id.to_string();
+    let stderr_unit = unit_id.to_string();
+    PersistentOutputObserver::new()
+        .with_stdout_bytes({
+            let output = output.clone();
+            move |bytes| {
+                output.emit(UnitOutput {
+                    unit_id: stdout_unit.clone(),
+                    stream: OutputStream::Stdout,
+                    bytes: bytes.to_vec(),
+                });
+            }
         })
-        .envs(invocation.environment.vars.clone()))
+        .with_stderr_bytes(move |bytes| {
+            output.emit(UnitOutput {
+                unit_id: stderr_unit.clone(),
+                stream: OutputStream::Stderr,
+                bytes: bytes.to_vec(),
+            });
+        })
+}
+
+fn readiness_error_output(unit_id: &str, error: &AppError) -> Vec<UnitOutput> {
+    vec![UnitOutput {
+        unit_id: unit_id.to_string(),
+        stream: OutputStream::Stderr,
+        bytes: error.to_string().into_bytes(),
+    }]
 }
 
 fn output(unit_id: &str, stdout: &[u8], stderr: &[u8]) -> Vec<UnitOutput> {

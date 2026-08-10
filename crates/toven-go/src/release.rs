@@ -7,6 +7,7 @@
 //! as a misconfiguration rather than silently ignored.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
@@ -14,16 +15,15 @@ use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir::create_all;
 use rskit_fs::sync_io::file::exists as file_exists;
 use rskit_git::{Inspector, LogReader, RefManager};
-use rskit_process::{CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessSpec, run};
 use rskit_version::semver::Version;
 use toven_model::{Module, RepoPath};
 use toven_ports::{
     Artifact, BaselineSourceConfig, ManifestMutator, Packager, PublishOutcome, Publisher,
     ReleaseCredentials, ReleaseDefaults, ReleaseDefaultsSource, ReleaseMutation, SbomProducer,
-    TagGrammar, TagMode, TagScheme, VersionSource, Visibility,
+    TagGrammar, TagMode, TagScheme, ToolInvocation, ToolRunner, VersionSource, Visibility,
 };
 
-use crate::exec::run_go_json;
+use crate::exec::{go_command, run_go_json};
 
 /// The `CycloneDX` Go SBOM tool Toven invokes argv-first for the Go `sbom`
 /// phase (the [`SbomProducer`] implementation below).
@@ -70,35 +70,27 @@ fn sbom_argv(output: &Path, module_dir: &Path) -> Vec<String> {
 /// Run one `cyclonedx-gomod` invocation, bounded and timed-out, surfacing a
 /// timeout or non-zero exit as a typed error. The SBOM is written to a file, so
 /// captured output carries only diagnostics.
-fn run_sbom(spec: &ProcessSpec) -> AppResult<()> {
-    let config = ProcessConfig::default()
-        .with_timeout(Some(SBOM_TIMEOUT))
-        .with_io(ProcessIo::captured(CapturedIo::new().with_output(
-            OutputPolicy::captured().with_max_output_bytes(MAX_SBOM_OUTPUT_BYTES),
-        )));
-    let result = run(spec, &config)?;
-    if result.timed_out {
+fn run_sbom(invocation: ToolInvocation, runner: &dyn ToolRunner) -> AppResult<()> {
+    let invocation = invocation
+        .with_timeout(SBOM_TIMEOUT)
+        .with_max_output_bytes(MAX_SBOM_OUTPUT_BYTES);
+    let outcome = runner.run(&invocation)?;
+    if outcome.timed_out {
         return Err(AppError::new(
             ErrorCode::Timeout,
             format!("`{SBOM_TOOL}` timed out"),
         ));
     }
-    if !result.success() {
-        return Err(AppError::new(
-            ErrorCode::Internal,
-            format!(
-                "`{SBOM_TOOL}` failed (exit {:?}): {}",
-                result.exit_code,
-                result.stderr.trim()
-            ),
-        ));
+    if !outcome.succeeded() {
+        outcome.require_success("sbom tool `cyclonedx-gomod`")?;
     }
     Ok(())
 }
 
 /// Release target for Go modules released as git tags.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone)]
 pub struct GoVcsTarget {
+    runner: Arc<dyn ToolRunner>,
     /// Explicit repository working root; `None` resolves the process working
     /// directory (the engine runs from the repo root), mirroring
     /// `CargoRegistryTarget`.
@@ -109,8 +101,8 @@ impl GoVcsTarget {
     /// Construct the Go VCS-tag release target rooted at the process working
     /// directory.
     #[must_use]
-    pub const fn new() -> Self {
-        Self { root: None }
+    pub fn new(runner: Arc<dyn ToolRunner>) -> Self {
+        Self { runner, root: None }
     }
 
     /// Pin the repository working root instead of resolving the process working
@@ -242,13 +234,21 @@ impl ManifestMutator for GoVcsTarget {
             AppError::invalid_input("release.go_mod", error.to_string()).with_cause(error)
         })?;
         for (import_path, version) in &mutation.dep_floor_import_updates {
-            let spec = ProcessSpec::new("go")
-                .arg("mod")
-                .arg("edit")
-                .arg(format!("-require={import_path}@v{version}"))
-                .arg(&manifest)
-                .dir(self.working_root()?);
-            run_go_json(&spec, "go mod edit dependency floor")?;
+            let working_root = self.working_root()?;
+            let invocation = go_command(
+                [
+                    "mod".to_string(),
+                    "edit".to_string(),
+                    format!("-require={import_path}@v{version}"),
+                    manifest.display().to_string(),
+                ],
+                &working_root,
+            );
+            run_go_json(
+                invocation,
+                "go mod edit dependency floor",
+                self.runner.as_ref(),
+            )?;
         }
         let staged = RepoPath::new(manifest_rel).map_err(|error| {
             AppError::invalid_input("release.go_mod", error.to_string()).with_cause(error)
@@ -283,10 +283,11 @@ impl SbomProducer for GoVcsTarget {
         // bounded output directory under Toven's canonical `<stem>.cdx.json`
         // name — no next-to-manifest stray files to clean up afterwards.
         let artifact = out_dir.join(format!("{}.{SBOM_FILE_SUFFIX}", sbom_stem(module)));
-        let spec = ProcessSpec::new(SBOM_TOOL)
-            .args(sbom_argv(&artifact, &module_dir))
-            .dir(&working_root);
-        run_sbom(&spec)?;
+        let argv = std::iter::once(SBOM_TOOL.to_string())
+            .chain(sbom_argv(&artifact, &module_dir))
+            .collect();
+        let invocation = ToolInvocation::new(argv).with_working_dir(&working_root);
+        run_sbom(invocation, self.runner.as_ref())?;
         if !file_exists(&artifact)? {
             return Err(AppError::new(
                 ErrorCode::Internal,
@@ -303,13 +304,19 @@ impl SbomProducer for GoVcsTarget {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::sync::Arc;
 
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
     use toven_ports::{ManifestMutator, ReleaseMutation, TagGrammar, VersionSource};
+    use toven_testkit::doubles::FakeToolRunner;
     use toven_testkit::git::GitScenario;
 
     use super::GoVcsTarget;
+
+    fn target() -> GoVcsTarget {
+        GoVcsTarget::new(Arc::new(FakeToolRunner::new()))
+    }
 
     fn module(name: &str, root: &str) -> Module {
         Module::new(
@@ -320,7 +327,7 @@ mod tests {
 
     #[test]
     fn tag_scheme_uses_root_v_tags_and_submodule_path_tags() {
-        let target = GoVcsTarget::new();
+        let target = target();
 
         assert_eq!(
             target
@@ -344,7 +351,7 @@ mod tests {
 
         // A Go module's per-module tag *is* its registry entry, so the baseline
         // anchors on each module's own tag and only per-module tags are cut.
-        let defaults = GoVcsTarget::new().release_defaults();
+        let defaults = target().release_defaults();
         assert_eq!(defaults.baseline, BaselineSourceConfig::OwnTag);
         assert_eq!(defaults.tag_mode, TagMode::PerModule);
     }
@@ -354,7 +361,7 @@ mod tests {
         // The Go module tag convention fixes the grammar, so an explicit `tag_format`
         // is a misconfiguration — surface it as a typed error rather than silently
         // ignoring it.
-        let error = GoVcsTarget::new()
+        let error = target()
             .tag_scheme(
                 &module("cache-redis", "cache/redis"),
                 Some("{module}/v{version}"),
@@ -378,7 +385,7 @@ mod tests {
         scenario
             .tag("cache/http/v9.9.9", "other")
             .expect("other tag");
-        let target = GoVcsTarget::new().with_root(workspace.path());
+        let target = target().with_root(workspace.path());
 
         let versions = target
             .published_versions(&module("cache-redis", "cache/redis"))
@@ -402,7 +409,7 @@ mod tests {
             .expect("side commit");
         scenario.tag("v9.9.9", "side").expect("side tag");
         scenario.checkout(&main).expect("return to main commit");
-        let target = GoVcsTarget::new().with_root(workspace.path());
+        let target = target().with_root(workspace.path());
 
         let versions = target
             .published_versions(&module("root", "."))
@@ -418,7 +425,7 @@ mod tests {
         scenario
             .commit_file("go.mod", "module example.com/root\n", "initial")
             .expect("commit root");
-        let target = GoVcsTarget::new().with_root(workspace.path());
+        let target = target().with_root(workspace.path());
 
         let error = target
             .declared_version(&module("root", "."))
@@ -434,7 +441,7 @@ mod tests {
             .dep_floor_updates
             .insert(module("core", "core").id, Version::new(1, 1, 0));
 
-        let error = GoVcsTarget::new()
+        let error = target()
             .apply_release(&module("app", "app"), &mutation)
             .expect_err("missing Go import-path mapping rejected");
 

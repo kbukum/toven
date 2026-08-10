@@ -1,15 +1,19 @@
 //! [`ProcessToolRunner`] — the concrete synchronous [`ToolRunner`], backed by
 //! the rskit process port.
 //!
-//! Composes `rskit-process`'s blocking [`run`] with Toven's argv-first policy:
-//! captured, bounded output; an optional wall-clock timeout; the explicit
-//! environment policy; and named-secret forwarding resolved from the ambient
-//! environment at run time. It never decides success/failure policy — it maps
-//! the process result straight into a [`ToolOutcome`] the caller classifies.
+//! Composes the shared argv→[`ProcessSpec`](rskit_process::ProcessSpec)
+//! lowering ([`spec`](super::spec)) with `rskit-process`'s blocking
+//! [`run`](rskit_process::run): captured, bounded output; an optional
+//! wall-clock timeout; the explicit environment policy; and named-secret
+//! forwarding resolved from the ambient environment at run time. It never
+//! decides success/failure policy — it maps the process result straight into a
+//! [`ToolOutcome`] the caller classifies.
 
-use rskit_errors::{AppError, AppResult};
-use rskit_process::{CapturedIo, EnvPolicy, ProcessConfig, ProcessIo, ProcessSpec, run};
-use toven_ports::{InvocationEnvPolicy, ToolInvocation, ToolOutcome, ToolRunner};
+use rskit_errors::AppResult;
+use rskit_process::run;
+use toven_ports::{ToolInvocation, ToolOutcome, ToolRunner};
+
+use crate::spec::{tool_config, tool_spec};
 
 /// The production [`ToolRunner`].
 ///
@@ -30,42 +34,8 @@ impl ProcessToolRunner {
 
 impl ToolRunner for ProcessToolRunner {
     fn run(&self, invocation: &ToolInvocation) -> AppResult<ToolOutcome> {
-        let (program, args) = invocation
-            .argv
-            .split_first()
-            .ok_or_else(|| AppError::invalid_input("tool.argv", "must include a program"))?;
-
-        let mut spec = ProcessSpec::new(program)
-            .args(args.iter().cloned())
-            .env_policy(match invocation.environment.policy {
-                InvocationEnvPolicy::ExplicitOnly => EnvPolicy::Empty,
-                InvocationEnvPolicy::InheritParent => EnvPolicy::Inherit,
-            })
-            .envs(invocation.environment.vars.clone());
-        if let Some(dir) = invocation.working_dir() {
-            spec = spec.dir(dir);
-        }
-        // Forward named secrets by environment only: resolve each from the
-        // ambient environment and set it on the child. A name that is unset or
-        // empty is skipped rather than forwarded blank, and no value is ever
-        // placed on argv or logged.
-        for name in &invocation.forward_env {
-            if let Some(value) = rskit_util::env::get_non_empty(name) {
-                spec = spec.env(name.clone(), value);
-            }
-        }
-
-        // `with_timeout(None)` clears rskit-process's inherited 30s default so an
-        // invocation without a declared bound runs unbounded; a declared bound is
-        // honored. Captured output stays bounded by the runner default cap unless
-        // the invocation narrows it further.
-        let mut config = ProcessConfig::default()
-            .with_io(ProcessIo::captured(CapturedIo::new()))
-            .with_timeout(invocation.timeout);
-        if let Some(max_output_bytes) = invocation.max_output_bytes {
-            config = config.with_max_output_bytes(max_output_bytes);
-        }
-
+        let spec = tool_spec(invocation)?;
+        let config = tool_config(invocation);
         let result = run(&spec, &config)?;
         Ok(
             ToolOutcome::new(result.exit_code, result.stdout, result.stderr)

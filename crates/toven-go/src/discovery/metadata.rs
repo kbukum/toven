@@ -3,8 +3,8 @@
 //! members into one workspace, and fold everything into the unified
 //! `{workspaces, modules, edges}` [`DiscoverResponse`].
 //!
-//! Every `go` invocation goes through `rskit-process` (captured, bounded,
-//! timed-out — never a shell string). `go mod edit -json` / `go work edit
+//! Every `go` invocation goes through the injected one-shot [`ToolRunner`] seam
+//! (captured, bounded, timed-out — never a shell string). `go mod edit -json` / `go work edit
 //! -json` only parse the manifest text into JSON: no module-graph resolution,
 //! no network, fully deterministic. In-repo `require`s whose target resolves to
 //! a discovered module become intra-ecosystem [`Edge`]s, so a Go project
@@ -20,7 +20,7 @@ use serde::Deserialize;
 use toven_model::{
     DepKind, EcosystemId, Edge, Module, ModuleRef, RepoPath, ToolchainTag, Workspace, WorkspaceId,
 };
-use toven_ports::{DiscoverRequest, DiscoverResponse};
+use toven_ports::{DiscoverRequest, DiscoverResponse, ToolRunner};
 
 use crate::config::GoConfig;
 use crate::discovery::blast;
@@ -54,12 +54,13 @@ struct GoModEdit {
 pub(crate) fn discover(
     config: &GoConfig,
     request: &DiscoverRequest,
+    runner: &dyn ToolRunner,
 ) -> AppResult<DiscoverResponse> {
     let ecosystem = go_id()?;
     let project_root = request.project_root.as_path();
 
-    let work_members = modules::go_work_members(project_root)?;
-    let manifests = modules::resolve(config, project_root)?;
+    let work_members = modules::go_work_members(project_root, runner)?;
+    let manifests = modules::resolve(config, project_root, runner)?;
 
     let mut workspaces: BTreeMap<WorkspaceId, Workspace> = BTreeMap::new();
     let mut modules: BTreeMap<ModuleRef, Module> = BTreeMap::new();
@@ -67,7 +68,7 @@ pub(crate) fn discover(
     let mut requires: Vec<(ModuleRef, String)> = Vec::new();
 
     for manifest in &manifests {
-        let edit = run_go_mod_edit(project_root, manifest)?;
+        let edit = run_go_mod_edit(project_root, manifest, runner)?;
         let module_path = module_path(&edit, manifest)?;
         let manifest_path = RepoPath::new(Path::new(manifest))?;
         let module_root = manifest_parent(&manifest_path)?;
@@ -139,7 +140,11 @@ fn go_id() -> AppResult<EcosystemId> {
 }
 
 /// Run `go mod edit -json` for one manifest and parse its JSON output.
-fn run_go_mod_edit(project_root: &Path, manifest: &str) -> AppResult<GoModEdit> {
+fn run_go_mod_edit(
+    project_root: &Path,
+    manifest: &str,
+    runner: &dyn ToolRunner,
+) -> AppResult<GoModEdit> {
     let manifest_abs = safe_join(project_root, Path::new(manifest)).map_err(|error| {
         AppError::invalid_input(
             "ecosystems.go.modules",
@@ -147,13 +152,16 @@ fn run_go_mod_edit(project_root: &Path, manifest: &str) -> AppResult<GoModEdit> 
         )
     })?;
 
-    let spec = go_command()
-        .arg("mod")
-        .arg("edit")
-        .arg("-json")
-        .arg(&manifest_abs)
-        .dir(project_root);
-    let stdout = run_go_json(&spec, &format!("go mod edit for '{manifest}'"))?;
+    let invocation = go_command(
+        [
+            "mod".to_string(),
+            "edit".to_string(),
+            "-json".to_string(),
+            manifest_abs.display().to_string(),
+        ],
+        project_root,
+    );
+    let stdout = run_go_json(invocation, &format!("go mod edit for '{manifest}'"), runner)?;
     rskit_codec::decode::<GoModEdit>(&rskit_codec::JsonCodec::default(), &stdout).map_err(|error| {
         AppError::new(
             ErrorCode::InvalidFormat,

@@ -23,16 +23,19 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::archive::{ExtractLimits, extract_tar_gz, extract_zip};
 use rskit_fs::sync_io::file::exists as file_exists;
 use rskit_fs::{TempDir, safe_join};
-use rskit_process::{CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessSpec, run};
 use rskit_util::hash::sha256::sha256_reader;
 use rskit_version::semver::Version;
-use toven_ports::{AssetDownloader, Provider, Reporter, SignatureVerifier, VersionProbe};
+use toven_ports::{
+    AssetDownloader, Provider, Reporter, SignatureVerifier, ToolInvocation, ToolRunner,
+    VersionProbe,
+};
 
 use crate::model::settings::ResolvedReleaseSettings;
 use crate::planning::plan::{release_targets, resolve_release_settings};
@@ -552,34 +555,44 @@ fn asset_file_name_path(path: &Path) -> AppResult<&str> {
         })
 }
 
-/// Run an argv-only external tool with a bounded, captured output and the shared
-/// verify timeout, mapping a spawn/exec/non-zero failure to a typed error.
-fn run_tool(program: &str, argv: Vec<String>, cwd: Option<&Path>) -> AppResult<String> {
-    let mut spec = ProcessSpec::new(program).args(argv);
+/// Run an argv-only external tool through the shared [`ToolRunner`] seam with a
+/// bounded, captured output and the shared verify timeout, mapping a
+/// spawn/exec/non-zero failure to a typed error and returning captured stdout.
+fn run_tool(
+    runner: &dyn ToolRunner,
+    program: &str,
+    argv: Vec<String>,
+    cwd: Option<&Path>,
+) -> AppResult<String> {
+    let mut full_argv = Vec::with_capacity(argv.len() + 1);
+    full_argv.push(program.to_string());
+    full_argv.extend(argv);
+    let mut invocation = ToolInvocation::new(full_argv)
+        .with_timeout(VERIFY_TIMEOUT)
+        .with_max_output_bytes(MAX_VERIFY_OUTPUT_BYTES);
     if let Some(cwd) = cwd {
-        spec = spec.dir(cwd);
+        invocation = invocation.with_working_dir(cwd);
     }
-    let config = ProcessConfig::default()
-        .with_timeout(Some(VERIFY_TIMEOUT))
-        .with_io(ProcessIo::captured(CapturedIo::new().with_output(
-            OutputPolicy::captured().with_max_output_bytes(MAX_VERIFY_OUTPUT_BYTES),
-        )));
-    let result = run(&spec, &config)?;
-    result.check()?;
-    Ok(result.stdout)
+    let outcome = runner.run(&invocation)?;
+    outcome.require_success(&format!("verify tool `{program}`"))?;
+    Ok(outcome.stdout)
 }
 
-/// [`AssetDownloader`] backed by `gh release download`, argv-only through
-/// [`rskit_process`]. Authentication stays ambient (the runner's `gh`
-/// credentials); no token is placed on argv or captured.
-#[derive(Debug, Clone, Default)]
-pub struct GhAssetDownloader;
+/// [`AssetDownloader`] backed by `gh release download`, driven argv-only through
+/// the shared [`ToolRunner`] seam.
+///
+/// Authentication stays ambient (the runner's `gh` credentials inherited from
+/// the parent environment); no token is placed on argv or captured.
+#[derive(Clone)]
+pub struct GhAssetDownloader {
+    runner: Arc<dyn ToolRunner>,
+}
 
 impl GhAssetDownloader {
-    /// Construct a `gh`-backed downloader.
+    /// Construct a `gh`-backed downloader driven through `runner`.
     #[must_use]
-    pub const fn new() -> Self {
-        Self
+    pub fn new(runner: Arc<dyn ToolRunner>) -> Self {
+        Self { runner }
     }
 }
 
@@ -596,25 +609,27 @@ impl AssetDownloader for GhAssetDownloader {
             argv.push("--pattern".to_string());
             argv.push((*asset).to_string());
         }
-        run_tool("gh", argv, None)?;
+        run_tool(self.runner.as_ref(), "gh", argv, None)?;
         Ok(())
     }
 }
 
-/// [`SignatureVerifier`] backed by `cosign verify-blob`, argv-only through
-/// [`rskit_process`].
+/// [`SignatureVerifier`] backed by `cosign verify-blob`, driven argv-only
+/// through the shared [`ToolRunner`] seam.
 ///
 /// Keyless verification checks the transparency-log entry and certificate chain
 /// against the configured identity/issuer. No secret is involved — verification
 /// is against public Sigstore state.
-#[derive(Debug, Clone, Default)]
-pub struct CosignVerifier;
+#[derive(Clone)]
+pub struct CosignVerifier {
+    runner: Arc<dyn ToolRunner>,
+}
 
 impl CosignVerifier {
-    /// Construct a cosign-backed signature verifier.
+    /// Construct a cosign-backed signature verifier driven through `runner`.
     #[must_use]
-    pub const fn new() -> Self {
-        Self
+    pub fn new(runner: Arc<dyn ToolRunner>) -> Self {
+        Self { runner }
     }
 }
 
@@ -639,27 +654,34 @@ impl SignatureVerifier for CosignVerifier {
             issuer.to_string(),
             path_arg(blob)?,
         ];
-        run_tool("cosign", argv, None)?;
+        run_tool(self.runner.as_ref(), "cosign", argv, None)?;
         Ok(())
     }
 }
 
-/// [`VersionProbe`] that runs `<binary> --version` argv-only through
-/// [`rskit_process`] and returns the stdout it prints.
-#[derive(Debug, Clone, Default)]
-pub struct ProcessVersionProbe;
+/// [`VersionProbe`] that runs `<binary> --version` argv-only through the shared
+/// [`ToolRunner`] seam and returns the stdout it prints.
+#[derive(Clone)]
+pub struct ProcessVersionProbe {
+    runner: Arc<dyn ToolRunner>,
+}
 
 impl ProcessVersionProbe {
-    /// Construct a process-backed version probe.
+    /// Construct a process-backed version probe driven through `runner`.
     #[must_use]
-    pub const fn new() -> Self {
-        Self
+    pub fn new(runner: Arc<dyn ToolRunner>) -> Self {
+        Self { runner }
     }
 }
 
 impl VersionProbe for ProcessVersionProbe {
     fn report_version(&self, binary: &Path) -> AppResult<String> {
-        run_tool(&path_arg(binary)?, vec!["--version".to_string()], None)
+        run_tool(
+            self.runner.as_ref(),
+            &path_arg(binary)?,
+            vec!["--version".to_string()],
+            None,
+        )
     }
 }
 
@@ -678,23 +700,28 @@ fn path_arg(path: &Path) -> AppResult<String> {
 mod tests {
     use std::collections::BTreeMap;
     use std::path::Path;
+    use std::sync::Arc;
 
     use rskit_config::RawValue;
+    use rskit_errors::ErrorCode;
     use rskit_fs::TempDir;
     use rskit_fs::archive::{ArchiveEntry, tar_gz};
     use rskit_version::semver::Version;
     use serde_json::json;
     use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
     use toven_ports::{
-        CommonEcosystemConfig, DiscoverResponse, HostConfig, Provider, ReleaseConfig, SignConfig,
-        TaskIntent,
+        AssetDownloader, CommonEcosystemConfig, DiscoverResponse, HostConfig, Provider,
+        ReleaseConfig, SignConfig, SignatureVerifier, TaskIntent, VersionProbe,
     };
     use toven_testkit::{
         FakeAssetDownloader, FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget,
-        FakeSignatureVerifier, FakeVersionProbe, RecordingReporter,
+        FakeSignatureVerifier, FakeToolRunner, FakeVersionProbe, RecordingReporter,
     };
 
-    use super::{VerifyMode, VerifyOptions, release_verify};
+    use super::{
+        CosignVerifier, GhAssetDownloader, ProcessVersionProbe, VerifyMode, VerifyOptions,
+        release_verify,
+    };
     use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
     use toven_engine_core::plan::PlanRequest;
 
@@ -1144,6 +1171,137 @@ mod tests {
         assert!(
             error.to_string().contains("more than one member"),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn gh_downloader_builds_argv_first_without_token_values() {
+        let dest = TempDir::new().unwrap();
+        let runner = FakeToolRunner::new();
+        let downloader = GhAssetDownloader::new(Arc::new(runner.clone()));
+
+        downloader
+            .download("v1.2.3", &["toven.tar.gz", "SHA256SUMS"], dest.path())
+            .expect("download runs");
+
+        let requests = runner.requests();
+        assert_eq!(requests.len(), 1);
+        let request = &requests[0];
+        assert_eq!(
+            request.argv,
+            vec![
+                "gh",
+                "release",
+                "download",
+                "v1.2.3",
+                "--dir",
+                dest.path().to_str().unwrap(),
+                "--pattern",
+                "toven.tar.gz",
+                "--pattern",
+                "SHA256SUMS",
+            ]
+        );
+        assert!(request.forward_env.is_empty());
+        assert!(
+            request.argv.iter().all(|arg| !arg.contains("ghp_secret")),
+            "argv leaked a token value: {:?}",
+            request.argv
+        );
+    }
+
+    #[test]
+    fn gh_downloader_non_zero_exit_is_a_verify_tool_error() {
+        let dest = TempDir::new().unwrap();
+        let runner = FakeToolRunner::new()
+            .with_exit_code(Some(1))
+            .with_stderr("release not found");
+        let downloader = GhAssetDownloader::new(Arc::new(runner));
+
+        let error = downloader
+            .download("v1.2.3", &["toven.tar.gz"], dest.path())
+            .expect_err("non-zero gh exits fail closed");
+
+        assert_eq!(error.code(), ErrorCode::ExternalService);
+        assert!(error.to_string().contains("verify tool `gh`"), "{error}");
+        assert!(error.to_string().contains("exited 1"), "{error}");
+    }
+
+    #[test]
+    fn cosign_verifier_builds_argv_first() {
+        let root = TempDir::new().unwrap();
+        let blob = root.path().join("SHA256SUMS");
+        let signature = root.path().join("SHA256SUMS.sig");
+        let certificate = root.path().join("SHA256SUMS.pem");
+        let runner = FakeToolRunner::new();
+        let verifier = CosignVerifier::new(Arc::new(runner.clone()));
+
+        verifier
+            .verify_blob(
+                &blob,
+                &signature,
+                &certificate,
+                "https://github.com/acme/toven/.github/workflows/release.yml@refs/tags/v.*",
+                "https://issuer.example",
+            )
+            .expect("verification runs");
+
+        let requests = runner.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].argv,
+            vec![
+                "cosign",
+                "verify-blob",
+                "--certificate",
+                certificate.to_str().unwrap(),
+                "--signature",
+                signature.to_str().unwrap(),
+                "--certificate-identity-regexp",
+                "https://github.com/acme/toven/.github/workflows/release.yml@refs/tags/v.*",
+                "--certificate-oidc-issuer",
+                "https://issuer.example",
+                blob.to_str().unwrap(),
+            ]
+        );
+        assert!(requests[0].forward_env.is_empty());
+    }
+
+    #[test]
+    fn cosign_verifier_spawn_failure_surfaces_as_typed_error() {
+        let root = TempDir::new().unwrap();
+        let runner = FakeToolRunner::new().with_spawn_failure("cosign not found");
+        let verifier = CosignVerifier::new(Arc::new(runner));
+
+        let error = verifier
+            .verify_blob(
+                &root.path().join("SHA256SUMS"),
+                &root.path().join("SHA256SUMS.sig"),
+                &root.path().join("SHA256SUMS.pem"),
+                "identity",
+                "issuer",
+            )
+            .expect_err("spawn failure surfaces");
+
+        assert_eq!(error.code(), ErrorCode::Internal);
+        assert!(error.to_string().contains("cosign not found"), "{error}");
+    }
+
+    #[test]
+    fn version_probe_runs_binary_version_argv_first() {
+        let root = TempDir::new().unwrap();
+        let binary = root.path().join("toven");
+        let runner = FakeToolRunner::new().with_stdout("toven 1.2.3\n");
+        let probe = ProcessVersionProbe::new(Arc::new(runner.clone()));
+
+        let reported = probe.report_version(&binary).expect("version runs");
+
+        assert_eq!(reported, "toven 1.2.3\n");
+        let requests = runner.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].argv,
+            vec![binary.to_str().unwrap(), "--version"]
         );
     }
 }

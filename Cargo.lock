@@ -2016,6 +2016,7 @@ dependencies = [
  "rskit-errors",
  "toven-cli",
  "toven-command",
+ "toven-exec",
  "toven-go",
  "toven-ports",
  "toven-rust",
@@ -2040,6 +2041,7 @@ dependencies = [
  "toven-engine",
  "toven-engine-core",
  "toven-engine-release",
+ "toven-exec",
  "toven-model",
  "toven-ports",
  "toven-testkit",
@@ -2078,6 +2080,7 @@ dependencies = [
  "toml",
  "toml_edit",
  "toven-engine-core",
+ "toven-exec",
  "toven-model",
  "toven-ports",
  "toven-testkit",
@@ -2125,6 +2128,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "toven-exec"
+version = "0.1.0-alpha.5"
+dependencies = [
+ "async-trait",
+ "rskit-errors",
+ "rskit-process",
+ "rskit-util",
+ "tokio",
+ "tokio-util",
+ "toven-model",
+ "toven-ports",
+]
+
+[[package]]
 name = "toven-go"
 version = "0.1.0-alpha.5"
 dependencies = [
@@ -2134,10 +2151,10 @@ dependencies = [
  "rskit-errors",
  "rskit-fs",
  "rskit-git",
- "rskit-process",
  "rskit-version",
  "serde",
  "toml",
+ "toven-exec",
  "toven-model",
  "toven-ports",
  "toven-testkit",
@@ -2154,6 +2171,7 @@ dependencies = [
  "serde_json",
  "toven-cli",
  "toven-engine-core",
+ "toven-exec",
  "toven-go",
  "toven-model",
  "toven-ports",
@@ -2199,6 +2217,7 @@ dependencies = [
  "rskit-errors",
  "serde_json",
  "toven-cli",
+ "toven-exec",
  "toven-ports",
  "toven-rust",
  "toven-testkit",
@@ -2215,12 +2234,12 @@ dependencies = [
  "rskit-errors",
  "rskit-fs",
  "rskit-git",
- "rskit-process",
  "rskit-util",
  "rskit-version",
  "serde",
  "toml",
  "toml_edit",
+ "toven-exec",
  "toven-model",
  "toven-ports",
  "toven-testkit",

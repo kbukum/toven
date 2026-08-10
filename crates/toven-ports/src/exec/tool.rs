@@ -46,6 +46,10 @@ pub struct ToolInvocation {
     /// Optional cap on captured stdout/stderr bytes; `None` uses the runner
     /// default.
     pub max_output_bytes: Option<usize>,
+    /// Optional bytes written to the tool's standard input. `None` gives the
+    /// tool no stdin; `Some(bytes)` pipes exactly `bytes` (e.g. release notes
+    /// fed to `gh release create --notes-file -`).
+    pub stdin: Option<Vec<u8>>,
 }
 
 impl ToolInvocation {
@@ -63,6 +67,7 @@ impl ToolInvocation {
             forward_env: Vec::new(),
             timeout: None,
             max_output_bytes: None,
+            stdin: None,
         }
     }
 
@@ -98,6 +103,13 @@ impl ToolInvocation {
     #[must_use]
     pub const fn with_max_output_bytes(mut self, max_output_bytes: usize) -> Self {
         self.max_output_bytes = Some(max_output_bytes);
+        self
+    }
+
+    /// Pipe `stdin` to the tool's standard input.
+    #[must_use]
+    pub fn with_stdin(mut self, stdin: impl Into<Vec<u8>>) -> Self {
+        self.stdin = Some(stdin.into());
         self
     }
 

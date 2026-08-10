@@ -35,16 +35,17 @@ rskit-worker = { version = "0.2.0-alpha.4", path = "rskit/core/rskit-worker" }
 rskit-component = { version = "0.2.0-alpha.3", path = "rskit/core/rskit-component" }
 rskit-config = { version = "0.2.0-alpha.4", path = "rskit/core/rskit-config", default-features = false }
 rskit-cli = { version = "0.2.0-alpha.5", path = "rskit/core/rskit-cli" }
-toven-model = { version = "0.1.0-alpha.1", path = "crates/toven-model" }
-toven-ports = { version = "0.1.0-alpha.1", path = "crates/toven-ports" }
-toven-engine-core = { version = "0.1.0-alpha.1", path = "crates/toven-engine-core" }
-toven-engine-release = { version = "0.1.0-alpha.1", path = "crates/toven-engine-release" }
-toven-engine = { version = "0.1.0-alpha.1", path = "crates/toven-engine" }
-toven-cli = { version = "0.1.0-alpha.1", path = "crates/toven-cli" }
-toven-rust = { version = "0.1.0-alpha.1", path = "crates/toven-rust" }
-toven-go = { version = "0.1.0-alpha.1", path = "crates/toven-go" }
-toven-command = { version = "0.1.0-alpha.1", path = "crates/toven-command" }
-toven-testkit = { version = "0.1.0-alpha.1", path = "crates/toven-testkit" }
+toven-model = { path = "crates/toven-model" }
+toven-ports = { path = "crates/toven-ports" }
+toven-engine-core = { path = "crates/toven-engine-core" }
+toven-engine-release = { path = "crates/toven-engine-release" }
+toven-engine = { path = "crates/toven-engine" }
+toven-exec = { path = "crates/toven-exec" }
+toven-cli = { path = "crates/toven-cli" }
+toven-rust = { path = "crates/toven-rust" }
+toven-go = { path = "crates/toven-go" }
+toven-command = { path = "crates/toven-command" }
+toven-testkit = { path = "crates/toven-testkit" }
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 serde = { version = "1", features = ["derive"] }

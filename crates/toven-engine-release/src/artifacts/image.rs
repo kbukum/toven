@@ -4,7 +4,7 @@
 //! declaring `[…release.image]`), the resolved image name/tag rendered from the
 //! module's declared version, the primary-plus-mirror registry set, whether the
 //! pushed digest is signed, and the mutation-free `--dry-run` preview. The only
-//! reusable primitive is "run a subprocess" ([`rskit_process`]);
+//! reusable primitive is "run a subprocess" (the shared [`ToolRunner`]);
 //! [`BuildxImagePhase`] shells to `docker buildx` and `cosign` argv-only,
 //! inheriting the ambient registry credentials — it embeds no secret and
 //! captures none.
@@ -14,16 +14,17 @@
 //! a moved tag.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult};
 use rskit_fs::TempFile;
 use rskit_fs::sync_io::file::read_string_bounded;
-use rskit_process::{
-    CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessResult, ProcessSpec, run,
-};
 use rskit_util::Template;
-use toven_ports::{ImageOutcome, ImagePhase, ImageRequest, Provider, ReleaseVar, Reporter};
+use toven_ports::{
+    ImageOutcome, ImagePhase, ImageRequest, Provider, ReleaseVar, Reporter, ToolInvocation,
+    ToolOutcome, ToolRunner,
+};
 
 use crate::planning::plan::{release_targets, resolve_release_settings};
 use toven_engine_core::config::Document;
@@ -347,28 +348,24 @@ fn render_template(
 
 /// A buildx/cosign-backed [`ImagePhase`].
 ///
-/// Construction is stateless. `docker buildx` and `cosign` are invoked
-/// argv-only through [`rskit_process`]; the ambient registry/OIDC credentials
-/// the runner provides are inherited, and no secret is placed on argv or
-/// captured.
-#[derive(Debug, Clone)]
+/// Construction injects the shared [`ToolRunner`]. `docker buildx` and `cosign`
+/// are invoked argv-only through it; the ambient registry/OIDC credentials the
+/// runner provides are inherited, and no secret is placed on argv or captured.
+#[derive(Clone)]
 pub struct BuildxImagePhase {
+    runner: Arc<dyn ToolRunner>,
     timeout: Duration,
 }
 
 impl BuildxImagePhase {
-    /// Construct a buildx image phase with the default per-invocation timeout.
+    /// Construct a buildx image phase driven through `runner` with the default
+    /// per-invocation timeout.
     #[must_use]
-    pub const fn new() -> Self {
+    pub fn new(runner: Arc<dyn ToolRunner>) -> Self {
         Self {
+            runner,
             timeout: IMAGE_TIMEOUT,
         }
-    }
-}
-
-impl Default for BuildxImagePhase {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -439,49 +436,41 @@ impl ImagePhase for BuildxImagePhase {
     }
 
     fn resolve_digest(&self, root: &Path, reference: &str) -> AppResult<Option<String>> {
-        let spec = ProcessSpec::new("docker")
-            .args(inspect_argv(reference))
-            .dir(root);
-        let config = ProcessConfig::default()
-            .with_timeout(Some(self.timeout))
-            .with_io(ProcessIo::captured(CapturedIo::new().with_output(
-                OutputPolicy::captured().with_max_output_bytes(MAX_IMAGE_OUTPUT_BYTES),
-            )));
-        let result = run(&spec, &config)?;
-        if result.success() {
-            let digest = result.stdout.trim().to_string();
+        let outcome = self.invoke(root, "docker", inspect_argv(reference))?;
+        if outcome.succeeded() {
+            let digest = outcome.stdout.trim().to_string();
             if digest.is_empty() {
                 return Ok(None);
             }
             return Ok(Some(digest));
         }
-        if image_not_found(&result) {
+        if image_not_found(&outcome) {
             return Ok(None);
         }
-        Err(process_failure("release.image.inspect", "docker", &result))
+        Err(process_failure("release.image.inspect", "docker", &outcome))
     }
 }
 
 /// Whether `docker buildx imagetools inspect` reported the specific
 /// tag-missing condition that previews and immutable publish guards treat as
 /// absence. Auth, network, timeout, and malformed invocations fail closed.
-fn image_not_found(result: &ProcessResult) -> bool {
-    let output = format!("{}\n{}", result.stdout, result.stderr).to_ascii_lowercase();
+fn image_not_found(outcome: &ToolOutcome) -> bool {
+    let output = format!("{}\n{}", outcome.stdout, outcome.stderr).to_ascii_lowercase();
     output.contains("not found")
         || output.contains("manifest unknown")
         || output.contains("name unknown")
 }
 
-/// Convert a non-zero tool result into a typed fail-closed error with bounded
+/// Convert a non-zero tool outcome into a typed fail-closed error with bounded
 /// captured diagnostics.
-fn process_failure(field: &str, program: &str, result: &ProcessResult) -> AppError {
+fn process_failure(field: &str, program: &str, outcome: &ToolOutcome) -> AppError {
     let mut message = format!(
         "{program} exited with code {}; refusing to treat the result as absent",
-        result
+        outcome
             .exit_code
             .map_or_else(|| "unknown".to_string(), |code| code.to_string())
     );
-    let stderr = result.stderr.trim();
+    let stderr = outcome.stderr.trim();
     if !stderr.is_empty() {
         message.push_str(": ");
         message.push_str(stderr);
@@ -492,17 +481,25 @@ fn process_failure(field: &str, program: &str, result: &ProcessResult) -> AppErr
 }
 
 impl BuildxImagePhase {
+    /// Build the captured, bounded [`ToolInvocation`] for an argv-only
+    /// `docker`/`cosign` invocation rooted at `root`, and run it through the
+    /// shared runner, returning the classified outcome without gating.
+    fn invoke(&self, root: &Path, program: &str, argv: Vec<String>) -> AppResult<ToolOutcome> {
+        let mut full_argv = Vec::with_capacity(argv.len() + 1);
+        full_argv.push(program.to_string());
+        full_argv.extend(argv);
+        let invocation = ToolInvocation::new(full_argv)
+            .with_working_dir(root)
+            .with_timeout(self.timeout)
+            .with_max_output_bytes(MAX_IMAGE_OUTPUT_BYTES);
+        self.runner.run(&invocation)
+    }
+
     /// Run an argv-only `docker`/`cosign` invocation rooted at `root`, failing
     /// closed on a spawn or non-zero exit.
     fn run(&self, root: &Path, program: &str, argv: Vec<String>) -> AppResult<()> {
-        let spec = ProcessSpec::new(program).args(argv).dir(root);
-        let config = ProcessConfig::default()
-            .with_timeout(Some(self.timeout))
-            .with_io(ProcessIo::captured(CapturedIo::new().with_output(
-                OutputPolicy::captured().with_max_output_bytes(MAX_IMAGE_OUTPUT_BYTES),
-            )));
-        run(&spec, &config)?.check()?;
-        Ok(())
+        self.invoke(root, program, argv)?
+            .require_success(&format!("image tool `{program}`"))
     }
 
     /// Build the image once (without pushing) and return the digest the push
@@ -636,8 +633,10 @@ fn path_arg(path: &Path) -> AppResult<String> {
 mod tests {
     use std::collections::BTreeMap;
     use std::path::Path;
+    use std::sync::Arc;
 
     use rskit_config::RawValue;
+    use rskit_errors::ErrorCode;
     use serde_json::json;
     use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
     use toven_ports::{
@@ -649,13 +648,14 @@ mod tests {
     };
 
     use super::{
-        ImageOptions, ImagePhaseStatus, buildx_build_argv, buildx_push_argv, inspect_argv,
-        parse_metadata_digest, release_image,
+        BuildxImagePhase, ImageOptions, ImagePhaseStatus, buildx_build_argv, buildx_push_argv,
+        inspect_argv, parse_metadata_digest, release_image,
     };
     use rskit_version::semver::Version;
     use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
     use toven_engine_core::plan::PlanRequest;
-    use toven_ports::ImageRequest;
+    use toven_ports::{ImagePhase, ImageRequest};
+    use toven_testkit::FakeToolRunner;
 
     fn eid(id: &str) -> EcosystemId {
         EcosystemId::new(id).unwrap()
@@ -967,5 +967,118 @@ mod tests {
         )
         .expect_err("a publish failure must surface");
         assert!(error.to_string().contains("buildx missing"), "{error}");
+    }
+
+    #[test]
+    fn buildx_resolve_digest_invokes_docker_argv_first() {
+        let runner = FakeToolRunner::new().with_stdout("sha256:abc\n");
+        let phase = BuildxImagePhase::new(Arc::new(runner.clone()));
+
+        let digest = phase
+            .resolve_digest(Path::new("/repo"), "ghcr.io/acme/toven:1.2.3")
+            .expect("digest resolves");
+
+        assert_eq!(digest.as_deref(), Some("sha256:abc"));
+        let requests = runner.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].argv,
+            vec![
+                "docker",
+                "buildx",
+                "imagetools",
+                "inspect",
+                "--format",
+                "{{.Manifest.Digest}}",
+                "ghcr.io/acme/toven:1.2.3",
+            ]
+        );
+        assert!(requests[0].forward_env.is_empty());
+        assert!(
+            requests[0]
+                .argv
+                .iter()
+                .all(|arg| !arg.contains("ghp_secret")),
+            "argv leaked a token value: {:?}",
+            requests[0].argv
+        );
+    }
+
+    #[test]
+    fn buildx_resolve_digest_treats_manifest_unknown_as_absent() {
+        let runner = FakeToolRunner::new()
+            .with_exit_code(Some(1))
+            .with_stderr("manifest unknown");
+        let phase = BuildxImagePhase::new(Arc::new(runner));
+
+        let digest = phase
+            .resolve_digest(Path::new("/repo"), "ghcr.io/acme/toven:1.2.3")
+            .expect("missing image is absence");
+
+        assert_eq!(digest, None);
+    }
+
+    #[test]
+    fn buildx_resolve_digest_fails_closed_on_real_tool_failure() {
+        let runner = FakeToolRunner::new()
+            .with_exit_code(Some(1))
+            .with_stderr("unauthorized");
+        let phase = BuildxImagePhase::new(Arc::new(runner));
+
+        let error = phase
+            .resolve_digest(Path::new("/repo"), "ghcr.io/acme/toven:1.2.3")
+            .expect_err("auth failures are not absence");
+
+        assert_eq!(error.code(), ErrorCode::Internal);
+        assert!(
+            error.to_string().contains("docker exited with code 1"),
+            "{error}"
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("refusing to treat the result as absent"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn buildx_publish_build_failure_records_argv_first_and_maps_error() {
+        let runner = FakeToolRunner::new()
+            .with_exit_code(Some(1))
+            .with_stderr("build failed");
+        let phase = BuildxImagePhase::new(Arc::new(runner.clone()));
+        let request = ImageRequest::new("services/api", "toven", "1.2.3")
+            .with_dockerfile("services/api/Dockerfile")
+            .with_registries(vec!["ghcr.io/acme".into(), "docker.io/acme".into()]);
+
+        let error = phase
+            .publish_image(Path::new("/repo"), &request)
+            .expect_err("build failure aborts publish");
+
+        assert_eq!(error.code(), ErrorCode::ExternalService);
+        assert!(error.to_string().contains("image tool `docker`"), "{error}");
+        let requests = runner.requests();
+        assert_eq!(requests.len(), 1);
+        let argv = &requests[0].argv;
+        assert_eq!(&argv[0..3], &["docker", "buildx", "build"]);
+        assert!(
+            argv.windows(2)
+                .any(|pair| pair == ["--metadata-file", argv[4].as_str()])
+        );
+        assert!(argv.iter().any(|arg| arg == "--load"));
+        assert!(
+            argv.windows(2)
+                .any(|pair| pair == ["--file", "services/api/Dockerfile"])
+        );
+        assert!(
+            argv.windows(2)
+                .any(|pair| pair == ["--tag", "ghcr.io/acme/toven:1.2.3"])
+        );
+        assert!(
+            argv.windows(2)
+                .any(|pair| pair == ["--tag", "docker.io/acme/toven:1.2.3"])
+        );
+        assert_eq!(argv.last().map(String::as_str), Some("services/api"));
     }
 }

@@ -16,6 +16,7 @@ doc = false
 
 [dependencies]
 toven-cli.workspace = true
+toven-exec.workspace = true
 toven-ports.workspace = true
 toven-go.workspace = true
 rskit-cli.workspace = true
