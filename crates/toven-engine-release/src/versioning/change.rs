@@ -9,7 +9,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::AppResult;
 use toven_model::{Module, ModuleKey};
-use toven_ports::{BaselineSpec, ChangeRecord, CommitSummary, ReleaseAdapter, TagRef, TagScheme};
+use toven_ports::{
+    BaselineSpec, ChangeRecord, CommitSummary, Oid, ReleaseAdapter, TagRef, TagScheme,
+};
 
 use toven_engine_core::federation::baseline::{MemberVcsReader, MemberVcsReaders};
 use toven_engine_core::plan::PlanContext;
@@ -221,18 +223,32 @@ fn baseline_spec(
     }
 
     // `--base` overrides the diff ref (default: the release tag commit) while the
-    // tag still anchors idempotency.
-    let diff_ref = base_override.map_or_else(
-        || {
-            baseline
-                .target
-                .as_ref()
-                .map_or_else(String::new, |target| target.as_str().to_string())
-        },
-        ToString::to_string,
-    );
+    // tag still anchors idempotency. A released baseline can still lack a diff
+    // commit — a registry-anchored version with no tag cut yet — in which case
+    // there is no ref to diff against: record the baseline (it still anchors
+    // idempotency) and report no diff spec rather than passing an empty ref into
+    // the VCS.
+    let Some(diff_ref) = diff_ref(base_override, baseline.target.as_ref()) else {
+        baselines.insert(module.key(), baseline);
+        return Ok(None);
+    };
     baselines.insert(module.key(), baseline);
     Ok(Some(BaselineSpec::explicit(diff_ref)))
+}
+
+/// The diff ref a baseline compares its files against.
+///
+/// The explicit `--base` wins when the user gave one; otherwise the baseline's
+/// own anchor commit is used. `None` means no ref is available — a released
+/// baseline with no diff commit (e.g. a registry-anchored version with no tag
+/// cut yet) — so the caller records the baseline but plans no file diff rather
+/// than passing an empty ref into the VCS.
+fn diff_ref(base_override: Option<&str>, target: Option<&Oid>) -> Option<String> {
+    match (base_override, target) {
+        (Some(base), _) => Some(base.to_string()),
+        (None, Some(target)) => Some(target.as_str().to_string()),
+        (None, None) => None,
+    }
 }
 
 fn target_for<'a>(targets: &'a ReleaseTargets, module: &Module) -> Option<&'a dyn ReleaseAdapter> {
@@ -266,4 +282,34 @@ fn path_matches_any(globs: &[String], path: &std::path::Path) -> bool {
     globs
         .iter()
         .any(|glob| rskit_util::glob::glob_match(glob, normalized))
+}
+
+#[cfg(test)]
+mod tests {
+    use toven_ports::Oid;
+
+    use super::diff_ref;
+
+    #[test]
+    fn explicit_base_override_wins_over_the_anchor_commit() {
+        let target = Oid::new("anchor");
+        assert_eq!(
+            diff_ref(Some("origin/main"), Some(&target)).as_deref(),
+            Some("origin/main")
+        );
+    }
+
+    #[test]
+    fn absent_override_falls_back_to_the_anchor_commit() {
+        let target = Oid::new("anchor");
+        assert_eq!(diff_ref(None, Some(&target)).as_deref(), Some("anchor"));
+    }
+
+    #[test]
+    fn a_released_baseline_with_no_diff_commit_yields_no_ref() {
+        // A registry-anchored baseline can carry a version but no tag commit;
+        // without an explicit `--base` there is nothing to diff against, so no
+        // empty ref is manufactured for the VCS.
+        assert_eq!(diff_ref(None, None), None);
+    }
 }
