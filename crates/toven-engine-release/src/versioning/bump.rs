@@ -213,6 +213,14 @@ pub(crate) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
             .settings
             .get(&reference)
             .and_then(|resolved| resolved.tag_format.clone());
+        let tag_mode = input
+            .settings
+            .get(&reference)
+            .and_then(|resolved| resolved.tag_mode);
+        let baseline_source = input
+            .settings
+            .get(&reference)
+            .and_then(|resolved| resolved.baseline);
         // Resolve the planned tag now so the plan explains the exact tag a
         // mutating run would create — and so a tag-scheme failure surfaces at
         // plan time rather than mid-mutation.
@@ -256,6 +264,8 @@ pub(crate) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
             publication,
             publish_needed,
             tag_format,
+            tag_mode,
+            baseline_source,
             tag_message: input
                 .settings
                 .get(&reference)

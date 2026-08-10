@@ -444,6 +444,24 @@ fn planned_tag_name(entry: &crate::ReleaseEntry) -> AppResult<&str> {
     })
 }
 
+/// Whether an entry's planned tag is created (and, on the maintainer path,
+/// verified and pushed) under its resolved [`TagMode`](toven_ports::TagMode).
+///
+/// An unset `tag_mode` preserves the legacy layout: every planned tag is
+/// created. An explicit mode gates by whether the entry is the umbrella module —
+/// its tag is *the umbrella tag*, every other module's tag is a *per-module*
+/// tag — so `PerModule` creates only per-module tags, `Umbrella` only the
+/// umbrella tag, and `Both` creates both.
+fn entry_tag_selected(entry: &crate::ReleaseEntry) -> bool {
+    entry.tag_mode.is_none_or(|mode| {
+        if entry.umbrella {
+            mode.creates_umbrella_tag()
+        } else {
+            mode.creates_per_module_tags()
+        }
+    })
+}
+
 /// Create every planned release tag against the release commit.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn tag_releases(
@@ -456,6 +474,12 @@ pub(crate) fn tag_releases(
     let mut created = BTreeSet::new();
     for entry in &plan.entries {
         if let Some(version) = &entry.planned_version {
+            // The tag layout (per-module, umbrella, or both) decides which of a
+            // train's tags are cut; a mode that skips this entry's tag creates
+            // no tag for it.
+            if !entry_tag_selected(entry) {
+                continue;
+            }
             let name = planned_tag_name(entry)?;
             // A single-version workspace collapses many modules onto one shared
             // tag (`tag_format = "v{version}"`): that is one release train,
@@ -856,6 +880,9 @@ fn planned_tag_annotations(
         let Some(version) = &entry.planned_version else {
             continue;
         };
+        if !entry_tag_selected(entry) {
+            continue;
+        }
         let module = module_for(module_by_ref, &entry.module)?;
         let annotation = tag_message(entry, module, version)?;
         let name = planned_tag_name(entry)?;
@@ -926,6 +953,9 @@ pub(crate) fn preflight_tag_signers(plan: &ReleasePlan, writer: &dyn VcsWriter) 
     let mut planned: BTreeMap<String, Option<TagSigner>> = BTreeMap::new();
     for entry in &plan.entries {
         if entry.planned_version.is_none() {
+            continue;
+        }
+        if !entry_tag_selected(entry) {
             continue;
         }
         let name = planned_tag_name(entry)?;
@@ -1012,6 +1042,9 @@ pub(crate) fn push_refspecs(plan: &ReleasePlan, branch: Option<&str>) -> AppResu
     let mut seen = BTreeSet::new();
     for entry in &plan.entries {
         if entry.planned_version.is_some() {
+            if !entry_tag_selected(entry) {
+                continue;
+            }
             let name = planned_tag_name(entry)?;
             // Modules sharing one collapsed tag push a single tag refspec.
             if seen.insert(name.to_string()) {
@@ -1075,6 +1108,8 @@ mod tests {
             },
             publish_needed,
             tag_format: None,
+            tag_mode: None,
+            baseline_source: None,
             tag_message: None,
             signer: None,
             commit_message: None,
@@ -1567,6 +1602,80 @@ mod tests {
         assert!(writer.writes().is_empty());
     }
 
+    /// Created-tag names recorded by a `FakeVcsWriter`, in order.
+    fn created_tag_names(writer: &FakeVcsWriter) -> Vec<String> {
+        writer
+            .writes()
+            .into_iter()
+            .filter_map(|w| match w {
+                VcsWrite::CreateTag { name, .. } => Some(name),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// An umbrella entry (`suite`, `v{version}`) plus a per-module entry
+    /// (`core`, `rust/core@…`) sharing a train, with the given tag mode.
+    fn umbrella_and_per_module(mode: toven_ports::TagMode) -> ReleasePlan {
+        let mut suite = entry("suite", Version::new(0, 2, 0), true, 0);
+        suite.tag_format = Some("v{version}".into());
+        suite.planned_tag = Some("v0.2.0".into());
+        suite.umbrella = true;
+        suite.tag_mode = Some(mode);
+        let mut core = entry("core", Version::new(0, 2, 0), true, 1);
+        core.tag_mode = Some(mode);
+        ReleasePlan::new(BumpPolicy::SemverCascade, vec![suite, core])
+    }
+
+    fn apply_umbrella_train(plan: &ReleasePlan, writer: &FakeVcsWriter) {
+        release_apply(
+            plan,
+            &[module("suite"), module("core")],
+            &targets(vec![("suite", FakeReleaseTarget::new())]),
+            &FakeVcsReader::new(),
+            writer,
+            &ReleaseApplyOptions {
+                no_push: false,
+                ..Default::default()
+            },
+        )
+        .expect("umbrella train applies");
+    }
+
+    #[test]
+    fn per_module_tag_mode_creates_only_per_module_tags() {
+        let plan = umbrella_and_per_module(toven_ports::TagMode::PerModule);
+        let writer = FakeVcsWriter::new().with_commit_oid("c0ffee");
+        apply_umbrella_train(&plan, &writer);
+        // The umbrella module's `v0.2.0` tag is skipped; only the per-module tag
+        // is cut.
+        assert_eq!(
+            created_tag_names(&writer),
+            vec!["rust/core@0.2.0".to_string()]
+        );
+    }
+
+    #[test]
+    fn umbrella_tag_mode_creates_only_the_umbrella_tag() {
+        let plan = umbrella_and_per_module(toven_ports::TagMode::Umbrella);
+        let writer = FakeVcsWriter::new().with_commit_oid("c0ffee");
+        apply_umbrella_train(&plan, &writer);
+        assert_eq!(created_tag_names(&writer), vec!["v0.2.0".to_string()]);
+    }
+
+    #[test]
+    fn both_tag_mode_creates_per_module_and_umbrella_tags() {
+        let plan = umbrella_and_per_module(toven_ports::TagMode::Both);
+        let writer = FakeVcsWriter::new().with_commit_oid("c0ffee");
+        apply_umbrella_train(&plan, &writer);
+        let mut created = created_tag_names(&writer);
+        created.sort();
+        assert_eq!(
+            created,
+            vec!["rust/core@0.2.0".to_string(), "v0.2.0".to_string()]
+        );
+    }
+
     #[test]
     fn two_modules_sharing_a_tag_collapse_into_a_single_release_train() {
         let mut core = entry("core", Version::new(0, 2, 0), true, 0);
@@ -1962,6 +2071,41 @@ mod tests {
             "a maintainer-owned apply publishes against the existing tag: {:?}",
             target.calls()
         );
+    }
+
+    #[test]
+    fn maintainer_umbrella_mode_verifies_only_the_umbrella_tag() {
+        // In umbrella tag mode the maintainer cuts only the umbrella tag
+        // (`v0.2.0`); the per-module `core` tag is never created, so
+        // verification must not require it — the absent per-module tag is not a
+        // fail-closed condition.
+        let mut suite = entry("suite", Version::new(0, 2, 0), true, 0);
+        suite.entrypoint = toven_model::Entrypoint::Maintainer;
+        suite.tag_format = Some("v{version}".into());
+        suite.planned_tag = Some("v0.2.0".into());
+        suite.umbrella = true;
+        suite.tag_mode = Some(toven_ports::TagMode::Umbrella);
+        let mut core = entry("core", Version::new(0, 2, 0), true, 1);
+        core.entrypoint = toven_model::Entrypoint::Maintainer;
+        core.tag_mode = Some(toven_ports::TagMode::Umbrella);
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![suite, core]);
+        let writer = FakeVcsWriter::new();
+        // Only the umbrella tag exists at HEAD; no per-module `rust/core@…` tag.
+        let reader = FakeVcsReader::new()
+            .with_rev_parse("deadbee")
+            .with_tags(vec![TagRef::new("v0.2.0", Oid::new("deadbee"))]);
+
+        release_apply(
+            &plan,
+            &[module("suite"), module("core")],
+            &targets(vec![("suite", FakeReleaseTarget::new())]),
+            &reader,
+            &writer,
+            &ReleaseApplyOptions::default(),
+        )
+        .expect("umbrella-mode maintainer verify requires only the umbrella tag");
+
+        assert!(writer.writes().is_empty(), "{:?}", writer.writes());
     }
 
     #[test]

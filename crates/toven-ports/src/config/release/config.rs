@@ -11,8 +11,8 @@ use crate::release::Visibility;
 use crate::template::ReleaseVar;
 
 use super::{
-    BumpLevel, ChangelogConfig, DependentVersion, HostConfig, ImageConfig, PhasesConfig,
-    PrereleaseConfig, PublicationPolicy, SignConfig, VersionReferenceConfig,
+    BaselineSourceConfig, BumpLevel, ChangelogConfig, DependentVersion, HostConfig, ImageConfig,
+    PhasesConfig, PrereleaseConfig, PublicationPolicy, SignConfig, TagMode, VersionReferenceConfig,
 };
 
 /// The declarative release surface (`[ecosystems.<id>].release` and the
@@ -43,6 +43,18 @@ pub struct ReleaseConfig {
     /// Release tag name template (e.g. `v{version}`, `{module}/v{version}`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag_format: Option<String>,
+    /// Which tags the release train creates: per-module tags, a single umbrella
+    /// tag, or both. `None` = adapter default (resolved per ecosystem). Governs
+    /// *what tags are created*; `umbrella` still marks *which* module is the
+    /// umbrella, and `baseline` governs what change-gating diffs against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag_mode: Option<TagMode>,
+    /// Where change-detection anchors this module's release baseline (its own
+    /// tag, the umbrella tag, the registry, or `registry+umbrella`). `None` =
+    /// adapter default. A source that references the umbrella tag requires an
+    /// umbrella module, validated at plan time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub baseline: Option<BaselineSourceConfig>,
     /// Annotated-tag message template; `None` = a lightweight tag.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag_message: Option<String>,
@@ -300,7 +312,7 @@ fn validate_nonblank_entries(field: &str, entries: &[String]) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::ReleaseConfig;
-    use crate::config::{BumpLevel, DependentVersion};
+    use crate::config::{BaselineSourceConfig, BumpLevel, DependentVersion, TagMode};
 
     fn parse(toml: &str) -> Result<ReleaseConfig, toml::de::Error> {
         toml::from_str(toml)
@@ -317,6 +329,11 @@ mod tests {
         assert_eq!(config.level, Some(BumpLevel::Minor));
         assert_eq!(config.dependent_version, Some(DependentVersion::Upgrade));
         assert_eq!(config.tag_format.as_deref(), Some("{module}/v{version}"));
+        assert_eq!(config.tag_mode, Some(TagMode::Both));
+        assert_eq!(
+            config.baseline,
+            Some(BaselineSourceConfig::RegistryUmbrella)
+        );
         assert_eq!(config.sign_tags, Some(true));
         assert_eq!(config.sign_format.as_deref(), Some("openpgp"));
         assert_eq!(config.signing_key.as_deref(), Some("ABCD1234"));

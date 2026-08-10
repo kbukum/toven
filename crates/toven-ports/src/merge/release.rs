@@ -31,6 +31,8 @@ pub fn merge_release(base: &ReleaseConfig, over: &ReleaseConfig) -> ReleaseConfi
     if over.tag_format.is_some() {
         merged.tag_format.clone_from(&over.tag_format);
     }
+    merged.tag_mode = over.tag_mode.or(merged.tag_mode);
+    merged.baseline = over.baseline.or(merged.baseline);
     if over.tag_message.is_some() {
         merged.tag_message.clone_from(&over.tag_message);
     }

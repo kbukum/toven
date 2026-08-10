@@ -76,6 +76,7 @@ struct FakeReleaseState {
     fail_package: Option<String>,
     fail_publish: Option<String>,
     fail_version_read: Option<String>,
+    fail_published_read: Option<String>,
     sbom_artifact: Option<String>,
     fail_sbom: Option<String>,
     calls: Vec<ReleaseCall>,
@@ -99,6 +100,7 @@ impl Default for FakeReleaseTarget {
                 fail_package: None,
                 fail_publish: None,
                 fail_version_read: None,
+                fail_published_read: None,
                 sbom_artifact: Some("sbom/fake.cdx.json".to_string()),
                 fail_sbom: None,
                 calls: Vec::new(),
@@ -223,6 +225,17 @@ impl FakeReleaseTarget {
         self
     }
 
+    /// Make **only** the registry read (`published_versions`) fail with a typed
+    /// internal error, leaving `declared_version` intact — e.g. to model a
+    /// transient registry (crates.io) outage while the local manifest still
+    /// resolves, so change detection downgrades to the tag/umbrella anchor
+    /// rather than aborting.
+    #[must_use]
+    pub fn with_published_read_failure(self, message: impl Into<String>) -> Self {
+        self.state().fail_published_read = Some(message.into());
+        self
+    }
+
     /// Snapshot the recorded release calls in call order.
     #[must_use]
     pub fn calls(&self) -> Vec<ReleaseCall> {
@@ -276,6 +289,9 @@ impl VersionSource for FakeReleaseTarget {
         self.record(ReleaseCall::PublishedVersions(module.id.clone()));
         let state = self.state();
         if let Some(message) = &state.fail_version_read {
+            return Err(fake_error(message));
+        }
+        if let Some(message) = &state.fail_published_read {
             return Err(fake_error(message));
         }
         Ok(state.published.clone())

@@ -400,6 +400,8 @@ mod tests {
             },
             publish_needed: true,
             tag_format: None,
+            tag_mode: None,
+            baseline_source: None,
             tag_message: None,
             signer: None,
             commit_message: None,

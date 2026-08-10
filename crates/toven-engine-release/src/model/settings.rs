@@ -7,9 +7,9 @@
 use rskit_errors::AppResult;
 use toven_model::{Entrypoint, ReleasePhase};
 use toven_ports::{
-    BumpLevel, ChangelogConfig, DependentVersion, HostConfig, ImageConfig, PhaseBacking,
-    PhasesConfig, PrereleaseConfig, PublicationPolicy, ReleaseConfig, SignConfig, SignFormat,
-    VersionReferenceConfig, Visibility, merge_release,
+    BaselineSourceConfig, BumpLevel, ChangelogConfig, DependentVersion, HostConfig, ImageConfig,
+    PhaseBacking, PhasesConfig, PrereleaseConfig, PublicationPolicy, ReleaseConfig, SignConfig,
+    SignFormat, TagMode, VersionReferenceConfig, Visibility, merge_release,
 };
 
 use crate::versioning::strategy;
@@ -92,6 +92,13 @@ pub struct ResolvedReleaseSettings {
     pub prerelease: PrereleaseConfig,
     /// Configured release tag name template; `None` = target default.
     pub tag_format: Option<String>,
+    /// Which tags the train creates (per-module, umbrella, or both); `None` =
+    /// adapter default, which the engine treats as the behavior-preserving
+    /// legacy layout (create every planned tag).
+    pub tag_mode: Option<TagMode>,
+    /// Where change-detection anchors this module's baseline; `None` = adapter
+    /// default, which the engine resolves from umbrella presence.
+    pub baseline: Option<BaselineSourceConfig>,
     /// Annotated-tag message template; `None` = a lightweight tag.
     pub tag_message: Option<String>,
     /// Whether release tags are signed. Always implies an annotated tag
@@ -228,6 +235,8 @@ impl ResolvedReleaseSettings {
             dependent_version: config.dependent_version.unwrap_or(DependentVersion::Bump),
             prerelease: config.prerelease.clone().unwrap_or_default(),
             tag_format: config.tag_format.clone(),
+            tag_mode: config.tag_mode,
+            baseline: config.baseline,
             tag_message: config.tag_message.clone(),
             sign_tags,
             sign_format,

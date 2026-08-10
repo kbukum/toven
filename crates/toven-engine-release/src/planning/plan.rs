@@ -152,7 +152,67 @@ fn plan_with_changes(
         intent,
     })?;
 
+    validate_umbrella_tag_cut(context, settings, &entries)?;
+
     Ok(ReleasePlan::new(policy, entries))
+}
+
+/// Fail closed when the umbrella tag mode would release a train member with no
+/// tag at all.
+///
+/// In [`TagMode::Umbrella`] a member's only tag is the shared umbrella tag, cut
+/// solely by the umbrella module's own entry, and no per-module tags are
+/// created. If the train releases other members but the umbrella module is not
+/// itself bumped, it has no entry, so the umbrella tag is never cut and those
+/// members would commit and publish entirely untagged. Refuse at plan time,
+/// before any mutation, rather than relying on the umbrella module also
+/// receiving a version bump. ([`TagMode::Both`] still cuts each changed
+/// member's per-module tag, so it stays anchored even when the umbrella module
+/// is unbumped.)
+fn validate_umbrella_tag_cut(
+    context: &PlanContext,
+    settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
+    entries: &[crate::ReleaseEntry],
+) -> AppResult<()> {
+    let released_members: std::collections::BTreeSet<Option<MemberId>> = entries
+        .iter()
+        .filter(|entry| entry.planned_version.is_some())
+        .map(|entry| entry.module.member.clone())
+        .collect();
+    for module in &context.federation.modules {
+        let Some(resolved) = settings.get(&module.key()) else {
+            continue;
+        };
+        if !resolved.umbrella {
+            continue;
+        }
+        // Only pure `Umbrella` mode leaves a released member untagged; a mode
+        // that also cuts per-module tags keeps changed members anchored.
+        let umbrella_only = resolved
+            .tag_mode
+            .is_some_and(|mode| mode.creates_umbrella_tag() && !mode.creates_per_module_tags());
+        if !umbrella_only || !released_members.contains(&module.member) {
+            continue;
+        }
+        let umbrella_released = entries
+            .iter()
+            .any(|entry| entry.module == module.key() && entry.planned_version.is_some());
+        if !umbrella_released {
+            return Err(AppError::invalid_input(
+                "release.umbrella",
+                format!(
+                    "tag mode 'umbrella' cuts only the member's umbrella tag from the umbrella \
+                     module '{}', but the release bumps other members of its train without \
+                     bumping the umbrella module, so the umbrella tag would never be cut and those \
+                     members would publish untagged; ensure the umbrella module is released (for \
+                     example by depending on its train members) or choose a per-module or both \
+                     tag mode",
+                    module.key()
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Resolve the release targets declared by each configured ecosystem adapter.
@@ -239,7 +299,92 @@ pub(crate) fn resolve_release_settings(
         validate_phase_backing_supported(module, &resolved_settings)?;
         resolved.insert(module.key(), resolved_settings);
     }
+    validate_tag_mode_and_baseline(context, &resolved)?;
     Ok(resolved)
+}
+
+/// The human-facing selector name when a module's tag mode or baseline requires
+/// the member's umbrella tag, or `None` when neither does.
+///
+/// The tag mode takes precedence in the diagnostic (it is the more direct cause
+/// of an umbrella-tag dependency); the baseline is reported only when the tag
+/// mode does not itself require an umbrella.
+fn umbrella_selector(
+    tag_mode: Option<toven_ports::TagMode>,
+    baseline: Option<toven_ports::BaselineSourceConfig>,
+) -> Option<&'static str> {
+    if tag_mode.is_some_and(toven_ports::TagMode::requires_umbrella) {
+        return tag_mode.map(toven_ports::TagMode::as_str);
+    }
+    if baseline.is_some_and(toven_ports::BaselineSourceConfig::requires_umbrella) {
+        return baseline.map(toven_ports::BaselineSourceConfig::as_str);
+    }
+    None
+}
+
+/// Fail closed when a `selector` that anchors on the member's umbrella tag finds
+/// zero or more than one umbrella module in that member.
+fn check_umbrella_count(module_id: &str, selector: &str, count: usize) -> AppResult<()> {
+    if count == 0 {
+        return Err(AppError::invalid_input(
+            "release.umbrella",
+            format!(
+                "module '{module_id}' selects '{selector}', which anchors on the member's umbrella \
+                 tag, but the member declares no umbrella module; mark one module `umbrella = \
+                 true` or choose a per-module tag mode/baseline"
+            ),
+        ));
+    }
+    if count > 1 {
+        return Err(AppError::invalid_input(
+            "release.umbrella",
+            format!(
+                "module '{module_id}' selects '{selector}', which anchors on the member's umbrella \
+                 tag, but the member declares {count} umbrella modules; a train has a single \
+                 umbrella representative"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Fail closed when a module's resolved tag mode or baseline source references
+/// an umbrella tag its member does not (uniquely) provide.
+///
+/// The umbrella tag is created by the member's single umbrella module, so a tag
+/// mode that creates it ([`TagMode::Umbrella`](toven_ports::TagMode::Umbrella) /
+/// [`TagMode::Both`](toven_ports::TagMode::Both)) and a baseline that anchors on
+/// it (`umbrella-tag` / `registry+umbrella`) both require the member to declare
+/// exactly one umbrella module. Zero umbrella modules leaves the umbrella tag
+/// undefined; more than one makes it ambiguous. Both surface here at plan time —
+/// before any mutation — rather than mid-apply.
+fn validate_tag_mode_and_baseline(
+    context: &PlanContext,
+    resolved: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
+) -> AppResult<()> {
+    let mut umbrella_count: BTreeMap<Option<MemberId>, usize> = BTreeMap::new();
+    for module in &context.federation.modules {
+        if resolved
+            .get(&module.key())
+            .is_some_and(|settings| settings.umbrella)
+        {
+            *umbrella_count.entry(module.member.clone()).or_default() += 1;
+        }
+    }
+    for module in &context.federation.modules {
+        let Some(settings) = resolved.get(&module.key()) else {
+            continue;
+        };
+        let Some(selector) = umbrella_selector(settings.tag_mode, settings.baseline) else {
+            continue;
+        };
+        let count = umbrella_count
+            .get(&module.member)
+            .copied()
+            .unwrap_or_default();
+        check_umbrella_count(&module.id.to_string(), selector, count)?;
+    }
+    Ok(())
 }
 
 /// Fail closed when a module requests a non-public [`Visibility`] against a
@@ -508,8 +653,8 @@ mod tests {
     };
 
     use super::{
-        BumpPolicy, ResolvedReleaseSettings, reconcile_policy, release_plan,
-        validate_phase_backing_supported, validate_required_changelogs,
+        BumpPolicy, ResolvedReleaseSettings, check_umbrella_count, reconcile_policy, release_plan,
+        umbrella_selector, validate_phase_backing_supported, validate_required_changelogs,
     };
     use crate::{BumpOverrides, BumpReason, BumpSource, ReleasePlan};
     use toven_engine_core::config::{Document, ProjectConfig, TovenConfig};
@@ -535,6 +680,60 @@ mod tests {
             validate_phase_backing_supported(&module("core", "core"), &resolved).is_ok(),
             "an unconfigured (native) phase backing must be accepted"
         );
+    }
+
+    #[test]
+    fn per_module_tag_mode_and_own_tag_baseline_need_no_umbrella() {
+        use toven_ports::{BaselineSourceConfig, TagMode};
+        assert!(
+            umbrella_selector(Some(TagMode::PerModule), Some(BaselineSourceConfig::OwnTag))
+                .is_none()
+        );
+        assert!(umbrella_selector(None, None).is_none());
+        assert!(umbrella_selector(None, Some(BaselineSourceConfig::Registry)).is_none());
+    }
+
+    #[test]
+    fn umbrella_tag_mode_and_umbrella_baseline_require_an_umbrella() {
+        use toven_ports::{BaselineSourceConfig, TagMode};
+        assert_eq!(
+            umbrella_selector(Some(TagMode::Umbrella), None),
+            Some("umbrella")
+        );
+        assert_eq!(umbrella_selector(Some(TagMode::Both), None), Some("both"));
+        assert_eq!(
+            umbrella_selector(None, Some(BaselineSourceConfig::UmbrellaTag)),
+            Some("umbrella-tag")
+        );
+        assert_eq!(
+            umbrella_selector(None, Some(BaselineSourceConfig::RegistryUmbrella)),
+            Some("registry+umbrella")
+        );
+    }
+
+    #[test]
+    fn umbrella_selector_reports_the_tag_mode_before_the_baseline() {
+        use toven_ports::{BaselineSourceConfig, TagMode};
+        assert_eq!(
+            umbrella_selector(
+                Some(TagMode::Umbrella),
+                Some(BaselineSourceConfig::UmbrellaTag)
+            ),
+            Some("umbrella")
+        );
+    }
+
+    #[test]
+    fn an_umbrella_selector_with_zero_or_many_umbrellas_fails_closed() {
+        let zero = check_umbrella_count("rust:core", "umbrella", 0)
+            .expect_err("zero umbrella modules must fail closed");
+        assert!(zero.to_string().contains("no umbrella module"), "{zero}");
+
+        let many = check_umbrella_count("rust:core", "umbrella", 2)
+            .expect_err("multiple umbrella modules must fail closed");
+        assert!(many.to_string().contains("single umbrella"), "{many}");
+
+        assert!(check_umbrella_count("rust:core", "umbrella", 1).is_ok());
     }
 
     #[test]

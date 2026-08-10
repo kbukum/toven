@@ -3,8 +3,8 @@
 use rskit_version::semver::Version;
 use toven_model::{Entrypoint, ModuleKey};
 use toven_ports::{
-    BumpLevel, Oid, PublicationPolicy, ReleaseMutation, TagSigner, VersionReferenceConfig,
-    Visibility,
+    BaselineSourceConfig, BumpLevel, Oid, PublicationPolicy, ReleaseMutation, TagMode, TagSigner,
+    VersionReferenceConfig, Visibility,
 };
 
 /// The engine-owned named bump policy.
@@ -309,6 +309,16 @@ pub struct ReleaseEntry {
     /// Configured tag-format override used to build the target-owned tag
     /// scheme.
     pub tag_format: Option<String>,
+    /// Which tags the train creates for this module's train (per-module,
+    /// umbrella, or both); `None` = the behavior-preserving legacy layout that
+    /// creates every planned tag. Gates tag creation and maintainer-tag
+    /// verification.
+    pub tag_mode: Option<TagMode>,
+    /// The configured change-detection baseline source for this module (own
+    /// tag, umbrella tag, registry, or `registry+umbrella`); `None` = the
+    /// adapter/engine default inferred from umbrella presence. Recorded for
+    /// projection transparency.
+    pub baseline_source: Option<BaselineSourceConfig>,
     /// Configured annotation template; `None` creates a lightweight tag.
     pub tag_message: Option<String>,
     /// Signing material when the release tag is signed (always annotated);
@@ -639,6 +649,8 @@ mod tests {
             },
             publish_needed,
             tag_format: None,
+            tag_mode: None,
+            baseline_source: None,
             tag_message: None,
             signer: None,
             commit_message: None,
