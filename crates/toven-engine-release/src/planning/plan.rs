@@ -365,15 +365,15 @@ fn umbrella_selector(
     None
 }
 
-/// Fail closed when a `selector` that anchors on the member's umbrella tag finds
-/// zero or more than one umbrella module in that member.
+/// Fail closed when a `selector` that anchors on the train's umbrella tag finds
+/// zero or more than one umbrella module in that train (member + ecosystem).
 fn check_umbrella_count(module_id: &str, selector: &str, count: usize) -> AppResult<()> {
     if count == 0 {
         return Err(AppError::invalid_input(
             "release.umbrella",
             format!(
-                "module '{module_id}' selects '{selector}', which anchors on the member's umbrella \
-                 tag, but the member declares no umbrella module; mark one module `umbrella = \
+                "module '{module_id}' selects '{selector}', which anchors on the train's umbrella \
+                 tag, but the train declares no umbrella module; mark one module `umbrella = \
                  true` or choose a per-module tag mode/baseline"
             ),
         ));
@@ -382,8 +382,8 @@ fn check_umbrella_count(module_id: &str, selector: &str, count: usize) -> AppRes
         return Err(AppError::invalid_input(
             "release.umbrella",
             format!(
-                "module '{module_id}' selects '{selector}', which anchors on the member's umbrella \
-                 tag, but the member declares {count} umbrella modules; a train has a single \
+                "module '{module_id}' selects '{selector}', which anchors on the train's umbrella \
+                 tag, but the train declares {count} umbrella modules; a train has a single \
                  umbrella representative"
             ),
         ));
@@ -392,26 +392,34 @@ fn check_umbrella_count(module_id: &str, selector: &str, count: usize) -> AppRes
 }
 
 /// Fail closed when a module's resolved tag mode or baseline source references
-/// an umbrella tag its member does not (uniquely) provide.
+/// an umbrella tag its train does not (uniquely) provide.
 ///
-/// The umbrella tag is created by the member's single umbrella module, so a tag
+/// The umbrella tag is created by the train's single umbrella module, so a tag
 /// mode that creates it ([`TagMode::Umbrella`](toven_ports::TagMode::Umbrella) /
 /// [`TagMode::Both`](toven_ports::TagMode::Both)) and a baseline that anchors on
-/// it (`umbrella-tag` / `registry+umbrella`) both require the member to declare
+/// it (`umbrella-tag` / `registry+umbrella`) both require the train to declare
 /// exactly one umbrella module. Zero umbrella modules leaves the umbrella tag
 /// undefined; more than one makes it ambiguous. Both surface here at plan time —
 /// before any mutation — rather than mid-apply.
+///
+/// Umbrella presence is counted per train (member + ecosystem), matching change
+/// detection ([`train_umbrella_scheme`](crate::versioning)) and adapter-default
+/// degradation ([`apply_adapter_release_defaults`]): a per-ecosystem tag scheme
+/// makes the umbrella tag inherently per-ecosystem, so a polyglot member may
+/// anchor one umbrella per ecosystem without conflict.
 fn validate_tag_mode_and_baseline(
     context: &PlanContext,
     resolved: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
 ) -> AppResult<()> {
-    let mut umbrella_count: BTreeMap<Option<MemberId>, usize> = BTreeMap::new();
+    let mut umbrella_count: BTreeMap<(Option<MemberId>, EcosystemId), usize> = BTreeMap::new();
     for module in &context.federation.modules {
         if resolved
             .get(&module.key())
             .is_some_and(|settings| settings.umbrella)
         {
-            *umbrella_count.entry(module.member.clone()).or_default() += 1;
+            *umbrella_count
+                .entry((module.member.clone(), module.id.ecosystem.clone()))
+                .or_default() += 1;
         }
     }
     for module in &context.federation.modules {
@@ -422,7 +430,7 @@ fn validate_tag_mode_and_baseline(
             continue;
         };
         let count = umbrella_count
-            .get(&module.member)
+            .get(&(module.member.clone(), module.id.ecosystem.clone()))
             .copied()
             .unwrap_or_default();
         check_umbrella_count(&module.id.to_string(), selector, count)?;

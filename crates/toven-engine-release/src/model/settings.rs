@@ -282,29 +282,35 @@ impl ResolvedReleaseSettings {
     /// ([`TagMode::Umbrella`](toven_ports::TagMode::Umbrella) /
     /// [`TagMode::Both`](toven_ports::TagMode::Both), an `umbrella-tag` /
     /// `registry+umbrella` baseline) is degraded to its per-module counterpart
-    /// when the member declares no single umbrella module, so an adapter default
-    /// never forces an umbrella-anchored layout the member cannot satisfy — only
+    /// when the train declares no single umbrella module, so an adapter default
+    /// never forces an umbrella-anchored layout the train cannot satisfy — only
     /// an explicit config value can, which plan validation then checks. Pass
-    /// `member_has_umbrella = true` only when the member declares exactly one
-    /// umbrella module.
+    /// `train_has_single_umbrella = true` only when the train (member +
+    /// ecosystem) declares exactly one umbrella module.
     pub(crate) const fn apply_adapter_defaults(
         &mut self,
         defaults: toven_ports::ReleaseDefaults,
-        member_has_umbrella: bool,
+        train_has_single_umbrella: bool,
     ) {
         if self.tag_mode.is_none() {
-            self.tag_mode = Some(degrade_tag_mode(defaults.tag_mode, member_has_umbrella));
+            self.tag_mode = Some(degrade_tag_mode(
+                defaults.tag_mode,
+                train_has_single_umbrella,
+            ));
         }
         if self.baseline.is_none() {
-            self.baseline = Some(degrade_baseline(defaults.baseline, member_has_umbrella));
+            self.baseline = Some(degrade_baseline(
+                defaults.baseline,
+                train_has_single_umbrella,
+            ));
         }
     }
 }
 
 /// Degrade an umbrella-anchored default tag mode to per-module tags when the
-/// member declares no single umbrella module.
-const fn degrade_tag_mode(mode: TagMode, member_has_umbrella: bool) -> TagMode {
-    if mode.requires_umbrella() && !member_has_umbrella {
+/// train declares no single umbrella module.
+const fn degrade_tag_mode(mode: TagMode, train_has_single_umbrella: bool) -> TagMode {
+    if mode.requires_umbrella() && !train_has_single_umbrella {
         TagMode::PerModule
     } else {
         mode
@@ -312,14 +318,14 @@ const fn degrade_tag_mode(mode: TagMode, member_has_umbrella: bool) -> TagMode {
 }
 
 /// Degrade an umbrella-anchored default baseline source to the module's own tag
-/// when the member declares no single umbrella module: an `umbrella-tag` /
+/// when the train declares no single umbrella module: an `umbrella-tag` /
 /// `registry+umbrella` default then anchors change detection on per-module tags
-/// rather than requiring an umbrella the member never cuts.
+/// rather than requiring an umbrella the train never cuts.
 const fn degrade_baseline(
     source: BaselineSourceConfig,
-    member_has_umbrella: bool,
+    train_has_single_umbrella: bool,
 ) -> BaselineSourceConfig {
-    if source.requires_umbrella() && !member_has_umbrella {
+    if source.requires_umbrella() && !train_has_single_umbrella {
         BaselineSourceConfig::OwnTag
     } else {
         source
@@ -381,10 +387,10 @@ mod tests {
 
     #[test]
     fn per_module_adapter_default_is_unchanged_by_umbrella_presence() {
-        for member_has_umbrella in [false, true] {
+        for train_has_single_umbrella in [false, true] {
             let mut resolved =
                 ResolvedReleaseSettings::resolve(&ReleaseConfig::default(), None).unwrap();
-            resolved.apply_adapter_defaults(own_tag_defaults(), member_has_umbrella);
+            resolved.apply_adapter_defaults(own_tag_defaults(), train_has_single_umbrella);
             assert_eq!(resolved.tag_mode, Some(TagMode::PerModule));
             assert_eq!(resolved.baseline, Some(BaselineSourceConfig::OwnTag));
         }
