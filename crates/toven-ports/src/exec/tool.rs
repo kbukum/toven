@@ -25,10 +25,11 @@ use super::InvocationEnvironment;
 /// The rename companion to [`ToolInvocation::forward_env`]: `source` names the
 /// ambient environment variable the runner resolves at run time, and `child`
 /// is the variable the tool actually reads (e.g. a configured
-/// `MY_REGISTRY_TOKEN` handed to cargo as `CARGO_REGISTRY_TOKEN`). Like
-/// `forward_env`, the value is resolved inside the runner and never enters the
-/// invocation, so it is never cloned into a recorded [`ToolInvocation`], placed
-/// on argv, or logged.
+/// `MY_REGISTRY_TOKEN` handed to cargo as `CARGO_REGISTRY_TOKEN`). The value is
+/// resolved inside the runner and never enters the invocation, so it is never
+/// cloned into a recorded [`ToolInvocation`], placed on argv, or logged. Unlike
+/// the optional [`forward_env`](ToolInvocation::forward_env), a mapping is
+/// *required*: the runner fails closed on an unset or empty `source`.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ForwardEnvAs {
     /// Ambient environment variable the runner resolves at run time.
@@ -55,12 +56,14 @@ impl ForwardEnvAs {
 /// — external tools spawned by bare name need `PATH`, and most need `HOME` and
 /// the ambient VCS/registry configuration; use
 /// [`with_environment`](Self::with_environment) to opt into a hermetic policy.
-/// Secrets are never placed on `argv` and never logged;
-/// [`forward_env`](Self::forward_env) names the ambient secrets the runner
-/// resolves and guarantees are present for the child, and
-/// [`forward_env_as`](Self::forward_env_as) does the same for the rename case
-/// where the child reads the value under a different name. In both forms the
-/// runner resolves the value at run time — it never enters the invocation.
+/// Secrets are never placed on `argv` and never logged, and in neither
+/// forwarding form does the value enter the invocation — the runner resolves it
+/// at run time. The two forms differ in posture:
+/// [`forward_env`](Self::forward_env) names *optional* ambient secrets the child
+/// *may* read (an absent one is skipped so the tool can fall back to its own
+/// credential resolution), while [`forward_env_as`](Self::forward_env_as) is a
+/// *required* rename — the runner resolves it fail-closed, so a configured but
+/// absent source is a typed error rather than a silent skip.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ToolInvocation {
     /// Fully resolved argument vector (`argv[0]` is the program).
@@ -74,8 +77,10 @@ pub struct ToolInvocation {
     /// name only — the runner resolves each non-empty value at run time).
     pub forward_env: Vec<String>,
     /// Ambient secrets forwarded to the child under a *different* name than
-    /// their source (secrets by name only — the runner resolves each non-empty
-    /// value at run time; the value never enters the invocation).
+    /// their source (secrets by name only — the value never enters the
+    /// invocation). Unlike [`forward_env`](Self::forward_env), a mapping here is
+    /// *required*: the runner resolves each source fail-closed at run time and
+    /// errors on an unset or empty one rather than skipping it.
     pub forward_env_as: Vec<ForwardEnvAs>,
     /// Optional wall-clock bound; `None` runs unbounded.
     pub timeout: Option<Duration>,

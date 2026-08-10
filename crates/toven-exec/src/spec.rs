@@ -48,15 +48,26 @@ const fn env_policy(policy: InvocationEnvPolicy) -> EnvPolicy {
 /// Lower a one-shot [`ToolInvocation`] into its [`ProcessSpec`].
 ///
 /// The shared [`base_spec`] plus the tool-shape extras: the invocation's
-/// working directory and named-secret forwarding. Each forwarded name (both the
-/// same-name [`forward_env`](ToolInvocation::forward_env) and the renamed
-/// [`forward_env_as`](ToolInvocation::forward_env_as)) is resolved from the
-/// ambient environment at run time via [`rskit_util::env::get_non_empty`]; an
-/// unset or empty name is skipped rather than forwarded blank, and no value is
-/// ever placed on argv or retained on the invocation.
+/// working directory and named-secret forwarding. Both forwarding forms resolve
+/// their source from the ambient environment at run time via
+/// [`rskit_util::env::get_non_empty`], so no value is ever placed on argv or
+/// retained on the invocation — but they differ in posture, matching their
+/// documented contracts:
+///
+/// - [`forward_env`](ToolInvocation::forward_env) names *optional* ambient
+///   secrets the child *may* read; an unset or empty name is skipped rather
+///   than forwarded blank, letting the tool fall back to its own credential
+///   resolution.
+/// - [`forward_env_as`](ToolInvocation::forward_env_as) is a *required* rename
+///   (a configured secret handed to the child under a different name). The
+///   runner resolves it fail-closed: an unset or empty source is a typed error,
+///   never a silent skip, so a configured publish can never proceed with an
+///   unintended inherited credential or none at all.
 ///
 /// # Errors
-/// Returns [`AppError::invalid_input`] when the invocation's argv is empty.
+/// Returns [`AppError::invalid_input`] when the invocation's argv is empty, or
+/// when a [`forward_env_as`](ToolInvocation::forward_env_as) source resolves
+/// unset or empty at run time.
 pub fn tool_spec(invocation: &ToolInvocation) -> AppResult<ProcessSpec> {
     let mut spec = base_spec(&invocation.argv, &invocation.environment, "tool.argv")?;
     if let Some(dir) = invocation.working_dir() {
@@ -68,9 +79,17 @@ pub fn tool_spec(invocation: &ToolInvocation) -> AppResult<ProcessSpec> {
         }
     }
     for mapping in &invocation.forward_env_as {
-        if let Some(value) = rskit_util::env::get_non_empty(&mapping.source) {
-            spec = spec.env(mapping.child.clone(), value);
-        }
+        let value = rskit_util::env::get_non_empty(&mapping.source).ok_or_else(|| {
+            AppError::invalid_input(
+                "tool.forward_env_as",
+                format!(
+                    "renamed secret source '{}' (forwarded to the child as '{}') is unset or \
+                     empty; export it before running",
+                    mapping.source, mapping.child
+                ),
+            )
+        })?;
+        spec = spec.env(mapping.child.clone(), value);
     }
     Ok(spec)
 }

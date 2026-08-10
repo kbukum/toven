@@ -50,7 +50,7 @@ impl ToolRunner for ProcessToolRunner {
 mod tests {
     use std::collections::BTreeMap;
 
-    use toven_ports::{InvocationEnvironment, ToolInvocation, ToolRunner};
+    use toven_ports::{ForwardEnvAs, InvocationEnvironment, ToolInvocation, ToolRunner};
 
     use super::ProcessToolRunner;
 
@@ -189,5 +189,25 @@ mod tests {
             .require_success("bounded tool")
             .expect_err("truncated output fails closed");
         assert_eq!(error.code(), rskit_errors::ErrorCode::Internal);
+    }
+
+    #[test]
+    fn a_missing_renamed_secret_source_fails_closed() {
+        // `forward_env_as` is a required rename: a configured source that is
+        // unset at run time must be a typed error, never a silent skip that lets
+        // a publish proceed with an unintended (or no) credential. The source
+        // name is guaranteed absent, so no environment mutation is needed.
+        let error = ProcessToolRunner::new()
+            .run(
+                &ToolInvocation::new(vec!["/bin/echo".into()]).with_forward_env_as(vec![
+                    ForwardEnvAs::new(
+                        "TOVEN_EXEC_DEFINITELY_UNSET_SECRET_SOURCE",
+                        "CARGO_REGISTRY_TOKEN",
+                    ),
+                ]),
+            )
+            .expect_err("a missing required secret source fails closed");
+        assert_eq!(error.code(), rskit_errors::ErrorCode::InvalidInput);
+        assert!(error.to_string().contains("unset or empty"), "{error}");
     }
 }
