@@ -20,13 +20,12 @@ use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir;
 use rskit_git::IgnoreReader;
 use rskit_git::cli::GitCli;
-use rskit_process::ProcessSpec;
 use serde::Deserialize;
 use toven_model::RepoPath;
 
 use crate::config::{GoConfig, Modules};
 use crate::detect::ROOT_MANIFEST;
-use crate::exec::{GO_TOOL, run_go_json};
+use crate::exec::{go_command, run_go_json};
 
 /// The workspace manifest that groups several modules into one build unit.
 pub(crate) const WORK_MANIFEST: &str = "go.work";
@@ -131,7 +130,7 @@ pub(crate) fn go_work_members(project_root: &Path) -> AppResult<Option<BTreeSet<
         return Ok(None);
     }
 
-    let spec = ProcessSpec::new(GO_TOOL)
+    let spec = go_command()
         .arg("work")
         .arg("edit")
         .arg("-json")

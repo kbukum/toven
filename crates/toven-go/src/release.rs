@@ -18,8 +18,9 @@ use rskit_process::{CapturedIo, OutputPolicy, ProcessConfig, ProcessIo, ProcessS
 use rskit_version::semver::Version;
 use toven_model::{Module, RepoPath};
 use toven_ports::{
-    Artifact, ManifestMutator, Packager, PublishOutcome, Publisher, ReleaseCredentials,
-    ReleaseMutation, SbomProducer, TagGrammar, TagScheme, VersionSource, Visibility,
+    Artifact, BaselineSourceConfig, ManifestMutator, Packager, PublishOutcome, Publisher,
+    ReleaseCredentials, ReleaseDefaults, ReleaseDefaultsSource, ReleaseMutation, SbomProducer,
+    TagGrammar, TagMode, TagScheme, VersionSource, Visibility,
 };
 
 use crate::exec::run_go_json;
@@ -193,6 +194,16 @@ impl TagGrammar for GoVcsTarget {
     }
 }
 
+impl ReleaseDefaultsSource for GoVcsTarget {
+    fn release_defaults(&self) -> ReleaseDefaults {
+        // A Go module's per-module tag *is* its registry entry (`go get` reads
+        // the tag), so each module anchors change detection on its own tag and
+        // the train cuts only per-module tags — there is no umbrella registry to
+        // consult and no aggregate repo tag to create.
+        ReleaseDefaults::new(BaselineSourceConfig::OwnTag, TagMode::PerModule)
+    }
+}
+
 impl Packager for GoVcsTarget {
     fn package(&self, module: &Module) -> AppResult<Artifact> {
         Ok(Artifact::new(module.root.as_path()))
@@ -325,6 +336,17 @@ mod tests {
                 .format(&Version::new(1, 2, 3)),
             "cache/redis/v1.2.3"
         );
+    }
+
+    #[test]
+    fn release_defaults_are_per_module_tag_anchored() {
+        use toven_ports::{BaselineSourceConfig, ReleaseDefaultsSource, TagMode};
+
+        // A Go module's per-module tag *is* its registry entry, so the baseline
+        // anchors on each module's own tag and only per-module tags are cut.
+        let defaults = GoVcsTarget::new().release_defaults();
+        assert_eq!(defaults.baseline, BaselineSourceConfig::OwnTag);
+        assert_eq!(defaults.tag_mode, TagMode::PerModule);
     }
 
     #[test]

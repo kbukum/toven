@@ -920,17 +920,19 @@ fn flow_label(entrypoint: Entrypoint, umbrella: bool) -> String {
     }
 }
 
-/// Human/JSONL label for a module's configured tag-mode selector; an unset
-/// selector reports `default` (the layout is resolved by the adapter default,
-/// so `default` names the selector, not the resolved mode).
+/// Human/JSONL label for a module's tag mode. The adapter default is folded into
+/// the resolved settings at plan time, so this normally names the effective mode
+/// (`per-module`, `umbrella`, or `both`); `default` is a fallback for an entry
+/// carrying no resolved mode.
 fn tag_mode_label(mode: Option<TagMode>) -> &'static str {
     mode.map_or("default", TagMode::as_str)
 }
 
-/// Human/JSONL label for a module's configured baseline selector; an unset
-/// selector reports `default` — the engine then infers the effective source
-/// from umbrella presence, so `default` names the selector, not the resolved
-/// source.
+/// Human/JSONL label for a module's baseline source. The adapter default is
+/// folded into the resolved settings at plan time, so this normally names the
+/// effective source (`own-tag`, `umbrella-tag`, `registry`, or
+/// `registry+umbrella`); `default` is a fallback for an entry carrying no
+/// resolved source.
 fn baseline_source_label(source: Option<BaselineSourceConfig>) -> &'static str {
     source.map_or("default", BaselineSourceConfig::as_str)
 }

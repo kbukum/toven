@@ -74,6 +74,11 @@ impl Publisher for FakeReleaseTarget {
     }
 }
 impl SbomProducer for FakeReleaseTarget {}
+impl ReleaseDefaultsSource for FakeReleaseTarget {
+    fn release_defaults(&self) -> ReleaseDefaults {
+        ReleaseDefaults::new(BaselineSourceConfig::RegistryUmbrella, TagMode::Both)
+    }
+}
 
 struct FakeDelegatedPhase;
 impl DelegatedPhase for FakeDelegatedPhase {

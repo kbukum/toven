@@ -271,6 +271,65 @@ impl ResolvedReleaseSettings {
             on_resolved: config.on_resolved.clone().unwrap_or_default(),
         })
     }
+
+    /// Fill an unset [`tag_mode`](Self::tag_mode) / [`baseline`](Self::baseline)
+    /// from the ecosystem adapter's [`ReleaseDefaults`], completing the
+    /// documented precedence `[modules.<name>.release]` >
+    /// `[ecosystems.<id>].release` > adapter default. An explicit config value
+    /// is never overridden.
+    ///
+    /// An adapter default that anchors on the member's umbrella tag
+    /// ([`TagMode::Umbrella`](toven_ports::TagMode::Umbrella) /
+    /// [`TagMode::Both`](toven_ports::TagMode::Both), an `umbrella-tag` /
+    /// `registry+umbrella` baseline) is degraded to its per-module counterpart
+    /// when the train declares no single umbrella module, so an adapter default
+    /// never forces an umbrella-anchored layout the train cannot satisfy — only
+    /// an explicit config value can, which plan validation then checks. Pass
+    /// `train_has_single_umbrella = true` only when the train (member +
+    /// ecosystem) declares exactly one umbrella module.
+    pub(crate) const fn apply_adapter_defaults(
+        &mut self,
+        defaults: toven_ports::ReleaseDefaults,
+        train_has_single_umbrella: bool,
+    ) {
+        if self.tag_mode.is_none() {
+            self.tag_mode = Some(degrade_tag_mode(
+                defaults.tag_mode,
+                train_has_single_umbrella,
+            ));
+        }
+        if self.baseline.is_none() {
+            self.baseline = Some(degrade_baseline(
+                defaults.baseline,
+                train_has_single_umbrella,
+            ));
+        }
+    }
+}
+
+/// Degrade an umbrella-anchored default tag mode to per-module tags when the
+/// train declares no single umbrella module.
+const fn degrade_tag_mode(mode: TagMode, train_has_single_umbrella: bool) -> TagMode {
+    if mode.requires_umbrella() && !train_has_single_umbrella {
+        TagMode::PerModule
+    } else {
+        mode
+    }
+}
+
+/// Degrade an umbrella-anchored default baseline source to the module's own tag
+/// when the train declares no single umbrella module: an `umbrella-tag` /
+/// `registry+umbrella` default then anchors change detection on per-module tags
+/// rather than requiring an umbrella the train never cuts.
+const fn degrade_baseline(
+    source: BaselineSourceConfig,
+    train_has_single_umbrella: bool,
+) -> BaselineSourceConfig {
+    if source.requires_umbrella() && !train_has_single_umbrella {
+        BaselineSourceConfig::OwnTag
+    } else {
+        source
+    }
 }
 
 /// Apply the built-in `CHANGELOG.md` default to an unset changelog path.
@@ -285,7 +344,85 @@ fn resolve_changelog(mut changelog: ChangelogConfig) -> ChangelogConfig {
 mod tests {
     use super::ResolvedReleaseSettings;
     use crate::{BumpPolicy, PushPolicy};
-    use toven_ports::{BumpLevel, PublicationPolicy, ReleaseConfig};
+    use toven_ports::{
+        BaselineSourceConfig, BumpLevel, PublicationPolicy, ReleaseConfig, ReleaseDefaults, TagMode,
+    };
+
+    /// The registry-backed (Rust-style) adapter default.
+    fn registry_defaults() -> ReleaseDefaults {
+        ReleaseDefaults::new(BaselineSourceConfig::RegistryUmbrella, TagMode::Both)
+    }
+
+    /// The per-module-tag (Go-style) adapter default.
+    fn own_tag_defaults() -> ReleaseDefaults {
+        ReleaseDefaults::new(BaselineSourceConfig::OwnTag, TagMode::PerModule)
+    }
+
+    #[test]
+    fn adapter_default_fills_unset_tag_mode_and_baseline_when_umbrella_present() {
+        let mut resolved =
+            ResolvedReleaseSettings::resolve(&ReleaseConfig::default(), None).unwrap();
+        assert_eq!(resolved.tag_mode, None);
+        assert_eq!(resolved.baseline, None);
+
+        resolved.apply_adapter_defaults(registry_defaults(), true);
+
+        assert_eq!(resolved.tag_mode, Some(TagMode::Both));
+        assert_eq!(
+            resolved.baseline,
+            Some(BaselineSourceConfig::RegistryUmbrella)
+        );
+    }
+
+    #[test]
+    fn adapter_default_degrades_to_per_module_without_an_umbrella() {
+        let mut resolved =
+            ResolvedReleaseSettings::resolve(&ReleaseConfig::default(), None).unwrap();
+
+        resolved.apply_adapter_defaults(registry_defaults(), false);
+
+        assert_eq!(resolved.tag_mode, Some(TagMode::PerModule));
+        assert_eq!(resolved.baseline, Some(BaselineSourceConfig::OwnTag));
+    }
+
+    #[test]
+    fn per_module_adapter_default_is_unchanged_by_umbrella_presence() {
+        for train_has_single_umbrella in [false, true] {
+            let mut resolved =
+                ResolvedReleaseSettings::resolve(&ReleaseConfig::default(), None).unwrap();
+            resolved.apply_adapter_defaults(own_tag_defaults(), train_has_single_umbrella);
+            assert_eq!(resolved.tag_mode, Some(TagMode::PerModule));
+            assert_eq!(resolved.baseline, Some(BaselineSourceConfig::OwnTag));
+        }
+    }
+
+    #[test]
+    fn explicit_config_overrides_the_adapter_default_both_directions() {
+        // An explicit own-tag baseline on a would-be registry+umbrella default wins.
+        let own_tag = ReleaseConfig {
+            baseline: Some(BaselineSourceConfig::OwnTag),
+            tag_mode: Some(TagMode::PerModule),
+            ..ReleaseConfig::default()
+        };
+        let mut resolved = ResolvedReleaseSettings::resolve(&own_tag, None).unwrap();
+        resolved.apply_adapter_defaults(registry_defaults(), true);
+        assert_eq!(resolved.baseline, Some(BaselineSourceConfig::OwnTag));
+        assert_eq!(resolved.tag_mode, Some(TagMode::PerModule));
+
+        // An explicit registry+umbrella baseline on a would-be own-tag default wins.
+        let umbrella = ReleaseConfig {
+            baseline: Some(BaselineSourceConfig::RegistryUmbrella),
+            tag_mode: Some(TagMode::Both),
+            ..ReleaseConfig::default()
+        };
+        let mut resolved = ResolvedReleaseSettings::resolve(&umbrella, None).unwrap();
+        resolved.apply_adapter_defaults(own_tag_defaults(), true);
+        assert_eq!(
+            resolved.baseline,
+            Some(BaselineSourceConfig::RegistryUmbrella)
+        );
+        assert_eq!(resolved.tag_mode, Some(TagMode::Both));
+    }
 
     #[test]
     fn empty_config_yields_documented_defaults() {

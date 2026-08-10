@@ -14,6 +14,20 @@ use rskit_process::{CapturedIo, ProcessConfig, ProcessIo, ProcessSpec, run};
 /// process invocation.
 pub(crate) const GO_TOOL: &str = "go";
 
+/// A `go` invocation pinned to the locally installed toolchain.
+///
+/// Discovery only *reads* manifests (`go mod edit -json` / `go work edit
+/// -json`), yet Go's default `GOTOOLCHAIN=auto` still consults the `go`
+/// directive in `go.mod`/`go.work` and downloads a newer toolchain when the
+/// declared version exceeds the installed one. Pinning `GOTOOLCHAIN=local`
+/// keeps discovery hermetic and offline: reading a manifest never triggers a
+/// network toolchain download (the local `go` parses any newer directive), so
+/// module resolution stays deterministic regardless of the repo's declared Go
+/// version. Every other environment variable (`PATH`, `HOME`, …) is inherited.
+pub(crate) fn go_command() -> ProcessSpec {
+    ProcessSpec::new(GO_TOOL).env("GOTOOLCHAIN", "local")
+}
+
 /// Hard bound on retained `go` JSON output (16 MiB). Large enough for big
 /// manifests, bounded so a runaway process cannot exhaust memory.
 const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;

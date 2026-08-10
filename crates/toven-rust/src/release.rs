@@ -26,9 +26,9 @@ use rskit_version::semver::Version;
 use toml_edit::{DocumentMut, Item, value};
 use toven_model::{Module, RepoPath};
 use toven_ports::{
-    Artifact, ManifestMutator, Packager, PublishOutcome, Publisher, RegistryCadence,
-    ReleaseCredentials, ReleaseMutation, ReleaseVar, SbomProducer, TagGrammar, TagScheme,
-    VersionSource, Visibility,
+    Artifact, BaselineSourceConfig, ManifestMutator, Packager, PublishOutcome, Publisher,
+    RegistryCadence, ReleaseCredentials, ReleaseDefaults, ReleaseDefaultsSource, ReleaseMutation,
+    ReleaseVar, SbomProducer, TagGrammar, TagMode, TagScheme, VersionSource, Visibility,
 };
 
 /// Hard bound on a `Cargo.toml` read (4 MiB) — manifests are tiny; this only
@@ -172,6 +172,17 @@ impl VersionSource for CargoRegistryTarget {
 impl TagGrammar for CargoRegistryTarget {
     fn tag_scheme(&self, module: &Module, tag_format: Option<&str>) -> AppResult<TagScheme> {
         tag_scheme(module, tag_format.unwrap_or(DEFAULT_TAG_FORMAT))
+    }
+}
+
+impl ReleaseDefaultsSource for CargoRegistryTarget {
+    fn release_defaults(&self) -> ReleaseDefaults {
+        // crates.io is the registry and git tags are traceability only: anchor
+        // change detection on `max(registry, umbrella-tag)` and cut per-crate
+        // tags for traceability alongside the one umbrella `v{version}` tag. The
+        // engine degrades the umbrella-anchored default to a per-module baseline
+        // for a workspace that declares no umbrella module.
+        ReleaseDefaults::new(BaselineSourceConfig::RegistryUmbrella, TagMode::Both)
     }
 }
 
@@ -1213,6 +1224,18 @@ mod tag_scheme_tests {
 
         assert_eq!(scheme.format(&Version::new(1, 2, 3)), "rust/core@1.2.3");
         assert_eq!(scheme.parse("rust/core@1.2.3"), Some(Version::new(1, 2, 3)));
+    }
+
+    #[test]
+    fn release_defaults_are_registry_and_umbrella_anchored() {
+        use toven_ports::{BaselineSourceConfig, ReleaseDefaultsSource, TagMode};
+
+        // crates.io is the registry and one umbrella tag anchors the workspace:
+        // the baseline is `max(registry, umbrella-tag)` and both per-crate and
+        // umbrella tags are cut.
+        let defaults = CargoRegistryTarget::new().release_defaults();
+        assert_eq!(defaults.baseline, BaselineSourceConfig::RegistryUmbrella);
+        assert_eq!(defaults.tag_mode, TagMode::Both);
     }
 
     #[test]
