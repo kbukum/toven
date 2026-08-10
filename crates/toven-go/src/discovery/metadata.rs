@@ -16,7 +16,6 @@ use std::path::{Path, PathBuf};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
-use rskit_process::ProcessSpec;
 use serde::Deserialize;
 use toven_model::{
     DepKind, EcosystemId, Edge, Module, ModuleRef, RepoPath, ToolchainTag, Workspace, WorkspaceId,
@@ -25,7 +24,7 @@ use toven_ports::{DiscoverRequest, DiscoverResponse};
 
 use crate::config::GoConfig;
 use crate::discovery::blast;
-use crate::exec::{GO_TOOL, run_go_json};
+use crate::exec::{GO_TOOL, go_command, run_go_json};
 use crate::modules;
 
 /// The `Module` field of `go mod edit -json` output.
@@ -148,7 +147,7 @@ fn run_go_mod_edit(project_root: &Path, manifest: &str) -> AppResult<GoModEdit> 
         )
     })?;
 
-    let spec = ProcessSpec::new(GO_TOOL)
+    let spec = go_command()
         .arg("mod")
         .arg("edit")
         .arg("-json")
