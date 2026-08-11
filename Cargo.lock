@@ -2068,7 +2068,6 @@ dependencies = [
  "rskit-config",
  "rskit-errors",
  "rskit-fs",
- "rskit-git",
  "rskit-process",
  "rskit-util",
  "rskit-validation",
@@ -2139,6 +2138,7 @@ dependencies = [
  "toven-model",
  "toven-ports",
  "toven-testkit",
+ "toven-vcs",
 ]
 
 [[package]]

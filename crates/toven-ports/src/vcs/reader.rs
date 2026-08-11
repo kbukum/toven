@@ -26,6 +26,16 @@ pub trait VcsReader {
     /// Resolve the merge base of two revisions.
     fn merge_base(&self, a: &str, b: &str) -> AppResult<Oid>;
 
+    /// Whether `ancestor` is a **strict** ancestor of `descendant` in the commit
+    /// graph — equal revisions are *not* ancestors of themselves.
+    ///
+    /// The reachability primitive the Go VCS-tag release target uses to keep
+    /// only the tags reachable from `HEAD`, so a version tag on an unmerged side
+    /// branch is not mistaken for a published version. Mirrors
+    /// `git merge-base --is-ancestor`; callers that also accept an equal
+    /// revision compare the resolved object ids themselves.
+    fn is_ancestor(&self, ancestor: &str, descendant: &str) -> AppResult<bool>;
+
     /// List tags, optionally filtered by a glob pattern (e.g. `"errors@*"`).
     fn list_tags(&self, pattern: Option<&str>) -> AppResult<Vec<TagRef>>;
 

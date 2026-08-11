@@ -12,9 +12,10 @@ use std::sync::Arc;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_git::{
-    ChainAuthProvider, Committer, ConfigReader, DefaultAuthProvider, EnvTokenAuthProvider,
-    IgnoreReader, IndexManager, Inspector, LogReader, PushOptions, RefManager, RemoteManager, Repo,
-    Repository, SignFormat as GitSignFormat, SignOptions, TreeReader,
+    ChainAuthProvider, CheckoutManager, Committer, ConfigReader, DefaultAuthProvider,
+    EnvTokenAuthProvider, IgnoreReader, IndexManager, Inspector, LogReader, PushOptions,
+    RefManager, RemoteManager, Repo, Repository, SignFormat as GitSignFormat, SignOptions,
+    TreeReader,
 };
 use toven_ports::{
     BaselineSpec, ChangeRecord, CommitSummary, Oid, SignFormat, TagRef, TagSigner, VcsReader,
@@ -71,6 +72,22 @@ impl RskitGitVcs {
     /// Discover the repository by walking up from `path`.
     pub fn discover(path: impl AsRef<Path>) -> AppResult<Self> {
         Ok(Self::from_repo(rskit_git::discover(path)?))
+    }
+
+    /// Clone the repository at `url` into `into` — member-repo provisioning.
+    ///
+    /// Provisioning is broader than the read/write release seam, so it is an
+    /// explicit inherent constructor on the adapter rather than a port method:
+    /// the caller (federation sync) owns *when* to clone and the member-context
+    /// error wrapping, while this crate owns the git mechanism. `url` is
+    /// untrusted input validated by rskit-git at the clone boundary.
+    pub fn clone(url: &str, into: impl AsRef<Path>) -> AppResult<Self> {
+        Ok(Self::from_repo(rskit_git::clone(url, into.as_ref())?))
+    }
+
+    /// Check out `reference` in this repository (the post-clone member pin).
+    pub fn checkout(&self, reference: &str) -> AppResult<()> {
+        CheckoutManager::checkout(&self.repo, reference, None)
     }
 
     fn from_repo(repo: Repo) -> Self {
@@ -132,6 +149,10 @@ impl VcsReader for RskitGitVcs {
 
     fn merge_base(&self, a: &str, b: &str) -> AppResult<Oid> {
         self.repo.merge_base(a, b).map(|oid| to_oid(&oid))
+    }
+
+    fn is_ancestor(&self, ancestor: &str, descendant: &str) -> AppResult<bool> {
+        self.repo.is_ancestor(ancestor, descendant)
     }
 
     fn list_tags(&self, pattern: Option<&str>) -> AppResult<Vec<TagRef>> {
