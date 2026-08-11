@@ -14,7 +14,6 @@ toven-model.workspace = true
 toven-ports.workspace = true
 toven-core.workspace = true
 toven-semver.workspace = true
-toven-vcs.workspace = true
 rskit-errors.workspace = true
 rskit-fs = { workspace = true, features = ["archive"] }
 rskit-git.workspace = true
@@ -33,6 +32,7 @@ vendored-openssl = ["rskit-git/vendored-openssl"]
 
 [dev-dependencies]
 toven-testkit.workspace = true
+toven-vcs.workspace = true
 rskit-util.workspace = true
 
 [lints]

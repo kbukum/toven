@@ -26,8 +26,10 @@ When a shared capability is missing, improve rskit generically. Do not make rski
 | Task and release vocabulary | `toven-model` and `toven-ports` |
 | Port traits | `toven-ports` |
 | Strict `toven.toml` document loading | `toven-core` |
-| PLAN spine, VCS seam, and federation-core (resolve/baseline/compose) | `toven-core` |
-| Change foundation (diff-range resolution) and path→owning-module resolver | `toven-core` |
+| PLAN spine and federation-core (resolve/baseline/compose) | `toven-core` |
+| Engine-owned VCS baseline policy over the git seam | `toven-core` |
+| Path→owning-module resolver | `toven-core` |
+| Git mechanism: the rskit-git-backed `VcsReader`/`VcsWriter` adapter, the change foundation (diff-range resolution), and the per-repo reader-set fan-out | `toven-vcs` |
 | Concrete subprocess runners (`ProcessToolRunner`, `ProcessCommandRunner`, persistent spawn) and the shared argv→`ProcessSpec` lowering | `toven-exec` |
 | Scheduling, affected selection, apply, cache coordination, coverage | `toven-engine` |
 | Release orchestration (bump, changelog, packaging, SBOM, hosted publishing) | `toven-release` |
@@ -42,7 +44,7 @@ When a shared capability is missing, improve rskit generically. Do not make rski
 Each port follows one pattern:
 
 1. Trait in `toven-ports`
-2. Production adapter in the consuming engine or ecosystem crate
+2. Production adapter in the consuming crate — an engine or ecosystem crate, or a focused mechanism crate such as `toven-exec`/`toven-vcs`
 3. One reusable double in `toven-testkit`
 
 Ports reference model, rskit, standard library, or port-owned values. Engine types do not leak upward.

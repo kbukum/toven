@@ -8,6 +8,7 @@ Toven is a hexagonal Rust workspace. Domain types sit at the center, ports defin
 L0  crates/toven-model
 L1  crates/toven-ports
 L1.5 crates/toven-exec
+L1.5 crates/toven-vcs
 L2a crates/toven-core
 L2b crates/toven-release
 L2b crates/toven-engine
@@ -18,13 +19,14 @@ L3  crates/toven-cli
 L4  apps/toven, apps/toven-rs, apps/toven-go
 ```
 
-Dependencies point downward only. `toven-exec` is a focused L1.5 utility that owns the concrete subprocess runners; the three engine crates share layer 2: `toven-core` is the PLAN foundation, and `toven-release` and `toven-engine` are peers above it.
+Dependencies point downward only. `toven-exec` and `toven-vcs` are focused L1.5 utilities — `toven-exec` owns the concrete subprocess runners, and `toven-vcs` owns the git mechanism behind the VCS ports; the three engine crates share layer 2: `toven-core` is the PLAN foundation, and `toven-release` and `toven-engine` are peers above it.
 
 ```mermaid
 flowchart TB
     model["L0 · toven-model"]
     ports["L1 · toven-ports"]
     exec["L1.5 · toven-exec"]
+    vcs["L1.5 · toven-vcs"]
     core["L2a · toven-core"]
     release["L2b · toven-release"]
     engine["L2b · toven-engine"]
@@ -34,7 +36,9 @@ flowchart TB
 
     ports --> model
     exec --> ports
+    vcs --> ports
     core --> ports
+    core --> vcs
     release --> core
     engine --> core
     engine --> exec
@@ -55,7 +59,8 @@ Only the thin `apps/*` binaries wire the ecosystem adapters (`toven-rust`, `tove
 | `toven-model` | Identity, graph, plan, event, and release vocabulary |
 | `toven-ports` | Adapter contracts and shared configuration values |
 | `toven-exec` | The concrete subprocess runners (`ProcessToolRunner`, `ProcessCommandRunner`, persistent spawn) and the shared argv→`ProcessSpec` lowering |
-| `toven-core` | Strict `toven.toml` loading, the VCS seam, the PLAN spine, and federation-core |
+| `toven-vcs` | The git mechanism: the rskit-git-backed `VcsReader`/`VcsWriter` adapter, the change foundation (diff-range resolution), and the per-repo reader-set fan-out |
+| `toven-core` | Strict `toven.toml` loading, the engine-owned VCS baseline policy over the git seam, the PLAN spine, and federation-core |
 | `toven-release` | Release PLAN/APPLY: bump, changelog, packaging, checksums, SBOM, signing, hosted publishing |
 | `toven-engine` | Apply, cache, coverage, output, watch, init, doctor, and the rskit-backed port adapters |
 | `toven-rust` | Cargo discovery and Rust task/release behavior |
