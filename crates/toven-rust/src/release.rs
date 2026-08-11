@@ -697,11 +697,7 @@ fn fallback_retry_after(is_new_release: bool, now: SystemTime) -> Option<SystemT
         .fallback_retry_after(is_new_release, now)
 }
 
-/// Read `[package].version` from a `Cargo.toml` body.
-///
-/// A string `version` is returned directly. A workspace-inherited version
-/// (`version.workspace = true`) is resolved from the nearest
-/// Parse `[package].version` from a manifest **body** without touching the
+/// Parse `[package].version` from a `Cargo.toml` **body** without touching the
 /// working tree, for anchoring a module on its own version at a historical
 /// commit (an umbrella-tag baseline).
 ///
