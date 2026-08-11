@@ -2806,10 +2806,10 @@ mod tests {
     #[test]
     fn standalone_push_lands_named_branch_and_tags_on_a_real_bare_remote() {
         use rskit_git::RefManager;
-        use toven_core::vcs::RskitGitVcs;
         use toven_ports::VcsWriter;
         use toven_testkit::TestWorkspace;
         use toven_testkit::git::{GitScenario, ref_map_at};
+        use toven_vcs::RskitGitVcs;
 
         let workspace = TestWorkspace::new("release-standalone-real-push");
         let work = workspace.child("work").expect("work dir");
@@ -2877,10 +2877,10 @@ mod tests {
         // mechanism pushes the resolved branch plus every module tag to a real
         // custom-named remote for a multi-module member shard.
         use rskit_git::RefManager;
-        use toven_core::vcs::RskitGitVcs;
         use toven_ports::{VcsReader, VcsWriter};
         use toven_testkit::TestWorkspace;
         use toven_testkit::git::{GitScenario, ref_map_at};
+        use toven_vcs::RskitGitVcs;
 
         let workspace = TestWorkspace::new("release-federated-real-push");
         let work = workspace.child("work").expect("work dir");

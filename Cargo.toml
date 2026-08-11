@@ -38,6 +38,7 @@ rskit-cli = { version = "0.2.0-alpha.5", path = "rskit/core/rskit-cli" }
 toven-semver = { path = "crates/toven-semver" }
 toven-model = { path = "crates/toven-model" }
 toven-ports = { path = "crates/toven-ports" }
+toven-vcs = { path = "crates/toven-vcs" }
 toven-core = { path = "crates/toven-core" }
 toven-release = { path = "crates/toven-release" }
 toven-engine = { path = "crates/toven-engine" }

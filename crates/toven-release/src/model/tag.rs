@@ -1,8 +1,8 @@
 //! Release tag formatting and latest-tag selection.
 
 use rskit_version::semver::Version;
-use toven_core::vcs::latest_matching;
 use toven_ports::{TagRef, TagScheme};
+use toven_semver::latest_matching;
 
 /// Format a release tag through the target-owned scheme.
 #[must_use]

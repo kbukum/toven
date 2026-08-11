@@ -2078,8 +2078,8 @@ dependencies = [
  "toml",
  "toven-model",
  "toven-ports",
- "toven-semver",
  "toven-testkit",
+ "toven-vcs",
 ]
 
 [[package]]
@@ -2210,6 +2210,7 @@ dependencies = [
  "toven-ports",
  "toven-semver",
  "toven-testkit",
+ "toven-vcs",
 ]
 
 [[package]]
@@ -2278,6 +2279,19 @@ dependencies = [
  "toml",
  "toven-model",
  "toven-ports",
+]
+
+[[package]]
+name = "toven-vcs"
+version = "0.1.0-alpha.5"
+dependencies = [
+ "rskit-errors",
+ "rskit-fs",
+ "rskit-git",
+ "toven-model",
+ "toven-ports",
+ "toven-semver",
+ "toven-testkit",
 ]
 
 [[package]]

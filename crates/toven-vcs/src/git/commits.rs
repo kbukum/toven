@@ -74,7 +74,7 @@ mod tests {
     use toven_testkit::{TestWorkspace, git::GitScenario};
 
     use super::commits_since;
-    use crate::vcs::RskitGitVcs;
+    use crate::RskitGitVcs;
 
     #[test]
     fn walks_only_commits_after_the_baseline() {

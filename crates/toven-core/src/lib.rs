@@ -27,9 +27,10 @@
 //! - [`config`] — the strict `Document`, reserved-section schemas, the
 //!   structural-validation pass, the ecosystem-id three-way dispatch, and the
 //!   `rskit-config::strict`-backed loader.
-//! - [`vcs`] — the single git seam's implementation side: the rskit-git-backed
-//!   [`vcs::RskitGitVcs`] adapter, the engine-owned [`vcs::BaselineStrategy`],
-//!   and the per-repo [`vcs::VcsReaderSet`] dedup + fan-out.
+//! - [`vcs`] — the engine-owned baseline *policy*
+//!   ([`vcs::BaselineStrategy`]) over the git seam; the git mechanism itself
+//!   (the rskit-git-backed adapter, change foundation, and per-repo reader-set
+//!   fan-out) lives in the focused [`toven-vcs`](../toven_vcs/index.html) crate.
 //! - [`plan`] — the pure PLAN spine: the seven phases (Load → Configure →
 //!   Discover → Graph → Affected → Toolchain → Schedule+Cache) that culminate
 //!   in one immutable [`toven_model::Plan`]; it also hosts the concrete
