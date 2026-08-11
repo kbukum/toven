@@ -11,7 +11,6 @@ use std::collections::BTreeSet;
 use toven_core::config::{CanonicalRegistry, Document, load};
 use toven_core::federation::MemberVcsReaders;
 use toven_core::plan::PlanRequest;
-use toven_core::vcs::RskitGitVcs;
 use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
 use toven_ports::{
     BaselineSpec, CommonEcosystemConfig, DiscoverResponse, Provider, ReleaseConfig, TaskIntent,
@@ -21,6 +20,7 @@ use toven_testkit::git::GitScenario;
 use toven_testkit::{
     FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, RecordingReporter, TestWorkspace,
 };
+use toven_vcs::RskitGitVcs;
 
 fn eid(id: &str) -> EcosystemId {
     EcosystemId::new(id).expect("valid ecosystem id")

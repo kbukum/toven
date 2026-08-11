@@ -45,7 +45,8 @@ One Cargo workspace (`members = ["crates/*", "apps/*"]`, `exclude = ["rskit"]`).
 
 - `crates/toven-model` (L0) — pure vocabulary: identity, dependency graph, plan, and event types plus graph algorithms. The dependency root; it depends on no other Toven crate (only rskit and third-party crates such as `serde`).
 - `crates/toven-ports` (L1) — hexagonal port traits (Provider/ConfiguredAdapter, ReleaseTarget, Reporter, RawOutputSink, VcsReader/VcsWriter, ToolchainProber, SourceDigest, CacheStore) and helpers (template, merge, config). Each port is a declare-only responsibility folder. Depends on `toven-model` + rskit.
-- `crates/toven-core` (L2a) — the shared PLAN foundation: the strict config `Document` loader, the VCS seam, the PLAN spine, and federation-core (resolve/baseline/compose). The dependency floor for the other two L2 engine crates; it never imports them.
+- `crates/toven-vcs` — the focused git-mechanism crate: the single rskit-git-backed `VcsReader`/`VcsWriter` adapter, the change foundation (diff-range resolution), and the per-repo reader-set fan-out. Pure git mechanism only; baseline *policy* stays engine-owned in `toven-core`. Depends on `toven-ports` + rskit-git.
+- `crates/toven-core` (L2a) — the shared PLAN foundation: the strict config `Document` loader, the engine-owned VCS baseline policy over the git seam, the PLAN spine, and federation-core (resolve/baseline/compose). The dependency floor for the other two L2 engine crates; it never imports them.
 - `crates/toven-release` (L2b) — the release PLAN/APPLY tail: release vocabulary and orchestration (bump, changelog, packaging, checksums, SBOM, signing, hosted-release publishing) plus the federated-release bridge. Depends on `toven-core`; never on `toven-engine`.
 - `crates/toven-engine` (L2b) — the rest of PLAN/APPLY coordination (apply, cache, coverage, output, watch, init, doctor) and the concrete rskit-backed adapters for the injected ports (e.g. `ProcessToolchainProber`, `FsSourceDigest`, `NullCache`). A peer of `toven-release` over `toven-core`.
 - adapter crates `crates/toven-{rust,go,command}` (L2) — ecosystem adapters implementing the `toven-ports` traits; never reach into the engine or cli.
@@ -53,7 +54,7 @@ One Cargo workspace (`members = ["crates/*", "apps/*"]`, `exclude = ["rskit"]`).
 - `apps/*` (L4) — thin wiring binaries (`apps/toven`, `apps/toven-rs`, `apps/toven-go`); each wires a set of adapters into `toven-cli`. No new capability lives here — it belongs in the appropriate `crates/*` layer.
 - `crates/toven-testkit` — dev-only (`publish = false`) shared test surface: fixtures API, port doubles, sample-repo/git scenario helpers. Tests use it instead of inline TOML.
 
-**Port placement (binding):** a port trait lives in `toven-ports`; its concrete adapter lives in the consuming crate (engine or `toven-<eco>`), never beside the trait; every port has exactly one shared double in `toven-testkit` (`doubles/<port>.rs`) — no port double is stranded inline in a crate's `tests/`. A port trait references only `toven-model` + rskit + std/ports value types; no engine type leaks upward.
+**Port placement (binding):** a port trait lives in `toven-ports`; its concrete adapter lives in the consuming crate (an engine crate, a `toven-<eco>` adapter, or a focused mechanism crate such as `toven-exec`/`toven-vcs`), never beside the trait; every port has exactly one shared double in `toven-testkit` (`doubles/<port>.rs`) — no port double is stranded inline in a crate's `tests/`. A port trait references only `toven-model` + rskit + std/ports value types; no engine type leaks upward.
 
 The vendored `rskit/` submodule is a separate workspace; Toven depends on individual rskit core crates via path deps pinned to the submodule's prerelease version.
 

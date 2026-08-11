@@ -21,7 +21,7 @@ use rskit_version::semver::Version;
 use toven_model::Module;
 use toven_ports::{Oid, TagRef, TagScheme, VcsReader, VersionSource};
 
-use toven_core::vcs::latest_matching;
+use toven_semver::latest_matching;
 
 use crate::ReleaseBaseline;
 use crate::model::BaselineSource;
@@ -125,7 +125,8 @@ fn module_version_at(
     let Some(manifest) = module.manifest.as_ref() else {
         return Ok(None);
     };
-    let Some(bytes) = reader.file_at_ref(commit.as_str(), manifest.as_path(), MAX_MANIFEST_BYTES)?
+    let Some(bytes) =
+        reader.file_at_ref(commit.as_str(), manifest.as_path(), MAX_MANIFEST_BYTES)?
     else {
         return Ok(None);
     };

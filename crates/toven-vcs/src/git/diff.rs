@@ -14,8 +14,7 @@
 
 use rskit_errors::{AppError, AppResult};
 use toven_ports::{ChangeRecord, DiffEndpoint, DiffRange, VcsReader};
-
-use super::latest_matching;
+use toven_semver::latest_matching;
 
 /// An endpoint resolved to something the git seam can diff.
 enum Resolved {
@@ -128,7 +127,7 @@ mod tests {
     use toven_testkit::git::GitScenario;
 
     use super::{resolve_range, resolve_range_optional};
-    use crate::vcs::RskitGitVcs;
+    use crate::RskitGitVcs;
 
     /// A scripted scenario: one commit per named file, a feature branch, and a
     /// release tag, so every enumerated comparison has a distinct answer.

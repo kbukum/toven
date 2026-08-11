@@ -15,7 +15,8 @@ use toven_ports::{BaselineSpec, ChangeRecord, VcsReader};
 use crate::federation::compose::{ComposedFederation, ComposedMember};
 use crate::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
 use crate::federation::rebase::member_prefix;
-use crate::vcs::{BaselineFlags, BaselineStrategy, VcsReaderSet, rebase_records};
+use crate::vcs::{BaselineFlags, BaselineStrategy};
+use toven_vcs::{VcsReaderSet, rebase_records};
 
 /// Resolved baseline specs keyed by member.
 #[derive(Debug, Clone)]
