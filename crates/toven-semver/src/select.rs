@@ -1,7 +1,7 @@
 //! Max-semver tag selection.
 //!
 //! [`latest_matching`] is the single home of the "newest matching tag" pick:
-//! parse each candidate's name through a [`TagScheme`](crate::TagScheme), keep
+//! parse each candidate's name through a [`TagScheme`], keep
 //! the matches, and return the highest version. It is generic over any
 //! [`Tagged`] item so callers keep their own tag-reference types (git tag refs,
 //! registry entries, …) without this crate depending on them.
