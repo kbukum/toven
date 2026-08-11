@@ -69,5 +69,14 @@ pub trait VcsReader {
     /// each module carries its own independent version. `None` distinguishes a
     /// path absent at that revision (a module introduced after the tag) from an
     /// I/O failure or an unresolvable revision, which are errors.
-    fn file_at_ref(&self, reference: &str, repo_relative: &Path) -> AppResult<Option<Vec<u8>>>;
+    ///
+    /// `max_bytes` bounds the read: a repository-controlled blob larger than the
+    /// budget is rejected as an error before it is materialized, rather than
+    /// exhausting memory during planning.
+    fn file_at_ref(
+        &self,
+        reference: &str,
+        repo_relative: &Path,
+        max_bytes: u64,
+    ) -> AppResult<Option<Vec<u8>>>;
 }

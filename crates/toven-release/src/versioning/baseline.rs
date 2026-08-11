@@ -26,6 +26,14 @@ use toven_core::vcs::latest_matching;
 use crate::ReleaseBaseline;
 use crate::model::BaselineSource;
 
+/// Byte budget for reading a module manifest at a historical commit.
+///
+/// Bounds the repository-controlled blob read behind
+/// [`VcsReader::file_at_ref`] so an oversized historical manifest is rejected
+/// during planning rather than materialized into memory. Matches the 4 MiB cap
+/// the ecosystem adapters apply to working-tree manifest reads.
+const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
+
 /// Resolve a module's release baseline from the selected [`BaselineSource`].
 ///
 /// - [`OwnTag`](BaselineSource::OwnTag) selects the latest tag matching the
@@ -117,7 +125,8 @@ fn module_version_at(
     let Some(manifest) = module.manifest.as_ref() else {
         return Ok(None);
     };
-    let Some(bytes) = reader.file_at_ref(commit.as_str(), manifest.as_path())? else {
+    let Some(bytes) = reader.file_at_ref(commit.as_str(), manifest.as_path(), MAX_MANIFEST_BYTES)?
+    else {
         return Ok(None);
     };
     let text = String::from_utf8(bytes).map_err(|error| {

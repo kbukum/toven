@@ -34,50 +34,70 @@ pub enum EffectiveLevel {
 /// bumped base (`1.2.3` + patch + `rc` → `1.2.4-rc.1`).
 ///
 /// # Errors
-/// Returns an error only if composing a prerelease fails to parse as a valid
-/// semantic version (not expected for the bounded channel/level inputs).
+/// Returns an error when advancing a semver component would overflow `u64`, or
+/// if composing a prerelease fails to parse as a valid semantic version (not
+/// expected for the bounded channel/level inputs).
 pub fn next_version(
     current: &Version,
     level: EffectiveLevel,
     channel: Option<&str>,
 ) -> AppResult<Version> {
     channel.map_or_else(
-        || Ok(stable_bump(current, level)),
+        || stable_bump(current, level),
         |channel| prerelease_bump(current, level, channel),
     )
 }
 
 /// The stable target for `current` at `level`, dropping any prerelease/build.
-fn stable_bump(current: &Version, level: EffectiveLevel) -> Version {
+///
+/// # Errors
+/// Returns an error when advancing the requested component would overflow
+/// `u64`, rather than saturating into a lower, non-monotonic version.
+fn stable_bump(current: &Version, level: EffectiveLevel) -> AppResult<Version> {
     match level {
-        EffectiveLevel::Major => Version::new(current.major.saturating_add(1), 0, 0),
-        EffectiveLevel::Minor => Version::new(current.major, current.minor.saturating_add(1), 0),
+        EffectiveLevel::Major => Ok(Version::new(checked_bump(current.major, "major")?, 0, 0)),
+        EffectiveLevel::Minor => Ok(Version::new(
+            current.major,
+            checked_bump(current.minor, "minor")?,
+            0,
+        )),
         EffectiveLevel::Patch => {
             if current.pre.is_empty() {
-                Version::new(
+                Ok(Version::new(
                     current.major,
                     current.minor,
-                    current.patch.saturating_add(1),
-                )
+                    checked_bump(current.patch, "patch")?,
+                ))
             } else {
                 // A pending prerelease finalizes to its release rather than silently discarding
                 // the train into the next patch.
-                Version::new(current.major, current.minor, current.patch)
+                Ok(Version::new(current.major, current.minor, current.patch))
             }
         }
     }
 }
 
+/// Advance a semver component by one, failing on `u64` overflow rather than
+/// saturating into a lower, non-monotonic version.
+fn checked_bump(component: u64, name: &str) -> AppResult<u64> {
+    component.checked_add(1).ok_or_else(|| {
+        AppError::new(
+            ErrorCode::InvalidInput,
+            format!("{name} component {component} overflows u64 on bump"),
+        )
+    })
+}
+
 /// The prerelease target for `current` at `level` on `channel`.
 fn prerelease_bump(current: &Version, level: EffectiveLevel, channel: &str) -> AppResult<Version> {
-    let base = stable_bump(current, level);
+    let base = stable_bump(current, level)?;
     let continuing = !current.pre.is_empty()
         && channel_matches(current.pre.as_str(), channel)
         && base.major == current.major
         && base.minor == current.minor
         && base.patch == current.patch;
     let next = if continuing {
-        trailing_number(current.pre.as_str()).saturating_add(1)
+        checked_bump(trailing_number(current.pre.as_str()), "prerelease")?
     } else {
         1
     };
@@ -166,5 +186,13 @@ mod tests {
             next_version(&parse("1.2.4-rc.1"), EffectiveLevel::Minor, Some("rc")).unwrap(),
             parse("1.3.0-rc.1")
         );
+    }
+
+    #[test]
+    fn overflowing_component_is_a_typed_error_not_a_lower_version() {
+        let saturated = Version::new(u64::MAX, 2, 3);
+        assert!(next_version(&saturated, EffectiveLevel::Major, None).is_err());
+        assert!(next_version(&Version::new(1, u64::MAX, 3), EffectiveLevel::Minor, None).is_err());
+        assert!(next_version(&Version::new(1, 2, u64::MAX), EffectiveLevel::Patch, None).is_err());
     }
 }

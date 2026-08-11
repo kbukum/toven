@@ -321,7 +321,12 @@ impl VcsReader for FakeVcs {
     fn is_ignored(&self, _repo_relative: &Path) -> AppResult<bool> {
         Ok(false)
     }
-    fn file_at_ref(&self, _reference: &str, _repo_relative: &Path) -> AppResult<Option<Vec<u8>>> {
+    fn file_at_ref(
+        &self,
+        _reference: &str,
+        _repo_relative: &Path,
+        _max_bytes: u64,
+    ) -> AppResult<Option<Vec<u8>>> {
         Ok(None)
     }
 }

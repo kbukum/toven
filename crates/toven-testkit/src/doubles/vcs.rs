@@ -315,12 +315,31 @@ impl VcsReader for FakeVcsReader {
         Ok(self.ignored.iter().any(|p| p == repo_relative))
     }
 
-    fn file_at_ref(&self, reference: &str, repo_relative: &Path) -> AppResult<Option<Vec<u8>>> {
-        Ok(self
-            .files_at_ref
+    fn file_at_ref(
+        &self,
+        reference: &str,
+        repo_relative: &Path,
+        max_bytes: u64,
+    ) -> AppResult<Option<Vec<u8>>> {
+        self.files_at_ref
             .iter()
             .find(|((r, p), _)| r == reference && p == repo_relative)
-            .map(|(_, contents)| contents.clone()))
+            .map(|(_, contents)| contents.clone())
+            .map(|contents| {
+                if contents.len() as u64 > max_bytes {
+                    Err(AppError::invalid_input(
+                        "path",
+                        format!(
+                            "file '{}' at '{reference}' is {} bytes, exceeding limit {max_bytes} bytes",
+                            repo_relative.display(),
+                            contents.len()
+                        ),
+                    ))
+                } else {
+                    Ok(contents)
+                }
+            })
+            .transpose()
     }
 }
 
