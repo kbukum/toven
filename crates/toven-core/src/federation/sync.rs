@@ -7,9 +7,9 @@
 //! purity rule as driver install): a normal PLAN treats an absent declared
 //! member as a hard error, and only a separate explicit member-repo
 //! provisioning surface clones or checks out member repos. Cloning and the
-//! present-member clean-tree guardrail run through the focused
-//! [`RskitGitVcs`](toven_vcs::RskitGitVcs) git mechanism rather than reaching
-//! for `rskit-git` directly, so the git seam stays honored everywhere.
+//! present-member clean-tree guardrail run through the focused [`RskitGitVcs`]
+//! git mechanism rather than reaching for `rskit-git` directly, so the git seam
+//! stays honored everywhere.
 
 use rskit_errors::{AppError, AppResult};
 use toven_model::AbsPath;
