@@ -6,13 +6,14 @@
 //! Provisioning is **never implicit during a run** (the same supply-chain
 //! purity rule as driver install): a normal PLAN treats an absent declared
 //! member as a hard error, and only a separate explicit member-repo
-//! provisioning surface clones or checks out member repos. Cloning reuses
-//! `rskit-git` directly rather than introducing a separate git path; the
-//! clean-tree guardrail per present member repo reuses
-//! [`Repository::is_dirty`](rskit_git::Repository).
+//! provisioning surface clones or checks out member repos. Cloning and the
+//! present-member clean-tree guardrail run through the focused
+//! [`RskitGitVcs`](toven_vcs::RskitGitVcs) git mechanism rather than reaching
+//! for `rskit-git` directly, so the git seam stays honored everywhere.
 
 use rskit_errors::{AppError, AppResult};
 use toven_model::AbsPath;
+use toven_vcs::RskitGitVcs;
 
 /// Where one declared member repo is provisioned from and to.
 ///
@@ -126,7 +127,7 @@ fn guard_present(remote: &MemberRemote, allow_dirty: bool) -> AppResult<()> {
     // `discover`: discovery walks up to parent directories, so a non-repo member
     // dir nested inside a git umbrella would be misread as the umbrella repo and
     // wrongly reported `AlreadyPresent` instead of being cloned.
-    let repo = rskit_git::open(remote.root.as_path()).map_err(|error| {
+    let repo = RskitGitVcs::open(remote.root.as_path()).map_err(|error| {
         AppError::invalid_input(
             "members.root",
             format!(
@@ -136,7 +137,7 @@ fn guard_present(remote: &MemberRemote, allow_dirty: bool) -> AppResult<()> {
         )
         .with_cause(error)
     })?;
-    if !allow_dirty && rskit_git::Repository::is_dirty(&repo)? {
+    if !allow_dirty && repo.is_dirty()? {
         return Err(AppError::invalid_input(
             "members.worktree",
             format!(
@@ -150,7 +151,7 @@ fn guard_present(remote: &MemberRemote, allow_dirty: bool) -> AppResult<()> {
 
 /// Clone an absent member repo and check out its pinned reference, if any.
 fn clone_member(remote: &MemberRemote) -> AppResult<()> {
-    let repo = rskit_git::clone(&remote.url, remote.root.as_path()).map_err(|error| {
+    let repo = RskitGitVcs::clone(&remote.url, remote.root.as_path()).map_err(|error| {
         AppError::new(
             rskit_errors::ErrorCode::Internal,
             format!(
@@ -161,7 +162,7 @@ fn clone_member(remote: &MemberRemote) -> AppResult<()> {
         .with_cause(error)
     })?;
     if let Some(reference) = &remote.checkout {
-        rskit_git::CheckoutManager::checkout(&repo, reference, None).map_err(|error| {
+        repo.checkout(reference).map_err(|error| {
             AppError::invalid_input(
                 "members.checkout",
                 format!(
@@ -180,7 +181,7 @@ mod tests {
     use toven_model::AbsPath;
     use toven_testkit::git::GitScenario;
 
-    use super::{MemberRemote, MemberSyncStatus, sync_members};
+    use super::{MemberRemote, MemberSyncStatus, RskitGitVcs, sync_members};
 
     #[test]
     fn clones_an_absent_member_repo() {
@@ -204,7 +205,7 @@ mod tests {
             &[("core".to_string(), MemberSyncStatus::Cloned)]
         );
         assert!(target.join("README.md").is_file());
-        assert!(rskit_git::discover(&target).is_ok());
+        assert!(RskitGitVcs::open(&target).is_ok());
     }
 
     #[test]

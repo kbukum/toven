@@ -14,14 +14,15 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir::create_all;
 use rskit_fs::sync_io::file::exists as file_exists;
-use rskit_git::{Inspector, LogReader, RefManager};
 use rskit_version::semver::Version;
 use toven_model::{Module, RepoPath};
 use toven_ports::{
     Artifact, BaselineSourceConfig, ManifestMutator, Packager, PublishOutcome, Publisher,
     ReleaseCredentials, ReleaseDefaults, ReleaseDefaultsSource, ReleaseMutation, SbomProducer,
-    TagGrammar, TagMode, TagScheme, ToolInvocation, ToolRunner, VersionSource, Visibility,
+    TagGrammar, TagMode, TagScheme, ToolInvocation, ToolRunner, VcsReader, VersionSource,
+    Visibility,
 };
+use toven_vcs::RskitGitVcs;
 
 use crate::exec::{go_command, run_go_json};
 
@@ -95,6 +96,11 @@ pub struct GoVcsTarget {
     /// directory (the engine runs from the repo root), mirroring
     /// `CargoRegistryTarget`.
     root: Option<PathBuf>,
+    /// Injected VCS reader for the tag reads that derive Go module versions.
+    /// `None` opens the one rskit-git-backed [`RskitGitVcs`] at the working root
+    /// on demand; tests inject a scripted reader so the version reads run
+    /// against the port seam rather than a real git repository.
+    reader: Option<Arc<dyn VcsReader>>,
 }
 
 impl GoVcsTarget {
@@ -102,7 +108,11 @@ impl GoVcsTarget {
     /// directory.
     #[must_use]
     pub fn new(runner: Arc<dyn ToolRunner>) -> Self {
-        Self { runner, root: None }
+        Self {
+            runner,
+            root: None,
+            reader: None,
+        }
     }
 
     /// Pin the repository working root instead of resolving the process working
@@ -114,18 +124,25 @@ impl GoVcsTarget {
         self
     }
 
-    fn reachable_tags_for(&self) -> AppResult<Vec<String>> {
-        let repo = rskit_git::discover(self.working_root()?)?;
-        let head = repo.rev_parse("HEAD")?;
-        let mut tags = Vec::new();
-        for tag in repo.list_tags()? {
-            let peeled = format!("refs/tags/{}^{{}}", tag.name);
-            let tagged = repo.rev_parse(&peeled)?;
-            if tagged == head || repo.is_ancestor(&tagged.to_string(), "HEAD")? {
-                tags.push(tag.name);
-            }
+    /// Inject the [`VcsReader`] the version-tag reads run against instead of
+    /// opening a git repository at the working root — the seam tests script to
+    /// exercise Go's tag reads without a real repository.
+    #[must_use]
+    pub fn with_reader(mut self, reader: Arc<dyn VcsReader>) -> Self {
+        self.reader = Some(reader);
+        self
+    }
+
+    /// The Go module version tags reachable from `HEAD`, read through the VCS
+    /// port: the injected reader when present, otherwise the rskit-git-backed
+    /// adapter opened at the working root. Routing through [`VcsReader`] keeps
+    /// the git seam honored (no direct `rskit_git` reach-around) so an in-memory
+    /// VCS works uniformly.
+    fn reachable_tags(&self) -> AppResult<Vec<String>> {
+        match &self.reader {
+            Some(reader) => reachable_tags(reader.as_ref()),
+            None => reachable_tags(&RskitGitVcs::discover(self.working_root()?)?),
         }
-        Ok(tags)
     }
 
     fn working_root(&self) -> AppResult<PathBuf> {
@@ -139,6 +156,25 @@ impl GoVcsTarget {
             Ok,
         )
     }
+}
+
+/// The Go module tags reachable from `HEAD`, read through the VCS port.
+///
+/// A tag on an unmerged side branch is not a published version, so only tags
+/// whose peeled commit is `HEAD` or a strict ancestor of `HEAD` are kept (the
+/// equal-revision case is checked directly because [`VcsReader::is_ancestor`]
+/// is strict).
+fn reachable_tags(reader: &dyn VcsReader) -> AppResult<Vec<String>> {
+    let head = reader.rev_parse("HEAD")?;
+    let mut tags = Vec::new();
+    for tag in reader.list_tags(None)? {
+        let peeled = format!("refs/tags/{}^{{}}", tag.name);
+        let tagged = reader.rev_parse(&peeled)?;
+        if tagged == head || reader.is_ancestor(tagged.as_str(), "HEAD")? {
+            tags.push(tag.name);
+        }
+    }
+    Ok(tags)
 }
 
 impl VersionSource for GoVcsTarget {
@@ -157,7 +193,7 @@ impl VersionSource for GoVcsTarget {
     fn published_versions(&self, module: &Module) -> AppResult<Vec<Version>> {
         let scheme = self.tag_scheme(module, None)?;
         let mut versions = self
-            .reachable_tags_for()?
+            .reachable_tags()?
             .into_iter()
             .filter_map(|tag| scheme.parse(&tag))
             .collect::<Vec<_>>();
@@ -377,6 +413,31 @@ mod tests {
             .expect_err("configured tag_format rejected");
 
         assert!(error.to_string().contains("tag_format"));
+    }
+
+    #[test]
+    fn published_versions_read_go_module_tags_through_the_injected_reader() {
+        use toven_ports::{Oid, TagRef};
+        use toven_testkit::doubles::FakeVcsReader;
+
+        // A scripted reader (no real git): every tag resolves to the same commit
+        // as HEAD, so all are reachable, and the target reads its version tags
+        // straight from the injected port — proving Go no longer bypasses the
+        // seam to hit real git.
+        let reader = FakeVcsReader::new()
+            .with_rev_parse("c0ffee")
+            .with_tags(vec![
+                TagRef::new("cache/redis/v1.2.0", Oid::new("c0ffee")),
+                TagRef::new("cache/redis/v1.3.0", Oid::new("c0ffee")),
+                TagRef::new("cache/http/v9.9.9", Oid::new("c0ffee")),
+            ]);
+        let target = target().with_reader(Arc::new(reader));
+
+        let versions = target
+            .published_versions(&module("cache-redis", "cache/redis"))
+            .expect("versions");
+
+        assert_eq!(versions, vec![Version::new(1, 2, 0), Version::new(1, 3, 0)]);
     }
 
     #[test]

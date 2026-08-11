@@ -299,6 +299,9 @@ impl VcsReader for FakeVcs {
     fn merge_base(&self, _a: &str, _b: &str) -> AppResult<Oid> {
         Ok(Oid::new("deadbeef"))
     }
+    fn is_ancestor(&self, _ancestor: &str, _descendant: &str) -> AppResult<bool> {
+        Ok(true)
+    }
     fn list_tags(&self, _pattern: Option<&str>) -> AppResult<Vec<TagRef>> {
         Ok(Vec::new())
     }

@@ -12,6 +12,7 @@ publish = false
 [dependencies]
 toven-model.workspace = true
 toven-ports.workspace = true
+toven-vcs.workspace = true
 rskit-errors.workspace = true
 rskit-config.workspace = true
 rskit-cli.workspace = true
@@ -25,7 +26,7 @@ toml.workspace = true
 [features]
 # Statically link a source-built OpenSSL into rskit-git's embedded git2
 # backend, for portable and cross-compiled release builds. Off by default.
-vendored-openssl = ["rskit-git/vendored-openssl"]
+vendored-openssl = ["rskit-git/vendored-openssl", "toven-vcs/vendored-openssl"]
 
 [dev-dependencies]
 toven-exec.workspace = true

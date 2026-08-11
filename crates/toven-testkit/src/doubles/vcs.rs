@@ -29,6 +29,7 @@ pub struct FakeVcsReader {
     branch: Option<String>,
     rev_parse_oid: Oid,
     merge_base_oid: Oid,
+    is_ancestor: bool,
     tags: Vec<TagRef>,
     changed: Vec<ChangeRecord>,
     changed_between: Vec<ChangeRecord>,
@@ -45,6 +46,7 @@ impl Default for FakeVcsReader {
             branch: Some("main".to_string()),
             rev_parse_oid: Oid::new("0000000"),
             merge_base_oid: Oid::new("0000000"),
+            is_ancestor: false,
             tags: Vec::new(),
             changed: Vec::new(),
             changed_between: Vec::new(),
@@ -90,6 +92,17 @@ impl FakeVcsReader {
     #[must_use]
     pub fn with_merge_base(mut self, oid: impl Into<String>) -> Self {
         self.merge_base_oid = Oid::new(oid);
+        self
+    }
+
+    /// Script the `is_ancestor` reachability result returned for every
+    /// `(ancestor, descendant)` pair. Defaults to `false`, so a test that wants
+    /// scripted tags treated as reachable from `HEAD` either sets this or aligns
+    /// the scripted `rev_parse` oid so the caller's equal-revision short-circuit
+    /// fires.
+    #[must_use]
+    pub const fn with_is_ancestor(mut self, is_ancestor: bool) -> Self {
+        self.is_ancestor = is_ancestor;
         self
     }
 
@@ -272,6 +285,10 @@ impl VcsReader for FakeVcsReader {
 
     fn merge_base(&self, _a: &str, _b: &str) -> AppResult<Oid> {
         Ok(self.merge_base_oid.clone())
+    }
+
+    fn is_ancestor(&self, _ancestor: &str, _descendant: &str) -> AppResult<bool> {
+        Ok(self.is_ancestor)
     }
 
     fn list_tags(&self, _pattern: Option<&str>) -> AppResult<Vec<TagRef>> {
