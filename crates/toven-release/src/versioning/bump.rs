@@ -12,11 +12,11 @@ use toven_ports::{
 };
 
 use crate::model::tag;
-use crate::versioning::strategy::{self, EffectiveLevel};
 use crate::{
     BumpOverrides, BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PushPolicy, ReleaseBaseline,
     ReleaseEntry, ResolvedReleaseSettings,
 };
+use toven_semver::{EffectiveLevel, next_version};
 
 /// Inputs required to build release entries.
 #[allow(clippy::redundant_pub_crate)]
@@ -80,6 +80,18 @@ impl CutIntent {
     /// verify its out-of-band tag. Only the verify-and-publish path does; a
     /// `bump` reaches a maintainer-owned module only when it genuinely changed.
     pub(crate) const fn forces_maintainer_owned(self) -> bool {
+        matches!(self, Self::Verify)
+    }
+
+    /// Whether a maintainer-owned module **echoes** its already-declared version
+    /// (the verify-and-publish path) instead of computing a bump.
+    ///
+    /// Only `release tag`/`publish` (`Verify`) verify a version a maintainer
+    /// already merged and tagged out of band. `bump` and `plan` still compute
+    /// the increment (change-gated, cascaded) that the maintainer then reviews
+    /// and merges — so a maintainer-owned workspace is not frozen to its
+    /// declared versions at bump time, it just owns the commit/tag/push.
+    pub(crate) const fn verifies_maintainer_version(self) -> bool {
         matches!(self, Self::Verify)
     }
 }
@@ -420,10 +432,15 @@ fn resolve_bump(
     let settings = input.settings.get(reference);
     let module_ref = &reference.module;
 
-    // A maintainer-owned module keeps the version its manifest already declares
-    // (see `maintainer_decision`); detection, the matrix, and cascades never move
-    // it. The decision is guarded against regressing below the released baseline.
-    if settings.is_some_and(|resolved| resolved.entrypoint.is_maintainer_owned()) {
+    // On the verify-and-publish path a maintainer-owned module keeps the version
+    // its manifest already declares (see `maintainer_decision`) — the version a
+    // maintainer already merged and tagged out of band, which APPLY verifies and
+    // publishes idempotently. `bump`/`plan` do NOT freeze it: they compute the
+    // change-gated, cascaded increment the maintainer will review and merge, so a
+    // maintainer-owned workspace still bumps only the crates that changed.
+    if input.intent.verifies_maintainer_version()
+        && settings.is_some_and(|resolved| resolved.entrypoint.is_maintainer_owned())
+    {
         return maintainer_decision(input, reference, current);
     }
 
@@ -559,8 +576,7 @@ fn resolve_bump(
         .get(reference)
         .and_then(|baseline| baseline.version.as_ref())
         .unwrap_or(current);
-    let target =
-        strategy::next_version(BumpPolicy::SemverCascade, anchor, level, channel.as_deref())?;
+    let target = next_version(anchor, level, channel.as_deref())?;
     let planned = target.max(current.clone());
     Ok(BumpDecision {
         planned: Some(planned),
@@ -1187,6 +1203,68 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].planned_version, Some(Version::new(0, 1, 0)));
         assert_eq!(entries[0].reason, BumpReason::Manifest);
+    }
+
+    #[test]
+    fn a_maintainer_owned_module_computes_a_bump_on_the_bump_path() {
+        // The gap-2 regression: under `entrypoint = "maintainer"`, `release bump`
+        // (CutIntent::Bump) must still COMPUTE a change-gated increment, not echo
+        // the declared version. The crate declares exactly its released baseline
+        // (0.1.0) and changed since, so bump advances it to 0.1.1 — the version a
+        // maintainer then reviews and merges. Only `Verify` (tag/publish) echoes
+        // the already-merged declared version.
+        let core = core_module();
+        let key = core.key();
+        let graph = Graph::build(vec![core.clone()], Vec::new()).unwrap();
+        let targets = rust_targets();
+
+        let maintainer = ReleaseConfig {
+            entrypoint: Some(toven_model::Entrypoint::Maintainer),
+            ..ReleaseConfig::default()
+        };
+        let mut settings = BTreeMap::new();
+        settings.insert(key.clone(), settings_for(&maintainer));
+
+        let changed: BTreeSet<_> = std::iter::once(key.clone()).collect();
+        let mut baselines = BTreeMap::new();
+        baselines.insert(
+            key.clone(),
+            ReleaseBaseline::tag(
+                key,
+                "rust/core@0.1.0",
+                Version::new(0, 1, 0),
+                Oid::new("cafe"),
+            ),
+        );
+        let changelogs = BTreeMap::new();
+        let modules = vec![core];
+        let edges = Vec::new();
+        let overrides = BumpOverrides::new();
+
+        let entries = plan_entries(&BumpInputs {
+            graph: &graph,
+            modules: &modules,
+            edges: &edges,
+            changed: &changed,
+            baselines: &baselines,
+            changelogs: &changelogs,
+            settings: &settings,
+            targets: &targets,
+            branches: &no_branches(),
+            policy: BumpPolicy::SemverCascade,
+            overrides: &overrides,
+            intent: CutIntent::Bump,
+        })
+        .expect("a maintainer-owned bump computes a change-gated increment");
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0].planned_version,
+            Some(Version::new(0, 1, 1)),
+            "bump must compute a real increment under maintainer entrypoint, not echo 0.1.0"
+        );
+        assert_eq!(entries[0].reason, BumpReason::Changed);
+        assert!(entries[0].entrypoint.is_maintainer_owned());
     }
 
     #[test]

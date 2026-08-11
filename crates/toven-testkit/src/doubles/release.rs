@@ -314,6 +314,26 @@ impl VersionSource for FakeReleaseTarget {
         }
         Ok(state.published.clone())
     }
+
+    fn version_in_manifest(&self, manifest: &str) -> AppResult<Option<Version>> {
+        // A test double reads the version from a top-level `version = "X"` line
+        // of the committed manifest body — enough to anchor an umbrella-tag
+        // baseline on each module's own version without pulling a full TOML
+        // parser into the testkit.
+        Ok(manifest_leading_version(manifest))
+    }
+}
+
+/// Parse the version from the first top-level `version = "X"` line of a manifest
+/// body, ignoring nested dependency `version` keys (whose line starts with the
+/// dependency name, not `version`). Returns `None` when no such line parses.
+fn manifest_leading_version(manifest: &str) -> Option<Version> {
+    manifest.lines().find_map(|line| {
+        let rest = line.trim().strip_prefix("version")?.trim_start();
+        let value = rest.strip_prefix('=')?.trim();
+        let quoted = value.strip_prefix('"')?.strip_suffix('"')?;
+        Version::parse(quoted).ok()
+    })
 }
 
 impl TagGrammar for FakeReleaseTarget {

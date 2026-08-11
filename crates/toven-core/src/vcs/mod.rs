@@ -37,4 +37,4 @@ pub use adapter::RskitGitVcs;
 pub use baseline::{BaselineFlags, BaselineStrategy};
 pub use diff::{resolve_range, resolve_range_optional};
 pub use repo_set::{MemberPlacement, RepoGroup, VcsReaderSet, rebase_records};
-pub use tags::latest_matching;
+pub use toven_semver::latest_matching;

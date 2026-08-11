@@ -571,3 +571,199 @@ fn a_rust_umbrella_does_not_perturb_a_go_train_in_the_same_repo() {
          {baseline:?}"
     );
 }
+
+/// A module carrying an explicit repo-relative manifest path, so the
+/// umbrella-tag baseline can read its own declared version at the tag commit.
+fn module_with_manifest(name: &str, root: &str, manifest: &str) -> Module {
+    let mut module = Module::new(mref(name), RepoPath::new(root).expect("module root"));
+    module.manifest = Some(RepoPath::new(manifest).expect("manifest path"));
+    module
+}
+
+/// An umbrella provider whose crates carry independent versions and manifest
+/// paths, so the baseline anchors on each crate's own version at the umbrella
+/// tag rather than the umbrella tag's shared version. The registry reports a
+/// lower `0.1.0` for every crate, so the `max(registry, version-at-tag)`
+/// composition must keep the higher per-crate umbrella-commit version.
+fn independent_versions_provider() -> FakeProvider {
+    let mut response = DiscoverResponse::new(eid());
+    response.modules.push(module_with_manifest(
+        "suite",
+        "crates/suite",
+        "crates/suite/Cargo.toml",
+    ));
+    response.modules.push(module_with_manifest(
+        "core",
+        "crates/core",
+        "crates/core/Cargo.toml",
+    ));
+    response.modules.push(module_with_manifest(
+        "util",
+        "crates/util",
+        "crates/util/Cargo.toml",
+    ));
+    let common = CommonEcosystemConfig {
+        release: ReleaseConfig {
+            registry: Some("crates-io".into()),
+            offline: Some(true),
+            ..ReleaseConfig::default()
+        },
+        ..CommonEcosystemConfig::default()
+    };
+    let adapter = FakeConfiguredAdapter::new(eid())
+        .with_response(response)
+        .with_common(common)
+        .with_release_target(
+            // The declared (working-tree) version of `core` is 0.2.0 — its own
+            // independent version, unrelated to the umbrella tag's 1.0.0. The
+            // registry reports a lower 0.1.0 for every crate.
+            FakeReleaseTarget::new()
+                .with_declared_version(Version::new(0, 2, 0))
+                .with_published_versions(vec![Version::new(0, 1, 0)]),
+        );
+    FakeProvider::new(eid()).with_adapter(adapter)
+}
+
+/// A repository whose single umbrella tag is `v1.0.0` but whose crates carry
+/// **independent** versions in their committed manifests (`core = 0.2.0`), with
+/// a source edit in `core` only after the umbrella tag.
+fn independent_versions_repo() -> (TestWorkspace, AbsPath, Document) {
+    let ws = TestWorkspace::new("release-independent-umbrella");
+    let scenario = GitScenario::init(ws.path()).expect("git init");
+    scenario
+        .commit_file(
+            "toven.toml",
+            concat!(
+                "[project]\n",
+                "name = \"workspace\"\n\n",
+                "[ecosystems.rust]\n\n",
+                "[ecosystems.rust.release]\n",
+                "registry = \"crates-io\"\n",
+                "offline = true\n\n",
+                "[modules.\"rust:suite\".release]\n",
+                "umbrella = true\n",
+                "tag_format = \"v{version}\"\n",
+                "push = false\n",
+            ),
+            "config",
+        )
+        .expect("commit config");
+    // Each crate declares its OWN independent version in its manifest — the
+    // umbrella tag `v1.0.0` is not any crate's version.
+    scenario
+        .commit_file(
+            "crates/suite/Cargo.toml",
+            "[package]\nname = \"suite\"\nversion = \"0.3.0\"\n",
+            "suite manifest",
+        )
+        .expect("suite manifest");
+    scenario
+        .commit_file("crates/suite/src/lib.rs", "//! suite\n", "baseline suite")
+        .expect("suite baseline");
+    scenario
+        .commit_file(
+            "crates/core/Cargo.toml",
+            "[package]\nname = \"core\"\nversion = \"0.2.0\"\n",
+            "core manifest",
+        )
+        .expect("core manifest");
+    scenario
+        .commit_file("crates/core/src/lib.rs", "pub fn a() {}\n", "baseline core")
+        .expect("core baseline");
+    scenario
+        .commit_file(
+            "crates/util/Cargo.toml",
+            "[package]\nname = \"util\"\nversion = \"0.5.0\"\n",
+            "util manifest",
+        )
+        .expect("util manifest");
+    scenario
+        .commit_file("crates/util/src/lib.rs", "pub fn b() {}\n", "baseline util")
+        .expect("util baseline");
+    scenario
+        .tag("v1.0.0", "release v1.0.0")
+        .expect("tag the shared umbrella baseline");
+    // Only `core` changes after the umbrella tag.
+    scenario
+        .commit_file(
+            "crates/core/src/lib.rs",
+            "pub fn a() -> u32 { 1 }\n",
+            "a core change to release",
+        )
+        .expect("core change commit");
+
+    let root = AbsPath::new(ws.path().to_path_buf()).expect("absolute root");
+    let document = load(
+        ws.path().join("toven.toml"),
+        &BTreeSet::new(),
+        &CanonicalRegistry::model(),
+    )
+    .expect("document loads")
+    .document;
+    (ws, root, document)
+}
+
+#[test]
+fn a_changed_crate_bumps_from_its_own_version_at_the_umbrella_tag() {
+    // The headline independent-versioning case: the single umbrella tag is
+    // `v1.0.0`, but `core` carries its own `0.2.0` version in its manifest at
+    // that commit. Anchoring on the umbrella tag's own version (the old
+    // shortcut) would bump `core` to `1.0.1`; anchoring on `core`'s own version
+    // at the tag commit bumps it to `0.2.1`.
+    let (ws, root, document) = independent_versions_repo();
+    let provider = independent_versions_provider();
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = RskitGitVcs::open(ws.path()).expect("open reader");
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("HEAD"));
+    let mut reporter = RecordingReporter::new();
+
+    let plan = release_plan(
+        &request(root),
+        &document,
+        &providers,
+        &readers,
+        &BumpOverrides::new(),
+        &mut reporter,
+    )
+    .expect("plan");
+
+    let core = plan
+        .entries
+        .iter()
+        .find(|entry| entry.module.to_string() == "rust:core")
+        .expect("core is in the plan");
+    let baseline = core.baseline.as_ref().expect("core baseline recorded");
+    assert_eq!(
+        baseline.version,
+        Some(Version::new(0, 2, 0)),
+        "the anchor is core's own version at the umbrella tag commit, not the tag's 1.0.0: \
+         {baseline:?}"
+    );
+    assert_eq!(
+        baseline.tag.as_deref(),
+        Some("v1.0.0"),
+        "the diff anchor is the shared umbrella tag: {baseline:?}"
+    );
+    let planned = core.planned_version.as_ref().expect("core is bumped");
+    assert_eq!(
+        planned,
+        &Version::new(0, 2, 1),
+        "a single source change patches core off its own 0.2.0 anchor, never the umbrella \
+         tag's 1.0.0: {core:?}"
+    );
+    assert_ne!(
+        core.reason,
+        BumpReason::InitialRelease,
+        "a crate with an umbrella/registry anchor is not a first release: {core:?}"
+    );
+
+    // `util` did not change since the umbrella tag: it must not bump, and must
+    // never anchor on the umbrella tag's 1.0.0.
+    assert!(
+        plan.entries
+            .iter()
+            .all(|entry| entry.module.to_string() != "rust:util"),
+        "an unchanged crate must not bump: {:?}",
+        plan.entries
+    );
+}
