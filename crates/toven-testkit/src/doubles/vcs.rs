@@ -36,6 +36,7 @@ pub struct FakeVcsReader {
     worktree: Arc<Mutex<Vec<ChangeRecord>>>,
     worktree_fault: Arc<Mutex<WorktreeStatusFault>>,
     ignored: Vec<PathBuf>,
+    files_at_ref: Vec<((String, PathBuf), Vec<u8>)>,
 }
 
 impl Default for FakeVcsReader {
@@ -51,6 +52,7 @@ impl Default for FakeVcsReader {
             worktree: Arc::new(Mutex::new(Vec::new())),
             worktree_fault: Arc::new(Mutex::new(WorktreeStatusFault::None)),
             ignored: Vec::new(),
+            files_at_ref: Vec::new(),
         }
     }
 }
@@ -95,6 +97,22 @@ impl FakeVcsReader {
     #[must_use]
     pub fn with_tags(mut self, tags: Vec<TagRef>) -> Self {
         self.tags = tags;
+        self
+    }
+
+    /// Script the bytes `file_at_ref` returns for a `(reference, repo-relative
+    /// path)` pair. An unscripted pair reads as `None` (absent at that
+    /// revision), so a test anchors a module's version at an umbrella tag commit
+    /// by scripting only the manifests that existed then.
+    #[must_use]
+    pub fn with_file_at_ref(
+        mut self,
+        reference: impl Into<String>,
+        path: impl Into<PathBuf>,
+        contents: impl Into<Vec<u8>>,
+    ) -> Self {
+        self.files_at_ref
+            .push(((reference.into(), path.into()), contents.into()));
         self
     }
 
@@ -295,6 +313,33 @@ impl VcsReader for FakeVcsReader {
 
     fn is_ignored(&self, repo_relative: &Path) -> AppResult<bool> {
         Ok(self.ignored.iter().any(|p| p == repo_relative))
+    }
+
+    fn file_at_ref(
+        &self,
+        reference: &str,
+        repo_relative: &Path,
+        max_bytes: u64,
+    ) -> AppResult<Option<Vec<u8>>> {
+        self.files_at_ref
+            .iter()
+            .find(|((r, p), _)| r == reference && p == repo_relative)
+            .map(|(_, contents)| contents.clone())
+            .map(|contents| {
+                if contents.len() as u64 > max_bytes {
+                    Err(AppError::invalid_input(
+                        "path",
+                        format!(
+                            "file '{}' at '{reference}' is {} bytes, exceeding limit {max_bytes} bytes",
+                            repo_relative.display(),
+                            contents.len()
+                        ),
+                    ))
+                } else {
+                    Ok(contents)
+                }
+            })
+            .transpose()
     }
 }
 

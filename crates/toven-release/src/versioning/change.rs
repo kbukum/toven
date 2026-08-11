@@ -126,6 +126,7 @@ fn detect_member(
             base_override,
             &tags,
             &source,
+            reader.reader(),
             target,
             &mut changes.baselines,
         )?
@@ -218,11 +219,17 @@ fn baseline_spec(
     base_override: Option<&str>,
     tags: &[TagRef],
     source: &BaselineSource,
+    reader: &dyn toven_ports::VcsReader,
     version_source: &dyn toven_ports::VersionSource,
     baselines: &mut BTreeMap<ModuleKey, ReleaseBaseline>,
 ) -> AppResult<Option<BaselineSpec>> {
-    let baseline =
-        crate::versioning::baseline::resolve_baseline(module, source, version_source, tags)?;
+    let baseline = crate::versioning::baseline::resolve_baseline(
+        module,
+        source,
+        reader,
+        version_source,
+        tags,
+    )?;
 
     // No anchor at all: the module has never been released, so it is always an
     // initial release. `--base` is not honored here — a never-released module

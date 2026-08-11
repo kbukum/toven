@@ -1,0 +1,18 @@
+[package]
+name = "toven-semver"
+description = "Pure semver toolkit: the bump-increment matrix, release tag codec, and latest-tag selection — reusable by any adapter or crate"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+rskit-errors.workspace = true
+rskit-version.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

@@ -264,6 +264,10 @@ impl VersionSource for CargoRegistryTarget {
         output.require_success("registry query tool `cargo`")?;
         Ok(parse_cargo_search_versions(&package, &output.stdout))
     }
+
+    fn version_in_manifest(&self, manifest: &str) -> AppResult<Option<Version>> {
+        version_in_manifest_contents(manifest)
+    }
 }
 
 impl TagGrammar for CargoRegistryTarget {
@@ -693,10 +697,41 @@ fn fallback_retry_after(is_new_release: bool, now: SystemTime) -> Option<SystemT
         .fallback_retry_after(is_new_release, now)
 }
 
-/// Read `[package].version` from a `Cargo.toml` body.
+/// Parse `[package].version` from a `Cargo.toml` **body** without touching the
+/// working tree, for anchoring a module on its own version at a historical
+/// commit (an umbrella-tag baseline).
 ///
-/// A string `version` is returned directly. A workspace-inherited version
-/// (`version.workspace = true`) is resolved from the nearest
+/// Returns `None` — never an error — when the body is well-formed TOML but does
+/// not resolve a concrete version here: no `[package].version` (a virtual
+/// workspace manifest), or a `version.workspace = true` whose owning
+/// `[workspace.package].version` lives in an ancestor manifest not available
+/// from this body alone. The caller falls back to the umbrella tag's own
+/// version in those cases. Malformed TOML or a non-string, non-inherited
+/// version is a genuine parse fault and propagates.
+fn version_in_manifest_contents(text: &str) -> AppResult<Option<Version>> {
+    let attribution = Path::new("Cargo.toml");
+    let doc = parse_manifest(text, attribution)?;
+    let Some(item) = doc
+        .get("package")
+        .and_then(Item::as_table_like)
+        .and_then(|package| package.get("version"))
+    else {
+        return Ok(None);
+    };
+    match item.as_str() {
+        Some(raw) => parse_version(raw, attribution).map(Some),
+        // `version.workspace = true`: the concrete version is in the workspace
+        // root manifest at the same commit, not this body — fall back rather
+        // than resolve a working-tree ancestor that may differ from the commit.
+        None if is_workspace_inherited(item) => Ok(None),
+        None => Err(AppError::new(
+            ErrorCode::InvalidFormat,
+            "manifest has a [package].version that is neither a string nor \
+             `version.workspace = true`",
+        )),
+    }
+}
+
 /// `[workspace.package] version` — first in the same manifest (root package),
 /// then by walking ancestor directories from `path` for the workspace-root
 /// `Cargo.toml`. The ancestor walk never crosses above `root` (the
@@ -891,7 +926,7 @@ mod tests {
     use super::{
         apply_mutation, cargo_token_env_name, create_all, parse_cargo_search_versions,
         publish_argv, read_declared_version, registry_token_injection, remove_stray_sbom_files,
-        sbom_argv, sbom_output_candidates,
+        sbom_argv, sbom_output_candidates, version_in_manifest_contents,
     };
     use toven_ports::ReleaseCredentials;
 
@@ -968,6 +1003,33 @@ plain = \"0.4.0\"
         )
         .unwrap();
         assert_eq!(version, Version::new(3, 4, 5));
+    }
+
+    #[test]
+    fn version_in_manifest_reads_an_explicit_package_version() {
+        let version = version_in_manifest_contents(MANIFEST).unwrap();
+        assert_eq!(version, Some(Version::new(1, 2, 3)));
+    }
+
+    #[test]
+    fn version_in_manifest_is_none_for_a_workspace_inherited_version() {
+        assert_eq!(
+            version_in_manifest_contents(ROOT_INHERITED_MANIFEST).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn version_in_manifest_is_none_when_no_package_version_is_declared() {
+        assert_eq!(
+            version_in_manifest_contents("[package]\nname = \"x\"\n").unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn version_in_manifest_rejects_a_non_string_non_inherited_version() {
+        assert!(version_in_manifest_contents("[package]\nname = \"x\"\nversion = 1\n").is_err());
     }
 
     #[test]

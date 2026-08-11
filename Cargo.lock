@@ -2078,6 +2078,7 @@ dependencies = [
  "toml",
  "toven-model",
  "toven-ports",
+ "toven-semver",
  "toven-testkit",
 ]
 
@@ -2187,6 +2188,7 @@ dependencies = [
  "tokio-util",
  "toml",
  "toven-model",
+ "toven-semver",
 ]
 
 [[package]]
@@ -2206,6 +2208,7 @@ dependencies = [
  "toven-core",
  "toven-model",
  "toven-ports",
+ "toven-semver",
  "toven-testkit",
 ]
 
@@ -2243,6 +2246,15 @@ dependencies = [
  "toven-model",
  "toven-ports",
  "toven-testkit",
+]
+
+[[package]]
+name = "toven-semver"
+version = "0.1.0-alpha.5"
+dependencies = [
+ "rskit-errors",
+ "rskit-version",
+ "serde",
 ]
 
 [[package]]

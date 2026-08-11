@@ -43,6 +43,12 @@ impl TagRef {
     }
 }
 
+impl toven_semver::Tagged for TagRef {
+    fn tag_name(&self) -> &str {
+        &self.name
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Oid, TagRef};

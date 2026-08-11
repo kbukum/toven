@@ -15,7 +15,7 @@
 use rskit_errors::{AppError, AppResult};
 use toven_ports::{ChangeRecord, DiffEndpoint, DiffRange, VcsReader};
 
-use super::tags::latest_matching;
+use super::latest_matching;
 
 /// An endpoint resolved to something the git seam can diff.
 enum Resolved {

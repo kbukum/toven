@@ -165,6 +165,14 @@ impl VersionSource for GoVcsTarget {
         versions.dedup();
         Ok(versions)
     }
+
+    fn version_in_manifest(&self, _manifest: &str) -> AppResult<Option<Version>> {
+        // A Go module's version lives in its version-control tags, never in
+        // `go.mod`, so there is no manifest-body version to anchor on. Go uses a
+        // per-module tag baseline (not an umbrella-tag baseline), so this reader
+        // is never consulted for Go; it returns `None` for contract completeness.
+        Ok(None)
+    }
 }
 
 impl TagGrammar for GoVcsTarget {

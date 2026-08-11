@@ -14,7 +14,7 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_git::{
     ChainAuthProvider, Committer, ConfigReader, DefaultAuthProvider, EnvTokenAuthProvider,
     IgnoreReader, IndexManager, Inspector, LogReader, PushOptions, RefManager, RemoteManager, Repo,
-    Repository, SignFormat as GitSignFormat, SignOptions,
+    Repository, SignFormat as GitSignFormat, SignOptions, TreeReader,
 };
 use toven_ports::{
     BaselineSpec, ChangeRecord, CommitSummary, Oid, SignFormat, TagRef, TagSigner, VcsReader,
@@ -166,6 +166,36 @@ impl VcsReader for RskitGitVcs {
             )
         })?;
         self.repo.is_ignored(path)
+    }
+
+    fn file_at_ref(
+        &self,
+        reference: &str,
+        repo_relative: &Path,
+        max_bytes: u64,
+    ) -> AppResult<Option<Vec<u8>>> {
+        let path = repo_relative.to_str().ok_or_else(|| {
+            AppError::invalid_input(
+                "path",
+                format!("non-UTF-8 repo path '{}'", repo_relative.display()),
+            )
+        })?;
+        match self.repo.file_at_bounded(reference, path, max_bytes) {
+            Ok(bytes) => Ok(Some(bytes)),
+            // A path absent from the revision's tree (a module introduced after
+            // the tag) surfaces as an invalid-path error from the tree walk; it
+            // is a "not present here", not a failure. An oversized blob shares
+            // the `InvalidInput` code but is a genuine bound violation, so it
+            // propagates. An unresolvable revision (`NotFound`) or any other
+            // error is a genuine fault and propagates.
+            Err(error)
+                if error.code() == ErrorCode::InvalidInput
+                    && !rskit_git::is_file_too_large_error(&error) =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -401,5 +431,53 @@ mod tests {
             .expect("branch");
 
         assert!(!branch.is_empty());
+    }
+
+    #[test]
+    fn file_at_ref_reads_a_blob_at_a_tag_and_reports_absent_paths_and_bad_refs() {
+        use std::path::Path;
+
+        const MANIFEST_LIMIT: u64 = 4 * 1024 * 1024;
+
+        let workspace = TestWorkspace::new("vcs-file-at-ref");
+        let scenario = GitScenario::init(workspace.path()).expect("git init");
+        scenario
+            .commit_file("Cargo.toml", "version = \"0.2.0\"\n", "tagged state")
+            .expect("commit");
+        scenario.tag_lightweight("v1.0.0").expect("tag");
+        // Change the file after the tag so the tagged content differs from HEAD.
+        scenario
+            .commit_file("Cargo.toml", "version = \"0.3.0\"\n", "post-tag change")
+            .expect("commit");
+        let vcs = RskitGitVcs::open(workspace.path()).expect("open");
+
+        let at_tag = vcs
+            .file_at_ref("v1.0.0", Path::new("Cargo.toml"), MANIFEST_LIMIT)
+            .expect("read at tag");
+        assert_eq!(
+            at_tag.as_deref().map(String::from_utf8_lossy),
+            Some("version = \"0.2.0\"\n".into())
+        );
+
+        // A path not present in the tagged tree is a "not here", not an error.
+        let absent = vcs
+            .file_at_ref("v1.0.0", Path::new("does/not/exist.toml"), MANIFEST_LIMIT)
+            .expect("absent path is Ok(None)");
+        assert_eq!(absent, None);
+
+        // An unresolvable revision is a genuine fault and propagates.
+        assert!(
+            vcs.file_at_ref("no-such-ref", Path::new("Cargo.toml"), MANIFEST_LIMIT)
+                .is_err(),
+            "a bad revision must error, not read as absent"
+        );
+
+        // A blob larger than the budget is a genuine fault, not swallowed as
+        // an absent path.
+        assert!(
+            vcs.file_at_ref("v1.0.0", Path::new("Cargo.toml"), 1)
+                .is_err(),
+            "an oversized blob must error, not read as absent"
+        );
     }
 }

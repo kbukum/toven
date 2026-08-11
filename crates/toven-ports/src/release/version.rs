@@ -25,4 +25,19 @@ pub trait VersionSource {
     /// [`PublishOutcome::AlreadyPublished`](super::PublishOutcome::AlreadyPublished)
     /// as the authoritative idempotency backstop.
     fn published_versions(&self, module: &Module) -> AppResult<Vec<Version>>;
+
+    /// Parse a module's declared version from raw manifest **contents**, or
+    /// `None` when these contents alone do not determine one (no version field,
+    /// or a workspace-inherited version whose workspace root is not in scope).
+    ///
+    /// Unlike [`declared_version`](Self::declared_version) — which reads the
+    /// module's manifest from the working tree — this parses a historical
+    /// manifest body the engine fetched at a tag's commit via
+    /// [`VcsReader::file_at_ref`](crate::vcs::VcsReader::file_at_ref),
+    /// so an umbrella-tag baseline can anchor each module on its **own** version
+    /// at that commit rather than the umbrella tag's shared version. Contents
+    /// that fail to parse as the ecosystem's manifest format are an error; a
+    /// well-formed manifest with no resolvable version is `Ok(None)`, letting
+    /// the caller fall back to the umbrella tag's own version.
+    fn version_in_manifest(&self, manifest: &str) -> AppResult<Option<Version>>;
 }

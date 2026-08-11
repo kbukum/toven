@@ -42,6 +42,9 @@ impl VersionSource for FakeReleaseTarget {
     fn published_versions(&self, _module: &Module) -> AppResult<Vec<Version>> {
         Ok(Vec::new())
     }
+    fn version_in_manifest(&self, _manifest: &str) -> AppResult<Option<Version>> {
+        Ok(None)
+    }
 }
 impl TagGrammar for FakeReleaseTarget {
     fn tag_scheme(&self, _module: &Module, _tag_format: Option<&str>) -> AppResult<TagScheme> {
@@ -317,6 +320,14 @@ impl VcsReader for FakeVcs {
     }
     fn is_ignored(&self, _repo_relative: &Path) -> AppResult<bool> {
         Ok(false)
+    }
+    fn file_at_ref(
+        &self,
+        _reference: &str,
+        _repo_relative: &Path,
+        _max_bytes: u64,
+    ) -> AppResult<Option<Vec<u8>>> {
+        Ok(None)
     }
 }
 impl VcsWriter for FakeVcs {

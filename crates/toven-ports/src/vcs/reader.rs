@@ -59,4 +59,24 @@ pub trait VcsReader {
 
     /// Whether a repo-relative path is git-ignored (discovery filter).
     fn is_ignored(&self, repo_relative: &Path) -> AppResult<bool>;
+
+    /// Read the bytes of a repo-relative file at a committed revision, or `None`
+    /// when the path does not exist in that revision's tree.
+    ///
+    /// The narrow "read a blob at a ref" primitive the release engine needs to
+    /// read a module's declared manifest version at an umbrella tag's commit —
+    /// the per-module baseline anchor for a single-umbrella-tag workspace where
+    /// each module carries its own independent version. `None` distinguishes a
+    /// path absent at that revision (a module introduced after the tag) from an
+    /// I/O failure or an unresolvable revision, which are errors.
+    ///
+    /// `max_bytes` bounds the read: a repository-controlled blob larger than the
+    /// budget is rejected as an error before it is materialized, rather than
+    /// exhausting memory during planning.
+    fn file_at_ref(
+        &self,
+        reference: &str,
+        repo_relative: &Path,
+        max_bytes: u64,
+    ) -> AppResult<Option<Vec<u8>>>;
 }

@@ -12,6 +12,7 @@ publish = false
 [dependencies]
 toven-model.workspace = true
 toven-ports.workspace = true
+toven-semver.workspace = true
 rskit-errors.workspace = true
 rskit-fs.workspace = true
 rskit-git.workspace = true

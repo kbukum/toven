@@ -35,6 +35,7 @@ rskit-worker = { version = "0.2.0-alpha.4", path = "rskit/core/rskit-worker" }
 rskit-component = { version = "0.2.0-alpha.3", path = "rskit/core/rskit-component" }
 rskit-config = { version = "0.2.0-alpha.4", path = "rskit/core/rskit-config", default-features = false }
 rskit-cli = { version = "0.2.0-alpha.5", path = "rskit/core/rskit-cli" }
+toven-semver = { path = "crates/toven-semver" }
 toven-model = { path = "crates/toven-model" }
 toven-ports = { path = "crates/toven-ports" }
 toven-core = { path = "crates/toven-core" }
