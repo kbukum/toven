@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 /// The engine owns every phase's flow guarantees (mutation-free preview,
 /// `--yes` + allowed branch + clean tree for mutation, immutable outputs with
 /// forward-fix recovery, typed JSONL/human reporting) **regardless of how the
-/// phase is backed** — see `PhaseBacking` in `toven-ports` for the
+/// phase is backed** — see [`Backing`](crate::Backing) for the
 /// native-or-delegated backing concept.
 ///
 /// `#[non_exhaustive]` because the flow may grow further phases.

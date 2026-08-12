@@ -92,7 +92,7 @@ pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
 pub use raw_output::RawOutputSink;
 pub use release::{
     Artifact, AssetDownloader, HostReleaseOutcome, HostedRelease, ImageOutcome, ImagePhase,
-    ImagePublishOutcome, ImageRequest, ManifestMutator, Packager, PhaseBacking, ProvenanceArtifact,
+    ImagePublishOutcome, ImageRequest, ManifestMutator, Packager, ProvenanceArtifact,
     ProvenanceOutcome, ProvenancePhase, ProvenanceSubject, PublishOutcome, Publisher,
     RegistryCadence, ReleaseAdapter, ReleaseAsset, ReleaseCredentials, ReleaseDefaults,
     ReleaseDefaultsSource, ReleaseHost, ReleaseMutation, SUPPORTED_FORGES, SbomProducer,
@@ -107,6 +107,7 @@ pub use task::{
 };
 pub use template::{CommandTemplate, ReleaseVar, TaskVar};
 pub use toolchain::ToolchainProber;
+pub use toven_model::{Backing, Composite, Unit};
 pub use vcs::{
     BaselineMode, BaselineSpec, ChangeRecord, ChangeStatus, CommitSummary, DiffEndpoint, DiffRange,
     Oid, SignFormat, TagRef, TagSigner, VcsReader, VcsWriter,

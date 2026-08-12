@@ -5,11 +5,11 @@
 //! `[modules.<name>.release]` > `[ecosystems.<id>].release` > adapter default.
 
 use rskit_errors::AppResult;
-use toven_model::{Entrypoint, ReleasePhase};
+use toven_model::{Backing, Entrypoint, ReleasePhase};
 use toven_ports::{
     BaselineSourceConfig, BumpLevel, ChangelogConfig, DependentVersion, HostConfig, ImageConfig,
-    PhaseBacking, PhasesConfig, PrereleaseConfig, PublicationPolicy, ReleaseConfig, SignConfig,
-    SignFormat, TagMode, VersionReferenceConfig, Visibility, merge_release,
+    PhasesConfig, PrereleaseConfig, PublicationPolicy, ReleaseConfig, SignConfig, SignFormat,
+    TagMode, VersionReferenceConfig, Visibility, merge_release,
 };
 
 use crate::{BumpPolicy, PushPolicy};
@@ -161,13 +161,13 @@ pub struct ResolvedReleaseSettings {
 }
 
 impl ResolvedReleaseSettings {
-    /// The resolved backing for `phase` — [`PhaseBacking::Native`] when the
+    /// The resolved backing for `phase` — [`Backing::Native`] when the
     /// phase has no configured entry.
     ///
     /// # Errors
     /// Propagates a configured-but-inconsistent phase entry (a delegated
     /// backing whose tool sub-block is missing or malformed).
-    pub fn phase_backing(&self, phase: ReleasePhase) -> AppResult<PhaseBacking> {
+    pub fn phase_backing(&self, phase: ReleasePhase) -> AppResult<Backing> {
         self.phases.backing(phase, "release.phases")
     }
 
@@ -176,7 +176,7 @@ impl ResolvedReleaseSettings {
     /// Returns `None` for a native (or unconfigured) phase. The engine folds
     /// this into an argv-first [`ToolInvocation`](toven_ports::ToolInvocation)
     /// (via [`delegated_request`](crate::delegated_request)) when a
-    /// phase resolves [`PhaseBacking::Delegated`].
+    /// phase resolves [`Backing::Delegated`].
     #[must_use]
     pub fn delegated_tool(&self, phase: ReleasePhase) -> Option<&toven_ports::DelegatedTool> {
         self.phases.delegated_tool(phase)
@@ -711,12 +711,12 @@ mod tests {
     #[test]
     fn an_unconfigured_phase_resolves_native() {
         use toven_model::ReleasePhase;
-        use toven_ports::PhaseBacking;
+        use toven_ports::Backing;
 
         let resolved = ResolvedReleaseSettings::resolve(&ReleaseConfig::default(), None).unwrap();
         assert_eq!(
             resolved.phase_backing(ReleasePhase::Package).unwrap(),
-            PhaseBacking::Native
+            Backing::Native
         );
         assert!(resolved.delegated_tool(ReleasePhase::Package).is_none());
     }
@@ -726,9 +726,7 @@ mod tests {
         use std::collections::BTreeMap;
 
         use toven_model::ReleasePhase;
-        use toven_ports::{
-            DelegatedTool, PhaseBacking, PhaseBackingKind, PhaseConfig, PhasesConfig,
-        };
+        use toven_ports::{Backing, DelegatedTool, PhaseBackingKind, PhaseConfig, PhasesConfig};
 
         let mut phases = BTreeMap::new();
         phases.insert(
@@ -751,7 +749,7 @@ mod tests {
 
         assert_eq!(
             resolved.phase_backing(ReleasePhase::Package).unwrap(),
-            PhaseBacking::delegated("goreleaser")
+            Backing::delegated("goreleaser")
         );
         let tool = resolved
             .delegated_tool(ReleasePhase::Package)
@@ -760,7 +758,7 @@ mod tests {
         // A phase with no entry still resolves native alongside the delegated one.
         assert_eq!(
             resolved.phase_backing(ReleasePhase::Publish).unwrap(),
-            PhaseBacking::Native
+            Backing::Native
         );
     }
 }
