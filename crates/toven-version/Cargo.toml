@@ -1,0 +1,23 @@
+[package]
+name = "toven-version"
+description = "Toven's versioning decision crate: the single pure bump-decision path (GATHER-fed VersionInputs -> plan_bumps -> BumpPlan), baseline anchoring, changelog generation, and the bump-policy vocabulary"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+toven-model.workspace = true
+toven-ports.workspace = true
+toven-semver.workspace = true
+rskit-errors.workspace = true
+rskit-version.workspace = true
+
+[dev-dependencies]
+toven-testkit.workspace = true
+
+[lints]
+workspace = true

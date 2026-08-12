@@ -16,8 +16,8 @@ use toven_core::plan::{PlanContext, PlanRequest, prepare_front};
 
 use crate::versioning::bump;
 use crate::versioning::change;
-use crate::versioning::changelog;
 use crate::{BumpOverrides, BumpPolicy, ReleaseBaseline, ReleasePlan, ResolvedReleaseSettings};
+use toven_version::changelog;
 
 /// Build an immutable release plan.
 ///
@@ -140,7 +140,6 @@ fn plan_with_changes(
     let entries = bump::plan_entries(&bump::BumpInputs {
         graph: &context.graph,
         modules: &context.federation.modules,
-        edges: &context.federation.edges,
         changed: &changes.changed,
         baselines: &changes.baselines,
         changelogs: &changelogs,

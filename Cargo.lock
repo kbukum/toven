@@ -2211,6 +2211,7 @@ dependencies = [
  "toven-semver",
  "toven-testkit",
  "toven-vcs",
+ "toven-version",
 ]
 
 [[package]]
@@ -2288,6 +2289,18 @@ dependencies = [
  "rskit-errors",
  "rskit-fs",
  "rskit-git",
+ "toven-model",
+ "toven-ports",
+ "toven-semver",
+ "toven-testkit",
+]
+
+[[package]]
+name = "toven-version"
+version = "0.1.0-alpha.5"
+dependencies = [
+ "rskit-errors",
+ "rskit-version",
  "toven-model",
  "toven-ports",
  "toven-semver",

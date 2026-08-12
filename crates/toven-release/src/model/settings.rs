@@ -12,7 +12,6 @@ use toven_ports::{
     SignFormat, TagMode, VersionReferenceConfig, Visibility, merge_release,
 };
 
-use crate::versioning::strategy;
 use crate::{BumpPolicy, PushPolicy};
 
 /// Parse a configured `sign_format` value onto the [`SignFormat`] backend enum.
@@ -230,7 +229,7 @@ impl ResolvedReleaseSettings {
             ));
         }
         Ok(Self {
-            policy: strategy::resolve(config.strategy.as_deref())?,
+            policy: toven_version::resolve_bump_policy(config.strategy.as_deref())?,
             level: config.level.unwrap_or(BumpLevel::Auto),
             dependent_version: config.dependent_version.unwrap_or(DependentVersion::Bump),
             prerelease: config.prerelease.clone().unwrap_or_default(),

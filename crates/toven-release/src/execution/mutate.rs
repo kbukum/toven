@@ -15,8 +15,8 @@ use rskit_fs::safe_join;
 use rskit_fs::sync_io::file::{read_string_bounded, write_atomic};
 use toven_model::{Module, ModuleKey, RepoPath};
 
-use crate::versioning::changelog;
 use crate::{ReleasePlan, ReleaseStats};
+use toven_version::changelog;
 
 /// Upper bound on a changelog read; a document larger than this is treated as
 /// malformed rather than loaded unbounded.

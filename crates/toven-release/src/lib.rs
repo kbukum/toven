@@ -37,13 +37,16 @@ pub use hosting::{
 };
 pub(crate) use model::ReleaseTargets;
 pub use model::{
-    ArtifactManifest, BaselineSource, BumpOverrides, BumpPolicy, BumpReason, BumpSource,
-    ChangelogEntry, HostRehearsal, PublishDecision, PushPolicy, RehearsalVerdict, ReleaseBaseline,
-    ReleaseEntry, ReleaseModuleStatus, ReleasePlan, ReleaseRehearsal, ReleaseStats, ReleaseStatus,
+    ArtifactManifest, HostRehearsal, PublishDecision, PushPolicy, RehearsalVerdict, ReleaseEntry,
+    ReleaseModuleStatus, ReleasePlan, ReleaseRehearsal, ReleaseStats, ReleaseStatus,
     ResolvedHostSettings, ResolvedReleaseSettings,
 };
 pub use planning::{
     ReadinessCheck, ReadinessReport, release_plan, release_readiness, release_rehearse,
     release_run, release_status,
+};
+pub use toven_version::{
+    BaselineSource, BumpOverrides, BumpPolicy, BumpReason, BumpSource, ChangelogEntry,
+    ReleaseBaseline,
 };
 pub use versioning::{BumpModuleOutcome, BumpOptions, BumpReport, release_bump};

@@ -272,7 +272,7 @@ fn merge_planned(
         existing.release.assets.push(asset);
     }
     if !candidate.release.notes.is_empty() {
-        existing.release.notes = crate::versioning::changelog::merge_notes(
+        existing.release.notes = toven_version::changelog::merge_notes(
             &existing.release.notes,
             &candidate.release.notes,
         );
@@ -338,7 +338,7 @@ fn aggregate_umbrella_notes(plan: &ReleasePlan, member: Option<&MemberId>) -> St
         if incoming.trim().is_empty() {
             continue;
         }
-        notes = crate::versioning::changelog::merge_notes(&notes, &incoming);
+        notes = toven_version::changelog::merge_notes(&notes, &incoming);
     }
     notes
 }

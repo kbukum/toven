@@ -1,20 +1,12 @@
-//! Release baseline resolution.
+//! Release baseline GATHER.
 //!
-//! Turns a [`BaselineSource`] policy choice into a concrete
-//! [`ReleaseBaseline`] — the version an idempotency check anchors on plus, when
-//! a commit is available, the diff ref change detection compares files against.
-//! The resolver is the single home of the three-anchor policy (own tag,
-//! umbrella tag, registry) so change detection (`change.rs`) selects a source
-//! and delegates the mechanics here.
-//!
-//! Manifest parsing stays in the ecosystem adapters: an umbrella tag anchors
-//! each module on its **own** declared version at that tag's commit — read
-//! through [`VcsReader::file_at_ref`] and parsed by
-//! [`VersionSource::version_in_manifest`], never a manifest re-parse in the
-//! release engine — so a workspace that versions its modules independently
-//! under one shared tag anchors each module correctly. When a module has no
-//! manifest at that commit (or declares a version the contents can't resolve),
-//! the baseline falls back to the umbrella tag's own version.
+//! Reads the impure facts a module's baseline needs — the module's **own**
+//! declared version at the umbrella tag commit (via [`VcsReader::file_at_ref`] +
+//! [`VersionSource::version_in_manifest`]) and, for a registry-anchored source,
+//! the module's registry-published versions — and hands them to the pure
+//! [`toven_version::resolve_baseline`] decision. All git/registry I/O happens
+//! here, before the pure resolver, so the three-anchor policy (own tag, umbrella
+//! tag, registry) stays a pure function of pre-gathered data.
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_version::semver::Version;
@@ -22,9 +14,7 @@ use toven_model::Module;
 use toven_ports::{Oid, TagRef, TagScheme, VcsReader, VersionSource};
 
 use toven_semver::latest_matching;
-
-use crate::ReleaseBaseline;
-use crate::model::BaselineSource;
+use toven_version::{BaselineSource, ReleaseBaseline, resolve_baseline as decide_baseline};
 
 /// Byte budget for reading a module manifest at a historical commit.
 ///
@@ -34,26 +24,18 @@ use crate::model::BaselineSource;
 /// the ecosystem adapters apply to working-tree manifest reads.
 const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 
-/// Resolve a module's release baseline from the selected [`BaselineSource`].
+/// Resolve a module's release baseline: gather the impure inputs the selected
+/// [`BaselineSource`] needs, then decide the baseline purely.
 ///
-/// - [`OwnTag`](BaselineSource::OwnTag) selects the latest tag matching the
-///   module's own scheme; the baseline carries that tag's version and commit.
-/// - [`UmbrellaTag`](BaselineSource::UmbrellaTag) selects the latest tag
-///   matching the shared umbrella scheme, but anchors the version on the
-///   module's **own** declared version at that tag's commit (falling back to the
-///   umbrella tag's version when the module has no resolvable version there).
-/// - [`Registry`](BaselineSource::Registry) anchors the version on the
-///   registry's max published version, takes the diff ref from an inner tag
-///   anchor, and uses the **max** of the two versions — the
-///   `max(registry, version-at-tag)` composition. A registry lookup failure
-///   downgrades to the inner tag anchor and never aborts.
-///
-/// Either tag path is an initial release when no tag matches.
+/// The module's own version at the umbrella tag commit is read only when the
+/// source anchors on (or composes over) an umbrella tag; the registry-published
+/// versions are read only for a registry-anchored source. Both are handed to
+/// [`toven_version::resolve_baseline`], which owns the anchor policy.
 ///
 /// # Errors
 /// Propagates a typed VCS failure from reading a module's manifest at the
 /// umbrella tag commit, or a manifest-parse failure from the adapter. Registry
-/// failures downgrade rather than propagate.
+/// failures downgrade to an empty published set rather than propagate.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn resolve_baseline(
     module: &Module,
@@ -62,55 +44,42 @@ pub(crate) fn resolve_baseline(
     version_source: &dyn VersionSource,
     tags: &[TagRef],
 ) -> AppResult<ReleaseBaseline> {
+    let module_version_at_ref = umbrella_scheme(source)
+        .and_then(|scheme| latest_matching(scheme, tags))
+        .map(|(_, tag)| tag.target)
+        .map(|commit| module_version_at(module, &commit, reader, version_source))
+        .transpose()?
+        .flatten();
+    let published = if references_registry(source) {
+        version_source
+            .published_versions(module)
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    Ok(decide_baseline(
+        &module.key(),
+        source,
+        tags,
+        module_version_at_ref.as_ref(),
+        &published,
+    ))
+}
+
+/// The umbrella tag scheme a source anchors on (or composes a registry anchor
+/// over), if any — the only source shape whose baseline version depends on the
+/// module's own version at a tag commit.
+fn umbrella_scheme(source: &BaselineSource) -> Option<&TagScheme> {
     match source {
-        BaselineSource::OwnTag { scheme } => Ok(resolve_tag_anchor(module, scheme, tags)),
-        BaselineSource::UmbrellaTag {
-            umbrella_scheme: scheme,
-        } => resolve_umbrella_anchor(module, scheme, reader, version_source, tags),
-        BaselineSource::Registry { diff } => {
-            resolve_registry(module, diff, reader, version_source, tags)
-        }
+        BaselineSource::UmbrellaTag { umbrella_scheme } => Some(umbrella_scheme),
+        BaselineSource::Registry { diff } => umbrella_scheme(diff),
+        _ => None,
     }
 }
 
-/// Resolve a tag-anchored baseline: the latest tag matching `scheme` supplies
-/// the version (idempotency anchor) and its commit (diff ref); no matching tag
-/// is an initial release.
-fn resolve_tag_anchor(module: &Module, scheme: &TagScheme, tags: &[TagRef]) -> ReleaseBaseline {
-    latest_matching(scheme, tags).map_or_else(
-        || ReleaseBaseline::initial(module.key()),
-        |(version, tag)| ReleaseBaseline::tag(module.key(), tag.name, version, tag.target),
-    )
-}
-
-/// Resolve an umbrella-tag-anchored baseline: the latest tag matching the shared
-/// umbrella `scheme` supplies the diff ref (its commit), but the version anchor
-/// is the module's **own** declared version at that commit.
-///
-/// An umbrella workspace can version each module independently under one shared
-/// tag, so the tag's own version is not the per-module release anchor. The
-/// module's manifest at the tag commit is the authority; the umbrella tag's own
-/// version is the fallback only when that manifest is absent (a module
-/// introduced after the tag) or declares a version the contents cannot resolve
-/// (e.g. workspace-inherited). No matching umbrella tag is an initial release.
-fn resolve_umbrella_anchor(
-    module: &Module,
-    scheme: &TagScheme,
-    reader: &dyn VcsReader,
-    version_source: &dyn VersionSource,
-    tags: &[TagRef],
-) -> AppResult<ReleaseBaseline> {
-    let Some((tag_version, tag)) = latest_matching(scheme, tags) else {
-        return Ok(ReleaseBaseline::initial(module.key()));
-    };
-    let version =
-        module_version_at(module, &tag.target, reader, version_source)?.unwrap_or(tag_version);
-    Ok(ReleaseBaseline::tag(
-        module.key(),
-        tag.name,
-        version,
-        tag.target,
-    ))
+/// Whether the source anchors idempotency on the registry's published versions.
+const fn references_registry(source: &BaselineSource) -> bool {
+    matches!(source, BaselineSource::Registry { .. })
 }
 
 /// Read a module's declared version from its manifest **at a commit**, or `None`
@@ -144,41 +113,6 @@ fn module_version_at(
     version_source.version_in_manifest(&text)
 }
 
-/// Resolve a registry-anchored baseline: the registry's max published version
-/// anchors idempotency, the diff ref comes from the inner tag anchor, and the
-/// effective version is the max of the two. A registry lookup failure downgrades
-/// to the inner tag anchor rather than aborting — the publish loop's
-/// `AlreadyPublished` classification remains the authoritative backstop, so a
-/// transient registry outage must not fail change detection.
-fn resolve_registry(
-    module: &Module,
-    diff: &BaselineSource,
-    reader: &dyn VcsReader,
-    version_source: &dyn VersionSource,
-    tags: &[TagRef],
-) -> AppResult<ReleaseBaseline> {
-    let diff_baseline = resolve_baseline(module, diff, reader, version_source, tags)?;
-    let registry_version = version_source
-        .published_versions(module)
-        .ok()
-        .and_then(|versions| versions.into_iter().max());
-    let version = max_version(registry_version, diff_baseline.version);
-    Ok(ReleaseBaseline::anchored(
-        module.key(),
-        diff_baseline.tag,
-        version,
-        diff_baseline.target,
-    ))
-}
-
-/// The higher of two optional versions, or whichever is present.
-fn max_version(left: Option<Version>, right: Option<Version>) -> Option<Version> {
-    match (left, right) {
-        (Some(left), Some(right)) => Some(left.max(right)),
-        (some, None) | (None, some) => some,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use rskit_version::semver::Version;
@@ -186,8 +120,8 @@ mod tests {
     use toven_ports::{Oid, TagRef, TagScheme};
     use toven_testkit::{FakeReleaseTarget, FakeVcsReader};
 
-    use super::{max_version, resolve_baseline};
-    use crate::model::BaselineSource;
+    use super::resolve_baseline;
+    use crate::BaselineSource;
 
     fn module(name: &str, root: &str) -> Module {
         Module::new(
@@ -397,22 +331,5 @@ mod tests {
         assert!(!baseline.is_initial());
         assert_eq!(baseline.version, Some(Version::new(2, 0, 0)));
         assert_eq!(baseline.target, None);
-    }
-
-    #[test]
-    fn max_version_prefers_the_higher_and_the_present() {
-        assert_eq!(
-            max_version(Some(Version::new(1, 0, 0)), Some(Version::new(1, 2, 0))),
-            Some(Version::new(1, 2, 0))
-        );
-        assert_eq!(
-            max_version(Some(Version::new(1, 0, 0)), None),
-            Some(Version::new(1, 0, 0))
-        );
-        assert_eq!(
-            max_version(None, Some(Version::new(1, 0, 0))),
-            Some(Version::new(1, 0, 0))
-        );
-        assert_eq!(max_version(None, None), None);
     }
 }
