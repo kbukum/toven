@@ -1,13 +1,47 @@
-//! Release changelog planning.
+//! Release changelog planning: the [`ChangelogEntry`] value and the pure,
+//! forge-agnostic generation, merge, and roll helpers built on Conventional
+//! Commit classification.
 
 use std::collections::BTreeMap;
 
 use rskit_version::semver::Version;
-use toven_model::Module;
+use toven_model::{Module, ModuleKey};
 use toven_ports::CommitSummary;
 
-use crate::ChangelogEntry;
-use crate::versioning::conventional::{ChangeGroup, classify};
+use crate::conventional::{ChangeGroup, classify};
+
+/// Human- and machine-consumable changelog summary for a module release.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ChangelogEntry {
+    /// Module the entry describes.
+    pub module: ModuleKey,
+    /// Short summary derived from changed paths/commits.
+    pub summary: String,
+    /// Detailed lines for later report rendering.
+    pub lines: Vec<String>,
+    /// Whether the change classification marks this release as breaking.
+    pub breaking: bool,
+}
+
+impl ChangelogEntry {
+    /// Construct a non-breaking changelog entry.
+    #[must_use]
+    pub fn new(module: ModuleKey, summary: impl Into<String>, lines: Vec<String>) -> Self {
+        Self {
+            module,
+            summary: summary.into(),
+            lines,
+            breaking: false,
+        }
+    }
+
+    /// Mark this entry as a breaking change.
+    #[must_use]
+    pub const fn with_breaking(mut self, breaking: bool) -> Self {
+        self.breaking = breaking;
+        self
+    }
+}
 
 /// Build a deterministic, grouped changelog entry from a module's commit range.
 ///
@@ -28,8 +62,7 @@ use crate::versioning::conventional::{ChangeGroup, classify};
 /// markers surface in the rendered notes (a `Breaking changes` section) without
 /// silently re-deciding the version bump.
 #[must_use]
-#[allow(clippy::redundant_pub_crate)]
-pub(crate) fn entry(module: &Module, commits: &[CommitSummary], initial: bool) -> ChangelogEntry {
+pub fn entry(module: &Module, commits: &[CommitSummary], initial: bool) -> ChangelogEntry {
     let mut grouped: BTreeMap<ChangeGroup, Vec<String>> = BTreeMap::new();
     for commit in commits {
         let classified = classify(commit);
@@ -67,7 +100,7 @@ pub(crate) fn entry(module: &Module, commits: &[CommitSummary], initial: bool) -
 /// Render one classified commit as a Keep a Changelog bullet with its scope,
 /// author attribution, and short id: `- **scope**: description — by @handle
 /// (id)` (the `**scope**: ` prefix is omitted when the commit has no scope).
-fn render_bullet(commit: &crate::versioning::conventional::ClassifiedCommit) -> String {
+fn render_bullet(commit: &crate::conventional::ClassifiedCommit) -> String {
     use std::fmt::Write as _;
     let mut bullet = String::from("- ");
     if let Some(scope) = &commit.scope {
@@ -91,8 +124,7 @@ fn render_bullet(commit: &crate::versioning::conventional::ClassifiedCommit) -> 
 /// still lands in its canonical slot rather than after the other input's
 /// sections. Any unrecognized/headingless fallback section sorts first.
 #[must_use]
-#[allow(clippy::redundant_pub_crate)]
-pub(crate) fn merge_notes(existing: &str, incoming: &str) -> String {
+pub fn merge_notes(existing: &str, incoming: &str) -> String {
     if existing.trim().is_empty() {
         return incoming.to_string();
     }
@@ -169,8 +201,7 @@ fn render_sections(sections: &[(String, Vec<String>)]) -> String {
 /// that holds only empty subsection headings such as `### Added`, is treated as
 /// undocumented so a required-changelog release fails closed.
 #[must_use]
-#[allow(clippy::redundant_pub_crate)]
-pub(crate) fn unreleased_documented(text: &str) -> bool {
+pub fn unreleased_documented(text: &str) -> bool {
     let mut in_unreleased = false;
     for line in text.lines() {
         let trimmed = line.trim();
@@ -207,8 +238,7 @@ fn is_unreleased_heading(line: &str) -> bool {
 /// `[Unreleased]` section, or one with no documented entry), so a caller can
 /// leave the file untouched rather than write an empty versioned section.
 #[must_use]
-#[allow(clippy::redundant_pub_crate)]
-pub(crate) fn roll_unreleased(text: &str, version: &Version, date: &str) -> Option<String> {
+pub fn roll_unreleased(text: &str, version: &Version, date: &str) -> Option<String> {
     if !unreleased_documented(text) {
         return None;
     }

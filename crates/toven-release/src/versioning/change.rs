@@ -16,7 +16,7 @@ use toven_ports::{
 use toven_core::federation::baseline::{MemberVcsReader, MemberVcsReaders};
 use toven_core::plan::PlanContext;
 
-use crate::model::BaselineSource;
+use crate::BaselineSource;
 use crate::{ReleaseBaseline, ReleaseTargets, ResolvedReleaseSettings};
 
 /// Per-module change-detection output.
@@ -417,7 +417,7 @@ mod tests {
     use toven_ports::{BaselineSourceConfig, Oid, TagScheme};
 
     use super::{diff_ref, resolve_baseline_source};
-    use crate::model::BaselineSource;
+    use crate::BaselineSource;
 
     fn own() -> TagScheme {
         TagScheme::new("rust/core@", "")

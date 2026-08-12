@@ -14,8 +14,7 @@ use crate::BumpPolicy;
 ///
 /// # Errors
 /// Rejects any unknown policy name (including the removed `caret-prerelease`).
-#[allow(clippy::redundant_pub_crate)]
-pub(crate) fn resolve(raw: Option<&str>) -> AppResult<BumpPolicy> {
+pub fn resolve_bump_policy(raw: Option<&str>) -> AppResult<BumpPolicy> {
     match raw.unwrap_or(BumpPolicy::SemverCascade.as_str()) {
         "semver-cascade" => Ok(BumpPolicy::SemverCascade),
         "manifest" => Ok(BumpPolicy::Manifest),
@@ -28,7 +27,7 @@ pub(crate) fn resolve(raw: Option<&str>) -> AppResult<BumpPolicy> {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve;
+    use super::resolve_bump_policy as resolve;
     use crate::BumpPolicy;
 
     #[test]

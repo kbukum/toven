@@ -1,22 +1,33 @@
-//! Release bump planning: resolve each module's independent bump from config
-//! and the per-run argv overrides, cascade dependency floors, and pre-skip
-//! versions already satisfied by the registry (or, offline, the release tag).
+//! Release entry assembly: gather each module's pre-decided inputs, run the pure
+//! [`plan_bumps`](toven_version::plan_bumps) decision, and compose the resolved
+//! [`ReleaseEntry`] set from its [`BumpPlan`] plus resolved settings and tag
+//! formatting.
+//!
+//! The version *decision* (bump precedence, cascade, idempotency, baseline
+//! anchoring) lives in the pure `toven-version` crate. This module owns the
+//! impure ends around it: GATHER (reading each module's declared and published
+//! versions from its ecosystem adapter) and MUTATE-side assembly (resolving the
+//! planned tag, dependency-floor import edits, and the ~19 resolved-settings
+//! fields a `ReleaseEntry` carries).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::{AppError, AppResult};
-use rskit_version::semver::Version;
-use toven_model::{DepKind, Edge, Graph, MemberId, Module, ModuleKey, ModuleRef};
-use toven_ports::{
-    BumpLevel, DependentVersion, PublicationPolicy, ReleaseAdapter, ReleaseMutation, TagSigner,
+use toven_model::{Edge, Graph, MemberId, Module, ModuleKey};
+use toven_ports::{PublicationPolicy, ReleaseAdapter, ReleaseMutation, TagSigner};
+use toven_version::{
+    BumpConfig, BumpEntry, BumpPlan, ModuleVersionConfig, VersionInputs, plan_bumps,
 };
 
 use crate::model::tag;
 use crate::{
-    BumpOverrides, BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PushPolicy, ReleaseBaseline,
-    ReleaseEntry, ResolvedReleaseSettings,
+    BumpOverrides, BumpPolicy, ChangelogEntry, PushPolicy, ReleaseBaseline, ReleaseEntry,
+    ResolvedReleaseSettings,
 };
-use toven_semver::{EffectiveLevel, next_version};
+
+/// The GATHER-side view of the release-eligible modules, before the pure
+/// decision. Re-exported so change detection can share the [`CutIntent`].
+pub(crate) use toven_version::CutIntent;
 
 /// Inputs required to build release entries.
 #[allow(clippy::redundant_pub_crate)]
@@ -39,801 +50,224 @@ pub(crate) struct BumpInputs<'a> {
     pub(crate) intent: CutIntent,
 }
 
-/// Whether a bump plan is a read-only projection (`release plan` and the other
-/// previews), the standalone `release bump` mutation, or the cut a
-/// verify-and-publish run (`release tag`/`publish`) will apply.
-///
-/// Two axes differ across the three intents:
-/// - **manifest floor.** A projection reports a manifest version that is not
-///   ahead of its released baseline as nothing-to-release; a `bump` likewise
-///   drops it (there is nothing to advance); only a verify run fails closed so
-///   it never re-cuts an already-released version.
-/// - **maintainer-owned reach.** `plan`/`publish` force-include every
-///   maintainer-owned module to verify its out-of-band tag; `bump` must not —
-///   a maintainer-owned module whose manifest is not ahead of its baseline has
-///   nothing to bump, so it stays out of the bump set.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-#[allow(clippy::redundant_pub_crate)]
-pub(crate) enum CutIntent {
-    /// A read-only projection: a not-ahead manifest version is a no-op, not an
-    /// error.
-    Preview,
-    /// The standalone `release bump` mutation: a not-ahead manifest version is a
-    /// no-op (nothing to advance), and maintainer-owned modules are not
-    /// force-included.
-    Bump,
-    /// A verify-and-publish cut (`release tag`/`publish`): a not-ahead manifest
-    /// version fails closed, and maintainer-owned modules are force-included to
-    /// verify their tags.
-    Verify,
-}
-
-impl CutIntent {
-    /// Whether a manifest version that is not ahead of its released baseline
-    /// fails the run closed (`Verify`) rather than resolving to
-    /// nothing-to-release (`Preview`/`Bump`).
-    const fn not_ahead_is_fatal(self) -> bool {
-        matches!(self, Self::Verify)
-    }
-
-    /// Whether change detection force-includes every maintainer-owned module to
-    /// verify its out-of-band tag. Only the verify-and-publish path does; a
-    /// `bump` reaches a maintainer-owned module only when it genuinely changed.
-    pub(crate) const fn forces_maintainer_owned(self) -> bool {
-        matches!(self, Self::Verify)
-    }
-
-    /// Whether a maintainer-owned module **echoes** its already-declared version
-    /// (the verify-and-publish path) instead of computing a bump.
-    ///
-    /// Only `release tag`/`publish` (`Verify`) verify a version a maintainer
-    /// already merged and tagged out of band. `bump` and `plan` still compute
-    /// the increment (change-gated, cascaded) that the maintainer then reviews
-    /// and merges — so a maintainer-owned workspace is not frozen to its
-    /// declared versions at bump time, it just owns the commit/tag/push.
-    pub(crate) const fn verifies_maintainer_version(self) -> bool {
-        matches!(self, Self::Verify)
-    }
-}
-
-/// The resolved own-version bump for one module, before idempotency pre-skip.
-struct BumpDecision {
-    planned: Option<Version>,
-    level: BumpLevel,
-    reason: BumpReason,
-    winning_input: BumpSource,
-    prerelease_channel: Option<String>,
-}
-
-/// One module's resolved bump, its dependency-floor updates, and its cascade
-/// origin, prepared in dependency-first order before entry assembly.
-struct PreparedBump {
-    reference: ModuleKey,
-    current: Version,
-    origin: Option<ModuleKey>,
-    decision: BumpDecision,
-    dep_floor_updates: BTreeMap<ModuleRef, Version>,
-}
-
 /// Build release entries from changed modules and release targets.
 ///
-/// Bumps are decided **dependency-first** so a dependent only cascades when a
-/// direct dependency actually receives an own-version bump — a dependent whose
-/// dependencies stayed put (e.g. an `upgrade`-mode intermediate that raised a
-/// floor without republishing) is never given a bump that carries no change.
-#[allow(clippy::too_many_lines)]
+/// GATHER reads each release-eligible module's declared version and (unless
+/// offline) its registry-published versions from its ecosystem adapter into a
+/// pure [`VersionInputs`]; the pure [`plan_bumps`] decides every module's bump,
+/// cascade, and idempotency; and assembly composes the resolved
+/// [`ReleaseEntry`] set from that [`BumpPlan`] plus resolved settings and tag
+/// formatting.
+///
+/// # Errors
+/// Propagates a missing release target for a module in the release closure, a
+/// declared-version read failure, an invalid override combination, a graph
+/// failure, or a tag-scheme failure surfaced while formatting a planned tag.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry>> {
-    let active = input.graph.closure(input.changed, release_closure_edge)?;
     let module_by_ref = input
         .modules
         .iter()
         .map(|module| (module.key(), module))
         .collect::<BTreeMap<_, _>>();
 
-    input
-        .overrides
-        .validate_known(&active.iter().map(|key| key.module.clone()).collect())?;
+    let inputs = gather_inputs(input, &module_by_ref)?;
+    let plan = plan_bumps(
+        &inputs,
+        &BumpConfig {
+            graph: input.graph,
+            edges: input.edges,
+            branches: input.branches,
+            policy: input.policy,
+            overrides: input.overrides,
+            intent: input.intent,
+        },
+    )?;
+    assemble_entries(input, &module_by_ref, &plan)
+}
 
-    // `--pre` composes with the `semver-cascade` matrix only; under `manifest`
-    // the prerelease channel already lives in the declared version, so a `--pre`
-    // override is a contradictory usage that must fail closed rather than be
-    // silently ignored.
-    if input.policy == BumpPolicy::Manifest && input.overrides.prerelease().is_some() {
-        return Err(AppError::invalid_input(
-            "release.strategy",
-            "strategy = \"manifest\": --pre conflicts with the manifest policy; \
-             the prerelease channel is part of the declared manifest version",
-        ));
-    }
-
-    let ranks = publish_ranks(input.graph, &active)?;
-    let mut ordered = active.iter().cloned().collect::<Vec<_>>();
-    ordered.sort_by_key(|module| (*ranks.get(module).unwrap_or(&usize::MAX), module.clone()));
-
-    let mut planned_versions: BTreeMap<ModuleKey, Version> = BTreeMap::new();
-    let mut cascade_roots: BTreeMap<ModuleKey, ModuleKey> = BTreeMap::new();
-    let mut prepared = Vec::with_capacity(ordered.len());
-    for reference in &ordered {
-        let module = lookup(&module_by_ref, reference)?;
-        let target = target_for(input.targets, module)?;
-        let current = target.declared_version(module)?;
-        // Every dependency has a lower topo rank, so its bump (if any) is already
-        // recorded: a non-empty floor set means a direct dependency really bumped.
-        let dep_floor_updates = dep_floor_updates(reference, input.edges, &planned_versions);
-        // Attribute the cascade to the changed root carried forward by the actual
-        // bumped direct dependency, not an arbitrary changed transitive ancestor.
-        let origin = if input.changed.contains(reference) {
-            cascade_roots.insert(reference.clone(), reference.clone());
-            None
+/// Gather the pure decision inputs for every release-eligible module: its
+/// adapter-declared version, its registry-published versions (empty offline),
+/// its pre-resolved baseline, its change/breaking flags, and the
+/// decision-relevant slice of its resolved config.
+fn gather_inputs(
+    input: &BumpInputs<'_>,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+) -> AppResult<Vec<VersionInputs>> {
+    let mut inputs = Vec::with_capacity(module_by_ref.len());
+    for (key, module) in module_by_ref {
+        let Some(target) = target_for(input.targets, module) else {
+            continue;
+        };
+        let settings = input.settings.get(key);
+        let current_version = target.declared_version(module)?;
+        let offline =
+            input.overrides.offline() || settings.is_some_and(|resolved| resolved.offline);
+        // Honor the offline contract: never reach the registry for a module the
+        // run marked offline — its idempotency anchors on the release tag alone.
+        let published_versions = if offline {
+            Vec::new()
         } else {
-            let root = triggering_dependency(reference, input.edges, &planned_versions)
-                .and_then(|dependency| cascade_roots.get(&dependency).cloned());
-            if let Some(root) = &root {
-                cascade_roots.insert(reference.clone(), root.clone());
-            }
-            root
+            target.published_versions(module).unwrap_or_default()
         };
-        let decision = resolve_bump(input, reference, &current, !dep_floor_updates.is_empty())?;
-        if let Some(version) = &decision.planned {
-            planned_versions.insert(reference.clone(), version.clone());
-        }
-        prepared.push(PreparedBump {
-            reference: reference.clone(),
-            current,
-            origin,
-            decision,
-            dep_floor_updates,
-        });
-    }
-
-    let mut entries = Vec::with_capacity(prepared.len());
-    for PreparedBump {
-        reference,
-        current,
-        origin,
-        decision,
-        dep_floor_updates,
-    } in prepared
-    {
-        // A module pulled into the release closure with neither an own-version bump nor
-        // a dependency floor to raise carries no mutation, so it must not reach APPLY
-        // (which would rewrite manifests and cut a tag for nothing).
-        if decision.planned.is_none() && dep_floor_updates.is_empty() {
-            continue;
-        }
-        // An excluded module never participates in the release: no version change, no
-        // tag, no target call, no hosted release. It is dropped before an entry exists.
-        let publication = input
-            .settings
-            .get(&reference)
-            .map_or(PublicationPolicy::TagOnly, |resolved| {
-                resolved.publication.clone()
-            });
-        if !publication.releases() {
-            continue;
-        }
-        let module = lookup(&module_by_ref, &reference)?;
-        let target = target_for(input.targets, module)?;
-        let (up_to_date, registry_publish_needed) =
-            idempotency(input, module, target, &reference, decision.planned.as_ref());
-        // Only registry-published modules invoke the publish loop; a tag-only module
-        // is still versioned and tagged but never packaged/published to a registry.
-        let publish_needed = registry_publish_needed && publication.publishes_to_registry();
-        let cascade_origin = origin.filter(|_| decision.reason == BumpReason::DependencyCascade);
-        let tag_format = input
-            .settings
-            .get(&reference)
-            .and_then(|resolved| resolved.tag_format.clone());
-        let tag_mode = input
-            .settings
-            .get(&reference)
-            .and_then(|resolved| resolved.tag_mode);
-        let baseline_source = input
-            .settings
-            .get(&reference)
-            .and_then(|resolved| resolved.baseline);
-        // Resolve the planned tag now so the plan explains the exact tag a
-        // mutating run would create — and so a tag-scheme failure surfaces at
-        // plan time rather than mid-mutation.
-        let planned_tag = decision
-            .planned
-            .as_ref()
-            .map(|version| {
-                target
-                    .tag_scheme(module, tag_format.as_deref())
-                    .map(|scheme| tag::format(&scheme, version))
-            })
-            .transpose()?;
-        let dep_floor_import_updates = dep_floor_updates
-            .iter()
-            .filter_map(|(dependency, version)| {
-                input
-                    .modules
-                    .iter()
-                    .find(|module| module.id == *dependency)
-                    .and_then(|module| module.package.clone())
-                    .map(|package| (package, version.clone()))
-            })
-            .collect();
-        let mutation = ReleaseMutation {
-            new_version: decision.planned.clone(),
-            dep_floor_updates,
-            dep_floor_import_updates,
-        };
-        entries.push(ReleaseEntry {
-            module: reference.clone(),
-            current_version: current,
-            planned_version: decision.planned,
-            planned_tag,
-            level: decision.level,
-            reason: decision.reason,
-            winning_input: decision.winning_input,
-            cascade_origin,
-            prerelease_channel: decision.prerelease_channel,
-            up_to_date,
-            mutation,
-            publication,
-            publish_needed,
-            tag_format,
-            tag_mode,
-            baseline_source,
-            tag_message: input
-                .settings
-                .get(&reference)
-                .and_then(|resolved| resolved.tag_message.clone()),
-            signer: input
-                .settings
-                .get(&reference)
-                .filter(|resolved| resolved.sign_tags)
-                .map(|resolved| TagSigner {
-                    format: resolved.sign_format,
-                    key: resolved.signing_key.clone(),
-                }),
-            commit_message: input
-                .settings
-                .get(&reference)
-                .and_then(|resolved| resolved.commit_message.clone()),
-            token_env: input
-                .settings
-                .get(&reference)
-                .and_then(|resolved| resolved.token_env.clone()),
-            visibility: input
-                .settings
-                .get(&reference)
-                .map_or_else(Default::default, |resolved| resolved.visibility),
-            push: input
-                .settings
-                .get(&reference)
-                .map_or(PushPolicy::BranchAndTags, |resolved| resolved.push),
-            remote: input
-                .settings
-                .get(&reference)
-                .map_or_else(|| "origin".to_string(), |resolved| resolved.remote.clone()),
-            branches: input
-                .settings
-                .get(&reference)
-                .map_or_else(Vec::new, |resolved| resolved.branches.clone()),
-            topo_rank: *ranks.get(&reference).unwrap_or(&usize::MAX),
-            baseline: input.baselines.get(&reference).cloned(),
-            changelog: input
+        let baseline = input
+            .baselines
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| ReleaseBaseline::initial(key.clone()));
+        inputs.push(VersionInputs {
+            module: key.clone(),
+            current_version,
+            published_versions,
+            baseline,
+            changed: input.changed.contains(key),
+            breaking: input
                 .changelogs
-                .get(&reference)
-                .cloned()
-                .unwrap_or_else(|| {
-                    ChangelogEntry::new(reference.clone(), "dependency cascade", Vec::new())
-                }),
-            changelog_path: input
-                .settings
-                .get(&reference)
-                .and_then(|resolved| resolved.changelog.path.clone())
-                .unwrap_or_else(|| "CHANGELOG.md".to_string()),
-            changelog_roll: input
-                .settings
-                .get(&reference)
-                .is_some_and(|resolved| resolved.changelog.roll),
-            entrypoint: input
-                .settings
-                .get(&reference)
-                .map_or_else(Default::default, |resolved| resolved.entrypoint),
-            umbrella: input
-                .settings
-                .get(&reference)
-                .is_some_and(|resolved| resolved.umbrella),
-            version_references: input
-                .settings
-                .get(&reference)
-                .map_or_else(Vec::new, |resolved| resolved.version_references.clone()),
-            on_resolved: input
-                .settings
-                .get(&reference)
-                .map_or_else(Vec::new, |resolved| resolved.on_resolved.clone()),
+                .get(key)
+                .is_some_and(|entry| entry.breaking),
+            config: module_config(settings),
         });
     }
-    entries.sort_by(|left, right| {
-        left.topo_rank
-            .cmp(&right.topo_rank)
-            .then_with(|| left.module.cmp(&right.module))
-    });
+    Ok(inputs)
+}
+
+/// Project the decision-relevant slice of a module's resolved release config,
+/// defaulting an unresolved module to the same defaults the resolver applies.
+fn module_config(settings: Option<&ResolvedReleaseSettings>) -> ModuleVersionConfig {
+    settings.map_or_else(
+        || ModuleVersionConfig {
+            level: toven_ports::BumpLevel::Auto,
+            dependent_version: toven_ports::DependentVersion::Bump,
+            prerelease: toven_ports::PrereleaseConfig::default(),
+            publication: PublicationPolicy::TagOnly,
+            offline: false,
+            entrypoint: toven_model::Entrypoint::default(),
+        },
+        |resolved| ModuleVersionConfig {
+            level: resolved.level,
+            dependent_version: resolved.dependent_version,
+            prerelease: resolved.prerelease.clone(),
+            publication: resolved.publication.clone(),
+            offline: resolved.offline,
+            entrypoint: resolved.entrypoint,
+        },
+    )
+}
+
+/// Compose the resolved [`ReleaseEntry`] set from the pure [`BumpPlan`] plus
+/// resolved settings and tag formatting.
+///
+/// Every entry the plan produced already carries its own-version bump and
+/// dependency floors; assembly resolves the planned tag (surfacing a tag-scheme
+/// failure at plan time), maps floor updates to their import package names, and
+/// copies the resolved-settings fields a mutating run needs.
+///
+/// # Errors
+/// Propagates a missing release target for a planned module or a tag-scheme
+/// failure surfaced while formatting a planned tag.
+fn assemble_entries(
+    input: &BumpInputs<'_>,
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+    plan: &BumpPlan,
+) -> AppResult<Vec<ReleaseEntry>> {
+    let mut entries = Vec::with_capacity(plan.entries.len());
+    for bump in &plan.entries {
+        entries.push(assemble_entry(input, module_by_ref, bump)?);
+    }
     Ok(entries)
 }
 
-/// Resolve the bump decision for a maintainer-owned module: plan exactly the
-/// version its manifest already declares against the tag/Release a maintainer
-/// created out of band (the version decision already merged through `release
-/// bump`). APPLY verifies the maintainer's tag matches this version and publishes,
-/// and registry idempotency decides whether that publish is still needed.
-///
-/// Guarded against regressing below the released baseline: a maintainer-owned
-/// module must declare the released version or newer. `current == baseline` is
-/// allowed — that is the steady state a maintainer-owned re-run verifies and
-/// republishes idempotently — but `current < baseline` means the manifest was
-/// left behind the latest release, which would publish an older semver version
-/// than already shipped. That fails closed under [`CutIntent::Verify`] and drops
-/// from a [`CutIntent::Preview`] projection (nothing safely releasable), exactly
-/// like the `manifest` policy's baseline floor.
+/// Compose a single [`ReleaseEntry`] from one planned [`BumpEntry`], resolving
+/// its planned tag and copying the resolved-settings fields a mutating run
+/// needs.
 ///
 /// # Errors
-/// Fails closed under [`CutIntent::Verify`] when the declared version is behind
-/// the released baseline.
-fn maintainer_decision(
+/// Propagates a missing release target for the planned module or a tag-scheme
+/// failure surfaced while formatting its planned tag.
+fn assemble_entry(
     input: &BumpInputs<'_>,
-    reference: &ModuleKey,
-    current: &Version,
-) -> AppResult<BumpDecision> {
-    let baseline = input
-        .baselines
-        .get(reference)
-        .and_then(|b| b.version.as_ref());
-    if let Some(base) = baseline
-        && current < base
-    {
-        if input.intent.not_ahead_is_fatal() {
-            return Err(AppError::invalid_input(
-                "release.entrypoint",
-                format!(
-                    "maintainer-owned module '{}' declares {current}, behind the released \
-                         baseline {base}; a maintainer-owned release never republishes a version \
-                         below the latest release. Bump the manifest to the released version or \
-                         newer before publishing.",
-                    reference.module
-                ),
-            ));
-        }
-        // A projection or a `bump` treats a manifest behind its baseline as
-        // nothing safely releasable: no planned version, so the entry drops.
-        return Ok(BumpDecision {
-            level: BumpLevel::Patch,
-            planned: None,
-            reason: BumpReason::Manifest,
-            winning_input: BumpSource::Manifest,
-            prerelease_channel: None,
-        });
-    }
-    Ok(BumpDecision {
-        level: classify(baseline.unwrap_or(&Version::new(0, 0, 0)), current),
-        planned: Some(current.clone()),
-        reason: BumpReason::Manifest,
-        winning_input: BumpSource::Manifest,
-        prerelease_channel: None,
-    })
-}
-
-/// Resolve one module's own-version bump under the documented precedence (argv
-/// `--set-version` > argv level > config level > adapter default), then a
-/// dependency cascade for a dependent that did not itself change.
-#[allow(clippy::too_many_lines)] // a linear walk through the documented bump precedence
-fn resolve_bump(
-    input: &BumpInputs<'_>,
-    reference: &ModuleKey,
-    current: &Version,
-    is_cascade: bool,
-) -> AppResult<BumpDecision> {
-    let settings = input.settings.get(reference);
-    let module_ref = &reference.module;
-
-    // On the verify-and-publish path a maintainer-owned module keeps the version
-    // its manifest already declares (see `maintainer_decision`) — the version a
-    // maintainer already merged and tagged out of band, which APPLY verifies and
-    // publishes idempotently. `bump`/`plan` do NOT freeze it: they compute the
-    // change-gated, cascaded increment the maintainer will review and merge, so a
-    // maintainer-owned workspace still bumps only the crates that changed.
-    if input.intent.verifies_maintainer_version()
-        && settings.is_some_and(|resolved| resolved.entrypoint.is_maintainer_owned())
-    {
-        return maintainer_decision(input, reference, current);
-    }
-
-    if let Some(version) = input.overrides.set_version(module_ref) {
-        if version <= current {
-            return Err(AppError::invalid_input(
-                "release.bump",
-                format!(
-                    "--set-version for module '{module_ref}' must exceed the current version {current} (got {version})"
-                ),
-            ));
-        }
-        return Ok(BumpDecision {
-            level: classify(current, version),
-            planned: Some(version.clone()),
-            reason: BumpReason::Explicit,
-            winning_input: BumpSource::SetVersion,
-            prerelease_channel: None,
-        });
-    }
-
-    let is_seed = input.changed.contains(reference);
-
-    // The prerelease channel is only consulted for a module that cuts its own
-    // version, so it is resolved here for a changed seed and lazily below for a
-    // cascaded own-bump; a floor-only dependent never resolves it and so never
-    // fails on a channel it would not use. An explicit `--pre` wins; otherwise a
-    // configured branch→channel mapping selects the channel from the checked-out
-    // branch.
-    let seed_channel = if is_seed {
-        effective_channel(input, settings, reference)?
-    } else {
-        None
-    };
-
-    // A module that has never been released cuts the version it already
-    // declares: bumping past it would publish a version nobody declared and
-    // would leave the declared version permanently unreleased. Explicit argv
-    // (`--set-version`, handled above, `--patch`/`--minor`/`--major`, `--pre`)
-    // or a branch-mapped prerelease channel still wins, so a deliberate first
-    // bump stays possible.
-    let is_initial = input
-        .baselines
-        .get(reference)
-        .is_some_and(ReleaseBaseline::is_initial);
-    if is_initial
-        && is_seed
-        && input.overrides.module_level(module_ref).is_none()
-        && seed_channel.is_none()
-    {
-        return Ok(BumpDecision {
-            planned: Some(current.clone()),
-            level: classify(&Version::new(0, 0, 0), current),
-            reason: BumpReason::InitialRelease,
-            winning_input: BumpSource::Default,
-            prerelease_channel: None,
-        });
-    }
-
-    let breaking = input
-        .changelogs
-        .get(reference)
-        .is_some_and(|entry| entry.breaking);
-    let (level, winning_input, reason) =
-        select_level(input, module_ref, settings, is_seed, is_cascade, breaking);
-
-    let Some(level) = level else {
-        // Dependency-floor upgrade: raise the floor but leave the own version.
-        return Ok(BumpDecision {
-            planned: None,
-            level: BumpLevel::Patch,
-            reason,
-            winning_input,
-            prerelease_channel: None,
-        });
-    };
-
-    // A changed seed already resolved its channel above; a cascaded own-bump
-    // resolves it now. A floor-only dependent returned above and never reaches
-    // here, so it still never fails on a channel it would not use.
-    let channel = if is_seed {
-        seed_channel
-    } else {
-        effective_channel(input, settings, reference)?
-    };
-
-    // The `manifest` policy declares its own version rather than computing one
-    // from the matrix. An explicit argv level override (`--patch`/`--minor`/
-    // `--major`) still wins and takes the computed path even under `manifest`.
-    if input.policy == BumpPolicy::Manifest && input.overrides.module_level(module_ref).is_none() {
-        let baseline = input
-            .baselines
-            .get(reference)
-            .and_then(|b| b.version.as_ref());
-        let target = manifest_target(module_ref, current, baseline, input.intent)?;
-        return Ok(target.map_or_else(
-            // A preview whose declared version is not ahead of the baseline: no
-            // own-version bump, so the module drops out of the plan (nothing to
-            // release) unless a dependency floor still pulls it in.
-            || BumpDecision {
-                level: BumpLevel::Patch,
-                planned: None,
-                reason: BumpReason::Manifest,
-                winning_input: BumpSource::Manifest,
-                prerelease_channel: None,
-            },
-            |planned| BumpDecision {
-                level: classify(baseline.unwrap_or(&Version::new(0, 0, 0)), &planned),
-                planned: Some(planned),
-                reason: BumpReason::Manifest,
-                winning_input: BumpSource::Manifest,
-                prerelease_channel: None,
-            },
-        ));
-    }
-
-    // Computed path: the semver matrix. Reached under `semver-cascade`, or under
-    // `manifest` only when an explicit argv level override forced it — either
-    // way the matrix advances the resolved component, never the (guarded)
-    // manifest arm.
-    //
-    // The increment anchors on the released baseline, not the declared manifest,
-    // so a version a prior `release bump` already resolved and merged is not
-    // advanced a second time. In the `bump -> PR -> merge -> tag` flow the
-    // manifest can sit ahead of the last release tag (e.g. a merged 0.1.1 over a
-    // 0.1.0 tag); anchoring on the baseline computes the version this run's
-    // changes call for (0.1.1), and `max(current, target)` cuts the
-    // already-resolved manifest version rather than recomputing another
-    // increment (0.1.2). A module with no baseline (never released) falls back
-    // to the declared version as its anchor, preserving the first-cut behavior.
-    let anchor = input
-        .baselines
-        .get(reference)
-        .and_then(|baseline| baseline.version.as_ref())
-        .unwrap_or(current);
-    let target = next_version(anchor, level, channel.as_deref())?;
-    let planned = target.max(current.clone());
-    Ok(BumpDecision {
-        planned: Some(planned),
-        level: effective_to_level(level),
-        reason,
-        winning_input,
-        prerelease_channel: channel,
-    })
-}
-
-/// Resolve the version the `manifest` policy cuts: exactly the version the
-/// manifest declares (`current`), guarded to be strictly ahead of the released
-/// `baseline` under semver precedence.
-///
-/// A module with no baseline (never released) has no floor, so its declared
-/// version is always cut. When the declared version is at or below the released
-/// baseline there is nothing to cut, and the guard resolves by `intent`: a
-/// [`CutIntent::Preview`] reports `None` (nothing to release) so the projection
-/// stays safe to run anywhere, while a [`CutIntent::Verify`] fails closed so a
-/// run never re-cuts an already-released version.
-///
-/// # Errors
-/// Fails closed under [`CutIntent::Verify`] when the declared version is at or
-/// below the released baseline, with an actionable message telling the operator
-/// to bump the manifest first.
-fn manifest_target(
-    module_ref: &ModuleRef,
-    current: &Version,
-    baseline: Option<&Version>,
-    intent: CutIntent,
-) -> AppResult<Option<Version>> {
-    match baseline {
-        Some(base) if current <= base => {
-            if intent.not_ahead_is_fatal() {
-                Err(AppError::invalid_input(
-                    "release.strategy",
-                    format!(
-                        "strategy = \"manifest\": module '{module_ref}' declares {current}, not \
-                         ahead of the released baseline {base}. Bump the manifest version before \
-                         releasing."
-                    ),
-                ))
-            } else {
-                // A projection or a `bump` reports nothing to release.
-                Ok(None)
-            }
-        }
-        _ => Ok(Some(current.clone())),
-    }
-}
-
-/// Select the effective bump level and its winning input/reason. `None` means a
-/// dependency-floor upgrade with no own-version bump.
-fn select_level(
-    input: &BumpInputs<'_>,
-    module_ref: &ModuleRef,
-    settings: Option<&ResolvedReleaseSettings>,
-    is_seed: bool,
-    is_cascade: bool,
-    breaking: bool,
-) -> (Option<EffectiveLevel>, BumpSource, BumpReason) {
-    if let Some(level) = input.overrides.module_level(module_ref) {
-        let reason = if is_seed {
-            BumpReason::Changed
-        } else {
-            BumpReason::DependencyCascade
-        };
-        return (Some(level_to_effective(level)), BumpSource::Argv, reason);
-    }
-    if is_seed {
-        return match settings.map_or(BumpLevel::Auto, |resolved| resolved.level) {
-            BumpLevel::Patch => (
-                Some(EffectiveLevel::Patch),
-                BumpSource::Config,
-                BumpReason::Changed,
-            ),
-            BumpLevel::Minor => (
-                Some(EffectiveLevel::Minor),
-                BumpSource::Config,
-                BumpReason::Changed,
-            ),
-            BumpLevel::Major => (
-                Some(EffectiveLevel::Major),
-                BumpSource::Config,
-                BumpReason::Changed,
-            ),
-            BumpLevel::Auto if breaking => (
-                Some(EffectiveLevel::Minor),
-                BumpSource::Changelog,
-                BumpReason::Changed,
-            ),
-            _ => (
-                Some(EffectiveLevel::Patch),
-                BumpSource::Default,
-                BumpReason::Changed,
-            ),
-        };
-    }
-    if is_cascade {
-        return match settings.map_or(DependentVersion::Bump, |resolved| {
-            resolved.dependent_version
-        }) {
-            DependentVersion::Upgrade => (None, BumpSource::Cascade, BumpReason::DependencyCascade),
-            _ => (
-                Some(EffectiveLevel::Patch),
-                BumpSource::Cascade,
-                BumpReason::DependencyCascade,
-            ),
-        };
-    }
-    // Not changed and not a cascade dependent: a floor-only participant.
-    (None, BumpSource::Cascade, BumpReason::DependencyCascade)
-}
-
-/// Resolve the per-run prerelease channel for a module cutting an own version.
-///
-/// An explicit `--pre <channel>` argv wins and is validated against the
-/// module's configured channels. Otherwise, when a branch→channel mapping is
-/// configured, the module's member's checked-out branch selects the channel;
-/// a detached HEAD or an unmapped branch yields a stable release. A mapped
-/// channel is validated against the configured channels defensively (config
-/// validation already enforces this), so a malformed mapping fails closed
-/// rather than cutting an unrecognized prerelease.
-///
-/// # Errors
-/// Rejects a `--pre` channel or a branch-mapped channel that is not one of the
-/// module's configured prerelease channels.
-fn effective_channel(
-    input: &BumpInputs<'_>,
-    settings: Option<&ResolvedReleaseSettings>,
-    reference: &ModuleKey,
-) -> AppResult<Option<String>> {
-    if let Some(channel) = input.overrides.prerelease() {
-        if !settings.is_some_and(|resolved| resolved.prerelease.recognizes(channel)) {
-            return Err(AppError::invalid_input(
-                "release.pre",
-                format!("prerelease channel '{channel}' is not one of the configured channels"),
-            ));
-        }
-        return Ok(Some(channel.to_string()));
-    }
-    let Some(resolved) = settings else {
-        return Ok(None);
-    };
-    if resolved.prerelease.branch_channels.is_empty() {
-        return Ok(None);
-    }
-    let Some(branch) = input.branches.get(&reference.member) else {
-        return Ok(None);
-    };
-    let Some(channel) = resolved.prerelease.branch_channels.get(branch) else {
-        return Ok(None);
-    };
-    if !resolved.prerelease.recognizes(channel) {
-        return Err(AppError::invalid_input(
-            "release.prerelease.branch_channels",
-            format!(
-                "branch '{branch}' maps to prerelease channel '{channel}', which is not one of \
-                 the configured channels"
-            ),
-        ));
-    }
-    Ok(Some(channel.clone()))
-}
-
-/// Classify the semver distance between `current` and an explicit `target`.
-const fn classify(current: &Version, target: &Version) -> BumpLevel {
-    if target.major != current.major {
-        BumpLevel::Major
-    } else if target.minor != current.minor {
-        BumpLevel::Minor
-    } else {
-        BumpLevel::Patch
-    }
-}
-
-const fn level_to_effective(level: BumpLevel) -> EffectiveLevel {
-    match level {
-        BumpLevel::Minor => EffectiveLevel::Minor,
-        BumpLevel::Major => EffectiveLevel::Major,
-        _ => EffectiveLevel::Patch,
-    }
-}
-
-const fn effective_to_level(level: EffectiveLevel) -> BumpLevel {
-    match level {
-        EffectiveLevel::Patch => BumpLevel::Patch,
-        EffectiveLevel::Minor => BumpLevel::Minor,
-        EffectiveLevel::Major => BumpLevel::Major,
-    }
-}
-
-/// Decide `(up_to_date, publish_needed)` for a planned version, anchoring on
-/// the registry's published set (or, offline, the baseline release tag).
-fn idempotency(
-    input: &BumpInputs<'_>,
-    module: &Module,
-    target: &dyn ReleaseAdapter,
-    reference: &ModuleKey,
-    planned: Option<&Version>,
-) -> (bool, bool) {
-    let Some(planned) = planned else {
-        // A floor-only upgrade never publishes an own version.
-        return (false, false);
-    };
-    let offline = input.overrides.offline()
-        || input
-            .settings
-            .get(reference)
-            .is_some_and(|resolved| resolved.offline);
-    if offline {
-        let up_to_date = input
-            .baselines
-            .get(reference)
-            .and_then(|baseline| baseline.version.as_ref())
-            .is_some_and(|tagged| planned <= tagged);
-        return (up_to_date, !up_to_date);
-    }
-    // `published_versions` is best-effort: a transient registry/search failure must
-    // not abort planning. Treat a lookup error as "publish needed" — the APPLY
-    // publish loop's `AlreadyPublished` classification is the authoritative
-    // idempotency backstop.
-    let Ok(published) = target.published_versions(module) else {
-        return (false, true);
-    };
-    let up_to_date = published.iter().max().is_some_and(|max| planned <= max);
-    (up_to_date, !up_to_date)
-}
-
-/// The bumped direct dependency that triggers `module`'s cascade, chosen
-/// deterministically (lowest key) when several same-ecosystem dependencies
-/// bump.
-///
-/// Only same-member, same-ecosystem, non-overlay dependencies raise a floor, so
-/// they are the only edges that can propagate a cascade. Because planning runs
-/// dependency-first, every candidate's own bump is already recorded in
-/// `planned_versions` by the time a dependent is processed.
-fn triggering_dependency(
-    module: &ModuleKey,
-    edges: &[Edge],
-    planned_versions: &BTreeMap<ModuleKey, Version>,
-) -> Option<ModuleKey> {
-    edges
-        .iter()
-        .filter(|edge| {
-            &edge.from == module
-                && edge.from.module.ecosystem == edge.to.module.ecosystem
-                && edge.from.member == edge.to.member
-                && !matches!(edge.kind, DepKind::Overlay)
-                && planned_versions.contains_key(&edge.to)
+    module_by_ref: &BTreeMap<ModuleKey, &Module>,
+    bump: &BumpEntry,
+) -> AppResult<ReleaseEntry> {
+    let reference = &bump.module;
+    let module = lookup(module_by_ref, reference)?;
+    let target = target_for(input.targets, module).ok_or_else(|| missing_target(module))?;
+    let resolved = input.settings.get(reference);
+    let publication = resolved.map_or(PublicationPolicy::TagOnly, |r| r.publication.clone());
+    let tag_format = resolved.and_then(|r| r.tag_format.clone());
+    let tag_mode = resolved.and_then(|r| r.tag_mode);
+    let baseline_source = resolved.and_then(|r| r.baseline);
+    // Resolve the planned tag now so the plan explains the exact tag a
+    // mutating run would create — and so a tag-scheme failure surfaces at
+    // plan time rather than mid-mutation.
+    let planned_tag = bump
+        .planned_version
+        .as_ref()
+        .map(|version| {
+            target
+                .tag_scheme(module, tag_format.as_deref())
+                .map(|scheme| tag::format(&scheme, version))
         })
-        .map(|edge| edge.to.clone())
-        .min()
-}
-
-const fn release_closure_edge(kind: DepKind) -> bool {
-    !matches!(kind, DepKind::Overlay)
+        .transpose()?;
+    let dep_floor_import_updates = bump
+        .dep_floor_updates
+        .iter()
+        .filter_map(|(dependency, version)| {
+            input
+                .modules
+                .iter()
+                .find(|module| module.id == *dependency)
+                .and_then(|module| module.package.clone())
+                .map(|package| (package, version.clone()))
+        })
+        .collect();
+    let mutation = ReleaseMutation {
+        new_version: bump.planned_version.clone(),
+        dep_floor_updates: bump.dep_floor_updates.clone(),
+        dep_floor_import_updates,
+    };
+    Ok(ReleaseEntry {
+        module: reference.clone(),
+        current_version: bump.current_version.clone(),
+        planned_version: bump.planned_version.clone(),
+        planned_tag,
+        level: bump.level,
+        reason: bump.reason,
+        winning_input: bump.winning_input,
+        cascade_origin: bump.cascade_origin.clone(),
+        prerelease_channel: bump.prerelease_channel.clone(),
+        up_to_date: bump.up_to_date,
+        mutation,
+        publication,
+        publish_needed: bump.publish_needed,
+        tag_format,
+        tag_mode,
+        baseline_source,
+        tag_message: resolved.and_then(|r| r.tag_message.clone()),
+        signer: resolved.filter(|r| r.sign_tags).map(|r| TagSigner {
+            format: r.sign_format,
+            key: r.signing_key.clone(),
+        }),
+        commit_message: resolved.and_then(|r| r.commit_message.clone()),
+        token_env: resolved.and_then(|r| r.token_env.clone()),
+        visibility: resolved.map_or_else(Default::default, |r| r.visibility),
+        push: resolved.map_or(PushPolicy::BranchAndTags, |r| r.push),
+        remote: resolved.map_or_else(|| "origin".to_string(), |r| r.remote.clone()),
+        branches: resolved.map_or_else(Vec::new, |r| r.branches.clone()),
+        topo_rank: bump.topo_rank,
+        baseline: input.baselines.get(reference).cloned(),
+        changelog: input.changelogs.get(reference).cloned().unwrap_or_else(|| {
+            ChangelogEntry::new(reference.clone(), "dependency cascade", Vec::new())
+        }),
+        changelog_path: resolved
+            .and_then(|r| r.changelog.path.clone())
+            .unwrap_or_else(|| "CHANGELOG.md".to_string()),
+        changelog_roll: resolved.is_some_and(|r| r.changelog.roll),
+        entrypoint: resolved.map_or_else(Default::default, |r| r.entrypoint),
+        umbrella: resolved.is_some_and(|r| r.umbrella),
+        version_references: resolved.map_or_else(Vec::new, |r| r.version_references.clone()),
+        on_resolved: resolved.map_or_else(Vec::new, |r| r.on_resolved.clone()),
+    })
 }
 
 fn lookup<'a>(
@@ -848,71 +282,35 @@ fn lookup<'a>(
 fn target_for<'a>(
     targets: &'a crate::ReleaseTargets,
     module: &Module,
-) -> AppResult<&'a dyn ReleaseAdapter> {
+) -> Option<&'a dyn ReleaseAdapter> {
     targets
         .get(&(module.member.clone(), module.id.ecosystem.clone()))
         .map(Box::as_ref)
-        .ok_or_else(|| {
-            AppError::invalid_input(
-                "release.target",
-                format!("module '{}' has no release target", module.key()),
-            )
-        })
 }
 
-fn dep_floor_updates(
-    module: &ModuleKey,
-    edges: &[Edge],
-    planned_versions: &BTreeMap<ModuleKey, Version>,
-) -> BTreeMap<ModuleRef, Version> {
-    edges
-        .iter()
-        .filter(|edge| {
-            &edge.from == module
-                && edge.from.module.ecosystem == edge.to.module.ecosystem
-                && edge.from.member == edge.to.member
-                && !matches!(edge.kind, DepKind::Overlay)
-        })
-        .filter_map(|edge| {
-            planned_versions
-                .get(&edge.to)
-                .map(|version| (edge.to.module.clone(), version.clone()))
-        })
-        .collect()
-}
-
-fn publish_ranks(
-    graph: &Graph,
-    active: &BTreeSet<ModuleKey>,
-) -> AppResult<BTreeMap<ModuleKey, usize>> {
-    let waves = graph.waves(|edge| active.contains(&edge.from) && active.contains(&edge.to))?;
-    let mut ranks = BTreeMap::new();
-    let mut rank = 0;
-    for wave in waves {
-        for module in wave {
-            if active.contains(&module) {
-                ranks.insert(module, rank);
-                rank += 1;
-            }
-        }
-    }
-    Ok(ranks)
+fn missing_target(module: &Module) -> AppError {
+    AppError::invalid_input(
+        "release.target",
+        format!("module '{}' has no release target", module.key()),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use rskit_errors::AppResult;
     use rskit_version::semver::Version;
-    use toven_model::{DepKind, EcosystemId, Edge, Graph, MemberId, Module, RepoPath};
+    use toven_model::{
+        DepKind, EcosystemId, Edge, Graph, MemberId, Module, ModuleKey, ModuleRef, RepoPath,
+    };
     use toven_ports::{BumpLevel, DependentVersion, Oid, ReleaseAdapter, ReleaseConfig};
     use toven_testkit::FakeReleaseTarget;
 
-    use super::{
-        BTreeMap, BTreeSet, BumpInputs, BumpOverrides, BumpPolicy, BumpReason, BumpSource,
-        ChangelogEntry, CutIntent, ModuleRef, ReleaseBaseline, ReleaseEntry,
-        ResolvedReleaseSettings, plan_entries,
-    };
+    use super::{BTreeMap, BTreeSet, BumpInputs, CutIntent, plan_entries};
     use crate::ReleaseTargets;
+    use crate::{
+        BumpOverrides, BumpPolicy, BumpReason, BumpSource, ChangelogEntry, ReleaseBaseline,
+        ReleaseEntry, ResolvedReleaseSettings,
+    };
 
     /// The empty per-member branch map: tests that do not exercise
     /// branch→channel mapping resolve no branch-derived prerelease channel.
@@ -947,6 +345,17 @@ mod tests {
         targets
     }
 
+    /// A released tag baseline anchoring `key` at `version` — the resolved
+    /// baseline GATHER supplies for an already-released module.
+    fn released(key: &ModuleKey, version: Version) -> ReleaseBaseline {
+        ReleaseBaseline::tag(
+            key.clone(),
+            format!("v{version}"),
+            version,
+            Oid::new("cafe"),
+        )
+    }
+
     #[test]
     fn a_breaking_changelog_classification_forces_a_minor_bump() {
         let core = core_module();
@@ -973,8 +382,9 @@ mod tests {
             ChangelogEntry::new(key.clone(), "breaking change", Vec::new()).with_breaking(true),
         );
 
-        let changed: BTreeSet<_> = std::iter::once(key).collect();
-        let baselines = BTreeMap::new();
+        let changed: BTreeSet<_> = std::iter::once(key.clone()).collect();
+        let mut baselines = BTreeMap::new();
+        baselines.insert(key.clone(), released(&key, Version::new(0, 1, 0)));
         let modules = vec![core];
         let edges = Vec::new();
         let overrides = BumpOverrides::new();
@@ -1293,7 +703,10 @@ mod tests {
 
         let changed: BTreeSet<_> = std::iter::once(base_key.clone()).collect();
         let targets = rust_targets();
-        let baselines = BTreeMap::new();
+        let mut baselines = BTreeMap::new();
+        for key in [&base_key, &lib_key, &app_key] {
+            baselines.insert(key.clone(), released(key, Version::new(0, 1, 0)));
+        }
         let changelogs = BTreeMap::new();
         let overrides = BumpOverrides::new();
 
@@ -1352,7 +765,10 @@ mod tests {
 
         let changed: BTreeSet<_> = std::iter::once(base_key.clone()).collect();
         let targets = rust_targets();
-        let baselines = BTreeMap::new();
+        let mut baselines = BTreeMap::new();
+        for key in [&base_key, &lib_key, &app_key] {
+            baselines.insert(key.clone(), released(key, Version::new(0, 1, 0)));
+        }
         let changelogs = BTreeMap::new();
         let overrides = BumpOverrides::new();
 

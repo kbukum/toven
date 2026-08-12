@@ -17,7 +17,7 @@ use toven_ports::CommitSummary;
 /// dropped.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 #[allow(clippy::redundant_pub_crate)]
-pub(super) enum ChangeGroup {
+pub(crate) enum ChangeGroup {
     /// A breaking change (`type!:` or a `BREAKING CHANGE:` footer).
     Breaking,
     /// A new feature (`feat`).
@@ -32,7 +32,7 @@ pub(super) enum ChangeGroup {
 
 impl ChangeGroup {
     /// The Keep a Changelog-style heading for this group.
-    pub(super) const fn heading(self) -> &'static str {
+    pub(crate) const fn heading(self) -> &'static str {
         match self {
             Self::Breaking => "Breaking changes",
             Self::Added => "Added",
@@ -43,7 +43,7 @@ impl ChangeGroup {
     }
 
     /// Every group in render order.
-    pub(super) const fn ordered() -> [Self; 5] {
+    pub(crate) const fn ordered() -> [Self; 5] {
         [
             Self::Breaking,
             Self::Added,
@@ -58,7 +58,7 @@ impl ChangeGroup {
     /// The inverse of [`heading`](Self::heading), used to re-derive a section's
     /// group from a parsed note body so merged sections can be restored to
     /// canonical order.
-    pub(super) fn from_heading(heading: &str) -> Option<Self> {
+    pub(crate) fn from_heading(heading: &str) -> Option<Self> {
         Self::ordered()
             .into_iter()
             .find(|group| group.heading() == heading)
@@ -68,24 +68,24 @@ impl ChangeGroup {
 /// A commit classified for the changelog.
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[allow(clippy::redundant_pub_crate)]
-pub(super) struct ClassifiedCommit {
+pub(crate) struct ClassifiedCommit {
     /// The section this commit belongs to.
-    pub(super) group: ChangeGroup,
+    pub(crate) group: ChangeGroup,
     /// Optional Conventional Commit scope (`feat(scope):`).
-    pub(super) scope: Option<String>,
+    pub(crate) scope: Option<String>,
     /// The description with the `type(scope)!:` prefix stripped.
-    pub(super) description: String,
+    pub(crate) description: String,
     /// GitHub-style `@handle` when derivable from the author identity, else the
     /// plain author display name.
-    pub(super) author: String,
+    pub(crate) author: String,
     /// Abbreviated commit id.
-    pub(super) id: String,
+    pub(crate) id: String,
 }
 
 /// Classify a commit into its changelog group with a cleaned description and
 /// author attribution.
 #[allow(clippy::redundant_pub_crate)]
-pub(super) fn classify(commit: &CommitSummary) -> ClassifiedCommit {
+pub(crate) fn classify(commit: &CommitSummary) -> ClassifiedCommit {
     let (kind, scope, breaking_marker, description) = parse_header(&commit.subject);
     let breaking = breaking_marker || body_flags_breaking(&commit.body);
     let group = if breaking {

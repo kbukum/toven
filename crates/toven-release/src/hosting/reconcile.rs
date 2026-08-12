@@ -27,9 +27,9 @@ use toven_ports::{HostReleaseOutcome, HostedRelease, PublicationPolicy, ReleaseA
 use crate::hosting::host::{PlannedHostRelease, ReleaseHosts};
 use crate::model::settings::ResolvedReleaseSettings;
 use crate::model::tag;
-use crate::versioning::changelog;
 use crate::{ReleaseStats, ReleaseTargets};
 use toven_core::federation::member_repo::MemberReleaseRepos;
+use toven_version::changelog;
 
 /// Plan the hosted Releases that must be reconciled for the current published
 /// state.

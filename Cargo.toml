@@ -40,6 +40,7 @@ toven-model = { path = "crates/toven-model" }
 toven-ports = { path = "crates/toven-ports" }
 toven-vcs = { path = "crates/toven-vcs" }
 toven-core = { path = "crates/toven-core" }
+toven-version = { path = "crates/toven-version" }
 toven-release = { path = "crates/toven-release" }
 toven-engine = { path = "crates/toven-engine" }
 toven-exec = { path = "crates/toven-exec" }
