@@ -12,7 +12,7 @@
 use std::collections::BTreeMap;
 
 use rskit_version::semver::Version;
-use toven_model::{Edge, Entrypoint, Graph, MemberId, ModuleKey};
+use toven_model::{Entrypoint, Graph, MemberId, ModuleKey};
 use toven_ports::{BumpLevel, DependentVersion, PrereleaseConfig, PublicationPolicy};
 
 use crate::baseline::ReleaseBaseline;
@@ -132,10 +132,9 @@ pub struct VersionInputs {
 
 /// The run-wide pure configuration for a [`plan_bumps`](super::plan_bumps) call.
 pub struct BumpConfig<'a> {
-    /// The federated dependency graph (used for the release closure and ranks).
+    /// The federated dependency graph (used for the release closure, ranks, and
+    /// cascade floors — cascade edges are read from [`Graph::edges`]).
     pub graph: &'a Graph,
-    /// The federated dependency edges (used for cascade floors).
-    pub edges: &'a [Edge],
     /// Each member's checked-out branch, consulted only to resolve a configured
     /// branch→prerelease-channel mapping.
     pub branches: &'a BTreeMap<Option<MemberId>, String>,

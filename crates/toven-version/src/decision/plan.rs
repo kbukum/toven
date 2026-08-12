@@ -176,14 +176,14 @@ pub fn plan_bumps(inputs: &[VersionInputs], cfg: &BumpConfig<'_>) -> AppResult<B
         let current = decision.input(reference)?.current_version.clone();
         // Every dependency has a lower topo rank, so its bump (if any) is already
         // recorded: a non-empty floor set means a direct dependency really bumped.
-        let dep_floor_updates = dep_floor_updates(reference, cfg.edges, &planned_versions);
+        let dep_floor_updates = dep_floor_updates(reference, cfg.graph.edges(), &planned_versions);
         // Attribute the cascade to the changed root carried forward by the actual
         // bumped direct dependency, not an arbitrary changed transitive ancestor.
         let origin = if decision.changed.contains(reference) {
             cascade_roots.insert(reference.clone(), reference.clone());
             None
         } else {
-            let root = triggering_dependency(reference, cfg.edges, &planned_versions)
+            let root = triggering_dependency(reference, cfg.graph.edges(), &planned_versions)
                 .and_then(|dependency| cascade_roots.get(&dependency).cloned());
             if let Some(root) = &root {
                 cascade_roots.insert(reference.clone(), root.clone());
@@ -831,7 +831,6 @@ mod tests {
             inputs,
             &BumpConfig {
                 graph: &graph,
-                edges: &[],
                 branches: &no_branches(),
                 policy,
                 overrides: &overrides,
@@ -935,7 +934,6 @@ mod tests {
             &[input],
             &BumpConfig {
                 graph: &graph,
-                edges: &[],
                 branches: &no_branches(),
                 policy: BumpPolicy::SemverCascade,
                 overrides: &overrides,
@@ -959,7 +957,6 @@ mod tests {
             &[input],
             &BumpConfig {
                 graph: &graph,
-                edges: &[],
                 branches: &no_branches(),
                 policy: BumpPolicy::SemverCascade,
                 overrides: &overrides,
@@ -1013,7 +1010,7 @@ mod tests {
         ];
         let graph = Graph::build(
             vec![module("base"), module("lib"), module("app")],
-            edges.clone(),
+            edges,
         )
         .expect("graph");
         let overrides = BumpOverrides::new();
@@ -1023,7 +1020,6 @@ mod tests {
             &inputs,
             &BumpConfig {
                 graph: &graph,
-                edges: &edges,
                 branches: &no_branches(),
                 policy: BumpPolicy::SemverCascade,
                 overrides: &overrides,
@@ -1059,7 +1055,7 @@ mod tests {
         ];
         let graph = Graph::build(
             vec![module("base"), module("lib"), module("app")],
-            edges.clone(),
+            edges,
         )
         .expect("graph");
         let overrides = BumpOverrides::new();
@@ -1069,7 +1065,6 @@ mod tests {
             &inputs,
             &BumpConfig {
                 graph: &graph,
-                edges: &edges,
                 branches: &no_branches(),
                 policy: BumpPolicy::SemverCascade,
                 overrides: &overrides,
@@ -1116,7 +1111,6 @@ mod tests {
             &[input],
             &BumpConfig {
                 graph: &graph,
-                edges: &[],
                 branches: &no_branches(),
                 policy: BumpPolicy::Manifest,
                 overrides: &overrides,
@@ -1160,7 +1154,6 @@ mod tests {
             &[input],
             &BumpConfig {
                 graph: &graph,
-                edges: &[],
                 branches: &no_branches(),
                 policy: BumpPolicy::Manifest,
                 overrides: &overrides,

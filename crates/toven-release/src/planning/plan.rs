@@ -140,7 +140,6 @@ fn plan_with_changes(
     let entries = bump::plan_entries(&bump::BumpInputs {
         graph: &context.graph,
         modules: &context.federation.modules,
-        edges: &context.federation.edges,
         changed: &changes.changed,
         baselines: &changes.baselines,
         changelogs: &changelogs,

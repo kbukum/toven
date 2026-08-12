@@ -13,7 +13,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::{AppError, AppResult};
-use toven_model::{Edge, Graph, MemberId, Module, ModuleKey};
+use toven_model::{DepKind, Graph, MemberId, Module, ModuleKey};
 use toven_ports::{PublicationPolicy, ReleaseAdapter, ReleaseMutation, TagSigner};
 use toven_version::{
     BumpConfig, BumpEntry, BumpPlan, ModuleVersionConfig, VersionInputs, plan_bumps,
@@ -34,7 +34,6 @@ pub(crate) use toven_version::CutIntent;
 pub(crate) struct BumpInputs<'a> {
     pub(crate) graph: &'a Graph,
     pub(crate) modules: &'a [Module],
-    pub(crate) edges: &'a [Edge],
     pub(crate) changed: &'a BTreeSet<ModuleKey>,
     pub(crate) baselines: &'a BTreeMap<ModuleKey, ReleaseBaseline>,
     pub(crate) changelogs: &'a BTreeMap<ModuleKey, ChangelogEntry>,
@@ -76,7 +75,6 @@ pub(crate) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
         &inputs,
         &BumpConfig {
             graph: input.graph,
-            edges: input.edges,
             branches: input.branches,
             policy: input.policy,
             overrides: input.overrides,
@@ -86,19 +84,29 @@ pub(crate) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
     assemble_entries(input, &module_by_ref, &plan)
 }
 
-/// Gather the pure decision inputs for every release-eligible module: its
+/// Gather the pure decision inputs for every module in the release closure: its
 /// adapter-declared version, its registry-published versions (empty offline),
 /// its pre-resolved baseline, its change/breaking flags, and the
 /// decision-relevant slice of its resolved config.
+///
+/// The closure is the non-overlay dependency expansion of `input.changed` — the
+/// exact set the pure [`plan_bumps`] walks — so GATHER never reads a declared or
+/// published version for a module that cannot enter the plan (an unrelated
+/// module's read failure must not abort this release, and large workspaces skip
+/// registry lookups for out-of-closure modules). A closure module with no
+/// release target surfaces the typed missing-target error rather than being
+/// silently dropped before the decision derives its changed seeds.
 fn gather_inputs(
     input: &BumpInputs<'_>,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
 ) -> AppResult<Vec<VersionInputs>> {
-    let mut inputs = Vec::with_capacity(module_by_ref.len());
-    for (key, module) in module_by_ref {
-        let Some(target) = target_for(input.targets, module) else {
-            continue;
-        };
+    let closure = input
+        .graph
+        .closure(input.changed, |kind| !matches!(kind, DepKind::Overlay))?;
+    let mut inputs = Vec::with_capacity(closure.len());
+    for key in &closure {
+        let module = lookup(module_by_ref, key)?;
+        let target = target_for(input.targets, module).ok_or_else(|| missing_target(module))?;
         let settings = input.settings.get(key);
         let current_version = target.declared_version(module)?;
         let offline =
@@ -386,13 +394,11 @@ mod tests {
         let mut baselines = BTreeMap::new();
         baselines.insert(key.clone(), released(&key, Version::new(0, 1, 0)));
         let modules = vec![core];
-        let edges = Vec::new();
         let overrides = BumpOverrides::new();
 
         let entries = plan_entries(&BumpInputs {
             graph: &graph,
             modules: &modules,
-            edges: &edges,
             changed: &changed,
             baselines: &baselines,
             changelogs: &changelogs,
@@ -430,12 +436,10 @@ mod tests {
         let baselines = BTreeMap::new();
         let changelogs = BTreeMap::new();
         let modules = vec![core];
-        let edges = Vec::new();
 
         let result = plan_entries(&BumpInputs {
             graph: &graph,
             modules: &modules,
-            edges: &edges,
             changed: &changed,
             baselines: &baselines,
             changelogs: &changelogs,
@@ -476,13 +480,11 @@ mod tests {
         let baselines = BTreeMap::new();
         let changelogs = BTreeMap::new();
         let modules = vec![core];
-        let edges = Vec::new();
         let overrides = BumpOverrides::new();
 
         let entries = plan_entries(&BumpInputs {
             graph: &graph,
             modules: &modules,
-            edges: &edges,
             changed: &changed,
             baselines: &baselines,
             changelogs: &changelogs,
@@ -533,13 +535,11 @@ mod tests {
         );
         let changelogs = BTreeMap::new();
         let modules = vec![core];
-        let edges = Vec::new();
         let overrides = BumpOverrides::new();
 
         let error = plan_entries(&BumpInputs {
             graph: &graph,
             modules: &modules,
-            edges: &edges,
             changed: &changed,
             baselines: &baselines,
             changelogs: &changelogs,
@@ -591,13 +591,11 @@ mod tests {
         );
         let changelogs = BTreeMap::new();
         let modules = vec![core];
-        let edges = Vec::new();
         let overrides = BumpOverrides::new();
 
         let entries = plan_entries(&BumpInputs {
             graph: &graph,
             modules: &modules,
-            edges: &edges,
             changed: &changed,
             baselines: &baselines,
             changelogs: &changelogs,
@@ -648,13 +646,11 @@ mod tests {
         );
         let changelogs = BTreeMap::new();
         let modules = vec![core];
-        let edges = Vec::new();
         let overrides = BumpOverrides::new();
 
         let entries = plan_entries(&BumpInputs {
             graph: &graph,
             modules: &modules,
-            edges: &edges,
             changed: &changed,
             baselines: &baselines,
             changelogs: &changelogs,
@@ -690,7 +686,7 @@ mod tests {
             Edge::new(lib_key.clone(), base_key.clone(), DepKind::Normal),
         ];
         let modules = vec![base, lib, app];
-        let graph = Graph::build(modules.clone(), edges.clone()).unwrap();
+        let graph = Graph::build(modules.clone(), edges).unwrap();
 
         let upgrade = ReleaseConfig {
             dependent_version: Some(DependentVersion::Upgrade),
@@ -713,7 +709,6 @@ mod tests {
         let entries = plan_entries(&BumpInputs {
             graph: &graph,
             modules: &modules,
-            edges: &edges,
             changed: &changed,
             baselines: &baselines,
             changelogs: &changelogs,
@@ -752,7 +747,7 @@ mod tests {
             Edge::new(lib_key.clone(), base_key.clone(), DepKind::Normal),
         ];
         let modules = vec![base, lib, app];
-        let graph = Graph::build(modules.clone(), edges.clone()).unwrap();
+        let graph = Graph::build(modules.clone(), edges).unwrap();
 
         let mut settings = BTreeMap::new();
         let registry = ReleaseConfig {
@@ -775,7 +770,6 @@ mod tests {
         let entries = plan_entries(&BumpInputs {
             graph: &graph,
             modules: &modules,
-            edges: &edges,
             changed: &changed,
             baselines: &baselines,
             changelogs: &changelogs,
@@ -858,12 +852,10 @@ mod tests {
         let changed: BTreeSet<_> = std::iter::once(key).collect();
         let changelogs = BTreeMap::new();
         let modules = vec![core];
-        let edges = Vec::new();
 
         plan_entries(&BumpInputs {
             graph: &graph,
             modules: &modules,
-            edges: &edges,
             changed: &changed,
             baselines: &baselines,
             changelogs: &changelogs,
@@ -1128,13 +1120,11 @@ mod tests {
 
         let changed: BTreeSet<_> = std::iter::once(key).collect();
         let modules = vec![core];
-        let edges = Vec::new();
         let overrides = BumpOverrides::new();
 
         let entries = plan_entries(&BumpInputs {
             graph: &graph,
             modules: &modules,
-            edges: &edges,
             changed: &changed,
             baselines: &baselines,
             changelogs: &changelogs,

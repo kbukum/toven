@@ -119,10 +119,13 @@ pub enum BaselineSource {
         /// The module's own tag scheme, matching tags like `rust/core@1.2.3`.
         scheme: TagScheme,
     },
-    /// The latest tag matching a shared *umbrella* scheme (e.g. `v1.2.3`). The
-    /// baseline version is the version that umbrella tag denotes and the diff
-    /// ref is the umbrella tag's commit — the workspace-shared model where every
-    /// module releases together under one repo tag.
+    /// The latest tag matching a shared *umbrella* scheme (e.g. `v1.2.3`)
+    /// supplies the diff ref (its commit), but the baseline version is the
+    /// module's **own** version at that commit — falling back to the version the
+    /// umbrella tag denotes only when the module's version there is absent. This
+    /// is the workspace-shared model where modules release under one repo tag
+    /// yet each keeps an independent version, so the shared tag is a diff anchor,
+    /// not the per-module version authority.
     UmbrellaTag {
         /// The umbrella module's tag scheme, matching tags like `v1.2.3`.
         umbrella_scheme: TagScheme,
