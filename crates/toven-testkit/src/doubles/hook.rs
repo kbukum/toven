@@ -1,19 +1,22 @@
-//! Shared hook doubles: [`RecordingHookRunner`] (whole-verb pre/post) and
-//! [`ScriptedResolvedRunner`] (the bump `on-resolved` mid-mutation seam).
+//! Shared hook doubles: [`RecordingHookRunner`] (whole-unit before/after) and
+//! [`ScriptedResolvedRunner`] (the bump `on-resolved` mid-mutation seam) — both
+//! implementing the one [`HookRunner`] port.
 //!
-//! Verb tests (release first) inject these instead of the real PLAN→APPLY hook
-//! runner: [`RecordingHookRunner`] records every `(phase, reference)` it is
-//! asked to run so a test can assert ordering and fail-closed semantics (a
-//! failing `pre` hook must abort before any mutation), and it can be scripted to
-//! fail on a chosen reference. [`ScriptedResolvedRunner`] does the same for the
-//! bump `on-resolved` seam and can additionally produce working-tree edits the
-//! engine then re-stages. Both are `Clone` (shared state) so a test can hold a
-//! handle for assertions after injecting it.
+//! Unit tests (release first) inject these instead of the real PLAN→APPLY hook
+//! runner: [`RecordingHookRunner`] records every phase, reference, and optional
+//! version-map path so a test can assert payload handoff, ordering, and
+//! fail-closed semantics (a failing `before` hook must abort before any
+//! mutation), and it can be scripted to fail on a chosen reference.
+//! [`ScriptedResolvedRunner`] does the same for the
+//! [`HookPhase::OnResolved`] seam and can additionally produce working-tree
+//! edits the engine then re-stages. Both are `Clone` (shared state) so a test
+//! can hold a handle for assertions after injecting it.
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_ports::{ChangeRecord, HookPhase, HookRunner, ResolvedHookRunner};
+use toven_ports::{ChangeRecord, HookInvocation, HookPhase, HookRunner};
 
 /// A single hook invocation recorded by [`RecordingHookRunner`].
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -22,6 +25,8 @@ pub struct HookCall {
     pub phase: HookPhase,
     /// The task reference that was run.
     pub reference: String,
+    /// The handed-off version-map path for an on-resolved invocation.
+    pub version_map: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Default)]
@@ -80,12 +85,13 @@ impl RecordingHookRunner {
 }
 
 impl HookRunner for RecordingHookRunner {
-    fn run_hook(&self, phase: HookPhase, reference: &str) -> AppResult<()> {
-        // Record the attempt before failing so a test can assert a failing `pre`
-        // hook was reached (and that nothing after it ran).
+    fn run_hook(&self, invocation: HookInvocation<'_>, reference: &str) -> AppResult<()> {
+        // Record the attempt before failing so a test can assert a failing
+        // `before` hook was reached (and that nothing after it ran).
         self.state().calls.push(HookCall {
-            phase,
+            phase: invocation.phase(),
             reference: reference.to_string(),
+            version_map: invocation.version_map().map(Path::to_path_buf),
         });
         let fail_on = self.state().fail_on.clone();
         if fail_on.as_deref() == Some(reference) {
@@ -120,7 +126,7 @@ struct ScriptedResolvedRunnerState {
     worktree: Option<Arc<Mutex<Vec<ChangeRecord>>>>,
 }
 
-/// A [`ResolvedHookRunner`] double for the bump `on-resolved` seam.
+/// A [`HookRunner`] double for the bump [`HookPhase::OnResolved`] seam.
 ///
 /// It records each `(reference, version_map path, map contents)` it is asked to
 /// run, can be scripted to fail on a chosen reference (exercising the
@@ -204,8 +210,17 @@ impl ScriptedResolvedRunner {
     }
 }
 
-impl ResolvedHookRunner for ScriptedResolvedRunner {
-    fn run_resolved(&self, reference: &str, version_map: &std::path::Path) -> AppResult<()> {
+impl HookRunner for ScriptedResolvedRunner {
+    fn run_hook(&self, invocation: HookInvocation<'_>, reference: &str) -> AppResult<()> {
+        let HookInvocation::OnResolved { version_map } = invocation else {
+            return Err(AppError::new(
+                ErrorCode::Internal,
+                format!(
+                    "ScriptedResolvedRunner only models the on-resolved seam; got phase {}",
+                    invocation.phase().as_str(),
+                ),
+            ));
+        };
         // Read the handed-off map back so a test can assert the task received
         // the authoritative version map materialized by the engine. Fail closed
         // if the map is missing or unreadable, so a bad handoff (e.g. the engine
@@ -245,5 +260,46 @@ impl ResolvedHookRunner for ScriptedResolvedRunner {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::{HookInvocation, HookPhase, HookRunner, RecordingHookRunner};
+
+    #[test]
+    fn one_runner_records_before_on_resolved_and_after_through_one_method() {
+        // Proves the single HookRunner mechanism spans every lifecycle phase:
+        // one runner, one `run_hook`, three phases — no phase-specific trait.
+        let runner = RecordingHookRunner::new();
+        runner
+            .run_hook(HookInvocation::Before, "gate")
+            .expect("before hook runs");
+        runner
+            .run_hook(
+                HookInvocation::OnResolved {
+                    version_map: Path::new("versions.json"),
+                },
+                "sync",
+            )
+            .expect("on-resolved hook runs");
+        runner
+            .run_hook(HookInvocation::After, "notify")
+            .expect("after hook runs");
+
+        let calls = runner.calls();
+        let phases: Vec<HookPhase> = calls.iter().map(|call| call.phase).collect();
+        assert_eq!(
+            phases,
+            [HookPhase::Before, HookPhase::OnResolved, HookPhase::After]
+        );
+        let references: Vec<&str> = calls.iter().map(|call| call.reference.as_str()).collect();
+        assert_eq!(references, ["gate", "sync", "notify"]);
+        assert_eq!(
+            calls[1].version_map.as_deref(),
+            Some(Path::new("versions.json"))
+        );
     }
 }

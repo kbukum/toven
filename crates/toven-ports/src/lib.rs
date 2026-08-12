@@ -36,9 +36,9 @@
 //! - [`exec`] — [`CommandRunner`] (async streaming APPLY seam) and
 //!   [`ToolRunner`] (synchronous one-shot tool seam); concrete
 //!   `rskit-process` runners live in the engine.
-//! - [`hook`] — [`HookRunner`]: the injected lifecycle-hook seam that runs a
-//!   configured pre/post task reference (concrete PLAN→APPLY runner lives in the
-//!   CLI).
+//! - [`hook`] — [`HookRunner`]: the one injected lifecycle-hook seam that runs a
+//!   configured before/on-resolved/after task reference around any unit
+//!   (concrete PLAN→APPLY runner lives in the CLI).
 //! - [`discover`] — the discovery request/response vocabulary.
 //! - [`driver`] — [`DriverLocator`]/[`DriverWizard`]: the out-of-process
 //!   `toven-<eco>` driver seams (concrete adapters live in the engine).
@@ -86,7 +86,7 @@ pub use exec::{
     InvocationEnvironment, OutputObserver, RunOutcome, StartOutcome, ToolInvocation, ToolOutcome,
     ToolRunner, Truncation,
 };
-pub use hook::{HookPhase, HookRunner, ResolvedHookRunner};
+pub use hook::{HookInvocation, HookPhase, HookRunner};
 pub use merge::{merge_coverage, merge_release, merge_task};
 pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
 pub use raw_output::RawOutputSink;

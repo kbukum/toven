@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_version::semver::Version;
 use toven_model::{Module, ModuleKey, RepoPath};
-use toven_ports::ResolvedHookRunner;
+use toven_ports::{HookInvocation, HookRunner};
 
 use super::apply::{MemberReleaseShard, repo_for};
 use super::restore::{
@@ -62,7 +62,7 @@ pub(super) fn run_on_resolved_hooks(
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
     prepared: &mut [(&MemberReleaseShard, Vec<RepoPath>)],
     repos: &MemberReleaseRepos<'_>,
-    runner: &dyn ResolvedHookRunner,
+    runner: &dyn HookRunner,
 ) -> AppResult<()> {
     let references = member_on_resolved(plan);
     if references.is_empty() {
@@ -91,7 +91,12 @@ pub(super) fn run_on_resolved_hooks(
         Err(error) => return Err(restore_bump_prepared(prepared, repos, error)),
     };
     for reference in &references {
-        if let Err(error) = runner.run_resolved(reference, &map_path) {
+        if let Err(error) = runner.run_hook(
+            HookInvocation::OnResolved {
+                version_map: &map_path,
+            },
+            reference,
+        ) {
             return Err(abort_on_resolved(prepared, repos, &before, error));
         }
     }

@@ -861,6 +861,58 @@ fn an_on_resolved_hook_receives_the_version_map_and_stages_its_edits() {
 }
 
 #[test]
+fn a_preview_bump_never_runs_the_mutating_on_resolved_hook() {
+    // Acceptance (mutation-free preview): a `--dry-run` bump previews the
+    // mutation without writing, so the `on-resolved` seam — the mutating hook
+    // form that edits the working tree and joins the staged set — must never
+    // run. Only a gated (non-preview) apply may run it.
+    let (ws, root, document) = load_on_resolved_project();
+    let writer = FakeVcsWriter::new().with_commit_oid("bump-commit");
+    let reader = FakeVcsReader::new()
+        .with_tags(vec![core_tag("0.1.0")])
+        .with_changed_since(vec![ChangeRecord::new(
+            "src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+    let resolved = ScriptedResolvedRunner::producing(
+        reader.worktree_handle(),
+        vec![ChangeRecord::new("VERSIONS.txt", ChangeStatus::Added)],
+    );
+
+    let provider = provider_declaring(Version::new(0, 1, 0));
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let (readers, repos) = single_member(&ws, &reader, &writer);
+    let clock = FixedClock::new(FIXED_EPOCH, 0);
+    let mut reporter = toven_testkit::RecordingReporter::new();
+    let report = release_bump(
+        &request(root),
+        &document,
+        &providers,
+        &readers,
+        &repos,
+        &BumpOverrides::new(),
+        &mut reporter,
+        &clock,
+        &resolved,
+        &BumpOptions { dry_run: true },
+    )
+    .expect("preview bump runs");
+
+    assert!(report.dry_run, "the run is a preview: {report:?}");
+    assert!(!report.staged, "a preview stages nothing: {report:?}");
+    assert!(
+        resolved.calls().is_empty(),
+        "the mutating on-resolved hook never runs in preview: {:?}",
+        resolved.calls()
+    );
+    assert!(
+        writer.writes().is_empty(),
+        "a preview writes nothing: {:?}",
+        writer.writes()
+    );
+}
+
+#[test]
 fn a_failing_on_resolved_hook_aborts_and_restores_the_member() {
     // A failing `on-resolved` task fails the bump closed: the already-mutated
     // member is restored and nothing is staged.
