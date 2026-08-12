@@ -260,7 +260,7 @@ The phase vocabulary is `ReleasePhase` in `toven-model` — pure, descriptive na
 | Immutable, forward-fix outputs | Tags, registry versions, hosted Releases, assets, and image tags never change; recovery is a new forward-fix version. |
 | Typed reporting | Output is typed JSONL/human on the correct stream. |
 
-A phase's *implementation* is a swappable seam described by `PhaseBacking` in `toven-ports`: `Native` (Toven's own code, the default) or `Delegated { tool }` (an external tool invoked argv-first). Delegation is per-phase and opt-in; a delegated phase that cannot preview mutation-free is not an acceptable delegation, so the guarantee table binds both backings equally. Toven never hands the whole flow to an external tool. Per-phase backing is declared under `[…release.phases.<phase>]` (see [release configuration](config/release.md#release-phases-and-backing)).
+A phase's *implementation* is a swappable seam described by the system-wide `Backing` vocabulary in `toven-model`: `Native` (Toven's own code, the default) or `Delegated { tool }` (an external tool invoked argv-first). Delegation is per-phase and opt-in; a delegated phase that cannot preview mutation-free is not an acceptable delegation, so the guarantee table binds both backings equally. Toven never hands the whole flow to an external tool. Per-phase backing is declared under `[…release.phases.<phase>]` (see [release configuration](config/release.md#release-phases-and-backing)).
 
 ### Phase seam decomposition
 

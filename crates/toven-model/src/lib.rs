@@ -24,6 +24,8 @@
 //! - [`ecosystems`] — the canonical ecosystem registry.
 //! - [`release`] — [`ReleasePhase`] and [`Entrypoint`], the release-flow
 //!   stage and entrypoint vocabulary.
+//! - [`mod@unit`] — [`Unit`], [`Backing`], [`Composite`]: the one action shape
+//!   every capability takes and how it is satisfied.
 
 pub mod ecosystems;
 pub mod edge;
@@ -35,6 +37,7 @@ pub mod plan;
 pub mod release;
 pub mod selector;
 pub mod tool;
+pub mod unit;
 pub mod workspace;
 
 pub use ecosystems::{CanonicalEcosystem, canonical_ecosystems};
@@ -47,4 +50,5 @@ pub use plan::{CacheVerdict, ExecutionReadiness, ExecutionUnit, Plan, TaskOrigin
 pub use release::{Entrypoint, ReleasePhase};
 pub use selector::{ModuleSelector, NamePattern};
 pub use tool::ToolStatus;
+pub use unit::{Backing, Composite, Unit};
 pub use workspace::{ToolchainTag, Workspace};

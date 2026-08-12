@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use toven_model::Unit;
 
 use super::{FanOut, Readiness, TaskKind, TaskOrigin, readiness::DEFAULT_READINESS_TIMEOUT};
 
@@ -106,6 +107,15 @@ impl Task {
         self.kind = kind;
         self
     }
+
+    /// Express this task as a [`Unit`] with an argv backing, so a task and a
+    /// native release capability speak the one unified vocabulary: a task's
+    /// identity is its [`name`](Self::name) and its backing is always
+    /// [`Argv`](toven_model::Backing::Argv).
+    #[must_use]
+    pub fn as_unit(&self) -> Unit {
+        Unit::argv(self.name.clone())
+    }
 }
 
 #[cfg(test)]
@@ -154,6 +164,20 @@ mod tests {
         .with_kind(TaskKind::Test);
         assert_eq!(task.name, "test-integration");
         assert_eq!(task.kind, TaskKind::Test);
+    }
+
+    #[test]
+    fn expresses_as_an_argv_unit() {
+        // Normalization: a task maps onto the unified `Unit` vocabulary as an
+        // argv-backed unit named for the task identity.
+        let task = Task::new(
+            "build",
+            vec!["cargo".into(), "build".into()],
+            FanOut::WholeWorkspace,
+        );
+        let unit = task.as_unit();
+        assert_eq!(unit.name(), "build");
+        assert_eq!(unit.backing().as_str(), "argv");
     }
 
     #[test]

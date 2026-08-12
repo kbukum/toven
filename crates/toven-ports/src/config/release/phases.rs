@@ -3,7 +3,7 @@
 //!
 //! Names, per phase, whether Toven backs the phase natively (the default) or
 //! delegates it to an external tool invoked argv-first. It resolves to the
-//! seam-level [`PhaseBacking`](crate::release::PhaseBacking) and is a field of
+//! system-wide [`Backing`](toven_model::Backing) vocabulary and is a field of
 //! [`ReleaseConfig`](super::ReleaseConfig), so the strict loader accepts
 //! `[…release.phases]`, folds it through the ecosystem → per-module merge, and
 //! the engine resolves each phase's backing with the standard precedence. An
@@ -13,9 +13,7 @@ use std::collections::BTreeMap;
 
 use rskit_errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
-use toven_model::ReleasePhase;
-
-use crate::release::PhaseBacking;
+use toven_model::{Backing, ReleasePhase, Unit};
 
 /// The `[…release.phases]` sub-config: a per-phase backing map.
 ///
@@ -34,7 +32,7 @@ impl PhasesConfig {
         self.0.is_empty()
     }
 
-    /// The resolved backing for `phase` — [`PhaseBacking::Native`] when the
+    /// The resolved backing for `phase` — [`Backing::Native`] when the
     /// phase has no configured entry.
     ///
     /// `field` is the config path prefix used in diagnostics (e.g.
@@ -43,11 +41,24 @@ impl PhasesConfig {
     /// # Errors
     /// Propagates [`PhaseConfig::resolve`] for a configured but inconsistent
     /// entry.
-    pub fn backing(&self, phase: ReleasePhase, field: &str) -> AppResult<PhaseBacking> {
+    pub fn backing(&self, phase: ReleasePhase, field: &str) -> AppResult<Backing> {
         self.0.get(&phase).map_or_else(
-            || Ok(PhaseBacking::Native),
+            || Ok(Backing::Native),
             |config| config.resolve(&format!("{field}.{}", phase.as_str())),
         )
+    }
+
+    /// Express `phase` as a [`Unit`] — its name identity plus resolved
+    /// [`Backing`] — so a release phase and an argv task speak the one unified
+    /// vocabulary.
+    ///
+    /// `field` is the config path prefix used in diagnostics.
+    ///
+    /// # Errors
+    /// Propagates [`backing`](Self::backing) for a configured but inconsistent
+    /// entry.
+    pub fn unit(&self, phase: ReleasePhase, field: &str) -> AppResult<Unit> {
+        Ok(Unit::new(phase.as_str(), self.backing(phase, field)?))
     }
 
     /// Validate every configured phase entry.
@@ -93,7 +104,7 @@ pub struct PhaseConfig {
 }
 
 impl PhaseConfig {
-    /// Resolve this entry into a seam-level [`PhaseBacking`], validating it
+    /// Resolve this entry into a system-wide [`Backing`], validating it
     /// first so an inconsistent selection surfaces as a typed error rather than
     /// a success-shaped default.
     ///
@@ -102,17 +113,15 @@ impl PhaseConfig {
     /// # Errors
     /// Propagates [`validate`](Self::validate): a `delegated` backing without a
     /// tool sub-block, or a tool sub-block under a `native` backing, is
-    /// rejected instead of silently coerced to [`PhaseBacking::Native`].
-    pub fn resolve(&self, field: &str) -> AppResult<PhaseBacking> {
+    /// rejected instead of silently coerced to [`Backing::Native`].
+    pub fn resolve(&self, field: &str) -> AppResult<Backing> {
         self.validate(field)?;
         // After `validate`, a tool sub-block is present exactly when the backing
         // is delegated, so the tool's presence faithfully decides the backing.
         Ok(self
             .delegated
             .as_ref()
-            .map_or(PhaseBacking::Native, |tool| {
-                PhaseBacking::delegated(&tool.tool)
-            }))
+            .map_or(Backing::Native, |tool| Backing::delegated(&tool.tool)))
     }
 
     /// Validate the backing selection against the delegated sub-block.
@@ -233,7 +242,7 @@ fn validate_argv(field: &str, argv: &[String]) -> AppResult<()> {
 mod tests {
     use toven_model::ReleasePhase;
 
-    use super::{PhaseBacking, PhaseBackingKind, PhasesConfig};
+    use super::{Backing, PhaseBackingKind, PhasesConfig};
 
     fn parse(toml: &str) -> Result<PhasesConfig, toml::de::Error> {
         toml::from_str(toml)
@@ -247,7 +256,7 @@ mod tests {
             phases
                 .backing(ReleasePhase::Package, "ecosystems.go.release.phases")
                 .expect("resolves"),
-            PhaseBacking::Native
+            Backing::Native
         );
         phases
             .validate("ecosystems.go.release.phases")
@@ -275,15 +284,46 @@ mod tests {
             phases
                 .backing(ReleasePhase::Package, "ecosystems.go.release.phases")
                 .expect("resolves"),
-            PhaseBacking::delegated("goreleaser")
+            Backing::delegated("goreleaser")
         );
         // An unconfigured phase stays native.
         assert_eq!(
             phases
                 .backing(ReleasePhase::Tag, "ecosystems.go.release.phases")
                 .expect("resolves"),
-            PhaseBacking::Native
+            Backing::Native
         );
+    }
+
+    #[test]
+    fn a_native_phase_expresses_as_a_native_unit() {
+        // Normalization: an unconfigured (native) release phase maps onto the
+        // unified `Unit` vocabulary as a native-backed unit named for the phase.
+        let phases = parse("").expect("parses");
+        let unit = phases
+            .unit(ReleasePhase::Bump, "ecosystems.go.release.phases")
+            .expect("resolves");
+        assert_eq!(unit.name(), ReleasePhase::Bump.as_str());
+        assert!(unit.backing().is_native());
+    }
+
+    #[test]
+    fn a_delegated_phase_expresses_as_a_delegated_unit() {
+        let phases = parse(
+            r#"
+            [package]
+            backing = "delegated"
+            [package.delegated]
+            tool = "goreleaser"
+            preview = ["release", "--snapshot"]
+            "#,
+        )
+        .expect("parses");
+        let unit = phases
+            .unit(ReleasePhase::Package, "ecosystems.go.release.phases")
+            .expect("resolves");
+        assert_eq!(unit.name(), ReleasePhase::Package.as_str());
+        assert_eq!(unit.backing().tool(), Some("goreleaser"));
     }
 
     #[test]

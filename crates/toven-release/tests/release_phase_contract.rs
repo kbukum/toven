@@ -19,7 +19,7 @@
 //! delegation, so the same table binds both backings.
 
 use toven_model::ReleasePhase;
-use toven_ports::PhaseBacking;
+use toven_ports::Backing;
 
 /// One engine-owned guarantee that holds for a phase regardless of backing.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -97,16 +97,10 @@ fn every_phase_upholds_all_four_guarantees() {
 fn guarantees_bind_native_and_delegated_backings_alike() {
     // The backing a phase resolves to does not change which guarantees apply;
     // both are held to the same row of the contract table.
-    for backing in [
-        PhaseBacking::native(),
-        PhaseBacking::delegated("goreleaser"),
-    ] {
+    for backing in [Backing::native(), Backing::delegated("goreleaser")] {
         assert_eq!(CONTRACT.len(), ReleasePhase::ALL.len());
         assert!(
-            matches!(
-                backing,
-                PhaseBacking::Native | PhaseBacking::Delegated { .. }
-            ),
+            matches!(backing, Backing::Native | Backing::Delegated { .. }),
             "the guarantee table is backing-agnostic"
         );
     }
