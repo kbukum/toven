@@ -317,6 +317,43 @@ fn download_verify_signature_then_checksum_then_run() {
 }
 
 #[test]
+fn download_verify_matches_checksum_with_uppercase_manifest_hex() {
+    // A `SHA256SUMS` written with uppercase hex must still match the
+    // lowercase digest we compute — `parse_manifest` normalizes to lowercase,
+    // so an uppercase manifest is not a false negative.
+    let (remote, remote_path) = stage_remote(false);
+    let manifest = remote.path().join("SHA256SUMS");
+    let body = std::fs::read_to_string(&manifest).unwrap();
+    let (hex, name) = body.trim_end().split_once("  ").unwrap();
+    std::fs::write(&manifest, format!("{}  {name}\n", hex.to_uppercase())).unwrap();
+
+    let root = TempDir::new().unwrap();
+    let provider = signed_provider();
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let mut reporter = RecordingReporter::new();
+    let downloader = FakeAssetDownloader::from_dir(remote_path);
+    let verifier = FakeSignatureVerifier::new();
+    let probe = FakeVersionProbe::reporting(format!("toven {VERSION}"));
+
+    let report = release_verify(
+        &request(root.path()),
+        &document(),
+        &providers,
+        VerifyOptions {
+            download: true,
+            run: true,
+        },
+        &downloader,
+        &verifier,
+        &probe,
+        &mut reporter,
+    )
+    .unwrap();
+
+    assert_eq!(report.assets[0].checksum_ok, Some(true));
+}
+
+#[test]
 fn download_verify_aborts_before_checksum_on_bad_signature() {
     let (_remote, remote_path) = stage_remote(false);
     let root = TempDir::new().unwrap();

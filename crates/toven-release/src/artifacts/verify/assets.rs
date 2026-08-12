@@ -162,7 +162,7 @@ pub(super) fn parse_manifest(path: &Path) -> AppResult<BTreeMap<String, String>>
                 format!("malformed manifest line '{line}' (expected '<hex>  <name>')"),
             )
         })?;
-        entries.insert(name.to_string(), hex.to_string());
+        entries.insert(name.to_string(), hex.to_ascii_lowercase());
     }
     Ok(entries)
 }

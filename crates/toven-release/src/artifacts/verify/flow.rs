@@ -130,7 +130,6 @@ pub fn release_verify(
 
     if options.download {
         verify_download(
-            request.project_root.as_path(),
             &archives,
             representative,
             &expected_version,
@@ -193,7 +192,6 @@ fn verify_local(
 /// signature on `SHA256SUMS` → per-archive checksum → extract/run.
 #[allow(clippy::too_many_arguments)]
 fn verify_download(
-    project_root: &Path,
     archives: &[&String],
     settings: &ResolvedReleaseSettings,
     expected_version: &Version,
@@ -202,7 +200,6 @@ fn verify_download(
     verifier: &dyn SignatureVerifier,
     probe: &dyn VersionProbe,
 ) -> AppResult<VerifyReport> {
-    let _ = project_root;
     let identity = require_identity(settings, "identity", settings.sign.identity.as_deref())?;
     let issuer = require_identity(settings, "issuer", settings.sign.issuer.as_deref())?;
     let tag = build_tag(settings.tag_format.as_deref(), expected_version);

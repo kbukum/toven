@@ -9,6 +9,7 @@ use crate::{ReleasePlan, ReleaseStats};
 
 use super::staging::module_for;
 
+/// Return the entry's already-planned tag name — a release uses the plan's
 /// single planned value instead of re-deriving the tag from the scheme, so a
 /// run creates, validates, names, and pushes precisely the tag the plan showed
 /// — no second computation that could drift. A planned-version entry always
