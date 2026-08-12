@@ -168,6 +168,7 @@ mod tests {
             modules: std::collections::BTreeMap::new(),
             members,
             hooks: BTreeMap::new(),
+            units: BTreeMap::new(),
         }
     }
 

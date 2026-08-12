@@ -1,0 +1,15 @@
+# Project-level user-declared composite units.
+[project]
+name = "composite-units"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+
+# `release` chains the built-in native capabilities in order.
+[units.release]
+chain = ["bump", "tag", "publish"]
+
+# A user chain may reference another declared composite (`release`) and add
+# further built-in units around it.
+[units.ship]
+chain = ["release", "coverage"]

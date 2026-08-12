@@ -32,6 +32,7 @@ Generate a starter file with [`toven init`](../commands/init.md).
 | `[modules."<ecosystem>:<name>"]` | No | Per-module release and coverage overrides |
 | `[groups.<name>]` | No | Named module sets, guardrails, run strategy, and sparse task overrides |
 | `[hooks.<verb>]` | No | Project-level `pre`/`post` lifecycle hooks that wrap a command |
+| `[units.<name>]` | No | User-declared composite units that chain existing units into one action |
 | `[[overlays]]` | No | Explicit dependency edges native metadata cannot express |
 | `[[members]]` | No | Federated repository members |
 
@@ -308,6 +309,22 @@ Hooks are ordinary task references, resolved through the same task model as [`to
 The release family composes with its umbrella: `[hooks.release]` wraps `[hooks.bump]`, `[hooks.tag]`, and `[hooks.publish]`, with the specific verb innermost. For a `release bump`, the effective `pre` sequence is the umbrella's `pre` followed by `bump`'s `pre`, and the effective `post` sequence is `bump`'s `post` followed by the umbrella's `post`. A `release` reconcile that short-circuits (nothing to cut) skips the `post` hooks.
 
 For the bump-specific mid-mutation `on_resolved` seam — which runs *inside* the bump after versions are decided and is handed the resolved version map — see [Release configuration](release.md#bump-on-resolved-hooks).
+
+## Composite units
+
+`[units.<name>]` declares a composite unit: an ordered chain that composes existing units into one named action, so a workspace can express a release-like flow without changing argv.
+
+```toml
+[units.release]
+chain = ["bump", "tag", "publish"]
+
+[units.ship]
+chain = ["release", "coverage"]
+```
+
+Each `chain` entry names another unit, run in declaration order. A member is either a built-in native capability (`bump`, `tag`, `publish`, `coverage`) or another declared composite — a composite may build on top of another. The chain is an ordered list, not a set: a member listed twice runs once per occurrence.
+
+Composite declarations are validated at load time and fail closed on a malformed chain. A member that names no known unit is rejected as an unknown unit; a name that shadows a built-in unit, an empty chain, or a blank member is rejected; and a chain that references itself directly or transitively is rejected as a cycle before anything runs.
 
 ## Coverage and release
 

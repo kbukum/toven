@@ -45,6 +45,7 @@ pub(super) fn structural(document: &Document, canonical: &CanonicalRegistry) -> 
     for (verb, hooks) in &document.hooks {
         hooks.validate(&format!("hooks.{}", verb.as_str()))?;
     }
+    super::units::validate_units(&document.units)?;
     Ok(())
 }
 

@@ -1,0 +1,12 @@
+# Two composite units that reference each other, forming a cycle.
+[project]
+name = "composite-cycle"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+
+[units.a]
+chain = ["b"]
+
+[units.b]
+chain = ["a"]

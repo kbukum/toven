@@ -1,0 +1,9 @@
+# A composite unit that references an unknown member unit.
+[project]
+name = "composite-unknown"
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+
+[units.ship]
+chain = ["bump", "smoke-test"]

@@ -25,6 +25,7 @@ mod project;
 mod reference;
 mod registry;
 mod settings;
+mod units;
 mod validate;
 mod verb;
 

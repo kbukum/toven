@@ -34,6 +34,20 @@ fn blank_hook_task_reference_is_rejected() {
 }
 
 #[test]
+fn composite_unit_with_unknown_member_is_rejected() {
+    // A composite member that is neither a built-in unit nor another declared
+    // composite fails structural validation, fail-closed.
+    assert_rejected("invalid/composite-unknown-member.toml", &["rust"]);
+}
+
+#[test]
+fn composite_unit_cycle_is_rejected() {
+    // Two composites referencing each other form a cycle, rejected before any
+    // execution.
+    assert_rejected("invalid/composite-cycle.toml", &["rust"]);
+}
+
+#[test]
 fn duplicate_group_identity_is_rejected() {
     // Single-file duplicate group: TOML itself rejects the redefined
     // `[groups.core]` table header during decode.
