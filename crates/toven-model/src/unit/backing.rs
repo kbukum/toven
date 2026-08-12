@@ -20,8 +20,8 @@ use super::Composite;
 /// - [`Composite`](Self::Composite) — an ordered chain of units (e.g.
 ///   `release = bump → tag → publish`).
 ///
-/// This generalizes the former release-only `PhaseBacking` — which named only
-/// `Native | Delegated` for a single release phase — to the whole system. The
+/// This is the one backing axis for the whole system — a task, a native
+/// capability, a delegated tool, or a composite chain all differ only here. The
 /// default is [`Native`](Self::Native); every other backing is an explicit
 /// choice. `#[non_exhaustive]` because further backing shapes may be added.
 #[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize, Serialize)]

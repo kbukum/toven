@@ -5,9 +5,8 @@
 //! Layer-0 vocabulary only: it *names* the one spine on which tasks, native
 //! capabilities, delegated tools, and composite chains are otherwise uniform —
 //! discovered, planned mutation-free, gated on apply, and reported the same way
-//! — differing only in their [`Backing`]. It generalizes the former
-//! release-only `PhaseBacking` to the whole system and holds no behavior; the
-//! execution spine that consumes it uniformly is built in later steps.
+//! — differing only in their [`Backing`]. It holds no behavior; the execution
+//! spine that consumes it uniformly is built in later steps.
 
 mod backing;
 mod composite;
