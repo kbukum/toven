@@ -13,7 +13,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use rskit_errors::AppResult;
-use toven_ports::{HookPhase, HookRunner, Provider, Reporter, ToolRunner};
+use toven_ports::{HookInvocation, HookRunner, Provider, Reporter, ToolRunner};
 
 use crate::execution::federated::release_apply_by_member;
 use crate::hosting::host;
@@ -82,7 +82,7 @@ pub fn release_run(
     // after a fully successful run.
     let lifecycle = document.hooks_for(verb);
     for reference in &lifecycle.pre {
-        hooks.run_hook(HookPhase::Before, reference, None)?;
+        hooks.run_hook(HookInvocation::Before, reference)?;
     }
 
     // Resolve settings once up front and reuse the same map for the reconcile
@@ -193,7 +193,7 @@ pub fn release_run(
     // pre-pass short-circuit above intentionally skips them: it completes a prior
     // release's missing hosted Release, not a fresh mutation).
     for reference in &lifecycle.post {
-        hooks.run_hook(HookPhase::After, reference, None)?;
+        hooks.run_hook(HookInvocation::After, reference)?;
     }
     Ok(stats)
 }
@@ -603,10 +603,12 @@ mod tests {
                 toven_testkit::HookCall {
                     phase: toven_ports::HookPhase::Before,
                     reference: "build".to_string(),
+                    version_map: None,
                 },
                 toven_testkit::HookCall {
                     phase: toven_ports::HookPhase::After,
                     reference: "notify".to_string(),
+                    version_map: None,
                 },
             ],
             "before runs, then the mutation, then after"

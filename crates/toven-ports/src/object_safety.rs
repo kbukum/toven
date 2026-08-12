@@ -138,12 +138,7 @@ impl AssetDownloader for FakeDownloader {
 
 struct FakeHookRunner;
 impl HookRunner for FakeHookRunner {
-    fn run_hook(
-        &self,
-        _phase: HookPhase,
-        _reference: &str,
-        _version_map: Option<&Path>,
-    ) -> AppResult<()> {
+    fn run_hook(&self, _invocation: HookInvocation<'_>, _reference: &str) -> AppResult<()> {
         Ok(())
     }
 }
@@ -498,13 +493,14 @@ fn port_traits_are_object_safe() {
     // Exercise the HookRunner port across its lifecycle phases.
     let hook_runner: Box<dyn HookRunner> = Box::new(FakeHookRunner);
     hook_runner
-        .run_hook(HookPhase::Before, "test", None)
+        .run_hook(HookInvocation::Before, "test")
         .expect("runs lifecycle hook without error");
     hook_runner
         .run_hook(
-            HookPhase::OnResolved,
+            HookInvocation::OnResolved {
+                version_map: Path::new("versions.json"),
+            },
             "sync",
-            Some(Path::new("versions.json")),
         )
         .expect("runs on-resolved hook without error");
     assert_eq!(HookPhase::After.as_str(), "after");

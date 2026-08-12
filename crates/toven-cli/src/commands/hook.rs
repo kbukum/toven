@@ -2,18 +2,18 @@
 //! reference through the standard PLAN → APPLY run path, plus the
 //! [`run_with_lifecycle`] driver that wraps any unit in its before/after hooks.
 //!
-//! A `[hooks.<unit>]` entry names a task the workspace already knows, so a hook
+//! A `[hooks.<verb>]` entry names a task the workspace already knows, so a hook
 //! reuses the exact run path (output, caching, and failure semantics) that
 //! drives `toven <task>` instead of a bespoke execution engine. The CLI dispatch
 //! seam calls [`run_with_lifecycle`] to run a unit's resolved `before` hooks
 //! (fail-closed) before the unit body and its `after` hooks after the body
 //! succeeds; the same [`CliHookRunner`] also serves the bump
-//! [`HookPhase::OnResolved`] mid-mutation seam. The runner owns the async
+//! [`HookInvocation::OnResolved`] mid-mutation seam. The runner owns the async
 //! task-apply runtime internally, keeping async out of the L2 engine path.
 
 use rskit_cli::ExitCode;
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_ports::{HookPhase, HookRunner, HooksConfig, Provider, TaskIntent};
+use toven_ports::{HookInvocation, HookRunner, HooksConfig, Provider, TaskIntent};
 
 use crate::commands::run::WatchFlags;
 use crate::commands::selection::TaskSelection;
@@ -28,7 +28,7 @@ use crate::host::{Project, Report};
 /// This is the general per-unit lifecycle driver the CLI dispatch seam uses for
 /// any unit. Hook references run through the injected `runner` (the real
 /// [`CliHookRunner`] in production, a recording double in tests) — the same one
-/// mechanism that serves the [`HookPhase::OnResolved`] seam. When no hook is
+/// mechanism that serves the [`HookInvocation::OnResolved`] seam. When no hook is
 /// configured the body runs unwrapped, so an unconfigured unit pays nothing.
 ///
 /// # Errors
@@ -40,12 +40,12 @@ pub(crate) fn run_with_lifecycle(
     body: impl FnOnce() -> AppResult<ExitCode>,
 ) -> AppResult<ExitCode> {
     for reference in &hooks.pre {
-        runner.run_hook(HookPhase::Before, reference, None)?;
+        runner.run_hook(HookInvocation::Before, reference)?;
     }
     let code = body()?;
     if code == ExitCode::Success {
         for reference in &hooks.post {
-            runner.run_hook(HookPhase::After, reference, None)?;
+            runner.run_hook(HookInvocation::After, reference)?;
         }
     }
     Ok(code)
@@ -115,12 +115,7 @@ impl CliHookRunner<'_> {
 }
 
 impl HookRunner for CliHookRunner<'_> {
-    fn run_hook(
-        &self,
-        phase: HookPhase,
-        reference: &str,
-        version_map: Option<&std::path::Path>,
-    ) -> AppResult<()> {
+    fn run_hook(&self, invocation: HookInvocation<'_>, reference: &str) -> AppResult<()> {
         // A hook runs the named task across the whole workspace (default
         // selection), fail-fast so a gate stops on the first failing unit. The
         // `on-resolved` seam additionally hands the task the authoritative
@@ -130,13 +125,17 @@ impl HookRunner for CliHookRunner<'_> {
         // reference fails during scheduling; a non-zero task result is mapped to
         // a typed error so the run aborts (before/on-resolved) or is reported as
         // failed (after).
-        let passthrough = version_map
+        let passthrough = invocation
+            .version_map()
             .map(|path| vec![path.to_string_lossy().into_owned()])
             .unwrap_or_default();
         let code = self.run_task(reference, passthrough)?;
         gate_hook_result(
             code,
-            &format!("the {} hook task '{reference}'", phase.as_str()),
+            &format!(
+                "the {} hook task '{reference}'",
+                invocation.phase().as_str()
+            ),
         )
     }
 }
