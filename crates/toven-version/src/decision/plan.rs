@@ -134,19 +134,40 @@ impl<'a> Decision<'a> {
     }
 }
 
+/// Reject duplicate module keys in the gathered inputs.
+///
+/// `inputs` is a public slice, so a caller could pass two entries for the same
+/// module. The indexed view would silently keep whichever appeared last while
+/// the changed set aggregates across every copy — conflicting duplicates could
+/// then mark a module active yet plan its bump from an arbitrary current
+/// version/baseline. Fail closed at the API boundary instead so malformed
+/// gathered data can never produce an arbitrary plan.
+fn reject_duplicate_inputs(inputs: &[VersionInputs]) -> AppResult<()> {
+    let mut seen = BTreeSet::new();
+    for input in inputs {
+        if !seen.insert(&input.module) {
+            return Err(AppError::invalid_input(
+                "release.modules",
+                format!("duplicate versioning input for module '{}'", input.module),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Plan every module's bump from the pre-gathered inputs.
 ///
 /// Bumps are decided **dependency-first** so a dependent only cascades when a
 /// direct dependency actually receives an own-version bump — a dependent whose
 /// dependencies stayed put (e.g. an `upgrade`-mode intermediate that raised a
 /// floor without republishing) is never given a bump that carries no change.
-///
-/// # Errors
-/// Propagates an invalid `--set-version`/`--pre`/override combination, an
-/// unknown module in the release closure, a graph failure, or a prerelease
-/// channel that is not one of a module's configured channels.
+/// Propagates an invalid `--set-version`/`--pre`/override combination, a
+/// duplicate module key in `inputs`, an unknown module in the release closure, a
+/// graph failure, or a prerelease channel that is not one of a module's
+/// configured channels.
 #[allow(clippy::too_many_lines)]
 pub fn plan_bumps(inputs: &[VersionInputs], cfg: &BumpConfig<'_>) -> AppResult<BumpPlan> {
+    reject_duplicate_inputs(inputs)?;
     let decision = Decision::new(inputs, cfg);
     let active = cfg.graph.closure(&decision.changed, release_closure_edge)?;
 
@@ -854,6 +875,35 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_versioning_inputs_are_rejected_at_the_api_boundary() {
+        // Two inputs for the same module with conflicting current versions: the
+        // indexed view would silently keep the last while `changed` aggregates
+        // across both, so the plan must fail closed rather than bump from an
+        // arbitrary copy.
+        let first = seed("core", "0.1.0", Some("0.1.0"), config());
+        let mut second = seed("core", "0.9.0", Some("0.1.0"), config());
+        second.changed = false;
+        let graph = Graph::build(vec![module("core")], Vec::new()).expect("graph");
+        let overrides = BumpOverrides::new();
+
+        let error = plan_bumps(
+            &[first, second],
+            &BumpConfig {
+                graph: &graph,
+                branches: &no_branches(),
+                policy: BumpPolicy::SemverCascade,
+                overrides: &overrides,
+                intent: CutIntent::Verify,
+            },
+        )
+        .expect_err("duplicate inputs must be rejected");
+        assert!(
+            error.to_string().contains("duplicate versioning input"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
     fn an_umbrella_anchored_independent_module_bumps_from_its_own_version_not_the_umbrella() {
         // The bug-1 regression: an umbrella workspace versions its modules
         // independently under one shared tag (v1.4.0), but `core` declares and
@@ -1008,11 +1058,8 @@ mod tests {
             Edge::new(app_key.clone(), lib_key.clone(), DepKind::Normal),
             Edge::new(lib_key.clone(), base_key.clone(), DepKind::Normal),
         ];
-        let graph = Graph::build(
-            vec![module("base"), module("lib"), module("app")],
-            edges,
-        )
-        .expect("graph");
+        let graph =
+            Graph::build(vec![module("base"), module("lib"), module("app")], edges).expect("graph");
         let overrides = BumpOverrides::new();
         let inputs = vec![base, lib, app];
 
@@ -1053,11 +1100,8 @@ mod tests {
             Edge::new(app_key.clone(), lib_key.clone(), DepKind::Normal),
             Edge::new(lib_key.clone(), base_key.clone(), DepKind::Normal),
         ];
-        let graph = Graph::build(
-            vec![module("base"), module("lib"), module("app")],
-            edges,
-        )
-        .expect("graph");
+        let graph =
+            Graph::build(vec![module("base"), module("lib"), module("app")], edges).expect("graph");
         let overrides = BumpOverrides::new();
         let inputs = vec![base, lib, app];
 
