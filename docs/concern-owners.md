@@ -29,10 +29,12 @@ When a shared capability is missing, improve rskit generically. Do not make rski
 | PLAN spine and federation-core (resolve/baseline/compose) | `toven-core` |
 | Engine-owned VCS baseline policy over the git seam | `toven-core` |
 | Path→owning-module resolver | `toven-core` |
+| Semver bump math and release-tag codec/selection (`next_version`, `TagScheme`, `latest_matching`) | `toven-semver` |
 | Git mechanism: the rskit-git-backed `VcsReader`/`VcsWriter` adapter, the change foundation (diff-range resolution), and the per-repo reader-set fan-out | `toven-vcs` |
+| Version decision: the pure `plan_bumps` bump/cascade/idempotency decision, baseline anchoring, entrypoint/`CutIntent` policy, change detection, and Conventional-Commit changelog generation | `toven-version` |
 | Concrete subprocess runners (`ProcessToolRunner`, `ProcessCommandRunner`, persistent spawn) and the shared argv→`ProcessSpec` lowering | `toven-exec` |
 | Scheduling, affected selection, apply, cache coordination, coverage | `toven-engine` |
-| Release orchestration (bump, changelog, packaging, SBOM, hosted publishing) | `toven-release` |
+| Release flow orchestration (the ordered tag/package/SBOM/sign/publish/host phases composing `toven-version` for the bump decision) | `toven-release` |
 | Keyless release signing/verification policy (cosign orchestration) | `toven-release` |
 | Rust ecosystem behavior | `toven-rust` |
 | Go ecosystem behavior | `toven-go` |
