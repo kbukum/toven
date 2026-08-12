@@ -82,7 +82,7 @@ pub fn release_run(
     // after a fully successful run.
     let lifecycle = document.hooks_for(verb);
     for reference in &lifecycle.pre {
-        hooks.run_hook(HookPhase::Pre, reference)?;
+        hooks.run_hook(HookPhase::Before, reference, None)?;
     }
 
     // Resolve settings once up front and reuse the same map for the reconcile
@@ -193,7 +193,7 @@ pub fn release_run(
     // pre-pass short-circuit above intentionally skips them: it completes a prior
     // release's missing hosted Release, not a fresh mutation).
     for reference in &lifecycle.post {
-        hooks.run_hook(HookPhase::Post, reference)?;
+        hooks.run_hook(HookPhase::After, reference, None)?;
     }
     Ok(stats)
 }
@@ -542,24 +542,24 @@ mod tests {
 
         assert!(error.to_string().contains("gate"), "{error}");
         assert_eq!(
-            hooks.references(toven_ports::HookPhase::Pre),
+            hooks.references(toven_ports::HookPhase::Before),
             vec!["gate".to_string()],
-            "the pre hook was attempted"
+            "the before hook was attempted"
         );
         assert!(
-            hooks.references(toven_ports::HookPhase::Post).is_empty(),
-            "no post hook runs once pre aborts"
+            hooks.references(toven_ports::HookPhase::After).is_empty(),
+            "no after hook runs once before aborts"
         );
         assert!(
             writer.writes().is_empty(),
-            "no mutation may happen when a pre hook fails: {:?}",
+            "no mutation may happen when a before hook fails: {:?}",
             writer.writes()
         );
     }
 
-    // On a successful release, `pre` hooks run before the mutation and `post`
-    // hooks run after it — proving the configured task references execute in the
-    // right order around the release.
+    // On a successful release, `before` hooks run before the mutation and
+    // `after` hooks run after it — proving the configured task references
+    // execute in the right order around the release.
     #[test]
     fn pre_hooks_run_before_the_mutation_and_post_hooks_after_success() {
         let provider = tag_only_core_provider();
@@ -601,15 +601,15 @@ mod tests {
             calls,
             vec![
                 toven_testkit::HookCall {
-                    phase: toven_ports::HookPhase::Pre,
+                    phase: toven_ports::HookPhase::Before,
                     reference: "build".to_string(),
                 },
                 toven_testkit::HookCall {
-                    phase: toven_ports::HookPhase::Post,
+                    phase: toven_ports::HookPhase::After,
                     reference: "notify".to_string(),
                 },
             ],
-            "pre runs, then the mutation, then post"
+            "before runs, then the mutation, then after"
         );
     }
 }

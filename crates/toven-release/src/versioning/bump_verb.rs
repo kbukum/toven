@@ -18,7 +18,7 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_util::time::{Clock, datetime_from_epoch_secs};
 use rskit_version::semver::Version;
 use toven_model::ModuleKey;
-use toven_ports::{Provider, Reporter, ResolvedHookRunner};
+use toven_ports::{HookRunner, Provider, Reporter};
 
 use crate::BumpOverrides;
 use crate::execution::federated::release_bump_by_member;
@@ -112,7 +112,7 @@ pub fn release_bump(
     overrides: &BumpOverrides,
     reporter: &mut dyn Reporter,
     clock: &dyn Clock,
-    resolved_runner: &dyn ResolvedHookRunner,
+    resolved_runner: &dyn HookRunner,
     options: &BumpOptions,
 ) -> AppResult<BumpReport> {
     let locator = PathDriverLocator::new();

@@ -138,7 +138,12 @@ impl AssetDownloader for FakeDownloader {
 
 struct FakeHookRunner;
 impl HookRunner for FakeHookRunner {
-    fn run_hook(&self, _phase: HookPhase, _reference: &str) -> AppResult<()> {
+    fn run_hook(
+        &self,
+        _phase: HookPhase,
+        _reference: &str,
+        _version_map: Option<&Path>,
+    ) -> AppResult<()> {
         Ok(())
     }
 }
@@ -490,12 +495,19 @@ fn port_traits_are_object_safe() {
             .expect("checks attestation")
     );
 
-    // Exercise the HookRunner port.
+    // Exercise the HookRunner port across its lifecycle phases.
     let hook_runner: Box<dyn HookRunner> = Box::new(FakeHookRunner);
     hook_runner
-        .run_hook(HookPhase::Pre, "test")
-        .expect("runs hook without error");
-    assert_eq!(HookPhase::Post.as_str(), "post");
+        .run_hook(HookPhase::Before, "test", None)
+        .expect("runs lifecycle hook without error");
+    hook_runner
+        .run_hook(
+            HookPhase::OnResolved,
+            "sync",
+            Some(Path::new("versions.json")),
+        )
+        .expect("runs on-resolved hook without error");
+    assert_eq!(HookPhase::After.as_str(), "after");
 
     // Exercise the release-verification ports.
     let downloader: Box<dyn AssetDownloader> = Box::new(FakeDownloader);

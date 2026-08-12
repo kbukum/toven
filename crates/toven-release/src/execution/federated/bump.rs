@@ -4,7 +4,7 @@ use std::path::Path;
 use rskit_errors::AppResult;
 use rskit_version::semver::Version;
 use toven_model::{Module, ModuleKey, RepoPath};
-use toven_ports::ResolvedHookRunner;
+use toven_ports::HookRunner;
 
 use super::apply::{
     MemberReleaseShard, guard_member_trees, repo_for, restore_prepared_failure, shard_plan,
@@ -41,7 +41,7 @@ pub(crate) fn release_bump_by_member(
     targets: &crate::ReleaseTargets,
     repos: &MemberReleaseRepos<'_>,
     date: &str,
-    resolved_runner: &dyn ResolvedHookRunner,
+    resolved_runner: &dyn HookRunner,
     options: crate::BumpOptions,
 ) -> AppResult<crate::BumpReport> {
     use crate::BumpReport;
