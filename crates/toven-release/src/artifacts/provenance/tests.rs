@@ -55,6 +55,7 @@ fn document() -> Document {
         modules: BTreeMap::new(),
         members: Vec::new(),
         hooks: std::collections::BTreeMap::new(),
+        units: std::collections::BTreeMap::new(),
     }
 }
 

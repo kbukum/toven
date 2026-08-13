@@ -161,3 +161,16 @@ fn loads_project_level_verb_hooks() {
     // A verb with no configured hooks and no umbrella resolves empty.
     assert!(document.hooks_for(VerbId::Doctor).is_empty());
 }
+
+#[test]
+fn loads_user_declared_composite_units() {
+    // `[units.<name>]` chains parse into the typed map in declaration order,
+    // including a composite that references another declared composite.
+    let document = load_fixture("valid/composite-units.toml", &["rust"]);
+
+    assert_eq!(
+        document.units["release"].chain(),
+        ["bump", "tag", "publish"]
+    );
+    assert_eq!(document.units["ship"].chain(), ["release", "coverage"]);
+}

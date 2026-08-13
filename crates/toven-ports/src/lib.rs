@@ -73,11 +73,11 @@ pub mod wizard;
 
 pub use cache::{CacheStore, CacheWriter};
 pub use config::{
-    BaselineSourceConfig, BumpLevel, ChangelogConfig, CommonEcosystemConfig, CoverageConfig,
-    CoverageProfile, CoverageThresholds, DelegatedTool, DependentVersion, Enforcement, HooksConfig,
-    HostConfig, ImageConfig, PhaseBackingKind, PhaseConfig, PhasesConfig, PrereleaseConfig,
-    PublicationPolicy, ReleaseConfig, RunStrategy, SignConfig, TagMode, TaskEntry, TaskOverride,
-    VERSION_REF_TOKENS, VersionRefToken, VersionReferenceConfig,
+    BaselineSourceConfig, BumpLevel, ChangelogConfig, CommonEcosystemConfig, CompositeUnitConfig,
+    CoverageConfig, CoverageProfile, CoverageThresholds, DelegatedTool, DependentVersion,
+    Enforcement, HooksConfig, HostConfig, ImageConfig, PhaseBackingKind, PhaseConfig, PhasesConfig,
+    PrereleaseConfig, PublicationPolicy, ReleaseConfig, RunStrategy, SignConfig, TagMode,
+    TaskEntry, TaskOverride, VERSION_REF_TOKENS, VersionRefToken, VersionReferenceConfig,
 };
 pub use discover::{DISCOVERY_SCHEMA_VERSION, DiscoverContext, DiscoverRequest, DiscoverResponse};
 pub use driver::{DriverLocator, DriverWizard};

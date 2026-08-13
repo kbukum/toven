@@ -267,6 +267,7 @@ mod tests {
             modules: BTreeMap::new(),
             members: Vec::new(),
             hooks: BTreeMap::new(),
+            units: BTreeMap::new(),
         }
     }
 

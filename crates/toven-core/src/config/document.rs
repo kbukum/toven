@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     GroupConfig, MemberConfig, ModuleConfig, OverlayConfig, ProjectConfig, TovenConfig, VerbId,
 };
-use toven_ports::HooksConfig;
+use toven_ports::{CompositeUnitConfig, HooksConfig};
 
 /// The whole `toven.toml`, parsed strictly.
 ///
@@ -50,6 +50,12 @@ pub struct Document {
     /// parse; [`Self::hooks_for`] composes umbrella/specific precedence.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub hooks: BTreeMap<VerbId, HooksConfig>,
+    /// User-declared composite units, keyed by unit name (`[units.<name>]`).
+    /// Each value chains existing units (built-in native capabilities or other
+    /// declared composites) into one ordered action. Validated to reference
+    /// only known units and to be acyclic; execution is resolved by the engine.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub units: BTreeMap<String, CompositeUnitConfig>,
 }
 
 impl Document {

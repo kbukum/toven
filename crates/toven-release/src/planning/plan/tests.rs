@@ -236,6 +236,7 @@ fn document() -> Document {
         modules: std::collections::BTreeMap::new(),
         members: Vec::new(),
         hooks: std::collections::BTreeMap::new(),
+        units: std::collections::BTreeMap::new(),
     }
 }
 
@@ -258,6 +259,7 @@ fn document_for_ecosystem(ecosystem: &str, release: &serde_json::Value) -> Docum
         modules: std::collections::BTreeMap::new(),
         members: Vec::new(),
         hooks: std::collections::BTreeMap::new(),
+        units: std::collections::BTreeMap::new(),
     }
 }
 
