@@ -88,53 +88,126 @@ fn validate_members_known(
 /// failing closed with the offending cycle path.
 ///
 /// Only composite → composite edges form the graph; a member that is a built-in
-/// unit is a leaf and cannot close a cycle. A depth-first walk with an on-stack
-/// set reports the first back-edge it reaches.
+/// unit is a leaf and cannot close a cycle. An **iterative** depth-first walk
+/// with an explicit frame stack reports the first back-edge it reaches. It is
+/// deliberately not recursive: config is an untrusted trust-boundary input, so a
+/// long acyclic chain (`a0 → a1 → …`) must return the typed validation error,
+/// never exhaust the call stack.
 fn detect_cycles(units: &BTreeMap<String, CompositeUnitConfig>) -> AppResult<()> {
-    let mut visited: BTreeSet<&str> = BTreeSet::new();
-    for name in units.keys().map(String::as_str) {
-        if visited.contains(name) {
+    // `done` are fully-explored composites (they can never be on a future
+    // path); `path`/`on_path` are the composites currently on the DFS stack —
+    // an edge back into `on_path` is a cycle.
+    let mut done: BTreeSet<&str> = BTreeSet::new();
+    for root in units.keys().map(String::as_str) {
+        if done.contains(root) {
             continue;
         }
-        let mut stack: Vec<&str> = Vec::new();
-        walk(name, units, &mut visited, &mut stack)?;
+        let mut stack: Vec<Frame<'_>> = vec![Frame {
+            name: root,
+            next: 0,
+        }];
+        let mut path: Vec<&str> = vec![root];
+        let mut on_path: BTreeSet<&str> = BTreeSet::from([root]);
+        while let Some(&Frame { name, next }) = stack.last() {
+            let members = units.get(name).map_or(&[][..], CompositeUnitConfig::chain);
+            match next_edge(members, next, units, &on_path, &done) {
+                Edge::Cycle(member) => return Err(cycle_error(&path, member)),
+                Edge::Descend {
+                    member,
+                    advanced_to,
+                } => {
+                    set_frame_next(&mut stack, advanced_to);
+                    stack.push(Frame {
+                        name: member,
+                        next: 0,
+                    });
+                    path.push(member);
+                    on_path.insert(member);
+                }
+                Edge::Exhausted => {
+                    stack.pop();
+                    if let Some(finished) = path.pop() {
+                        on_path.remove(finished);
+                        done.insert(finished);
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }
 
-/// Depth-first visit of one composite, following composite members only.
-fn walk<'a>(
+/// One composite on the iterative DFS stack: the composite and the index of the
+/// next member edge to examine.
+#[derive(Clone, Copy)]
+struct Frame<'a> {
     name: &'a str,
+    next: usize,
+}
+
+/// The outcome of scanning a composite's remaining member edges.
+enum Edge<'a> {
+    /// A member re-enters the current path: a cycle closing on `member`.
+    Cycle(&'a str),
+    /// Descend into composite `member`; the current frame's cursor advances to
+    /// `advanced_to`.
+    Descend { member: &'a str, advanced_to: usize },
+    /// No further composite edge to follow: pop this frame.
+    Exhausted,
+}
+
+/// Scan `members` from `start`, skipping leaf (built-in) and already-explored
+/// composite edges, until it finds a back-edge (cycle) or the next composite to
+/// descend into.
+fn next_edge<'a>(
+    members: &'a [String],
+    start: usize,
     units: &'a BTreeMap<String, CompositeUnitConfig>,
-    visited: &mut BTreeSet<&'a str>,
-    stack: &mut Vec<&'a str>,
-) -> AppResult<()> {
-    if let Some(position) = stack.iter().position(|entry| *entry == name) {
-        let mut cycle: Vec<&str> = stack[position..].to_vec();
-        cycle.push(name);
-        return Err(AppError::invalid_input(
-            format!("units.{name}"),
-            format!(
-                "composite units form a cycle: {}; a chain cannot reference itself directly or \
-                 transitively",
-                cycle.join(" -> ")
-            ),
-        ));
-    }
-    if visited.contains(name) {
-        return Ok(());
-    }
-    stack.push(name);
-    if let Some(composite) = units.get(name) {
-        for member in composite.chain() {
-            if units.contains_key(member) {
-                walk(member, units, visited, stack)?;
-            }
+    on_path: &BTreeSet<&str>,
+    done: &BTreeSet<&str>,
+) -> Edge<'a> {
+    let mut index = start;
+    while let Some(member) = members.get(index) {
+        let member = member.as_str();
+        index += 1;
+        if !units.contains_key(member) {
+            continue; // a built-in leaf cannot close a cycle
         }
+        if on_path.contains(member) {
+            return Edge::Cycle(member);
+        }
+        if done.contains(member) {
+            continue; // already fully explored, acyclic
+        }
+        return Edge::Descend {
+            member,
+            advanced_to: index,
+        };
     }
-    stack.pop();
-    visited.insert(name);
-    Ok(())
+    Edge::Exhausted
+}
+
+/// Advance the top frame's edge cursor to `next`.
+const fn set_frame_next(stack: &mut [Frame<'_>], next: usize) {
+    if let Some(frame) = stack.last_mut() {
+        frame.next = next;
+    }
+}
+
+/// Build the typed cyclic-composite error, rendering the cycle path from the
+/// point `member` first entered `path` back to `member`.
+fn cycle_error(path: &[&str], member: &str) -> AppError {
+    let start = path.iter().position(|entry| *entry == member).unwrap_or(0);
+    let mut cycle: Vec<&str> = path[start..].to_vec();
+    cycle.push(member);
+    AppError::invalid_input(
+        format!("units.{member}"),
+        format!(
+            "composite units form a cycle: {}; a chain cannot reference itself directly or \
+             transitively",
+            cycle.join(" -> ")
+        ),
+    )
 }
 
 #[cfg(test)]
@@ -193,6 +266,24 @@ mod tests {
         let map = units([("a", &["b"][..]), ("b", &["a"][..])]);
         let error = validate_units(&map).unwrap_err();
         assert!(error.to_string().contains("cycle"));
+    }
+
+    #[test]
+    fn accepts_a_deep_acyclic_chain_without_overflowing() {
+        // A long linear composite chain (`a0 -> a1 -> ... -> aN -> bump`) is
+        // acyclic and must validate via the iterative walk without exhausting
+        // the call stack.
+        let depth = 100_000;
+        let mut map = BTreeMap::new();
+        for index in 0..depth {
+            let next = if index + 1 == depth {
+                "bump".to_string()
+            } else {
+                format!("a{}", index + 1)
+            };
+            map.insert(format!("a{index}"), CompositeUnitConfig::new(vec![next]));
+        }
+        validate_units(&map).expect("deep acyclic chain is valid");
     }
 
     #[test]
