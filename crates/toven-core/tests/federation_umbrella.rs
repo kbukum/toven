@@ -13,7 +13,7 @@ use toven_core::config::{CanonicalRegistry, Document, load};
 use toven_core::federation::MemberVcsReaders;
 use toven_core::federation::baseline::MemberVcsReader;
 use toven_core::federation::resolve::PathDriverLocator;
-use toven_core::plan::{NullCache, PlanHost, PlanRequest, Selection, dependency_graph, plan};
+use toven_core::plan::{PlanHost, PlanRequest, Selection, dependency_graph, plan};
 use toven_model::{
     AbsPath, DepKind, EcosystemId, Module, ModuleRef, RepoPath, ToolchainTag, Workspace,
     WorkspaceId,
@@ -23,8 +23,8 @@ use toven_ports::{
 };
 use toven_testkit::workspace::workspace;
 use toven_testkit::{
-    CountingToolchainProber, FakeConfiguredAdapter, FakeProvider, FakeSourceDigest, FakeVcsReader,
-    RecordingReporter,
+    FakeCacheStore, FakeConfiguredAdapter, FakeProvider, FakeSourceDigest, FakeVcsReader,
+    RecordingReporter, ScriptedToolchainProber,
 };
 
 fn eid(id: &str) -> EcosystemId {
@@ -303,8 +303,8 @@ fn changed_selection_attributes_changes_to_the_owning_member() {
     ]);
 
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let mut reporter = RecordingReporter::new();
 

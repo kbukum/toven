@@ -99,10 +99,12 @@ pub struct ProvenanceOptions {
 /// nothing resolves to a subject, or (outside `--dry-run`) any subject lacks an
 /// attestation — and propagates configuration/discovery/graph failures and
 /// attestation-tool failures.
+#[allow(clippy::too_many_arguments)]
 pub fn release_provenance(
     request: &PlanRequest,
     document: &Document,
     providers: &[&dyn Provider],
+    readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
     provenance_phase: &dyn ProvenancePhase,
     image_phase: &dyn toven_ports::ImagePhase,
     options: ProvenanceOptions,
@@ -116,7 +118,7 @@ pub fn release_provenance(
         &locator,
         reporter,
     )?;
-    let targets = release_targets(&context)?;
+    let targets = release_targets(&context, readers)?;
     let settings = resolve_release_settings(&context, &targets)?;
     let project_root = request.project_root.as_path();
 

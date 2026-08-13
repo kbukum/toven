@@ -73,7 +73,7 @@ pub fn release_run(
         &locator,
         reporter,
     )?;
-    let targets = release_targets(&context)?;
+    let targets = release_targets(&context, readers)?;
 
     // The project-level lifecycle hooks for this verb (composed with the
     // umbrella `[hooks.release]`). `pre` hooks run before the reconcile pre-pass

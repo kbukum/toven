@@ -12,7 +12,6 @@ publish = false
 [dependencies]
 toven-model.workspace = true
 toven-ports.workspace = true
-toven-vcs.workspace = true
 rskit-errors.workspace = true
 rskit-config.workspace = true
 rskit-cli.workspace = true
@@ -31,6 +30,7 @@ vendored-openssl = ["rskit-git/vendored-openssl", "toven-vcs/vendored-openssl"]
 [dev-dependencies]
 toven-exec.workspace = true
 toven-testkit.workspace = true
+toven-vcs.workspace = true
 
 [lints]
 workspace = true

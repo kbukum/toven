@@ -181,7 +181,10 @@ impl ConfiguredAdapter for FakeConfigured {
     fn run_strategy_default(&self, _kind: TaskKind) -> RunStrategy {
         RunStrategy::LeafToTop
     }
-    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
+    fn release_target(
+        &self,
+        _reader: &dyn VcsReader,
+    ) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
         Ok(Some(Box::new(FakeReleaseTarget)))
     }
     fn common(&self) -> &CommonEcosystemConfig {
@@ -378,7 +381,6 @@ fn port_traits_are_object_safe() {
     let mut reporter: Box<dyn Reporter> = Box::new(FakeReporter);
     let mut raw_sink: Box<dyn RawOutputSink> = Box::new(FakeRawOutputSink { live: 0, blocks: 0 });
     let release: Box<dyn ReleaseAdapter> = Box::new(FakeReleaseTarget);
-    let reader: Box<dyn VcsReader> = Box::new(FakeVcs);
     let writer: Box<dyn VcsWriter> = Box::new(FakeVcs);
     let prober: Box<dyn ToolchainProber> = Box::new(FakeToolchainProber);
     let digest: Box<dyn SourceDigest> = Box::new(FakeSourceDigest);
@@ -422,7 +424,11 @@ fn port_traits_are_object_safe() {
     assert_eq!(configured.common(), &CommonEcosystemConfig::default());
 
     // Exercise every release phase contract (directly and via the adapter seam).
-    let target = configured.release_target().expect("ok").expect("present");
+    let reader = FakeVcs;
+    let target = configured
+        .release_target(&reader)
+        .expect("ok")
+        .expect("present");
     assert_eq!(target.declared_version(&module).expect("ok").minor, 1);
     assert!(target.published_versions(&module).expect("ok").is_empty());
     let artifact = target.package(&module).expect("packages");

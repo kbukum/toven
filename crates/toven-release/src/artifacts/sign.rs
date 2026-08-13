@@ -101,6 +101,7 @@ pub fn release_sign(
     request: &PlanRequest,
     document: &Document,
     providers: &[&dyn Provider],
+    readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
     signer: &dyn Signer,
     tool_runner: &dyn ToolRunner,
     reporter: &mut dyn Reporter,
@@ -113,7 +114,7 @@ pub fn release_sign(
         &locator,
         reporter,
     )?;
-    let targets = release_targets(&context)?;
+    let targets = release_targets(&context, readers)?;
     let settings = resolve_release_settings(&context, &targets)?;
 
     let selection = match resolve_signer(&settings)? {
@@ -420,16 +421,17 @@ mod tests {
     use serde_json::json;
     use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
     use toven_ports::{
-        CommonEcosystemConfig, DiscoverResponse, HostConfig, Provider, ReleaseConfig, SignConfig,
-        TaskIntent,
+        BaselineSpec, CommonEcosystemConfig, DiscoverResponse, HostConfig, Provider, ReleaseConfig,
+        SignConfig, TaskIntent,
     };
     use toven_testkit::{
         FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeSigner, FakeToolRunner,
-        RecordingReporter,
+        FakeVcsReader, RecordingReporter,
     };
 
     use super::{cosign_argv, release_sign};
     use toven_core::config::{Document, ProjectConfig, TovenConfig};
+    use toven_core::federation::MemberVcsReaders;
     use toven_core::plan::PlanRequest;
 
     fn eid(id: &str) -> EcosystemId {
@@ -519,6 +521,8 @@ mod tests {
         };
         let provider = provider(signer_config, sign_assets());
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let signer = FakeSigner::default();
         let mut reporter = RecordingReporter::new();
 
@@ -526,6 +530,7 @@ mod tests {
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             &signer,
             &FakeToolRunner::new(),
             &mut reporter,
@@ -549,6 +554,8 @@ mod tests {
         write_manifest(root.path());
         let provider = provider(SignConfig::default(), sign_assets());
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let signer = FakeSigner::default();
         let mut reporter = RecordingReporter::new();
 
@@ -556,6 +563,7 @@ mod tests {
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             &signer,
             &FakeToolRunner::new(),
             &mut reporter,
@@ -579,6 +587,8 @@ mod tests {
             sign_assets(),
         );
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let signer = FakeSigner::failing("cosign is not installed");
         let mut reporter = RecordingReporter::new();
 
@@ -586,6 +596,7 @@ mod tests {
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             &signer,
             &FakeToolRunner::new(),
             &mut reporter,
@@ -607,6 +618,8 @@ mod tests {
             sign_assets(),
         );
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let signer = FakeSigner::default();
         let mut reporter = RecordingReporter::new();
 
@@ -614,6 +627,7 @@ mod tests {
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             &signer,
             &FakeToolRunner::new(),
             &mut reporter,
@@ -676,6 +690,8 @@ mod tests {
             .with_produced_file(root.path().join("dist/SHA256SUMS.pem"), b"cert");
         let provider = delegated_sign_provider();
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let signer = FakeSigner::default();
         let mut reporter = RecordingReporter::new();
 
@@ -683,6 +699,7 @@ mod tests {
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             &signer,
             &runner,
             &mut reporter,
@@ -707,6 +724,8 @@ mod tests {
             .with_produced_file(root.path().join("dist/SHA256SUMS.sig"), b"sig");
         let provider = delegated_sign_provider();
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let signer = FakeSigner::default();
         let mut reporter = RecordingReporter::new();
 
@@ -714,6 +733,7 @@ mod tests {
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             &signer,
             &runner,
             &mut reporter,
@@ -733,6 +753,8 @@ mod tests {
             .with_produced_file(root.path().join("dist/SHA256SUMS.pem"), b"cert");
         let provider = delegated_sign_provider();
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let signer = FakeSigner::default();
         let mut reporter = RecordingReporter::new();
 
@@ -740,6 +762,7 @@ mod tests {
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             &signer,
             &runner,
             &mut reporter,
@@ -765,6 +788,8 @@ mod tests {
         let runner = FakeToolRunner::new();
         let provider = delegated_sign_provider();
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let signer = FakeSigner::default();
         let mut reporter = RecordingReporter::new();
 
@@ -772,6 +797,7 @@ mod tests {
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             &signer,
             &runner,
             &mut reporter,

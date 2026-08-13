@@ -449,7 +449,7 @@ flowchart LR
 
 The defaults encode the difference between the two registry models. For **Rust**, crates.io is the registry and git tags are traceability, so the default is `tag_mode = "both"` with a `baseline = "registry+umbrella"` anchor: per-crate tags plus one umbrella `v{version}` tag, and gating on `max(crates.io max published, version-at-the-umbrella-tag)`. For **Go**, per-module tags *are* the registry — `go get` needs them — so the default is `tag_mode = "per-module"` with `baseline = "own-tag"`.
 
-This is why a Rust workspace with a single umbrella `vX.Y.Z` tag, per-crate crates.io history, and only some crates changed bumps just the changed crates (and their dependency cascade): the registry+umbrella anchor gives each crate a real baseline even though it has no per-crate tag. Earlier releases treated every such crate as an initial release and advanced nothing.
+A Rust workspace with a single umbrella `vX.Y.Z` tag, per-crate crates.io history, and only some crates changed bumps just the changed crates and their dependency cascade: the registry+umbrella anchor gives each crate a real baseline even though it has no per-crate tag.
 
 An umbrella-anchored default is only applied when the train declares exactly one umbrella module. If it declares none, the Rust default degrades to `tag_mode = "per-module"` / `baseline = "own-tag"` rather than demanding an umbrella the train never cuts. An explicit `umbrella-tag` or `registry+umbrella` value with no umbrella module declared is a plan-time typed error.
 
@@ -470,9 +470,7 @@ tag_mode = "per-module"
 
 `release plan` reports the effective tag mode and baseline source per module (the `Tag mode` and `Baseline` columns, or `tag_mode` and `baseline_source` under `--output jsonl`), so the resolved choice is visible without inspecting config.
 
-### Migration
-
-No existing field is removed and no existing `toven.toml` needs edits. `tag_mode` and `baseline` are optional; when unset they resolve to the per-ecosystem defaults above. The visible change is a behavioral default, not a config break: a Rust workspace that previously anchored every module on its own tag now anchors on `registry+umbrella`, so an umbrella-tagged workspace change-gates correctly instead of treating each crate as an initial release. A project that genuinely wants the old per-crate-tag baseline opts in with an explicit `baseline = "own-tag"`. Go behavior is unchanged.
+`tag_mode` and `baseline` are optional and resolve to the per-ecosystem defaults above when unset. A Rust project that requires a per-crate-tag baseline sets `baseline = "own-tag"` explicitly.
 
 ## Release phases and delegation
 
@@ -499,7 +497,7 @@ preview = ["release", "--snapshot", "--clean"]
 
 Only `package`, `sign`, `image`, and `provenance` are delegable. Toven never delegates `select`, `bump`, `tag`, `publish`, or `host`.
 
-A delegated phase must declare preview arguments. Secrets flow through the child-process environment, never argv. `package` and `sign` dispatch delegated backings today. Delegated `image` and `provenance` are rejected at plan time until their dispatch paths are wired, so leave them native.
+A delegated phase must declare preview arguments. Secrets flow through the child-process environment, never argv. `package` and `sign` dispatch delegated backings. Delegated `image` and `provenance` configurations are rejected at plan time, so those phases must use native backing.
 
 ## Safety rules
 

@@ -138,7 +138,10 @@ impl ConfiguredAdapter for FakeConfiguredAdapter {
         self.run_strategy
     }
 
-    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
+    fn release_target(
+        &self,
+        _reader: &dyn toven_ports::VcsReader,
+    ) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
         Ok(self
             .release_target
             .clone()
@@ -282,7 +285,8 @@ mod tests {
         let request = DiscoverRequest::new(AbsPath::new("/repo").expect("absolute"));
         let response = configured.discover(&request).expect("discovers");
         assert_eq!(response.schema_version, request.schema_version);
-        assert!(configured.release_target().expect("ok").is_some());
+        let reader = crate::doubles::FakeVcsReader::new();
+        assert!(configured.release_target(&reader).expect("ok").is_some());
     }
 
     #[test]

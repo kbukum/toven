@@ -117,7 +117,10 @@ impl ConfiguredAdapter for CommandAdapter {
             .unwrap_or_else(|| tasks::default_run_strategy(kind))
     }
 
-    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
+    fn release_target(
+        &self,
+        _reader: &dyn toven_ports::VcsReader,
+    ) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
         Ok(None)
     }
 
@@ -259,6 +262,7 @@ mod tests {
     #[test]
     fn never_offers_a_release_target() {
         let adapter = CommandAdapter::new(CommandConfig::default());
-        assert!(adapter.release_target().expect("ok").is_none());
+        let reader = toven_testkit::doubles::FakeVcsReader::new();
+        assert!(adapter.release_target(&reader).expect("ok").is_none());
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "toven-engine"
-description = "Toven engine orchestration — strict config Document, PLAN change selection, and APPLY execution over rskit ports"
+description = "Toven engine orchestration and concrete port adapters over the shared PLAN foundation"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

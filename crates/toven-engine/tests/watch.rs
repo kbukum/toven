@@ -22,9 +22,9 @@ use toven_model::{
 };
 use toven_ports::{CommandRunner, DiscoverResponse, FanOut, Provider, Task, TaskIntent};
 use toven_testkit::{
-    CountingToolchainProber, FakeCacheStore, FakeCommandRunner, FakeConfiguredAdapter,
-    FakeProvider, FakeSourceDigest, FakeVcsReader, RecordingCacheWriter, RecordingRawOutputSink,
-    RecordingReporter, ScriptedWatchSource,
+    FakeCacheStore, FakeCommandRunner, FakeConfiguredAdapter, FakeProvider, FakeSourceDigest,
+    FakeVcsReader, RecordingCacheWriter, RecordingRawOutputSink, RecordingReporter,
+    ScriptedToolchainProber, ScriptedWatchSource,
 };
 
 fn mref(ecosystem: &str, name: &str) -> ModuleRef {
@@ -142,7 +142,7 @@ fn drive_request_with_readers(
     let provider = rust_provider();
     let providers: Vec<&dyn Provider> = vec![&provider];
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
+    let prober = ScriptedToolchainProber::new();
     let cache_store = FakeCacheStore::new();
     let cache_writer = RecordingCacheWriter::new();
     let runner: Arc<dyn CommandRunner> = Arc::new(FakeCommandRunner::new());

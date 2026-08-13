@@ -49,7 +49,10 @@ impl ConfiguredAdapter for RustAdapter {
             .unwrap_or_else(|| tasks::default_run_strategy(kind))
     }
 
-    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
+    fn release_target(
+        &self,
+        _reader: &dyn toven_ports::VcsReader,
+    ) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
         Ok(Some(Box::new(CargoRegistryTarget::new(
             self.runner.clone(),
         ))))

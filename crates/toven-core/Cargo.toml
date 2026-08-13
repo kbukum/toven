@@ -33,7 +33,6 @@ vendored-openssl = ["toven-vcs/vendored-openssl"]
 
 [dev-dependencies]
 toven-testkit.workspace = true
-rskit-util.workspace = true
 
 [lints]
 workspace = true

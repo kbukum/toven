@@ -26,7 +26,7 @@ use toven_release::{BumpOptions, BumpOverrides, release_bump};
 use toven_testkit::workspace::workspace;
 use toven_testkit::{
     FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, FakeVcsWriter,
-    ScriptedResolvedRunner, VcsWrite,
+    RecordingHookRunner, VcsWrite,
 };
 
 /// `2024-06-15T00:00:00Z` — the fixed clock the bump verb stamps into a rolled
@@ -228,7 +228,7 @@ fn run_bump_reader(
     let (readers, repos) = single_member(ws, reader, writer);
     let clock = FixedClock::new(FIXED_EPOCH, 0);
     let mut reporter = toven_testkit::RecordingReporter::new();
-    let resolved = ScriptedResolvedRunner::new();
+    let resolved = RecordingHookRunner::new();
     release_bump(
         &request(root),
         document,
@@ -640,7 +640,7 @@ fn a_failed_version_reference_sync_restores_the_partially_mutated_member() {
     let (readers, repos) = single_member(&ws, &reader, &writer);
     let clock = FixedClock::new(FIXED_EPOCH, 0);
     let mut reporter = toven_testkit::RecordingReporter::new();
-    let resolved = ScriptedResolvedRunner::new();
+    let resolved = RecordingHookRunner::new();
     let result = release_bump(
         &request(root),
         &document,
@@ -687,7 +687,7 @@ fn a_snapshot_read_failure_before_the_hooks_restores_the_member() {
             ChangeStatus::Modified,
         )])
         .with_worktree_status_failure_on_call(3, "snapshot read faulted");
-    let resolved = ScriptedResolvedRunner::producing(
+    let resolved = RecordingHookRunner::producing(
         reader.worktree_handle(),
         vec![ChangeRecord::new("GENERATED.txt", ChangeStatus::Added)],
     );
@@ -706,9 +706,9 @@ fn a_snapshot_read_failure_before_the_hooks_restores_the_member() {
         "a snapshot read failure aborts the bump: {result:?}"
     );
     assert!(
-        resolved.calls().is_empty(),
+        resolved.resolved_calls().is_empty(),
         "the snapshot faults before any hook runs: {:?}",
-        resolved.calls()
+        resolved.resolved_calls()
     );
     assert!(
         writer
@@ -742,7 +742,7 @@ fn a_join_read_failure_after_the_hooks_aborts_and_cleans_up() {
             ChangeStatus::Modified,
         )])
         .with_worktree_status_failure_when_dirty("join read faulted");
-    let resolved = ScriptedResolvedRunner::producing(
+    let resolved = RecordingHookRunner::producing(
         reader.worktree_handle(),
         vec![ChangeRecord::new("GENERATED.txt", ChangeStatus::Added)],
     );
@@ -761,10 +761,10 @@ fn a_join_read_failure_after_the_hooks_aborts_and_cleans_up() {
         "a join read failure aborts the bump: {result:?}"
     );
     assert_eq!(
-        resolved.calls().len(),
+        resolved.resolved_calls().len(),
         1,
         "the join read faults only after the hook succeeded: {:?}",
-        resolved.calls()
+        resolved.resolved_calls()
     );
     assert!(
         !generated.exists(),
@@ -789,7 +789,7 @@ fn run_bump_resolved(
     writer: &FakeVcsWriter,
     reader: &FakeVcsReader,
     provider: &FakeProvider,
-    resolved: &ScriptedResolvedRunner,
+    resolved: &RecordingHookRunner,
 ) -> rskit_errors::AppResult<toven_release::BumpReport> {
     let providers: Vec<&dyn Provider> = vec![provider];
     let (readers, repos) = single_member(ws, reader, writer);
@@ -825,7 +825,7 @@ fn an_on_resolved_hook_receives_the_version_map_and_stages_its_edits() {
     // The scripted task produces a `VERSIONS.txt` edit into the shared worktree
     // handle on success — the reader reports it only after the clean-tree guard
     // has already observed an empty tree.
-    let resolved = ScriptedResolvedRunner::producing(
+    let resolved = RecordingHookRunner::producing(
         reader.worktree_handle(),
         vec![ChangeRecord::new("VERSIONS.txt", ChangeStatus::Added)],
     );
@@ -842,7 +842,7 @@ fn an_on_resolved_hook_receives_the_version_map_and_stages_its_edits() {
 
     assert!(report.staged, "the mutation is staged: {report:?}");
 
-    let calls = resolved.calls();
+    let calls = resolved.resolved_calls();
     assert_eq!(calls.len(), 1, "the on-resolved hook ran once: {calls:?}");
     assert_eq!(calls[0].reference, "sync-extra");
     assert!(
@@ -874,7 +874,7 @@ fn a_preview_bump_never_runs_the_mutating_on_resolved_hook() {
             "src/lib.rs",
             ChangeStatus::Modified,
         )]);
-    let resolved = ScriptedResolvedRunner::producing(
+    let resolved = RecordingHookRunner::producing(
         reader.worktree_handle(),
         vec![ChangeRecord::new("VERSIONS.txt", ChangeStatus::Added)],
     );
@@ -901,9 +901,9 @@ fn a_preview_bump_never_runs_the_mutating_on_resolved_hook() {
     assert!(report.dry_run, "the run is a preview: {report:?}");
     assert!(!report.staged, "a preview stages nothing: {report:?}");
     assert!(
-        resolved.calls().is_empty(),
+        resolved.resolved_calls().is_empty(),
         "the mutating on-resolved hook never runs in preview: {:?}",
-        resolved.calls()
+        resolved.resolved_calls()
     );
     assert!(
         writer.writes().is_empty(),
@@ -924,7 +924,7 @@ fn a_failing_on_resolved_hook_aborts_and_restores_the_member() {
             "src/lib.rs",
             ChangeStatus::Modified,
         )]);
-    let resolved = ScriptedResolvedRunner::failing_on("sync-extra");
+    let resolved = RecordingHookRunner::failing_on("sync-extra");
     let result = run_bump_resolved(
         &ws,
         root,
@@ -979,7 +979,7 @@ fn a_failing_on_resolved_hook_removes_the_untracked_files_it_created() {
         )]);
     // The task reports the untracked file only after the clean-tree guard has
     // observed an empty tree, then fails.
-    let resolved = ScriptedResolvedRunner::producing_then_failing(
+    let resolved = RecordingHookRunner::producing_then_failing(
         reader.worktree_handle(),
         vec![ChangeRecord::new("GENERATED.txt", ChangeStatus::Added)],
         "sync-extra",
@@ -1029,7 +1029,7 @@ fn an_on_resolved_abort_still_restores_when_untracked_cleanup_faults() {
         // The pre-bump tree and pre-hook snapshot read clean; the first dirty
         // read — the abort's untracked-cleanup enumeration — faults.
         .with_worktree_status_failure_when_dirty("status read unavailable mid-abort");
-    let resolved = ScriptedResolvedRunner::producing_then_failing(
+    let resolved = RecordingHookRunner::producing_then_failing(
         reader.worktree_handle(),
         vec![ChangeRecord::new("GENERATED.txt", ChangeStatus::Added)],
         "sync-extra",
@@ -1083,7 +1083,7 @@ fn a_runaway_on_resolved_hook_that_floods_the_worktree_fails_closed() {
     let flood: Vec<ChangeRecord> = (0..=100_000)
         .map(|index| ChangeRecord::new(format!("gen/file-{index}.txt"), ChangeStatus::Added))
         .collect();
-    let resolved = ScriptedResolvedRunner::producing(reader.worktree_handle(), flood);
+    let resolved = RecordingHookRunner::producing(reader.worktree_handle(), flood);
     let result = run_bump_resolved(
         &ws,
         root,

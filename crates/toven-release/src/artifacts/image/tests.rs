@@ -7,11 +7,12 @@ use rskit_errors::ErrorCode;
 use serde_json::json;
 use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
 use toven_ports::{
-    CommonEcosystemConfig, DiscoverResponse, ImageConfig, ImageOutcome, Provider, ReleaseConfig,
-    TaskIntent,
+    BaselineSpec, CommonEcosystemConfig, DiscoverResponse, ImageConfig, ImageOutcome, Provider,
+    ReleaseConfig, TaskIntent,
 };
 use toven_testkit::{
-    FakeConfiguredAdapter, FakeImagePhase, FakeProvider, FakeReleaseTarget, RecordingReporter,
+    FakeConfiguredAdapter, FakeImagePhase, FakeProvider, FakeReleaseTarget, FakeVcsReader,
+    RecordingReporter,
 };
 
 use super::buildx::{
@@ -20,6 +21,7 @@ use super::buildx::{
 use super::phase::{ImageOptions, ImagePhaseStatus, release_image};
 use rskit_version::semver::Version;
 use toven_core::config::{Document, ProjectConfig, TovenConfig};
+use toven_core::federation::MemberVcsReaders;
 use toven_core::plan::PlanRequest;
 use toven_ports::{ImagePhase, ImageRequest};
 use toven_testkit::FakeToolRunner;
@@ -99,6 +101,8 @@ fn image_config() -> ImageConfig {
 fn image_builds_once_pushes_primary_and_mirrors_and_signs() {
     let provider = provider_with_image(Some(image_config()), Version::new(1, 2, 3));
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeImagePhase::new().with_digest("sha256:abc");
     let mut reporter = RecordingReporter::new();
 
@@ -106,6 +110,7 @@ fn image_builds_once_pushes_primary_and_mirrors_and_signs() {
         &request(),
         &document(),
         &providers,
+        &readers,
         &phase,
         ImageOptions::default(),
         &mut reporter,
@@ -138,6 +143,8 @@ fn image_builds_once_pushes_primary_and_mirrors_and_signs() {
 fn image_dry_run_previews_without_pushing() {
     let provider = provider_with_image(Some(image_config()), Version::new(1, 0, 0));
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeImagePhase::new();
     let mut reporter = RecordingReporter::new();
 
@@ -145,6 +152,7 @@ fn image_dry_run_previews_without_pushing() {
         &request(),
         &document(),
         &providers,
+        &readers,
         &phase,
         ImageOptions { dry_run: true },
         &mut reporter,
@@ -161,6 +169,8 @@ fn image_dry_run_previews_without_pushing() {
 fn image_dry_run_reports_an_existing_tag() {
     let provider = provider_with_image(Some(image_config()), Version::new(1, 0, 0));
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeImagePhase::new().with_existing_digest("sha256:live");
     let mut reporter = RecordingReporter::new();
 
@@ -168,6 +178,7 @@ fn image_dry_run_reports_an_existing_tag() {
         &request(),
         &document(),
         &providers,
+        &readers,
         &phase,
         ImageOptions { dry_run: true },
         &mut reporter,
@@ -183,6 +194,8 @@ fn image_dry_run_reports_an_existing_tag() {
 fn image_dry_run_fails_closed_on_divergent_primary_and_mirror_digests() {
     let provider = provider_with_image(Some(image_config()), Version::new(1, 0, 0));
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeImagePhase::new()
         .with_reference_digest("ghcr.io/acme/toven:1.0.0", "sha256:primary")
         .with_reference_digest("docker.io/acme/toven:1.0.0", "sha256:mirror");
@@ -192,6 +205,7 @@ fn image_dry_run_fails_closed_on_divergent_primary_and_mirror_digests() {
         &request(),
         &document(),
         &providers,
+        &readers,
         &phase,
         ImageOptions { dry_run: true },
         &mut reporter,
@@ -206,6 +220,8 @@ fn image_dry_run_fails_closed_on_divergent_primary_and_mirror_digests() {
 fn image_fails_closed_on_a_divergent_existing_tag() {
     let provider = provider_with_image(Some(image_config()), Version::new(2, 0, 0));
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeImagePhase::new()
         .with_digest("sha256:new")
         .with_existing_digest("sha256:old");
@@ -215,6 +231,7 @@ fn image_fails_closed_on_a_divergent_existing_tag() {
         &request(),
         &document(),
         &providers,
+        &readers,
         &phase,
         ImageOptions::default(),
         &mut reporter,
@@ -227,6 +244,8 @@ fn image_fails_closed_on_a_divergent_existing_tag() {
 fn image_without_a_block_is_a_typed_error() {
     let provider = provider_with_image(None, Version::new(1, 0, 0));
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeImagePhase::new();
     let mut reporter = RecordingReporter::new();
 
@@ -234,6 +253,7 @@ fn image_without_a_block_is_a_typed_error() {
         &request(),
         &document(),
         &providers,
+        &readers,
         &phase,
         ImageOptions::default(),
         &mut reporter,
@@ -303,6 +323,8 @@ fn inspect_argv_reads_the_manifest_digest() {
 fn image_outcome_maps_already_complete() {
     let provider = provider_with_image(Some(image_config()), Version::new(1, 0, 0));
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeImagePhase::new().with_outcome(ImageOutcome::AlreadyComplete);
     let mut reporter = RecordingReporter::new();
 
@@ -310,6 +332,7 @@ fn image_outcome_maps_already_complete() {
         &request(),
         &document(),
         &providers,
+        &readers,
         &phase,
         ImageOptions::default(),
         &mut reporter,
@@ -322,6 +345,8 @@ fn image_outcome_maps_already_complete() {
 fn image_surfaces_a_publish_failure() {
     let provider = provider_with_image(Some(image_config()), Version::new(1, 0, 0));
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeImagePhase::failing("buildx missing");
     let mut reporter = RecordingReporter::new();
 
@@ -329,6 +354,7 @@ fn image_surfaces_a_publish_failure() {
         &request(),
         &document(),
         &providers,
+        &readers,
         &phase,
         ImageOptions::default(),
         &mut reporter,

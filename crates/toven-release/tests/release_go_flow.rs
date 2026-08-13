@@ -25,15 +25,17 @@ use rskit_config::RawValue;
 use rskit_fs::TempDir;
 use serde_json::json;
 use toven_core::config::{Document, ProjectConfig, TovenConfig};
+use toven_core::federation::MemberVcsReaders;
 use toven_core::plan::PlanRequest;
 use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, ReleasePhase, RepoPath};
 use toven_ports::{
-    CommonEcosystemConfig, DelegatedTool, DiscoverResponse, HostConfig, PhaseBackingKind,
-    PhaseConfig, PhasesConfig, Provider, ReleaseConfig, TaskIntent,
+    BaselineSpec, CommonEcosystemConfig, DelegatedTool, DiscoverResponse, HostConfig,
+    PhaseBackingKind, PhaseConfig, PhasesConfig, Provider, ReleaseConfig, TaskIntent,
 };
 use toven_release::release_package;
 use toven_testkit::{
-    FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeToolRunner, RecordingReporter,
+    FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeToolRunner, FakeVcsReader,
+    RecordingReporter,
 };
 
 const LINUX: &str = "x86_64-unknown-linux-gnu";
@@ -145,12 +147,15 @@ fn native_packages_a_built_go_binary_into_the_declared_tar_gz() {
     let binary = root.path().join("bin/cli");
     let provider = go_provider(vec!["dist/cli-x86_64-unknown-linux-gnu.tar.gz"], false);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let mut reporter = RecordingReporter::new();
 
     let report = release_package(
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         LINUX,
         Some(binary.as_path()),
         &FakeToolRunner::new(),
@@ -178,12 +183,15 @@ fn native_packages_a_built_go_binary_into_a_windows_zip() {
     let binary = root.path().join("bin/cli.exe");
     let provider = go_provider(vec!["dist/cli-x86_64-pc-windows-msvc.zip"], false);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let mut reporter = RecordingReporter::new();
 
     let report = release_package(
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         WINDOWS,
         Some(binary.as_path()),
         &FakeToolRunner::new(),
@@ -211,12 +219,15 @@ fn goreleaser_delegated_package_runs_a_snapshot_preview_and_normalizes_the_archi
         .with_produced_file(root.path().join(asset_rel), b"goreleaser-archive");
     let provider = go_provider(vec![asset_rel], true);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let mut reporter = RecordingReporter::new();
 
     let report = release_package(
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         LINUX,
         None,
         &runner,
@@ -245,12 +256,15 @@ fn goreleaser_delegated_package_fails_closed_when_no_archive_is_produced() {
     let runner = FakeToolRunner::new();
     let provider = go_provider(vec!["dist/cli-x86_64-unknown-linux-gnu.tar.gz"], true);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let mut reporter = RecordingReporter::new();
 
     let error = release_package(
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         LINUX,
         None,
         &runner,
@@ -283,12 +297,15 @@ fn only_the_binary_module_attaches_archives_across_backings() {
         };
         let provider = go_provider(vec![asset_rel], delegated);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let report = release_package(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             LINUX,
             binary,
             &runner,

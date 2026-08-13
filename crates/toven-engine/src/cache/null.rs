@@ -10,7 +10,7 @@ use toven_ports::CacheStore;
 /// A [`CacheStore`] with no records: every lookup is a miss.
 ///
 /// The default when no cache backend is wired (e.g. `--explain`); every
-/// [`ReadWrite`](super::super::request::CacheMode::ReadWrite) unit becomes a
+/// `ReadWrite` cache-mode unit becomes a
 /// [`Miss`](toven_model::CacheVerdict::Miss).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NullCache;

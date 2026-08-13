@@ -1,9 +1,8 @@
-//! The content-digest port: per-module and per-file content identities folded
-//! into the cache key.
+//! The filesystem-backed content-digest adapter.
 //!
-//! Hashing is a filesystem side effect, so it is an injected port: the planner
-//! stays pure and tests substitute a deterministic in-memory digest. The
-//! production [`FsSourceDigest`] walks the project tree with bounded reads.
+//! Hashing is a filesystem side effect, so the planner injects the
+//! [`SourceDigest`] port and this consuming crate owns the production
+//! [`FsSourceDigest`], which walks the project tree with bounded reads.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

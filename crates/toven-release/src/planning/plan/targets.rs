@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
+use toven_core::federation::baseline::MemberVcsReaders;
 use toven_core::plan::PlanContext;
 use toven_model::{EcosystemId, MemberId, ModuleKey};
 
@@ -15,10 +16,26 @@ use crate::ResolvedReleaseSettings;
 /// # Errors
 /// Propagates a release target's construction failure.
 #[allow(clippy::redundant_pub_crate)]
-pub(crate) fn release_targets(context: &PlanContext) -> AppResult<crate::ReleaseTargets> {
+pub(crate) fn release_targets(
+    context: &PlanContext,
+    readers: &MemberVcsReaders<'_>,
+) -> AppResult<crate::ReleaseTargets> {
     let mut targets = crate::ReleaseTargets::new();
     for (member, ecosystem, adapter) in context.adapters.iter() {
-        if let Some(target) = adapter.release_target()? {
+        let reader = readers
+            .entries()
+            .iter()
+            .find(|entry| entry.member() == member)
+            .map(toven_core::federation::baseline::MemberVcsReader::reader)
+            .ok_or_else(|| {
+                AppError::new(
+                    ErrorCode::Internal,
+                    format!(
+                        "configured adapter for ecosystem '{ecosystem}' has no VCS reader for its member"
+                    ),
+                )
+            })?;
+        if let Some(target) = adapter.release_target(reader)? {
             targets.insert((member.cloned(), ecosystem.clone()), target);
         }
     }

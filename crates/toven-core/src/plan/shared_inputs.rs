@@ -2,7 +2,7 @@
 //!
 //! A task's `shared_inputs` are workspace-relative *literal* file or directory
 //! paths that participate in the shared-cache hash. They are hashed verbatim by
-//! [`FsSourceDigest::path`](super::source::FsSourceDigest) — no glob expansion,
+//! [`SourceDigest::path`](toven_ports::SourceDigest::path) — no glob expansion,
 //! no template substitution — so any pattern or template here would silently
 //! hash to an empty digest (a missing file) and break cache correctness.
 //!

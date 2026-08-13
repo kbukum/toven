@@ -842,7 +842,7 @@ fn plan_and_bump_decide_identical_versions_from_the_single_path() {
         &mut bump_reporter,
     )
     .unwrap();
-    let targets = release_targets(&context).unwrap();
+    let targets = release_targets(&context, &readers).unwrap();
     let bumped = plan_with_context(
         &context,
         &request,

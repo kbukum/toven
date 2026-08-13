@@ -74,7 +74,7 @@ toven release publish --dry-run --output jsonl > release-preview.jsonl
 
 ## Toven's binary releases
 
-Toven's releases are hosted binary releases, not crates.io publications. Every workspace crate remains `publish = false`. The first release was `v0.1.0-alpha.1`; later alpha prereleases follow the same contract.
+Toven's releases are hosted binary releases, not crates.io publications. Every workspace crate remains `publish = false`, and alpha prereleases use the `v0.1.0-alpha.N` tag contract.
 
 The release matrix is:
 

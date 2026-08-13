@@ -5,6 +5,7 @@ use std::time::Duration;
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::archive::{ExtractLimits, extract_tar_gz, extract_zip};
 use rskit_fs::safe_join;
+use rskit_fs::sync_io::file::open;
 use rskit_util::hash::sha256::sha256_reader;
 use rskit_version::semver::Version;
 use toven_ports::{ToolInvocation, ToolRunner};
@@ -169,7 +170,7 @@ pub(super) fn parse_manifest(path: &Path) -> AppResult<BTreeMap<String, String>>
 
 /// The lowercase-hex SHA-256 digest of the file at `path`.
 pub(super) fn digest_hex(path: &Path) -> AppResult<String> {
-    let mut file = std::fs::File::open(path).map_err(|error| {
+    let mut file = open(path).map_err(|error| {
         AppError::new(
             ErrorCode::Internal,
             format!("cannot open '{}' for checksum: {error}", path.display()),

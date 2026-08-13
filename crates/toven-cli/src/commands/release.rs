@@ -219,12 +219,15 @@ fn readiness(
 /// resolved output directory, mutating nothing outside it.
 fn sbom(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
+    let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
+    let readers = opened.readers();
     let out_dir = resolve_out_dir(cli, project);
     let mut reporter = QuietReporter;
     let report = release_sbom(
         &request,
         &project.document,
         providers,
+        &readers,
         &out_dir,
         &mut reporter,
     )?;
@@ -260,6 +263,8 @@ fn depgraphs(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
 /// `--binary` overrides the default `target/<triple>/release/<binary>` source.
 fn package(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
+    let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
+    let readers = opened.readers();
     let target = cli.target.as_deref().ok_or_else(|| {
         AppError::invalid_input(
             "release.package.target",
@@ -273,6 +278,7 @@ fn package(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResu
         &request,
         &project.document,
         providers,
+        &readers,
         target,
         cli.binary.as_deref(),
         &tool_runner,
@@ -289,8 +295,16 @@ fn package(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResu
 /// release assets to its declared asset path, mutating no history.
 fn checksums(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
+    let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
+    let readers = opened.readers();
     let mut reporter = QuietReporter;
-    let report = release_checksums(&request, &project.document, providers, &mut reporter)?;
+    let report = release_checksums(
+        &request,
+        &project.document,
+        providers,
+        &readers,
+        &mut reporter,
+    )?;
     match resolve_output(cli.output, &project.document) {
         OutputKind::Jsonl => render_checksums_jsonl(&report)?,
         OutputKind::Human => render_checksums_human(&report),
@@ -302,6 +316,8 @@ fn checksums(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
 /// detached-signature and certificate sidecars with cosign, mutating no history.
 fn sign(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
+    let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
+    let readers = opened.readers();
     let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
     let signer = CosignSigner::new(runner.clone());
     let mut reporter = QuietReporter;
@@ -309,6 +325,7 @@ fn sign(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<
         &request,
         &project.document,
         providers,
+        &readers,
         &signer,
         runner.as_ref(),
         &mut reporter,
@@ -325,6 +342,8 @@ fn sign(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<
 /// (signature + checksum + reported version) — mutating nothing.
 fn verify(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
+    let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
+    let readers = opened.readers();
     let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
     let downloader = GhAssetDownloader::new(runner.clone());
     let verifier = CosignVerifier::new(runner.clone());
@@ -338,6 +357,7 @@ fn verify(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResul
         &request,
         &project.document,
         providers,
+        &readers,
         options,
         &downloader,
         &verifier,
@@ -360,6 +380,8 @@ fn image(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult
         require_release_confirmation(cli.confirm_release)?;
     }
     let request = release_request(project)?;
+    let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
+    let readers = opened.readers();
     let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
     let image_phase = BuildxImagePhase::new(runner.clone());
     let options = ImageOptions {
@@ -370,6 +392,7 @@ fn image(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult
         &request,
         &project.document,
         providers,
+        &readers,
         &image_phase,
         options,
         &mut reporter,
@@ -388,6 +411,8 @@ fn image(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult
 /// subject lacks an attestation. Read-only, so it needs no `--yes`.
 fn provenance(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
+    let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
+    let readers = opened.readers();
     let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
     let provenance_phase = GhAttestationProvenance::new(runner.clone());
     let image_phase = BuildxImagePhase::new(runner.clone());
@@ -399,6 +424,7 @@ fn provenance(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppR
         &request,
         &project.document,
         providers,
+        &readers,
         &provenance_phase,
         &image_phase,
         options,
