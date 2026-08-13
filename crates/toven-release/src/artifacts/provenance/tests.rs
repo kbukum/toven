@@ -8,12 +8,12 @@ use rskit_fs::TempDir;
 use serde_json::json;
 use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
 use toven_ports::{
-    CommonEcosystemConfig, DiscoverResponse, HostConfig, ImageConfig, Provider, ReleaseConfig,
-    TaskIntent,
+    BaselineSpec, CommonEcosystemConfig, DiscoverResponse, HostConfig, ImageConfig, Provider,
+    ReleaseConfig, TaskIntent,
 };
 use toven_testkit::{
     FakeConfiguredAdapter, FakeImagePhase, FakeProvenancePhase, FakeProvider, FakeReleaseTarget,
-    FakeToolRunner, RecordingReporter,
+    FakeToolRunner, FakeVcsReader, RecordingReporter,
 };
 
 use super::attestation::{
@@ -25,6 +25,7 @@ use super::{
 };
 use rskit_version::semver::Version;
 use toven_core::config::{Document, ProjectConfig, TovenConfig};
+use toven_core::federation::MemberVcsReaders;
 use toven_core::plan::PlanRequest;
 use toven_ports::{ProvenanceArtifact, ProvenancePhase, ProvenanceSubject};
 
@@ -154,6 +155,8 @@ fn verifies_exactly_the_published_manifest_subjects() {
         "dist/toven-sbom.cdx.json",
     ]);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeProvenancePhase::new();
     let mut reporter = RecordingReporter::new();
 
@@ -161,6 +164,7 @@ fn verifies_exactly_the_published_manifest_subjects() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         &phase,
         &FakeImagePhase::new(),
         ProvenanceOptions::default(),
@@ -208,6 +212,8 @@ fn dry_run_reports_missing_without_failing() {
     write_manifest(root.path(), &[("c".repeat(64).as_str(), "toven.tar.gz")]);
     let provider = provider_with_assets(vec!["dist/toven.tar.gz", "dist/SHA256SUMS"]);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeProvenancePhase::new().with_existing(false);
     let mut reporter = RecordingReporter::new();
 
@@ -215,6 +221,7 @@ fn dry_run_reports_missing_without_failing() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         &phase,
         &FakeImagePhase::new(),
         ProvenanceOptions { dry_run: true },
@@ -233,6 +240,8 @@ fn dry_run_reports_present_attestations() {
     write_manifest(root.path(), &[("d".repeat(64).as_str(), "toven.tar.gz")]);
     let provider = provider_with_assets(vec!["dist/toven.tar.gz", "dist/SHA256SUMS"]);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeProvenancePhase::new().with_existing(true);
     let mut reporter = RecordingReporter::new();
 
@@ -240,6 +249,7 @@ fn dry_run_reports_present_attestations() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         &phase,
         &FakeImagePhase::new(),
         ProvenanceOptions { dry_run: true },
@@ -257,6 +267,8 @@ fn fails_closed_when_a_subject_lacks_an_attestation() {
     write_manifest(root.path(), &[("e".repeat(64).as_str(), "toven.tar.gz")]);
     let provider = provider_with_assets(vec!["dist/toven.tar.gz", "dist/SHA256SUMS"]);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeProvenancePhase::new().with_existing(false);
     let mut reporter = RecordingReporter::new();
 
@@ -264,6 +276,7 @@ fn fails_closed_when_a_subject_lacks_an_attestation() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         &phase,
         &FakeImagePhase::new(),
         ProvenanceOptions::default(),
@@ -283,6 +296,8 @@ fn fails_closed_when_no_manifest_is_declared() {
     let root = TempDir::new().unwrap();
     let provider = provider_with_assets(vec!["dist/toven.tar.gz"]);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeProvenancePhase::new();
     let mut reporter = RecordingReporter::new();
 
@@ -290,6 +305,7 @@ fn fails_closed_when_no_manifest_is_declared() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         &phase,
         &FakeImagePhase::new(),
         ProvenanceOptions::default(),
@@ -305,6 +321,8 @@ fn verifies_manifest_subjects_and_pushed_image_digests() {
     write_manifest(root.path(), &[("a".repeat(64).as_str(), "toven.tar.gz")]);
     let provider = provider_with_image(vec!["dist/toven.tar.gz", "dist/SHA256SUMS"]);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeProvenancePhase::new();
     let image = FakeImagePhase::new().with_existing_digest("sha256:img");
     let mut reporter = RecordingReporter::new();
@@ -313,6 +331,7 @@ fn verifies_manifest_subjects_and_pushed_image_digests() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         &phase,
         &image,
         ProvenanceOptions::default(),
@@ -347,6 +366,8 @@ fn verifies_an_image_only_release_without_a_manifest() {
     let root = TempDir::new().unwrap();
     let provider = provider_with_image(vec![]);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeProvenancePhase::new();
     let image = FakeImagePhase::new().with_existing_digest("sha256:img");
     let mut reporter = RecordingReporter::new();
@@ -355,6 +376,7 @@ fn verifies_an_image_only_release_without_a_manifest() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         &phase,
         &image,
         ProvenanceOptions::default(),
@@ -371,6 +393,8 @@ fn image_provenance_requires_the_primary_registry_digest() {
     let root = TempDir::new().unwrap();
     let provider = provider_with_image(vec![]);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeProvenancePhase::new();
     let image =
         FakeImagePhase::new().with_reference_digest("docker.io/acme/toven:1.0.0", "sha256:img");
@@ -380,6 +404,7 @@ fn image_provenance_requires_the_primary_registry_digest() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         &phase,
         &image,
         ProvenanceOptions::default(),
@@ -396,6 +421,8 @@ fn fails_closed_when_an_image_was_not_pushed_and_no_manifest_exists() {
     let root = TempDir::new().unwrap();
     let provider = provider_with_image(vec![]);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeProvenancePhase::new();
     // A phase whose references resolve no digest: the image was never pushed.
     let image = FakeImagePhase::new();
@@ -405,6 +432,7 @@ fn fails_closed_when_an_image_was_not_pushed_and_no_manifest_exists() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         &phase,
         &image,
         ProvenanceOptions::default(),
@@ -420,6 +448,8 @@ fn surfaces_an_attestation_failure() {
     write_manifest(root.path(), &[("a".repeat(64).as_str(), "toven.tar.gz")]);
     let provider = provider_with_assets(vec!["dist/toven.tar.gz", "dist/SHA256SUMS"]);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeProvenancePhase::failing("gh attestation missing");
     let image = FakeImagePhase::new();
     let mut reporter = RecordingReporter::new();
@@ -428,6 +458,7 @@ fn surfaces_an_attestation_failure() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         &phase,
         &image,
         ProvenanceOptions::default(),
@@ -446,6 +477,8 @@ fn rejects_a_malformed_manifest_digest() {
     write_manifest(root.path(), &[("nothex", "toven.tar.gz")]);
     let provider = provider_with_assets(vec!["dist/toven.tar.gz", "dist/SHA256SUMS"]);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeProvenancePhase::new();
     let image = FakeImagePhase::new();
     let mut reporter = RecordingReporter::new();
@@ -454,6 +487,7 @@ fn rejects_a_malformed_manifest_digest() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         &phase,
         &image,
         ProvenanceOptions::default(),
@@ -542,6 +576,8 @@ fn dry_run_reports_each_subject_present_or_missing_independently() {
         "dist/toven-sbom.cdx.json",
     ]);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     // The archive is attested; the SBOM is not.
     let phase = FakeProvenancePhase::new().with_missing("toven-sbom.cdx.json");
     let mut reporter = RecordingReporter::new();
@@ -550,6 +586,7 @@ fn dry_run_reports_each_subject_present_or_missing_independently() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         &phase,
         &FakeImagePhase::new(),
         ProvenanceOptions { dry_run: true },
@@ -580,6 +617,8 @@ fn rejects_a_traversing_manifest_entry() {
     write_manifest(root.path(), &[("a".repeat(64).as_str(), "../secret")]);
     let provider = provider_with_assets(vec!["dist/toven.tar.gz", "dist/SHA256SUMS"]);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let phase = FakeProvenancePhase::new();
     let mut reporter = RecordingReporter::new();
 
@@ -587,6 +626,7 @@ fn rejects_a_traversing_manifest_entry() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         &phase,
         &FakeImagePhase::new(),
         ProvenanceOptions::default(),

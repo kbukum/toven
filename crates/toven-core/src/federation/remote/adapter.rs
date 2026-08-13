@@ -191,7 +191,10 @@ impl ConfiguredAdapter for RemoteAdapter {
             .unwrap_or(RunStrategy::LeafToTop)
     }
 
-    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
+    fn release_target(
+        &self,
+        _reader: &dyn toven_ports::VcsReader,
+    ) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
         // Capability-gated: driven ecosystems are not publishable through the umbrella
         // transport.
         Ok(None)

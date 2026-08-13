@@ -24,7 +24,7 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::archive::{self, ArchiveEntry};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir::create_all;
-use rskit_fs::sync_io::file::{exists as file_exists, remove_if_exists};
+use rskit_fs::sync_io::file::{exists as file_exists, metadata, remove_if_exists};
 use toven_model::ReleasePhase;
 use toven_ports::{Provider, Reporter, ToolRunner};
 
@@ -130,10 +130,12 @@ impl PackageReport {
 /// missing, or a delegated tool fails or fails to produce a declared archive —
 /// as well as propagating configuration, discovery, graph, archive, and I/O
 /// failures.
+#[allow(clippy::too_many_arguments)]
 pub fn release_package(
     request: &PlanRequest,
     document: &Document,
     providers: &[&dyn Provider],
+    readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
     target: &str,
     binary_override: Option<&Path>,
     tool_runner: &dyn ToolRunner,
@@ -148,7 +150,7 @@ pub fn release_package(
         &locator,
         reporter,
     )?;
-    let targets = release_targets(&context)?;
+    let targets = release_targets(&context, readers)?;
     let settings = resolve_release_settings(&context, &targets)?;
 
     if crate::artifacts::assets::declared_release_assets(&settings).is_empty() {
@@ -312,15 +314,7 @@ fn package_asset_delegated(
             ),
         ));
     }
-    let bytes = std::fs::metadata(&out)
-        .map(|meta| meta.len())
-        .map_err(|error| {
-            AppError::new(
-                ErrorCode::Internal,
-                format!("cannot stat produced archive '{}': {error}", out.display()),
-            )
-            .with_cause(error)
-        })?;
+    let bytes = metadata(&out)?.len;
     Ok(PackagedAsset {
         asset: asset.to_string(),
         source: out,
@@ -389,15 +383,7 @@ fn package_asset_native(
         ArchiveFormat::Zip => archive::zip(&entries, &out)?,
     }
 
-    let bytes = std::fs::metadata(&out)
-        .map(|meta| meta.len())
-        .map_err(|error| {
-            AppError::new(
-                ErrorCode::Internal,
-                format!("cannot stat produced archive '{}': {error}", out.display()),
-            )
-            .with_cause(error)
-        })?;
+    let bytes = metadata(&out)?.len;
     Ok(PackagedAsset {
         asset: asset.to_string(),
         source,
@@ -454,14 +440,17 @@ mod tests {
     use serde_json::json;
     use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
     use toven_ports::{
-        CommonEcosystemConfig, DiscoverResponse, HostConfig, Provider, ReleaseConfig, TaskIntent,
+        BaselineSpec, CommonEcosystemConfig, DiscoverResponse, HostConfig, Provider, ReleaseConfig,
+        TaskIntent,
     };
     use toven_testkit::{
-        FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeToolRunner, RecordingReporter,
+        FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeToolRunner, FakeVcsReader,
+        RecordingReporter,
     };
 
     use super::{ArchiveFormat, release_package};
     use toven_core::config::{Document, ProjectConfig, TovenConfig};
+    use toven_core::federation::MemberVcsReaders;
     use toven_core::plan::PlanRequest;
 
     const LINUX: &str = "x86_64-unknown-linux-gnu";
@@ -584,12 +573,15 @@ mod tests {
         write_built_binary(root.path(), LINUX, "toven");
         let provider = provider_with_assets(vec!["dist/toven-x86_64-unknown-linux-gnu.tar.gz"]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let report = release_package(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             LINUX,
             None,
             &FakeToolRunner::new(),
@@ -623,12 +615,15 @@ mod tests {
             .with_produced_file(root.path().join(asset_rel), b"goreleaser-archive-bytes");
         let provider = provider_with_delegated_package(vec![asset_rel]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let report = release_package(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             LINUX,
             None,
             &runner,
@@ -662,12 +657,15 @@ mod tests {
         let provider =
             provider_with_delegated_package(vec!["dist/toven-x86_64-unknown-linux-gnu.tar.gz"]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let error = release_package(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             LINUX,
             None,
             &runner,
@@ -689,12 +687,15 @@ mod tests {
         let runner = FakeToolRunner::new();
         let provider = provider_with_delegated_package(vec![asset_rel]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let error = release_package(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             LINUX,
             None,
             &runner,
@@ -715,12 +716,15 @@ mod tests {
         let provider =
             provider_with_delegated_package(vec!["dist/toven-x86_64-unknown-linux-gnu.tar.gz"]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let error = release_package(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             LINUX,
             None,
             &runner,
@@ -745,12 +749,15 @@ mod tests {
             .with_produced_file(root.path().join(second), b"helper-archive");
         let provider = provider_with_delegated_package(vec![first, second]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let report = release_package(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             LINUX,
             None,
             &runner,
@@ -779,6 +786,8 @@ mod tests {
         write_built_binary(root.path(), LINUX, "toven");
         let provider = provider_with_assets(vec!["dist/toven-x86_64-unknown-linux-gnu.tar.gz"]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
         let produced = root
             .path()
@@ -788,6 +797,7 @@ mod tests {
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             LINUX,
             None,
             &FakeToolRunner::new(),
@@ -799,6 +809,7 @@ mod tests {
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             LINUX,
             None,
             &FakeToolRunner::new(),
@@ -818,12 +829,15 @@ mod tests {
         write_built_binary(root.path(), WINDOWS, "toven.exe");
         let provider = provider_with_assets(vec!["dist/toven-x86_64-pc-windows-msvc.zip"]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let report = release_package(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             WINDOWS,
             None,
             &FakeToolRunner::new(),
@@ -844,12 +858,15 @@ mod tests {
         // No binary written.
         let provider = provider_with_assets(vec!["dist/toven-x86_64-unknown-linux-gnu.tar.gz"]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let error = release_package(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             LINUX,
             None,
             &FakeToolRunner::new(),
@@ -873,12 +890,15 @@ mod tests {
             "dist/toven-aarch64-apple-darwin.tar.gz",
         ]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let error = release_package(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             LINUX,
             None,
             &FakeToolRunner::new(),
@@ -896,12 +916,15 @@ mod tests {
         let root = TempDir::new().unwrap();
         let provider = provider_with_assets(vec![]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let error = release_package(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             LINUX,
             None,
             &FakeToolRunner::new(),
@@ -916,12 +939,15 @@ mod tests {
         let root = TempDir::new().unwrap();
         let provider = provider_with_assets(vec!["dist/toven-x86_64-unknown-linux-gnu.tar.gz"]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let error = release_package(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             "../../etc",
             None,
             &FakeToolRunner::new(),

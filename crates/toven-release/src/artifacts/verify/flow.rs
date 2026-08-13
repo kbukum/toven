@@ -94,6 +94,7 @@ pub fn release_verify(
     request: &PlanRequest,
     document: &Document,
     providers: &[&dyn Provider],
+    readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
     options: VerifyOptions,
     downloader: &dyn AssetDownloader,
     verifier: &dyn SignatureVerifier,
@@ -108,7 +109,7 @@ pub fn release_verify(
         &locator,
         reporter,
     )?;
-    let targets = release_targets(&context)?;
+    let targets = release_targets(&context, readers)?;
     let settings = resolve_release_settings(&context, &targets)?;
 
     let expected_version = decide_version(&context, &targets, &settings)?;

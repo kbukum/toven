@@ -88,6 +88,7 @@ pub fn release_checksums(
     request: &PlanRequest,
     document: &Document,
     providers: &[&dyn Provider],
+    readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
     reporter: &mut dyn Reporter,
 ) -> AppResult<ChecksumReport> {
     let locator = PathDriverLocator::new();
@@ -98,7 +99,7 @@ pub fn release_checksums(
         &locator,
         reporter,
     )?;
-    let targets = release_targets(&context)?;
+    let targets = release_targets(&context, readers)?;
     let settings = resolve_release_settings(&context, &targets)?;
 
     let declared = crate::artifacts::assets::declared_release_assets(&settings);
@@ -210,14 +211,16 @@ mod tests {
     use serde_json::json;
     use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
     use toven_ports::{
-        CommonEcosystemConfig, DiscoverResponse, HostConfig, Provider, ReleaseConfig, TaskIntent,
+        BaselineSpec, CommonEcosystemConfig, DiscoverResponse, HostConfig, Provider, ReleaseConfig,
+        TaskIntent,
     };
     use toven_testkit::{
-        FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, RecordingReporter,
+        FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, RecordingReporter,
     };
 
     use super::{ChecksumReport, release_checksums};
     use toven_core::config::{Document, ProjectConfig, TovenConfig};
+    use toven_core::federation::MemberVcsReaders;
     use toven_core::plan::PlanRequest;
 
     fn eid(id: &str) -> EcosystemId {
@@ -316,12 +319,15 @@ mod tests {
             "dist/toven-sbom.cdx.json",
         ]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let report = release_checksums(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             &mut reporter,
         )
         .unwrap();
@@ -355,12 +361,15 @@ mod tests {
             "dist/toven-sbom.cdx.json",
         ]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let report = release_checksums(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             &mut reporter,
         )
         .unwrap();
@@ -396,12 +405,15 @@ mod tests {
             "dist/SHA256SUMS",
         ]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let error = release_checksums(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             &mut reporter,
         )
         .expect_err("a missing checksum input must fail closed");
@@ -422,12 +434,15 @@ mod tests {
             "dist/SHA256SUMS.pem",
         ]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let error = release_checksums(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             &mut reporter,
         )
         .expect_err("an empty checksum-input set must fail closed");
@@ -440,12 +455,15 @@ mod tests {
         write_asset(root.path(), "dist/toven-x86_64-apple-darwin.tar.gz", b"a");
         let provider = provider_with_assets(vec!["dist/toven-x86_64-apple-darwin.tar.gz"]);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
         let mut reporter = RecordingReporter::new();
 
         let error = release_checksums(
             &request(root.path()),
             &document(),
             &providers,
+            &readers,
             &mut reporter,
         )
         .expect_err("a missing SHA256SUMS asset must fail closed");

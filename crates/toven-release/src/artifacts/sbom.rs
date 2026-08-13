@@ -72,6 +72,7 @@ pub fn release_sbom(
     request: &PlanRequest,
     document: &Document,
     providers: &[&dyn Provider],
+    readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
     out_dir: &Path,
     reporter: &mut dyn Reporter,
 ) -> AppResult<SbomReport> {
@@ -83,7 +84,7 @@ pub fn release_sbom(
         &locator,
         reporter,
     )?;
-    let targets = release_targets(&context)?;
+    let targets = release_targets(&context, readers)?;
     let settings = resolve_release_settings(&context, &targets)?;
 
     create_all(out_dir)?;
@@ -207,14 +208,16 @@ mod tests {
     use serde_json::json;
     use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
     use toven_ports::{
-        CommonEcosystemConfig, DiscoverResponse, HostConfig, Provider, ReleaseConfig, TaskIntent,
+        BaselineSpec, CommonEcosystemConfig, DiscoverResponse, HostConfig, Provider, ReleaseConfig,
+        TaskIntent,
     };
     use toven_testkit::{
-        FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, RecordingReporter,
+        FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, RecordingReporter,
     };
 
     use super::release_sbom;
     use toven_core::config::{Document, ModuleConfig, ProjectConfig, TovenConfig};
+    use toven_core::federation::MemberVcsReaders;
     use toven_core::plan::PlanRequest;
 
     fn eid(id: &str) -> EcosystemId {
@@ -313,6 +316,8 @@ mod tests {
         let recorded = target.clone();
         let provider = providers_with(target);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
 
         let out = TempDir::new().unwrap();
         let mut reporter = RecordingReporter::new();
@@ -321,6 +326,7 @@ mod tests {
             &request(),
             &document(),
             &providers,
+            &readers,
             out.path(),
             &mut reporter,
         )
@@ -345,6 +351,8 @@ mod tests {
         let target = FakeReleaseTarget::new().with_sbom_unsupported();
         let provider = providers_with(target);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
 
         let out = TempDir::new().unwrap();
         let mut reporter = RecordingReporter::new();
@@ -353,6 +361,7 @@ mod tests {
             &request(),
             &document(),
             &providers,
+            &readers,
             out.path(),
             &mut reporter,
         )
@@ -370,6 +379,8 @@ mod tests {
         let target = FakeReleaseTarget::new().with_sbom_artifact("core.cdx.json");
         let provider = providers_with(target);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
 
         let out = TempDir::new().unwrap();
         let mut reporter = RecordingReporter::new();
@@ -378,6 +389,7 @@ mod tests {
             &request(),
             &document_excluding("rust:core"),
             &providers,
+            &readers,
             out.path(),
             &mut reporter,
         )
@@ -392,6 +404,8 @@ mod tests {
         let target = FakeReleaseTarget::new().with_sbom_failure("cyclonedx exploded");
         let provider = providers_with(target);
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
 
         let out = TempDir::new().unwrap();
         let mut reporter = RecordingReporter::new();
@@ -400,6 +414,7 @@ mod tests {
             &request(),
             &document(),
             &providers,
+            &readers,
             out.path(),
             &mut reporter,
         )
@@ -412,6 +427,8 @@ mod tests {
         let root = TempDir::new().unwrap();
         let provider = providers_with_assets(vec!["dist/toven-sbom.cdx.json"], "toven.cdx.json");
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
 
         let out = TempDir::new().unwrap();
         let mut reporter = RecordingReporter::new();
@@ -420,6 +437,7 @@ mod tests {
             &request_at(root.path()),
             &document(),
             &providers,
+            &readers,
             out.path(),
             &mut reporter,
         )
@@ -444,6 +462,8 @@ mod tests {
         // produces `toven.cdx.json`, so staging must fail rather than skip.
         let provider = providers_with_assets(vec!["dist/missing-sbom.cdx.json"], "toven.cdx.json");
         let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
 
         let out = TempDir::new().unwrap();
         let mut reporter = RecordingReporter::new();
@@ -452,6 +472,7 @@ mod tests {
             &request_at(root.path()),
             &document(),
             &providers,
+            &readers,
             out.path(),
             &mut reporter,
         )

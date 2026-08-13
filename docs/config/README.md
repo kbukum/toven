@@ -326,7 +326,7 @@ Each `chain` entry names another unit, in declaration order. A member is either 
 
 Composite declarations are parsed and validated at load time and fail closed on a malformed chain. A member that names no known unit is rejected as an unknown unit; a name that shadows a built-in unit, an empty chain, or a blank member is rejected; and a chain that references itself directly or transitively is rejected as a cycle.
 
-> This section configures **declaration and validation only**. Toven does not yet execute composite units, so a declared chain such as `ship` or `release` is not invocable until the composite-execution follow-up lands — declaring one today validates its shape without changing what any command runs.
+> `[units.*]` is declaration-and-validation-only. Declared composite chains are not invocable and do not change what any command runs.
 
 ## Coverage and release
 

@@ -37,7 +37,7 @@ pub fn release_plan(
         &locator,
         reporter,
     )?;
-    let targets = release_targets(&context)?;
+    let targets = release_targets(&context, readers)?;
     plan_with_context(
         &context,
         request,

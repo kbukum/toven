@@ -90,13 +90,25 @@ fn configure_rejects_a_task_entry_without_argv() {
 #[test]
 fn publishable_config_exposes_a_release_target() {
     let adapter = configure("adapter/single-manifest.toml");
-    assert!(adapter.release_target().expect("release target").is_some());
+    let reader = toven_testkit::doubles::FakeVcsReader::new();
+    assert!(
+        adapter
+            .release_target(&reader)
+            .expect("release target")
+            .is_some()
+    );
 }
 
 #[test]
 fn release_publish_policy_does_not_remove_the_release_target() {
     let adapter = configure("adapter/publish-disabled.toml");
-    assert!(adapter.release_target().expect("release target").is_some());
+    let reader = toven_testkit::doubles::FakeVcsReader::new();
+    assert!(
+        adapter
+            .release_target(&reader)
+            .expect("release target")
+            .is_some()
+    );
 }
 
 #[test]

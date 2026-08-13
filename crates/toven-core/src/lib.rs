@@ -19,9 +19,9 @@
 //!
 //! The PLAN spine injects two IO ports defined in [`toven_ports`] —
 //! [`ToolchainProber`](toven_ports::ToolchainProber) and
-//! [`SourceDigest`](toven_ports::SourceDigest) — keeping the phases pure; their
-//! concrete adapters ([`plan::ProcessToolchainProber`],
-//! [`plan::FsSourceDigest`], [`plan::NullCache`]) live here.
+//! [`SourceDigest`](toven_ports::SourceDigest) — plus the
+//! [`CacheStore`](toven_ports::CacheStore) lookup port, keeping the phases
+//! pure. Their concrete adapters live in the consuming `toven-engine` crate.
 //!
 //! ## Modules
 //! - [`config`] — the strict `Document`, reserved-section schemas, the
@@ -33,8 +33,7 @@
 //!   fan-out) lives in the focused [`toven-vcs`](../toven_vcs/index.html) crate.
 //! - [`plan`] — the pure PLAN spine: the seven phases (Load → Configure →
 //!   Discover → Graph → Affected → Toolchain → Schedule+Cache) that culminate
-//!   in one immutable [`toven_model::Plan`]; it also hosts the concrete
-//!   adapters for the injected toolchain/source/cache ports.
+//!   in one immutable [`toven_model::Plan`] over injected ports.
 //! - [`federation`] — umbrella federation: in-proc adapters plus the
 //!   [`RemoteAdapter`](federation::RemoteAdapter) proxy that drives a
 //!   separately installed `toven-<eco> __serve` over a thin framed stdio

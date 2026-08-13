@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
+use rskit_fs::sync_io::file::open;
 use rskit_util::hash::sha256::sha256_reader;
 use toven_ports::{
     ProvenanceArtifact, ProvenanceOutcome, ProvenancePhase, ProvenanceSubject, ToolInvocation,
@@ -258,7 +259,7 @@ pub(super) fn ensure_file_matches_digest(
         )
         .with_cause(error)
     })?;
-    let mut file = std::fs::File::open(&path).map_err(|error| {
+    let mut file = open(&path).map_err(|error| {
         AppError::new(
             ErrorCode::Internal,
             format!("cannot open subject '{rel}' to verify its digest: {error}"),

@@ -99,7 +99,7 @@ pub fn release_readiness(
         &locator,
         reporter,
     )?;
-    let targets = release_targets(&context)?;
+    let targets = release_targets(&context, readers)?;
     let settings = resolve_release_settings(&context, &targets)?;
 
     let mut checks = Vec::new();

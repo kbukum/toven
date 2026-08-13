@@ -21,7 +21,7 @@
 //! - `schedule` — `RunStrategy` relaxation → federated waves → per-module
 //!   units.
 //! - `cache` — the content key, lookup port, and per-unit verdict.
-//! - `request` / `source` / `host` — PLAN inputs and injected ports.
+//! - `request` / `host` — PLAN inputs and injected ports.
 
 pub mod affected;
 mod cache;
@@ -37,18 +37,14 @@ mod pipeline;
 mod request;
 mod schedule;
 mod shared_inputs;
-mod source;
 mod toolchain;
 
-pub use cache::NullCache;
 pub use catalog::{EcosystemTasks, TaskCatalog, TaskSummary, task_catalog};
 pub use configure::addressable_task_names;
 pub use front::dependency_graph;
 pub use host::PlanHost;
 pub use pipeline::{FocusedPlan, plan, plan_focused};
 pub use request::{CacheMode, PlanRequest, Selection};
-pub use source::FsSourceDigest;
-pub use toolchain::ProcessToolchainProber;
 pub use toven_model::ModuleSelector;
 
 pub use front::{PlanContext, prepare as prepare_front};

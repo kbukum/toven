@@ -10,12 +10,12 @@ use rskit_version::semver::Version;
 use serde_json::json;
 use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
 use toven_ports::{
-    AssetDownloader, CommonEcosystemConfig, DiscoverResponse, HostConfig, Provider, ReleaseConfig,
-    SignConfig, SignatureVerifier, TaskIntent, VersionProbe,
+    AssetDownloader, BaselineSpec, CommonEcosystemConfig, DiscoverResponse, HostConfig, Provider,
+    ReleaseConfig, SignConfig, SignatureVerifier, TaskIntent, VersionProbe,
 };
 use toven_testkit::{
     FakeAssetDownloader, FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget,
-    FakeSignatureVerifier, FakeToolRunner, FakeVersionProbe, RecordingReporter,
+    FakeSignatureVerifier, FakeToolRunner, FakeVcsReader, FakeVersionProbe, RecordingReporter,
 };
 
 use super::assets::extract_binary;
@@ -24,6 +24,7 @@ use super::{
     release_verify,
 };
 use toven_core::config::{Document, ProjectConfig, TovenConfig};
+use toven_core::federation::MemberVcsReaders;
 use toven_core::plan::PlanRequest;
 
 const LINUX_ARCHIVE: &str = "dist/toven-x86_64-unknown-linux-gnu.tar.gz";
@@ -113,6 +114,8 @@ fn local_verify_presence_and_version() {
     write_archive(root.path());
     let provider = provider(vec![LINUX_ARCHIVE], SignConfig::default());
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let mut reporter = RecordingReporter::new();
     let downloader = FakeAssetDownloader::from_dir(root.path());
     let verifier = FakeSignatureVerifier::new();
@@ -122,6 +125,7 @@ fn local_verify_presence_and_version() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         VerifyOptions {
             download: false,
             run: true,
@@ -151,6 +155,8 @@ fn local_no_run_skips_execution_but_checks_presence() {
     write_archive(root.path());
     let provider = provider(vec![LINUX_ARCHIVE], SignConfig::default());
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let mut reporter = RecordingReporter::new();
     let downloader = FakeAssetDownloader::from_dir(root.path());
     let verifier = FakeSignatureVerifier::new();
@@ -160,6 +166,7 @@ fn local_no_run_skips_execution_but_checks_presence() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         VerifyOptions {
             download: false,
             run: false,
@@ -182,6 +189,8 @@ fn local_verify_fails_closed_on_missing_archive() {
     // No archive written.
     let provider = provider(vec![LINUX_ARCHIVE], SignConfig::default());
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let mut reporter = RecordingReporter::new();
     let downloader = FakeAssetDownloader::from_dir(root.path());
     let verifier = FakeSignatureVerifier::new();
@@ -191,6 +200,7 @@ fn local_verify_fails_closed_on_missing_archive() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         VerifyOptions {
             download: false,
             run: true,
@@ -210,6 +220,8 @@ fn local_verify_fails_closed_on_wrong_reported_version() {
     write_archive(root.path());
     let provider = provider(vec![LINUX_ARCHIVE], SignConfig::default());
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let mut reporter = RecordingReporter::new();
     let downloader = FakeAssetDownloader::from_dir(root.path());
     let verifier = FakeSignatureVerifier::new();
@@ -219,6 +231,7 @@ fn local_verify_fails_closed_on_wrong_reported_version() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         VerifyOptions {
             download: false,
             run: true,
@@ -283,6 +296,8 @@ fn download_verify_signature_then_checksum_then_run() {
     let root = TempDir::new().unwrap();
     let provider = signed_provider();
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let mut reporter = RecordingReporter::new();
     let downloader = FakeAssetDownloader::from_dir(remote_path);
     let verifier = FakeSignatureVerifier::new();
@@ -292,6 +307,7 @@ fn download_verify_signature_then_checksum_then_run() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         VerifyOptions {
             download: true,
             run: true,
@@ -331,6 +347,8 @@ fn download_verify_matches_checksum_with_uppercase_manifest_hex() {
     let root = TempDir::new().unwrap();
     let provider = signed_provider();
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let mut reporter = RecordingReporter::new();
     let downloader = FakeAssetDownloader::from_dir(remote_path);
     let verifier = FakeSignatureVerifier::new();
@@ -340,6 +358,7 @@ fn download_verify_matches_checksum_with_uppercase_manifest_hex() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         VerifyOptions {
             download: true,
             run: true,
@@ -360,6 +379,8 @@ fn download_verify_aborts_before_checksum_on_bad_signature() {
     let root = TempDir::new().unwrap();
     let provider = signed_provider();
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let mut reporter = RecordingReporter::new();
     let downloader = FakeAssetDownloader::from_dir(remote_path);
     let verifier = FakeSignatureVerifier::failing("signature does not verify");
@@ -369,6 +390,7 @@ fn download_verify_aborts_before_checksum_on_bad_signature() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         VerifyOptions {
             download: true,
             run: true,
@@ -392,6 +414,8 @@ fn download_verify_fails_closed_on_tampered_checksum() {
     let root = TempDir::new().unwrap();
     let provider = signed_provider();
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let mut reporter = RecordingReporter::new();
     let downloader = FakeAssetDownloader::from_dir(remote_path);
     let verifier = FakeSignatureVerifier::new();
@@ -401,6 +425,7 @@ fn download_verify_fails_closed_on_tampered_checksum() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         VerifyOptions {
             download: true,
             run: true,
@@ -424,6 +449,8 @@ fn download_no_run_still_verifies_signature_and_checksum() {
     let root = TempDir::new().unwrap();
     let provider = signed_provider();
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let mut reporter = RecordingReporter::new();
     let downloader = FakeAssetDownloader::from_dir(remote_path);
     let verifier = FakeSignatureVerifier::new();
@@ -433,6 +460,7 @@ fn download_no_run_still_verifies_signature_and_checksum() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         VerifyOptions {
             download: true,
             run: false,
@@ -462,6 +490,8 @@ fn download_fails_closed_when_identity_unconfigured() {
     };
     let provider = provider(vec![LINUX_ARCHIVE], sign);
     let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
     let mut reporter = RecordingReporter::new();
     let downloader = FakeAssetDownloader::from_dir(remote_path);
     let verifier = FakeSignatureVerifier::new();
@@ -471,6 +501,7 @@ fn download_fails_closed_when_identity_unconfigured() {
         &request(root.path()),
         &document(),
         &providers,
+        &readers,
         VerifyOptions {
             download: true,
             run: true,

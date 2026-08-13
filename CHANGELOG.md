@@ -16,6 +16,27 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Security
 
+## [0.1.0-alpha.6] - 2026-08-12
+
+### Added
+
+- Capability crates for versioning and VCS. A pure `toven-semver` toolkit owns the bump math and the release-tag codec/selection (`next_version`, `TagScheme`, `latest_matching`) over `rskit_version::semver`; a focused `toven-vcs` git-mechanism crate owns the rskit-git-backed `VcsReader`/`VcsWriter` adapter, the reusable diff foundation, and the per-repo reader-set fan-out; and a pure `toven-version` decision crate makes its git-free `plan_bumps` (independent bump → cascade floors → pre-skip released) the single path every `release plan`/`bump`/`tag`/`publish` version decision flows through (#163, #164, #171, #172, #174).
+- User-declared composite units. `[units.<name>]` declares an ordered chain that composes existing units (`bump`, `tag`, `publish`, `coverage`, or another declared composite) into one named action, parsed and validated at load time and failing closed on an unknown member, a name that shadows a built-in unit, an empty chain, or a self/mutual cycle. This release adds declaration and validation only — composite execution lands in a follow-up (#178).
+- System-wide `Unit`/`Backing` vocabulary in `toven-model` that generalizes the per-phase backing (`Argv` tasks, `Native` capabilities, `Delegated` tools, `Composite` chains) across bump, tag, publish, and coverage (#176).
+- Flexible release tag modes and adapter-declared baselines: per-adapter release-baseline and tag-mode defaults, an umbrella/registry `BaselineSource` foundation, and a shared path-ownership resolver consumed by both affected selection and release change gating (#165, #166).
+
+### Changed
+
+- Hooks are unified behind one `HookRunner` that wraps any unit's pre/post hooks, replacing the per-verb hook plumbing (#177).
+- Subprocess execution is consolidated into the focused `toven-exec` crate — the concrete `ProcessToolRunner`/`ProcessCommandRunner` (plus persistent spawn), a synchronous one-shot `ToolRunner` seam, and the shared CLI runner assembly (#167, #168).
+- `toven-release` is slimmed to the release flow and composes `toven-version` for the bump decision; Go tag reads and federation sync now route through the `VcsReader` port so an in-memory VCS works everywhere; and the two engine crates were renamed to `toven-core`/`toven-release` (#169, #173, #174).
+- Documentation now describes the new crate layers, the GATHER→DECIDE→MUTATE versioning path, tag modes, baseline sources, the change foundation, and the runner seams (#170).
+
+### Fixed
+
+- Umbrella baseline anchoring now anchors on the umbrella's own version and change-gates the maintainer echo. Making baseline anchoring a pure-function input (`VersionInputs::baseline`) rather than a step interleaved with the decision closes the two version-decision bugs that hid there and covers them with git-free regression tests (#171, #174).
+- `release provenance` verify treats a 404 from the attestations endpoint as "absent" rather than a hard error (#162).
+
 ## [0.1.0-alpha.5] - 2026-08-09
 
 ### Added

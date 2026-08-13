@@ -8,17 +8,15 @@ use common::eid;
 use toven_core::config::{Document, GroupConfig, ProjectConfig, TovenConfig};
 use toven_core::federation::MemberVcsReaders;
 use toven_core::federation::resolve::PathDriverLocator;
-use toven_core::plan::{
-    CacheMode, NullCache, PlanHost, PlanRequest, Selection, dependency_graph, plan,
-};
+use toven_core::plan::{CacheMode, PlanHost, PlanRequest, Selection, dependency_graph, plan};
 use toven_model::{
     AbsPath, CacheVerdict, DepKind, Edge, Event, Module, ModuleRef, ModuleSelector, Phase, Plan,
     RepoPath, TaskOrigin, ToolchainTag, Workspace, WorkspaceId,
 };
 use toven_ports::{DiscoverResponse, FanOut, Provider, Task, TaskIntent, TaskKind, TaskOverride};
 use toven_testkit::{
-    CountingToolchainProber, FakeCacheStore, FakeConfiguredAdapter, FakeProvider, FakeSourceDigest,
-    FakeVcsReader, RecordingCacheStore, RecordingReporter,
+    FakeCacheStore, FakeConfiguredAdapter, FakeProvider, FakeSourceDigest, FakeVcsReader,
+    RecordingReporter, ScriptedToolchainProber,
 };
 
 fn mref(ecosystem: &str, name: &str) -> ModuleRef {
@@ -212,8 +210,8 @@ fn plans_full_federation_into_leaf_first_waves() {
     let providers: Vec<&dyn Provider> = vec![&provider];
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
@@ -241,7 +239,7 @@ fn plans_full_federation_into_leaf_first_waves() {
     assert_eq!(app.workspace, Some(wsid("rust")));
     assert_eq!(app.task, "test");
 
-    // One probe for the single active workspace; every unit a miss under NullCache.
+    // One probe for the single active workspace; every unit is a cache miss.
     assert_eq!(prober.calls(), 1);
     assert!(
         plan.units
@@ -256,8 +254,8 @@ fn group_task_override_splits_members_into_their_own_unit() {
     let providers: Vec<&dyn Provider> = vec![&provider];
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
 
     // `integration` overrides the Test argv for `app` only; `errors` keeps the
@@ -316,8 +314,8 @@ fn conflicting_group_task_overrides_are_rejected() {
     let providers: Vec<&dyn Provider> = vec![&provider];
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
 
     // Both groups claim `app` and override `test`: an explicit, fail-closed error
@@ -363,8 +361,8 @@ fn emits_phase_and_plan_events_in_order() {
     let providers: Vec<&dyn Provider> = vec![&provider];
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
@@ -418,8 +416,8 @@ fn immutable_plan_round_trips_through_serde() {
     let providers: Vec<&dyn Provider> = vec![&provider];
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
@@ -448,8 +446,8 @@ fn disabled_cache_skips_unit_key_so_unreadable_shared_input_never_aborts_plan() 
     let providers: Vec<&dyn Provider> = vec![&provider];
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new().with_failing_path("unreadable.lock");
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
@@ -492,8 +490,8 @@ fn uncacheable_task_is_statically_disabled_even_with_caching_active() {
 
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
@@ -517,8 +515,8 @@ fn force_mode_marks_every_unit_forced() {
     let providers: Vec<&dyn Provider> = vec![&provider];
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
@@ -543,8 +541,8 @@ fn changed_selection_restricts_active_units() {
         toven_ports::ChangeStatus::Modified,
     )]);
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
@@ -565,10 +563,10 @@ fn cache_keys_are_deterministic_and_drive_hits() {
     let providers: Vec<&dyn Provider> = vec![&provider];
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
+    let prober = ScriptedToolchainProber::new();
 
     // First run: capture the deterministic content keys the plan queries.
-    let recording = RecordingCacheStore::new();
+    let recording = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
     let host = PlanHost::new(&readers, &digest, &prober, &recording);
@@ -650,8 +648,8 @@ fn renamed_test_task_propagates_dev_edges_by_its_configured_kind() {
     let providers: Vec<&dyn Provider> = vec![&provider];
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
@@ -689,8 +687,8 @@ fn plain_task_does_not_propagate_dev_edges() {
     let providers: Vec<&dyn Provider> = vec![&provider];
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
@@ -767,8 +765,8 @@ fn conflicting_task_kinds_across_ecosystems_are_rejected() {
     let providers: Vec<&dyn Provider> = vec![&rust, &go];
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
 
     let mut document = document();
@@ -796,8 +794,8 @@ fn a_task_activates_only_the_ecosystems_that_define_it() {
     let providers: Vec<&dyn Provider> = vec![&rust, &command];
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
@@ -857,8 +855,8 @@ fn an_unknown_task_still_errors_when_no_ecosystem_defines_it() {
     let providers: Vec<&dyn Provider> = vec![&rust, &command];
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
@@ -885,8 +883,8 @@ fn narrowing_to_a_task_defining_ecosystem_clears_the_full_activation_diagnostic(
     let providers: Vec<&dyn Provider> = vec![&rust, &command];
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
@@ -930,8 +928,8 @@ fn an_unnarrowed_full_activation_keeps_its_diagnostic() {
     let providers: Vec<&dyn Provider> = vec![&rust];
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
-    let cache = NullCache;
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
     let mut reporter = RecordingReporter::new();
 
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));

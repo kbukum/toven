@@ -27,8 +27,7 @@
 //! - [`doubles`] — the shared port doubles ([`FakeProvider`],
 //!   [`FakeConfiguredAdapter`], [`FakeVcsReader`], [`FakeVcsWriter`],
 //!   [`RecordingReporter`], [`RecordingRawOutputSink`],
-//!   [`CountingToolchainProber`], [`FakeSourceDigest`], [`FakeCacheStore`],
-//!   [`RecordingCacheStore`]).
+//!   [`ScriptedToolchainProber`], [`FakeSourceDigest`], and [`FakeCacheStore`].
 //! - [`assertions`] — rskit `assert_ok`/`assert_err_code` re-exports plus
 //!   Toven-domain event assertions.
 //!
@@ -52,14 +51,13 @@ pub use assertions::{
     assert_emitted, assert_err_code, assert_event_sequence, assert_ok, find_event,
 };
 pub use doubles::{
-    CountingToolchainProber, EMPTY_IDENTITY, FakeAssetDownloader, FakeCacheStore,
-    FakeCommandRunner, FakeConfiguredAdapter, FakeDriverLocator, FakeDriverWizard, FakeImagePhase,
-    FakeProvenancePhase, FakeProvider, FakeReleaseHost, FakeReleaseTarget, FakeSignatureVerifier,
-    FakeSigner, FakeSourceDigest, FakeToolRunner, FakeVcsReader, FakeVcsWriter, FakeVersionProbe,
-    HookCall, HostCall, ImageCall, ProvenanceCall, RecordingCacheStore, RecordingCacheWriter,
-    RecordingHookRunner, RecordingRawOutputSink, RecordingReporter, ReleaseCall, ResolvedCall,
-    ScriptedAnswers, ScriptedResolvedRunner, ScriptedToolchainProber, ScriptedWatchSource,
-    SignerCall, VcsWrite, VerifyCall, WatchCall,
+    EMPTY_IDENTITY, FakeAssetDownloader, FakeCacheStore, FakeCommandRunner, FakeConfiguredAdapter,
+    FakeDriverLocator, FakeDriverWizard, FakeImagePhase, FakeProvenancePhase, FakeProvider,
+    FakeReleaseHost, FakeReleaseTarget, FakeSignatureVerifier, FakeSigner, FakeSourceDigest,
+    FakeToolRunner, FakeVcsReader, FakeVcsWriter, FakeVersionProbe, HookCall, HostCall, ImageCall,
+    ProvenanceCall, RecordingCacheWriter, RecordingHookRunner, RecordingRawOutputSink,
+    RecordingReporter, ReleaseCall, ResolvedCall, ScriptedAnswers, ScriptedToolchainProber,
+    ScriptedWatchSource, SignerCall, VcsWrite, VerifyCall, WatchCall,
 };
 pub use fixtures::{
     FIXTURES_ROOT, coverage_profile_string, document, document_path, document_string, ecosystem,

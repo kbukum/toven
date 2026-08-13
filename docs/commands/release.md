@@ -155,7 +155,7 @@ These verbs scope to modules that declare assets. Registry libraries in a mixed 
 
 `package` and `sign` can be backed by an external tool instead of Toven's native archiver or signer. That lets an established ecosystem workflow plug into the Toven-owned flow unchanged.
 
-The canonical example is [GoReleaser](https://goreleaser.com). A Go binary module sets `[…release.phases.package] backing = "delegated"` and a `[…release.phases.package.delegated]` tool block. See [phase-backing config](../config/release.md#release-phases-and-backing).
+The canonical example is [GoReleaser](https://goreleaser.com). A Go binary module sets `[…release.phases.package] backing = "delegated"` and a `[…release.phases.package.delegated]` tool block. See [phase-backing config](../config/release.md#release-phases-and-delegation).
 
 During `package`, Toven runs the tool's mutation-free preview, such as GoReleaser's `--snapshot`, then normalizes produced archives at the declared `host.assets` paths back into typed JSONL. Each reported asset carries `backing = "native"` or `backing = "delegated"`.
 
@@ -278,7 +278,7 @@ A partial or divergent planned-tag set fails closed. That means some tags exist 
 
 A failure after the release commit reports externally visible state and a forward-only recovery path. Nothing is rolled back past that boundary.
 
-Tag and branch pushes authenticate over HTTPS using a token from the variables listed in [`[toven.git].push_token_env`](../config/README.md#runtime). The default order is `GITHUB_TOKEN`, then `GH_TOKEN`. In CI, expose the job token under one of those names. Locally, with none set, push falls back to the ambient git transport default.
+Tag and branch pushes authenticate over HTTPS using a token from the variables listed in [`[toven.git].push_token_env`](../config/README.md#runtime-settings). The default order is `GITHUB_TOKEN`, then `GH_TOKEN`. In CI, expose the job token under one of those names. Locally, with none set, push falls back to the ambient git transport default.
 
 When `sign_tags = true`, `tag` and `publish` create cryptographically signed annotated tags. Signing is always annotated, so `tag_message` is required and signed lightweight tags are rejected at validation.
 

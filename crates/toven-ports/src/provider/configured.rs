@@ -3,6 +3,7 @@
 use rskit_errors::AppResult;
 
 use crate::{
+    VcsReader,
     config::{CommonEcosystemConfig, RunStrategy},
     discover::{DiscoverRequest, DiscoverResponse},
     release::ReleaseAdapter,
@@ -50,7 +51,7 @@ pub trait ConfiguredAdapter {
     /// ([`ReleaseAdapter`]). Publication policy (`registry`, tag-only, excluded)
     /// and per-phase backing (native or delegated) are resolved by the engine
     /// from configuration.
-    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseAdapter>>>;
+    fn release_target(&self, reader: &dyn VcsReader) -> AppResult<Option<Box<dyn ReleaseAdapter>>>;
 
     /// The resolved engine-common knobs (`run_strategy`, `release`, `tasks`).
     fn common(&self) -> &CommonEcosystemConfig;

@@ -114,7 +114,8 @@ fn configure_rejects_modules_without_tasks_or_toolchain() {
 #[test]
 fn command_never_offers_a_release_target() {
     let adapter = configure(DECLARED_MODULES);
-    assert!(adapter.release_target().expect("ok").is_none());
+    let reader = toven_testkit::doubles::FakeVcsReader::new();
+    assert!(adapter.release_target(&reader).expect("ok").is_none());
 }
 
 #[test]

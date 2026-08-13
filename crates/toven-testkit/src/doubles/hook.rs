@@ -1,16 +1,13 @@
-//! Shared hook doubles: [`RecordingHookRunner`] (whole-unit before/after) and
-//! [`ScriptedResolvedRunner`] (the bump `on-resolved` mid-mutation seam) — both
-//! implementing the one [`HookRunner`] port.
+//! Shared [`HookRunner`] port double: [`RecordingHookRunner`].
 //!
 //! Unit tests (release first) inject these instead of the real PLAN→APPLY hook
 //! runner: [`RecordingHookRunner`] records every phase, reference, and optional
 //! version-map path so a test can assert payload handoff, ordering, and
 //! fail-closed semantics (a failing `before` hook must abort before any
 //! mutation), and it can be scripted to fail on a chosen reference.
-//! [`ScriptedResolvedRunner`] does the same for the
-//! [`HookPhase::OnResolved`] seam and can additionally produce working-tree
-//! edits the engine then re-stages. Both are `Clone` (shared state) so a test
-//! can hold a handle for assertions after injecting it.
+//! The same double can model the [`HookPhase::OnResolved`] seam and produce
+//! working-tree edits the engine then re-stages. It is `Clone` (shared state)
+//! so a test can hold a handle for assertions after injecting it.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -32,7 +29,10 @@ pub struct HookCall {
 #[derive(Debug, Default)]
 struct RecordingHookRunnerState {
     calls: Vec<HookCall>,
+    resolved_calls: Vec<ResolvedCall>,
     fail_on: Option<String>,
+    produces: Vec<ChangeRecord>,
+    worktree: Option<Arc<Mutex<Vec<ChangeRecord>>>>,
 }
 
 /// A [`HookRunner`] that records its calls, or fails on a scripted reference.
@@ -55,7 +55,43 @@ impl RecordingHookRunner {
         Self {
             inner: Arc::new(Mutex::new(RecordingHookRunnerState {
                 calls: Vec::new(),
+                resolved_calls: Vec::new(),
                 fail_on: Some(reference.into()),
+                produces: Vec::new(),
+                worktree: None,
+            })),
+        }
+    }
+
+    /// A runner that appends `produces` to `worktree` after an on-resolved
+    /// invocation succeeds.
+    #[must_use]
+    pub fn producing(worktree: Arc<Mutex<Vec<ChangeRecord>>>, produces: Vec<ChangeRecord>) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(RecordingHookRunnerState {
+                calls: Vec::new(),
+                resolved_calls: Vec::new(),
+                fail_on: None,
+                produces,
+                worktree: Some(worktree),
+            })),
+        }
+    }
+
+    /// A runner that produces edits and then fails on `reference`.
+    #[must_use]
+    pub fn producing_then_failing(
+        worktree: Arc<Mutex<Vec<ChangeRecord>>>,
+        produces: Vec<ChangeRecord>,
+        reference: impl Into<String>,
+    ) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(RecordingHookRunnerState {
+                calls: Vec::new(),
+                resolved_calls: Vec::new(),
+                fail_on: Some(reference.into()),
+                produces,
+                worktree: Some(worktree),
             })),
         }
     }
@@ -64,6 +100,12 @@ impl RecordingHookRunner {
     #[must_use]
     pub fn calls(&self) -> Vec<HookCall> {
         self.state().calls.clone()
+    }
+
+    /// The on-resolved calls recorded so far, in invocation order.
+    #[must_use]
+    pub fn resolved_calls(&self) -> Vec<ResolvedCall> {
+        self.state().resolved_calls.clone()
     }
 
     /// The recorded references for `phase`, in invocation order.
@@ -93,8 +135,40 @@ impl HookRunner for RecordingHookRunner {
             reference: reference.to_string(),
             version_map: invocation.version_map().map(Path::to_path_buf),
         });
-        let fail_on = self.state().fail_on.clone();
-        if fail_on.as_deref() == Some(reference) {
+        // Capture the handed-off version map only when the engine actually
+        // materialized it. A caller that drives the runner purely to record
+        // invocations may pass a path without writing a file; that is not a
+        // failure. A file that exists but cannot be read still propagates.
+        let version_map_contents = match invocation.version_map() {
+            Some(path) if path.exists() => Some(rskit_fs::sync_io::file::read_string(path)?),
+            _ => None,
+        };
+        let (fail, produces, worktree) = {
+            let mut state = self.state();
+            if let (Some(version_map), Some(version_map_contents)) =
+                (invocation.version_map(), version_map_contents)
+            {
+                state.resolved_calls.push(ResolvedCall {
+                    reference: reference.to_string(),
+                    version_map: version_map.to_path_buf(),
+                    version_map_contents,
+                });
+            }
+            (
+                state.fail_on.as_deref() == Some(reference),
+                state.produces.clone(),
+                state.worktree.clone(),
+            )
+        };
+        if invocation.phase() == HookPhase::OnResolved
+            && let Some(worktree) = &worktree
+        {
+            worktree
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .extend(produces);
+        }
+        if fail {
             return Err(AppError::new(
                 ErrorCode::Internal,
                 format!("scripted hook failure for '{reference}'"),
@@ -104,8 +178,7 @@ impl HookRunner for RecordingHookRunner {
     }
 }
 
-/// A single bump `on-resolved` invocation recorded by
-/// [`ScriptedResolvedRunner`].
+/// A single bump `on-resolved` invocation recorded by [`RecordingHookRunner`].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ResolvedCall {
     /// The task reference that was run.
@@ -116,151 +189,6 @@ pub struct ResolvedCall {
     /// engine materialized), so a test can assert the task received the
     /// authoritative map.
     pub version_map_contents: String,
-}
-
-#[derive(Debug, Default)]
-struct ScriptedResolvedRunnerState {
-    calls: Vec<ResolvedCall>,
-    fail_on: Option<String>,
-    produces: Vec<ChangeRecord>,
-    worktree: Option<Arc<Mutex<Vec<ChangeRecord>>>>,
-}
-
-/// A [`HookRunner`] double for the bump [`HookPhase::OnResolved`] seam.
-///
-/// It records each `(reference, version_map path, map contents)` it is asked to
-/// run, can be scripted to fail on a chosen reference (exercising the
-/// restore-on-failure abort path offline), and — modelling a task that edits
-/// files — can push scripted [`ChangeRecord`]s into a shared working-tree handle
-/// on success, so the engine's post-hook re-stage collection observes them. It
-/// is `Clone` (shared state) so a test can keep a handle for assertions after
-/// injecting it.
-#[derive(Debug, Clone, Default)]
-pub struct ScriptedResolvedRunner {
-    inner: Arc<Mutex<ScriptedResolvedRunnerState>>,
-}
-
-impl ScriptedResolvedRunner {
-    /// A runner that records and succeeds for every reference, producing no
-    /// working-tree edits.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// A runner that, on success, appends `produces` to the `worktree` handle —
-    /// modelling an `on-resolved` task that edits those paths, which the engine
-    /// then re-stages.
-    #[must_use]
-    pub fn producing(worktree: Arc<Mutex<Vec<ChangeRecord>>>, produces: Vec<ChangeRecord>) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(ScriptedResolvedRunnerState {
-                calls: Vec::new(),
-                fail_on: None,
-                produces,
-                worktree: Some(worktree),
-            })),
-        }
-    }
-
-    /// A runner that fails closed when asked to run `reference`, so the
-    /// abort-and-restore path is exercised offline.
-    #[must_use]
-    pub fn failing_on(reference: impl Into<String>) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(ScriptedResolvedRunnerState {
-                calls: Vec::new(),
-                fail_on: Some(reference.into()),
-                produces: Vec::new(),
-                worktree: None,
-            })),
-        }
-    }
-
-    /// A runner that appends `produces` to the `worktree` handle and *then*
-    /// fails on `reference` — modelling an `on-resolved` task that creates
-    /// working-tree files before erroring, so the abort path's untracked-file
-    /// cleanup is exercised.
-    #[must_use]
-    pub fn producing_then_failing(
-        worktree: Arc<Mutex<Vec<ChangeRecord>>>,
-        produces: Vec<ChangeRecord>,
-        reference: impl Into<String>,
-    ) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(ScriptedResolvedRunnerState {
-                calls: Vec::new(),
-                fail_on: Some(reference.into()),
-                produces,
-                worktree: Some(worktree),
-            })),
-        }
-    }
-
-    /// The calls recorded so far, in invocation order.
-    #[must_use]
-    pub fn calls(&self) -> Vec<ResolvedCall> {
-        self.state().calls.clone()
-    }
-
-    fn state(&self) -> std::sync::MutexGuard<'_, ScriptedResolvedRunnerState> {
-        self.inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-}
-
-impl HookRunner for ScriptedResolvedRunner {
-    fn run_hook(&self, invocation: HookInvocation<'_>, reference: &str) -> AppResult<()> {
-        let HookInvocation::OnResolved { version_map } = invocation else {
-            return Err(AppError::new(
-                ErrorCode::Internal,
-                format!(
-                    "ScriptedResolvedRunner only models the on-resolved seam; got phase {}",
-                    invocation.phase().as_str(),
-                ),
-            ));
-        };
-        // Read the handed-off map back so a test can assert the task received
-        // the authoritative version map materialized by the engine. Fail closed
-        // if the map is missing or unreadable, so a bad handoff (e.g. the engine
-        // passing an invalid path) surfaces instead of masquerading as empty.
-        let version_map_contents = std::fs::read_to_string(version_map).map_err(|source| {
-            AppError::new(
-                ErrorCode::Internal,
-                format!(
-                    "on-resolved runner could not read handed-off version map '{}': {source}",
-                    version_map.display()
-                ),
-            )
-        })?;
-        let (fail, produces, worktree) = {
-            let mut state = self.state();
-            state.calls.push(ResolvedCall {
-                reference: reference.to_string(),
-                version_map: version_map.to_path_buf(),
-                version_map_contents,
-            });
-            let fail = state.fail_on.as_deref() == Some(reference);
-            (fail, state.produces.clone(), state.worktree.clone())
-        };
-        // Apply the produced edits *before* an optional failure so a
-        // produce-then-fail task leaves working-tree files the abort path must
-        // clean up.
-        if let Some(worktree) = &worktree {
-            worktree
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .extend(produces);
-        }
-        if fail {
-            return Err(AppError::new(
-                ErrorCode::Internal,
-                format!("scripted on-resolved failure for '{reference}'"),
-            ));
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]

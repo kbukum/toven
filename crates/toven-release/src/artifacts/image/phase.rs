@@ -88,6 +88,7 @@ pub fn release_image(
     request: &PlanRequest,
     document: &Document,
     providers: &[&dyn Provider],
+    readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
     image_phase: &dyn ImagePhase,
     options: ImageOptions,
     reporter: &mut dyn Reporter,
@@ -100,7 +101,7 @@ pub fn release_image(
         &locator,
         reporter,
     )?;
-    let targets = release_targets(&context)?;
+    let targets = release_targets(&context, readers)?;
     let settings = resolve_release_settings(&context, &targets)?;
     let project_root = request.project_root.as_path();
 

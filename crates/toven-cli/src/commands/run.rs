@@ -11,11 +11,12 @@
 use rskit_cli::{ExitCode, on_ctrl_c};
 use rskit_errors::AppResult;
 use toven_core::config::ViewMode;
-use toven_core::plan::{
-    CacheMode, FsSourceDigest, PlanHost, PlanRequest, ProcessToolchainProber, plan,
-};
+use toven_core::plan::{CacheMode, PlanHost, PlanRequest, plan};
 use toven_engine::apply::{ApplyOptions, apply};
 use toven_engine::cache::FsContentCache;
+use toven_engine::source::FsSourceDigest;
+use toven_engine::toolchain::ProcessToolchainProber;
+use toven_exec::ProcessToolRunner;
 use toven_model::{CacheVerdict, Event, Plan, RunStats};
 use toven_ports::{PlanReporter, Provider, Reporter, TaskIntent};
 
@@ -99,7 +100,7 @@ pub(crate) fn execute(
     let opened = project.open_member_vcs(providers, &selection.baseline)?;
     let readers = opened.readers();
     let digest = FsSourceDigest::new(&project.project_root);
-    let prober = ProcessToolchainProber::new();
+    let prober = ProcessToolchainProber::new(std::sync::Arc::new(ProcessToolRunner::new()));
     let cache = FsContentCache::new(project.cache_root()?);
 
     let mut reporter = report.reporter();

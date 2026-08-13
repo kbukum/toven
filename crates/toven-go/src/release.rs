@@ -22,7 +22,6 @@ use toven_ports::{
     TagGrammar, TagMode, TagScheme, ToolInvocation, ToolRunner, VcsReader, VersionSource,
     Visibility,
 };
-use toven_vcs::RskitGitVcs;
 
 use crate::exec::{go_command, run_go_json};
 
@@ -92,57 +91,28 @@ fn run_sbom(invocation: ToolInvocation, runner: &dyn ToolRunner) -> AppResult<()
 #[derive(Clone)]
 pub struct GoVcsTarget {
     runner: Arc<dyn ToolRunner>,
-    /// Explicit repository working root; `None` resolves the process working
-    /// directory (the engine runs from the repo root), mirroring
-    /// `CargoRegistryTarget`.
     root: Option<PathBuf>,
-    /// Injected VCS reader for the tag reads that derive Go module versions.
-    /// `None` opens the one rskit-git-backed [`RskitGitVcs`] at the working root
-    /// on demand; tests inject a scripted reader so the version reads run
-    /// against the port seam rather than a real git repository.
-    reader: Option<Arc<dyn VcsReader>>,
+    reachable_tags: Vec<String>,
 }
 
 impl GoVcsTarget {
-    /// Construct the Go VCS-tag release target rooted at the process working
-    /// directory.
+    /// Construct the Go VCS-tag release target from the reachable tags gathered
+    /// through the release orchestration's injected VCS reader.
     #[must_use]
-    pub fn new(runner: Arc<dyn ToolRunner>) -> Self {
+    pub fn new(runner: Arc<dyn ToolRunner>, reachable_tags: Vec<String>) -> Self {
         Self {
             runner,
             root: None,
-            reader: None,
+            reachable_tags,
         }
     }
 
     /// Pin the repository working root instead of resolving the process working
-    /// directory — the explicit seam tests inject to avoid mutating
-    /// process-global state.
+    /// directory.
     #[must_use]
     pub fn with_root(mut self, root: impl Into<PathBuf>) -> Self {
         self.root = Some(root.into());
         self
-    }
-
-    /// Inject the [`VcsReader`] the version-tag reads run against instead of
-    /// opening a git repository at the working root — the seam tests script to
-    /// exercise Go's tag reads without a real repository.
-    #[must_use]
-    pub fn with_reader(mut self, reader: Arc<dyn VcsReader>) -> Self {
-        self.reader = Some(reader);
-        self
-    }
-
-    /// The Go module version tags reachable from `HEAD`, read through the VCS
-    /// port: the injected reader when present, otherwise the rskit-git-backed
-    /// adapter opened at the working root. Routing through [`VcsReader`] keeps
-    /// the git seam honored (no direct `rskit_git` reach-around) so an in-memory
-    /// VCS works uniformly.
-    fn reachable_tags(&self) -> AppResult<Vec<String>> {
-        match &self.reader {
-            Some(reader) => reachable_tags(reader.as_ref()),
-            None => reachable_tags(&RskitGitVcs::discover(self.working_root()?)?),
-        }
     }
 
     fn working_root(&self) -> AppResult<PathBuf> {
@@ -164,7 +134,7 @@ impl GoVcsTarget {
 /// whose peeled commit is `HEAD` or a strict ancestor of `HEAD` are kept (the
 /// equal-revision case is checked directly because [`VcsReader::is_ancestor`]
 /// is strict).
-fn reachable_tags(reader: &dyn VcsReader) -> AppResult<Vec<String>> {
+pub(crate) fn reachable_tags(reader: &dyn VcsReader) -> AppResult<Vec<String>> {
     let head = reader.rev_parse("HEAD")?;
     let mut tags = Vec::new();
     for tag in reader.list_tags(None)? {
@@ -193,8 +163,9 @@ impl VersionSource for GoVcsTarget {
     fn published_versions(&self, module: &Module) -> AppResult<Vec<Version>> {
         let scheme = self.tag_scheme(module, None)?;
         let mut versions = self
-            .reachable_tags()?
-            .into_iter()
+            .reachable_tags
+            .iter()
+            .cloned()
             .filter_map(|tag| scheme.parse(&tag))
             .collect::<Vec<_>>();
         versions.sort();
@@ -355,11 +326,19 @@ mod tests {
     use toven_ports::{ManifestMutator, ReleaseMutation, TagGrammar, VersionSource};
     use toven_testkit::doubles::FakeToolRunner;
     use toven_testkit::git::GitScenario;
+    use toven_vcs::RskitGitVcs;
 
     use super::GoVcsTarget;
 
     fn target() -> GoVcsTarget {
-        GoVcsTarget::new(Arc::new(FakeToolRunner::new()))
+        GoVcsTarget::new(Arc::new(FakeToolRunner::new()), Vec::new())
+    }
+
+    fn target_with_reader(reader: &dyn toven_ports::VcsReader) -> GoVcsTarget {
+        GoVcsTarget::new(
+            Arc::new(FakeToolRunner::new()),
+            super::reachable_tags(reader).expect("reachable tags"),
+        )
     }
 
     fn module(name: &str, root: &str) -> Module {
@@ -431,7 +410,7 @@ mod tests {
                 TagRef::new("cache/redis/v1.3.0", Oid::new("c0ffee")),
                 TagRef::new("cache/http/v9.9.9", Oid::new("c0ffee")),
             ]);
-        let target = target().with_reader(Arc::new(reader));
+        let target = target_with_reader(&reader);
 
         let versions = target
             .published_versions(&module("cache-redis", "cache/redis"))
@@ -454,7 +433,8 @@ mod tests {
         scenario
             .tag("cache/http/v9.9.9", "other")
             .expect("other tag");
-        let target = target().with_root(workspace.path());
+        let reader = RskitGitVcs::open(workspace.path()).expect("open repository");
+        let target = target_with_reader(&reader).with_root(workspace.path());
 
         let versions = target
             .published_versions(&module("cache-redis", "cache/redis"))
@@ -478,7 +458,8 @@ mod tests {
             .expect("side commit");
         scenario.tag("v9.9.9", "side").expect("side tag");
         scenario.checkout(&main).expect("return to main commit");
-        let target = target().with_root(workspace.path());
+        let reader = RskitGitVcs::open(workspace.path()).expect("open repository");
+        let target = target_with_reader(&reader).with_root(workspace.path());
 
         let versions = target
             .published_versions(&module("root", "."))
@@ -494,7 +475,8 @@ mod tests {
         scenario
             .commit_file("go.mod", "module example.com/root\n", "initial")
             .expect("commit root");
-        let target = target().with_root(workspace.path());
+        let reader = RskitGitVcs::open(workspace.path()).expect("open repository");
+        let target = target_with_reader(&reader);
 
         let error = target
             .declared_version(&module("root", "."))

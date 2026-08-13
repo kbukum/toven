@@ -19,7 +19,8 @@ use rskit_fs::sync_io::file::{read_string, write};
 use toml::{Table, Value};
 use toven_core::config::{CanonicalRegistry, load};
 use toven_core::federation::MemberVcsReaders;
-use toven_core::plan::{NullCache, PlanHost, PlanRequest, plan};
+use toven_core::plan::{PlanHost, PlanRequest, plan};
+use toven_engine::cache::NullCache;
 use toven_engine::init::init_with;
 use toven_model::{
     AbsPath, DepKind, Edge, Module, ModuleRef, RepoPath, ToolchainTag, Workspace, WorkspaceId,
@@ -27,8 +28,8 @@ use toven_model::{
 use toven_ports::{DiscoverResponse, EcosystemFragment, FanOut, Provider, Task, TaskIntent};
 use toven_testkit::git::GitScenario;
 use toven_testkit::{
-    CountingToolchainProber, FakeConfiguredAdapter, FakeDriverLocator, FakeDriverWizard,
-    FakeProvider, FakeSourceDigest, FakeVcsReader, RecordingReporter, ScriptedAnswers, fixtures,
+    FakeConfiguredAdapter, FakeDriverLocator, FakeDriverWizard, FakeProvider, FakeSourceDigest,
+    FakeVcsReader, RecordingReporter, ScriptedAnswers, ScriptedToolchainProber, fixtures,
 };
 
 /// Build a minimal `[ecosystems.<id>]` fragment carrying discovery `manifests`.
@@ -592,7 +593,7 @@ fn generated_config_feeds_the_plan_spine() {
 
     let vcs = FakeVcsReader::new();
     let digest = FakeSourceDigest::new();
-    let prober = CountingToolchainProber::new();
+    let prober = ScriptedToolchainProber::new();
     let cache = NullCache;
     let mut reporter = RecordingReporter::new();
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use rskit_errors::AppResult;
 use toven_ports::{
     CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, ReleaseAdapter,
-    RunStrategy, TaskKind, ToolRunner, ToolchainProbe,
+    RunStrategy, TaskKind, ToolRunner, ToolchainProbe, VcsReader,
 };
 
 use crate::config::GoConfig;
@@ -49,8 +49,11 @@ impl ConfiguredAdapter for GoAdapter {
             .unwrap_or_else(|| tasks::default_run_strategy(kind))
     }
 
-    fn release_target(&self) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
-        Ok(Some(Box::new(GoVcsTarget::new(self.runner.clone()))))
+    fn release_target(&self, reader: &dyn VcsReader) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
+        Ok(Some(Box::new(GoVcsTarget::new(
+            self.runner.clone(),
+            super::release::reachable_tags(reader)?,
+        ))))
     }
 
     fn common(&self) -> &CommonEcosystemConfig {

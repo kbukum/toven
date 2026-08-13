@@ -17,10 +17,13 @@ use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult};
 use toven_core::federation::resolve::PathDriverLocator;
 use toven_core::plan::{
-    CacheMode, FocusedPlan, FsSourceDigest, NullCache, PlanHost, PlanRequest,
-    ProcessToolchainProber, Selection, dependency_graph, plan_focused,
+    CacheMode, FocusedPlan, PlanHost, PlanRequest, Selection, dependency_graph, plan_focused,
 };
 use toven_core::vcs::BaselineFlags;
+use toven_engine::cache::NullCache;
+use toven_engine::source::FsSourceDigest;
+use toven_engine::toolchain::ProcessToolchainProber;
+use toven_exec::ProcessToolRunner;
 use toven_model::{Event, ExecutionUnit, Graph, ModuleKey, Plan};
 use toven_ports::{Provider, Reporter, TaskIntent};
 
@@ -101,7 +104,7 @@ fn build_focused_plan(
     let opened = project.open_member_vcs(providers, baseline)?;
     let readers = opened.readers();
     let digest = FsSourceDigest::new(&project.project_root);
-    let prober = ProcessToolchainProber::new();
+    let prober = ProcessToolchainProber::new(std::sync::Arc::new(ProcessToolRunner::new()));
     let cache = NullCache;
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
 

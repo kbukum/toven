@@ -5,29 +5,33 @@ Toven is a hexagonal Rust workspace. Domain types sit at the center, ports defin
 ## Workspace layers
 
 ```text
-L0  crates/toven-model
-L1  crates/toven-ports
+L0   crates/toven-model
+L0.5 crates/toven-semver
+L1   crates/toven-ports
 L1.5 crates/toven-exec
 L1.5 crates/toven-vcs
-L2a crates/toven-core
-L2b crates/toven-release
-L2b crates/toven-engine
-L2  crates/toven-rust
-L2  crates/toven-go
-L2  crates/toven-command
-L3  crates/toven-cli
-L4  apps/toven, apps/toven-rs, apps/toven-go
+L2a  crates/toven-core
+L2   crates/toven-version
+L2b  crates/toven-release
+L2b  crates/toven-engine
+L2   crates/toven-rust
+L2   crates/toven-go
+L2   crates/toven-command
+L3   crates/toven-cli
+L4   apps/toven, apps/toven-rs, apps/toven-go
 ```
 
-Dependencies point downward only. `toven-exec` and `toven-vcs` are focused L1.5 utilities — `toven-exec` owns the concrete subprocess runners, and `toven-vcs` owns the git mechanism behind the VCS ports; the three engine crates share layer 2: `toven-core` is the PLAN foundation, and `toven-release` and `toven-engine` are peers above it.
+Dependencies point downward only. `toven-semver` is a pure L0.5 toolkit — semver bump math and the release-tag codec, reusable by any layer, depending on no other Toven crate. `toven-exec` and `toven-vcs` are focused L1.5 utilities — `toven-exec` owns the concrete subprocess runners, and `toven-vcs` owns the git mechanism behind the VCS ports. `toven-version` is the L2 version-decision capability whose pure `plan_bumps` is the single path every bump flows through; the three engine crates share layer 2 above `toven-core`, with `toven-release` composing `toven-version` for its bump phase.
 
 ```mermaid
 flowchart TB
     model["L0 · toven-model"]
+    semver["L0.5 · toven-semver"]
     ports["L1 · toven-ports"]
     exec["L1.5 · toven-exec"]
     vcs["L1.5 · toven-vcs"]
     core["L2a · toven-core"]
+    version["L2 · toven-version"]
     release["L2b · toven-release"]
     engine["L2b · toven-engine"]
     ecosystems["L2 · toven-rust / toven-go / toven-command"]
@@ -35,11 +39,16 @@ flowchart TB
     apps["L4 · apps/*"]
 
     ports --> model
+    ports --> semver
     exec --> ports
     vcs --> ports
+    vcs --> semver
     core --> ports
     core --> vcs
+    version --> ports
+    version --> semver
     release --> core
+    release --> version
     engine --> core
     engine --> exec
     ecosystems --> ports
@@ -57,11 +66,13 @@ Only the thin `apps/*` binaries wire the ecosystem adapters (`toven-rust`, `tove
 | Crate | Responsibility |
 |---|---|
 | `toven-model` | Identity, graph, plan, event, and release vocabulary |
+| `toven-semver` | Pure semver bump math and the release-tag codec/selection (`next_version`, `TagScheme`, `latest_matching`) |
 | `toven-ports` | Adapter contracts and shared configuration values |
 | `toven-exec` | The concrete subprocess runners (`ProcessToolRunner`, `ProcessCommandRunner`, persistent spawn) and the shared argv→`ProcessSpec` lowering |
 | `toven-vcs` | The git mechanism: the rskit-git-backed `VcsReader`/`VcsWriter` adapter, the change foundation (diff-range resolution), and the per-repo reader-set fan-out |
 | `toven-core` | Strict `toven.toml` loading, the engine-owned VCS baseline policy over the git seam, the PLAN spine, and federation-core |
-| `toven-release` | Release PLAN/APPLY: bump, changelog, packaging, checksums, SBOM, signing, hosted publishing |
+| `toven-version` | The pure `plan_bumps` bump/cascade/idempotency decision, baseline anchoring, entrypoint/`CutIntent` policy, change detection, and Conventional-Commit changelog generation |
+| `toven-release` | Release PLAN/APPLY flow: tag, package, checksums, SBOM, signing, hosted publishing — composing `toven-version` for the bump decision |
 | `toven-engine` | Apply, cache, coverage, output, watch, init, doctor, and the rskit-backed port adapters |
 | `toven-rust` | Cargo discovery and Rust task/release behavior |
 | `toven-go` | Go discovery and Go task/release behavior |
@@ -251,6 +262,41 @@ The release is modeled as a **flow**: an ordered set of named phases the engine 
 select → bump → tag → package → sign → publish → host → image → provenance
 ```
 
+### The versioning path — GATHER → DECIDE → MUTATE
+
+Every version decision flows through one pure function, `toven-version::plan_bumps`, so `release plan`, `bump`, `tag`, and `publish` all agree on the `module → version` map. The impure work is split cleanly around that pure core:
+
+```mermaid
+flowchart LR
+    subgraph gather["GATHER · impure (toven-release)"]
+        declared[Declared versions<br/>ecosystem adapters]
+        published[Published versions<br/>registry]
+        baseline[Resolved baseline<br/>resolve_baseline]
+        changes[Change flags<br/>VcsReader diff]
+    end
+
+    subgraph decide["DECIDE · pure (toven-version)"]
+        inputs[VersionInputs]
+        plan["plan_bumps<br/>independent bump → cascade floors → pre-skip released"]
+        bumpplan[BumpPlan]
+    end
+
+    subgraph mutate["MUTATE · impure (toven-release)"]
+        stage[Stage manifest edits<br/>ManifestMutator]
+        tagphase[Tag / publish phases]
+    end
+
+    declared --> inputs
+    published --> inputs
+    baseline --> inputs
+    changes --> inputs
+    inputs --> plan --> bumpplan
+    bumpplan --> stage
+    bumpplan --> tagphase
+```
+
+GATHER (in `toven-release`) performs every git/ecosystem/registry lookup a bump needs and assembles a typed `VersionInputs`. DECIDE (`toven-version`) is pure: `plan_bumps` resolves each module's independent bump, cascades dependency floors, and pre-skips already-released versions without touching a `VcsReader`, an ecosystem adapter, or any I/O — so its tests need no git. Baseline anchoring is an **input field** (`VersionInputs::baseline`, from the pure `resolve_baseline`) rather than a step interleaved with the decision, which turns the two historical version-decision bugs (a wrong umbrella anchor, a maintainer echo that skipped change-gating) into properties of a pure function covered by git-free regression tests. MUTATE stages the manifest edits and drives the tag/publish phases from the resulting `BumpPlan`.
+
 The phase vocabulary is `ReleasePhase` in `toven-model` — pure, descriptive names, no behavior. For **every** phase, the engine owns four guarantees, independent of how the phase is backed:
 
 | Guarantee | Meaning |
@@ -260,7 +306,7 @@ The phase vocabulary is `ReleasePhase` in `toven-model` — pure, descriptive na
 | Immutable, forward-fix outputs | Tags, registry versions, hosted Releases, assets, and image tags never change; recovery is a new forward-fix version. |
 | Typed reporting | Output is typed JSONL/human on the correct stream. |
 
-A phase's *implementation* is a swappable seam described by the system-wide `Backing` vocabulary in `toven-model`: `Native` (Toven's own code, the default) or `Delegated { tool }` (an external tool invoked argv-first). Delegation is per-phase and opt-in; a delegated phase that cannot preview mutation-free is not an acceptable delegation, so the guarantee table binds both backings equally. Toven never hands the whole flow to an external tool. Per-phase backing is declared under `[…release.phases.<phase>]` (see [release configuration](config/release.md#release-phases-and-backing)).
+A phase's *implementation* is a swappable seam described by the system-wide `Backing` vocabulary in `toven-model`: `Native` (Toven's own code, the default) or `Delegated { tool }` (an external tool invoked argv-first). Delegation is per-phase and opt-in; a delegated phase that cannot preview mutation-free is not an acceptable delegation, so the guarantee table binds both backings equally. Toven never hands the whole flow to an external tool. Per-phase backing is declared under `[…release.phases.<phase>]` (see [release configuration](config/release.md#release-phases-and-delegation)).
 
 ### Phase seam decomposition
 
@@ -272,10 +318,12 @@ The ecosystem sliver is a set of **per-phase contracts** in `toven-ports`, compo
 | `ManifestMutator::apply_release` | Bump | Write the manifest version. |
 | `TagGrammar::tag_scheme` | Tag | Supply the tag grammar. |
 | `Packager::package` | Package | Package built artifacts (delegable). |
-| `SbomProducer::sbom` | Provenance | Produce the SBOM. |
+| `SbomProducer::sbom` | Provenance | Produce the SBOM (delegable). |
 | `VersionSource::published_versions` | Publish | Query the registry for idempotency. |
-| `Publisher::publish` | Publish | Publish to the registry (delegable). |
-| engine sign | Sign | Sign tags and artifacts. |
+| `Publisher::publish` | Publish | Publish to the registry. |
+| engine sign | Sign | Sign tags and artifacts (delegable). |
+| `ImagePhase::publish` | Image | Publish container images (delegable). |
+| `ProvenancePhase::verify` | Provenance | Verify build provenance (delegable). |
 | engine selection | Select | Select, cascade, and order releasable modules. |
 | `ReleaseHost` port | Host | Create the hosted forge Release. |
 

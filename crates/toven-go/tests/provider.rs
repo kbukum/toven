@@ -72,7 +72,13 @@ fn configure_rejects_a_task_entry_without_argv() {
 #[test]
 fn go_exposes_release_target() {
     let adapter = configure(SINGLE_MODULE);
-    assert!(adapter.release_target().expect("release target").is_some());
+    let reader = toven_testkit::doubles::FakeVcsReader::new();
+    assert!(
+        adapter
+            .release_target(&reader)
+            .expect("release target")
+            .is_some()
+    );
 }
 
 #[test]

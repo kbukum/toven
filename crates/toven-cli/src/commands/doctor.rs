@@ -17,8 +17,9 @@
 
 use rskit_cli::ExitCode;
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_core::plan::ProcessToolchainProber;
 use toven_engine::doctor::{ToolAudit, ToolProbeOutcome, audit_streaming};
+use toven_engine::toolchain::ProcessToolchainProber;
+use toven_exec::ProcessToolRunner;
 use toven_model::{Event, ToolStatus};
 use toven_ports::{Provider, Reporter};
 
@@ -36,7 +37,7 @@ pub(crate) fn doctor(
     report: Report,
     ensure: bool,
 ) -> AppResult<ExitCode> {
-    let prober = ProcessToolchainProber::new();
+    let prober = ProcessToolchainProber::new(std::sync::Arc::new(ProcessToolRunner::new()));
     let mut reporter = report.reporter();
     // Stream each tool's verdict the moment its probe completes — the reporter
     // flushes per line — so `doctor` reports progressively (check → report →
