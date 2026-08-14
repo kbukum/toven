@@ -38,7 +38,7 @@ jobs:
       # (ast-grep for structure, mdbook + mdbook-mermaid for docs-build) must be
       # present for the gate to pass — the single source of truth for provisioning.
       - name: Install task-graph tooling
-        uses: taiki-e/install-action@cb33e69fad06166ca28a42b2575e4dadabf62ee8 # v2
+        uses: taiki-e/install-action@7f4eb899022d8fe70b20c4f3de697aa85c309026 # v2
         with:
           tool: ast-grep,mdbook,mdbook-mermaid
 
@@ -70,7 +70,7 @@ jobs:
           cache: false
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@72d126e709cad40056a62344eee609d696d62d33 # v2.7.8
+        uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2.7.8
 
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov --locked --version 0.8.5
@@ -82,7 +82,7 @@ jobs:
       # `doctor`'s referenced tools (ast-grep for structure, mdbook +
       # mdbook-mermaid for docs-build) so the required-tool gate can pass.
       - name: Install task-graph tooling
-        uses: taiki-e/install-action@cb33e69fad06166ca28a42b2575e4dadabf62ee8 # v2
+        uses: taiki-e/install-action@7f4eb899022d8fe70b20c4f3de697aa85c309026 # v2
         with:
           tool: ast-grep,mdbook,mdbook-mermaid
 
