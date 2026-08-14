@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
+use rskit_process::LifecyclePolicy;
 
 use super::InvocationEnvironment;
 
@@ -91,6 +92,12 @@ pub struct ToolInvocation {
     /// tool no stdin; `Some(bytes)` pipes exactly `bytes` (e.g. release notes
     /// fed to `gh release create --notes-file -`).
     pub stdin: Option<Vec<u8>>,
+    /// Caller-declared subprocess lifecycle intent (grace period, process-group
+    /// isolation, descendant targeting, kill escalation) the concrete runner
+    /// honors when spawning and reaping this tool's child. Threading it here
+    /// keeps the spawn config and the supervisor's shutdown backstop on the same
+    /// per-invocation policy rather than a single supervisor-wide default.
+    pub lifecycle: LifecyclePolicy,
 }
 
 impl ToolInvocation {
@@ -100,7 +107,7 @@ impl ToolInvocation {
     /// docs); override with [`with_environment`](Self::with_environment) for a
     /// hermetic policy.
     #[must_use]
-    pub const fn new(argv: Vec<String>) -> Self {
+    pub fn new(argv: Vec<String>) -> Self {
         Self {
             argv,
             working_dir: None,
@@ -110,6 +117,7 @@ impl ToolInvocation {
             timeout: None,
             max_output_bytes: None,
             stdin: None,
+            lifecycle: LifecyclePolicy::default(),
         }
     }
 
@@ -159,6 +167,14 @@ impl ToolInvocation {
     #[must_use]
     pub fn with_stdin(mut self, stdin: impl Into<Vec<u8>>) -> Self {
         self.stdin = Some(stdin.into());
+        self
+    }
+
+    /// Set the subprocess lifecycle intent the runner honors for this
+    /// invocation (grace period, isolation, descendant targeting, escalation).
+    #[must_use]
+    pub const fn with_lifecycle_policy(mut self, lifecycle: LifecyclePolicy) -> Self {
+        self.lifecycle = lifecycle;
         self
     }
 

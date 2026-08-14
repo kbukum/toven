@@ -99,7 +99,9 @@ pub fn tool_spec(invocation: &ToolInvocation) -> AppResult<ProcessSpec> {
 /// `with_timeout(invocation.timeout)` clears rskit-process's inherited 30s
 /// default so an invocation without a declared bound runs unbounded; a declared
 /// bound is honored. Captured output stays bounded by the runner default cap
-/// unless the invocation narrows it further.
+/// unless the invocation narrows it further. The invocation's lifecycle intent
+/// is carried onto the config so the spawn and the supervisor's shutdown
+/// backstop escalate this child by the same per-invocation policy.
 #[must_use]
 pub fn tool_config(invocation: &ToolInvocation) -> ProcessConfig {
     let mut captured = CapturedIo::new();
@@ -108,9 +110,38 @@ pub fn tool_config(invocation: &ToolInvocation) -> ProcessConfig {
     }
     let mut config = ProcessConfig::default()
         .with_io(ProcessIo::captured(captured))
-        .with_timeout(invocation.timeout);
+        .with_timeout(invocation.timeout)
+        .with_lifecycle_policy(invocation.lifecycle);
     if let Some(max_output_bytes) = invocation.max_output_bytes {
         config = config.with_max_output_bytes(max_output_bytes);
     }
     config
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use rskit_process::LifecyclePolicy;
+    use toven_ports::ToolInvocation;
+
+    use super::tool_config;
+
+    /// The config lowering carries the invocation's lifecycle intent, so the
+    /// spawn and the supervisor's shutdown backstop escalate this child by the
+    /// same per-invocation policy instead of a supervisor-wide default.
+    #[test]
+    fn tool_config_carries_the_invocation_lifecycle_policy() {
+        let policy = LifecyclePolicy::default()
+            .with_kill_after_grace(false)
+            .with_grace_period(Duration::from_millis(250));
+        let invocation =
+            ToolInvocation::new(vec!["/bin/true".into()]).with_lifecycle_policy(policy);
+
+        assert_eq!(
+            tool_config(&invocation).lifecycle,
+            policy,
+            "the invocation's lifecycle policy reaches the process config verbatim"
+        );
+    }
 }
