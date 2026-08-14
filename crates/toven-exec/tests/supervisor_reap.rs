@@ -197,7 +197,11 @@ async fn a_held_persistent_process_survives_dropping_the_runner_that_started_it(
         .with_readiness(ExecutionReadiness::Started);
 
     let outcome = runner
-        .start_persistent(&invocation, CancellationToken::new(), OutputObserver::none())
+        .start_persistent(
+            &invocation,
+            CancellationToken::new(),
+            OutputObserver::none(),
+        )
         .await
         .expect("persistent start");
     let StartOutcome::Ready { process, .. } = outcome else {

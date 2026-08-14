@@ -273,7 +273,13 @@ async fn run_supervised(run: TaskRun<'_>, sink: &mut dyn Reporter) -> AppResult<
     // healthy run reads exactly as before.
     let mut buffered = PlanReporter::new(sink);
     let host = PlanHost::new(run.readers, run.digest, run.prober, run.cache);
-    let plan = match plan(run.request, &run.project.document, run.providers, host, &mut buffered) {
+    let plan = match plan(
+        run.request,
+        &run.project.document,
+        run.providers,
+        host,
+        &mut buffered,
+    ) {
         Ok(plan) => plan,
         Err(error) => {
             buffered.abort()?;
