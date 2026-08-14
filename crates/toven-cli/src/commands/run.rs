@@ -5,10 +5,12 @@
 //! [`Event::RunStarted`], and calls the engine PLAN spine. A `--dry-run` /
 //! `--explain` cut stops at PLAN and synthesizes the terminal summary from the
 //! immutable [`Plan`]; a full run drives APPLY on a Tokio runtime with
-//! cooperative Ctrl-C cancellation. The `release` lifecycle lives in its own
+//! caller-declared graceful shutdown (SIGINT/SIGTERM/SIGHUP → cooperative
+//! teardown, backed by the runner's process supervisor). The `release`
+//! lifecycle lives in its own
 //! [`commands::release`](crate::commands::release) module.
 
-use rskit_cli::{ExitCode, on_ctrl_c};
+use rskit_cli::{ExitCode, ShutdownController, ShutdownPolicy};
 use rskit_errors::AppResult;
 use toven_core::config::ViewMode;
 use toven_core::plan::{CacheMode, PlanHost, PlanRequest, plan};
@@ -50,8 +52,9 @@ pub(crate) fn resolve_max_parallel(jobs: Option<usize>, project: &Project) -> Op
 /// derived from the terminal [`RunStats`].
 ///
 /// # Errors
-/// Propagates PLAN/APPLY failures and runtime construction failures. Ctrl+C is
-/// handled cooperatively by APPLY and returned as a terminal run summary.
+/// Propagates PLAN/APPLY failures and runtime construction failures. A stop
+/// signal (SIGINT/SIGTERM/SIGHUP) is handled cooperatively by APPLY and
+/// returned as a terminal run summary; a second signal force-exits.
 #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
 pub(crate) fn execute(
     providers: &[&dyn Provider],
@@ -185,13 +188,22 @@ pub(crate) fn execute(
     let runner = host.runner;
     let mut output = host.output;
     let runtime = host.runtime;
+    let supervisor = host.supervisor;
 
     let summary = runtime.block_on(async {
-        // Install Ctrl+C → cooperative cancellation. The token is threaded into APPLY
-        // (not raced against it): on interrupt the engine SIGTERMs every in-flight
-        // worker, tears down held processes, and returns a normal `RunStats` instead of
-        // leaking child processes by dropping the future.
-        let cancel = on_ctrl_c();
+        // Install caller-declared graceful shutdown. The default policy captures
+        // every stop signal — SIGINT (Ctrl+C), SIGTERM (`kill`/IDE-stop), and
+        // SIGHUP (terminal-close/SSH-drop) — and cancels a shared token; a second
+        // signal force-exits with code 130. The token is threaded into APPLY (not
+        // raced against it): on the first signal the engine SIGTERMs every
+        // in-flight worker, tears down held processes, and returns a normal
+        // `RunStats`. Subscribing the runner's supervisor to the same token is the
+        // backstop — a process-level signal reaps the whole `cargo`/`nextest`/
+        // `rustc` group even if no individual run future observes it, so nothing
+        // is left holding Cargo's artifact lock.
+        let shutdown = ShutdownController::install(ShutdownPolicy::default())?;
+        let cancel = shutdown.token();
+        let _shutdown_backstop = supervisor.subscribe_shutdown(cancel.clone())?;
         apply(&plan, runner, &cache, sink, &mut output, options, cancel).await
     });
     // `pane_scratch` (the owned `TempDir`) removes the pane scratch dir on drop,

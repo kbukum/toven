@@ -3,14 +3,15 @@
 //! `toven <task> --watch` runs the task once, then reruns the affected subgraph
 //! each time a source file changes. This module builds the same rskit-backed
 //! APPLY host as [`run`](super::run) — process runner, per-unit output channel,
-//! and cooperative Ctrl+C cancellation — plus the concrete
+//! and caller-declared graceful shutdown (SIGINT/SIGTERM/SIGHUP → cooperative
+//! teardown, backed by the runner's process supervisor) — plus the concrete
 //! [`RskitFsWatch`](toven_engine::watch::RskitFsWatch) adapter, then hands them
 //! to the engine loop on a Tokio runtime.
 
 use std::path::PathBuf;
 use std::time::Duration;
 
-use rskit_cli::{ExitCode, Palette, on_ctrl_c};
+use rskit_cli::{ExitCode, Palette, ShutdownController, ShutdownPolicy};
 use rskit_errors::AppResult;
 use toven_core::config::ViewMode;
 use toven_core::federation::MemberVcsReaders;
@@ -38,7 +39,7 @@ pub(crate) struct LiveOutput {
     pub(crate) pane_dir: PathBuf,
 }
 
-/// Run a task under watch mode until Ctrl+C or the watcher stops.
+/// Run a task under watch mode until a stop signal or the watcher stops.
 ///
 /// Builds the APPLY host and the rskit-fs watch adapter, then drives
 /// [`WatchSession`] on a current-thread runtime. Returns the process exit
@@ -91,12 +92,19 @@ pub(crate) fn run_watch(
     let runner = host.runner;
     let mut output = host.output;
     let runtime = host.runtime;
+    let supervisor = host.supervisor;
     let watch = RskitFsWatch::new();
 
     let summary = runtime.block_on(async {
-        // Ctrl+C is shared with APPLY: it cancels the in-flight run and breaks the
-        // watch loop, so a single interrupt exits cleanly with the last summary.
-        let cancel = on_ctrl_c();
+        // Caller-declared graceful shutdown is shared with APPLY: every stop
+        // signal (SIGINT/SIGTERM/SIGHUP) cancels the token, which cancels the
+        // in-flight run and breaks the watch loop, so a single interrupt exits
+        // cleanly with the last summary; a second signal force-exits with code
+        // 130. Subscribing the runner's supervisor to the same token is the
+        // backstop that reaps the whole `cargo`/`nextest`/`rustc` group.
+        let shutdown = ShutdownController::install(ShutdownPolicy::default())?;
+        let cancel = shutdown.token();
+        let _shutdown_backstop = supervisor.subscribe_shutdown(cancel.clone())?;
         WatchSession {
             request: request.clone(),
             document: &project.document,

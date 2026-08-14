@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use rskit_cli::Palette;
 use rskit_errors::{AppError, AppResult};
+use rskit_process::ProcessSupervisor;
 use toven_core::config::ViewMode;
 use toven_engine::apply::ProcessCommandRunner;
 use toven_engine::output::UnitOutputChannel;
@@ -47,6 +48,9 @@ pub(crate) struct LiveApplyBinding<'a> {
 pub(crate) struct LiveApplyHost {
     /// The live-view-bound process runner, ready to hand to the engine.
     pub(crate) runner: Arc<dyn CommandRunner>,
+    /// The runner's process supervisor, exposed so the verb can subscribe it to
+    /// the shutdown handle as the backstop that reaps every spawned group.
+    pub(crate) supervisor: Arc<ProcessSupervisor>,
     /// The per-unit output channel the engine emits raw bytes through.
     pub(crate) output: UnitOutputChannel<Box<dyn RawOutputSink>>,
     /// The current-thread runtime the verb blocks on.
@@ -71,6 +75,7 @@ pub(crate) fn build_live_apply_host(
         binding.max_parallel,
         binding.pane_dir,
     )?;
+    let supervisor = configured_runner.supervisor();
     let runner: Arc<dyn CommandRunner> = Arc::new(configured_runner);
     let output = UnitOutputChannel::new(raw_sink);
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -79,6 +84,7 @@ pub(crate) fn build_live_apply_host(
         .map_err(AppError::internal)?;
     Ok(LiveApplyHost {
         runner,
+        supervisor,
         output,
         runtime,
     })

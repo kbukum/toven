@@ -333,6 +333,13 @@ async fn start_persistent(
     let process_config = process_config
         .clone()
         .with_lifecycle_policy(invocation.lifecycle);
+    // The supervised persistent process owns no supervisor of its own — its
+    // registration lives in the injected supervisor's registry. Hand a clone of
+    // that supervisor to the returned held handle so the registry (and thus the
+    // still-running child) outlives the runner: dropping `ProcessCommandRunner`
+    // before the caller shuts the handle down must not drain the registration
+    // and reap the child the caller still owns.
+    let handle_supervisor = Arc::clone(&supervisor);
     let run = tokio::task::spawn_blocking(move || {
         start_persistent_supervised(
             &supervisor,
@@ -351,6 +358,7 @@ async fn start_persistent(
             process: Box::new(ProcessHeldProcess {
                 unit_id,
                 process: Arc::new(Mutex::new(Some(run.process))),
+                _supervisor: handle_supervisor,
             }),
         }),
         Err(error)
@@ -368,6 +376,12 @@ async fn start_persistent(
 struct ProcessHeldProcess {
     unit_id: String,
     process: Arc<Mutex<Option<rskit_process::PersistentProcess>>>,
+    /// Keeps the injected supervisor's registry alive for as long as the caller
+    /// holds this handle. A supervised persistent process owns no supervisor of
+    /// its own, so without this the runner's supervisor could drop first, and
+    /// its registry-drain backstop would reap the child out from under the
+    /// still-held handle.
+    _supervisor: Arc<ProcessSupervisor>,
 }
 
 impl HeldProcess for ProcessHeldProcess {
