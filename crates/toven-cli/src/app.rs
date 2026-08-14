@@ -231,9 +231,14 @@ fn dispatch(
         }
         Command::Coverage => {
             let project = load(providers, cli, true)?;
-            with_hooks(providers, supervisor, cli, &project, VerbId::Coverage, || {
-                commands::coverage::execute(providers, supervisor, &project, cli)
-            })
+            with_hooks(
+                providers,
+                supervisor,
+                cli,
+                &project,
+                VerbId::Coverage,
+                || commands::coverage::execute(providers, supervisor, &project, cli),
+            )
         }
         Command::Explain { task } => {
             let project = load(providers, cli, false)?;

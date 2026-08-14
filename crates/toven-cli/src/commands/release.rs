@@ -557,7 +557,8 @@ fn bump(
     } else {
         project.document.hooks_for(VerbId::Bump)
     };
-    let hook_runner = crate::commands::hook::CliHookRunner::new(providers, supervisor, project, cli);
+    let hook_runner =
+        crate::commands::hook::CliHookRunner::new(providers, supervisor, project, cli);
     crate::commands::hook::run_with_lifecycle(&lifecycle, &hook_runner, || {
         let mut reporter = QuietReporter;
         let report = release_bump(
