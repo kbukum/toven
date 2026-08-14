@@ -19,8 +19,8 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_process::{
     CapturedIo, ObservedIo, OutputObserver as ProcessOutputObserver, OutputPolicy,
     PersistentConfig, PersistentOutputObserver, PersistentReadiness, ProcessConfig, ProcessIo,
-    ProcessSpec, SignalPolicy, persistent_start_error_kind, run_with_cancel,
-    start_persistent_with_cancel,
+    ProcessSpec, ProcessSupervisor, persistent_start_error_kind, run_with_cancel_supervised,
+    start_persistent_supervised,
 };
 #[cfg(unix)]
 use rskit_process::{PtyIo, PtySize};
@@ -34,6 +34,7 @@ use toven_ports::{
 pub struct ProcessCommandRunner {
     project_root: PathBuf,
     process_config: ProcessConfig,
+    supervisor: Arc<ProcessSupervisor>,
     persistent_shutdown_grace: std::time::Duration,
     #[cfg(unix)]
     pty_size: Option<PtySize>,
@@ -50,11 +51,13 @@ impl ProcessCommandRunner {
         // killed at 30s behind Toven's back.
         let process_config = ProcessConfig::default()
             .with_timeout(None)
-            .with_io(ProcessIo::captured(CapturedIo::new()))
-            .with_signal_policy(SignalPolicy::default());
+            .with_io(ProcessIo::captured(CapturedIo::new()));
         Self {
             project_root: project_root.into(),
             process_config,
+            supervisor: Arc::new(ProcessSupervisor::new(
+                rskit_process::LifecyclePolicy::default(),
+            )),
             persistent_shutdown_grace: std::time::Duration::from_secs(5),
             #[cfg(unix)]
             pty_size: None,
@@ -117,6 +120,27 @@ impl ProcessCommandRunner {
         self
     }
 
+    /// Drive spawned children through a caller-owned [`ProcessSupervisor`].
+    ///
+    /// By default the runner owns a private supervisor. Injecting a shared one
+    /// lets a process-level shutdown handle (subscribed via
+    /// [`ProcessSupervisor::subscribe_shutdown`]) reap every child this runner
+    /// spawned as the backstop behind cooperative cancellation.
+    #[must_use]
+    pub fn with_supervisor(mut self, supervisor: Arc<ProcessSupervisor>) -> Self {
+        self.supervisor = supervisor;
+        self
+    }
+
+    /// The supervisor this runner registers spawned children with.
+    ///
+    /// A caller wires this into a shutdown handle so the supervisor reaps the
+    /// runner's `cargo`/`nextest`/`rustc` groups on a process-level stop.
+    #[must_use]
+    pub fn supervisor(&self) -> Arc<ProcessSupervisor> {
+        Arc::clone(&self.supervisor)
+    }
+
     /// Capture stdout/stderr, returning the full output once the process exits.
     /// Used when output must be buffered into a deterministic per-unit block
     /// (the default under parallelism).
@@ -126,7 +150,11 @@ impl ProcessCommandRunner {
         spec: ProcessSpec,
         cancel: CancellationToken,
     ) -> AppResult<RunOutcome> {
-        let result = run_with_cancel(&spec, &self.process_config, cancel).await?;
+        let config = self
+            .process_config
+            .clone()
+            .with_lifecycle_policy(invocation.lifecycle);
+        let result = run_with_cancel_supervised(&self.supervisor, &spec, &config, cancel).await?;
         if result.stdout_truncated || result.stderr_truncated {
             return Err(AppError::new(
                 rskit_errors::ErrorCode::Internal,
@@ -167,8 +195,12 @@ impl ProcessCommandRunner {
             Arc::clone(&stdout_seen),
         ))
         .with_output(OutputPolicy::observe_only());
-        let config = self.process_config.clone().with_io(ProcessIo::observed(io));
-        let result = run_with_cancel(&spec, &config, cancel).await?;
+        let config = self
+            .process_config
+            .clone()
+            .with_io(ProcessIo::observed(io))
+            .with_lifecycle_policy(invocation.lifecycle);
+        let result = run_with_cancel_supervised(&self.supervisor, &spec, &config, cancel).await?;
         Ok(gate_outcome(
             invocation.fail_if_output,
             result.success(),
@@ -199,8 +231,12 @@ impl ProcessCommandRunner {
         ))
         .with_size(size)
         .with_output(OutputPolicy::observe_only());
-        let config = self.process_config.clone().with_io(ProcessIo::pty(io));
-        let result = run_with_cancel(&spec, &config, cancel).await?;
+        let config = self
+            .process_config
+            .clone()
+            .with_io(ProcessIo::pty(io))
+            .with_lifecycle_policy(invocation.lifecycle);
+        let result = run_with_cancel_supervised(&self.supervisor, &spec, &config, cancel).await?;
         Ok(gate_outcome(
             invocation.fail_if_output,
             result.success(),
@@ -254,6 +290,7 @@ impl CommandRunner for ProcessCommandRunner {
             invocation,
             &self.project_root,
             &self.process_config,
+            Arc::clone(&self.supervisor),
             self.persistent_shutdown_grace,
             cancel,
             output,
@@ -281,6 +318,7 @@ async fn start_persistent(
     invocation: &Invocation,
     project_root: &Path,
     process_config: &ProcessConfig,
+    supervisor: Arc<ProcessSupervisor>,
     shutdown_grace: std::time::Duration,
     cancel: CancellationToken,
     output: OutputObserver,
@@ -292,9 +330,17 @@ async fn start_persistent(
         .with_shutdown_grace_period(shutdown_grace)
         .with_output_observer(process_observer(&invocation.unit_id, output));
     let unit_id = invocation.unit_id.clone();
-    let process_config = process_config.clone();
+    let process_config = process_config
+        .clone()
+        .with_lifecycle_policy(invocation.lifecycle);
     let run = tokio::task::spawn_blocking(move || {
-        start_persistent_with_cancel(&spec, &process_config, &persistent_config, cancel)
+        start_persistent_supervised(
+            &supervisor,
+            &spec,
+            &process_config,
+            &persistent_config,
+            cancel,
+        )
     })
     .await
     .map_err(AppError::internal)?;
