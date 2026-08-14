@@ -27,7 +27,7 @@ use toven_ports::{Provider, Reporter, SourceDigest, ToolchainProber};
 
 use crate::commands::support::{LiveApplyBinding, build_live_apply_host};
 use crate::host::Project;
-use crate::report::exit_code;
+use crate::report::terminal_exit_code;
 
 /// The resolved live-output binding for a watched run: which view to render and
 /// the color/PTY inputs the sink needs, carried as one value so the watch host
@@ -126,6 +126,11 @@ pub(crate) async fn run_watch(run: WatchRun<'_>, sink: &mut dyn Reporter) -> App
     // a single interrupt exits cleanly with the last summary (a second signal
     // force-exits with code 130), and the supervisor the runner is bound to reaps
     // the whole `cargo`/`nextest`/`rustc` group as the backstop.
+    // Clone the shared token before the session consumes it: a stop signal
+    // cancels the in-flight rerun and leaves watch mode with a healthy-looking
+    // summary (cancelled, not failed), so the token state is what maps a
+    // signalled exit to `Cancelled` (130) rather than the summary-derived code.
+    let cancelled = run.cancel.clone();
     let summary = WatchSession {
         request: run.request.clone(),
         document: &run.project.document,
@@ -148,5 +153,5 @@ pub(crate) async fn run_watch(run: WatchRun<'_>, sink: &mut dyn Reporter) -> App
     // The pane scratch dir is an owned `TempDir` held by the calling `run::execute`
     // for the whole session; it is reclaimed on that guard's drop, so the watch
     // host does not remove it here.
-    Ok(exit_code(&summary?))
+    Ok(terminal_exit_code(&summary?, cancelled.is_cancelled()))
 }

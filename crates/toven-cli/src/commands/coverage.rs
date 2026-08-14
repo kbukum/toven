@@ -11,6 +11,8 @@
 //! for the run (argv wins; config is the default), and the selection flags
 //! narrow the measured scope exactly as the task verbs do.
 
+use std::sync::Arc;
+
 use rskit_cli::{ExitCode, OutputTable};
 use rskit_errors::{AppError, AppResult};
 use serde::Serialize;
@@ -19,6 +21,7 @@ use toven_core::plan::PlanRequest;
 use toven_engine::coverage::{
     COVERAGE_DIR, CoverageOverrides, CoverageReport, ModuleCoverage, coverage_report,
 };
+use toven_exec::ProcessSupervisor;
 use toven_ports::{Provider, TaskIntent};
 
 use crate::commands::run::WatchFlags;
@@ -37,6 +40,7 @@ const COVERAGE_TASK: &str = "coverage";
 /// invalid ecosystem coverage config, and a profile read/parse error.
 pub(crate) fn execute(
     providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
     project: &Project,
     cli: &Cli,
 ) -> AppResult<ExitCode> {
@@ -52,7 +56,7 @@ pub(crate) fn execute(
     rskit_fs::sync_io::dir::remove_all_if_exists(&staging)?;
     rskit_fs::sync_io::dir::create_all(&staging)?;
 
-    let measured = measure(providers, project, cli, &selection)?;
+    let measured = measure(providers, supervisor, project, cli, &selection)?;
     let report = aggregate(providers, project, &selection, &overrides)?;
 
     match resolve_output(cli.output, &project.document) {
@@ -73,6 +77,7 @@ pub(crate) fn execute(
 /// verdict table owns).
 fn measure(
     providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
     project: &Project,
     cli: &Cli,
     selection: &TaskSelection,
@@ -85,6 +90,7 @@ fn measure(
     );
     crate::commands::run::execute(
         providers,
+        supervisor,
         project,
         report,
         TaskIntent::resolve(COVERAGE_TASK),

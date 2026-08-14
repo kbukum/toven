@@ -7,18 +7,19 @@
 //! immutable [`Plan`]; a full run drives APPLY on a Tokio runtime with
 //! caller-declared graceful shutdown (SIGINT/SIGTERM/SIGHUP → cooperative
 //! teardown, backed by the runner's process supervisor). Shutdown is installed
-//! at the composition root before PLAN, and one shared [`ProcessSupervisor`] is
-//! injected into both the toolchain prober's tool runner and the APPLY command
-//! runner, so a stop signal during a toolchain probe cancels and reaps rather
-//! than orphaning the probe child under the OS default action. The `release`
-//! lifecycle lives in its own
-//! [`commands::release`](crate::commands::release) module.
+//! before PLAN, and the one shared [`ProcessSupervisor`] built at the app
+//! composition root — the same instance the ecosystem providers' tool runner
+//! registers with — is injected here into both the toolchain prober's tool
+//! runner and the APPLY command runner, so a stop signal during PLAN discovery
+//! (`cargo metadata`) or a toolchain probe cancels and reaps rather than
+//! orphaning the child under the OS default action. The `release` lifecycle
+//! lives in its own [`commands::release`](crate::commands::release) module.
 
 use std::sync::Arc;
 
 use rskit_cli::{ExitCode, ShutdownController, ShutdownPolicy};
 use rskit_errors::{AppError, AppResult};
-use rskit_process::{LifecyclePolicy, ProcessSupervisor};
+use rskit_process::ProcessSupervisor;
 use toven_core::config::ViewMode;
 use toven_core::federation::MemberVcsReaders;
 use toven_core::plan::{CacheMode, PlanHost, PlanRequest, plan};
@@ -34,7 +35,7 @@ use crate::commands::selection::TaskSelection;
 use crate::commands::support::{LiveApplyBinding, build_live_apply_host};
 use crate::commands::watch::{LiveOutput, WatchRun, run_watch};
 use crate::host::{Project, Report, new_run_id};
-use crate::report::exit_code;
+use crate::report::terminal_exit_code;
 
 /// Whether a task run should enter watch mode, and its debounce window.
 ///
@@ -67,6 +68,7 @@ pub(crate) fn resolve_max_parallel(jobs: Option<usize>, project: &Project) -> Op
 #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
 pub(crate) fn execute(
     providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
     project: &Project,
     report: Report,
     intent: TaskIntent,
@@ -114,14 +116,16 @@ pub(crate) fn execute(
     let digest = FsSourceDigest::new(&project.project_root);
     let cache = FsContentCache::new(project.cache_root()?);
 
-    // Composition root: one shared process supervisor drives every child spawned
-    // across PLAN and APPLY. Injecting it into the prober's tool runner means a
-    // stop signal during a toolchain probe reaps the probe child through the same
-    // backstop the APPLY runner uses, rather than orphaning it under the OS
-    // default action.
-    let supervisor = Arc::new(ProcessSupervisor::new(LifecyclePolicy::default()));
+    // The shared process supervisor is created once at the app composition root
+    // and injected here (the same instance the ecosystem providers' tool runner
+    // registers with), so every child spawned across PLAN discovery
+    // (`cargo metadata`), toolchain probing, and APPLY reaps through one
+    // process-level backstop rather than a per-runner supervisor. Injecting it
+    // into the prober's tool runner means a stop signal during a toolchain probe
+    // reaps the probe child through the same backstop the APPLY runner uses,
+    // rather than orphaning it under the OS default action.
     let prober = ProcessToolchainProber::new(Arc::new(
-        ProcessToolRunner::new().with_supervisor(Arc::clone(&supervisor)),
+        ProcessToolRunner::new().with_supervisor(Arc::clone(supervisor)),
     ));
 
     // A multi-threaded runtime so the spawned signal watcher and the supervisor's
@@ -147,7 +151,7 @@ pub(crate) fn execute(
             digest: &digest,
             prober: &prober,
             cache: &cache,
-            supervisor: &supervisor,
+            supervisor,
             effective_view,
             pane_dir,
             run_id,
@@ -295,7 +299,10 @@ async fn run_supervised(run: TaskRun<'_>, sink: &mut dyn Reporter) -> AppResult<
     if run.plan_only {
         let summary = plan_summary(&plan);
         sink.emit(&Event::RunFinished { summary })?;
-        return Ok(exit_code(&summary));
+        // A stop signal during synchronous PLAN (discovery/toolchain probing)
+        // still fired the shared token; report it as cancelled rather than a
+        // successful dry-run summary.
+        return Ok(terminal_exit_code(&summary, cancel.is_cancelled()));
     }
 
     // Resolve the effective concurrency ceiling before binding the live view:
@@ -329,8 +336,13 @@ async fn run_supervised(run: TaskRun<'_>, sink: &mut dyn Reporter) -> AppResult<
     )?;
     let runner = host.runner;
     let mut output = host.output;
+    // Clone the shared token before APPLY consumes it: a cooperative stop leaves
+    // the summary healthy (cancellation records `cancelled_units`, excluded from
+    // `has_failures`), so the post-APPLY token state is what distinguishes a
+    // signalled run (exit 130) from a clean one.
+    let cancelled = cancel.clone();
     let summary = apply(&plan, runner, run.cache, sink, &mut output, options, cancel).await?;
-    Ok(exit_code(&summary))
+    Ok(terminal_exit_code(&summary, cancelled.is_cancelled()))
 }
 
 /// Synthesize the terminal [`RunStats`] from a PLAN-only [`Plan`].

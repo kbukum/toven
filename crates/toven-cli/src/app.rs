@@ -8,6 +8,8 @@
 //! reporter sinks or the verb projections; this module prints only the final
 //! rendered error.
 
+use std::sync::Arc;
+
 use clap::Parser;
 use clap::error::ErrorKind;
 use rskit_cli::{ErrorRenderer, ExitCode};
@@ -15,6 +17,7 @@ use rskit_errors::{AppError, AppResult};
 use toven_core::config::VerbId;
 use toven_core::plan::addressable_task_names;
 use toven_core::vcs::BaselineFlags;
+use toven_exec::ProcessSupervisor;
 use toven_ports::{Provider, TaskIntent};
 
 use crate::flags::{Cli, Command, GraphFormat};
@@ -24,12 +27,14 @@ use crate::{collision, commands, flags, grammar, host};
 /// Run the Toven CLI against the compiled-in `providers`.
 ///
 /// Parses the process argv, dispatches the argv-first grammar, and returns the
-/// process exit code. Never panics: clap parse outcomes and typed engine errors
-/// are both mapped to an [`ExitCode`]; the apps pass the result to
-/// [`std::process::exit`].
+/// process exit code. `supervisor` is the one shared process supervisor the app
+/// composition root also built the provider tool runner with, so every child
+/// spawned across PLAN and APPLY reaps through a single process-level backstop.
+/// Never panics: clap parse outcomes and typed engine errors are both mapped to
+/// an [`ExitCode`]; the apps pass the result to [`std::process::exit`].
 #[must_use]
-pub fn run(providers: &[&dyn Provider]) -> ExitCode {
-    run_from(providers, std::env::args_os())
+pub fn run(providers: &[&dyn Provider], supervisor: &Arc<ProcessSupervisor>) -> ExitCode {
+    run_from(providers, supervisor, std::env::args_os())
 }
 
 /// Run the CLI against an explicit argument vector (the testable core of
@@ -37,9 +42,16 @@ pub fn run(providers: &[&dyn Provider]) -> ExitCode {
 ///
 /// `args` includes the program name as its first element, exactly like
 /// [`std::env::args_os`]. Embedders and tests call this directly to drive a
-/// specific argv without touching the process environment.
+/// specific argv without touching the process environment. `supervisor` is the
+/// one shared process supervisor the app composition root also registered the
+/// provider tool runner with, so every child spawned across PLAN and APPLY reaps
+/// through a single process-level backstop.
 #[must_use]
-pub fn run_from<I, T>(providers: &[&dyn Provider], args: I) -> ExitCode
+pub fn run_from<I, T>(
+    providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
+    args: I,
+) -> ExitCode
 where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
@@ -63,7 +75,7 @@ where
         Err(error) => return clap_exit(&error),
     };
 
-    match dispatch(providers, &cli) {
+    match dispatch(providers, supervisor, &cli) {
         Ok(code) => code,
         Err(error) => {
             let (rendered, code) = ErrorRenderer::default().render(&error);
@@ -152,6 +164,7 @@ fn resolve_report(cli: &Cli, project: &Project) -> Report {
 /// unconfigured verb runs the body directly, so it pays no hook cost.
 fn with_hooks(
     providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
     cli: &Cli,
     project: &Project,
     verb: VerbId,
@@ -161,11 +174,15 @@ fn with_hooks(
     if hooks.is_empty() {
         return body();
     }
-    let runner = commands::hook::CliHookRunner::new(providers, project, cli);
+    let runner = commands::hook::CliHookRunner::new(providers, supervisor, project, cli);
     commands::hook::run_with_lifecycle(&hooks, &runner, body)
 }
 
-fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
+fn dispatch(
+    providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
+    cli: &Cli,
+) -> AppResult<ExitCode> {
     flags::gate(cli)?;
 
     match &cli.command {
@@ -178,13 +195,14 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
             let project = load(providers, cli, false)?;
             commands::driver::federation(providers, &project, action, cli.auto_install)
         }
-        Command::External(tokens) => dispatch_task(providers, cli, tokens),
+        Command::External(tokens) => dispatch_task(providers, supervisor, cli, tokens),
         Command::Run { task, passthrough } => {
             let project = load(providers, cli, true)?;
-            with_hooks(providers, cli, &project, VerbId::Run, || {
+            with_hooks(providers, supervisor, cli, &project, VerbId::Run, || {
                 let report = resolve_report(cli, &project);
                 commands::run::execute(
                     providers,
+                    supervisor,
                     &project,
                     report,
                     intent_for(task),
@@ -203,18 +221,18 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
         }
         Command::Plan { task } => {
             let project = load(providers, cli, true)?;
-            with_hooks(providers, cli, &project, VerbId::Plan, || {
-                plan_command(providers, cli, &project, task)
+            with_hooks(providers, supervisor, cli, &project, VerbId::Plan, || {
+                plan_command(providers, supervisor, cli, &project, task)
             })
         }
         Command::Release { action } => {
             let project = load(providers, cli, false)?;
-            commands::release::execute(providers, &project, cli, *action)
+            commands::release::execute(providers, supervisor, &project, cli, *action)
         }
         Command::Coverage => {
             let project = load(providers, cli, true)?;
-            with_hooks(providers, cli, &project, VerbId::Coverage, || {
-                commands::coverage::execute(providers, &project, cli)
+            with_hooks(providers, supervisor, cli, &project, VerbId::Coverage, || {
+                commands::coverage::execute(providers, supervisor, &project, cli)
             })
         }
         Command::Explain { task } => {
@@ -249,7 +267,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
         }
         Command::Doctor { ensure } => {
             let project = load(providers, cli, false)?;
-            with_hooks(providers, cli, &project, VerbId::Doctor, || {
+            with_hooks(providers, supervisor, cli, &project, VerbId::Doctor, || {
                 let report = resolve_report(cli, &project);
                 commands::doctor::doctor(providers, &project, report, *ensure || cli.auto_install)
             })
@@ -266,6 +284,7 @@ fn dispatch(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
 /// shared run pipeline with watch disabled and no live view.
 fn plan_command(
     providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
     cli: &Cli,
     project: &Project,
     task: &str,
@@ -273,6 +292,7 @@ fn plan_command(
     let report = resolve_report(cli, project);
     commands::run::execute(
         providers,
+        supervisor,
         project,
         report,
         intent_for(task),
@@ -294,7 +314,12 @@ fn plan_command(
 
 /// Dispatch a bare argv-first task: re-parse its trailing flags + passthrough,
 /// then merge them with the pre-token global flags and run.
-fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> AppResult<ExitCode> {
+fn dispatch_task(
+    providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
+    cli: &Cli,
+    tokens: &[String],
+) -> AppResult<ExitCode> {
     let invocation = grammar::parse_task(tokens)?;
     let flags = &invocation.flags;
 
@@ -360,9 +385,10 @@ fn dispatch_task(providers: &[&dyn Provider], cli: &Cli, tokens: &[String]) -> A
     let view = flags.view.or(cli.view).map(Into::into);
     let jobs = flags.jobs.or(cli.jobs);
 
-    with_hooks(providers, cli, &project, VerbId::Run, || {
+    with_hooks(providers, supervisor, cli, &project, VerbId::Run, || {
         commands::run::execute(
             providers,
+            supervisor,
             &project,
             report,
             intent_for(&invocation.task),

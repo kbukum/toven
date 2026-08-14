@@ -34,3 +34,8 @@ mod tool;
 
 pub use command::ProcessCommandRunner;
 pub use tool::ProcessToolRunner;
+
+// Re-exported so the app composition roots can build and thread the one shared
+// process supervisor (into the provider tool runner and the CLI run path)
+// without taking a direct `rskit-process` dependency of their own.
+pub use rskit_process::{LifecyclePolicy, ProcessSupervisor};

@@ -35,7 +35,6 @@ pub struct ProcessCommandRunner {
     project_root: PathBuf,
     process_config: ProcessConfig,
     supervisor: Arc<ProcessSupervisor>,
-    persistent_shutdown_grace: std::time::Duration,
     #[cfg(unix)]
     pty_size: Option<PtySize>,
 }
@@ -58,7 +57,6 @@ impl ProcessCommandRunner {
             supervisor: Arc::new(ProcessSupervisor::new(
                 rskit_process::LifecyclePolicy::default(),
             )),
-            persistent_shutdown_grace: std::time::Duration::from_secs(5),
             #[cfg(unix)]
             pty_size: None,
         }
@@ -110,13 +108,6 @@ impl ProcessCommandRunner {
     #[must_use]
     pub fn with_process_config(mut self, config: ProcessConfig) -> Self {
         self.process_config = config;
-        self
-    }
-
-    /// Override the persistent shutdown grace period.
-    #[must_use]
-    pub const fn with_persistent_shutdown_grace(mut self, grace: std::time::Duration) -> Self {
-        self.persistent_shutdown_grace = grace;
         self
     }
 
@@ -291,7 +282,10 @@ impl CommandRunner for ProcessCommandRunner {
             &self.project_root,
             &self.process_config,
             Arc::clone(&self.supervisor),
-            self.persistent_shutdown_grace,
+            // Honor the caller's carried lifecycle intent: the persistent
+            // teardown deadline is the invocation's own grace period, not a
+            // separate runner-level knob that would silently shadow it.
+            invocation.lifecycle.grace_period,
             cancel,
             output,
         )
