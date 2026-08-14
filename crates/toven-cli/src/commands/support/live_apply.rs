@@ -2,17 +2,18 @@
 //!
 //! [`build_live_apply_host`] assembles the one bundle `run` and `watch` both
 //! need to drive the engine APPLY loop: a [`ProcessCommandRunner`] bound to the
-//! resolved live view (tiles/panes/stream), a per-unit [`UnitOutputChannel`]
-//! over the selected raw-output sink, and a current-thread Tokio runtime. Each
-//! verb keeps its own `runtime.block_on(...)` body (task apply vs. watch loop);
-//! only the wiring is shared, so there is a single place the runner, output
-//! channel, and runtime are constructed.
+//! resolved live view (tiles/panes/stream) and to the caller-owned process
+//! [`ProcessSupervisor`], plus a per-unit [`UnitOutputChannel`] over the
+//! selected raw-output sink. The Tokio runtime and the supervisor are owned by
+//! the composition root (the execution verb) and injected, so `run` and `watch`
+//! drive PLAN and APPLY under one supervised lifecycle rather than each host
+//! standing up its own runtime and supervisor.
 
 use std::path::Path;
 use std::sync::Arc;
 
 use rskit_cli::Palette;
-use rskit_errors::{AppError, AppResult};
+use rskit_errors::AppResult;
 use rskit_process::ProcessSupervisor;
 use toven_core::config::ViewMode;
 use toven_engine::apply::ProcessCommandRunner;
@@ -43,31 +44,37 @@ pub(crate) struct LiveApplyBinding<'a> {
     pub(crate) pane_dir: &'a Path,
 }
 
-/// The assembled live-output APPLY host: the injected command runner, the
-/// per-unit output channel, and the runtime the verb drives its loop on.
+/// The assembled live-output APPLY host: the injected command runner and the
+/// per-unit output channel the verb drives its APPLY loop with.
+///
+/// The runtime and the shared [`ProcessSupervisor`] are owned by the
+/// composition root (the execution verb) and injected, so the runner reported
+/// here is already bound to the supervisor the root subscribes to the installed
+/// shutdown handle.
 pub(crate) struct LiveApplyHost {
     /// The live-view-bound process runner, ready to hand to the engine.
     pub(crate) runner: Arc<dyn CommandRunner>,
-    /// The runner's process supervisor, exposed so the verb can subscribe it to
-    /// the shutdown handle as the backstop that reaps every spawned group.
-    pub(crate) supervisor: Arc<ProcessSupervisor>,
     /// The per-unit output channel the engine emits raw bytes through.
     pub(crate) output: UnitOutputChannel<Box<dyn RawOutputSink>>,
-    /// The current-thread runtime the verb blocks on.
-    pub(crate) runtime: tokio::runtime::Runtime,
 }
 
-/// Build the shared live-output APPLY host for `project` under `binding`.
+/// Build the shared live-output APPLY host for `project` under `binding`,
+/// binding its process runner to the caller-owned `supervisor`.
+///
+/// The injected `supervisor` is the one the composition root subscribes to the
+/// installed shutdown handle, so a process-level stop reaps every child this
+/// runner spawns as the backstop behind cooperative cancellation.
 ///
 /// # Errors
-/// Propagates a live-view binding failure (PTY/pane setup) and a runtime
-/// construction failure.
+/// Propagates a live-view binding failure (PTY/pane setup).
 pub(crate) fn build_live_apply_host(
     project: &Project,
+    supervisor: &Arc<ProcessSupervisor>,
     binding: &LiveApplyBinding<'_>,
 ) -> AppResult<LiveApplyHost> {
     let (configured_runner, raw_sink) = configure_live_output(
-        ProcessCommandRunner::new(project.project_root.as_path()),
+        ProcessCommandRunner::new(project.project_root.as_path())
+            .with_supervisor(Arc::clone(supervisor)),
         binding.view,
         binding.force_stream,
         binding.palette,
@@ -75,17 +82,7 @@ pub(crate) fn build_live_apply_host(
         binding.max_parallel,
         binding.pane_dir,
     )?;
-    let supervisor = configured_runner.supervisor();
     let runner: Arc<dyn CommandRunner> = Arc::new(configured_runner);
     let output = UnitOutputChannel::new(raw_sink);
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(AppError::internal)?;
-    Ok(LiveApplyHost {
-        runner,
-        supervisor,
-        output,
-        runtime,
-    })
+    Ok(LiveApplyHost { runner, output })
 }

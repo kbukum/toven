@@ -6,13 +6,21 @@
 //! `--explain` cut stops at PLAN and synthesizes the terminal summary from the
 //! immutable [`Plan`]; a full run drives APPLY on a Tokio runtime with
 //! caller-declared graceful shutdown (SIGINT/SIGTERM/SIGHUP → cooperative
-//! teardown, backed by the runner's process supervisor). The `release`
+//! teardown, backed by the runner's process supervisor). Shutdown is installed
+//! at the composition root before PLAN, and one shared [`ProcessSupervisor`] is
+//! injected into both the toolchain prober's tool runner and the APPLY command
+//! runner, so a stop signal during a toolchain probe cancels and reaps rather
+//! than orphaning the probe child under the OS default action. The `release`
 //! lifecycle lives in its own
 //! [`commands::release`](crate::commands::release) module.
 
+use std::sync::Arc;
+
 use rskit_cli::{ExitCode, ShutdownController, ShutdownPolicy};
-use rskit_errors::AppResult;
+use rskit_errors::{AppError, AppResult};
+use rskit_process::{LifecyclePolicy, ProcessSupervisor};
 use toven_core::config::ViewMode;
+use toven_core::federation::MemberVcsReaders;
 use toven_core::plan::{CacheMode, PlanHost, PlanRequest, plan};
 use toven_engine::apply::{ApplyOptions, apply};
 use toven_engine::cache::FsContentCache;
@@ -20,10 +28,11 @@ use toven_engine::source::FsSourceDigest;
 use toven_engine::toolchain::ProcessToolchainProber;
 use toven_exec::ProcessToolRunner;
 use toven_model::{CacheVerdict, Event, Plan, RunStats};
-use toven_ports::{PlanReporter, Provider, Reporter, TaskIntent};
+use toven_ports::{PlanReporter, Provider, Reporter, SourceDigest, TaskIntent, ToolchainProber};
 
 use crate::commands::selection::TaskSelection;
 use crate::commands::support::{LiveApplyBinding, build_live_apply_host};
+use crate::commands::watch::{LiveOutput, WatchRun, run_watch};
 use crate::host::{Project, Report, new_run_id};
 use crate::report::exit_code;
 
@@ -103,43 +112,168 @@ pub(crate) fn execute(
     let opened = project.open_member_vcs(providers, &selection.baseline)?;
     let readers = opened.readers();
     let digest = FsSourceDigest::new(&project.project_root);
-    let prober = ProcessToolchainProber::new(std::sync::Arc::new(ProcessToolRunner::new()));
     let cache = FsContentCache::new(project.cache_root()?);
+
+    // Composition root: one shared process supervisor drives every child spawned
+    // across PLAN and APPLY. Injecting it into the prober's tool runner means a
+    // stop signal during a toolchain probe reaps the probe child through the same
+    // backstop the APPLY runner uses, rather than orphaning it under the OS
+    // default action.
+    let supervisor = Arc::new(ProcessSupervisor::new(LifecyclePolicy::default()));
+    let prober = ProcessToolchainProber::new(Arc::new(
+        ProcessToolRunner::new().with_supervisor(Arc::clone(&supervisor)),
+    ));
+
+    // A multi-threaded runtime so the spawned signal watcher and the supervisor's
+    // shutdown subscription run on worker threads: they keep observing a stop
+    // signal (and reap) even while PLAN's synchronous, blocking toolchain probe
+    // holds the block-on thread. Installing shutdown before PLAN then closes the
+    // gap where a probe could otherwise be orphaned under the OS default action.
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(AppError::internal)?;
 
     let mut reporter = report.reporter();
     let sink: &mut dyn Reporter = reporter.as_mut();
 
-    if watch.enabled {
-        return crate::commands::watch::run_watch(
+    let outcome = runtime.block_on(run_supervised(
+        TaskRun {
             providers,
             project,
-            &request,
-            &readers,
-            &digest,
-            &prober,
-            &cache,
+            report: &report,
+            request: &request,
+            readers: &readers,
+            digest: &digest,
+            prober: &prober,
+            cache: &cache,
+            supervisor: &supervisor,
+            effective_view,
+            pane_dir,
+            run_id,
+            intent_name,
             fail_fast,
             unit_timeout,
             jobs,
-            watch.debounce_ms,
-            &crate::commands::watch::LiveOutput {
-                view: effective_view,
-                force_stream: report.forces_stream_output(),
-                palette: report.stderr_palette(),
-                pane_dir,
+            plan_only,
+            watch,
+        },
+        sink,
+    ));
+    // `pane_scratch` (the owned `TempDir`) removes the pane scratch dir on drop,
+    // however the run exited — no manual reclaim needed.
+    drop(pane_scratch);
+    outcome
+}
+
+/// The borrowed inputs one supervised task run drives PLAN→APPLY with.
+///
+/// Bundled as one value (rather than a long positional argument list) so the
+/// composition root threads the plan ports, the shared supervised lifecycle
+/// (`supervisor`), and the run options through a single request into
+/// [`run_supervised`].
+struct TaskRun<'a> {
+    /// The ecosystem adapters compiled into this binary.
+    providers: &'a [&'a dyn Provider],
+    /// The resolved project (document + roots).
+    project: &'a Project,
+    /// The reporting context, for the resolved stream/palette live-output inputs.
+    report: &'a Report,
+    /// The typed PLAN request.
+    request: &'a PlanRequest,
+    /// Per-member git seams for changed-path detection.
+    readers: &'a MemberVcsReaders<'a>,
+    /// Content digest for module/source cache identities.
+    digest: &'a dyn SourceDigest,
+    /// Toolchain version prober for active workspaces.
+    prober: &'a dyn ToolchainProber,
+    /// Cache store + writer for per-unit verdicts.
+    cache: &'a FsContentCache,
+    /// The shared process supervisor the tool and command runners register with.
+    supervisor: &'a Arc<ProcessSupervisor>,
+    /// The resolved view preference (`--view` over `[toven].view`).
+    effective_view: ViewMode,
+    /// The per-run tmux pane scratch directory (owned by the caller's `TempDir`).
+    pane_dir: std::path::PathBuf,
+    /// The run identity emitted on `RunStarted`.
+    run_id: String,
+    /// The intent name emitted on `RunStarted`.
+    intent_name: String,
+    /// Whether the run stops the wave on the first failure.
+    fail_fast: bool,
+    /// The optional per-unit wall-clock bound (`--timeout`).
+    unit_timeout: Option<std::time::Duration>,
+    /// The `--jobs`/`-j` concurrency override.
+    jobs: Option<usize>,
+    /// Whether the run stops at PLAN (`--dry-run`/`--explain`).
+    plan_only: bool,
+    /// Whether the run enters watch mode, and its debounce window.
+    watch: WatchFlags,
+}
+
+/// Install graceful shutdown at the composition root, then drive PLAN→APPLY (or
+/// the watch loop) under the caller's runtime.
+///
+/// Shutdown is installed and the shared supervisor subscribed *before* PLAN, so
+/// a stop signal during a toolchain probe cancels and reaps rather than falling
+/// through to the OS default action. The multi-threaded runtime keeps the
+/// spawned signal watcher and supervisor subscription running on worker threads
+/// while PLAN's synchronous, blocking probe holds the block-on thread.
+///
+/// # Errors
+/// Propagates PLAN/APPLY failures and shutdown-installation failures.
+#[allow(clippy::future_not_send)]
+async fn run_supervised(run: TaskRun<'_>, sink: &mut dyn Reporter) -> AppResult<ExitCode> {
+    // Install caller-declared graceful shutdown at the composition root, before
+    // PLAN. The default policy captures every stop signal — SIGINT (Ctrl+C),
+    // SIGTERM (`kill`/IDE-stop), and SIGHUP (terminal-close/SSH-drop) — and cancels
+    // a shared token; a second signal force-exits with code 130. The token is
+    // threaded into PLAN's prober and APPLY (not raced against them): on the first
+    // signal the engine SIGTERMs every in-flight worker, tears down held processes,
+    // and returns a normal `RunStats`. Subscribing the shared supervisor to the
+    // same token is the backstop — a process-level signal reaps the whole
+    // `cargo`/`nextest`/`rustc` group (and any in-flight probe) even if no
+    // individual future observes it, so nothing is left holding Cargo's lock.
+    let shutdown = ShutdownController::install(ShutdownPolicy::default())?;
+    let cancel = shutdown.token();
+    let _shutdown_backstop = run.supervisor.subscribe_shutdown(cancel.clone())?;
+
+    if run.watch.enabled {
+        return run_watch(
+            WatchRun {
+                providers: run.providers,
+                project: run.project,
+                request: run.request,
+                readers: run.readers,
+                digest: run.digest,
+                prober: run.prober,
+                cache: run.cache,
+                supervisor: run.supervisor,
+                fail_fast: run.fail_fast,
+                unit_timeout: run.unit_timeout,
+                jobs: run.jobs,
+                debounce_ms: run.watch.debounce_ms,
+                live: &LiveOutput {
+                    view: run.effective_view,
+                    force_stream: run.report.forces_stream_output(),
+                    palette: run.report.stderr_palette(),
+                    pane_dir: run.pane_dir,
+                },
+                cancel,
             },
             sink,
-        );
+        )
+        .await;
     }
 
     // Defer the run header (and the PLAN-phase events) into a buffer until PLAN
     // commits: an unresolvable task fails during scheduling, and emitting the
-    // `run <task> on <repo>` header first would leave it above the error for a
-    // run that never started. On success the buffer replays in emission order,
-    // so a healthy run reads exactly as before.
+    // `run <task> on <repo>` header first would leave it above the error for a run
+    // that never started. On success the buffer replays in emission order, so a
+    // healthy run reads exactly as before.
     let mut buffered = PlanReporter::new(sink);
-    let host = PlanHost::new(&readers, &digest, &prober, &cache);
-    let plan = match plan(&request, &project.document, providers, host, &mut buffered) {
+    let host = PlanHost::new(run.readers, run.digest, run.prober, run.cache);
+    let plan = match plan(run.request, &run.project.document, run.providers, host, &mut buffered) {
         Ok(plan) => plan,
         Err(error) => {
             buffered.abort()?;
@@ -147,12 +281,12 @@ pub(crate) fn execute(
         }
     };
     buffered.commit(&Event::RunStarted {
-        run_id,
-        intent: intent_name,
-        project: project.document.project.name.clone(),
+        run_id: run.run_id,
+        intent: run.intent_name,
+        project: run.project.document.project.name.clone(),
     })?;
 
-    if plan_only {
+    if run.plan_only {
         let summary = plan_summary(&plan);
         sink.emit(&Event::RunFinished { summary })?;
         return Ok(exit_code(&summary));
@@ -162,54 +296,35 @@ pub(crate) fn execute(
     // `auto` streams inline for a serial (`--jobs 1`) or single-unit run, so the
     // renderer must know the ceiling the units will actually run under.
     let mut options = ApplyOptions {
-        fail_fast,
-        unit_timeout,
+        fail_fast: run.fail_fast,
+        unit_timeout: run.unit_timeout,
         ..ApplyOptions::default()
     };
-    if let Some(max_parallel) = resolve_max_parallel(jobs, project) {
+    if let Some(max_parallel) = resolve_max_parallel(run.jobs, run.project) {
         options.max_parallel = max_parallel.max(1);
     }
 
     // Bind the resolved live view (tiles/panes/stream) to a raw-output sink and the
-    // PTY sizing live units run under. The machine JSON projection, a non-terminal
-    // stderr, and `--view stream` all pin the byte-stable stream shape; tiles/panes
-    // require a Unix PTY (a no-op elsewhere).
+    // PTY sizing live units run under, binding the runner to the shared supervisor.
+    // The machine JSON projection, a non-terminal stderr, and `--view stream` all
+    // pin the byte-stable stream shape; tiles/panes require a Unix PTY (a no-op
+    // elsewhere).
     let host = build_live_apply_host(
-        project,
+        run.project,
+        run.supervisor,
         &LiveApplyBinding {
-            view: effective_view,
-            force_stream: report.forces_stream_output(),
-            palette: report.stderr_palette(),
+            view: run.effective_view,
+            force_stream: run.report.forces_stream_output(),
+            palette: run.report.stderr_palette(),
             unit_count: plan.units.len(),
             max_parallel: options.max_parallel,
-            pane_dir: &pane_dir,
+            pane_dir: &run.pane_dir,
         },
     )?;
     let runner = host.runner;
     let mut output = host.output;
-    let runtime = host.runtime;
-    let supervisor = host.supervisor;
-
-    let summary = runtime.block_on(async {
-        // Install caller-declared graceful shutdown. The default policy captures
-        // every stop signal — SIGINT (Ctrl+C), SIGTERM (`kill`/IDE-stop), and
-        // SIGHUP (terminal-close/SSH-drop) — and cancels a shared token; a second
-        // signal force-exits with code 130. The token is threaded into APPLY (not
-        // raced against it): on the first signal the engine SIGTERMs every
-        // in-flight worker, tears down held processes, and returns a normal
-        // `RunStats`. Subscribing the runner's supervisor to the same token is the
-        // backstop — a process-level signal reaps the whole `cargo`/`nextest`/
-        // `rustc` group even if no individual run future observes it, so nothing
-        // is left holding Cargo's artifact lock.
-        let shutdown = ShutdownController::install(ShutdownPolicy::default())?;
-        let cancel = shutdown.token();
-        let _shutdown_backstop = supervisor.subscribe_shutdown(cancel.clone())?;
-        apply(&plan, runner, &cache, sink, &mut output, options, cancel).await
-    });
-    // `pane_scratch` (the owned `TempDir`) removes the pane scratch dir on drop,
-    // however the run exited — no manual reclaim needed.
-    drop(pane_scratch);
-    Ok(exit_code(&summary?))
+    let summary = apply(&plan, runner, run.cache, sink, &mut output, options, cancel).await?;
+    Ok(exit_code(&summary))
 }
 
 /// Synthesize the terminal [`RunStats`] from a PLAN-only [`Plan`].
