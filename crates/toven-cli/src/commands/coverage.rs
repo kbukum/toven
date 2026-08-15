@@ -65,15 +65,17 @@ pub(crate) fn execute(
     let report = stream(providers, project, cli, &selection, &overrides)?;
 
     // In human mode, close with the tally on stderr alongside the measurement's
-    // run summary; JSONL mode stays events-only.
+    // run summary; JSONL mode stays events-only. The tone tracks the gate verdict
+    // so a failing gate never renders as visually successful.
     if matches!(output, OutputKind::Human) {
+        let tone = if report.gate_passed() {
+            Tone::Success
+        } else {
+            Tone::Error
+        };
         eprintln!(
             "{}",
-            stderr_theme(cli.color_choice()).action(
-                "Finished",
-                &summary_line(&report),
-                Tone::Success,
-            )
+            stderr_theme(cli.color_choice()).action("Finished", &summary_line(&report), tone,)
         );
     }
 

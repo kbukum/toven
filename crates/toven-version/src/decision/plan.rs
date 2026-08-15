@@ -336,13 +336,10 @@ impl<'a> BumpPlanner<'a> {
                 format!("missing versioning input for module '{missing}'"),
             ));
         }
-        self.decision.cfg.overrides.validate_known(
-            &self
-                .active
-                .iter()
-                .map(|key| key.module.clone())
-                .collect(),
-        )?;
+        self.decision
+            .cfg
+            .overrides
+            .validate_known(&self.active.iter().map(|key| key.module.clone()).collect())?;
         Ok(BumpPlan {
             entries: self.entries,
         })
@@ -1335,14 +1332,17 @@ mod tests {
             overrides: &overrides,
             intent: CutIntent::Verify,
         };
-        let mut planner =
-            BumpPlanner::new([input.module.clone()], &config).expect("planner accepts known module");
+        let mut planner = BumpPlanner::new([input.module.clone()], &config)
+            .expect("planner accepts known module");
         planner.decide(input).expect("inactive decision");
 
         let error = planner
             .finish()
             .expect_err("an unchanged override must not silently no-op");
-        assert!(error.to_string().contains("not in the release scope"), "{error}");
+        assert!(
+            error.to_string().contains("not in the release scope"),
+            "{error}"
+        );
     }
 
     #[test]
