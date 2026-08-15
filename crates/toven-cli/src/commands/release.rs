@@ -547,11 +547,7 @@ fn require_release_confirmation(confirmed: bool) -> AppResult<()> {
 /// stderr — a CI-safe loud refusal that is still informative interactively. A
 /// PLAN-render failure is the real blocker and is surfaced instead of the
 /// confirmation error.
-fn confirm_or_preview(
-    providers: &[&dyn Provider],
-    project: &Project,
-    cli: &Cli,
-) -> AppResult<()> {
+fn confirm_or_preview(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<()> {
     if cli.confirm_release {
         return Ok(());
     }
