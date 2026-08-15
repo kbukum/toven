@@ -73,8 +73,8 @@ jobs:
 
       # `make release-plan` runs `toven release sbom`, so the CycloneDX SBOM is
       # produced by Toven's own engine verb — the single source of SBOM truth,
-      # the same artifact `release.yml` ships. Upload it as review evidence
-      # instead of running a second, divergent SBOM toolchain.
+      # the same artifact `release.yml` ships — reusing the binary this job
+      # already built instead of a second job or a divergent SBOM toolchain.
       - name: Upload the release SBOM
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
