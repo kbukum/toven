@@ -77,7 +77,10 @@ jobs:
 
       # The rust publish-train golden scenarios shell out to the plugin.
       - name: Install cargo-cyclonedx
-        run: cargo install cargo-cyclonedx --locked --version 0.5.9
+        # Version-pinned but not `--locked`: cargo-cyclonedx 0.5.9's own
+        # lockfile pins a yanked `xml-rs`, so `--locked` warns and can fail;
+        # resolving fresh picks the current non-yanked patch.
+        run: cargo install cargo-cyclonedx --version 0.5.9
 
       # `doctor`'s referenced tools (ast-grep for structure, mdbook +
       # mdbook-mermaid for docs-build) so the required-tool gate can pass.

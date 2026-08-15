@@ -118,13 +118,7 @@ impl ProvenancePhase for FakeProvenancePhase {
 
 struct FakeSigner;
 impl Signer for FakeSigner {
-    fn sign_blob(
-        &self,
-        _blob: &Path,
-        _signature: &Path,
-        _certificate: &Path,
-        _signer: Option<&str>,
-    ) -> AppResult<()> {
+    fn sign_blob(&self, _blob: &Path, _bundle: &Path, _signer: Option<&str>) -> AppResult<()> {
         Ok(())
     }
 }
@@ -148,8 +142,7 @@ impl SignatureVerifier for FakeVerifier {
     fn verify_blob(
         &self,
         _blob: &Path,
-        _signature: &Path,
-        _certificate: &Path,
+        _bundle: &Path,
         _identity: &str,
         _issuer: &str,
     ) -> AppResult<()> {
@@ -454,8 +447,7 @@ fn port_traits_are_object_safe() {
     signer
         .sign_blob(
             Path::new("dist/SHA256SUMS"),
-            Path::new("dist/SHA256SUMS.sig"),
-            Path::new("dist/SHA256SUMS.pem"),
+            Path::new("dist/SHA256SUMS.bundle"),
             None,
         )
         .expect("signs without error");
@@ -520,8 +512,7 @@ fn port_traits_are_object_safe() {
     verifier
         .verify_blob(
             Path::new("dist/SHA256SUMS"),
-            Path::new("dist/SHA256SUMS.sig"),
-            Path::new("dist/SHA256SUMS.pem"),
+            Path::new("dist/SHA256SUMS.bundle"),
             "identity",
             "issuer",
         )

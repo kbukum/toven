@@ -14,7 +14,7 @@
 # immutable release tag: with no --version the latest published tag (including
 # prereleases) is resolved first, then its exact assets are fetched. The archive
 # is never trusted before its SHA-256 checksum verifies; when `cosign` is
-# present the keyless Sigstore signature over `SHA256SUMS` is checked first. No
+# present the keyless Sigstore bundle over `SHA256SUMS` is checked first. No
 # secret is ever passed on argv.
 #
 # CI note: pin the version explicitly (`--version` / `TOVEN_VERSION`) and pin
@@ -155,11 +155,9 @@ curl -fsSL --output "${workdir}/SHA256SUMS" "${base}/SHA256SUMS"
 # checksum verification below is always enforced.
 if command -v cosign >/dev/null 2>&1; then
   log "verifying the Sigstore signature on SHA256SUMS"
-  curl -fsSL --output "${workdir}/SHA256SUMS.sig" "${base}/SHA256SUMS.sig"
-  curl -fsSL --output "${workdir}/SHA256SUMS.pem" "${base}/SHA256SUMS.pem"
+  curl -fsSL --output "${workdir}/SHA256SUMS.bundle" "${base}/SHA256SUMS.bundle"
   cosign verify-blob \
-    --certificate "${workdir}/SHA256SUMS.pem" \
-    --signature "${workdir}/SHA256SUMS.sig" \
+    --bundle "${workdir}/SHA256SUMS.bundle" \
     --certificate-identity-regexp "https://github.com/${repo}/.github/workflows/release.yml@.*" \
     --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
     "${workdir}/SHA256SUMS" >&2

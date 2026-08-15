@@ -13,9 +13,21 @@ name: Publish packages
 # published independently: a distribution repository that does not yet exist is
 # detected and skipped, so the Homebrew tap can go live before the Scoop bucket
 # (or vice versa) without failing the run.
+#
+# It never triggers on `release: published`. The Release pipeline creates the
+# GitHub Release with the default `GITHUB_TOKEN`, and GitHub deliberately does
+# not emit event-triggering webhooks for `GITHUB_TOKEN`-authored actions
+# (recursion prevention), so that event would never fire for our own releases.
+# Instead the Release workflow calls this one directly (`workflow_call`) after
+# it publishes and verifies, passing the just-published tag; `workflow_dispatch`
+# stays for manual backfill of an existing release.
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      version:
+        description: Release tag to publish manifests for (e.g. v0.1.0-alpha.2)
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       version:
@@ -36,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-      VERSION: ${{ github.event.release.tag_name || inputs.version }}
+      VERSION: ${{ inputs.version }}
       REPO: ${{ github.repository }}
       TAP_REPO: kbukum/homebrew-tap
       BUCKET_REPO: kbukum/scoop-bucket

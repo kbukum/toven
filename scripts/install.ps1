@@ -13,7 +13,9 @@
 
     With no -Version the latest published tag (including prereleases) is resolved
     first, then its exact assets are fetched by that immutable tag. The archive
-    is never trusted before its SHA-256 checksum verifies against SHA256SUMS.
+    is never trusted before its SHA-256 checksum verifies against SHA256SUMS;
+    when `cosign` is present the keyless Sigstore bundle over SHA256SUMS is
+    verified first.
 
 .PARAMETER Version
     Release tag to install, e.g. v0.1.0-alpha.2. Defaults to the latest release.
@@ -61,6 +63,23 @@ try {
     Write-Log "downloading $archive and SHA256SUMS for $Version"
     Invoke-WebRequest -Uri "$base/$archive" -OutFile (Join-Path $work $archive)
     Invoke-WebRequest -Uri "$base/SHA256SUMS" -OutFile (Join-Path $work 'SHA256SUMS')
+
+    # Verify the keyless Sigstore bundle over SHA256SUMS before trusting the
+    # checksums it carries. Skipped with a warning when cosign is absent; the
+    # checksum verification below is always enforced.
+    if (Get-Command cosign -ErrorAction SilentlyContinue) {
+        Write-Log "verifying the Sigstore signature on SHA256SUMS"
+        Invoke-WebRequest -Uri "$base/SHA256SUMS.bundle" -OutFile (Join-Path $work 'SHA256SUMS.bundle')
+        & cosign verify-blob `
+            --bundle (Join-Path $work 'SHA256SUMS.bundle') `
+            --certificate-identity-regexp "https://github.com/$Repo/.github/workflows/release.yml@.*" `
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' `
+            (Join-Path $work 'SHA256SUMS')
+        if ($LASTEXITCODE -ne 0) { throw "cosign signature verification failed for SHA256SUMS" }
+    }
+    else {
+        Write-Log "cosign not found; skipping signature verification (checksum still enforced)"
+    }
 
     Write-Log "verifying $archive against SHA256SUMS"
     $expected = $null

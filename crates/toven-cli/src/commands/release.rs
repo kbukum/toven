@@ -1213,18 +1213,16 @@ fn render_checksums_jsonl(report: &ChecksumReport) -> AppResult<()> {
 #[derive(Serialize)]
 struct SignRecord {
     blob: String,
-    signature: String,
-    certificate: String,
+    bundle: String,
     backing: String,
 }
 
 fn render_sign_human(report: &SignReport) {
-    let mut table = OutputTable::new(vec!["Blob", "Signature", "Certificate", "Backing"])
+    let mut table = OutputTable::new(vec!["Blob", "Bundle", "Backing"])
         .with_title("Release signing".to_string());
     table.add_row(vec![
         report.blob.clone(),
-        report.signature.clone(),
-        report.certificate.clone(),
+        report.bundle.clone(),
         report.backing.to_string(),
     ]);
     println!("{table}");
@@ -1233,8 +1231,7 @@ fn render_sign_human(report: &SignReport) {
 fn render_sign_jsonl(report: &SignReport) -> AppResult<()> {
     let record = SignRecord {
         blob: report.blob.clone(),
-        signature: report.signature.clone(),
-        certificate: report.certificate.clone(),
+        bundle: report.bundle.clone(),
         backing: report.backing.to_string(),
     };
     let line = serde_json::to_string(&record).map_err(AppError::internal)?;

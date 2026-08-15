@@ -2,16 +2,16 @@
 //!
 //! The engine owns signing *policy* — that only the `SHA256SUMS` manifest is
 //! signed, the keyless-vs-keyed identity selection comes from
-//! `[…release.sign]`, the outputs are the declared `SHA256SUMS.sig` +
-//! `SHA256SUMS.pem` assets, and that a disabled or failed signer fails the
-//! release closed (never an unsigned publish). The only reusable primitive is
-//! "run a subprocess" (the shared [`ToolRunner`]); [`CosignSigner`] shells to
-//! the runner-installed `cosign` binary argv-only, inheriting the ambient OIDC
-//! identity — it embeds no signer and captures no secret.
+//! `[…release.sign]`, the output is the declared `SHA256SUMS.bundle` asset,
+//! and that a disabled or failed signer fails the release closed (never an
+//! unsigned publish). The only reusable primitive is "run a subprocess" (the
+//! shared [`ToolRunner`]); [`CosignSigner`] shells to the runner-installed
+//! `cosign` binary argv-only, inheriting the ambient OIDC identity — it embeds
+//! no signer and captures no secret.
 //!
 //! The verb is non-mutating: it never bumps a manifest, tags, or publishes. It
 //! signs an already-produced manifest (run `release checksums` first) into the
-//! declared signature/certificate asset paths.
+//! declared Sigstore bundle asset path.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -30,10 +30,9 @@ use toven_core::config::Document;
 use toven_core::federation::resolve::PathDriverLocator;
 use toven_core::plan::{PlanRequest, prepare_front};
 
-/// The manifest asset that is signed, and its signature/certificate sidecars.
+/// The manifest asset that is signed, and its Sigstore bundle sidecar.
 const MANIFEST_NAME: &str = "SHA256SUMS";
-const SIGNATURE_NAME: &str = "SHA256SUMS.sig";
-const CERTIFICATE_NAME: &str = "SHA256SUMS.pem";
+const BUNDLE_NAME: &str = "SHA256SUMS.bundle";
 
 /// Hard bound on captured cosign output (64 KiB) — cosign is terse; this only
 /// guards against a pathological stream.
@@ -48,10 +47,8 @@ const COSIGN_TIMEOUT: Duration = Duration::from_mins(5);
 pub struct SignReport {
     /// The project-relative manifest asset that was signed.
     pub blob: String,
-    /// The project-relative detached-signature asset that was produced.
-    pub signature: String,
-    /// The project-relative signing-certificate asset that was produced.
-    pub certificate: String,
+    /// The project-relative Sigstore bundle asset that was produced.
+    pub bundle: String,
     /// How the signature was produced: `native` (Toven's cosign signer) or
     /// `delegated` (an external tool produced it and Toven normalized it back).
     pub backing: &'static str,
@@ -60,42 +57,40 @@ pub struct SignReport {
 impl SignReport {
     /// Construct a native sign report.
     #[must_use]
-    pub const fn new(blob: String, signature: String, certificate: String) -> Self {
+    pub const fn new(blob: String, bundle: String) -> Self {
         Self {
             blob,
-            signature,
-            certificate,
+            bundle,
             backing: "native",
         }
     }
 
     /// Construct a delegated sign report.
     #[must_use]
-    pub const fn delegated(blob: String, signature: String, certificate: String) -> Self {
+    pub const fn delegated(blob: String, bundle: String) -> Self {
         Self {
             blob,
-            signature,
-            certificate,
+            bundle,
             backing: "delegated",
         }
     }
 }
 
 /// Sign the declared `SHA256SUMS` manifest, producing the declared
-/// `SHA256SUMS.sig` + `SHA256SUMS.pem` assets.
+/// `SHA256SUMS.bundle` Sigstore bundle asset.
 ///
 /// The `Sign` phase runs under the release scope's backing: **native** signs
 /// the manifest with the supplied cosign [`Signer`], while **delegated** runs an
 /// external tool's mutation-free preview through `delegated` and then normalizes
-/// the produced signature/certificate sidecars back into the report. Toven owns
-/// signing policy — only the shared `SHA256SUMS` is signed, the outputs are the
-/// declared sidecar assets, and a disabled or failed signer fails the release
-/// closed — in both backings.
+/// the produced bundle sidecar back into the report. Toven owns signing policy —
+/// only the shared `SHA256SUMS` is signed, the output is the declared bundle
+/// asset, and a disabled or failed signer fails the release closed — in both
+/// backings.
 ///
 /// # Errors
-/// Fails closed with a typed error when signing is disabled, the manifest or a
-/// signature sidecar is not declared, the manifest has not been produced (native
-/// backing), or the signer / delegated tool fails or produces no sidecar — as
+/// Fails closed with a typed error when signing is disabled, the manifest or the
+/// bundle sidecar is not declared, the manifest has not been produced (native
+/// backing), or the signer / delegated tool fails or produces no bundle — as
 /// well as propagating configuration, discovery, graph, and I/O failures.
 pub fn release_sign(
     request: &PlanRequest,
@@ -129,8 +124,7 @@ pub fn release_sign(
 
     let declared = crate::artifacts::assets::declared_release_assets(&settings);
     let blob = require_declared_asset(&declared, MANIFEST_NAME)?;
-    let signature = require_declared_asset(&declared, SIGNATURE_NAME)?;
-    let certificate = require_declared_asset(&declared, CERTIFICATE_NAME)?;
+    let bundle = require_declared_asset(&declared, BUNDLE_NAME)?;
 
     let project_root = request.project_root.as_path();
     let blob_path = safe_join_asset(project_root, blob)?;
@@ -148,60 +142,37 @@ pub fn release_sign(
         ));
     }
 
-    let signature_path = safe_join_asset(project_root, signature)?;
-    let certificate_path = safe_join_asset(project_root, certificate)?;
-    for path in [&signature_path, &certificate_path] {
-        if let Some(parent) = path.parent() {
-            create_all(parent)?;
-        }
+    let bundle_path = safe_join_asset(project_root, bundle)?;
+    if let Some(parent) = bundle_path.parent() {
+        create_all(parent)?;
     }
 
-    // The scope's `Sign` backing decides how the sidecars are produced; a
+    // The scope's `Sign` backing decides how the bundle is produced; a
     // delegated backing is dispatched through the runner, native cosign
     // otherwise.
     if let Some(tool) = resolve_sign_delegation(&settings)? {
-        // Clear the declared sidecars before the tool runs, so the post-preview
-        // existence check proves *this* run produced them. Without this, stale
-        // `.sig`/`.pem` files from a previous attempt plus a tool that exits 0
-        // without rewriting would be accepted, silently reusing a stale
-        // signature over the manifest.
-        for path in [&signature_path, &certificate_path] {
-            remove_if_exists(path)?;
-        }
+        // Clear the declared bundle before the tool runs, so the post-preview
+        // existence check proves *this* run produced it. Without this, a stale
+        // `.bundle` from a previous attempt plus a tool that exits 0 without
+        // rewriting would be accepted, silently reusing a stale signature over
+        // the manifest.
+        remove_if_exists(&bundle_path)?;
         run_delegated_preview(ReleasePhase::Sign, &tool, tool_runner, project_root)?;
-        for (path, asset) in [
-            (&signature_path, signature),
-            (&certificate_path, certificate),
-        ] {
-            if !file_exists(path)? {
-                return Err(AppError::invalid_input(
-                    "release.sign.delegated",
-                    format!(
-                        "delegated sign tool did not produce the declared asset '{asset}' at '{}'",
-                        path.display()
-                    ),
-                ));
-            }
+        if !file_exists(&bundle_path)? {
+            return Err(AppError::invalid_input(
+                "release.sign.delegated",
+                format!(
+                    "delegated sign tool did not produce the declared asset '{bundle}' at '{}'",
+                    bundle_path.display()
+                ),
+            ));
         }
-        return Ok(SignReport::delegated(
-            blob.clone(),
-            signature.clone(),
-            certificate.clone(),
-        ));
+        return Ok(SignReport::delegated(blob.clone(), bundle.clone()));
     }
 
-    signer.sign_blob(
-        &blob_path,
-        &signature_path,
-        &certificate_path,
-        selection.as_deref(),
-    )?;
+    signer.sign_blob(&blob_path, &bundle_path, selection.as_deref())?;
 
-    Ok(SignReport::new(
-        blob.clone(),
-        signature.clone(),
-        certificate.clone(),
-    ))
+    Ok(SignReport::new(blob.clone(), bundle.clone()))
 }
 
 /// Resolve the scope's `Sign` phase delegation: `Some(tool)` when the modules
@@ -357,15 +328,9 @@ impl CosignSigner {
 }
 
 impl Signer for CosignSigner {
-    fn sign_blob(
-        &self,
-        blob: &Path,
-        signature: &Path,
-        certificate: &Path,
-        signer: Option<&str>,
-    ) -> AppResult<()> {
+    fn sign_blob(&self, blob: &Path, bundle: &Path, signer: Option<&str>) -> AppResult<()> {
         let mut argv = vec!["cosign".to_string()];
-        argv.extend(cosign_argv(blob, signature, certificate, signer)?);
+        argv.extend(cosign_argv(blob, bundle, signer)?);
         let invocation = ToolInvocation::new(argv)
             .with_timeout(self.timeout)
             .with_max_output_bytes(MAX_COSIGN_OUTPUT_BYTES);
@@ -377,20 +342,16 @@ impl Signer for CosignSigner {
 
 /// Build the argv-only `cosign sign-blob` invocation. Keyless (no `--key`) by
 /// default; a named signer selects a key ref. `--yes` skips the interactive
-/// confirmation so the non-interactive CI signer never blocks.
-fn cosign_argv(
-    blob: &Path,
-    signature: &Path,
-    certificate: &Path,
-    signer: Option<&str>,
-) -> AppResult<Vec<String>> {
+/// confirmation so the non-interactive CI signer never blocks. `--bundle` emits
+/// a single self-contained Sigstore bundle (signature + certificate +
+/// verification material), replacing the deprecated `--output-signature` /
+/// `--output-certificate` sidecar pair.
+fn cosign_argv(blob: &Path, bundle: &Path, signer: Option<&str>) -> AppResult<Vec<String>> {
     let mut argv = vec![
         "sign-blob".to_string(),
         "--yes".to_string(),
-        "--output-signature".to_string(),
-        path_arg(signature)?,
-        "--output-certificate".to_string(),
-        path_arg(certificate)?,
+        "--bundle".to_string(),
+        path_arg(bundle)?,
     ];
     if let Some(key) = signer {
         argv.push("--key".to_string());
@@ -475,11 +436,7 @@ mod tests {
     }
 
     fn sign_assets() -> Vec<&'static str> {
-        vec![
-            "dist/SHA256SUMS",
-            "dist/SHA256SUMS.sig",
-            "dist/SHA256SUMS.pem",
-        ]
+        vec!["dist/SHA256SUMS", "dist/SHA256SUMS.bundle"]
     }
 
     fn provider(sign: SignConfig, assets: Vec<&str>) -> FakeProvider {
@@ -511,7 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn signs_the_manifest_into_the_declared_sidecars_when_enabled() {
+    fn signs_the_manifest_into_the_declared_bundle_when_enabled() {
         let root = TempDir::new().unwrap();
         write_manifest(root.path());
         let signer_config = SignConfig {
@@ -538,14 +495,12 @@ mod tests {
         .unwrap();
 
         assert_eq!(report.blob, "dist/SHA256SUMS");
-        assert_eq!(report.signature, "dist/SHA256SUMS.sig");
-        assert_eq!(report.certificate, "dist/SHA256SUMS.pem");
+        assert_eq!(report.bundle, "dist/SHA256SUMS.bundle");
         // The signer was invoked once with the configured key selection and the
-        // sidecar assets exist on disk.
+        // bundle asset exists on disk.
         assert_eq!(signer.calls().len(), 1);
         assert_eq!(signer.calls()[0].signer, Some("keyref".to_string()));
-        assert!(root.path().join("dist").join("SHA256SUMS.sig").exists());
-        assert!(root.path().join("dist").join("SHA256SUMS.pem").exists());
+        assert!(root.path().join("dist").join("SHA256SUMS.bundle").exists());
     }
 
     #[test]
@@ -680,14 +635,13 @@ mod tests {
     }
 
     #[test]
-    fn delegated_sign_runs_the_tool_preview_and_normalizes_the_produced_sidecars() {
+    fn delegated_sign_runs_the_tool_preview_and_normalizes_the_produced_bundle() {
         let root = TempDir::new().unwrap();
         write_manifest(root.path());
-        // The tool produces the detached signature and certificate; Toven's
-        // native cosign signer is never invoked under a delegated backing.
+        // The tool produces the Sigstore bundle; Toven's native cosign signer is
+        // never invoked under a delegated backing.
         let runner = FakeToolRunner::new()
-            .with_produced_file(root.path().join("dist/SHA256SUMS.sig"), b"sig")
-            .with_produced_file(root.path().join("dist/SHA256SUMS.pem"), b"cert");
+            .with_produced_file(root.path().join("dist/SHA256SUMS.bundle"), b"bundle");
         let provider = delegated_sign_provider();
         let providers: Vec<&dyn Provider> = vec![&provider];
         let reader = FakeVcsReader::new();
@@ -707,7 +661,7 @@ mod tests {
         .expect("delegated sign runs");
 
         assert_eq!(report.backing, "delegated");
-        assert_eq!(report.signature, "dist/SHA256SUMS.sig");
+        assert_eq!(report.bundle, "dist/SHA256SUMS.bundle");
         // The native signer is bypassed; the tool ran a mutation-free preview.
         assert_eq!(signer.calls().len(), 0);
         let requests = runner.requests();
@@ -716,12 +670,11 @@ mod tests {
     }
 
     #[test]
-    fn delegated_sign_fails_closed_when_a_sidecar_is_not_produced() {
+    fn delegated_sign_fails_closed_when_the_bundle_is_not_produced() {
         let root = TempDir::new().unwrap();
         write_manifest(root.path());
-        // The tool produces the signature but not the certificate.
-        let runner = FakeToolRunner::new()
-            .with_produced_file(root.path().join("dist/SHA256SUMS.sig"), b"sig");
+        // The tool exits 0 but produces no bundle.
+        let runner = FakeToolRunner::new();
         let provider = delegated_sign_provider();
         let providers: Vec<&dyn Provider> = vec![&provider];
         let reader = FakeVcsReader::new();
@@ -738,7 +691,7 @@ mod tests {
             &runner,
             &mut reporter,
         )
-        .expect_err("a missing delegated sidecar must fail closed");
+        .expect_err("a missing delegated bundle must fail closed");
         assert!(error.to_string().contains("did not produce"), "{error}");
     }
 
@@ -749,8 +702,7 @@ mod tests {
         // signing policy is to sign an already-produced manifest, so the tool
         // must never be handed a missing manifest.
         let runner = FakeToolRunner::new()
-            .with_produced_file(root.path().join("dist/SHA256SUMS.sig"), b"sig")
-            .with_produced_file(root.path().join("dist/SHA256SUMS.pem"), b"cert");
+            .with_produced_file(root.path().join("dist/SHA256SUMS.bundle"), b"bundle");
         let provider = delegated_sign_provider();
         let providers: Vec<&dyn Provider> = vec![&provider];
         let reader = FakeVcsReader::new();
@@ -777,13 +729,12 @@ mod tests {
     }
 
     #[test]
-    fn delegated_sign_fails_closed_on_a_stale_sidecar_the_tool_did_not_rewrite() {
+    fn delegated_sign_fails_closed_on_a_stale_bundle_the_tool_did_not_rewrite() {
         let root = TempDir::new().unwrap();
         write_manifest(root.path());
-        // Stale sidecars from a previous attempt sit on disk...
+        // A stale bundle from a previous attempt sits on disk...
         let dist = root.path().join("dist");
-        std::fs::write(dist.join("SHA256SUMS.sig"), b"stale-sig").unwrap();
-        std::fs::write(dist.join("SHA256SUMS.pem"), b"stale-cert").unwrap();
+        std::fs::write(dist.join("SHA256SUMS.bundle"), b"stale-bundle").unwrap();
         // ...and the tool exits 0 but writes nothing (no `with_produced_file`).
         let runner = FakeToolRunner::new();
         let provider = delegated_sign_provider();
@@ -812,8 +763,7 @@ mod tests {
     fn keyless_argv_omits_the_key_flag() {
         let argv = cosign_argv(
             Path::new("dist/SHA256SUMS"),
-            Path::new("dist/SHA256SUMS.sig"),
-            Path::new("dist/SHA256SUMS.pem"),
+            Path::new("dist/SHA256SUMS.bundle"),
             None,
         )
         .unwrap();
@@ -822,10 +772,8 @@ mod tests {
             vec![
                 "sign-blob",
                 "--yes",
-                "--output-signature",
-                "dist/SHA256SUMS.sig",
-                "--output-certificate",
-                "dist/SHA256SUMS.pem",
+                "--bundle",
+                "dist/SHA256SUMS.bundle",
                 "dist/SHA256SUMS",
             ]
         );
@@ -835,8 +783,7 @@ mod tests {
     fn keyed_argv_selects_the_key_ref() {
         let argv = cosign_argv(
             Path::new("dist/SHA256SUMS"),
-            Path::new("dist/SHA256SUMS.sig"),
-            Path::new("dist/SHA256SUMS.pem"),
+            Path::new("dist/SHA256SUMS.bundle"),
             Some("cosign.key"),
         )
         .unwrap();

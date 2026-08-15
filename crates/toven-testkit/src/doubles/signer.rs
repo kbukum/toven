@@ -2,11 +2,10 @@
 //!
 //! Release-engine tests configure signing outcomes and call recording here
 //! instead of shelling to a real `cosign` binary. It writes deterministic
-//! signature/certificate bytes to the requested paths so callers can assert the
-//! sidecar assets exist, records the identity selection it was invoked with,
-//! and can be scripted to fail so the fail-closed path is exercised offline. It
-//! is `Clone` (shared state) so a test can hold a handle for assertions after
-//! injecting it.
+//! bundle bytes to the requested path so callers can assert the bundle asset
+//! exists, records the identity selection it was invoked with, and can be
+//! scripted to fail so the fail-closed path is exercised offline. It is `Clone`
+//! (shared state) so a test can hold a handle for assertions after injecting it.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -19,10 +18,8 @@ use toven_ports::Signer;
 pub struct SignerCall {
     /// The blob that was signed.
     pub blob: String,
-    /// The signature output path.
-    pub signature: String,
-    /// The certificate output path.
-    pub certificate: String,
+    /// The Sigstore bundle output path.
+    pub bundle: String,
     /// The identity/key selection (`None` = keyless default).
     pub signer: Option<String>,
 }
@@ -33,7 +30,7 @@ struct FakeSignerState {
     fail: Option<String>,
 }
 
-/// A [`Signer`] that writes deterministic sidecars and records its calls, or
+/// A [`Signer`] that writes a deterministic bundle and records its calls, or
 /// fails when scripted to.
 #[derive(Debug, Clone, Default)]
 pub struct FakeSigner {
@@ -41,7 +38,7 @@ pub struct FakeSigner {
 }
 
 impl FakeSigner {
-    /// A signer that succeeds, writing deterministic signature/certificate bytes.
+    /// A signer that succeeds, writing deterministic bundle bytes.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -73,39 +70,20 @@ impl FakeSigner {
 }
 
 impl Signer for FakeSigner {
-    fn sign_blob(
-        &self,
-        blob: &Path,
-        signature: &Path,
-        certificate: &Path,
-        signer: Option<&str>,
-    ) -> AppResult<()> {
+    fn sign_blob(&self, blob: &Path, bundle: &Path, signer: Option<&str>) -> AppResult<()> {
         let failure = self.state().fail.clone();
         if let Some(message) = failure {
             return Err(AppError::new(ErrorCode::Internal, message));
         }
-        std::fs::write(signature, b"fake-signature\n").map_err(|error| {
+        std::fs::write(bundle, b"fake-bundle\n").map_err(|error| {
             AppError::new(
                 ErrorCode::Internal,
-                format!(
-                    "fake signer cannot write '{}': {error}",
-                    signature.display()
-                ),
-            )
-        })?;
-        std::fs::write(certificate, b"fake-certificate\n").map_err(|error| {
-            AppError::new(
-                ErrorCode::Internal,
-                format!(
-                    "fake signer cannot write '{}': {error}",
-                    certificate.display()
-                ),
+                format!("fake signer cannot write '{}': {error}", bundle.display()),
             )
         })?;
         self.state().calls.push(SignerCall {
             blob: blob.display().to_string(),
-            signature: signature.display().to_string(),
-            certificate: certificate.display().to_string(),
+            bundle: bundle.display().to_string(),
             signer: signer.map(str::to_string),
         });
         Ok(())

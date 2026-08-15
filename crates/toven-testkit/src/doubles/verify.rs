@@ -82,6 +82,8 @@ impl AssetDownloader for FakeAssetDownloader {
 pub struct VerifyCall {
     /// The blob whose signature was verified.
     pub blob: String,
+    /// The Sigstore bundle that was verified over the blob.
+    pub bundle: String,
     /// The keyless identity regexp the certificate was checked against.
     pub identity: String,
     /// The OIDC issuer the certificate was checked against.
@@ -136,8 +138,7 @@ impl SignatureVerifier for FakeSignatureVerifier {
     fn verify_blob(
         &self,
         blob: &Path,
-        _signature: &Path,
-        _certificate: &Path,
+        bundle: &Path,
         identity: &str,
         issuer: &str,
     ) -> AppResult<()> {
@@ -147,6 +148,7 @@ impl SignatureVerifier for FakeSignatureVerifier {
         }
         self.state().calls.push(VerifyCall {
             blob: blob.display().to_string(),
+            bundle: bundle.display().to_string(),
             identity: identity.to_string(),
             issuer: issuer.to_string(),
         });

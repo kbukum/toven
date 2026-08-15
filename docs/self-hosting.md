@@ -88,7 +88,7 @@ The release matrix is:
 
 Archive names are fixed and never embed the version. `[ecosystems.rust.release.host].assets` is a set of exact, non-templated project-relative paths (no globbing or version placeholders — see `crates/toven-ports/src/config/release/host.rs`), so the same static list resolves on every release. The version lives in the release tag and Release title.
 
-Every archive contains one directly runnable binary. The hosted Release also carries a CycloneDX SBOM (`toven-sbom.cdx.json`), a combined `SHA256SUMS` over every archive and the SBOM, that file's keyless Sigstore/cosign signature and certificate (`SHA256SUMS.sig`, `SHA256SUMS.pem`), and a separate GitHub build provenance attestation (not a listed asset — verify it with `gh attestation verify`).
+Every archive contains one directly runnable binary. The hosted Release also carries a CycloneDX SBOM (`toven-sbom.cdx.json`), a combined `SHA256SUMS` over every archive and the SBOM, that file's keyless Sigstore/cosign bundle (`SHA256SUMS.bundle`), and a separate GitHub build provenance attestation (not a listed asset — verify it with `gh attestation verify`).
 
 `.github/workflows/release.yml` builds this matrix and publishes it behind the protected `release` environment's required-reviewer approval. It is dispatched manually (`workflow_dispatch`), never triggered by a `v*` tag push: `toven release publish` creates the tag itself, and a tag-triggered run would race its own immutable-tag preflight. Every asset is produced by an engine verb, not a bash script:
 
@@ -98,10 +98,13 @@ Every archive contains one directly runnable binary. The hosted Release also car
 | `assemble` | `toven release sbom` → `checksums` → `sign` → `verify --no-run` | staged SBOM, combined `SHA256SUMS`, its signature, a presence-checked asset set |
 | `publish` | `toven release publish --yes`, then `actions/attest-build-provenance`, then `toven release provenance` | the tag, the hosted Release, a build-provenance attestation cut by the trusted builder over `SHA256SUMS`, and Toven's verification that it exists |
 | `verify` | `toven release verify --download` | signature- and checksum-verifies every published asset |
+| `publish-packages` | `.github/workflows/publish-packages.yml` (called with the published tag) | renders the Homebrew formula and Scoop manifest from the released `SHA256SUMS` and pushes them to the tap/bucket repos |
 
 CI provisions the tools (cosign, cargo-cyclonedx, `cross`) and holds the approval gate; Toven drives them. Every target builds with the `vendored-openssl` feature, so rskit-git's embedded git2 backend links a source-built OpenSSL and the released binaries carry no host OpenSSL dependency. The `aarch64-unknown-linux-gnu` target cross-compiles through `cross` for a matching glibc.
 
 `verify` runs with `--no-run`: no single hosted runner can execute all five targets (two Linux, two macOS, one Windows), so post-publish verification is signature- and checksum-based across the whole set. The keyless `certificate-identity-regexp` and `certificate-oidc-issuer` it matches come from `[ecosystems.rust.release.sign]` in `toven.toml`, not a hard-coded string.
+
+The `publish-packages` job calls `.github/workflows/publish-packages.yml` as a reusable workflow after `publish` and `verify` succeed, rather than binding it to `release: published`. GitHub does not emit event-triggering webhooks for actions taken with the default `GITHUB_TOKEN` (recursion prevention), so a Release the pipeline creates would never fire that event — the package managers would silently stay behind. Calling it in-pipeline keeps the tap and bucket in lock-step with every published release; it is a no-op unless a `HOMEBREW_TAP_TOKEN` secret is configured, and `workflow_dispatch` remains for manual backfill.
 
 ## Dogfooding the binary Toven produces
 

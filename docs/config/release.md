@@ -337,7 +337,7 @@ issuer = "https://token.actions.githubusercontent.com"
 | `identity` | string | None | Keyless verification identity regexp for `release verify --download` |
 | `issuer` | string | None | Keyless verification OIDC issuer for `release verify --download` |
 
-`toven release sign` signs the `SHA256SUMS` manifest with cosign and writes `SHA256SUMS.sig` and `SHA256SUMS.pem` sidecar assets. With no `signer`, cosign uses the keyless Sigstore default from the ambient OIDC token. A configured but unavailable signer fails the release closed.
+`toven release sign` signs the `SHA256SUMS` manifest with cosign and writes the `SHA256SUMS.bundle` sidecar asset — a self-contained Sigstore bundle carrying the signature, certificate, and verification material. With no `signer`, cosign uses the keyless Sigstore default from the ambient OIDC token. A configured but unavailable signer fails the release closed.
 
 `identity` and `issuer` are verification inputs, not secrets. Signing must be enabled when `signer` is set, and blank `signer`, `identity`, or `issuer` values fail validation.
 
@@ -348,8 +348,8 @@ Under a hosted-release policy, modules with `host.assets` can use Toven's releas
 - `toven release package --target <triple>` archives an already-built binary into the declared archive asset for that target. Non-Windows targets use `.tar.gz`; `*windows*` targets use `.zip` and record the `.exe` suffix. It fails when the declared asset or built binary is missing.
 - `toven release sbom` writes the CycloneDX SBOM and stages it into the declared `*.cdx.json` asset.
 - `toven release checksums` digests every declared archive and the SBOM into the `SHA256SUMS` manifest asset, in declared order, using SHA-256.
-- `toven release sign` signs `SHA256SUMS` into `.sig` and `.pem` sidecars.
-- `toven release verify` checks archives. Local mode presence-checks each archive and, unless `--no-run`, extracts and checks the binary version. `--download` fetches archives plus `SHA256SUMS` and signature assets from the hosted Release, verifies the Sigstore signature first, then checksums, then extraction and version.
+- `toven release sign` signs `SHA256SUMS` into the `SHA256SUMS.bundle` Sigstore bundle.
+- `toven release verify` checks archives. Local mode presence-checks each archive and, unless `--no-run`, extracts and checks the binary version. `--download` fetches archives plus `SHA256SUMS` and the `SHA256SUMS.bundle` from the hosted Release, verifies the Sigstore bundle first, then checksums, then extraction and version.
 
 These verbs do not mutate git history. Under `--output jsonl`, they emit typed JSONL. Missing or mismatched inputs fail closed. CI provides external tools such as cosign and cargo-cyclonedx.
 

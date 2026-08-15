@@ -69,7 +69,10 @@ jobs:
         run: cargo install cargo-deny --locked --version 0.19.0
 
       - name: Install cargo-cyclonedx
-        run: cargo install cargo-cyclonedx --locked --version 0.5.9
+        # Version-pinned but not `--locked`: cargo-cyclonedx 0.5.9's own
+        # lockfile pins a yanked `xml-rs`, so `--locked` warns and can fail;
+        # resolving fresh picks the current non-yanked patch.
+        run: cargo install cargo-cyclonedx --version 0.5.9
 
       # `doctor` is the single source of truth for required tooling: fail fast
       # with the aggregated missing-tool report before the gate runs, so a
