@@ -4,4 +4,3 @@ Release plan
   checking rust:train-cli…
   release rust:train-cli: initial release 0.1.0
     Finished release: 2 to release
-error[INVALID_INPUT]: invalid release.confirmation: real releases require explicit confirmation; pass --yes to proceed

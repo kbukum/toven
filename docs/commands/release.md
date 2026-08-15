@@ -70,6 +70,43 @@ JSONL also carries the 1-based publication `order`, cascade origin, prerelease c
 
 `release status` reports each module's flow and `entrypoint`. For maintainer-owned modules, it reports whether the required release tag for the declared version exists. Human output uses `tag ready` or `tag missing`; JSONL uses `maintainer_tag_present`. A maintainer-owned module cannot publish until its tag exists. See [entrypoint flows](../config/release.md#entrypoint-flows).
 
+## Output
+
+Human output goes to stderr. Every release verb (`plan`, `bump`, `tag`, `publish`) funnels through the same dependency-first decision path, whose slow per-module I/O — baseline resolution, change detection, and registry lookups — can take a while on a large workspace. Each module now resolves before the next begins: `checking <module>…` appears while that module's I/O runs and is immediately followed by its `release <module>: …` decision. On a terminal the settled decision replaces the transient checking line in place; redirected human output keeps both as plain newline-delimited text without terminal control characters. stdout is reserved for the `--output jsonl` stream. The progress lines appear at normal verbosity and are suppressed at `--quiet`.
+
+```text
+Release plan
+  checking rust:core…
+  release rust:core: 1.2.0 → 1.3.0 (minor)
+  checking rust:api…
+  release rust:api: 0.4.1 (dependency floor)
+  checking rust:util…
+  release rust:util: already at 0.4.1
+  checking rust:new…
+  release rust:new: initial release 0.1.0
+release: 2 to release, 1 dependency floor, 1 up to date
+```
+
+Each decision line reflects the module's decision:
+
+| Line | Meaning |
+|---|---|
+| `checking X…` | In-flight progress: `X`'s decision I/O is running (advisory, not a verdict) |
+| `X → Y (level)` | Own-version bump from `X` to `Y` at the given level |
+| `initial release X` | First release, cutting the declared version `X` |
+| `X (dependency floor)` | No own bump; only a dependency floor moved |
+| `already at X` | Already released at `X`; nothing to do |
+| `no change (X)` | No direct change or bumped dependency requires release work |
+
+The mutating verbs add a `staged X (tag …)` line per module once its commit lands, and close with `N staged` / `N tagged` / `N published`. `--output jsonl` emits an adjacent `module-release-examining` and `module-release-resolved` pair for each module in dependency-first publication order, plus one `module-release-staged` record per landed module. JSONL and redirected human output never contain terminal control characters. `--dry-run` and a bare mutating command (no `--yes`) report the same decisions without mutating; the bare command then exits non-zero with the confirmation error. The exit status reflects the summary, not any single module.
+
+```mermaid
+flowchart LR
+  engine["toven-release"] -->|events| sink{{"toven-cli"}}
+  sink -->|human| stderr["stderr: per-module lines + summary"]
+  sink -->|jsonl| stdout["stdout: one JSON record per module"]
+```
+
 ## Release baseline
 
 Release change detection asks what changed since a module's baseline. The baseline source is configurable per ecosystem and per module — the module's own latest release tag, the member's umbrella tag, the registry's max published version, or `registry+umbrella` — and resolves to a per-ecosystem default (`registry+umbrella` for Rust, `own-tag` for Go). See [tag modes and baseline sources](../config/release.md#tag-modes-and-baseline-sources) for the full model and defaults. Release detection does not use a branch ref by default; `[project].base_ref` and `[[members]].base_ref` apply to changed-selection commands such as `toven affected`.

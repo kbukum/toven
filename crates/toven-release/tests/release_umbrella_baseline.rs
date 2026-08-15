@@ -11,18 +11,23 @@
 
 use std::collections::BTreeSet;
 
+use rskit_util::time::FixedClock;
 use rskit_version::semver::Version;
 use toven_core::config::{CanonicalRegistry, Document, load};
 use toven_core::federation::MemberVcsReaders;
+use toven_core::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
 use toven_core::plan::PlanRequest;
 use toven_model::{AbsPath, EcosystemId, Module, ModuleRef, RepoPath};
 use toven_ports::{
     BaselineSpec, CommonEcosystemConfig, DiscoverResponse, Provider, ReleaseConfig, TaskIntent,
 };
-use toven_release::{BumpOverrides, BumpReason, release_plan};
+use toven_release::{
+    BumpOptions, BumpOverrides, BumpReason, release_bump, release_plan, release_rehearse,
+};
 use toven_testkit::git::GitScenario;
 use toven_testkit::{
-    FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, RecordingReporter, TestWorkspace,
+    FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, RecordingHookRunner, RecordingReporter,
+    TestWorkspace,
 };
 use toven_vcs::RskitGitVcs;
 
@@ -766,4 +771,158 @@ fn a_changed_crate_bumps_from_its_own_version_at_the_umbrella_tag() {
         "an unchanged crate must not bump: {:?}",
         plan.entries
     );
+}
+
+/// A committed repository in **pure `umbrella`** tag mode: the umbrella module
+/// `suite` cuts the shared `v{version}` tag and no per-module tags exist, with a
+/// source edit in `core` (only) after the umbrella tag. Releasing `core` while
+/// `suite` stays unbumped is exactly the case the umbrella tag-cut guardrail
+/// refuses — but only for an intent that goes on to *create* the tag.
+fn umbrella_only_repo() -> (TestWorkspace, AbsPath, Document) {
+    let ws = TestWorkspace::new("release-umbrella-only");
+    let scenario = GitScenario::init(ws.path()).expect("git init");
+    scenario
+        .commit_file(
+            "toven.toml",
+            concat!(
+                "[project]\n",
+                "name = \"workspace\"\n\n",
+                "[ecosystems.rust]\n\n",
+                "[ecosystems.rust.release]\n",
+                "registry = \"crates-io\"\n",
+                "offline = true\n\n",
+                // Pure `umbrella` mode: only the shared `v{version}` tag is cut,
+                // from the umbrella module's own entry — no per-module tags.
+                "[modules.\"rust:suite\".release]\n",
+                "umbrella = true\n",
+                "tag_mode = \"umbrella\"\n",
+                "tag_format = \"v{version}\"\n",
+                "push = false\n",
+            ),
+            "config",
+        )
+        .expect("commit config");
+    scenario
+        .commit_file("crates/suite/src/lib.rs", "//! suite\n", "baseline suite")
+        .expect("suite baseline");
+    scenario
+        .commit_file("crates/core/src/lib.rs", "pub fn a() {}\n", "baseline core")
+        .expect("core baseline");
+    scenario
+        .commit_file("crates/util/src/lib.rs", "pub fn b() {}\n", "baseline util")
+        .expect("util baseline");
+    scenario
+        .tag("v0.1.0", "release v0.1.0")
+        .expect("tag the shared umbrella baseline");
+    // Only `core` changes after the umbrella tag; `suite` stays unbumped.
+    scenario
+        .commit_file(
+            "crates/core/src/lib.rs",
+            "pub fn a() -> u32 { 1 }\n",
+            "a core change to release",
+        )
+        .expect("core change commit");
+
+    let root = AbsPath::new(ws.path().to_path_buf()).expect("absolute root");
+    let document = load(
+        ws.path().join("toven.toml"),
+        &BTreeSet::new(),
+        &CanonicalRegistry::model(),
+    )
+    .expect("document loads")
+    .document;
+    (ws, root, document)
+}
+
+#[test]
+fn bump_skips_the_umbrella_tag_cut_that_verify_still_fails_closed_on() {
+    // A pure-`umbrella` train releasing a member (`core`) without bumping the
+    // umbrella module (`suite`) would publish that member untagged. Only an
+    // intent that goes on to CREATE the umbrella tag may refuse this: a `bump`
+    // stages manifest/changelog edits for a PR and cuts no tag, so it must plan
+    // through; a verify-and-publish (`tag`/`publish`) run still fails closed.
+    let provider = umbrella_provider();
+    let providers: Vec<&dyn Provider> = vec![&provider];
+
+    // Verify (release rehearse → `CutIntent::Verify`) fails closed.
+    {
+        let (ws, root, document) = umbrella_only_repo();
+        let reader = RskitGitVcs::open(ws.path()).expect("open reader");
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("HEAD"));
+        let mut reporter = RecordingReporter::new();
+        let error = release_rehearse(
+            &request(root),
+            &document,
+            &providers,
+            &readers,
+            &BumpOverrides::new(),
+            &mut reporter,
+            true,
+        )
+        .expect_err("a verify cut must refuse an unbumped umbrella train");
+        assert!(
+            error.to_string().contains("publish untagged"),
+            "the tag-cut guardrail must fire under a verify intent: {error}"
+        );
+    }
+
+    // Preview (release plan → `CutIntent::Preview`) also previews a tag-creating
+    // run, so it must surface the same refusal at plan time.
+    {
+        let (ws, root, document) = umbrella_only_repo();
+        let reader = RskitGitVcs::open(ws.path()).expect("open reader");
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("HEAD"));
+        let mut reporter = RecordingReporter::new();
+        let error = release_plan(
+            &request(root),
+            &document,
+            &providers,
+            &readers,
+            &BumpOverrides::new(),
+            &mut reporter,
+        )
+        .expect_err("a preview of a tag-creating run must surface the refusal");
+        assert!(
+            error.to_string().contains("publish untagged"),
+            "the tag-cut guardrail must fire under a preview intent: {error}"
+        );
+    }
+
+    // Bump (release bump → `CutIntent::Bump`) creates no tag, so it must plan
+    // through the same fixture without the tag-cut refusal.
+    {
+        let (ws, root, document) = umbrella_only_repo();
+        let reader = RskitGitVcs::open(ws.path()).expect("open reader");
+        let writer = RskitGitVcs::open(ws.path()).expect("open writer");
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("HEAD"));
+        let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
+            None,
+            ws.path().to_path_buf(),
+            &reader,
+            &writer,
+        )]);
+        let clock = FixedClock::new(0, 0);
+        let hooks = RecordingHookRunner::new();
+        let mut reporter = RecordingReporter::new();
+        let report = release_bump(
+            &request(root),
+            &document,
+            &providers,
+            &readers,
+            &repos,
+            &BumpOverrides::new(),
+            &mut reporter,
+            &clock,
+            &hooks,
+            &BumpOptions { dry_run: true },
+        )
+        .expect("a bump cut never runs the tag-creation guardrail");
+        assert!(
+            report
+                .modules
+                .iter()
+                .any(|outcome| outcome.module.to_string() == "rust:core"),
+            "the changed member must still plan a bump: {report:?}"
+        );
+    }
 }

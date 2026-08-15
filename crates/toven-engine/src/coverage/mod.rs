@@ -19,6 +19,7 @@ mod profile;
 mod read;
 mod report;
 mod settings;
+mod stream;
 
 pub use entry::coverage_report;
 pub use gate::{CoverageDimension, DimensionOutcome, ModuleCoverage, ModuleStatus};

@@ -131,6 +131,7 @@ pub fn release_bump(
         overrides,
         &targets,
         crate::versioning::bump::CutIntent::Bump,
+        reporter,
     )?;
     let date = today(clock)?;
     release_bump_by_member(
@@ -140,6 +141,7 @@ pub fn release_bump(
         repos,
         &date,
         resolved_runner,
+        reporter,
         *options,
     )
 }

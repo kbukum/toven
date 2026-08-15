@@ -52,6 +52,7 @@ use toven_core::plan::{PlanRequest, prepare_front};
 /// pre/post hook failures, release-apply failures (guardrails, mutation,
 /// tagging, publishing), and hosted-release failures.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)] // a linear release pipeline: reconcile → plan → apply → hosted phase, read top-to-bottom
 pub fn release_run(
     request: &PlanRequest,
     document: &Document,
@@ -130,9 +131,16 @@ pub fn release_run(
         overrides,
         &targets,
         crate::versioning::bump::CutIntent::Verify,
+        reporter,
     )?;
-    let mut stats =
-        release_apply_by_member(&plan, &context.federation.modules, &targets, repos, options)?;
+    let mut stats = release_apply_by_member(
+        &plan,
+        &context.federation.modules,
+        &targets,
+        repos,
+        reporter,
+        options,
+    )?;
 
     // A resumed apply skipped the already-applied git mutation phase; surface it
     // so the operator sees why no commit/tag/push happened and that the run is

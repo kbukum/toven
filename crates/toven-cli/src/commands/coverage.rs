@@ -5,30 +5,29 @@
 //! llvm-cov lcov / Go `-coverprofile`), staging its profiles under
 //! [`COVERAGE_DIR`]; Toven then aggregates and decides the pass/fail verdict.
 //! This verb runs the `coverage` task through the human run reporter (progress
-//! and summary on stderr), then renders the per-module verdict table on stdout
-//! and exits non-zero when the gate fails closed. `--line`/`--function`/
-//! `--region`/`--changed-line`/`--enforcement` layer over the config defaults
-//! for the run (argv wins; config is the default), and the selection flags
-//! narrow the measured scope exactly as the task verbs do.
+//! and summary on stderr), then emits one `ModuleCoverageFinished` event per
+//! module (one JSONL record each under `--output jsonl`), closes with the tally
+//! on stderr, and exits non-zero when the gate fails closed.
+//! `--line`/`--function`/`--region`/`--changed-line`/`--enforcement` layer over
+//! the config defaults for the run (argv wins; config is the default), and the
+//! selection flags narrow the measured scope exactly as the task verbs do.
 
 use std::sync::Arc;
 
-use rskit_cli::{ExitCode, OutputTable};
-use rskit_errors::{AppError, AppResult};
-use serde::Serialize;
+use rskit_cli::{ExitCode, Tone};
+use rskit_errors::AppResult;
 use toven_core::config::ViewMode;
 use toven_core::plan::PlanRequest;
-use toven_engine::coverage::{
-    COVERAGE_DIR, CoverageOverrides, CoverageReport, ModuleCoverage, coverage_report,
-};
+use toven_engine::coverage::{COVERAGE_DIR, CoverageOverrides, CoverageReport, coverage_report};
 use toven_exec::ProcessSupervisor;
+use toven_model::OutcomeSummary;
 use toven_ports::{Provider, TaskIntent};
 
 use crate::commands::run::WatchFlags;
 use crate::commands::selection::TaskSelection;
-use crate::commands::support::QuietReporter;
 use crate::flags::{Cli, DEFAULT_WATCH_DEBOUNCE_MS, OutputKind};
 use crate::host::{Project, Report, new_run_id, resolve_output};
+use crate::report::stderr_theme;
 
 /// The recognized task name the coverage verb runs and gates.
 const COVERAGE_TASK: &str = "coverage";
@@ -57,19 +56,51 @@ pub(crate) fn execute(
     rskit_fs::sync_io::dir::create_all(&staging)?;
 
     let measured = measure(providers, supervisor, project, cli, &selection)?;
-    let report = aggregate(providers, project, &selection, &overrides)?;
+    let output = resolve_output(cli.output, &project.document);
+    // In human mode the per-module verdicts render as an indented list under
+    // this header; JSONL mode stays events-only.
+    if matches!(output, OutputKind::Human) {
+        eprintln!("{}", stderr_theme(cli.color_choice()).heading("Coverage"));
+    }
+    let report = stream(providers, project, cli, &selection, &overrides)?;
 
-    match resolve_output(cli.output, &project.document) {
-        OutputKind::Jsonl => render_jsonl(&report)?,
-        OutputKind::Human => render_human(&report),
+    // In human mode, close with the tally on stderr alongside the measurement's
+    // run summary; JSONL mode stays events-only.
+    if matches!(output, OutputKind::Human) {
+        eprintln!(
+            "{}",
+            stderr_theme(cli.color_choice()).action(
+                "Finished",
+                &summary_line(&report),
+                Tone::Success,
+            )
+        );
     }
 
-    let gate_ok = report.gate_passed();
-    Ok(if matches!(measured, ExitCode::Success) && gate_ok {
-        ExitCode::Success
-    } else {
-        ExitCode::Failure
-    })
+    // Derive the exit once from the item-based summary (the gate verdict) folded
+    // with the measurement's own outcome.
+    let summary = coverage_outcome(&report);
+    Ok(
+        if matches!(measured, ExitCode::Success) && !summary.has_failures() {
+            ExitCode::Success
+        } else {
+            ExitCode::Failure
+        },
+    )
+}
+
+/// Map the gated coverage report onto the shared item-based summary: each
+/// passed module is a `succeeded` item, each failed module a `failed` one, and
+/// advisory/excluded modules are `skipped` (measured but not gate failures). The
+/// process exit derives solely from this summary's [`OutcomeSummary::has_failures`].
+fn coverage_outcome(report: &CoverageReport) -> OutcomeSummary {
+    let tally = report.tally();
+    OutcomeSummary {
+        processed: report.modules.len(),
+        succeeded: tally.passed,
+        failed: tally.failed,
+        skipped: tally.advisory + tally.excluded,
+    }
 }
 
 /// Run the recognized `coverage` task to emit the profiles, streaming its
@@ -111,10 +142,14 @@ fn measure(
 }
 
 /// Aggregate the emitted profiles into the gated report over the same scope the
-/// measurement ran under.
-fn aggregate(
+/// measurement ran under. `coverage_report` emits one
+/// [`Event::ModuleCoverageFinished`](toven_model::Event::ModuleCoverageFinished)
+/// per module (one JSONL record each under `--output jsonl`); the returned
+/// report drives the closing summary and the summary-based exit.
+fn stream(
     providers: &[&dyn Provider],
     project: &Project,
+    cli: &Cli,
     selection: &TaskSelection,
     overrides: &CoverageOverrides,
 ) -> AppResult<CoverageReport> {
@@ -127,13 +162,19 @@ fn aggregate(
     .with_selection(selection.resolve(project.document.project.base_ref.as_deref())?);
     let opened = project.open_member_vcs(providers, &selection.baseline)?;
     let readers = opened.readers();
-    let mut reporter = QuietReporter;
+    let report = Report::resolve(
+        cli.output,
+        cli.verbosity(),
+        cli.color_choice(),
+        &project.document,
+    );
+    let mut reporter = report.reporter();
     coverage_report(
         &request,
         &project.document,
         providers,
         &readers,
-        &mut reporter,
+        reporter.as_mut(),
         overrides,
     )
 }
@@ -160,57 +201,31 @@ fn build_overrides(cli: &Cli) -> CoverageOverrides {
     }
 }
 
-/// Render the measured percentage of a dimension, or `-` when unmeasured.
-fn percent(value: Option<f64>) -> String {
-    value.map_or_else(|| "-".to_string(), |pct| format!("{pct:.1}%"))
-}
-
-fn render_human(report: &CoverageReport) {
-    // stdout carries only the verdict table; the summary is a diagnostic that rides
-    // stderr alongside the measurement's run summary.
-    println!("{}", coverage_table(report));
-    eprintln!("{}", summary_line(report));
-}
-
-/// Build the per-module verdict table rendered on stdout.
-fn coverage_table(report: &CoverageReport) -> OutputTable {
-    let mut table = OutputTable::new(vec![
-        "Module",
-        "Status",
-        "Line",
-        "Function",
-        "Region",
-        "Changed",
-        "Enforcement",
-    ])
-    .with_title(if report.changed {
-        "Coverage (changed)"
-    } else {
-        "Coverage"
-    });
-    for module in &report.modules {
-        table.add_row(vec![
-            module.module.to_string(),
-            module.status.as_str().to_string(),
-            percent(Some(module.metrics.line)),
-            percent(module.metrics.function),
-            percent(module.metrics.region),
-            percent(module.metrics.changed_line),
-            module.enforcement.as_str().to_string(),
-        ]);
-    }
-    table
-}
-
 /// Build the one-line verdict summary rendered on stderr.
+///
+/// Only the non-zero groups appear so the tally stays scannable, closing with
+/// the gate verdict that matches the summary-derived exit.
 fn summary_line(report: &CoverageReport) -> String {
     let tally = report.tally();
+    let mut parts = Vec::new();
+    if tally.passed > 0 {
+        parts.push(format!("{} passed", tally.passed));
+    }
+    if tally.failed > 0 {
+        parts.push(format!("{} failed", tally.failed));
+    }
+    if tally.advisory > 0 {
+        parts.push(format!("{} advisory", tally.advisory));
+    }
+    if tally.excluded > 0 {
+        parts.push(format!("{} excluded", tally.excluded));
+    }
+    if parts.is_empty() {
+        parts.push("no modules measured".to_string());
+    }
     format!(
-        "coverage: {} passed, {} failed, {} advisory, {} excluded — {}",
-        tally.passed,
-        tally.failed,
-        tally.advisory,
-        tally.excluded,
+        "coverage: {} — {}",
+        parts.join(", "),
         if report.gate_passed() {
             "gate passed"
         } else {
@@ -219,62 +234,9 @@ fn summary_line(report: &CoverageReport) -> String {
     )
 }
 
-/// A stable JSON-lines record for one module's coverage verdict.
-#[derive(Serialize)]
-struct ModuleRecord {
-    module: String,
-    status: String,
-    enforcement: String,
-    line: f64,
-    function: Option<f64>,
-    region: Option<f64>,
-    changed_line: Option<f64>,
-    dimensions: Vec<DimensionRecord>,
-}
-
-/// A stable JSON-lines record for one gated dimension.
-#[derive(Serialize)]
-struct DimensionRecord {
-    dimension: String,
-    measured: f64,
-    threshold: f64,
-    passed: bool,
-}
-
-fn render_jsonl(report: &CoverageReport) -> AppResult<()> {
-    for module in &report.modules {
-        let record = module_record(module);
-        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
-        println!("{line}");
-    }
-    Ok(())
-}
-
-fn module_record(module: &ModuleCoverage) -> ModuleRecord {
-    ModuleRecord {
-        module: module.module.to_string(),
-        status: module.status.as_str().to_string(),
-        enforcement: module.enforcement.as_str().to_string(),
-        line: module.metrics.line,
-        function: module.metrics.function,
-        region: module.metrics.region,
-        changed_line: module.metrics.changed_line,
-        dimensions: module
-            .outcomes
-            .iter()
-            .map(|outcome| DimensionRecord {
-                dimension: outcome.dimension.as_str().to_string(),
-                measured: outcome.measured,
-                threshold: outcome.threshold,
-                passed: outcome.passed,
-            })
-            .collect(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{coverage_table, summary_line};
+    use super::{coverage_outcome, summary_line};
     use toven_engine::coverage::{CoverageMetrics, CoverageReport, ModuleCoverage, ModuleStatus};
     use toven_model::{EcosystemId, ModuleKey, ModuleRef};
     use toven_ports::Enforcement;
@@ -307,17 +269,6 @@ mod tests {
     }
 
     #[test]
-    fn table_carries_the_per_module_rows_not_the_summary() {
-        let rendered = coverage_table(&report()).to_string();
-        assert!(rendered.contains("Coverage"), "{rendered}");
-        assert!(rendered.contains("rust:core"), "{rendered}");
-        assert!(rendered.contains("rust:cli"), "{rendered}");
-        assert!(rendered.contains("92.0%"), "{rendered}");
-        // The verdict summary belongs on stderr, never in the stdout table.
-        assert!(!rendered.contains("gate failed"), "{rendered}");
-    }
-
-    #[test]
     fn summary_reports_the_tally_and_gate_verdict() {
         let summary = summary_line(&report());
         assert!(summary.contains("1 passed, 1 failed"), "{summary}");
@@ -325,13 +276,53 @@ mod tests {
     }
 
     #[test]
-    fn changed_scope_titles_the_table() {
-        let mut report = report();
-        report.changed = true;
-        assert!(
-            coverage_table(&report)
-                .to_string()
-                .contains("Coverage (changed)")
+    fn summary_collapses_zero_count_groups() {
+        // An all-passing run names only the non-zero group so the tally stays
+        // scannable — no `0 failed, 0 advisory, 0 excluded` noise.
+        let all_passing = CoverageReport {
+            modules: vec![
+                module("core", 92.0, ModuleStatus::Passed),
+                module("cli", 91.0, ModuleStatus::Passed),
+            ],
+            changed: false,
+        };
+        assert_eq!(
+            summary_line(&all_passing),
+            "coverage: 2 passed — gate passed"
         );
+    }
+
+    #[test]
+    fn outcome_maps_verdicts_onto_the_item_summary_and_fails_closed() {
+        // The gate verdict flows through the shared item-based summary: a passed
+        // module is a succeeded item, a failed module makes `has_failures` true so
+        // the exit is derived closed — never from an individual event.
+        let summary = coverage_outcome(&report());
+        assert_eq!(summary.processed, 2);
+        assert_eq!(summary.succeeded, 1);
+        assert_eq!(summary.failed, 1);
+        assert!(
+            summary.has_failures(),
+            "a below-threshold module fails closed"
+        );
+    }
+
+    #[test]
+    fn advisory_and_excluded_modules_are_skipped_not_failures() {
+        // Advisory/excluded modules are measured but never gate failures, so they
+        // count as skipped and leave the summary passing.
+        let report = CoverageReport {
+            modules: vec![
+                module("core", 92.0, ModuleStatus::Passed),
+                module("cli", 40.0, ModuleStatus::Advisory),
+                module("api", 10.0, ModuleStatus::Excluded),
+            ],
+            changed: false,
+        };
+        let summary = coverage_outcome(&report);
+        assert_eq!(summary.succeeded, 1);
+        assert_eq!(summary.skipped, 2);
+        assert_eq!(summary.failed, 0);
+        assert!(!summary.has_failures());
     }
 }

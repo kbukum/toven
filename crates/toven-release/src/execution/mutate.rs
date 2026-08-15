@@ -18,6 +18,11 @@ use toven_model::{Module, ModuleKey, RepoPath};
 use crate::{ReleasePlan, ReleaseStats};
 use toven_version::changelog;
 
+/// Per-module rewritten manifest paths in plan order: for each module the
+/// repo-relative paths its manifest mutation rewrote (empty for a tag-only cut).
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) type MutatedManifests = Vec<(ModuleKey, Vec<RepoPath>)>;
+
 /// Upper bound on a changelog read; a document larger than this is treated as
 /// malformed rather than loaded unbounded.
 const MAX_CHANGELOG_BYTES: u64 = 4 * 1024 * 1024;
@@ -41,7 +46,7 @@ pub(crate) fn mutate_manifests(
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
     targets: &crate::ReleaseTargets,
     stats: &mut ReleaseStats,
-) -> AppResult<Vec<(ModuleKey, Vec<RepoPath>)>> {
+) -> AppResult<MutatedManifests> {
     let mut mutated = Vec::with_capacity(plan.entries.len());
     for entry in &plan.entries {
         let module = crate::execution::apply::module_for(module_by_ref, &entry.module)?;

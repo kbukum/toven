@@ -5,4 +5,4 @@ mod inputs;
 mod plan;
 
 pub use inputs::{BumpConfig, CutIntent, ModuleVersionConfig, VersionInputs};
-pub use plan::{BumpEntry, BumpPlan, plan_bumps};
+pub use plan::{BumpEntry, BumpPlan, BumpPlanner, BumpResolution, plan_bumps};

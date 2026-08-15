@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{Phase, RunStats, UnitStatus};
+use super::{CoverageMeasurement, CoverageVerdict, Phase, RunStats, UnitStatus};
 use crate::plan::CacheVerdict;
 use crate::tool::ToolStatus;
 
@@ -107,6 +107,91 @@ pub enum Event {
         exit_code: Option<i32>,
     },
 
+    // ---- RELEASE level ----
+    /// A per-module release decision is **about to run** its slow I/O (baseline
+    /// resolution, change detection, registry lookup). Advisory progress only:
+    /// it never changes the run outcome or exit code and is safe to emit before
+    /// any mutation, filling the otherwise-silent gap so an operator sees
+    /// module-by-module motion. It precedes that module's settled
+    /// [`ModuleReleaseResolved`](Self::ModuleReleaseResolved) decision.
+    ModuleReleaseExamining {
+        /// Module whose decision I/O is starting (its canonical key).
+        module: String,
+    },
+    /// A per-module release *decision*, resolved from the plan **before** any
+    /// mutation. Safe to stream immediately, per module, in deterministic plan
+    /// order — it is exactly what `release plan` and the bare-command preview
+    /// project, and `--dry-run` emits only these. Distinct from
+    /// [`ModuleReleaseStaged`](Self::ModuleReleaseStaged): a decision is a
+    /// prediction, never a committed fact, so a later whole-run restore never
+    /// contradicts an already-emitted decision.
+    ModuleReleaseResolved {
+        /// Module the decision is for (its canonical key).
+        module: String,
+        /// Version the module's manifest currently declares.
+        current_version: String,
+        /// Version to release, when the module receives an own-version bump.
+        /// `None` when only a dependency floor moves or the module is already
+        /// up to date, so a decision with no own-version change is not rendered
+        /// as a bogus transition.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        planned_version: Option<String>,
+        /// Canonical bump-level name (`patch`/`minor`/`major`) applied to reach
+        /// the planned version.
+        level: String,
+        /// Canonical reason name for the decision (e.g. `changed`,
+        /// `initial-release`, `dependency-cascade`).
+        reason: String,
+        /// Planned release tag under the module's tag grammar, when the module
+        /// tags. Omitted for a tag-less ecosystem.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tag: Option<String>,
+        /// The module's publish disposition (e.g. the registry action), when
+        /// applicable. Omitted when the verb does not publish.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        publication: Option<String>,
+        /// Whether the planned version is already at/above the registry (or,
+        /// offline, the release tag), making a real publish a reported no-op.
+        up_to_date: bool,
+    },
+    /// A per-module release *commit*, emitted **only after** the transactional
+    /// side effect for that module has actually landed.
+    ///
+    /// Because it fires post-commit, a mid-transaction failure that triggers the
+    /// whole-run restore never leaves an emitted-but-rolled-back "staged" event
+    /// — the fail-closed guarantee holds by construction. A module that stages
+    /// nothing (a tag-only ecosystem with no rolled changelog) emits no staged
+    /// event, matching the reported staging truth.
+    ModuleReleaseStaged {
+        /// Module the commit is for (its canonical key).
+        module: String,
+        /// The version actually cut for the module.
+        new_version: String,
+        /// Manifest paths rewritten for the module (workspace-relative).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        manifests: Vec<String>,
+        /// Changelog path rolled for the module, when one was rolled.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        changelog: Option<String>,
+        /// The tag created for the module, for the tag/publish tail. Omitted
+        /// when this commit created no tag.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tag: Option<String>,
+    },
+
+    // ---- COVERAGE level ----
+    /// A per-module coverage verdict, emitted as each module's aggregation
+    /// completes. The verdict feeds the terminal
+    /// [`OutcomeSummary`](crate::OutcomeSummary), never a per-event exit.
+    ModuleCoverageFinished {
+        /// Module the verdict is for (its canonical key).
+        module: String,
+        /// Measured-vs-threshold values, one per gated or measured dimension.
+        measurements: Vec<CoverageMeasurement>,
+        /// The module's overall verdict.
+        verdict: CoverageVerdict,
+    },
+
     // ---- DOCTOR level ----
     /// A required tool for the resolved task graph was audited: present (with an
     /// optional version) or missing. The `doctor` verb emits one per unique
@@ -153,7 +238,8 @@ pub enum Event {
 
 #[cfg(test)]
 mod tests {
-    use super::{Event, Phase, RunStats, UnitStatus};
+    use super::{CoverageMeasurement, CoverageVerdict, Event, Phase, RunStats, UnitStatus};
+    use crate::event::CoverageMetric;
     use crate::plan::CacheVerdict;
     use crate::tool::ToolStatus;
 
@@ -218,5 +304,121 @@ mod tests {
             checked: 2,
             missing: 1,
         });
+    }
+
+    #[test]
+    fn release_and_coverage_events_round_trip() {
+        // Advisory per-module progress emitted before the slow decision I/O.
+        round_trip(&Event::ModuleReleaseExamining {
+            module: "core".into(),
+        });
+        // Full decision with every optional field populated.
+        round_trip(&Event::ModuleReleaseResolved {
+            module: "core".into(),
+            current_version: "1.2.0".into(),
+            planned_version: Some("1.3.0".into()),
+            level: "minor".into(),
+            reason: "changed".into(),
+            tag: Some("core-v1.3.0".into()),
+            publication: Some("publish".into()),
+            up_to_date: false,
+        });
+        // A decision with no own-version bump omits the optional fields.
+        round_trip(&Event::ModuleReleaseResolved {
+            module: "leaf".into(),
+            current_version: "0.4.1".into(),
+            planned_version: None,
+            level: "patch".into(),
+            reason: "dependency-cascade".into(),
+            tag: None,
+            publication: None,
+            up_to_date: true,
+        });
+        round_trip(&Event::ModuleReleaseStaged {
+            module: "core".into(),
+            new_version: "1.3.0".into(),
+            manifests: vec!["crates/core/Cargo.toml".into()],
+            changelog: Some("crates/core/CHANGELOG.md".into()),
+            tag: Some("core-v1.3.0".into()),
+        });
+        // A tag-only stage that rewrote nothing keeps the empty collections out
+        // of the machine projection.
+        round_trip(&Event::ModuleReleaseStaged {
+            module: "leaf".into(),
+            new_version: "0.4.2".into(),
+            manifests: Vec::new(),
+            changelog: None,
+            tag: None,
+        });
+        round_trip(&Event::ModuleCoverageFinished {
+            module: "core".into(),
+            measurements: vec![
+                CoverageMeasurement {
+                    metric: CoverageMetric::Line,
+                    measured: 9537,
+                    threshold: Some(9000),
+                    met: true,
+                },
+                CoverageMeasurement {
+                    metric: CoverageMetric::ChangedLine,
+                    measured: 8000,
+                    threshold: None,
+                    met: true,
+                },
+            ],
+            verdict: CoverageVerdict::Passed,
+        });
+        round_trip(&Event::ModuleCoverageFinished {
+            module: "leaf".into(),
+            measurements: Vec::new(),
+            verdict: CoverageVerdict::Failed,
+        });
+    }
+
+    #[test]
+    fn new_domain_variants_carry_stable_event_tags() {
+        let examining = serde_json::to_value(Event::ModuleReleaseExamining {
+            module: "core".into(),
+        })
+        .expect("serializes");
+        assert_eq!(examining["event"], "module-release-examining");
+        assert_eq!(examining["module"], "core");
+
+        let resolved = serde_json::to_value(Event::ModuleReleaseResolved {
+            module: "core".into(),
+            current_version: "1.2.0".into(),
+            planned_version: None,
+            level: "patch".into(),
+            reason: "changed".into(),
+            tag: None,
+            publication: None,
+            up_to_date: true,
+        })
+        .expect("serializes");
+        assert_eq!(resolved["event"], "module-release-resolved");
+        // Absent optionals must not leak into the machine projection.
+        assert!(resolved.get("planned_version").is_none());
+        assert!(resolved.get("tag").is_none());
+        assert!(resolved.get("publication").is_none());
+
+        let staged = serde_json::to_value(Event::ModuleReleaseStaged {
+            module: "leaf".into(),
+            new_version: "0.4.2".into(),
+            manifests: Vec::new(),
+            changelog: None,
+            tag: None,
+        })
+        .expect("serializes");
+        assert_eq!(staged["event"], "module-release-staged");
+        assert!(staged.get("manifests").is_none());
+
+        let coverage = serde_json::to_value(Event::ModuleCoverageFinished {
+            module: "core".into(),
+            measurements: Vec::new(),
+            verdict: CoverageVerdict::Excluded,
+        })
+        .expect("serializes");
+        assert_eq!(coverage["event"], "module-coverage-finished");
+        assert_eq!(coverage["verdict"], "excluded");
     }
 }

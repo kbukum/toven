@@ -138,3 +138,34 @@ impl<'a> TaskRecord<'a> {
 const fn yes_no(value: bool) -> &'static str {
     if value { "yes" } else { "no" }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::TaskRecord;
+
+    #[test]
+    fn task_jsonl_is_a_bespoke_record_not_an_event() {
+        // `tasks --output jsonl` is a stable domain schema on stdout, one record
+        // per task — deliberately *not* routed through the Event stream. Guard
+        // that contract: the record must never carry an `event` discriminator.
+        let argv = vec!["cargo".to_string(), "test".to_string()];
+        let shared_inputs: Vec<String> = Vec::new();
+        let record = TaskRecord {
+            ecosystem: "rust",
+            task: "test",
+            kind: "test",
+            origin: "adapter-default",
+            fan_out: "per-module",
+            persistent: false,
+            argv: &argv,
+            shared_inputs: &shared_inputs,
+        };
+        let value = serde_json::to_value(&record).expect("serialize");
+        let object = value.as_object().expect("object");
+        assert!(object.get("event").is_none(), "not an Event record");
+        assert_eq!(value["ecosystem"], "rust");
+        assert_eq!(value["task"], "test");
+        assert_eq!(value["persistent"], false);
+        assert_eq!(value["argv"][0], "cargo");
+    }
+}

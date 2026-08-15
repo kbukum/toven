@@ -7,12 +7,16 @@
 //! flows through the separate, coarse [`UnitOutput`] channel so high-throughput
 //! build output never pays per-line (de)serialization.
 
+mod coverage;
+mod outcome;
 mod output;
 mod phase;
 mod record;
 mod stats;
 mod status;
 
+pub use coverage::{CoverageMeasurement, CoverageMetric, CoverageVerdict};
+pub use outcome::OutcomeSummary;
 pub use output::{OutputStream, UnitOutput};
 pub use phase::Phase;
 pub use record::Event;

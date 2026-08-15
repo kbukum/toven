@@ -69,6 +69,33 @@ pub struct BumpPlan {
     pub entries: Vec<BumpEntry>,
 }
 
+/// One module's pure incremental resolution.
+#[derive(Debug, Clone)]
+pub struct BumpResolution {
+    /// Module that was resolved.
+    pub module: ModuleKey,
+    /// Version currently declared by the module.
+    pub current_version: Version,
+    /// Planned release entry, absent when the module has no release work.
+    pub entry: Option<BumpEntry>,
+}
+
+/// Stateful pure planner for a dependency-first module stream.
+///
+/// The caller gathers one module's [`VersionInputs`] at a time in
+/// [`Self::modules`] order and passes it to [`Self::decide`]. The planner owns
+/// cascade state only; it performs no I/O and emits no events.
+pub struct BumpPlanner<'a> {
+    decision: Decision<'a>,
+    ordered: Vec<ModuleKey>,
+    ranks: BTreeMap<ModuleKey, usize>,
+    next: usize,
+    planned_versions: BTreeMap<ModuleKey, Version>,
+    cascade_roots: BTreeMap<ModuleKey, ModuleKey>,
+    active: BTreeSet<ModuleKey>,
+    entries: Vec<BumpEntry>,
+}
+
 /// The resolved own-version bump for one module, before idempotency pre-skip.
 struct BumpDecision {
     planned: Option<Version>,
@@ -78,43 +105,31 @@ struct BumpDecision {
     prerelease_channel: Option<String>,
 }
 
-/// One module's resolved bump, its dependency-floor updates, and its cascade
-/// origin, prepared in dependency-first order before entry assembly.
-struct PreparedBump {
-    reference: ModuleKey,
-    current: Version,
-    origin: Option<ModuleKey>,
-    decision: BumpDecision,
-    dep_floor_updates: BTreeMap<ModuleRef, Version>,
-}
-
-/// The pre-gathered inputs indexed for the decision walk.
+/// The gathered inputs indexed for the incremental decision walk.
 struct Decision<'a> {
     cfg: &'a BumpConfig<'a>,
-    inputs: BTreeMap<ModuleKey, &'a VersionInputs>,
+    inputs: BTreeMap<ModuleKey, VersionInputs>,
     changed: BTreeSet<ModuleKey>,
 }
 
 impl<'a> Decision<'a> {
-    fn new(inputs: &'a [VersionInputs], cfg: &'a BumpConfig<'a>) -> Self {
-        let indexed = inputs
-            .iter()
-            .map(|input| (input.module.clone(), input))
-            .collect::<BTreeMap<_, _>>();
-        let changed = inputs
-            .iter()
-            .filter(|input| input.changed)
-            .map(|input| input.module.clone())
-            .collect();
+    const fn new(cfg: &'a BumpConfig<'a>) -> Self {
         Self {
             cfg,
-            inputs: indexed,
-            changed,
+            inputs: BTreeMap::new(),
+            changed: BTreeSet::new(),
         }
     }
 
+    fn insert(&mut self, input: VersionInputs) {
+        if input.changed {
+            self.changed.insert(input.module.clone());
+        }
+        self.inputs.insert(input.module.clone(), input);
+    }
+
     fn input(&self, reference: &ModuleKey) -> AppResult<&VersionInputs> {
-        self.inputs.get(reference).copied().ok_or_else(|| {
+        self.inputs.get(reference).ok_or_else(|| {
             AppError::invalid_input("release.modules", format!("unknown module '{reference}'"))
         })
     }
@@ -131,6 +146,206 @@ impl<'a> Decision<'a> {
         self.inputs
             .get(reference)
             .is_some_and(|input| input.breaking)
+    }
+}
+
+impl<'a> BumpPlanner<'a> {
+    /// Create a pure planner over the modules that this decision pass will
+    /// examine.
+    ///
+    /// Modules are ordered dependency-first with deterministic key ordering
+    /// inside each ready wave. The same order drives I/O in `toven-release` and
+    /// the incremental cascade here.
+    ///
+    /// # Errors
+    /// Rejects duplicate or unknown module keys, invalid overrides, a graph
+    /// failure, or a manifest-policy/prerelease conflict.
+    pub fn new(
+        modules: impl IntoIterator<Item = ModuleKey>,
+        cfg: &'a BumpConfig<'a>,
+    ) -> AppResult<Self> {
+        let mut scope = BTreeSet::new();
+        for module in modules {
+            if !cfg.graph.contains(&module) {
+                return Err(AppError::invalid_input(
+                    "release.modules",
+                    format!("unknown module '{module}'"),
+                ));
+            }
+            if !scope.insert(module.clone()) {
+                return Err(AppError::invalid_input(
+                    "release.modules",
+                    format!("duplicate versioning input for module '{module}'"),
+                ));
+            }
+        }
+        cfg.overrides
+            .validate_known(&scope.iter().map(|key| key.module.clone()).collect())?;
+        if cfg.policy == BumpPolicy::Manifest && cfg.overrides.prerelease().is_some() {
+            return Err(AppError::invalid_input(
+                "release.strategy",
+                "strategy = \"manifest\": --pre conflicts with the manifest policy; \
+                 the prerelease channel is part of the declared manifest version",
+            ));
+        }
+
+        let ranks = publish_ranks(cfg.graph, &scope)?;
+        let mut ordered = scope.into_iter().collect::<Vec<_>>();
+        ordered.sort_by_key(|module| (*ranks.get(module).unwrap_or(&usize::MAX), module.clone()));
+        Ok(Self {
+            decision: Decision::new(cfg),
+            ordered,
+            ranks,
+            next: 0,
+            planned_versions: BTreeMap::new(),
+            cascade_roots: BTreeMap::new(),
+            active: BTreeSet::new(),
+            entries: Vec::new(),
+        })
+    }
+
+    /// Modules to gather and decide, in dependency-first publication order.
+    #[must_use]
+    pub fn modules(&self) -> &[ModuleKey] {
+        &self.ordered
+    }
+
+    /// Decide one gathered module and advance the cascade state.
+    ///
+    /// # Errors
+    /// Rejects an out-of-order input or propagates invalid bump, prerelease,
+    /// manifest, and graph-policy combinations.
+    #[allow(clippy::too_many_lines)]
+    pub fn decide(&mut self, input: VersionInputs) -> AppResult<BumpResolution> {
+        let expected = self.ordered.get(self.next).ok_or_else(|| {
+            AppError::invalid_input(
+                "release.modules",
+                format!(
+                    "unexpected extra versioning input for module '{}'",
+                    input.module
+                ),
+            )
+        })?;
+        if input.module != *expected {
+            return Err(AppError::invalid_input(
+                "release.modules",
+                format!(
+                    "versioning input for module '{}' arrived out of order; expected '{expected}'",
+                    input.module
+                ),
+            ));
+        }
+        let reference = input.module.clone();
+        let current = input.current_version.clone();
+        self.decision.insert(input);
+
+        let dep_floor_updates = dep_floor_updates(
+            &reference,
+            self.decision.cfg.graph.edges(),
+            &self.planned_versions,
+        );
+        let active = self.decision.changed.contains(&reference) || !dep_floor_updates.is_empty();
+        if !active {
+            self.next += 1;
+            return Ok(BumpResolution {
+                module: reference,
+                current_version: current,
+                entry: None,
+            });
+        }
+        self.active.insert(reference.clone());
+
+        let origin = if self.decision.changed.contains(&reference) {
+            self.cascade_roots
+                .insert(reference.clone(), reference.clone());
+            None
+        } else {
+            let root = triggering_dependency(
+                &reference,
+                self.decision.cfg.graph.edges(),
+                &self.planned_versions,
+            )
+            .and_then(|dependency| self.cascade_roots.get(&dependency).cloned());
+            if let Some(root) = &root {
+                self.cascade_roots.insert(reference.clone(), root.clone());
+            }
+            root
+        };
+        let bump = resolve_bump(
+            &self.decision,
+            &reference,
+            &current,
+            !dep_floor_updates.is_empty(),
+        )?;
+        if let Some(version) = &bump.planned {
+            self.planned_versions
+                .insert(reference.clone(), version.clone());
+        }
+
+        let publication = self
+            .decision
+            .config(&reference)
+            .map(|config| &config.publication);
+        let entry = if (bump.planned.is_none() && dep_floor_updates.is_empty())
+            || !publication.is_none_or(toven_ports::PublicationPolicy::releases)
+        {
+            None
+        } else {
+            let input = self.decision.input(&reference)?;
+            let (up_to_date, registry_publish_needed) =
+                idempotency(&self.decision, &reference, bump.planned.as_ref());
+            let publish_needed =
+                registry_publish_needed && input.config.publication.publishes_to_registry();
+            let cascade_origin = origin.filter(|_| bump.reason == BumpReason::DependencyCascade);
+            Some(BumpEntry {
+                module: reference.clone(),
+                current_version: current.clone(),
+                planned_version: bump.planned,
+                level: bump.level,
+                reason: bump.reason,
+                winning_input: bump.winning_input,
+                cascade_origin,
+                prerelease_channel: bump.prerelease_channel,
+                up_to_date,
+                publish_needed,
+                dep_floor_updates,
+                topo_rank: *self.ranks.get(&reference).unwrap_or(&usize::MAX),
+                baseline: input.baseline.clone(),
+            })
+        };
+        if let Some(entry) = &entry {
+            self.entries.push(entry.clone());
+        }
+        self.next += 1;
+        Ok(BumpResolution {
+            module: reference,
+            current_version: current,
+            entry,
+        })
+    }
+
+    /// Finish the incremental pass and return its deterministic release plan.
+    ///
+    /// # Errors
+    /// Fails when one or more configured modules were never decided.
+    pub fn finish(self) -> AppResult<BumpPlan> {
+        if self.next != self.ordered.len() {
+            let missing = &self.ordered[self.next];
+            return Err(AppError::invalid_input(
+                "release.modules",
+                format!("missing versioning input for module '{missing}'"),
+            ));
+        }
+        self.decision.cfg.overrides.validate_known(
+            &self
+                .active
+                .iter()
+                .map(|key| key.module.clone())
+                .collect(),
+        )?;
+        Ok(BumpPlan {
+            entries: self.entries,
+        })
     }
 }
 
@@ -168,120 +383,24 @@ fn reject_duplicate_inputs(inputs: &[VersionInputs]) -> AppResult<()> {
 #[allow(clippy::too_many_lines)]
 pub fn plan_bumps(inputs: &[VersionInputs], cfg: &BumpConfig<'_>) -> AppResult<BumpPlan> {
     reject_duplicate_inputs(inputs)?;
-    let decision = Decision::new(inputs, cfg);
-    let active = cfg.graph.closure(&decision.changed, release_closure_edge)?;
-
-    cfg.overrides
-        .validate_known(&active.iter().map(|key| key.module.clone()).collect())?;
-
-    // `--pre` composes with the `semver-cascade` matrix only; under `manifest`
-    // the prerelease channel already lives in the declared version, so a `--pre`
-    // override is a contradictory usage that must fail closed rather than be
-    // silently ignored.
-    if cfg.policy == BumpPolicy::Manifest && cfg.overrides.prerelease().is_some() {
-        return Err(AppError::invalid_input(
-            "release.strategy",
-            "strategy = \"manifest\": --pre conflicts with the manifest policy; \
-             the prerelease channel is part of the declared manifest version",
-        ));
+    let changed = inputs
+        .iter()
+        .filter(|input| input.changed)
+        .map(|input| input.module.clone())
+        .collect();
+    let active = cfg.graph.closure(&changed, release_closure_edge)?;
+    let mut planner = BumpPlanner::new(active, cfg)?;
+    let indexed = inputs
+        .iter()
+        .map(|input| (input.module.clone(), input))
+        .collect::<BTreeMap<_, _>>();
+    for module in planner.modules().to_vec() {
+        let input = indexed.get(&module).ok_or_else(|| {
+            AppError::invalid_input("release.modules", format!("unknown module '{module}'"))
+        })?;
+        planner.decide((*input).clone())?;
     }
-
-    let ranks = publish_ranks(cfg.graph, &active)?;
-    let mut ordered = active.iter().cloned().collect::<Vec<_>>();
-    ordered.sort_by_key(|module| (*ranks.get(module).unwrap_or(&usize::MAX), module.clone()));
-
-    let mut planned_versions: BTreeMap<ModuleKey, Version> = BTreeMap::new();
-    let mut cascade_roots: BTreeMap<ModuleKey, ModuleKey> = BTreeMap::new();
-    let mut prepared = Vec::with_capacity(ordered.len());
-    for reference in &ordered {
-        let current = decision.input(reference)?.current_version.clone();
-        // Every dependency has a lower topo rank, so its bump (if any) is already
-        // recorded: a non-empty floor set means a direct dependency really bumped.
-        let dep_floor_updates = dep_floor_updates(reference, cfg.graph.edges(), &planned_versions);
-        // Attribute the cascade to the changed root carried forward by the actual
-        // bumped direct dependency, not an arbitrary changed transitive ancestor.
-        let origin = if decision.changed.contains(reference) {
-            cascade_roots.insert(reference.clone(), reference.clone());
-            None
-        } else {
-            let root = triggering_dependency(reference, cfg.graph.edges(), &planned_versions)
-                .and_then(|dependency| cascade_roots.get(&dependency).cloned());
-            if let Some(root) = &root {
-                cascade_roots.insert(reference.clone(), root.clone());
-            }
-            root
-        };
-        let bump = resolve_bump(
-            &decision,
-            reference,
-            &current,
-            !dep_floor_updates.is_empty(),
-        )?;
-        if let Some(version) = &bump.planned {
-            planned_versions.insert(reference.clone(), version.clone());
-        }
-        prepared.push(PreparedBump {
-            reference: reference.clone(),
-            current,
-            origin,
-            decision: bump,
-            dep_floor_updates,
-        });
-    }
-
-    let mut entries = Vec::with_capacity(prepared.len());
-    for PreparedBump {
-        reference,
-        current,
-        origin,
-        decision: bump,
-        dep_floor_updates,
-    } in prepared
-    {
-        // A module pulled into the release closure with neither an own-version bump nor
-        // a dependency floor to raise carries no mutation, so it must not reach APPLY
-        // (which would rewrite manifests and cut a tag for nothing).
-        if bump.planned.is_none() && dep_floor_updates.is_empty() {
-            continue;
-        }
-        // An excluded module never participates in the release: no version change, no
-        // tag, no target call, no hosted release. It is dropped before an entry exists.
-        let publication = decision
-            .config(&reference)
-            .map(|config| &config.publication);
-        if !publication.is_none_or(toven_ports::PublicationPolicy::releases) {
-            continue;
-        }
-        let input = decision.input(&reference)?;
-        let (up_to_date, registry_publish_needed) =
-            idempotency(&decision, &reference, bump.planned.as_ref());
-        // Only registry-published modules invoke the publish loop; a tag-only module
-        // is still versioned and tagged but never packaged/published to a registry.
-        let publish_needed =
-            registry_publish_needed && input.config.publication.publishes_to_registry();
-        let cascade_origin = origin.filter(|_| bump.reason == BumpReason::DependencyCascade);
-        entries.push(BumpEntry {
-            module: reference.clone(),
-            current_version: current,
-            planned_version: bump.planned,
-            level: bump.level,
-            reason: bump.reason,
-            winning_input: bump.winning_input,
-            cascade_origin,
-            prerelease_channel: bump.prerelease_channel,
-            up_to_date,
-            publish_needed,
-            dep_floor_updates,
-            topo_rank: *ranks.get(&reference).unwrap_or(&usize::MAX),
-            baseline: input.baseline.clone(),
-        });
-    }
-    entries.sort_by(|left, right| {
-        left.topo_rank
-            .cmp(&right.topo_rank)
-            .then_with(|| left.module.cmp(&right.module))
-    });
-    Ok(BumpPlan { entries })
+    planner.finish()
 }
 
 /// Resolve the bump decision for a maintainer-owned module: plan exactly the
@@ -774,7 +893,7 @@ mod tests {
     use crate::policy::{BumpPolicy, BumpReason, BumpSource};
 
     use super::super::inputs::{BumpConfig, CutIntent, ModuleVersionConfig, VersionInputs};
-    use super::{BumpPlan, plan_bumps};
+    use super::{BumpPlan, BumpPlanner, plan_bumps};
 
     fn module(name: &str) -> Module {
         Module::new(
@@ -1131,6 +1250,99 @@ mod tests {
         assert_eq!(app_entry.planned_version, Some(Version::new(0, 1, 1)));
         assert!(!app_entry.dep_floor_updates.is_empty());
         assert_eq!(app_entry.reason, BumpReason::DependencyCascade);
+    }
+
+    #[test]
+    fn incremental_decisions_match_the_batch_plan_in_dependency_first_order() {
+        let base = {
+            let mut input = dep_input("base", DependentVersion::Bump);
+            input.changed = true;
+            input
+        };
+        let lib = dep_input("lib", DependentVersion::Bump);
+        let app = dep_input("app", DependentVersion::Bump);
+        let (base_key, lib_key, app_key) = (key("base"), key("lib"), key("app"));
+        let edges = vec![
+            Edge::new(app_key.clone(), lib_key.clone(), DepKind::Normal),
+            Edge::new(lib_key.clone(), base_key.clone(), DepKind::Normal),
+        ];
+        let graph =
+            Graph::build(vec![module("app"), module("lib"), module("base")], edges).expect("graph");
+        let overrides = BumpOverrides::new();
+        let inputs = vec![app, base, lib];
+        let config = BumpConfig {
+            graph: &graph,
+            branches: &no_branches(),
+            policy: BumpPolicy::SemverCascade,
+            overrides: &overrides,
+            intent: CutIntent::Verify,
+        };
+        let expected = plan_bumps(&inputs, &config).expect("batch plan");
+
+        let mut planner =
+            BumpPlanner::new(inputs.iter().map(|input| input.module.clone()), &config)
+                .expect("planner");
+        assert_eq!(
+            planner.modules(),
+            &[base_key.clone(), lib_key.clone(), app_key.clone()]
+        );
+        let mut by_key = inputs
+            .into_iter()
+            .map(|input| (input.module.clone(), input))
+            .collect::<BTreeMap<_, _>>();
+        let mut resolved = Vec::new();
+        for module in planner.modules().to_vec() {
+            let input = by_key.remove(&module).expect("ordered input");
+            let decision = planner.decide(input).expect("decision");
+            resolved.push(decision.module.clone());
+        }
+        let actual = planner.finish().expect("incremental plan");
+
+        assert_eq!(resolved, vec![base_key, lib_key, app_key]);
+        assert_eq!(
+            actual
+                .entries
+                .iter()
+                .map(|entry| (
+                    &entry.module,
+                    &entry.planned_version,
+                    &entry.dep_floor_updates
+                ))
+                .collect::<Vec<_>>(),
+            expected
+                .entries
+                .iter()
+                .map(|entry| (
+                    &entry.module,
+                    &entry.planned_version,
+                    &entry.dep_floor_updates
+                ))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn incremental_planner_rejects_an_override_for_an_inactive_module() {
+        let input = dep_input("core", DependentVersion::Bump);
+        let graph = Graph::build(vec![module("core")], Vec::new()).expect("graph");
+        let overrides = BumpOverrides::new()
+            .with_module_level(key("core").module, BumpLevel::Major)
+            .expect("override");
+        let config = BumpConfig {
+            graph: &graph,
+            branches: &no_branches(),
+            policy: BumpPolicy::SemverCascade,
+            overrides: &overrides,
+            intent: CutIntent::Verify,
+        };
+        let mut planner =
+            BumpPlanner::new([input.module.clone()], &config).expect("planner accepts known module");
+        planner.decide(input).expect("inactive decision");
+
+        let error = planner
+            .finish()
+            .expect_err("an unchanged override must not silently no-op");
+        assert!(error.to_string().contains("not in the release scope"), "{error}");
     }
 
     #[test]

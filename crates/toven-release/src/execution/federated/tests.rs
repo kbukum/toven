@@ -1,11 +1,13 @@
 use rskit_version::semver::Version;
 use toven_model::{EcosystemId, MemberId, Module, ModuleKey, ModuleRef, RepoPath};
 use toven_ports::ReleaseMutation;
-use toven_testkit::{FakeReleaseTarget, FakeVcsReader, FakeVcsWriter, ReleaseCall, VcsWrite};
+use toven_testkit::{
+    FakeReleaseTarget, FakeVcsReader, FakeVcsWriter, RecordingReporter, ReleaseCall, VcsWrite,
+};
 
 use super::{
     apply::{MemberReleaseRepo, MemberReleaseRepos},
-    release_apply_by_member,
+    release_apply_by_member, release_bump_by_member,
 };
 use crate::{
     BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PushPolicy, ReleaseApplyOptions,
@@ -212,6 +214,7 @@ fn an_all_member_tags_exist_release_resumes_without_git_mutation() {
         &modules,
         &targets(&target),
         &repos,
+        &mut RecordingReporter::new(),
         &ReleaseApplyOptions::default(),
     )
     .expect("an already-tagged federation resumes rather than failing closed");
@@ -265,6 +268,7 @@ fn a_partial_planned_tag_set_in_a_member_is_rejected_before_any_mutation() {
         &modules,
         &targets(&target),
         &repos,
+        &mut RecordingReporter::new(),
         &ReleaseApplyOptions::default(),
     )
     .expect_err("a partial tag overlap must fail closed before any mutation");
@@ -300,6 +304,7 @@ fn a_tag_failure_after_a_member_commit_carries_forward_only_recovery_guidance() 
         &modules,
         &targets(&target),
         &repos,
+        &mut RecordingReporter::new(),
         &ReleaseApplyOptions::default(),
     )
     .expect_err("a post-commit tag failure must surface recovery guidance");
@@ -347,6 +352,7 @@ fn a_push_failure_after_the_member_commits_carries_forward_only_recovery_guidanc
         &modules,
         &targets(&target),
         &repos,
+        &mut RecordingReporter::new(),
         &ReleaseApplyOptions {
             no_push: false,
             ..Default::default()
@@ -397,6 +403,7 @@ fn tags_only_member_push_proceeds_on_a_detached_head() {
         &modules,
         &targets(&target),
         &repos,
+        &mut RecordingReporter::new(),
         &ReleaseApplyOptions {
             no_push: false,
             ..Default::default()
@@ -437,6 +444,7 @@ fn a_publish_failure_after_the_member_commits_carries_forward_only_recovery_guid
         &modules,
         &targets(&target),
         &repos,
+        &mut RecordingReporter::new(),
         &ReleaseApplyOptions::default(),
     )
     .expect_err("a post-commit publish failure must surface recovery guidance");
@@ -489,6 +497,7 @@ fn release_apply_commits_per_member_and_publishes_in_federated_order() {
         &modules,
         &targets(&target),
         &repos,
+        &mut RecordingReporter::new(),
         &ReleaseApplyOptions::default(),
     )
     .unwrap();
@@ -565,6 +574,7 @@ fn member_prepare_failure_restores_only_that_member() {
         &modules,
         &targets(&target),
         &repos,
+        &mut RecordingReporter::new(),
         &ReleaseApplyOptions::default(),
     )
     .unwrap_err();
@@ -610,6 +620,7 @@ fn later_member_prepare_failure_restores_prepared_members_before_any_commit() {
         &modules,
         &targets_by_member(&core_target, &gateway_target),
         &repos,
+        &mut RecordingReporter::new(),
         &ReleaseApplyOptions::default(),
     )
     .unwrap_err();
@@ -662,6 +673,7 @@ fn member_without_a_release_target_is_not_served_by_another_members_target() {
         &modules,
         &targets,
         &repos,
+        &mut RecordingReporter::new(),
         &ReleaseApplyOptions::default(),
     )
     .unwrap_err();
@@ -702,6 +714,7 @@ fn a_maintainer_owned_member_publishes_against_the_existing_tag_without_mutating
         &modules,
         &targets(&target),
         &repos,
+        &mut RecordingReporter::new(),
         &ReleaseApplyOptions::default(),
     )
     .expect("a maintainer-owned member publishes against the existing tag");
@@ -757,6 +770,7 @@ fn a_maintainer_owned_member_fails_closed_when_the_release_tag_is_absent() {
         &modules,
         &targets(&target),
         &repos,
+        &mut RecordingReporter::new(),
         &ReleaseApplyOptions::default(),
     )
     .expect_err("an absent maintainer-owned tag fails closed");
@@ -810,6 +824,7 @@ fn a_maintainer_owned_member_fails_closed_when_the_tag_diverges_from_head() {
         &modules,
         &targets(&target),
         &repos,
+        &mut RecordingReporter::new(),
         &ReleaseApplyOptions::default(),
     )
     .expect_err("a maintainer-owned tag that diverges from HEAD fails closed");
@@ -829,5 +844,271 @@ fn a_maintainer_owned_member_fails_closed_when_the_tag_diverges_from_head() {
         )),
         "no mutation or publish may happen when the tag diverges: {:?}",
         target.calls()
+    );
+}
+
+/// Extract the ordered `(module, new_version, tag)` triples from every
+/// `ModuleReleaseStaged` commit event a run recorded.
+fn staged(reporter: &RecordingReporter) -> Vec<(String, String, Option<String>)> {
+    reporter
+        .events()
+        .iter()
+        .filter_map(|event| match event {
+            toven_model::Event::ModuleReleaseStaged {
+                module,
+                new_version,
+                tag,
+                ..
+            } => Some((module.clone(), new_version.clone(), tag.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn release_apply_streams_a_staged_event_per_committed_module_after_its_tag_lands() {
+    let plan = ReleasePlan::new(
+        BumpPolicy::SemverCascade,
+        vec![
+            entry("core", "shared", Version::new(0, 1, 1), 0),
+            entry("gateway", "api", Version::new(0, 1, 1), 1),
+        ],
+    );
+    let modules = vec![module("core", "shared"), module("gateway", "api")];
+    let target = FakeReleaseTarget::new();
+    let core_reader = FakeVcsReader::new();
+    let gateway_reader = FakeVcsReader::new();
+    let core_writer = FakeVcsWriter::new().with_commit_oid("corecommit");
+    let gateway_writer = FakeVcsWriter::new().with_commit_oid("gwcommit");
+    let repos = MemberReleaseRepos::new(vec![
+        MemberReleaseRepo::new(
+            Some(member("core")),
+            std::path::PathBuf::from("/repos/core"),
+            &core_reader,
+            &core_writer,
+        ),
+        MemberReleaseRepo::new(
+            Some(member("gateway")),
+            std::path::PathBuf::from("/repos/gateway"),
+            &gateway_reader,
+            &gateway_writer,
+        ),
+    ]);
+
+    let mut reporter = RecordingReporter::new();
+    release_apply_by_member(
+        &plan,
+        &modules,
+        &targets(&target),
+        &repos,
+        &mut reporter,
+        &ReleaseApplyOptions::default(),
+    )
+    .unwrap();
+
+    // One commit event per module, in plan order, each carrying the tag its
+    // Phase-2 side effect actually created.
+    assert_eq!(
+        staged(&reporter),
+        vec![
+            (
+                "core/rust:shared".to_string(),
+                "0.1.1".to_string(),
+                Some("rust/shared@0.1.1".to_string()),
+            ),
+            (
+                "gateway/rust:api".to_string(),
+                "0.1.1".to_string(),
+                Some("rust/api@0.1.1".to_string()),
+            ),
+        ],
+    );
+}
+
+#[test]
+fn a_member_commit_failure_emits_no_staged_event_for_the_failing_member() {
+    // The gateway member's tag creation fails after the core member has already
+    // committed and tagged. The core member's commit landed, so its staged event
+    // is truthful; the gateway member never completed its Phase-2 side effect, so
+    // it must emit no staged event and the run fails closed.
+    let plan = ReleasePlan::new(
+        BumpPolicy::SemverCascade,
+        vec![
+            entry("core", "shared", Version::new(0, 1, 1), 0),
+            entry("gateway", "api", Version::new(0, 1, 1), 1),
+        ],
+    );
+    let modules = vec![module("core", "shared"), module("gateway", "api")];
+    let target = FakeReleaseTarget::new();
+    let core_reader = FakeVcsReader::new();
+    let gateway_reader = FakeVcsReader::new();
+    let core_writer = FakeVcsWriter::new().with_commit_oid("corecommit");
+    let gateway_writer = FakeVcsWriter::new()
+        .with_commit_oid("gwcommit")
+        .with_create_tag_failure("gateway tag failed");
+    let repos = MemberReleaseRepos::new(vec![
+        MemberReleaseRepo::new(
+            Some(member("core")),
+            std::path::PathBuf::from("/repos/core"),
+            &core_reader,
+            &core_writer,
+        ),
+        MemberReleaseRepo::new(
+            Some(member("gateway")),
+            std::path::PathBuf::from("/repos/gateway"),
+            &gateway_reader,
+            &gateway_writer,
+        ),
+    ]);
+
+    let mut reporter = RecordingReporter::new();
+    let error = release_apply_by_member(
+        &plan,
+        &modules,
+        &targets(&target),
+        &repos,
+        &mut reporter,
+        &ReleaseApplyOptions::default(),
+    )
+    .expect_err("a member tag failure fails the run closed");
+
+    assert!(error.to_string().contains("gateway tag failed"), "{error}");
+    assert_eq!(
+        staged(&reporter),
+        vec![(
+            "core/rust:shared".to_string(),
+            "0.1.1".to_string(),
+            Some("rust/shared@0.1.1".to_string()),
+        )],
+        "only the genuinely-committed core member may emit a staged event",
+    );
+}
+
+#[test]
+fn release_bump_streams_a_staged_event_per_genuinely_staged_module() {
+    let plan = ReleasePlan::new(
+        BumpPolicy::SemverCascade,
+        vec![
+            entry("core", "shared", Version::new(0, 1, 1), 0),
+            entry("gateway", "api", Version::new(0, 1, 1), 1),
+        ],
+    );
+    let modules = vec![module("core", "shared"), module("gateway", "api")];
+    let target = FakeReleaseTarget::new();
+    let core_reader = FakeVcsReader::new();
+    let gateway_reader = FakeVcsReader::new();
+    let core_writer = FakeVcsWriter::new();
+    let gateway_writer = FakeVcsWriter::new();
+    let repos = MemberReleaseRepos::new(vec![
+        MemberReleaseRepo::new(
+            Some(member("core")),
+            std::path::PathBuf::from("/repos/core"),
+            &core_reader,
+            &core_writer,
+        ),
+        MemberReleaseRepo::new(
+            Some(member("gateway")),
+            std::path::PathBuf::from("/repos/gateway"),
+            &gateway_reader,
+            &gateway_writer,
+        ),
+    ]);
+    let hooks = toven_testkit::RecordingHookRunner::new();
+
+    let mut reporter = RecordingReporter::new();
+    let report = release_bump_by_member(
+        &plan,
+        &modules,
+        &targets(&target),
+        &repos,
+        "2026-01-01",
+        &hooks,
+        &mut reporter,
+        crate::BumpOptions::default(),
+    )
+    .unwrap();
+
+    assert!(report.staged);
+    // `bump` stages the mutation but creates no tag, so every commit event names
+    // a version and no tag, in plan order.
+    assert_eq!(
+        staged(&reporter),
+        vec![
+            ("core/rust:shared".to_string(), "0.1.1".to_string(), None),
+            ("gateway/rust:api".to_string(), "0.1.1".to_string(), None),
+        ],
+    );
+    // Each staged event carries the manifests the mutation actually rewrote.
+    let manifests: Vec<Vec<String>> = reporter
+        .events()
+        .iter()
+        .filter_map(|event| match event {
+            toven_model::Event::ModuleReleaseStaged { manifests, .. } => Some(manifests.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        manifests,
+        vec![
+            vec!["repos/core/crates/shared".to_string()],
+            vec!["repos/gateway/crates/api".to_string()],
+        ],
+    );
+}
+
+#[test]
+fn release_bump_emits_no_staged_event_when_a_mutation_fails_mid_transaction() {
+    // A Phase-1 mutation failure restores every already-mutated member and stages
+    // nothing, so no module may surface a rolled-back "staged" commit event.
+    let plan = ReleasePlan::new(
+        BumpPolicy::SemverCascade,
+        vec![
+            entry("core", "shared", Version::new(0, 1, 1), 0),
+            entry("gateway", "api", Version::new(0, 1, 1), 1),
+        ],
+    );
+    let modules = vec![module("core", "shared"), module("gateway", "api")];
+    let target = FakeReleaseTarget::new().with_apply_failure("manifest mutation failed");
+    let core_reader = FakeVcsReader::new();
+    let gateway_reader = FakeVcsReader::new();
+    let core_writer = FakeVcsWriter::new();
+    let gateway_writer = FakeVcsWriter::new();
+    let repos = MemberReleaseRepos::new(vec![
+        MemberReleaseRepo::new(
+            Some(member("core")),
+            std::path::PathBuf::from("/repos/core"),
+            &core_reader,
+            &core_writer,
+        ),
+        MemberReleaseRepo::new(
+            Some(member("gateway")),
+            std::path::PathBuf::from("/repos/gateway"),
+            &gateway_reader,
+            &gateway_writer,
+        ),
+    ]);
+    let hooks = toven_testkit::RecordingHookRunner::new();
+
+    let mut reporter = RecordingReporter::new();
+    let error = release_bump_by_member(
+        &plan,
+        &modules,
+        &targets(&target),
+        &repos,
+        "2026-01-01",
+        &hooks,
+        &mut reporter,
+        crate::BumpOptions::default(),
+    )
+    .expect_err("a mid-transaction mutation failure fails the bump closed");
+
+    assert!(
+        error.to_string().contains("manifest mutation failed"),
+        "{error}"
+    );
+    assert!(
+        staged(&reporter).is_empty(),
+        "a restored member must emit no staged event: {:?}",
+        reporter.events()
     );
 }

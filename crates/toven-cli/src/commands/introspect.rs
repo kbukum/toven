@@ -434,6 +434,24 @@ mod tests {
     }
 
     #[test]
+    fn module_row_jsonl_is_a_bespoke_record_not_an_event() {
+        // `modules --output jsonl` is a stable domain schema on stdout, one
+        // record per row — deliberately *not* routed through the Event stream.
+        // Guard that contract: the record must never carry an `event`
+        // discriminator, and its shape stays exactly `{module, workspace}`.
+        let row = ModuleRow {
+            module: "rust:core".to_string(),
+            workspace: Some("core".to_string()),
+        };
+        let value = serde_json::to_value(&row).expect("serialize");
+        let object = value.as_object().expect("object");
+        assert!(object.get("event").is_none(), "not an Event record");
+        assert_eq!(object.len(), 2);
+        assert_eq!(value["module"], "rust:core");
+        assert_eq!(value["workspace"], "core");
+    }
+
+    #[test]
     fn graph_text_lists_each_module_and_its_edges() {
         let rendered = render_graph_text(&graph());
         assert!(rendered.contains("rust:app"));

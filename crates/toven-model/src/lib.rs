@@ -42,7 +42,10 @@ pub mod workspace;
 
 pub use ecosystems::{CanonicalEcosystem, canonical_ecosystems};
 pub use edge::{DepKind, Edge};
-pub use event::{Event, OutputStream, Phase, RunStats, UnitOutput, UnitStatus};
+pub use event::{
+    CoverageMeasurement, CoverageMetric, CoverageVerdict, Event, OutcomeSummary, OutputStream,
+    Phase, RunStats, UnitOutput, UnitStatus,
+};
 pub use graph::Graph;
 pub use identity::{AbsPath, EcosystemId, MemberId, ModuleKey, ModuleRef, RepoPath, WorkspaceId};
 pub use module::Module;

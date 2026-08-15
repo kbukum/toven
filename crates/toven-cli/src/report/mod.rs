@@ -18,6 +18,7 @@ mod output;
 #[cfg(unix)]
 mod panes;
 mod summary;
+mod theme;
 mod tiles;
 #[cfg(unix)]
 mod view;
@@ -29,6 +30,7 @@ pub(crate) use live::configure_live_output;
 pub use output::WriterRawSink;
 #[cfg(unix)]
 pub use panes::{PaneRawSink, TmuxLauncher};
+pub(crate) use theme::stderr_theme;
 pub use tiles::TilesRawSink;
 #[cfg(unix)]
 pub use view::{ResolvedView, resolve_view};

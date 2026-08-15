@@ -106,4 +106,53 @@ mod tests {
         );
         assert!(output.ends_with('\n'));
     }
+
+    #[test]
+    fn new_domain_events_are_one_record_each_and_round_trip() {
+        use toven_model::{CoverageMeasurement, CoverageMetric, CoverageVerdict};
+
+        let events = vec![
+            Event::ModuleReleaseExamining {
+                module: "core".into(),
+            },
+            Event::ModuleReleaseResolved {
+                module: "core".into(),
+                current_version: "1.2.0".into(),
+                planned_version: Some("1.3.0".into()),
+                level: "minor".into(),
+                reason: "changed".into(),
+                tag: Some("core-v1.3.0".into()),
+                publication: Some("publish".into()),
+                up_to_date: false,
+            },
+            Event::ModuleReleaseStaged {
+                module: "core".into(),
+                new_version: "1.3.0".into(),
+                manifests: vec!["crates/core/Cargo.toml".into()],
+                changelog: None,
+                tag: Some("core-v1.3.0".into()),
+            },
+            Event::ModuleCoverageFinished {
+                module: "core".into(),
+                measurements: vec![CoverageMeasurement {
+                    metric: CoverageMetric::Line,
+                    measured: 9537,
+                    threshold: Some(9000),
+                    met: true,
+                }],
+                verdict: CoverageVerdict::Passed,
+            },
+        ];
+        let output = render(&events);
+        let lines: Vec<&str> = output.lines().collect();
+        assert_eq!(lines.len(), events.len(), "one record per event");
+        for (line, event) in lines.iter().zip(&events) {
+            let back: Event = serde_json::from_str(line).expect("parse line");
+            assert_eq!(&back, event);
+        }
+        assert!(lines[0].contains(r#""event":"module-release-examining""#));
+        assert!(lines[1].contains(r#""event":"module-release-resolved""#));
+        assert!(lines[2].contains(r#""event":"module-release-staged""#));
+        assert!(lines[3].contains(r#""event":"module-coverage-finished""#));
+    }
 }

@@ -7,10 +7,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use rskit_errors::AppResult;
-use toven_model::{EcosystemId, Module, ModuleKey};
+use rskit_errors::{AppError, AppResult};
+use toven_model::{EcosystemId, MemberId, Module, ModuleKey};
 use toven_ports::{
-    BaselineSpec, ChangeRecord, CommitSummary, Oid, ReleaseAdapter, TagRef, TagScheme,
+    BaselineSpec, ChangeRecord, CommitSummary, Oid, ReleaseAdapter, Reporter, TagRef, TagScheme,
 };
 
 use toven_core::federation::baseline::{MemberVcsReader, MemberVcsReaders};
@@ -29,20 +29,30 @@ pub(crate) struct ReleaseChanges {
     pub(crate) baselines: BTreeMap<ModuleKey, ReleaseBaseline>,
 }
 
-/// Detect modules changed since their release baseline across every member
-/// repo.
+struct MemberSnapshot {
+    worktree: Vec<ChangeRecord>,
+    tags: Vec<TagRef>,
+}
+
+/// Detect modules in dependency-first decision order and resolve each one before advancing.
 ///
 /// # Errors
-/// Propagates [`VcsReader`](toven_ports::VcsReader) failures (tag listing,
-/// worktree status, changed-since).
-#[allow(clippy::redundant_pub_crate)]
-pub(crate) fn detect(
+/// Propagates VCS, release-target, callback, and reporter failures.
+#[allow(
+    clippy::redundant_pub_crate,
+    clippy::too_many_arguments,
+    clippy::too_many_lines
+)]
+pub(crate) fn detect_in_order(
     context: &PlanContext,
     base_override: Option<&str>,
     readers: &MemberVcsReaders<'_>,
     targets: &ReleaseTargets,
     settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
     intent: crate::versioning::bump::CutIntent,
+    modules: &[ModuleKey],
+    reporter: &mut dyn Reporter,
+    mut resolve: impl FnMut(&Module, &ReleaseChanges, &mut dyn Reporter) -> AppResult<()>,
 ) -> AppResult<ReleaseChanges> {
     let mut changes = ReleaseChanges {
         changed: BTreeSet::new(),
@@ -50,73 +60,57 @@ pub(crate) fn detect(
         commits: BTreeMap::new(),
         baselines: BTreeMap::new(),
     };
+    let mut snapshots = BTreeMap::new();
     for reader in readers.entries() {
-        detect_member(
-            context,
-            base_override,
-            reader,
-            targets,
-            settings,
-            intent,
-            &mut changes,
-        )?;
+        snapshots.insert(
+            reader.member().cloned(),
+            MemberSnapshot {
+                worktree: reader.umbrella_records(&reader.reader().worktree_status()?),
+                tags: reader.reader().list_tags(None)?,
+            },
+        );
     }
-    Ok(changes)
-}
 
-fn detect_member(
-    context: &PlanContext,
-    base_override: Option<&str>,
-    reader: &MemberVcsReader<'_>,
-    targets: &ReleaseTargets,
-    settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
-    intent: crate::versioning::bump::CutIntent,
-    changes: &mut ReleaseChanges,
-) -> AppResult<()> {
-    let member = reader.member();
-    let worktree = reader.umbrella_records(&reader.reader().worktree_status()?);
-    // List every tag once: the VCS adapter enumerates all tags and filters
-    // in-memory, so a per-module `list_tags(<glob>)` would re-scan the full tag set
-    // for each module (O(modules × tags)). The baseline resolver parses and filters
-    // by the module's prefix from this shared snapshot instead.
-    let tags = reader.reader().list_tags(None)?;
-
-    // Version-reference files (READMEs/docs whose pins `bump` rewrites) are
-    // downstream artifacts of the version decision, not inputs to it: their only
-    // expected diff is a synced version token. Filtering them from the seed set
-    // keeps a synced-only file from re-triggering a bump — the native mirror of
-    // rskit's tool-generated-change filter. The set is repo-scoped (the union of
-    // every module's declared references) and empty for a project that declares
-    // none, so detection is unchanged there.
     let reference_globs = version_reference_globs(settings);
+    let mut umbrella_schemes: BTreeMap<(Option<MemberId>, EcosystemId), Option<TagScheme>> =
+        BTreeMap::new();
+    for key in modules {
+        let module = context.graph.module(key).ok_or_else(|| {
+            AppError::invalid_input("release.modules", format!("unknown module '{key}'"))
+        })?;
+        let resolved = settings.get(key).ok_or_else(|| {
+            AppError::invalid_input(
+                "release.settings",
+                format!("module '{key}' has no resolved release settings"),
+            )
+        })?;
+        let target = target_for(targets, module).ok_or_else(|| {
+            AppError::invalid_input(
+                "release.target",
+                format!("module '{key}' has no release target"),
+            )
+        })?;
+        let reader = reader_for(readers, module.member.as_ref())?;
+        let snapshot = snapshots.get(&module.member).ok_or_else(|| {
+            AppError::invalid_input(
+                "release.member",
+                format!("module '{key}' has no VCS snapshot"),
+            )
+        })?;
+        reporter.emit(&crate::stream::examining_event(key))?;
 
-    // The umbrella module's tag scheme, computed once per release train (a
-    // member scoped to one ecosystem): when a train declares an umbrella module
-    // its per-module baselines anchor on the shared umbrella tag + registry
-    // rather than on per-module tags the umbrella layout never cuts (the rskit
-    // case). Scoping by ecosystem keeps a Rust umbrella from perturbing a Go
-    // train in the same member — each train resolves its own umbrella, and a
-    // train with none keeps the per-module own-tag baseline unchanged.
-    let mut umbrella_schemes: BTreeMap<EcosystemId, Option<TagScheme>> = BTreeMap::new();
-
-    for module in context
-        .federation
-        .modules
-        .iter()
-        .filter(|module| module.member.as_ref() == member)
-    {
-        let Some(resolved) = settings.get(&module.key()) else {
-            continue;
-        };
-        let Some(target) = target_for(targets, module) else {
-            continue;
-        };
-        let umbrella_scheme = if let Some(scheme) = umbrella_schemes.get(&module.id.ecosystem) {
+        let umbrella_key = (module.member.clone(), module.id.ecosystem.clone());
+        let umbrella_scheme = if let Some(scheme) = umbrella_schemes.get(&umbrella_key) {
             scheme.clone()
         } else {
-            let scheme =
-                train_umbrella_scheme(context, member, &module.id.ecosystem, targets, settings)?;
-            umbrella_schemes.insert(module.id.ecosystem.clone(), scheme.clone());
+            let scheme = train_umbrella_scheme(
+                context,
+                module.member.as_ref(),
+                &module.id.ecosystem,
+                targets,
+                settings,
+            )?;
+            umbrella_schemes.insert(umbrella_key, scheme.clone());
             scheme
         };
         let scheme = target.tag_scheme(module, resolved.tag_format.as_deref())?;
@@ -124,42 +118,36 @@ fn detect_member(
         let Some(spec) = baseline_spec(
             module,
             base_override,
-            &tags,
+            &snapshot.tags,
             &source,
             reader.reader(),
             target,
             &mut changes.baselines,
         )?
         else {
-            changes.changed.insert(module.key());
-            changes.records.insert(module.key(), Vec::new());
+            changes.changed.insert(key.clone());
+            changes.records.insert(key.clone(), Vec::new());
             changes.commits.insert(
-                module.key(),
+                key.clone(),
                 collect_commits(reader, &changes.baselines, module)?,
             );
+            resolve(module, &changes, reporter)?;
             continue;
         };
         let mut module_changes = reader.umbrella_records(&reader.reader().changed_since(&spec)?);
-        module_changes.extend(worktree.iter().cloned());
+        module_changes.extend(snapshot.worktree.iter().cloned());
         if !reference_globs.is_empty() {
             module_changes
                 .retain(|record| !path_matches_any(&reference_globs, record.path.as_path()));
         }
         let seeds =
             toven_core::plan::changed_seeds(&module_changes, &context.graph, &context.federation);
-        // A maintainer-owned module is force-included only on the
-        // verify-and-publish path: the maintainer already cut the tag/Release at
-        // the declared manifest version, so `plan`/`publish` must reach it to
-        // verify that tag and publish idempotently against it. The `bump` path
-        // must NOT force-include it — a maintainer-owned module that is not ahead
-        // of its baseline has nothing to advance, so an all-maintainer-owned
-        // workspace with no changes yields an empty bump plan (a genuine no-op).
         let force_maintainer =
             intent.forces_maintainer_owned() && resolved.entrypoint.is_maintainer_owned();
-        if seeds.contains(&module.key()) || force_maintainer {
-            changes.changed.insert(module.key());
+        if seeds.contains(key) || force_maintainer {
+            changes.changed.insert(key.clone());
             changes.records.insert(
-                module.key(),
+                key.clone(),
                 toven_core::plan::changed_records_for_module(
                     module,
                     &module_changes,
@@ -167,13 +155,32 @@ fn detect_member(
                 ),
             );
             changes.commits.insert(
-                module.key(),
+                key.clone(),
                 collect_commits(reader, &changes.baselines, module)?,
             );
         }
+        resolve(module, &changes, reporter)?;
     }
+    Ok(changes)
+}
 
-    Ok(())
+fn reader_for<'a>(
+    readers: &'a MemberVcsReaders<'a>,
+    member: Option<&MemberId>,
+) -> AppResult<&'a MemberVcsReader<'a>> {
+    readers
+        .entries()
+        .iter()
+        .find(|reader| reader.member() == member)
+        .ok_or_else(|| {
+            AppError::invalid_input(
+                "release.member",
+                member.map_or_else(
+                    || "project has no VCS reader".to_string(),
+                    |member| format!("member '{member}' has no VCS reader"),
+                ),
+            )
+        })
 }
 
 /// Collect the Conventional-Commit history a changed module's changelog is

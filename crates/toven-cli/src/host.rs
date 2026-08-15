@@ -8,6 +8,7 @@
 //! It is wiring only: it prints nothing (the reporter sinks do) and returns
 //! typed data + typed errors.
 
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -21,7 +22,7 @@ use toven_model::AbsPath;
 use toven_ports::Provider;
 
 use crate::flags::{ColorWhen, OutputKind, Verbosity};
-use crate::report::{HumanReporter, JsonlReporter};
+use crate::report::{HumanReporter, JsonlReporter, stderr_theme};
 
 /// The canonical `toven.toml` config filename.
 const CONFIG_FILENAME: &str = "toven.toml";
@@ -187,8 +188,13 @@ impl Report {
     pub(crate) fn reporter(self) -> Box<dyn toven_ports::Reporter> {
         match self.format {
             Format::Human => {
-                let palette = rskit_cli::Palette::for_stream(self.color.into(), &std::io::stderr());
-                Box::new(HumanReporter::stderr(self.verbosity).with_palette(palette))
+                let stderr = std::io::stderr();
+                let theme = stderr_theme(self.color);
+                Box::new(
+                    HumanReporter::stderr(self.verbosity)
+                        .with_palette(theme.palette())
+                        .with_terminal(stderr.is_terminal()),
+                )
             }
             Format::Jsonl => Box::new(JsonlReporter::stdout()),
         }
@@ -206,7 +212,7 @@ impl Report {
     /// with stderr's terminal state exactly as the human reporter does.
     #[must_use]
     pub(crate) fn stderr_palette(self) -> rskit_cli::Palette {
-        rskit_cli::Palette::for_stream(self.color.into(), &std::io::stderr())
+        stderr_theme(self.color).palette()
     }
 }
 

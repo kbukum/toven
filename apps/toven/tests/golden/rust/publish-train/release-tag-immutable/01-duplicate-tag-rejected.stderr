@@ -1,1 +1,6 @@
+Release publish
+  checking rust:train-core…
+  release rust:train-core: 0.1.0 → 0.2.0 (minor)
+  checking rust:train-cli…
+  release rust:train-cli: already at 0.1.0
 error[INVALID_INPUT]: invalid release.tags: a partial release tag set already exists: [train-cli/v0.2.0] are present but [core-v0.2.0] are not; release tags are immutable, so this interrupted or divergent release must be forward-fixed with a new version rather than reusing or moving a tag
