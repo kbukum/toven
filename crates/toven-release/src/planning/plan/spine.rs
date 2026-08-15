@@ -7,7 +7,7 @@ use toven_core::federation::resolve::PathDriverLocator;
 use toven_core::plan::{PlanContext, PlanRequest, prepare_front};
 use toven_model::{MemberId, ModuleKey};
 use toven_ports::{Provider, Reporter};
-use toven_version::changelog;
+use toven_version::{BumpConfig, BumpPlanner, changelog};
 
 use super::changelog_required::validate_required_changelogs;
 use super::targets::{release_targets, resolve_release_settings};
@@ -45,6 +45,7 @@ pub fn release_plan(
         overrides,
         &targets,
         bump::CutIntent::Preview,
+        reporter,
     )
 }
 
@@ -67,21 +68,91 @@ pub(crate) fn plan_with_context(
     overrides: &BumpOverrides,
     targets: &crate::ReleaseTargets,
     intent: bump::CutIntent,
+    reporter: &mut dyn Reporter,
 ) -> AppResult<ReleasePlan> {
     let settings = resolve_release_settings(context, targets)?;
-    let changes = change::detect(
+    let policy = reconcile_policy(&settings)?;
+    let branches = current_branches(readers);
+    let config = BumpConfig {
+        graph: &context.graph,
+        branches: &branches,
+        policy,
+        overrides,
+        intent,
+    };
+    let modules = context
+        .federation
+        .modules
+        .iter()
+        .filter(|module| settings.contains_key(&module.key()))
+        .map(toven_model::Module::key);
+    let mut planner = BumpPlanner::new(modules, &config)?;
+    let order = planner.modules().to_vec();
+    let module_by_ref = context
+        .federation
+        .modules
+        .iter()
+        .map(|module| (module.key(), module))
+        .collect::<BTreeMap<_, _>>();
+    let mut changelogs = BTreeMap::new();
+    let mut entries = Vec::new();
+    change::detect_in_order(
         context,
         overrides.base(),
         readers,
         targets,
         &settings,
         intent,
+        &order,
+        reporter,
+        |module, changes, reporter| {
+            let key = module.key();
+            validate_required_changelogs(request.project_root.as_path(), changes, &settings)?;
+            let commits = changes.commits.get(&key).cloned().unwrap_or_default();
+            let initial = changes
+                .baselines
+                .get(&key)
+                .is_some_and(ReleaseBaseline::is_initial);
+            changelogs.insert(key, changelog::entry(module, &commits, initial));
+            let inputs = bump::BumpInputs {
+                #[cfg(test)]
+                graph: &context.graph,
+                modules: &context.federation.modules,
+                changed: &changes.changed,
+                baselines: &changes.baselines,
+                changelogs: &changelogs,
+                settings: &settings,
+                targets,
+                #[cfg(test)]
+                branches: &branches,
+                #[cfg(test)]
+                policy,
+                overrides,
+                #[cfg(test)]
+                intent,
+            };
+            let input = bump::gather_input(&inputs, module)?;
+            let resolution = planner.decide(input)?;
+            if let Some(bump) = resolution.entry {
+                let entry = bump::assemble_entry(&inputs, &module_by_ref, &bump)?;
+                reporter.emit(&crate::stream::resolved_event(&entry))?;
+                entries.push(entry);
+            } else {
+                reporter.emit(&crate::stream::no_change_event(
+                    &resolution.module,
+                    &resolution.current_version,
+                ))?;
+            }
+            Ok(())
+        },
     )?;
-    validate_required_changelogs(request.project_root.as_path(), &changes, &settings)?;
-    let branches = current_branches(readers);
-    plan_with_changes(
-        context, request, &changes, &branches, overrides, targets, &settings, intent,
-    )
+    let _pure_plan = planner.finish()?;
+
+    if intent.plans_tag_creation() {
+        validate_umbrella_tag_cut(context, &settings, &entries)?;
+    }
+
+    Ok(ReleasePlan::new(policy, entries))
 }
 
 /// Resolve each member's checked-out branch, best-effort.
@@ -103,54 +174,6 @@ fn current_branches(readers: &MemberVcsReaders<'_>) -> BTreeMap<Option<MemberId>
                 .map(|branch| (entry.member().cloned(), branch))
         })
         .collect()
-}
-
-#[allow(clippy::too_many_arguments)]
-fn plan_with_changes(
-    context: &PlanContext,
-    _request: &PlanRequest,
-    changes: &change::ReleaseChanges,
-    branches: &BTreeMap<Option<MemberId>, String>,
-    overrides: &BumpOverrides,
-    targets: &crate::ReleaseTargets,
-    settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
-    intent: bump::CutIntent,
-) -> AppResult<ReleasePlan> {
-    let policy = reconcile_policy(settings)?;
-    let changelogs = context
-        .federation
-        .modules
-        .iter()
-        .map(|module| {
-            let commits = changes
-                .commits
-                .get(&module.key())
-                .cloned()
-                .unwrap_or_default();
-            let initial = changes
-                .baselines
-                .get(&module.key())
-                .is_some_and(ReleaseBaseline::is_initial);
-            (module.key(), changelog::entry(module, &commits, initial))
-        })
-        .collect::<BTreeMap<_, _>>();
-    let entries = bump::plan_entries(&bump::BumpInputs {
-        graph: &context.graph,
-        modules: &context.federation.modules,
-        changed: &changes.changed,
-        baselines: &changes.baselines,
-        changelogs: &changelogs,
-        settings,
-        targets,
-        branches,
-        policy,
-        overrides,
-        intent,
-    })?;
-
-    validate_umbrella_tag_cut(context, settings, &entries)?;
-
-    Ok(ReleasePlan::new(policy, entries))
 }
 
 /// Fail closed when the umbrella tag mode would release a train member with no

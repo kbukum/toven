@@ -5,9 +5,20 @@ use toven_model::{MemberId, Module, ModuleKey, RepoPath};
 use toven_ports::Artifact;
 
 use crate::execution::apply;
+use crate::execution::mutate::MutatedManifests;
 use crate::hosting::publish;
 use crate::{ReleaseApplyOptions, ReleasePlan, ReleaseStats};
 pub(super) use toven_core::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
+
+/// One prepared member awaiting commit: its shard, the repo-relative paths its
+/// mutations rewrote, the artifacts packaged for publish, and the per-module
+/// mutated manifests used to project the module's *commit* event.
+type PreparedShard<'a> = (
+    &'a MemberReleaseShard,
+    Vec<RepoPath>,
+    BTreeMap<ModuleKey, Artifact>,
+    MutatedManifests,
+);
 
 /// Apply one federated release plan across member repos.
 ///
@@ -21,6 +32,7 @@ pub(crate) fn release_apply_by_member(
     modules: &[Module],
     targets: &crate::ReleaseTargets,
     repos: &MemberReleaseRepos<'_>,
+    reporter: &mut dyn toven_ports::Reporter,
     options: &ReleaseApplyOptions,
 ) -> AppResult<ReleaseStats> {
     let mut stats = ReleaseStats::new(plan.entries.len());
@@ -94,8 +106,8 @@ pub(crate) fn release_apply_by_member(
             }
             ShardApply::Toven(apply::TagPreflight::Fresh) => {
                 match prepare_member_shard(shard, &module_by_ref, targets, repos, &mut stats) {
-                    Ok((member_changed, member_artifacts)) => {
-                        prepared.push((shard, member_changed, member_artifacts));
+                    Ok((member_changed, member_artifacts, member_mutated)) => {
+                        prepared.push((shard, member_changed, member_artifacts, member_mutated));
                         prepared_settings.push(settings);
                     }
                     Err(error) => return Err(restore_prepared_or_error(&prepared, repos, error)),
@@ -104,7 +116,7 @@ pub(crate) fn release_apply_by_member(
         }
     }
 
-    for ((shard, member_changed, member_artifacts), settings) in
+    for ((shard, member_changed, member_artifacts, member_mutated), settings) in
         prepared.into_iter().zip(prepared_settings)
     {
         commit_member_shard(
@@ -114,6 +126,8 @@ pub(crate) fn release_apply_by_member(
             options,
             settings,
             &member_changed,
+            &member_mutated,
+            reporter,
             &mut stats,
         )?;
         artifacts.extend(member_artifacts);
@@ -150,7 +164,11 @@ fn prepare_member_shard(
     targets: &crate::ReleaseTargets,
     repos: &MemberReleaseRepos<'_>,
     stats: &mut ReleaseStats,
-) -> AppResult<(Vec<RepoPath>, BTreeMap<ModuleKey, Artifact>)> {
+) -> AppResult<(
+    Vec<RepoPath>,
+    BTreeMap<ModuleKey, Artifact>,
+    MutatedManifests,
+)> {
     let repo = repo_for(repos, shard.member.as_ref())?;
     apply::prepare(&shard.plan, module_by_ref, targets, stats)
         .map_err(|error| apply::restore_or_precommit_error(repo.writer(), "prepare", error))
@@ -172,6 +190,7 @@ fn package_member_shard(
     apply::package_publishable(&shard.plan, module_by_ref, targets, stats)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn commit_member_shard(
     shard: &MemberReleaseShard,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
@@ -179,6 +198,8 @@ fn commit_member_shard(
     options: &ReleaseApplyOptions,
     settings: &apply::RepoReleaseSettings,
     changed_paths: &[RepoPath],
+    mutated: &[(ModuleKey, Vec<RepoPath>)],
+    reporter: &mut dyn toven_ports::Reporter,
     stats: &mut ReleaseStats,
 ) -> AppResult<()> {
     let repo = repo_for(repos, shard.member.as_ref())?;
@@ -236,19 +257,57 @@ fn commit_member_shard(
         };
         push().map_err(|error| apply::forward_recovery_error(&committed(), "push", error))?;
     }
+    // Post-commit, no rollback: this member's release commit and tags have
+    // landed, so stream one commit event per genuinely-cut module in plan order.
+    // A dependency-floor-only module (no planned version) is never tagged and so
+    // emits nothing.
+    emit_member_committed(reporter, shard, mutated)?;
+    Ok(())
+}
+
+/// Emit one `ModuleReleaseStaged` commit event per module whose release commit
+/// and tag have just landed for this member.
+///
+/// Draws the version and planned tag from the shard's plan entries and the
+/// rewritten manifest paths from the member's mutation set, in deterministic
+/// plan order. A module with no own-version bump receives no tag, but a
+/// dependency-floor-only module still committed its rewritten manifest, so it
+/// emits a staged event carrying no `new_version` and no tag rather than being
+/// dropped. `run` rolls no changelog (that is the `bump` phase's job), so the
+/// commit event carries none.
+fn emit_member_committed(
+    reporter: &mut dyn toven_ports::Reporter,
+    shard: &MemberReleaseShard,
+    mutated: &[(ModuleKey, Vec<RepoPath>)],
+) -> AppResult<()> {
+    for entry in &shard.plan.entries {
+        let manifests = mutated
+            .iter()
+            .find(|(module, _)| *module == entry.module)
+            .map(|(_, paths)| {
+                paths
+                    .iter()
+                    .map(|path| path.as_path().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        reporter.emit(&crate::stream::staged_event(
+            &entry.module,
+            entry.planned_version.as_ref(),
+            manifests,
+            None,
+            entry.planned_tag.clone(),
+        ))?;
+    }
     Ok(())
 }
 
 pub(super) fn restore_prepared_or_error(
-    prepared: &[(
-        &MemberReleaseShard,
-        Vec<RepoPath>,
-        BTreeMap<ModuleKey, Artifact>,
-    )],
+    prepared: &[PreparedShard<'_>],
     repos: &MemberReleaseRepos<'_>,
     error: AppError,
 ) -> AppError {
-    for (shard, _, _) in prepared.iter().rev() {
+    for (shard, _, _, _) in prepared.iter().rev() {
         let repo = match repo_for(repos, shard.member.as_ref()) {
             Ok(repo) => repo,
             Err(restore) => {

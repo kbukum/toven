@@ -115,9 +115,9 @@ pub fn audit(
 /// Identical in result to [`audit`] — same deterministic probe set and order,
 /// same returned [`ToolAudit`] — but each [`ToolProbeOutcome`] is handed to
 /// `on_outcome` *before the next probe runs*, so a caller (the `doctor` verb)
-/// can project results progressively through its reporter rather than waiting
-/// for the whole graph to be probed. The engine stays tool-agnostic: it never
-/// prints and knows nothing of the reporter; the callback is the only seam.
+/// can report each result before the whole graph is probed. The engine stays
+/// tool-agnostic: it never prints and knows nothing of the reporter; the
+/// callback is the only seam.
 ///
 /// # Errors
 /// Propagates configuration failures, any non-missing probe failure, and any

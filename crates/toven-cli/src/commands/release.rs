@@ -13,34 +13,37 @@
 //! CLI layer is the only one that prints, following the introspection stream
 //! convention (projection on stdout, warnings/summaries on stderr).
 
-use rskit_cli::{ExitCode, OutputKV, OutputTable};
+use rskit_cli::{ExitCode, OutputKV, OutputTable, Tone};
 use rskit_errors::{AppError, AppResult};
+use rskit_util::time::Clock;
 use rskit_version::semver::Version;
 use serde::Serialize;
 use std::sync::Arc;
-use toven_core::config::VerbId;
+use toven_core::config::{Document, VerbId};
+use toven_core::federation::MemberVcsReaders;
+use toven_core::federation::member_repo::MemberReleaseRepos;
 use toven_core::plan::PlanRequest;
 use toven_core::vcs::BaselineFlags;
 use toven_exec::{ProcessSupervisor, ProcessToolRunner};
-use toven_model::{Entrypoint, ModuleRef};
+use toven_model::{Entrypoint, ModuleRef, OutcomeSummary};
 use toven_ports::{
-    BaselineSourceConfig, BumpLevel, Provider, PublicationPolicy, Reporter, TagMode, TaskIntent,
-    ToolRunner,
+    BumpLevel, HookRunner, Provider, PublicationPolicy, Reporter, TaskIntent, ToolRunner,
 };
 use toven_release::{
     BuildxImagePhase, BumpOptions, BumpOverrides, BumpReport, ChecksumReport, CosignSigner,
     CosignVerifier, DepgraphReport, GhAssetDownloader, GhAttestationProvenance, ImageOptions,
     ImageReport, PackageReport, ProcessVersionProbe, ProvenanceOptions, ProvenanceReport,
     PublishDecision, ReadinessReport, ReleaseApplyOptions, ReleasePlan, ReleaseRehearsal,
-    ReleaseStatus, SbomReport, SignReport, VerifyOptions, VerifyReport, release_bump,
+    ReleaseStats, ReleaseStatus, SbomReport, SignReport, VerifyOptions, VerifyReport, release_bump,
     release_checksums, release_depgraphs, release_image, release_package, release_plan,
     release_provenance, release_readiness, release_rehearse, release_run, release_sbom,
     release_sign, release_status, release_verify,
 };
 
 use crate::commands::support::QuietReporter;
-use crate::flags::{Cli, OutputKind, ReleaseAction};
+use crate::flags::{Cli, ColorWhen, OutputKind, ReleaseAction};
 use crate::host::{Project, Report, new_run_id, resolve_output};
+use crate::report::stderr_theme;
 
 /// Dispatch a `toven release <action>` invocation.
 ///
@@ -56,7 +59,7 @@ pub(crate) fn execute(
     action: ReleaseAction,
 ) -> AppResult<ExitCode> {
     match action {
-        ReleaseAction::Plan => plan(providers, project, cli.output),
+        ReleaseAction::Plan => plan(providers, project, cli),
         ReleaseAction::Status => status(providers, project, cli.output),
         ReleaseAction::Readiness => readiness(providers, project, cli.output),
         ReleaseAction::Sbom => sbom(providers, project, cli),
@@ -128,42 +131,207 @@ fn release_request(project: &Project) -> AppResult<PlanRequest> {
     ))
 }
 
-/// `release plan`: render the release PLAN cut without mutating anything.
-fn plan(
-    providers: &[&dyn Provider],
-    project: &Project,
-    output: Option<OutputKind>,
-) -> AppResult<ExitCode> {
-    render_release_plan(providers, project, output, &BumpOverrides::new())?;
-    Ok(ExitCode::Success)
+/// `release plan`: project the release PLAN decision per module without
+/// mutating anything — one live `ModuleReleaseResolved` per module (human on
+/// stderr, JSONL on stdout), not a terminal table.
+fn plan(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+    let output = resolve_output(cli.output, &project.document);
+    print_release_header("plan", output, cli.color_choice());
+    let plan = stream_release_plan(providers, project, cli, &BumpOverrides::new())?;
+    print_release_summary(&plan_summary_line(&plan), output, cli.color_choice());
+    Ok(release_exit(&plan_outcome(&plan)))
 }
 
-/// Render the release PLAN projection (the `release plan` table / JSONL) for the
-/// given per-run overrides, mutating nothing. Shared by `release plan` and by
-/// the pre-confirmation preview of the mutating version-cut actions.
-fn render_release_plan(
+/// Project the release PLAN decisions for the given per-run overrides, mutating
+/// nothing. Shared by `release plan` and by the pre-confirmation preview of the
+/// mutating version-cut actions: `release_plan` emits one
+/// [`Event::ModuleReleaseResolved`](toven_model::Event::ModuleReleaseResolved)
+/// per module in plan order — the same projection `--dry-run` emits. Returns the
+/// resolved plan so the caller can derive the summary-based exit.
+fn stream_release_plan(
     providers: &[&dyn Provider],
     project: &Project,
-    output: Option<OutputKind>,
+    cli: &Cli,
     overrides: &BumpOverrides,
-) -> AppResult<()> {
+) -> AppResult<ReleasePlan> {
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
-    let mut reporter = QuietReporter;
-    let plan = release_plan(
+    let report = Report::resolve(
+        cli.output,
+        cli.verbosity(),
+        cli.color_choice(),
+        &project.document,
+    );
+    let mut reporter = report.reporter();
+    release_plan(
         &request,
         &project.document,
         providers,
         &readers,
         overrides,
-        &mut reporter,
-    )?;
-    match resolve_output(output, &project.document) {
-        OutputKind::Jsonl => render_plan_jsonl(&plan)?,
-        OutputKind::Human => render_plan_human(&plan),
+        reporter.as_mut(),
+    )
+}
+
+/// Map a resolved release plan onto the shared item-based summary. A plan is a
+/// read-only projection, so every entry is a `succeeded` item; a mutating
+/// failure surfaces as an `Err`, never a `failed` summary count.
+const fn plan_outcome(plan: &ReleasePlan) -> OutcomeSummary {
+    let processed = plan.entries.len();
+    OutcomeSummary {
+        processed,
+        succeeded: processed,
+        failed: 0,
+        skipped: 0,
     }
-    Ok(())
+}
+
+/// Map a completed `release bump` report onto the shared item-based summary.
+/// Every reported module reached a good terminal state (a mid-transaction
+/// failure restores the tree and returns an `Err`), so all are `succeeded`.
+const fn bump_outcome(report: &BumpReport) -> OutcomeSummary {
+    let processed = report.modules.len();
+    OutcomeSummary {
+        processed,
+        succeeded: processed,
+        failed: 0,
+        skipped: 0,
+    }
+}
+
+/// Map completed `release tag`/`publish` stats onto the shared item-based
+/// summary. The transactional pipeline restores on any failure and returns an
+/// `Err`, so a returned `ReleaseStats` counts only planned-and-completed
+/// modules as `succeeded`.
+const fn run_outcome(stats: &ReleaseStats) -> OutcomeSummary {
+    let processed = stats.planned_modules;
+    OutcomeSummary {
+        processed,
+        succeeded: processed,
+        failed: 0,
+        skipped: 0,
+    }
+}
+
+/// Derive the process exit from the shared item-based summary — the single
+/// owner of the failure verdict (step-01 [`OutcomeSummary`]), so release, task
+/// runs, and coverage all map their exit through one path rather than a
+/// hardcoded [`ExitCode::Success`].
+const fn release_exit(summary: &OutcomeSummary) -> ExitCode {
+    if summary.has_failures() {
+        ExitCode::Failure
+    } else {
+        ExitCode::Success
+    }
+}
+
+/// Print the release verb's header on stderr, human mode only.
+///
+/// A short title line rendered before the per-module decisions so they read as
+/// a nested list; `--output jsonl` stays one record per module with no framing.
+/// `action` is the canonical verb token (`plan`/`bump`/`tag`/`publish`).
+fn print_release_header(action: &str, output: OutputKind, color: ColorWhen) {
+    if matches!(output, OutputKind::Human) {
+        eprintln!(
+            "{}",
+            stderr_theme(color).heading(&format!("Release {action}"))
+        );
+    }
+}
+
+/// Print a terminal release summary line on stderr, human mode only.
+///
+/// The closing aggregate that matches the summary-derived exit; suppressed
+/// under `--output jsonl` so the machine stream stays events-only.
+fn print_release_summary(line: &str, output: OutputKind, color: ColorWhen) {
+    if matches!(output, OutputKind::Human) {
+        eprintln!(
+            "{}",
+            stderr_theme(color).action("Finished", line, Tone::Success)
+        );
+    }
+}
+
+/// The truthful closing line for a `release plan` (or a mutating verb's
+/// pre-confirmation preview), broken down by decision kind.
+///
+/// An empty plan states the up-to-date fact outright; a non-empty plan joins
+/// only the non-zero groups (modules to release, dependency-floor-only moves,
+/// already-released modules) so the reader scans exactly what will happen.
+fn plan_summary_line(plan: &ReleasePlan) -> String {
+    if plan.is_empty() {
+        return "release: nothing to release — all modules up to date".to_string();
+    }
+    let (mut to_release, mut floor_only, mut up_to_date) = (0_usize, 0_usize, 0_usize);
+    for entry in &plan.entries {
+        if entry.up_to_date {
+            up_to_date += 1;
+        } else if entry.planned_version.is_some() {
+            to_release += 1;
+        } else {
+            floor_only += 1;
+        }
+    }
+    let mut parts = Vec::new();
+    if to_release > 0 {
+        parts.push(format!("{to_release} to release"));
+    }
+    if floor_only > 0 {
+        parts.push(format!("{floor_only} dependency floor"));
+    }
+    if up_to_date > 0 {
+        parts.push(format!("{up_to_date} up to date"));
+    }
+    format!("release: {}", parts.join(", "))
+}
+
+/// The truthful closing line for a mutating version-cut verb, phrased by the
+/// side effect that actually landed (`staged`/`tagged`/`published`).
+fn run_summary_line(action: &str, count: usize) -> String {
+    let verb = match action {
+        "bump" => "staged",
+        "tag" => "tagged",
+        "publish" => "published",
+        _ => "released",
+    };
+    format!("release: {count} {verb}")
+}
+
+/// Run the `release bump` mutation through the live `sink`, then derive the
+/// summary-based exit. Extracted so the reporter wiring is one testable seam:
+/// `release_bump` emits each module's decision (before mutation) then its staged
+/// commit (post-transaction) into `sink`, and the exit is derived from the
+/// returned report rather than hardcoded.
+///
+/// # Errors
+/// Propagates every `release_bump` failure (configuration, discovery, plan,
+/// guardrails, mutation, staging).
+#[allow(clippy::too_many_arguments)]
+fn stream_bump(
+    request: &PlanRequest,
+    document: &Document,
+    providers: &[&dyn Provider],
+    readers: &MemberVcsReaders<'_>,
+    repos: &MemberReleaseRepos<'_>,
+    overrides: &BumpOverrides,
+    sink: &mut dyn Reporter,
+    clock: &dyn Clock,
+    hooks: &dyn HookRunner,
+    options: BumpOptions,
+    output: OutputKind,
+    color: ColorWhen,
+) -> AppResult<ExitCode> {
+    print_release_header("bump", output, color);
+    let report = release_bump(
+        request, document, providers, readers, repos, overrides, sink, clock, hooks, &options,
+    )?;
+    print_release_summary(
+        &run_summary_line("bump", report.modules.len()),
+        output,
+        color,
+    );
+    Ok(release_exit(&bump_outcome(&report)))
 }
 
 /// `release status`: render each module's declared/published/tagged state.
@@ -488,6 +656,12 @@ fn run(
     action: ReleaseAction,
 ) -> AppResult<ExitCode> {
     confirm_or_preview(providers, project, cli)?;
+    let output = resolve_output(cli.output, &project.document);
+    let action_token = match action {
+        ReleaseAction::Publish => "publish",
+        _ => "tag",
+    };
+    print_release_header(action_token, output, cli.color_choice());
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
@@ -513,7 +687,7 @@ fn run(
         _ => VerbId::Tag,
     };
     let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
-    release_run(
+    let stats = release_run(
         &request,
         &project.document,
         providers,
@@ -526,7 +700,12 @@ fn run(
         &options,
         &runner,
     )?;
-    Ok(ExitCode::Success)
+    print_release_summary(
+        &run_summary_line(action_token, stats.planned_modules),
+        output,
+        cli.color_choice(),
+    );
+    Ok(release_exit(&run_outcome(&stats)))
 }
 
 fn require_release_confirmation(confirmed: bool) -> AppResult<()> {
@@ -542,17 +721,19 @@ fn require_release_confirmation(confirmed: bool) -> AppResult<()> {
 /// Gate a mutating version-cut action (`bump` / `tag` / `publish`) on `--yes`,
 /// but first show what it *would* cut. On a confirmed run this returns
 /// immediately and the caller proceeds to mutate. On an unconfirmed run it
-/// renders the same projection as `release plan` (honoring the per-run overrides
-/// and `--output`) on stdout, then fails closed with the confirmation error on
-/// stderr — a CI-safe loud refusal that is still informative interactively. A
-/// PLAN-render failure is the real blocker and is surfaced instead of the
-/// confirmation error.
+/// streams the same non-mutating `ModuleReleaseResolved` decision events as
+/// `release plan` (honoring the per-run overrides and `--output`), then fails
+/// closed with the confirmation error on stderr. A PLAN failure is the real
+/// blocker and is surfaced instead of the confirmation error.
 fn confirm_or_preview(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<()> {
     if cli.confirm_release {
         return Ok(());
     }
+    let output = resolve_output(cli.output, &project.document);
     let overrides = build_overrides(cli)?;
-    render_release_plan(providers, project, cli.output, &overrides)?;
+    print_release_header("plan", output, cli.color_choice());
+    let plan = stream_release_plan(providers, project, cli, &overrides)?;
+    print_release_summary(&plan_summary_line(&plan), output, cli.color_choice());
     require_release_confirmation(cli.confirm_release)
 }
 
@@ -593,206 +774,31 @@ fn bump(
     };
     let hook_runner =
         crate::commands::hook::CliHookRunner::new(providers, supervisor, project, cli);
+    let report = Report::resolve(
+        cli.output,
+        cli.verbosity(),
+        cli.color_choice(),
+        &project.document,
+    );
+    let mut reporter = report.reporter();
+    let sink: &mut dyn Reporter = reporter.as_mut();
+    let output = resolve_output(cli.output, &project.document);
     crate::commands::hook::run_with_lifecycle(&lifecycle, &hook_runner, || {
-        let mut reporter = QuietReporter;
-        let report = release_bump(
+        stream_bump(
             &request,
             &project.document,
             providers,
             &readers,
             &repos,
             &overrides,
-            &mut reporter,
+            sink,
             clock.as_ref(),
             &hook_runner,
-            &options,
-        )?;
-        match resolve_output(cli.output, &project.document) {
-            OutputKind::Jsonl => render_bump_jsonl(&report)?,
-            OutputKind::Human => render_bump_human(&report),
-        }
-        Ok(ExitCode::Success)
+            options,
+            output,
+            cli.color_choice(),
+        )
     })
-}
-
-/// A stable JSON-lines record for one `release bump` module outcome.
-#[derive(Serialize)]
-struct BumpRecord {
-    module: String,
-    old_version: String,
-    new_version: String,
-    manifests: Vec<String>,
-    staged: bool,
-    dry_run: bool,
-    changelogs: Vec<String>,
-}
-
-/// Render the `release bump` report as one JSON-lines record per module.
-fn render_bump_jsonl(report: &BumpReport) -> AppResult<()> {
-    for module in &report.modules {
-        let record = BumpRecord {
-            module: module.module.to_string(),
-            old_version: module.old_version.to_string(),
-            new_version: module.new_version.to_string(),
-            manifests: module.manifests.clone(),
-            staged: report.staged,
-            dry_run: report.dry_run,
-            changelogs: report.changelogs.clone(),
-        };
-        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
-        println!("{line}");
-    }
-    Ok(())
-}
-
-/// Render the `release bump` report as a human table.
-fn render_bump_human(report: &BumpReport) {
-    if report.modules.is_empty() {
-        println!("\nRelease bump — nothing to bump");
-        println!("  all modules are up to date");
-        return;
-    }
-    let disposition = if report.dry_run {
-        "dry-run (nothing written)"
-    } else if report.staged {
-        "staged for a pull request"
-    } else {
-        "nothing to stage"
-    };
-    let title = format!("Release bump — {disposition}");
-    let mut table = OutputTable::new(vec!["Module", "From", "To", "Manifests"]).with_title(title);
-    for module in &report.modules {
-        table.add_row(vec![
-            module.module.to_string(),
-            module.old_version.to_string(),
-            module.new_version.to_string(),
-            module.manifests.join(", "),
-        ]);
-    }
-    println!("{table}");
-    if !report.changelogs.is_empty() {
-        let verb = if report.dry_run {
-            "would roll"
-        } else {
-            "rolled"
-        };
-        println!("changelog {verb}: {}", report.changelogs.join(", "));
-    }
-}
-
-/// A stable JSON-lines record for one `release plan` entry.
-#[derive(Serialize)]
-struct PlanRecord {
-    /// 1-based position in the deterministic publication order.
-    order: usize,
-    module: String,
-    current_version: String,
-    planned_version: Option<String>,
-    tag: Option<String>,
-    tag_mode: String,
-    baseline_source: String,
-    level: Option<String>,
-    reason: String,
-    winning_input: String,
-    cascade_origin: Option<String>,
-    prerelease_channel: Option<String>,
-    up_to_date: bool,
-    publication: String,
-    registry: Option<String>,
-    publish_needed: bool,
-    entrypoint: String,
-    umbrella: bool,
-    summary: String,
-}
-
-fn render_plan_human(plan: &ReleasePlan) {
-    let title = format!("Release plan ({})", plan.policy.as_str());
-    if plan.entries.is_empty() {
-        println!("\n{title}");
-        println!("  nothing to release: all modules are up to date");
-        return;
-    }
-    let mut table = OutputTable::new(vec![
-        "#",
-        "Module",
-        "Current",
-        "Planned",
-        "Tag",
-        "Tag mode",
-        "Baseline",
-        "Level",
-        "Reason",
-        "Input",
-        "Flow",
-        "Publication",
-        "Publish",
-        "Summary",
-    ])
-    .with_title(title);
-    for (index, entry) in plan.entries.iter().enumerate() {
-        table.add_row(vec![
-            (index + 1).to_string(),
-            entry.module.to_string(),
-            entry.current_version.to_string(),
-            entry
-                .planned_version
-                .as_ref()
-                .map_or_else(|| "-".to_string(), ToString::to_string),
-            entry.planned_tag.clone().unwrap_or_else(|| "-".to_string()),
-            tag_mode_label(entry.tag_mode).to_string(),
-            baseline_source_label(entry.baseline_source).to_string(),
-            if entry.planned_version.is_some() {
-                entry.level.as_str().to_string()
-            } else {
-                "-".to_string()
-            },
-            entry.reason.as_str().to_string(),
-            entry.winning_input.as_str().to_string(),
-            flow_label(entry.entrypoint, entry.umbrella),
-            publication_label(&entry.publication),
-            if entry.up_to_date {
-                "up to date".to_string()
-            } else if entry.publish_needed {
-                "yes".to_string()
-            } else {
-                "no".to_string()
-            },
-            entry.changelog.summary.clone(),
-        ]);
-    }
-    println!("{table}");
-}
-
-fn render_plan_jsonl(plan: &ReleasePlan) -> AppResult<()> {
-    for (index, entry) in plan.entries.iter().enumerate() {
-        let record = PlanRecord {
-            order: index + 1,
-            module: entry.module.to_string(),
-            current_version: entry.current_version.to_string(),
-            planned_version: entry.planned_version.as_ref().map(ToString::to_string),
-            tag: entry.planned_tag.clone(),
-            tag_mode: tag_mode_label(entry.tag_mode).to_string(),
-            baseline_source: baseline_source_label(entry.baseline_source).to_string(),
-            level: entry
-                .planned_version
-                .as_ref()
-                .map(|_| entry.level.as_str().to_string()),
-            reason: entry.reason.as_str().to_string(),
-            winning_input: entry.winning_input.as_str().to_string(),
-            cascade_origin: entry.cascade_origin.as_ref().map(ToString::to_string),
-            prerelease_channel: entry.prerelease_channel.clone(),
-            up_to_date: entry.up_to_date,
-            publication: entry.publication.as_str().to_string(),
-            registry: entry.publication.registry().map(str::to_string),
-            publish_needed: entry.publish_needed,
-            entrypoint: entry.entrypoint.as_str().to_string(),
-            umbrella: entry.umbrella,
-            summary: entry.changelog.summary.clone(),
-        };
-        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
-        println!("{line}");
-    }
-    Ok(())
 }
 
 /// A stable JSON-lines record for one `release status` module.
@@ -973,34 +979,6 @@ fn publication_label(publication: &PublicationPolicy) -> String {
         || publication.as_str().to_string(),
         |registry| format!("{} ({registry})", publication.as_str()),
     )
-}
-
-/// Human label for a plan entry's release flow: the entrypoint that cuts the
-/// release, with an `umbrella` marker for an aggregate module that fronts a
-/// shared hosted Release.
-fn flow_label(entrypoint: Entrypoint, umbrella: bool) -> String {
-    if umbrella {
-        format!("{} · umbrella", entrypoint.as_str())
-    } else {
-        entrypoint.as_str().to_string()
-    }
-}
-
-/// Human/JSONL label for a module's tag mode. The adapter default is folded into
-/// the resolved settings at plan time, so this normally names the effective mode
-/// (`per-module`, `umbrella`, or `both`); `default` is a fallback for an entry
-/// carrying no resolved mode.
-fn tag_mode_label(mode: Option<TagMode>) -> &'static str {
-    mode.map_or("default", TagMode::as_str)
-}
-
-/// Human/JSONL label for a module's baseline source. The adapter default is
-/// folded into the resolved settings at plan time, so this normally names the
-/// effective source (`own-tag`, `umbrella-tag`, `registry`, or
-/// `registry+umbrella`); `default` is a fallback for an entry carrying no
-/// resolved source.
-fn baseline_source_label(source: Option<BaselineSourceConfig>) -> &'static str {
-    source.map_or("default", BaselineSourceConfig::as_str)
 }
 
 /// Human label for a module's release flow in `release status`. For a
@@ -1415,7 +1393,53 @@ fn render_provenance_jsonl(report: &ProvenanceReport) -> AppResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::require_release_confirmation;
+    use std::collections::BTreeSet;
+
+    use rskit_cli::ExitCode;
+    use rskit_util::time::FixedClock;
+    use toven_core::config::{CanonicalRegistry, Document, load};
+    use toven_core::federation::MemberVcsReaders;
+    use toven_core::federation::baseline::MemberVcsReader;
+    use toven_core::federation::member_repo::{MemberReleaseRepo, MemberReleaseRepos};
+    use toven_core::plan::PlanRequest;
+    use toven_model::{
+        AbsPath, EcosystemId, Event, Module, ModuleRef, OutcomeSummary, RepoPath, ToolchainTag,
+        Workspace, WorkspaceId,
+    };
+    use toven_ports::{DiscoverResponse, Provider, TaskIntent};
+    use toven_release::{BumpOptions, BumpOverrides};
+    use toven_testkit::workspace::workspace;
+    use toven_testkit::{
+        FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, FakeVcsWriter,
+        RecordingHookRunner, RecordingReporter, TestWorkspace,
+    };
+
+    use super::{release_exit, require_release_confirmation, stream_bump};
+
+    #[test]
+    fn empty_release_plan_summary_states_the_up_to_date_fact() {
+        use toven_release::{BumpPolicy, ReleasePlan};
+
+        use super::plan_summary_line;
+
+        // An up-to-date workspace resolves an empty plan: the streamed decision
+        // events emit nothing, so the closing summary must state the up-to-date
+        // fact outright rather than leave a silent stream.
+        let empty = ReleasePlan::new(BumpPolicy::SemverCascade, Vec::new());
+        assert_eq!(
+            plan_summary_line(&empty),
+            "release: nothing to release — all modules up to date",
+        );
+    }
+
+    #[test]
+    fn run_summary_line_phrases_by_the_landed_side_effect() {
+        use super::run_summary_line;
+
+        assert_eq!(run_summary_line("bump", 2), "release: 2 staged");
+        assert_eq!(run_summary_line("tag", 3), "release: 3 tagged");
+        assert_eq!(run_summary_line("publish", 1), "release: 1 published");
+    }
 
     #[test]
     fn real_release_requires_explicit_confirmation() {
@@ -1427,5 +1451,121 @@ mod tests {
     #[test]
     fn explicit_confirmation_allows_real_release_to_continue() {
         require_release_confirmation(true).expect("confirmation permits release");
+    }
+
+    #[test]
+    fn release_exit_is_derived_from_the_item_summary() {
+        // The exit owner is the item-based summary, never a hardcoded success:
+        // an all-succeeded run exits zero, any failed item exits non-zero.
+        let clean = OutcomeSummary {
+            processed: 3,
+            succeeded: 3,
+            failed: 0,
+            skipped: 0,
+        };
+        assert_eq!(release_exit(&clean), ExitCode::Success);
+
+        let failed = OutcomeSummary {
+            processed: 3,
+            succeeded: 2,
+            failed: 1,
+            skipped: 0,
+        };
+        assert_eq!(release_exit(&failed), ExitCode::Failure);
+    }
+
+    /// A single-`core`-module rust provider rooted at the repo, releasable
+    /// through the default fake release target (declares a version, rewrites a
+    /// manifest — enough for a `bump` to stage a mutation).
+    fn core_provider() -> FakeProvider {
+        let eid = EcosystemId::new("rust").expect("ecosystem id");
+        let mut response = DiscoverResponse::new(eid.clone());
+        response.workspaces.push(Workspace::new(
+            WorkspaceId::new("rust").expect("workspace id"),
+            RepoPath::new(".").expect("root"),
+            ToolchainTag::new("cargo"),
+        ));
+        let mut module = Module::new(
+            ModuleRef::new(eid.clone(), "core").expect("module ref"),
+            RepoPath::new(".").expect("root"),
+        );
+        module.workspace = Some(WorkspaceId::new("rust").expect("workspace id"));
+        response.modules.push(module);
+        let adapter = FakeConfiguredAdapter::new(eid.clone())
+            .with_response(response)
+            .with_release_target(FakeReleaseTarget::new());
+        FakeProvider::new(eid).with_adapter(adapter)
+    }
+
+    /// Load a single-repo project whose `core` module stages a version bump.
+    fn single_module_project() -> (TestWorkspace, AbsPath, Document) {
+        let ws = workspace("release-cli-bump");
+        let body = "[project]\nname = \"solo\"\n\n[ecosystems.rust]\nmanifests = [\"Cargo.toml\"]\n\n[modules.\"rust:core\".release]\npush = false\ncommit_message = \"release {module} {version}\"\n";
+        let path = ws
+            .write_file("toven.toml", body.as_bytes())
+            .expect("write project");
+        let root = AbsPath::new(ws.path().to_path_buf()).expect("absolute root");
+        let document = load(&path, &BTreeSet::new(), &CanonicalRegistry::model())
+            .expect("project loads")
+            .document;
+        (ws, root, document)
+    }
+
+    #[test]
+    fn stream_bump_feeds_the_live_sink_decision_then_commit() {
+        // The CLI seam must route the engine's per-module events into the live
+        // reporter — the decision (resolved) up front, then the commit (staged)
+        // once the mutation lands — and derive the exit from the run summary.
+        let (ws, root, document) = single_module_project();
+        let provider = core_provider();
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let writer = FakeVcsWriter::new().with_commit_oid("unused");
+        let readers = MemberVcsReaders::new(vec![MemberVcsReader::new(None, ".", None, &reader)]);
+        let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
+            None,
+            ws.path().to_path_buf(),
+            &reader,
+            &writer,
+        )]);
+        let request = PlanRequest::new("bump-1", "solo", TaskIntent::resolve("release"), root);
+        let clock = FixedClock::new(1_718_409_600, 0);
+        let hooks = RecordingHookRunner::new();
+        let mut sink = RecordingReporter::new();
+
+        let exit = stream_bump(
+            &request,
+            &document,
+            &providers,
+            &readers,
+            &repos,
+            &BumpOverrides::new(),
+            &mut sink,
+            &clock,
+            &hooks,
+            BumpOptions::default(),
+            crate::flags::OutputKind::Jsonl,
+            crate::flags::ColorWhen::Never,
+        )
+        .expect("bump streams");
+
+        // The summary-derived exit for a clean bump is success.
+        assert_eq!(exit, ExitCode::Success);
+
+        let resolved = sink
+            .events()
+            .iter()
+            .position(|event| matches!(event, Event::ModuleReleaseResolved { .. }))
+            .expect("a decision event is streamed");
+        let staged = sink
+            .events()
+            .iter()
+            .position(|event| matches!(event, Event::ModuleReleaseStaged { .. }))
+            .expect("a commit event is streamed");
+        assert!(
+            resolved < staged,
+            "the decision must precede the commit: {:?}",
+            sink.events()
+        );
     }
 }

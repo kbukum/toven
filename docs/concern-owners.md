@@ -12,6 +12,7 @@ Shared concerns have one canonical implementation owner. Reuse the owner before 
 | Deterministic archive packaging (tar.gz/zip) | rskit filesystem |
 | Git operations | rskit Git |
 | Process execution and observation | rskit process |
+| CLI palettes, themes, glyphs, and generic status/action rendering | rskit cli |
 | Subprocess lifetime: supervision, process-group isolation, termination/escalation, and non-orphaning reap (`ProcessSupervisor`, `LifecyclePolicy`) | rskit process |
 | CLI graceful shutdown: signal set → cooperative cancellation and second-signal force-exit (`ShutdownController`, `ShutdownPolicy`) | rskit cli |
 | General configuration primitives | rskit configuration |

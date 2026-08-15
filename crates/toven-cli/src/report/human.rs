@@ -1,11 +1,13 @@
 //! [`HumanReporter`] — the terminal-facing Event-stream sink.
 
-use std::borrow::Cow;
 use std::io::{self, Write};
 
-use rskit_cli::{OutputKV, Palette};
+use rskit_cli::{OutputKV, Palette, Theme, Tone};
 use rskit_errors::{AppError, AppResult};
-use toven_model::{CacheVerdict, Event, Phase, RunStats, ToolStatus, UnitStatus};
+use toven_model::{
+    CacheVerdict, CoverageMeasurement, CoverageMetric, CoverageVerdict, Event, Phase, RunStats,
+    ToolStatus, UnitStatus,
+};
 use toven_ports::Reporter;
 
 use super::exit::exit_code;
@@ -28,7 +30,9 @@ use crate::flags::Verbosity;
 pub struct HumanReporter<W: Write> {
     writer: W,
     level: Verbosity,
-    palette: Palette,
+    theme: Theme,
+    terminal: bool,
+    pending_release: Option<String>,
 }
 
 impl<W: Write> HumanReporter<W> {
@@ -42,7 +46,9 @@ impl<W: Write> HumanReporter<W> {
         Self {
             writer,
             level,
-            palette: Palette::new(false),
+            theme: Theme::new(Palette::new(false)),
+            terminal: false,
+            pending_release: None,
         }
     }
 
@@ -50,7 +56,14 @@ impl<W: Write> HumanReporter<W> {
     /// are colorized; a disabled palette leaves the output verbatim.
     #[must_use]
     pub const fn with_palette(mut self, palette: Palette) -> Self {
-        self.palette = palette;
+        self.theme = Theme::new(palette);
+        self
+    }
+
+    /// Enable terminal-only in-place progress replacement.
+    #[must_use]
+    pub const fn with_terminal(mut self, terminal: bool) -> Self {
+        self.terminal = terminal;
         self
     }
 
@@ -75,6 +88,15 @@ impl<W: Write> HumanReporter<W> {
             Event::PlanPrepared { .. } | Event::UnitFinished { .. } => {
                 !matches!(level, Verbosity::Quiet)
             }
+            // The per-module release/coverage narration is the primary output of
+            // its verb (and the whole of a `--dry-run`), so it renders like a
+            // terminal unit result — shown at Normal, collapsed only at Quiet.
+            // The examining progress line is in-flight status at the same class:
+            // it fills the silent decision gap at Normal, suppressed at Quiet.
+            Event::ModuleReleaseExamining { .. }
+            | Event::ModuleReleaseResolved { .. }
+            | Event::ModuleReleaseStaged { .. }
+            | Event::ModuleCoverageFinished { .. } => !matches!(level, Verbosity::Quiet),
             Event::PhaseStarted { .. }
             | Event::PhaseFinished { .. }
             | Event::CacheDecided { .. }
@@ -92,28 +114,24 @@ impl<W: Write> HumanReporter<W> {
         self.writer
     }
 
-    /// Colorize a terminal unit-status label by its outcome semantics: green
-    /// for success, red for failure, yellow for blocked/cancelled, dim for a
-    /// cache hit. A disabled palette returns the label verbatim.
-    fn paint_status(&self, status: UnitStatus) -> Cow<'static, str> {
-        let label = status_label(status);
-        match status {
-            UnitStatus::Succeeded | UnitStatus::Ready | UnitStatus::TornDown => {
-                self.palette.success(label)
-            }
-            UnitStatus::Failed | UnitStatus::FailedReadiness | UnitStatus::TimedOut => {
-                self.palette.error(label)
-            }
-            UnitStatus::Blocked | UnitStatus::Cancelled => self.palette.warn(label),
-            UnitStatus::Cached => self.palette.dim(label),
-        }
-    }
-
     fn write_line(&mut self, line: &str) -> AppResult<()> {
         writeln!(self.writer, "{line}").map_err(AppError::internal)?;
         // Flush each progress line so redirected/piped stdout (block-buffered) surfaces
         // progress promptly instead of in deferred bursts.
         self.writer.flush().map_err(AppError::internal)
+    }
+
+    fn labeled_line(
+        &self,
+        plain_prefix: &str,
+        terminal_label: &str,
+        detail: &str,
+        tone: Tone,
+    ) -> String {
+        if !self.theme.palette().enabled() {
+            return format!("{plain_prefix}{detail}");
+        }
+        self.theme.action(terminal_label, detail, tone)
     }
 
     fn write_summary(&mut self, summary: &RunStats) -> AppResult<()> {
@@ -151,9 +169,9 @@ impl<W: Write> HumanReporter<W> {
         let ok = exit_code(summary).as_i32() == 0;
         let status_text = if ok { "ok" } else { "failed" };
         let status_value = if ok {
-            self.palette.success(status_text)
+            self.theme.palette().success(status_text)
         } else {
-            self.palette.error(status_text)
+            self.theme.palette().error(status_text)
         };
         kv.add("status", status_value.into_owned());
         // A dry run executed nothing; say so explicitly so a glance at the summary
@@ -163,10 +181,180 @@ impl<W: Write> HumanReporter<W> {
         } else {
             "summary"
         };
+        let header = self.theme.heading(header);
         write!(self.writer, "{header}\n{kv}").map_err(AppError::internal)?;
         // Flush the final summary so a piped/redirected consumer receives it promptly
         // and it is not lost in a buffer on an abrupt exit.
         self.writer.flush().map_err(AppError::internal)
+    }
+
+    /// Render the run-start line. The run-id is log/JSONL correlation noise for
+    /// an interactive reader, so it is shown only at `-v`; the default line reads
+    /// `run <intent> on <project>`. The machine JSONL projection always carries
+    /// the id.
+    fn write_run_started(&mut self, run_id: &str, intent: &str, project: &str) -> AppResult<()> {
+        let detail = if matches!(self.level, Verbosity::Verbose) {
+            format!("{run_id}: {intent} on {project}")
+        } else {
+            format!("{intent} on {project}")
+        };
+        let line = self.labeled_line("run ", "Running", &detail, Tone::Info);
+        self.write_line(&line)
+    }
+
+    /// Render a per-module release *examining* progress line, before its slow
+    /// decision I/O (baseline resolution, change detection, registry lookup).
+    ///
+    /// Uncolored in-flight status — not a verdict — so it reads as `checking
+    /// X…`, filling the otherwise-silent gap before that module's settled
+    /// `release X: …` decision line.
+    ///
+    /// Verbosity tradeoff: this renders at Normal (the whole point is to fill
+    /// the gap an operator watches). If it proves noisy for very large
+    /// workspaces the fallback is to gate it to Verbose in [`Self::renders`].
+    fn write_release_examining(&mut self, module: &str) -> AppResult<()> {
+        let line = self.labeled_line("  checking ", "Checking", &format!("{module}…"), Tone::Info);
+        self.write_line(&line)?;
+        self.pending_release = self.terminal.then(|| module.to_string());
+        Ok(())
+    }
+
+    /// Render a per-module release *decision* line (before any mutation).
+    ///
+    /// A planned transition a reader sees take shape per module; every decision
+    /// reads honestly rather than as a bogus version change. The four shapes:
+    /// an already-released module is `already at X`; a genuine own-version bump
+    /// is `X → Y (level)`; a first cut at the declared version (no numeric move
+    /// yet a real release) is `initial release X` rather than a no-op `X → X`;
+    /// and a dependency-floor-only entry (no own-version bump) is
+    /// `X (dependency floor)`.
+    fn write_release_resolved(
+        &mut self,
+        module: &str,
+        current_version: &str,
+        planned_version: Option<&str>,
+        level: &str,
+        reason: &str,
+        up_to_date: bool,
+    ) -> AppResult<()> {
+        let (detail, label, tone) = if up_to_date {
+            (
+                format!("{module}: already at {current_version}"),
+                "Unchanged",
+                Tone::Dim,
+            )
+        } else if reason == "no-change" {
+            (
+                format!("{module}: no change ({current_version})"),
+                "Unchanged",
+                Tone::Dim,
+            )
+        } else if let Some(planned) = planned_version {
+            if planned == current_version {
+                match reason {
+                    "initial-release" => (
+                        format!("{module}: initial release {planned}"),
+                        "Releasing",
+                        Tone::Success,
+                    ),
+                    other => (
+                        format!("{module}: release {planned} ({other})"),
+                        "Releasing",
+                        Tone::Success,
+                    ),
+                }
+            } else {
+                (
+                    format!("{module}: {current_version} → {planned} ({level})"),
+                    "Releasing",
+                    Tone::Success,
+                )
+            }
+        } else {
+            (
+                format!("{module}: {current_version} (dependency floor)"),
+                "Updating",
+                Tone::Warning,
+            )
+        };
+        let line = self.labeled_line("  release ", label, &detail, tone);
+        let replace = self.terminal && self.pending_release.as_deref() == Some(module);
+        self.pending_release = None;
+        if replace {
+            writeln!(self.writer, "\u{1b}[1A\r\u{1b}[2K{line}").map_err(AppError::internal)?;
+            self.writer.flush().map_err(AppError::internal)
+        } else {
+            self.write_line(&line)
+        }
+    }
+
+    /// Render a per-module release *commit* line (after the side effect landed).
+    ///
+    /// Confirms the decision only once the module's mutation is real; the
+    /// created tag, when any, rides the same line. A dependency-floor-only
+    /// stage has no `new_version`, so it reads as a floored-dependency commit
+    /// rather than a version transition.
+    fn write_release_staged(
+        &mut self,
+        module: &str,
+        new_version: Option<&str>,
+        tag: Option<&str>,
+    ) -> AppResult<()> {
+        let subject =
+            new_version.map_or_else(|| "dependency floors".to_string(), ToString::to_string);
+        let detail = tag.map_or_else(
+            || format!("{module}: staged {subject}"),
+            |tag| format!("{module}: staged {subject} (tag {tag})"),
+        );
+        let line = self.labeled_line("  release ", "Staged", &detail, Tone::Success);
+        self.write_line(&line)
+    }
+
+    /// Render a per-module coverage verdict as one line, colorized by outcome.
+    fn write_coverage(
+        &mut self,
+        module: &str,
+        measurements: &[CoverageMeasurement],
+        verdict: CoverageVerdict,
+    ) -> AppResult<()> {
+        let detail = format_measurements(measurements);
+        let label = coverage_verdict_label(verdict);
+        let detail = if detail.is_empty() {
+            format!("{module}: {label}")
+        } else {
+            format!("{module}: {label} ({detail})")
+        };
+        let (terminal_label, tone) = match verdict {
+            CoverageVerdict::Passed => ("Passed", Tone::Success),
+            CoverageVerdict::Failed => ("Failed", Tone::Error),
+            CoverageVerdict::Advisory | CoverageVerdict::Excluded => ("Advisory", Tone::Warning),
+        };
+        let line = self.labeled_line("  coverage ", terminal_label, &detail, tone);
+        self.write_line(&line)
+    }
+
+    /// Render a per-tool `doctor` audit line, colorized by presence.
+    fn write_tool_audited(
+        &mut self,
+        label: &str,
+        program: &str,
+        status: &ToolStatus,
+    ) -> AppResult<()> {
+        match status {
+            ToolStatus::Present { version } => {
+                let detail = version.as_ref().map_or_else(
+                    || format!("{label} ({program}): present"),
+                    |version| format!("{label} ({program}): present ({version})"),
+                );
+                let line = self.labeled_line("  tool ", "Found", &detail, Tone::Success);
+                self.write_line(&line)
+            }
+            ToolStatus::Missing => {
+                let detail = format!("{label} ({program}): missing");
+                let line = self.labeled_line("  tool ", "Missing", &detail, Tone::Error);
+                self.write_line(&line)
+            }
+        }
     }
 }
 
@@ -184,6 +372,7 @@ impl HumanReporter<io::Stderr> {
 }
 
 impl<W: Write + Send> Reporter for HumanReporter<W> {
+    #[allow(clippy::too_many_lines)] // a flat event→line dispatch table: one arm per Event variant
     fn emit(&mut self, event: &Event) -> AppResult<()> {
         if !Self::renders(self.level, event) {
             return Ok(());
@@ -193,95 +382,142 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
                 run_id,
                 intent,
                 project,
-            } => {
-                // The run-id is log/JSONL correlation noise for an interactive reader, so
-                // it is shown only at `-v`; the default line reads `run <intent> on
-                // <project>`. The machine JSONL projection always carries the id.
-                let line = if matches!(self.level, Verbosity::Verbose) {
-                    format!("run {run_id}: {intent} on {project}")
-                } else {
-                    format!("run {intent} on {project}")
-                };
-                self.write_line(&line)
-            }
+            } => self.write_run_started(run_id, intent, project),
             Event::RunFinished { summary } => self.write_summary(summary),
             Event::Warning { message } => {
-                let line = format!("warning: {message}");
-                self.write_line(&self.palette.warn(&line))
+                let line = self.labeled_line("warning: ", "Warning", message, Tone::Warning);
+                self.write_line(&line)
             }
             Event::FullActivation { paths } => {
-                let line = format!(
-                    "full activation: {} (affects all modules)",
-                    paths.join(", ")
-                );
-                self.write_line(&self.palette.warn(&line))
+                let detail = format!("{} (affects all modules)", paths.join(", "));
+                let line =
+                    self.labeled_line("full activation: ", "Activating", &detail, Tone::Warning);
+                self.write_line(&line)
             }
             Event::PhaseStarted { phase } => {
-                self.write_line(&format!("  phase {}: started", phase_label(*phase)))
+                let detail = format!("{}: started", phase_label(*phase));
+                let line = self.labeled_line("  phase ", "Starting", &detail, Tone::Info);
+                self.write_line(&line)
             }
             Event::PhaseFinished { phase } => {
-                self.write_line(&format!("  phase {}: done", phase_label(*phase)))
+                let detail = format!("{}: done", phase_label(*phase));
+                let line = self.labeled_line("  phase ", "Finished", &detail, Tone::Success);
+                self.write_line(&line)
             }
-            Event::PlanPrepared { waves, units } => self.write_line(&format!(
-                "plan: {} in {}",
-                plural(*units, "unit"),
-                plural(*waves, "wave")
-            )),
+            Event::PlanPrepared { waves, units } => {
+                let detail = format!("{} in {}", plural(*units, "unit"), plural(*waves, "wave"));
+                let line = self.labeled_line("plan: ", "Planning", &detail, Tone::Info);
+                self.write_line(&line)
+            }
             Event::CacheDecided { unit_id, verdict } => {
-                self.write_line(&format!("  cache {unit_id}: {}", verdict_label(*verdict)))
+                let detail = format!("{unit_id}: {}", verdict_label(*verdict));
+                let tone = if matches!(verdict, CacheVerdict::Hit) {
+                    Tone::Dim
+                } else {
+                    Tone::Info
+                };
+                let line = self.labeled_line("  cache ", "Cache", &detail, tone);
+                self.write_line(&line)
             }
-            Event::UnitStarted { unit_id } => self.write_line(&format!("  start {unit_id}")),
-            Event::UnitReady { unit_id } => self.write_line(&format!("  ready {unit_id}")),
+            Event::UnitStarted { unit_id } => {
+                let line = self.labeled_line("  start ", "Running", unit_id, Tone::Info);
+                self.write_line(&line)
+            }
+            Event::UnitReady { unit_id } => {
+                let line = self.labeled_line("  ready ", "Ready", unit_id, Tone::Success);
+                self.write_line(&line)
+            }
             Event::UnitFinished {
                 unit_id,
                 status,
                 exit_code,
             } => {
-                let label = self.paint_status(*status);
                 // Name the non-zero exit on the failure line so a reader sees *why* the
                 // unit failed without correlating against the separate output stream; the
                 // captured stdout/stderr already surfaced there.
-                let line = exit_code.as_ref().map_or_else(
-                    || format!("  {label} {unit_id}"),
-                    |code| format!("  {label} {unit_id} (exit {code})"),
+                let detail = exit_code.as_ref().map_or_else(
+                    || unit_id.clone(),
+                    |code| format!("{unit_id} (exit {code})"),
+                );
+                let tone = match status {
+                    UnitStatus::Succeeded | UnitStatus::Ready | UnitStatus::TornDown => {
+                        Tone::Success
+                    }
+                    UnitStatus::Failed | UnitStatus::FailedReadiness | UnitStatus::TimedOut => {
+                        Tone::Error
+                    }
+                    UnitStatus::Blocked | UnitStatus::Cancelled => Tone::Warning,
+                    UnitStatus::Cached => Tone::Dim,
+                };
+                let prefix = format!("  {} ", status_label(*status));
+                let line = self.labeled_line(&prefix, status_label(*status), &detail, tone);
+                self.write_line(&line)
+            }
+            Event::ModuleReleaseExamining { module } => self.write_release_examining(module),
+            Event::ModuleReleaseResolved {
+                module,
+                current_version,
+                planned_version,
+                level,
+                reason,
+                up_to_date,
+                ..
+            } => self.write_release_resolved(
+                module,
+                current_version,
+                planned_version.as_deref(),
+                level,
+                reason,
+                *up_to_date,
+            ),
+            Event::ModuleReleaseStaged {
+                module,
+                new_version,
+                tag,
+                ..
+            } => self.write_release_staged(module, new_version.as_deref(), tag.as_deref()),
+            Event::ModuleCoverageFinished {
+                module,
+                measurements,
+                verdict,
+            } => self.write_coverage(module, measurements, *verdict),
+            Event::WatchStarted { debounce_ms } => {
+                let detail = format!("waiting for changes ({debounce_ms}ms debounce)");
+                let line = self.labeled_line("watch: ", "Watching", &detail, Tone::Info);
+                self.write_line(&line)
+            }
+            Event::WatchTriggered { paths } => {
+                let detail = format!("{} change(s) triggered a rerun", paths.len());
+                let line = self.labeled_line("watch: ", "Changed", &detail, Tone::Info);
+                self.write_line(&line)
+            }
+            Event::WatchRescan => {
+                let line = self.labeled_line(
+                    "watch: ",
+                    "Rescanning",
+                    "dropped events — re-evaluating the whole workspace",
+                    Tone::Warning,
                 );
                 self.write_line(&line)
             }
-            Event::WatchStarted { debounce_ms } => self.write_line(&format!(
-                "watch: waiting for changes ({debounce_ms}ms debounce)"
-            )),
-            Event::WatchTriggered { paths } => self.write_line(&format!(
-                "watch: {} change(s) triggered a rerun",
-                paths.len()
-            )),
-            Event::WatchRescan => {
-                self.write_line("watch: dropped events — re-evaluating the whole workspace")
+            Event::WatchStopped => {
+                let line = self.labeled_line("watch: ", "Stopped", "stopped", Tone::Dim);
+                self.write_line(&line)
             }
-            Event::WatchStopped => self.write_line("watch: stopped"),
             Event::ToolAudited {
                 label,
                 program,
                 status,
-            } => match status {
-                ToolStatus::Present { version } => {
-                    let line = version.as_ref().map_or_else(
-                        || format!("  tool {label} ({program}): present"),
-                        |version| format!("  tool {label} ({program}): present ({version})"),
-                    );
-                    self.write_line(&self.palette.success(&line))
-                }
-                ToolStatus::Missing => {
-                    let line = format!("  tool {label} ({program}): missing");
-                    self.write_line(&self.palette.error(&line))
-                }
-            },
+            } => self.write_tool_audited(label, program, status),
             Event::DoctorFinished { checked, missing } => {
-                let line = format!("doctor: {checked} checked, {missing} missing");
-                if *missing == 0 {
-                    self.write_line(&self.palette.success(&line))
+                let detail = format!("{checked} checked, {missing} missing");
+                let (label, tone) = if *missing == 0 {
+                    ("Healthy", Tone::Success)
                 } else {
-                    self.write_line(&self.palette.error(&line))
-                }
+                    ("Incomplete", Tone::Error)
+                };
+                let line = self.labeled_line("doctor: ", label, &detail, tone);
+                self.write_line(&line)
             }
         }
     }
@@ -334,9 +570,52 @@ const fn status_label(status: UnitStatus) -> &'static str {
     }
 }
 
+const fn coverage_verdict_label(verdict: CoverageVerdict) -> &'static str {
+    match verdict {
+        CoverageVerdict::Passed => "passed",
+        CoverageVerdict::Failed => "failed",
+        CoverageVerdict::Advisory => "advisory",
+        CoverageVerdict::Excluded => "excluded",
+    }
+}
+
+const fn metric_label(metric: CoverageMetric) -> &'static str {
+    match metric {
+        CoverageMetric::Line => "line",
+        CoverageMetric::Function => "function",
+        CoverageMetric::Region => "region",
+        CoverageMetric::ChangedLine => "changed-line",
+    }
+}
+
+/// Render a basis-point percentage (`9537`) as `95.37%`.
+fn percent(basis_points: u32) -> String {
+    format!("{}.{:02}%", basis_points / 100, basis_points % 100)
+}
+
+/// Render the per-dimension measurements as one compact, comma-separated detail
+/// string: `line 95.37%, function 90.00% (<95.00%)`. A dimension below its floor
+/// is annotated with the floor it missed so the verdict is self-explaining.
+fn format_measurements(measurements: &[CoverageMeasurement]) -> String {
+    measurements
+        .iter()
+        .map(|m| {
+            let head = format!("{} {}", metric_label(m.metric), percent(m.measured));
+            match m.threshold {
+                Some(threshold) if !m.met => format!("{head} (<{})", percent(threshold)),
+                _ => head,
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 #[cfg(test)]
 mod tests {
-    use toven_model::{CacheVerdict, Event, Phase, RunStats, UnitStatus};
+    use toven_model::{
+        CacheVerdict, CoverageMeasurement, CoverageMetric, CoverageVerdict, Event, Phase, RunStats,
+        UnitStatus,
+    };
     use toven_ports::Reporter;
 
     use super::{HumanReporter, Palette};
@@ -587,15 +866,27 @@ summary
 
     #[test]
     fn palette_colorizes_status_labels_by_outcome_semantics() {
-        // An enabled palette wraps the terminal status label in the matching SGR code:
-        // green success, red failure, yellow blocked, dim cache hit.
+        // Cargo-like terminal labels are right-aligned, bold, and colored by
+        // outcome while the detail remains unstyled.
         let cases = [
-            (UnitStatus::Succeeded, "\u{1b}[32mok\u{1b}[0m"),
-            (UnitStatus::Failed, "\u{1b}[31mfailed\u{1b}[0m"),
-            (UnitStatus::Blocked, "\u{1b}[33mblocked\u{1b}[0m"),
-            (UnitStatus::Cached, "\u{1b}[2mcached\u{1b}[0m"),
+            (
+                UnitStatus::Succeeded,
+                "\u{1b}[1m\u{1b}[32m          ok\u{1b}[0m\u{1b}[0m u\n",
+            ),
+            (
+                UnitStatus::Failed,
+                "\u{1b}[1m\u{1b}[31m      failed\u{1b}[0m\u{1b}[0m u\n",
+            ),
+            (
+                UnitStatus::Blocked,
+                "\u{1b}[1m\u{1b}[33m     blocked\u{1b}[0m\u{1b}[0m u\n",
+            ),
+            (
+                UnitStatus::Cached,
+                "\u{1b}[1m\u{1b}[2m      cached\u{1b}[0m\u{1b}[0m u\n",
+            ),
         ];
-        for (status, painted) in cases {
+        for (status, expected) in cases {
             let mut reporter =
                 HumanReporter::new(Vec::new(), Verbosity::Verbose).with_palette(Palette::new(true));
             reporter
@@ -606,8 +897,38 @@ summary
                 })
                 .expect("emit");
             let output = String::from_utf8(reporter.into_inner()).expect("utf8");
-            assert_eq!(output, format!("  {painted} u\n"), "status {status:?}");
+            assert_eq!(output, expected, "status {status:?}");
         }
+    }
+
+    #[test]
+    fn palette_styles_release_progress_without_coloring_its_detail() {
+        let mut reporter =
+            HumanReporter::new(Vec::new(), Verbosity::Normal).with_palette(Palette::new(true));
+        reporter
+            .emit(&Event::ModuleReleaseExamining {
+                module: "rust:core".into(),
+            })
+            .expect("examining");
+        reporter
+            .emit(&Event::ModuleReleaseResolved {
+                module: "rust:core".into(),
+                current_version: "1.2.0".into(),
+                planned_version: Some("1.3.0".into()),
+                level: "minor".into(),
+                reason: "changed".into(),
+                tag: None,
+                publication: None,
+                up_to_date: false,
+            })
+            .expect("resolved");
+        assert_eq!(
+            String::from_utf8(reporter.into_inner()).expect("utf8"),
+            concat!(
+                "\u{1b}[1m\u{1b}[36m    Checking\u{1b}[0m\u{1b}[0m rust:core…\n",
+                "\u{1b}[1m\u{1b}[32m   Releasing\u{1b}[0m\u{1b}[0m rust:core: 1.2.0 → 1.3.0 (minor)\n",
+            )
+        );
     }
 
     #[test]
@@ -671,6 +992,271 @@ summary
         ];
         let output = render(&events);
         assert_eq!(output, "  ready srv\n  torn-down srv\n");
+    }
+
+    #[test]
+    fn an_examining_progress_line_precedes_the_modules_resolved_decision() {
+        // The `checking <module>…` progress signal fills the otherwise-silent
+        // gap during the slow decision I/O, then the settled decision follows.
+        // Asserted as an exact golden so the progress → decision rhythm stays
+        // organized.
+        let events = vec![
+            Event::ModuleReleaseExamining {
+                module: "core".into(),
+            },
+            Event::ModuleReleaseResolved {
+                module: "core".into(),
+                current_version: "1.2.0".into(),
+                planned_version: Some("1.3.0".into()),
+                level: "minor".into(),
+                reason: "changed".into(),
+                tag: Some("core-v1.3.0".into()),
+                publication: Some("publish".into()),
+                up_to_date: false,
+            },
+        ];
+        assert_eq!(
+            render(&events),
+            "  checking core…\n  release core: 1.2.0 → 1.3.0 (minor)\n"
+        );
+    }
+
+    #[test]
+    fn a_terminal_replaces_the_examining_line_with_the_resolved_decision() {
+        let events = [
+            Event::ModuleReleaseExamining {
+                module: "core".into(),
+            },
+            Event::ModuleReleaseResolved {
+                module: "core".into(),
+                current_version: "1.2.0".into(),
+                planned_version: Some("1.3.0".into()),
+                level: "minor".into(),
+                reason: "changed".into(),
+                tag: Some("core-v1.3.0".into()),
+                publication: Some("publish".into()),
+                up_to_date: false,
+            },
+        ];
+        let mut reporter = HumanReporter::new(Vec::new(), Verbosity::Normal).with_terminal(true);
+        for event in &events {
+            reporter.emit(event).expect("emit");
+        }
+        assert_eq!(
+            String::from_utf8(reporter.into_inner()).expect("utf8"),
+            "  checking core…\n\u{1b}[1A\r\u{1b}[2K  release core: 1.2.0 → 1.3.0 (minor)\n"
+        );
+    }
+
+    #[test]
+    fn an_examining_progress_line_is_collapsed_at_quiet() {
+        // Progress is narration, not a verdict: like the resolved decision it
+        // renders at Normal but is suppressed at Quiet.
+        let examining = Event::ModuleReleaseExamining {
+            module: "core".into(),
+        };
+        assert_eq!(
+            render_at(Verbosity::Normal, std::slice::from_ref(&examining)),
+            "  checking core…\n"
+        );
+        assert_eq!(
+            render_at(Verbosity::Quiet, std::slice::from_ref(&examining)),
+            ""
+        );
+    }
+
+    #[test]
+    fn release_decision_then_commit_reads_as_one_narration() {
+        // A resolved decision narrates the planned transition; the later staged
+        // event confirms the same module as the transaction lands. Asserted as an
+        // exact golden so the decision → commit rhythm stays organized.
+        let events = vec![
+            Event::ModuleReleaseResolved {
+                module: "core".into(),
+                current_version: "1.2.0".into(),
+                planned_version: Some("1.3.0".into()),
+                level: "minor".into(),
+                reason: "changed".into(),
+                tag: Some("core-v1.3.0".into()),
+                publication: Some("publish".into()),
+                up_to_date: false,
+            },
+            Event::ModuleReleaseStaged {
+                module: "core".into(),
+                new_version: Some("1.3.0".into()),
+                manifests: vec!["crates/core/Cargo.toml".into()],
+                changelog: Some("crates/core/CHANGELOG.md".into()),
+                tag: Some("core-v1.3.0".into()),
+            },
+        ];
+        assert_eq!(
+            render(&events),
+            "  release core: 1.2.0 → 1.3.0 (minor)\n  release core: staged 1.3.0 (tag core-v1.3.0)\n"
+        );
+    }
+
+    #[test]
+    fn an_up_to_date_or_floor_only_decision_reads_honestly() {
+        // No planned bump must never render as a bogus version change.
+        let up_to_date = Event::ModuleReleaseResolved {
+            module: "leaf".into(),
+            current_version: "0.4.1".into(),
+            planned_version: None,
+            level: "patch".into(),
+            reason: "changed".into(),
+            tag: None,
+            publication: None,
+            up_to_date: true,
+        };
+        assert_eq!(
+            render(std::slice::from_ref(&up_to_date)),
+            "  release leaf: already at 0.4.1\n"
+        );
+
+        let floor_only = Event::ModuleReleaseResolved {
+            module: "leaf".into(),
+            current_version: "0.4.1".into(),
+            planned_version: None,
+            level: "patch".into(),
+            reason: "dependency-cascade".into(),
+            tag: None,
+            publication: None,
+            up_to_date: false,
+        };
+        assert_eq!(
+            render(std::slice::from_ref(&floor_only)),
+            "  release leaf: 0.4.1 (dependency floor)\n"
+        );
+
+        let no_change = Event::ModuleReleaseResolved {
+            module: "idle".into(),
+            current_version: "0.4.1".into(),
+            planned_version: None,
+            level: "patch".into(),
+            reason: "no-change".into(),
+            tag: None,
+            publication: None,
+            up_to_date: false,
+        };
+        assert_eq!(
+            render(std::slice::from_ref(&no_change)),
+            "  release idle: no change (0.4.1)\n"
+        );
+    }
+
+    #[test]
+    fn an_initial_release_reads_as_a_first_cut_not_a_no_op() {
+        // A first release cuts the version the module already declares, so
+        // current == planned. It must read as a real release, never a bogus
+        // `0.1.0 → 0.1.0` transition.
+        let initial = Event::ModuleReleaseResolved {
+            module: "core".into(),
+            current_version: "0.1.0".into(),
+            planned_version: Some("0.1.0".into()),
+            level: "minor".into(),
+            reason: "initial-release".into(),
+            tag: Some("core-v0.1.0".into()),
+            publication: Some("registry".into()),
+            up_to_date: false,
+        };
+        assert_eq!(
+            render(std::slice::from_ref(&initial)),
+            "  release core: initial release 0.1.0\n"
+        );
+    }
+
+    #[test]
+    fn a_tag_less_stage_omits_the_tag_suffix() {
+        let staged = Event::ModuleReleaseStaged {
+            module: "leaf".into(),
+            new_version: Some("0.4.2".into()),
+            manifests: Vec::new(),
+            changelog: None,
+            tag: None,
+        };
+        assert_eq!(
+            render(std::slice::from_ref(&staged)),
+            "  release leaf: staged 0.4.2\n"
+        );
+    }
+
+    #[test]
+    fn a_dependency_floor_only_stage_reads_without_a_version() {
+        // A floor-only stage rewrote a manifest but cut no version, so it reads
+        // as a floored-dependency commit rather than a bogus version transition.
+        let staged = Event::ModuleReleaseStaged {
+            module: "app".into(),
+            new_version: None,
+            manifests: vec!["crates/app/Cargo.toml".into()],
+            changelog: None,
+            tag: None,
+        };
+        assert_eq!(
+            render(std::slice::from_ref(&staged)),
+            "  release app: staged dependency floors\n"
+        );
+    }
+
+    #[test]
+    fn coverage_verdict_is_one_line_per_module_with_measurements() {
+        let passing = Event::ModuleCoverageFinished {
+            module: "core".into(),
+            measurements: vec![CoverageMeasurement {
+                metric: CoverageMetric::Line,
+                measured: 9537,
+                threshold: Some(9000),
+                met: true,
+            }],
+            verdict: CoverageVerdict::Passed,
+        };
+        assert_eq!(
+            render(std::slice::from_ref(&passing)),
+            "  coverage core: passed (line 95.37%)\n"
+        );
+
+        // A below-floor dimension annotates the floor it missed on the fail line.
+        let failing = Event::ModuleCoverageFinished {
+            module: "leaf".into(),
+            measurements: vec![CoverageMeasurement {
+                metric: CoverageMetric::Function,
+                measured: 8000,
+                threshold: Some(9000),
+                met: false,
+            }],
+            verdict: CoverageVerdict::Failed,
+        };
+        assert_eq!(
+            render(std::slice::from_ref(&failing)),
+            "  coverage leaf: failed (function 80.00% (<90.00%))\n"
+        );
+    }
+
+    #[test]
+    fn progressive_release_and_coverage_lines_collapse_at_quiet() {
+        // The per-module narration is Normal-level output, collapsed only at Quiet
+        // (like a terminal unit result), so a Quiet run leaves just the summary.
+        let events = [
+            Event::ModuleReleaseResolved {
+                module: "core".into(),
+                current_version: "1.2.0".into(),
+                planned_version: Some("1.3.0".into()),
+                level: "minor".into(),
+                reason: "changed".into(),
+                tag: None,
+                publication: None,
+                up_to_date: false,
+            },
+            Event::ModuleCoverageFinished {
+                module: "core".into(),
+                measurements: Vec::new(),
+                verdict: CoverageVerdict::Passed,
+            },
+        ];
+        assert_eq!(render_at(Verbosity::Quiet, &events), "");
+        assert_eq!(
+            render_at(Verbosity::Normal, &events),
+            "  release core: 1.2.0 → 1.3.0 (minor)\n  coverage core: passed\n"
+        );
     }
 
     /// The full stream every level test renders a subset of.

@@ -39,10 +39,8 @@ pub(crate) fn doctor(
 ) -> AppResult<ExitCode> {
     let prober = ProcessToolchainProber::new(std::sync::Arc::new(ProcessToolRunner::new()));
     let mut reporter = report.reporter();
-    // Stream each tool's verdict the moment its probe completes — the reporter
-    // flushes per line — so `doctor` reports progressively (check → report →
-    // next) like a run, instead of buffering every probe and dumping the audit
-    // at the end.
+    // Emit each tool's verdict as its probe completes, so `doctor` reports
+    // incrementally like a run rather than buffering the whole audit.
     let audited = {
         let sink = reporter.as_mut();
         audit_streaming(

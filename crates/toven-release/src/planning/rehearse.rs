@@ -60,6 +60,7 @@ pub fn release_rehearse(
         overrides,
         &targets,
         crate::versioning::bump::CutIntent::Verify,
+        reporter,
     )?;
     let settings = resolve_release_settings(&context, &targets)?;
     let pushed_members = if no_push {

@@ -312,6 +312,151 @@ fn common_with_level(level: BumpLevel) -> CommonEcosystemConfig {
     common
 }
 
+/// Drive `release_plan` against one changed rust `core` module and return the
+/// recorded event stream, so a test can assert the progressive decision
+/// projection independently of the returned plan.
+fn plan_events(common: CommonEcosystemConfig) -> Vec<toven_model::Event> {
+    let core = module("core", "crates/core");
+    let mut response = DiscoverResponse::new(eid("rust"));
+    response.modules = vec![core];
+    let adapter = FakeConfiguredAdapter::new(eid("rust"))
+        .with_response(response)
+        .with_common(common)
+        .with_release_target(FakeReleaseTarget::new());
+    let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let request = PlanRequest::new(
+        "r1",
+        "t",
+        TaskIntent::resolve("release"),
+        AbsPath::new("/repo").unwrap(),
+    )
+    .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+    let vcs = FakeVcsReader::new()
+        .with_tags(released_at_0_1_0(&["core"]))
+        .with_changed_since(vec![ChangeRecord::new(
+            "crates/core/src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+    let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+    let mut reporter = RecordingReporter::new();
+    release_plan(
+        &request,
+        &document(),
+        &providers,
+        &readers,
+        &BumpOverrides::default(),
+        &mut reporter,
+    )
+    .unwrap();
+    reporter.events().to_vec()
+}
+
+#[test]
+fn release_plan_streams_a_decision_per_module_before_any_mutation() {
+    let events = plan_events(common_with_level(BumpLevel::Minor));
+    // The only work-item event `release plan` projects is the per-module
+    // decision — never a staged/committed event, since planning mutates nothing.
+    let decisions: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            toven_model::Event::ModuleReleaseResolved {
+                module,
+                current_version,
+                planned_version,
+                level,
+                ..
+            } => Some((
+                module.clone(),
+                current_version.clone(),
+                planned_version.clone(),
+                level.clone(),
+            )),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        decisions,
+        vec![(
+            "rust:core".to_string(),
+            "0.1.0".to_string(),
+            Some("0.2.0".to_string()),
+            "minor".to_string(),
+        )],
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, toven_model::Event::ModuleReleaseStaged { .. })),
+        "planning must never emit a committed/staged event: {events:?}"
+    );
+}
+
+#[test]
+fn modules_are_examined_and_resolved_in_dependency_first_pairs() {
+    let core = module("core", "crates/core");
+    let app = module("app", "crates/app");
+    let mut response = DiscoverResponse::new(eid("rust"));
+    response.edges = vec![Edge::new(app.id.clone(), core.id.clone(), DepKind::Normal)];
+    response.modules = vec![core, app];
+
+    let adapter = FakeConfiguredAdapter::new(eid("rust"))
+        .with_response(response)
+        .with_common(common_with_registry())
+        .with_release_target(FakeReleaseTarget::new());
+    let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let request = PlanRequest::new(
+        "r1",
+        "t",
+        TaskIntent::resolve("release"),
+        AbsPath::new("/repo").unwrap(),
+    )
+    .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+    let vcs = FakeVcsReader::new()
+        .with_tags(released_at_0_1_0(&["core", "app"]))
+        .with_changed_since(vec![ChangeRecord::new(
+            "crates/core/src/lib.rs",
+            ChangeStatus::Modified,
+        )]);
+    let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+    let overrides = BumpOverrides::new();
+    let mut reporter = RecordingReporter::new();
+    release_plan(
+        &request,
+        &document(),
+        &providers,
+        &readers,
+        &overrides,
+        &mut reporter,
+    )
+    .unwrap();
+    let events = reporter.events();
+
+    let release_events: Vec<(&str, &str)> = events
+        .iter()
+        .filter_map(|event| match event {
+            toven_model::Event::ModuleReleaseExamining { module } => {
+                Some(("examining", module.as_str()))
+            }
+            toven_model::Event::ModuleReleaseResolved { module, .. } => {
+                Some(("resolved", module.as_str()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        release_events,
+        vec![
+            ("examining", "rust:core"),
+            ("resolved", "rust:core"),
+            ("examining", "rust:app"),
+            ("resolved", "rust:app"),
+        ],
+        "release decisions must resolve in place and preserve dependency-first publication order: {events:?}"
+    );
+}
+
 fn common_with_registry() -> CommonEcosystemConfig {
     CommonEcosystemConfig {
         release: ReleaseConfig {
@@ -850,6 +995,7 @@ fn plan_and_bump_decide_identical_versions_from_the_single_path() {
         &overrides,
         &targets,
         bump::CutIntent::Bump,
+        &mut bump_reporter,
     )
     .unwrap();
 

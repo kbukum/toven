@@ -31,9 +31,16 @@ Module      Status  Line   Function  Region  Changed  Enforcement
 rust:core   passed  92.4%  88.0%     86.2%   -        block
 ```
 
-Measurement progress, child output, and the summary use stderr. The command returns non-zero when measurement fails or a module with `block` enforcement misses a threshold. `advisory` reports a shortfall without failing.
+Measurement progress and the per-module verdicts go to stderr. Human output lists one verdict line per module, followed by a tally that names the non-zero groups and the gate verdict:
 
-JSONL mode emits one module record per stdout line:
+```text
+Coverage
+  coverage rust:core: passed (line 92.4%)
+  coverage rust:cli: failed (line 40.0% (<90.0%))
+coverage: 1 passed, 1 failed — gate failed
+```
+
+The command returns non-zero when measurement fails or a module with `block` enforcement misses a threshold; `advisory` reports a shortfall without failing. The exit status reflects the tally, not any single module. `--output jsonl` emits one module record per stdout line, order-stable:
 
 ```json
 {"module":"rust:core","status":"passed","enforcement":"block","line":{"measured":92.4,"threshold":90.0,"passed":true}}

@@ -1,0 +1,6 @@
+Release plan
+  checking go:core…
+  release go:core: no change (0.1.0)
+  checking go:train…
+  release go:train: no change (0.1.0)
+    Finished release: nothing to release — all modules up to date

@@ -44,7 +44,8 @@ pub use conventional::{
     validate_conventional_subject,
 };
 pub use decision::{
-    BumpConfig, BumpEntry, BumpPlan, CutIntent, ModuleVersionConfig, VersionInputs, plan_bumps,
+    BumpConfig, BumpEntry, BumpPlan, BumpPlanner, BumpResolution, CutIntent, ModuleVersionConfig,
+    VersionInputs, plan_bumps,
 };
 pub use overrides::BumpOverrides;
 pub use policy::{BumpPolicy, BumpReason, BumpSource};

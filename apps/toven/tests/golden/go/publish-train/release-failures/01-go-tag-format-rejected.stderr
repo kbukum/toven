@@ -1,1 +1,3 @@
+Release plan
+  checking go:core…
 error[INVALID_INPUT]: invalid release.tag_format: Go modules use the fixed Go module tag convention (root `vX.Y.Z`, submodule `<path>/vX.Y.Z`) and do not accept a tag_format override

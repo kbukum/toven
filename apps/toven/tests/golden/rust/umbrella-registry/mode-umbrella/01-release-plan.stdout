@@ -1,2 +1,12 @@
-{"order":1,"module":"rust:kit-core","current_version":"0.1.0","planned_version":"0.1.1","tag":"rust/kit-core@0.1.1","tag_mode":"umbrella","baseline_source":"registry+umbrella","level":"patch","reason":"changed","winning_input":"default","cascade_origin":null,"prerelease_channel":null,"up_to_date":false,"publication":"registry","registry":"crates-io","publish_needed":true,"entrypoint":"toven","umbrella":false,"summary":"1 commit"}
-{"order":2,"module":"rust:kit-suite","current_version":"0.1.0","planned_version":"0.1.1","tag":"v0.1.1","tag_mode":"umbrella","baseline_source":"registry+umbrella","level":"patch","reason":"dependency-cascade","winning_input":"cascade","cascade_origin":"rust:kit-core","prerelease_channel":null,"up_to_date":false,"publication":"registry","registry":"crates-io","publish_needed":true,"entrypoint":"toven","umbrella":true,"summary":"dependency cascade"}
+{"event":"phase-started","phase":"configure"}
+{"event":"phase-finished","phase":"configure"}
+{"event":"phase-started","phase":"discover"}
+{"event":"phase-finished","phase":"discover"}
+{"event":"phase-started","phase":"graph"}
+{"event":"phase-finished","phase":"graph"}
+{"event":"module-release-examining","module":"rust:kit-util"}
+{"event":"module-release-resolved","module":"rust:kit-util","current_version":"0.1.0","level":"patch","reason":"no-change","up_to_date":false}
+{"event":"module-release-examining","module":"rust:kit-core"}
+{"event":"module-release-resolved","module":"rust:kit-core","current_version":"0.1.0","planned_version":"0.1.1","level":"patch","reason":"changed","tag":"rust/kit-core@0.1.1","publication":"registry","up_to_date":false}
+{"event":"module-release-examining","module":"rust:kit-suite"}
+{"event":"module-release-resolved","module":"rust:kit-suite","current_version":"0.1.0","planned_version":"0.1.1","level":"patch","reason":"dependency-cascade","tag":"v0.1.1","publication":"registry","up_to_date":false}

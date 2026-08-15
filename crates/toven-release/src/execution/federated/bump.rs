@@ -5,6 +5,7 @@ use rskit_errors::AppResult;
 use rskit_version::semver::Version;
 use toven_model::{Module, ModuleKey, RepoPath};
 use toven_ports::HookRunner;
+use toven_ports::Reporter;
 
 use super::apply::{
     MemberReleaseShard, guard_member_trees, repo_for, restore_prepared_failure, shard_plan,
@@ -35,6 +36,7 @@ use toven_core::federation::member_repo::MemberReleaseRepos;
 /// Returns a typed error when a member repo port is missing, a clean-tree or
 /// branch guardrail trips, or member mutation/changelog-roll/staging fails.
 #[allow(clippy::redundant_pub_crate)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn release_bump_by_member(
     plan: &ReleasePlan,
     modules: &[Module],
@@ -42,6 +44,7 @@ pub(crate) fn release_bump_by_member(
     repos: &MemberReleaseRepos<'_>,
     date: &str,
     resolved_runner: &dyn HookRunner,
+    reporter: &mut dyn Reporter,
     options: crate::BumpOptions,
 ) -> AppResult<crate::BumpReport> {
     use crate::BumpReport;
@@ -124,6 +127,11 @@ pub(crate) fn release_bump_by_member(
     // nothing (a tag-only ecosystem with no rolled changelog) has nothing to
     // stage, so `report.staged` reflects whether any member's mutation was
     // actually staged rather than the requested disposition.
+    //
+    // The per-module staged event is emitted only *after* that member's
+    // `stage_only` side effect has actually landed, never from inside the
+    // undoable Phase 1: a mid-transaction failure returns above before this loop
+    // is reached, so no restored module ever surfaces a rolled-back "staged".
     for (shard, changed) in &prepared {
         if changed.is_empty() {
             continue;
@@ -131,8 +139,42 @@ pub(crate) fn release_bump_by_member(
         let repo = repo_for(repos, shard.member.as_ref())?;
         apply::stage_only(repo.writer(), changed)?;
         report.staged = true;
+        emit_member_staged(reporter, shard, &report.modules)?;
     }
     Ok(report)
+}
+
+/// Emit one `ModuleReleaseStaged` event per genuinely-staged module of a member
+/// whose Phase-2 stage has just landed.
+///
+/// Draws from `outcomes` — the report's per-module bump outcomes, one per module
+/// the shard staged, own-version or dependency-floor-only — filtered to this
+/// member's shard. A dependency-floor-only module still rewrote and staged its
+/// manifest, so it emits a staged event carrying no `new_version`; `bump`
+/// creates no tag, so the event carries none. Its committed facts are the (own
+/// or absent) new version, the rewritten manifests, and any rolled changelog.
+fn emit_member_staged(
+    reporter: &mut dyn Reporter,
+    shard: &MemberReleaseShard,
+    outcomes: &[crate::BumpModuleOutcome],
+) -> AppResult<()> {
+    for entry in &shard.plan.entries {
+        let Some(outcome) = outcomes
+            .iter()
+            .find(|outcome| outcome.module == entry.module)
+        else {
+            continue;
+        };
+        let changelog = entry.changelog_roll.then(|| entry.changelog_path.clone());
+        reporter.emit(&crate::stream::staged_event(
+            &outcome.module,
+            outcome.new_version.as_ref(),
+            outcome.manifests.clone(),
+            changelog,
+            None,
+        ))?;
+    }
+    Ok(())
 }
 
 /// One member's prepared `bump` mutation: the full staged path set, the
@@ -191,8 +233,7 @@ fn bump_module_outcomes(
 ) -> Vec<crate::BumpModuleOutcome> {
     plan.entries
         .iter()
-        .filter_map(|entry| {
-            let new_version = entry.planned_version.clone()?;
+        .map(|entry| {
             let manifests = mutated_manifests
                 .iter()
                 .find(|(module, _)| *module == entry.module)
@@ -203,12 +244,12 @@ fn bump_module_outcomes(
                         .collect()
                 })
                 .unwrap_or_default();
-            Some(crate::BumpModuleOutcome {
+            crate::BumpModuleOutcome {
                 module: entry.module.clone(),
                 old_version: entry.current_version.clone(),
-                new_version,
+                new_version: entry.planned_version.clone(),
                 manifests,
-            })
+            }
         })
         .collect()
 }

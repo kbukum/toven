@@ -13,15 +13,19 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::{AppError, AppResult};
-use toven_model::{DepKind, Graph, MemberId, Module, ModuleKey};
+#[cfg(test)]
+use toven_model::{DepKind, Graph, MemberId};
+use toven_model::{Module, ModuleKey};
 use toven_ports::{PublicationPolicy, ReleaseAdapter, ReleaseMutation, TagSigner};
-use toven_version::{
-    BumpConfig, BumpEntry, BumpPlan, ModuleVersionConfig, VersionInputs, plan_bumps,
-};
+#[cfg(test)]
+use toven_version::{BumpConfig, BumpPlan, plan_bumps};
+use toven_version::{BumpEntry, ModuleVersionConfig, VersionInputs};
 
+#[cfg(test)]
+use crate::BumpPolicy;
 use crate::model::tag;
 use crate::{
-    BumpOverrides, BumpPolicy, ChangelogEntry, PushPolicy, ReleaseBaseline, ReleaseEntry,
+    BumpOverrides, ChangelogEntry, PushPolicy, ReleaseBaseline, ReleaseEntry,
     ResolvedReleaseSettings,
 };
 
@@ -32,6 +36,7 @@ pub(crate) use toven_version::CutIntent;
 /// Inputs required to build release entries.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) struct BumpInputs<'a> {
+    #[cfg(test)]
     pub(crate) graph: &'a Graph,
     pub(crate) modules: &'a [Module],
     pub(crate) changed: &'a BTreeSet<ModuleKey>,
@@ -41,11 +46,14 @@ pub(crate) struct BumpInputs<'a> {
     pub(crate) targets: &'a crate::ReleaseTargets,
     /// Checked-out branch per federation member (absent on detached HEAD),
     /// consulted only to resolve a configured branch→prerelease-channel mapping.
+    #[cfg(test)]
     pub(crate) branches: &'a BTreeMap<Option<MemberId>, String>,
+    #[cfg(test)]
     pub(crate) policy: BumpPolicy,
     pub(crate) overrides: &'a BumpOverrides,
     /// Whether this cut is a read-only projection, a `bump`, or a
     /// verify-and-publish run — see [`CutIntent`].
+    #[cfg(test)]
     pub(crate) intent: CutIntent,
 }
 
@@ -61,8 +69,10 @@ pub(crate) struct BumpInputs<'a> {
 /// # Errors
 /// Propagates a missing release target for a module in the release closure, a
 /// declared-version read failure, an invalid override combination, a graph
-/// failure, or a tag-scheme failure surfaced while formatting a planned tag.
+/// failure, a tag-scheme failure surfaced while formatting a planned tag, or a
+/// reporter sink failure.
 #[allow(clippy::redundant_pub_crate)]
+#[cfg(test)]
 pub(crate) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry>> {
     let module_by_ref = input
         .modules
@@ -96,6 +106,11 @@ pub(crate) fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry
 /// registry lookups for out-of-closure modules). A closure module with no
 /// release target surfaces the typed missing-target error rather than being
 /// silently dropped before the decision derives its changed seeds.
+///
+/// A closure module that the change-detection phase did not already announce
+/// (a dependent that was not itself examined there) streams its examining
+/// signal here, before its `published_versions` registry lookup.
+#[cfg(test)]
 fn gather_inputs(
     input: &BumpInputs<'_>,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
@@ -106,37 +121,44 @@ fn gather_inputs(
     let mut inputs = Vec::with_capacity(closure.len());
     for key in &closure {
         let module = lookup(module_by_ref, key)?;
-        let target = target_for(input.targets, module).ok_or_else(|| missing_target(module))?;
-        let settings = input.settings.get(key);
-        let current_version = target.declared_version(module)?;
-        let offline =
-            input.overrides.offline() || settings.is_some_and(|resolved| resolved.offline);
-        // Honor the offline contract: never reach the registry for a module the
-        // run marked offline — its idempotency anchors on the release tag alone.
-        let published_versions = if offline {
-            Vec::new()
-        } else {
-            target.published_versions(module).unwrap_or_default()
-        };
-        let baseline = input
-            .baselines
-            .get(key)
-            .cloned()
-            .unwrap_or_else(|| ReleaseBaseline::initial(key.clone()));
-        inputs.push(VersionInputs {
-            module: key.clone(),
-            current_version,
-            published_versions,
-            baseline,
-            changed: input.changed.contains(key),
-            breaking: input
-                .changelogs
-                .get(key)
-                .is_some_and(|entry| entry.breaking),
-            config: module_config(settings),
-        });
+        inputs.push(gather_input(input, module)?);
     }
     Ok(inputs)
+}
+
+/// Gather one module's pure decision input immediately before it is decided.
+///
+/// # Errors
+/// Propagates a missing release target or declared-version read failure.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn gather_input(input: &BumpInputs<'_>, module: &Module) -> AppResult<VersionInputs> {
+    let key = module.key();
+    let target = target_for(input.targets, module).ok_or_else(|| missing_target(module))?;
+    let settings = input.settings.get(&key);
+    let current_version = target.declared_version(module)?;
+    let offline = input.overrides.offline() || settings.is_some_and(|resolved| resolved.offline);
+    let published_versions = if offline {
+        Vec::new()
+    } else {
+        target.published_versions(module).unwrap_or_default()
+    };
+    let baseline = input
+        .baselines
+        .get(&key)
+        .cloned()
+        .unwrap_or_else(|| ReleaseBaseline::initial(key.clone()));
+    Ok(VersionInputs {
+        module: key.clone(),
+        current_version,
+        published_versions,
+        baseline,
+        changed: input.changed.contains(&key),
+        breaking: input
+            .changelogs
+            .get(&key)
+            .is_some_and(|entry| entry.breaking),
+        config: module_config(settings),
+    })
 }
 
 /// Project the decision-relevant slice of a module's resolved release config,
@@ -173,6 +195,7 @@ fn module_config(settings: Option<&ResolvedReleaseSettings>) -> ModuleVersionCon
 /// # Errors
 /// Propagates a missing release target for a planned module or a tag-scheme
 /// failure surfaced while formatting a planned tag.
+#[cfg(test)]
 fn assemble_entries(
     input: &BumpInputs<'_>,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
@@ -192,7 +215,7 @@ fn assemble_entries(
 /// # Errors
 /// Propagates a missing release target for the planned module or a tag-scheme
 /// failure surfaced while formatting its planned tag.
-fn assemble_entry(
+pub(crate) fn assemble_entry(
     input: &BumpInputs<'_>,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
     bump: &BumpEntry,
@@ -313,12 +336,16 @@ mod tests {
     use toven_ports::{BumpLevel, DependentVersion, Oid, ReleaseAdapter, ReleaseConfig};
     use toven_testkit::FakeReleaseTarget;
 
-    use super::{BTreeMap, BTreeSet, BumpInputs, CutIntent, plan_entries};
+    use super::{BTreeMap, BTreeSet, BumpInputs, CutIntent};
     use crate::ReleaseTargets;
     use crate::{
         BumpOverrides, BumpPolicy, BumpReason, BumpSource, ChangelogEntry, ReleaseBaseline,
         ReleaseEntry, ResolvedReleaseSettings,
     };
+
+    fn plan_entries(input: &BumpInputs<'_>) -> AppResult<Vec<ReleaseEntry>> {
+        super::plan_entries(input)
+    }
 
     /// The empty per-member branch map: tests that do not exercise
     /// branch→channel mapping resolve no branch-derived prerelease channel.

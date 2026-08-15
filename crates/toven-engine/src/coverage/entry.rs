@@ -19,6 +19,7 @@ use super::aggregate::{CoverageInputs, aggregate};
 use super::read::{COVERAGE_DIR, read_profiles};
 use super::report::CoverageReport;
 use super::settings::{CoverageOverrides, ResolvedCoverageSettings};
+use super::stream::emit_verdicts;
 use toven_core::config::Document;
 use toven_core::federation::baseline::MemberVcsReaders;
 use toven_core::federation::resolve::PathDriverLocator;
@@ -92,13 +93,20 @@ pub fn coverage_report(
     let changed = changed_files(request, readers)?;
     let profiles = read_profiles(&request.project_root.as_path().join(COVERAGE_DIR))?;
 
-    Ok(aggregate(&CoverageInputs {
+    let report = aggregate(&CoverageInputs {
         project_root: request.project_root.as_path(),
         modules: &scope,
         profiles: &profiles,
         settings: &settings,
         changed: changed.as_ref(),
-    }))
+    });
+
+    // Emit each module's settled verdict as the aggregation completes, so the
+    // CLI's live reporter reports coverage per module rather than one terminal
+    // table. The exit stays derived from the returned report's summary.
+    emit_verdicts(reporter, &report)?;
+
+    Ok(report)
 }
 
 /// The changed-file set (workspace-relative) under a changed selection; `None`

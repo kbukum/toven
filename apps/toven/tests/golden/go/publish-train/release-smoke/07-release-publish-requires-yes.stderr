@@ -1,1 +1,7 @@
+Release plan
+  checking go:core…
+  release go:core: no change (0.1.0)
+  checking go:train…
+  release go:train: 0.1.0 → 0.2.0 (minor)
+    Finished release: 1 to release
 error[INVALID_INPUT]: invalid release.confirmation: real releases require explicit confirmation; pass --yes to proceed

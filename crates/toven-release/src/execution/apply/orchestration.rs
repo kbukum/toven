@@ -77,10 +77,11 @@ pub fn release_apply(
 
     // Pre-commit phase (undoable): apply mutations, capture exactly the paths
     // they rewrote, then package every module that will be published.
-    let (changed_paths, artifacts) = match prepare(plan, &module_by_ref, targets, &mut stats) {
-        Ok(prepared) => prepared,
-        Err(error) => return Err(restore_or_precommit_error(writer, "prepare", error)),
-    };
+    let (changed_paths, artifacts, _mutated) =
+        match prepare(plan, &module_by_ref, targets, &mut stats) {
+            Ok(prepared) => prepared,
+            Err(error) => return Err(restore_or_precommit_error(writer, "prepare", error)),
+        };
 
     // Commit boundary. A release that rewrote manifests stages exactly those
     // paths and creates the release commit. A mutation-free release — a Go

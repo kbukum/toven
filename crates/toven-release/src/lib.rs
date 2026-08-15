@@ -19,6 +19,7 @@ mod execution;
 mod hosting;
 mod model;
 mod planning;
+mod stream;
 mod versioning;
 
 pub use artifacts::{

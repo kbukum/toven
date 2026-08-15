@@ -34,11 +34,15 @@ pub(crate) fn prepare(
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
     targets: &crate::ReleaseTargets,
     stats: &mut ReleaseStats,
-) -> AppResult<(Vec<RepoPath>, BTreeMap<ModuleKey, Artifact>)> {
+) -> AppResult<(
+    Vec<RepoPath>,
+    BTreeMap<ModuleKey, Artifact>,
+    crate::execution::mutate::MutatedManifests,
+)> {
     let mutated = crate::execution::mutate::mutate_manifests(plan, module_by_ref, targets, stats)?;
     let changed_paths = crate::execution::mutate::staged_paths(&mutated);
     let artifacts = package_publishable(plan, module_by_ref, targets, stats)?;
-    Ok((changed_paths, artifacts))
+    Ok((changed_paths, artifacts, mutated))
 }
 
 /// Stage exactly the release-mutated paths and create the release commit.

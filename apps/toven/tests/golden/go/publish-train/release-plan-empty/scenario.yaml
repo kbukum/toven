@@ -1,6 +1,8 @@
 # An up-to-date train has nothing to release: the human `release plan` prints an
-# explicit "nothing to release" line on stdout rather than an empty table or a
-# blank stream. (The go train is pre-tagged at v0.1.0 with no later changes.)
+# explicit "nothing to release" line on stderr (the primary human release
+# surface) rather than a silent stream, since an empty plan emits no per-module
+# decision events. stdout stays reserved for the `--output jsonl` stream (empty
+# here). (The go train is pre-tagged at v0.1.0 with no later changes.)
 repo: go/publish-train
 requires: [go]
 git:
@@ -11,3 +13,4 @@ steps:
   - id: 01-release-plan-empty
     argv: [release, plan]
     stdout: { match: normalized }
+    stderr: { match: normalized }

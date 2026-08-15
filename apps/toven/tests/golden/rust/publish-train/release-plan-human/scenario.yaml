@@ -1,7 +1,9 @@
-# The human (default, no `--output`) `release plan` renders a table of the
-# planned module bumps on stdout — the primary human release surface.
+# The human (default, no `--output`) `release plan` streams one decision line
+# per planned module bump on stderr — the primary human release surface — while
+# stdout stays reserved for the `--output jsonl` machine stream (empty here).
 repo: rust/publish-train
 steps:
   - id: 01-release-plan-human
     argv: [release, plan]
     stdout: { match: normalized }
+    stderr: { match: normalized }

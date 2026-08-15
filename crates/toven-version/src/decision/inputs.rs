@@ -65,6 +65,20 @@ impl CutIntent {
         matches!(self, Self::Verify)
     }
 
+    /// Whether this intent will go on to **create** a tag (commit + tag + push),
+    /// so tag-*creation* invariants apply.
+    ///
+    /// `release plan` (`Preview`) previews a tag-creating run and must surface a
+    /// tag-cut refusal at plan time; `release tag`/`publish` (`Verify`) actually
+    /// create tags — both `true`. `release bump` (`Bump`) only stages
+    /// manifest/changelog edits for a PR and creates no commit, tag, or push, so
+    /// a tag-creation invariant does not apply to it — `false`. This is distinct
+    /// from tag *reading* (baseline anchoring), which stays for every intent.
+    #[must_use]
+    pub const fn plans_tag_creation(self) -> bool {
+        matches!(self, Self::Preview | Self::Verify)
+    }
+
     /// Whether a maintainer-owned module **echoes** its already-declared version
     /// (the verify-and-publish path) instead of computing a bump.
     ///
@@ -145,4 +159,16 @@ pub struct BumpConfig<'a> {
     /// Whether this cut is a read-only projection, a `bump`, or a
     /// verify-and-publish run.
     pub intent: CutIntent,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CutIntent;
+
+    #[test]
+    fn bump_never_plans_tag_creation() {
+        assert!(!CutIntent::Bump.plans_tag_creation());
+        assert!(CutIntent::Preview.plans_tag_creation());
+        assert!(CutIntent::Verify.plans_tag_creation());
+    }
 }
