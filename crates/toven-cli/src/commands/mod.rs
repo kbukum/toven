@@ -10,6 +10,7 @@
 //! command implementations.
 
 pub(crate) mod cache;
+pub(crate) mod commit_lint;
 pub(crate) mod completions;
 pub(crate) mod coverage;
 pub(crate) mod doctor;

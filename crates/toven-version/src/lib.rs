@@ -39,6 +39,10 @@ mod strategy;
 
 pub use baseline::{BaselineSource, ReleaseBaseline, resolve_baseline};
 pub use changelog::ChangelogEntry;
+pub use conventional::{
+    CONVENTIONAL_COMMIT_TYPES, CommitLintViolation, ConventionalHeader,
+    validate_conventional_subject,
+};
 pub use decision::{
     BumpConfig, BumpEntry, BumpPlan, CutIntent, ModuleVersionConfig, VersionInputs, plan_bumps,
 };

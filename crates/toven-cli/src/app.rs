@@ -178,6 +178,7 @@ fn with_hooks(
     commands::hook::run_with_lifecycle(&hooks, &runner, body)
 }
 
+#[allow(clippy::too_many_lines)] // a flat verb→handler dispatch table: one arm per reserved verb
 fn dispatch(
     providers: &[&dyn Provider],
     supervisor: &Arc<ProcessSupervisor>,
@@ -276,6 +277,9 @@ fn dispatch(
                 let report = resolve_report(cli, &project);
                 commands::doctor::doctor(providers, &project, report, *ensure || cli.auto_install)
             })
+        }
+        Command::CommitLint { message } => {
+            commands::commit_lint::commit_lint(message.as_deref(), cli.output)
         }
         Command::Completions { shell } => Ok(commands::completions::completions(*shell)),
         Command::Cache { action } => {

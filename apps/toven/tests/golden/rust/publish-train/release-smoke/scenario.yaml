@@ -43,4 +43,8 @@ steps:
   - id: 07-release-publish-requires-yes
     argv: [release, publish]
     exit: 2
+    # A bare `release publish` (no --yes) previews the pending cut on stdout,
+    # then fails closed on the missing confirmation (stderr). This Rust twin
+    # carries no tags, so every module is planned in the previewed table.
+    stdout: { match: normalized }
     stderr: { match: normalized }

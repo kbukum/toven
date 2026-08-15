@@ -1,0 +1,8 @@
+
+Release plan (semver-cascade)
+┌───┬─────────────────┬─────────┬─────────┬──────────────────┬────────────┬──────────┬───────┬─────────────────┬─────────┬───────┬──────────────────────┬─────────┬──────────┐
+│ # │ Module          │ Current │ Planned │ Tag              │ Tag mode   │ Baseline │ Level │ Reason          │ Input   │ Flow  │ Publication          │ Publish │ Summary  │
+├───┼─────────────────┼─────────┼─────────┼──────────────────┼────────────┼──────────┼───────┼─────────────────┼─────────┼───────┼──────────────────────┼─────────┼──────────┤
+│ 1 │ rust:train-core │ 0.1.0   │ 0.1.0   │ core-v0.1.0      │ per-module │ own-tag  │ minor │ initial-release │ default │ toven │ registry (crates-io) │ yes     │ 1 commit │
+│ 2 │ rust:train-cli  │ 0.1.0   │ 0.1.0   │ train-cli/v0.1.0 │ per-module │ own-tag  │ minor │ initial-release │ default │ toven │ registry (crates-io) │ yes     │ 1 commit │
+└───┴─────────────────┴─────────┴─────────┴──────────────────┴────────────┴──────────┴───────┴─────────────────┴─────────┴───────┴──────────────────────┴─────────┴──────────┘
