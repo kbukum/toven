@@ -6,7 +6,117 @@
 //! [`CommitSummary`] carries, so the same classification drives a GitHub,
 //! GitLab, or bare-remote changelog identically.
 
+use std::fmt;
+
 use toven_ports::CommitSummary;
+
+/// The Conventional Commit types Toven's `commit-lint` accepts.
+///
+/// The Angular-convention set the project's PR-title check enforces, so a
+/// commit or PR title that lints clean here is exactly one the release changelog
+/// can classify without falling through to `Other`.
+pub const CONVENTIONAL_COMMIT_TYPES: [&str; 11] = [
+    "feat", "fix", "docs", "style", "refactor", "perf", "test", "build", "ci", "chore", "revert",
+];
+
+/// A commit subject that parses as a valid Conventional Commit header.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ConventionalHeader {
+    /// The commit type; always one of [`CONVENTIONAL_COMMIT_TYPES`].
+    pub kind: String,
+    /// The optional scope (`feat(scope): …`).
+    pub scope: Option<String>,
+    /// Whether the header marks a breaking change (a `!` before the colon).
+    pub breaking: bool,
+    /// The description after `: `, trimmed.
+    pub description: String,
+}
+
+/// Why a commit subject is not a valid Conventional Commit header.
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum CommitLintViolation {
+    /// The subject is empty or whitespace-only.
+    Empty,
+    /// No `type: ` prefix — the subject has no Conventional Commit structure.
+    MissingType,
+    /// A `word:` prefix whose type is not an accepted lowercase type.
+    UnknownType(String),
+    /// A recognized type not followed by `": "` (a colon then a space).
+    MissingSpaceAfterColon,
+    /// A valid `type: ` prefix with an empty description.
+    EmptyDescription,
+}
+
+impl fmt::Display for CommitLintViolation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty => write!(f, "commit subject is empty"),
+            Self::MissingType => write!(
+                f,
+                "missing Conventional Commit type: expected `<type>[(scope)][!]: <description>`"
+            ),
+            Self::UnknownType(kind) => write!(
+                f,
+                "unknown Conventional Commit type `{kind}`: expected one of {}",
+                CONVENTIONAL_COMMIT_TYPES.join(", ")
+            ),
+            Self::MissingSpaceAfterColon => {
+                write!(
+                    f,
+                    "missing space after the colon: expected `<type>: <description>`"
+                )
+            }
+            Self::EmptyDescription => write!(f, "empty description after the type"),
+        }
+    }
+}
+
+impl std::error::Error for CommitLintViolation {}
+
+/// Validate a commit **subject** (its first line) against the Conventional
+/// Commits `type(scope)!: description` grammar Toven enforces.
+///
+/// Pure and forge-agnostic: the strict counterpart of the changelog
+/// classification path, sharing its header tokenizer but returning a typed
+/// pass/fail so a CLI can lint a commit message or a PR title. On success it
+/// yields the parsed [`ConventionalHeader`]; otherwise the first
+/// [`CommitLintViolation`] that makes `subject` non-conforming.
+///
+/// # Errors
+/// Returns the [`CommitLintViolation`] describing why `subject` is not a valid
+/// Conventional Commit header.
+pub fn validate_conventional_subject(
+    subject: &str,
+) -> Result<ConventionalHeader, CommitLintViolation> {
+    let trimmed = subject.trim();
+    if trimmed.is_empty() {
+        return Err(CommitLintViolation::Empty);
+    }
+    let parts = split_header(trimmed);
+    let Some(kind) = parts.kind else {
+        return Err(CommitLintViolation::MissingType);
+    };
+    if !CONVENTIONAL_COMMIT_TYPES.contains(&kind.as_str()) {
+        return Err(CommitLintViolation::UnknownType(kind));
+    }
+    if parts.rest.is_empty() {
+        return Err(CommitLintViolation::EmptyDescription);
+    }
+    if !parts.rest.starts_with(' ') {
+        return Err(CommitLintViolation::MissingSpaceAfterColon);
+    }
+    let description = parts.rest.trim().to_string();
+    if description.is_empty() {
+        return Err(CommitLintViolation::EmptyDescription);
+    }
+    Ok(ConventionalHeader {
+        kind,
+        scope: parts.scope,
+        breaking: parts.breaking,
+        description,
+    })
+}
 
 /// A changelog section, ordered by prominence.
 ///
@@ -86,8 +196,9 @@ pub(crate) struct ClassifiedCommit {
 /// author attribution.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn classify(commit: &CommitSummary) -> ClassifiedCommit {
-    let (kind, scope, breaking_marker, description) = parse_header(&commit.subject);
-    let breaking = breaking_marker || body_flags_breaking(&commit.body);
+    let parts = split_header(&commit.subject);
+    let breaking = parts.breaking || body_flags_breaking(&commit.body);
+    let kind = parts.kind.as_deref().map(str::to_ascii_lowercase);
     let group = if breaking {
         ChangeGroup::Breaking
     } else {
@@ -95,8 +206,8 @@ pub(crate) fn classify(commit: &CommitSummary) -> ClassifiedCommit {
     };
     ClassifiedCommit {
         group,
-        scope,
-        description,
+        scope: parts.scope,
+        description: parts.rest.trim().to_string(),
         author: attribution(commit),
         id: commit.id.clone(),
     }
@@ -113,16 +224,37 @@ fn group_for_kind(kind: Option<&str>) -> ChangeGroup {
     }
 }
 
-/// Split a `type(scope)!: description` header into its parts. A header with no
-/// `type:` prefix yields `(None, None, false, <whole subject>)` so it still
-/// renders as an `Other` entry.
-fn parse_header(subject: &str) -> (Option<String>, Option<String>, bool, String) {
-    let Some((prefix, description)) = subject.split_once(':') else {
-        return (None, None, false, subject.trim().to_string());
+/// The raw, case-preserving parts of a `type(scope)!: description` header.
+struct HeaderParts {
+    /// The commit type exactly as written, or `None` when the subject has no
+    /// `type:` prefix (no colon, or a prefix that cannot be a type).
+    kind: Option<String>,
+    /// The optional scope (`feat(scope): …`).
+    scope: Option<String>,
+    /// Whether a `!` precedes the colon.
+    breaking: bool,
+    /// The remainder after the first `:`, **untrimmed** (so a validator can
+    /// require a leading space), or the whole subject when `kind` is `None`.
+    rest: String,
+}
+
+/// Split a `type(scope)!: description` header into its raw parts, preserving the
+/// type's case. A header with no `type:` prefix (no colon, or a prefix that is
+/// not a bare word) yields `kind = None` with the whole subject as `rest`, so it
+/// still renders as an `Other` changelog entry and lints as [`MissingType`].
+///
+/// [`MissingType`]: CommitLintViolation::MissingType
+fn split_header(subject: &str) -> HeaderParts {
+    let verbatim = || HeaderParts {
+        kind: None,
+        scope: None,
+        breaking: false,
+        rest: subject.to_string(),
+    };
+    let Some((prefix, rest)) = subject.split_once(':') else {
+        return verbatim();
     };
     let prefix = prefix.trim();
-    let description = description.trim().to_string();
-
     let (type_and_scope, breaking) = prefix
         .strip_suffix('!')
         .map_or((prefix, false), |stripped| (stripped.trim_end(), true));
@@ -137,17 +269,17 @@ fn parse_header(subject: &str) -> (Option<String>, Option<String>, bool, String)
     };
 
     // A "type" with whitespace is not a Conventional Commit type (e.g. a prose
-    // subject that merely contains a colon); treat the whole subject as Other.
+    // subject that merely contains a colon); treat the whole subject as verbatim.
     if kind.is_empty() || kind.contains(char::is_whitespace) {
-        return (None, None, false, subject.trim().to_string());
+        return verbatim();
     }
 
-    (
-        Some(kind.to_ascii_lowercase()),
+    HeaderParts {
+        kind: Some(kind.to_string()),
         scope,
         breaking,
-        description,
-    )
+        rest: rest.to_string(),
+    }
 }
 
 /// Whether a commit body carries a `BREAKING CHANGE:` / `BREAKING-CHANGE:`
@@ -225,7 +357,10 @@ fn strip_prefix_ci<'a>(line: &'a str, prefix: &str) -> Option<&'a str> {
 mod tests {
     use toven_ports::CommitSummary;
 
-    use super::{ChangeGroup, classify};
+    use super::{
+        ChangeGroup, CommitLintViolation, ConventionalHeader, classify,
+        validate_conventional_subject,
+    };
 
     fn commit(subject: &str) -> CommitSummary {
         CommitSummary::new("abc123def456", subject)
@@ -319,5 +454,103 @@ mod tests {
         .with_author("Ada", "ada@example.com");
         // The primary author is non-GitHub, so the co-author handle attributes it.
         assert_eq!(classify(&commit).author, "@copilot");
+    }
+
+    #[test]
+    fn valid_header_with_scope_and_bang_parses() {
+        let header = validate_conventional_subject("feat(cli)!: add commit-lint verb")
+            .expect("a well-formed header validates");
+        assert_eq!(
+            header,
+            ConventionalHeader {
+                kind: "feat".to_string(),
+                scope: Some("cli".to_string()),
+                breaking: true,
+                description: "add commit-lint verb".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn every_accepted_type_validates() {
+        for kind in super::CONVENTIONAL_COMMIT_TYPES {
+            let subject = format!("{kind}: a change");
+            assert!(
+                validate_conventional_subject(&subject).is_ok(),
+                "`{subject}` should lint clean"
+            );
+        }
+    }
+
+    #[test]
+    fn blank_subject_is_empty() {
+        assert_eq!(
+            validate_conventional_subject("   "),
+            Err(CommitLintViolation::Empty)
+        );
+    }
+
+    #[test]
+    fn subject_without_colon_is_missing_type() {
+        assert_eq!(
+            validate_conventional_subject("add a thing"),
+            Err(CommitLintViolation::MissingType)
+        );
+    }
+
+    #[test]
+    fn prose_subject_with_colon_is_missing_type() {
+        assert_eq!(
+            validate_conventional_subject("just a plain message: with colon"),
+            Err(CommitLintViolation::MissingType)
+        );
+    }
+
+    #[test]
+    fn unrecognized_type_is_unknown_type() {
+        assert_eq!(
+            validate_conventional_subject("wip: half done"),
+            Err(CommitLintViolation::UnknownType("wip".to_string()))
+        );
+    }
+
+    #[test]
+    fn uppercase_type_is_rejected() {
+        // The accepted set is lowercase, matching the retired PR-title regex, so a
+        // capitalized type is an unknown type rather than a silent pass.
+        assert_eq!(
+            validate_conventional_subject("Feat: add a thing"),
+            Err(CommitLintViolation::UnknownType("Feat".to_string()))
+        );
+    }
+
+    #[test]
+    fn missing_space_after_colon_is_rejected() {
+        assert_eq!(
+            validate_conventional_subject("feat:add a thing"),
+            Err(CommitLintViolation::MissingSpaceAfterColon)
+        );
+    }
+
+    #[test]
+    fn empty_description_is_rejected() {
+        // A bare `type:` (whitespace-only description collapses under trimming).
+        assert_eq!(
+            validate_conventional_subject("fix:"),
+            Err(CommitLintViolation::EmptyDescription)
+        );
+        assert_eq!(
+            validate_conventional_subject("fix:   "),
+            Err(CommitLintViolation::EmptyDescription)
+        );
+    }
+
+    #[test]
+    fn violation_messages_are_actionable() {
+        assert!(
+            CommitLintViolation::UnknownType("wip".to_string())
+                .to_string()
+                .contains("feat")
+        );
     }
 }

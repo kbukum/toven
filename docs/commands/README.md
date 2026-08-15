@@ -19,6 +19,7 @@ Toven accepts **reserved commands** and repository-defined **task names**. Run `
 | Inspect or clear task-cache records | [`cache`](cache.md) |
 | Measure and gate coverage | [`coverage`](coverage.md) |
 | Audit required tools | [`doctor`](doctor.md) |
+| Lint a commit message or PR title | [`commit-lint`](commit-lint.md) |
 | Plan or execute a release | [`release`](release.md) |
 | Provision ecosystem drivers | [`driver`](driver.md) |
 | Provision drivers across composed repos | [`federation`](federation.md) |

@@ -51,4 +51,8 @@ steps:
   - id: 07-release-publish-requires-yes
     argv: [release, publish]
     exit: 2
+    # A bare `release publish` (no --yes) previews the pending cut on stdout,
+    # then fails closed on the missing confirmation (stderr). The train is
+    # pre-tagged and up to date, so the previewed plan is empty.
+    stdout: { match: normalized }
     stderr: { match: normalized }

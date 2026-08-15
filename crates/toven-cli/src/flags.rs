@@ -96,6 +96,13 @@ Examples:
   toven doctor --output jsonl   Emit the audit as a machine-parseable stream
   toven doctor --ensure      Exit with a typed error if any required tool is missing (never installs)";
 
+/// `commit-lint` verb examples.
+const COMMIT_LINT_EXAMPLES: &str = "\
+Examples:
+  toven commit-lint \"feat(cli): add commit-lint verb\"   Lint a subject given as an argument
+  git log -1 --pretty=%B | toven commit-lint             Lint HEAD's message from stdin
+  toven commit-lint --output jsonl \"fix: bug\"            Emit the verdict as a JSON line";
+
 /// `init` verb examples.
 const INIT_EXAMPLES: &str = "\
 Examples:
@@ -135,7 +142,8 @@ Examples:
 const RELEASE_BUMP_EXAMPLES: &str = "\
 Examples:
   toven release bump --yes         Stage the version + changelog change for a pull request (no commit/tag/push)
-  toven release bump --dry-run     Preview the version + changelog mutation without writing";
+  toven release bump --dry-run     Preview the version + changelog mutation without writing
+  toven release bump               Show the pending cut, then fail closed asking for --yes";
 
 /// `release publish` action examples.
 const RELEASE_PUBLISH_EXAMPLES: &str = "\
@@ -734,6 +742,14 @@ pub enum Command {
         /// global `--auto-install` flag is accepted as an equivalent.
         #[arg(long)]
         ensure: bool,
+    },
+    /// Lint a commit message (or PR title) against the Conventional Commits
+    /// `type(scope)!: description` grammar Toven's changelog relies on.
+    #[command(name = "commit-lint", after_long_help = COMMIT_LINT_EXAMPLES)]
+    CommitLint {
+        /// The commit subject to lint. Omit to read the full message from stdin
+        /// and lint its first line.
+        message: Option<String>,
     },
     /// Print a shell completion script
     /// (`bash`/`zsh`/`fish`/`powershell`/`elvish`).
@@ -1478,6 +1494,7 @@ const fn accepts_output_format(command: &Command) -> bool {
             | Command::Coverage
             | Command::Tasks { .. }
             | Command::Doctor { .. }
+            | Command::CommitLint { .. }
             | Command::Modules
     )
 }
@@ -1566,6 +1583,7 @@ fn verb_name(command: &Command) -> String {
         Command::Graph => "graph".to_string(),
         Command::Tasks { .. } => "tasks".to_string(),
         Command::Doctor { .. } => "doctor".to_string(),
+        Command::CommitLint { .. } => "commit-lint".to_string(),
         Command::Completions { .. } => "completions".to_string(),
         Command::Driver { .. } => "driver".to_string(),
         Command::Federation { .. } => "federation".to_string(),

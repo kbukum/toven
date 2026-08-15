@@ -71,6 +71,18 @@ jobs:
       - name: Preview release plan, readiness, SBOM, and dependency graphs
         run: make release-plan
 
+      # `make release-plan` runs `toven release sbom`, so the CycloneDX SBOM is
+      # produced by Toven's own engine verb — the single source of SBOM truth,
+      # the same artifact `release.yml` ships — reusing the binary this job
+      # already built instead of a second job or a divergent SBOM toolchain.
+      - name: Upload the release SBOM
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: toven-sbom
+          path: target/toven/release/sbom/*.cdx.json
+          if-no-files-found: error
+          retention-days: 7
+
   release-archive:
     name: Release archive
     runs-on: ubuntu-latest
@@ -99,27 +111,6 @@ jobs:
           path: dist/*
           if-no-files-found: error
           retention-days: 7
-
-  sbom:
-    name: SBOM
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          submodules: recursive
-
-      - name: Generate CycloneDX SBOM
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        with:
-          format: cyclonedx-json
-          artifact-name: toven-sbom.cdx.json
-          output-file: toven-sbom.cdx.json
-          upload-artifact: true
-          upload-release-assets: false
 
   signing-readiness:
     name: Signing readiness

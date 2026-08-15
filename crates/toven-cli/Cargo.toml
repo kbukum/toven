@@ -15,6 +15,7 @@ toven-ports.workspace = true
 toven-core.workspace = true
 toven-engine.workspace = true
 toven-release.workspace = true
+toven-version.workspace = true
 toven-exec.workspace = true
 rskit-errors.workspace = true
 rskit-version.workspace = true

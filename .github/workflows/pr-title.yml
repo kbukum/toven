@@ -3,6 +3,13 @@ name: PR title
 # Enforce Conventional Commits on the pull-request title. Toven squash-merges, so
 # the PR title becomes the commit subject on `main`; gating it here keeps a
 # non-Conventional subject (e.g. "add claude skiils") from ever landing.
+#
+# This regex is the bootstrap for `toven commit-lint`, which validates the same
+# grammar through Toven's own `toven-version` parser (the one the changelog uses).
+# Once a release ships that verb, replace the inline regex below with:
+#   printf '%s' "$PR_TITLE" | toven commit-lint
+# using the pinned `.github/actions/toven` install-and-run action, so the linter
+# and the changelog can never drift.
 
 on:
   pull_request:

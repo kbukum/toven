@@ -62,6 +62,7 @@ mod tests {
             let script = script_for(shell);
             for token in [
                 "coverage",
+                "commit-lint",
                 "release",
                 "readiness",
                 "sbom",

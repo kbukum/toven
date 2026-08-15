@@ -23,6 +23,7 @@
   - [Manage cache](commands/cache.md)
   - [Measure coverage](commands/coverage.md)
   - [Audit required tools](commands/doctor.md)
+  - [Lint a commit message](commands/commit-lint.md)
   - [Release modules](commands/release.md)
   - [Manage drivers](commands/driver.md)
   - [Manage federation](commands/federation.md)

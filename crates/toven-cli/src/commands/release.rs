@@ -134,6 +134,19 @@ fn plan(
     project: &Project,
     output: Option<OutputKind>,
 ) -> AppResult<ExitCode> {
+    render_release_plan(providers, project, output, &BumpOverrides::new())?;
+    Ok(ExitCode::Success)
+}
+
+/// Render the release PLAN projection (the `release plan` table / JSONL) for the
+/// given per-run overrides, mutating nothing. Shared by `release plan` and by
+/// the pre-confirmation preview of the mutating version-cut actions.
+fn render_release_plan(
+    providers: &[&dyn Provider],
+    project: &Project,
+    output: Option<OutputKind>,
+    overrides: &BumpOverrides,
+) -> AppResult<()> {
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
@@ -143,14 +156,14 @@ fn plan(
         &project.document,
         providers,
         &readers,
-        &BumpOverrides::new(),
+        overrides,
         &mut reporter,
     )?;
     match resolve_output(output, &project.document) {
         OutputKind::Jsonl => render_plan_jsonl(&plan)?,
         OutputKind::Human => render_plan_human(&plan),
     }
-    Ok(ExitCode::Success)
+    Ok(())
 }
 
 /// `release status`: render each module's declared/published/tagged state.
@@ -464,7 +477,9 @@ fn rehearse(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRes
 }
 
 /// `release tag/publish`: drive the mutating release pipeline. `tag` stops
-/// after commit/tag/push; `publish` continues to the registry.
+/// after commit/tag/push; `publish` continues to the registry. A bare
+/// invocation (no `--yes`) previews the pending cut via [`confirm_or_preview`],
+/// then fails closed on the missing confirmation.
 fn run(
     providers: &[&dyn Provider],
     supervisor: &Arc<ProcessSupervisor>,
@@ -472,7 +487,7 @@ fn run(
     cli: &Cli,
     action: ReleaseAction,
 ) -> AppResult<ExitCode> {
-    require_release_confirmation(cli.confirm_release)?;
+    confirm_or_preview(providers, project, cli)?;
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
@@ -524,11 +539,30 @@ fn require_release_confirmation(confirmed: bool) -> AppResult<()> {
     ))
 }
 
+/// Gate a mutating version-cut action (`bump` / `tag` / `publish`) on `--yes`,
+/// but first show what it *would* cut. On a confirmed run this returns
+/// immediately and the caller proceeds to mutate. On an unconfirmed run it
+/// renders the same projection as `release plan` (honoring the per-run overrides
+/// and `--output`) on stdout, then fails closed with the confirmation error on
+/// stderr — a CI-safe loud refusal that is still informative interactively. A
+/// PLAN-render failure is the real blocker and is surfaced instead of the
+/// confirmation error.
+fn confirm_or_preview(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<()> {
+    if cli.confirm_release {
+        return Ok(());
+    }
+    let overrides = build_overrides(cli)?;
+    render_release_plan(providers, project, cli.output, &overrides)?;
+    require_release_confirmation(cli.confirm_release)
+}
+
 /// `release bump`: run only the version + changelog mutation phase, then stage
 /// the mutation for a pull request. Never commits, tags, pushes, or publishes —
 /// the commit/tag/push is `release tag` / `release publish` after the staged
 /// change merges. `--dry-run` previews the mutation without writing, so it needs
-/// no `--yes` confirmation.
+/// no `--yes` confirmation; a bare invocation (no `--yes`, no `--dry-run`)
+/// previews the pending cut via [`confirm_or_preview`], then fails closed on the
+/// missing confirmation.
 ///
 /// The project-level `[hooks.bump]` (composed with the umbrella `[hooks.release]`)
 /// wrap a real bump: `pre` runs fail-closed before the mutation, `post` after it
@@ -541,7 +575,7 @@ fn bump(
     cli: &Cli,
 ) -> AppResult<ExitCode> {
     if !cli.dry_run {
-        require_release_confirmation(cli.confirm_release)?;
+        confirm_or_preview(providers, project, cli)?;
     }
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
