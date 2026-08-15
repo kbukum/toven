@@ -9,11 +9,23 @@ name: Action canary
 #
 # It is read-only and never publishes: least-privilege `contents: read`, all
 # actions SHA-pinned, and only discovery + dry-run/preview commands are run.
+#
+# It runs *after a release is published* and checks out that release's tag, so
+# the action code it runs (scripts/install.sh) and the release assets it
+# downloads are always the same version. A push-triggered canary would instead
+# verify HEAD's installer against an older pinned release and break whenever the
+# install/verify format changes — that skew is what this trigger removes.
+# `workflow_dispatch` takes an explicit published tag to exercise on demand.
 on:
-  push:
-    branches:
-      - main
+  release:
+    types:
+      - published
   workflow_dispatch:
+    inputs:
+      version:
+        description: Published Toven release tag to exercise (e.g. v0.1.0-alpha.6).
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -23,8 +35,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Pin the canary to an immutable published Toven release. Bump deliberately.
-  TOVEN_VERSION: v0.1.0-alpha.3
+  # The published release under test: the triggering release's tag, or the tag
+  # supplied on manual dispatch. Checking this tag out below keeps the action's
+  # install script and the release assets it downloads on the same version.
+  TOVEN_VERSION: ${{ github.event.release.tag_name || inputs.version }}
 
 jobs:
   action-canary:
@@ -34,6 +48,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Check out the published release's tag so the action code and
+          # scripts/install.sh match the assets the action downloads.
+          ref: ${{ env.TOVEN_VERSION }}
           # Full history feeds the release-preview change detection and semver
           # cascade the previews walk.
           fetch-depth: 0
