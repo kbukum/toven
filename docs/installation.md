@@ -53,7 +53,7 @@ Each hosted release provides one fixed-name archive per target — `toven-<targe
 | macOS Apple silicon | `aarch64-apple-darwin` |
 | Windows x86-64 | `x86_64-pc-windows-msvc` |
 
-Archive names never embed the version — it lives in the release tag. The hosted Release also contains `SHA256SUMS`, its keyless Sigstore signature and certificate (`SHA256SUMS.sig`, `SHA256SUMS.pem`), a CycloneDX SBOM, and a GitHub build provenance attestation.
+Archive names never embed the version — it lives in the release tag. The hosted Release also contains `SHA256SUMS`, its keyless Sigstore bundle (`SHA256SUMS.bundle`, carrying the signature, certificate, and verification material), a CycloneDX SBOM, and a GitHub build provenance attestation.
 
 ## Install from source
 
@@ -101,8 +101,7 @@ Linux can use `sha256sum --ignore-missing -c SHA256SUMS`. Windows can use `Get-F
 
 ```bash
 cosign verify-blob \
-  --certificate SHA256SUMS.pem \
-  --signature SHA256SUMS.sig \
+  --bundle SHA256SUMS.bundle \
   --certificate-identity-regexp 'https://github.com/kbukum/toven/.github/workflows/release.yml@.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   SHA256SUMS

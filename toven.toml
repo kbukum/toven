@@ -25,8 +25,8 @@ region = 70.0
 # instead of the per-crate `{ecosystem}/{module}@{version}` default.
 #
 # The hosted GitHub Release carries the per-target `toven` binary archives, a
-# combined `SHA256SUMS`, its keyless Sigstore/cosign signature and certificate,
-# and a CycloneDX SBOM. `host.assets` in this port is a fixed list of exact,
+# combined `SHA256SUMS`, its keyless Sigstore/cosign bundle, and a CycloneDX
+# SBOM. `host.assets` in this port is a fixed list of exact,
 # non-templated project-relative paths (no globbing, no version placeholder —
 # see crates/toven-ports/src/config/release/host.rs), so archive names never
 # embed the release version; the version lives in the release tag and title
@@ -50,11 +50,11 @@ strategy = "manifest"
 push_branch = false
 
 # Sign the release surface: `toven release sign` produces the keyless
-# Sigstore/cosign signature and certificate over `SHA256SUMS` (no `signer`
-# selects the keyless default), and `toven release verify --download` fails
-# closed unless the downloaded signature's certificate matches this keyless
-# identity regexp and OIDC issuer — the release workflow ref and GitHub's
-# Actions token issuer. Neither value is a secret.
+# Sigstore/cosign bundle over `SHA256SUMS` (no `signer` selects the keyless
+# default), and `toven release verify --download` fails closed unless the
+# downloaded bundle's certificate matches this keyless identity regexp and OIDC
+# issuer — the release workflow ref and GitHub's Actions token issuer. Neither
+# value is a secret.
 [ecosystems.rust.release.sign]
 enabled = true
 identity = "https://github.com/kbukum/toven/.github/workflows/release.yml@.*"
@@ -69,8 +69,7 @@ assets = [
   "dist/toven-aarch64-apple-darwin.tar.gz",
   "dist/toven-x86_64-pc-windows-msvc.zip",
   "dist/SHA256SUMS",
-  "dist/SHA256SUMS.sig",
-  "dist/SHA256SUMS.pem",
+  "dist/SHA256SUMS.bundle",
   "dist/toven-sbom.cdx.json",
 ]
 

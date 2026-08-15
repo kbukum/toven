@@ -7,9 +7,8 @@ use rskit_version::semver::Version;
 use toven_ports::{AssetDownloader, Provider, Reporter, SignatureVerifier, VersionProbe};
 
 use super::assets::{
-    CERTIFICATE_NAME, MANIFEST_NAME, SIGNATURE_NAME, archive_assets, asset_file_name, binary_stem,
-    build_tag, decide_version, digest_hex, extract_binary, parse_manifest, require_identity,
-    safe_join_asset,
+    BUNDLE_NAME, MANIFEST_NAME, archive_assets, asset_file_name, binary_stem, build_tag,
+    decide_version, digest_hex, extract_binary, parse_manifest, require_identity, safe_join_asset,
 };
 use crate::model::settings::ResolvedReleaseSettings;
 use crate::planning::plan::{release_targets, resolve_release_settings};
@@ -208,22 +207,21 @@ fn verify_download(
     let scratch = TempDir::new()?;
     let dest = scratch.path();
 
-    // Fetch the archives and the signed manifest + sidecars by their file names
+    // Fetch the archives and the signed manifest + bundle by their file names
     // (the hosted release stores them flat), matching the manifest's own naming.
     let archive_names: Vec<&str> = archives
         .iter()
         .map(|asset| asset_file_name(asset))
         .collect::<AppResult<Vec<_>>>()?;
     let mut wanted = archive_names.clone();
-    wanted.extend([MANIFEST_NAME, SIGNATURE_NAME, CERTIFICATE_NAME]);
+    wanted.extend([MANIFEST_NAME, BUNDLE_NAME]);
     downloader.download(&tag, &wanted, dest)?;
 
-    // 1. The checksums are only trustworthy once the keyless signature on the
-    //    manifest itself verifies against the configured workflow identity.
+    // 1. The checksums are only trustworthy once the keyless signature in the
+    //    manifest's bundle verifies against the configured workflow identity.
     verifier.verify_blob(
         &dest.join(MANIFEST_NAME),
-        &dest.join(SIGNATURE_NAME),
-        &dest.join(CERTIFICATE_NAME),
+        &dest.join(BUNDLE_NAME),
         identity,
         issuer,
     )?;

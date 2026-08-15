@@ -12,10 +12,9 @@ use toven_ports::{ToolInvocation, ToolRunner};
 
 use crate::model::settings::ResolvedReleaseSettings;
 
-/// The signed manifest and its Sigstore signature/certificate sidecars.
+/// The signed manifest and its Sigstore bundle sidecar.
 pub(super) const MANIFEST_NAME: &str = "SHA256SUMS";
-pub(super) const SIGNATURE_NAME: &str = "SHA256SUMS.sig";
-pub(super) const CERTIFICATE_NAME: &str = "SHA256SUMS.pem";
+pub(super) const BUNDLE_NAME: &str = "SHA256SUMS.bundle";
 
 /// The two archive extensions a declared asset can carry.
 const TAR_GZ_EXT: &str = ".tar.gz";

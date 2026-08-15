@@ -44,7 +44,7 @@ Planning, status, readiness, dependency graphs, and publication rehearsal do not
 | `depgraphs` | DOT dependency graphs under `--out-dir` | Local artifacts |
 | `package` | Archive an already-built binary into its declared per-target `host.assets` archive under `dist/` | Local artifacts |
 | `checksums` | Write `SHA256SUMS` over every declared archive and the SBOM | Local artifacts |
-| `sign` | Keyless Sigstore/cosign signature and certificate over `SHA256SUMS` | Local artifacts |
+| `sign` | Keyless Sigstore/cosign bundle over `SHA256SUMS` | Local artifacts |
 | `verify` | Presence/version-check local assets, or with `--download` verify the signature and every published archive's checksum | None |
 | `image` | Build the configured container image once, push it to the primary registry plus mirrors, and cosign-sign the pushed digest | Registries |
 | `provenance` | Verify SLSA provenance exists over exactly the published subjects: declared `SHA256SUMS` manifest entries and every pushed image digest (the CI trusted builder creates it) | None (read-only) |
@@ -184,7 +184,7 @@ These verbs scope to modules that declare assets. Registry libraries in a mixed 
 
 `package` archives an already-built binary for `--target` into the exact declared per-target archive path. It does not support globbing or version placeholders; `host.assets` is a set of fixed project-relative paths. Use `--binary <PATH>` to package an explicit binary path.
 
-`checksums` writes a SHA-256 `SHA256SUMS` covering every declared archive and the SBOM. `sign` creates the keyless Sigstore/cosign signature and certificate over `SHA256SUMS`. It runs only when `[ecosystems.<id>.release.sign] enabled = true` and matches the configured keyless `identity` and `issuer`.
+`checksums` writes a SHA-256 `SHA256SUMS` covering every declared archive and the SBOM. `sign` creates the keyless Sigstore/cosign bundle over `SHA256SUMS`. It runs only when `[ecosystems.<id>.release.sign] enabled = true` and matches the configured keyless `identity` and `issuer`.
 
 `verify` presence- and version-checks the local asset set. With `--download`, it fetches every published asset, verifies the Sigstore signature on `SHA256SUMS`, then checksum-verifies each archive before extraction. `--no-run` skips executing archived binaries, so one runner can verify a multi-target asset set.
 

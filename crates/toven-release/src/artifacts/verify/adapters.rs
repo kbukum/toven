@@ -65,17 +65,14 @@ impl SignatureVerifier for CosignVerifier {
     fn verify_blob(
         &self,
         blob: &Path,
-        signature: &Path,
-        certificate: &Path,
+        bundle: &Path,
         identity: &str,
         issuer: &str,
     ) -> AppResult<()> {
         let argv = vec![
             "verify-blob".to_string(),
-            "--certificate".to_string(),
-            path_arg(certificate)?,
-            "--signature".to_string(),
-            path_arg(signature)?,
+            "--bundle".to_string(),
+            path_arg(bundle)?,
             "--certificate-identity-regexp".to_string(),
             identity.to_string(),
             "--certificate-oidc-issuer".to_string(),

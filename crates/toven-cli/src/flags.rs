@@ -183,7 +183,7 @@ Examples:
 /// `release sign` action examples.
 const RELEASE_SIGN_EXAMPLES: &str = "\
 Examples:
-  toven release sign               Sign SHA256SUMS into its declared .sig/.pem sidecars (cosign)";
+  toven release sign               Sign SHA256SUMS into its declared .bundle sidecar (cosign)";
 
 /// `release verify` action examples.
 const RELEASE_VERIFY_EXAMPLES: &str = "\
@@ -840,8 +840,8 @@ pub enum ReleaseAction {
     #[allow(clippy::doc_markdown)]
     #[command(after_long_help = RELEASE_CHECKSUMS_EXAMPLES)]
     Checksums,
-    /// Sign the `SHA256SUMS` manifest into its declared detached-signature and
-    /// certificate sidecar assets with cosign; non-mutating.
+    /// Sign the `SHA256SUMS` manifest into its declared self-contained Sigstore
+    /// bundle asset with cosign; non-mutating.
     #[allow(clippy::doc_markdown)]
     #[command(after_long_help = RELEASE_SIGN_EXAMPLES)]
     Sign,

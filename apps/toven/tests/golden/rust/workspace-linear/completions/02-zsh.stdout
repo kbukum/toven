@@ -3360,7 +3360,7 @@ _toven__subcmd__help__subcmd__release_commands() {
 'depgraphs:Render the dependency graph to a DOT artifact under \`--out-dir\` (read-only)' \
 'package:Package already-built binaries into the fixed-name archive assets the hosted release declares (\`--target <triple>\`); non-mutating' \
 'checksums:Write the \`SHA256SUMS\` manifest over the declared release assets to its declared asset path; non-mutating' \
-'sign:Sign the \`SHA256SUMS\` manifest into its declared detached-signature and certificate sidecar assets with cosign; non-mutating' \
+'sign:Sign the \`SHA256SUMS\` manifest into its declared self-contained Sigstore bundle asset with cosign; non-mutating' \
 'verify:Verify the declared release archives — locally (presence + reported version) or, with \`--download\`, against the hosted release (signature + checksum + reported version); non-mutating' \
 'image:Build the configured container image once, push it to the primary registry plus mirrors immutably, and cosign-sign the pushed digest; \`--dry-run\` previews the references and existing digests mutation-free, the real push requires \`--yes\`' \
 'provenance:Verify that exactly the published subjects (declared \`SHA256SUMS\` entries plus pushed image digests) carry a build-provenance attestation cut by the CI trusted builder; \`--dry-run\` reports presence without failing, the default run fails closed if any subject lacks one' \
@@ -3475,7 +3475,7 @@ _toven__subcmd__release_commands() {
 'depgraphs:Render the dependency graph to a DOT artifact under \`--out-dir\` (read-only)' \
 'package:Package already-built binaries into the fixed-name archive assets the hosted release declares (\`--target <triple>\`); non-mutating' \
 'checksums:Write the \`SHA256SUMS\` manifest over the declared release assets to its declared asset path; non-mutating' \
-'sign:Sign the \`SHA256SUMS\` manifest into its declared detached-signature and certificate sidecar assets with cosign; non-mutating' \
+'sign:Sign the \`SHA256SUMS\` manifest into its declared self-contained Sigstore bundle asset with cosign; non-mutating' \
 'verify:Verify the declared release archives — locally (presence + reported version) or, with \`--download\`, against the hosted release (signature + checksum + reported version); non-mutating' \
 'image:Build the configured container image once, push it to the primary registry plus mirrors immutably, and cosign-sign the pushed digest; \`--dry-run\` previews the references and existing digests mutation-free, the real push requires \`--yes\`' \
 'provenance:Verify that exactly the published subjects (declared \`SHA256SUMS\` entries plus pushed image digests) carry a build-provenance attestation cut by the CI trusted builder; \`--dry-run\` reports presence without failing, the default run fails closed if any subject lacks one' \
@@ -3511,7 +3511,7 @@ _toven__subcmd__release__subcmd__help_commands() {
 'depgraphs:Render the dependency graph to a DOT artifact under \`--out-dir\` (read-only)' \
 'package:Package already-built binaries into the fixed-name archive assets the hosted release declares (\`--target <triple>\`); non-mutating' \
 'checksums:Write the \`SHA256SUMS\` manifest over the declared release assets to its declared asset path; non-mutating' \
-'sign:Sign the \`SHA256SUMS\` manifest into its declared detached-signature and certificate sidecar assets with cosign; non-mutating' \
+'sign:Sign the \`SHA256SUMS\` manifest into its declared self-contained Sigstore bundle asset with cosign; non-mutating' \
 'verify:Verify the declared release archives — locally (presence + reported version) or, with \`--download\`, against the hosted release (signature + checksum + reported version); non-mutating' \
 'image:Build the configured container image once, push it to the primary registry plus mirrors immutably, and cosign-sign the pushed digest; \`--dry-run\` previews the references and existing digests mutation-free, the real push requires \`--yes\`' \
 'provenance:Verify that exactly the published subjects (declared \`SHA256SUMS\` entries plus pushed image digests) carry a build-provenance attestation cut by the CI trusted builder; \`--dry-run\` reports presence without failing, the default run fails closed if any subject lacks one' \

@@ -314,8 +314,7 @@ mod tests {
         let provider = provider_with_assets(vec![
             "dist/toven-x86_64-apple-darwin.tar.gz",
             "dist/SHA256SUMS",
-            "dist/SHA256SUMS.sig",
-            "dist/SHA256SUMS.pem",
+            "dist/SHA256SUMS.bundle",
             "dist/toven-sbom.cdx.json",
         ]);
         let providers: Vec<&dyn Provider> = vec![&provider];
@@ -428,11 +427,7 @@ mod tests {
     fn fails_closed_when_the_input_set_is_empty() {
         let root = TempDir::new().unwrap();
         // Only the manifest and its sidecars are declared — no inputs to digest.
-        let provider = provider_with_assets(vec![
-            "dist/SHA256SUMS",
-            "dist/SHA256SUMS.sig",
-            "dist/SHA256SUMS.pem",
-        ]);
+        let provider = provider_with_assets(vec!["dist/SHA256SUMS", "dist/SHA256SUMS.bundle"]);
         let providers: Vec<&dyn Provider> = vec![&provider];
         let reader = FakeVcsReader::new();
         let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));

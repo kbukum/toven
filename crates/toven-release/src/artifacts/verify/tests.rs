@@ -249,7 +249,7 @@ fn local_verify_fails_closed_on_wrong_reported_version() {
 }
 
 /// Stage a "remote" directory holding the archive, a correct `SHA256SUMS`,
-/// and signature/certificate sidecars, returning its path (kept alive by the
+/// and the Sigstore bundle sidecar, returning its path (kept alive by the
 /// returned `TempDir`).
 fn stage_remote(tamper: bool) -> (TempDir, String) {
     let remote = TempDir::new().unwrap();
@@ -272,8 +272,7 @@ fn stage_remote(tamper: bool) -> (TempDir, String) {
         format!("{digest}  {ARCHIVE_NAME}\n"),
     )
     .unwrap();
-    std::fs::write(remote.path().join("SHA256SUMS.sig"), b"sig").unwrap();
-    std::fs::write(remote.path().join("SHA256SUMS.pem"), b"pem").unwrap();
+    std::fs::write(remote.path().join("SHA256SUMS.bundle"), b"bundle").unwrap();
     let path = remote.path().to_str().unwrap().to_string();
     (remote, path)
 }
@@ -600,16 +599,14 @@ fn gh_downloader_non_zero_exit_is_a_verify_tool_error() {
 fn cosign_verifier_builds_argv_first() {
     let root = TempDir::new().unwrap();
     let blob = root.path().join("SHA256SUMS");
-    let signature = root.path().join("SHA256SUMS.sig");
-    let certificate = root.path().join("SHA256SUMS.pem");
+    let bundle = root.path().join("SHA256SUMS.bundle");
     let runner = FakeToolRunner::new();
     let verifier = CosignVerifier::new(Arc::new(runner.clone()));
 
     verifier
         .verify_blob(
             &blob,
-            &signature,
-            &certificate,
+            &bundle,
             "https://github.com/acme/toven/.github/workflows/release.yml@refs/tags/v.*",
             "https://issuer.example",
         )
@@ -622,10 +619,8 @@ fn cosign_verifier_builds_argv_first() {
         vec![
             "cosign",
             "verify-blob",
-            "--certificate",
-            certificate.to_str().unwrap(),
-            "--signature",
-            signature.to_str().unwrap(),
+            "--bundle",
+            bundle.to_str().unwrap(),
             "--certificate-identity-regexp",
             "https://github.com/acme/toven/.github/workflows/release.yml@refs/tags/v.*",
             "--certificate-oidc-issuer",
@@ -645,8 +640,7 @@ fn cosign_verifier_spawn_failure_surfaces_as_typed_error() {
     let error = verifier
         .verify_blob(
             &root.path().join("SHA256SUMS"),
-            &root.path().join("SHA256SUMS.sig"),
-            &root.path().join("SHA256SUMS.pem"),
+            &root.path().join("SHA256SUMS.bundle"),
             "identity",
             "issuer",
         )
