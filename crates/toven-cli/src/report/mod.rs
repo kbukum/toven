@@ -22,7 +22,7 @@ mod tiles;
 #[cfg(unix)]
 mod view;
 
-pub use exit::exit_code;
+pub use exit::{exit_code, terminal_exit_code};
 pub use human::HumanReporter;
 pub use jsonl::JsonlReporter;
 pub(crate) use live::configure_live_output;

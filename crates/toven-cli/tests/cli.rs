@@ -7,14 +7,19 @@
 //! (`apps/toven/tests/`, `apps/toven-rs/tests/`), and the
 //! projection/parse/collision logic by the crate's unit tests.
 
+use std::sync::Arc;
+
 use rskit_cli::ExitCode;
+use toven_exec::{LifecyclePolicy, ProcessSupervisor};
 use toven_ports::Provider;
 
 /// No providers are needed: every case errors or prints before a project loads.
 fn run(args: &[&str]) -> ExitCode {
     let providers: Vec<&dyn Provider> = Vec::new();
+    let supervisor = Arc::new(ProcessSupervisor::new(LifecyclePolicy::default()));
     toven_cli::run_from(
         &providers,
+        &supervisor,
         std::iter::once("toven").chain(args.iter().copied()),
     )
 }

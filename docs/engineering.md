@@ -99,7 +99,7 @@ cargo test -p <crate> --doc    # the equivalent low-level cargo escape hatch
 - Execute subprocesses as argv unless shell mode is explicitly selected.
 - Never log credentials or place tokens in argv.
 - Bound input and output with hard caps.
-- Bound process lifetime through cooperative cancellation: Ctrl+C tears down every in-flight child, and `--timeout` sets an opt-in per-unit ceiling. Task processes carry no default wall-clock limit, because legitimate build/test tasks run arbitrarily long. Short-lived tool calls (metadata probes, `gh`, VCS queries) keep their own fixed internal timeouts.
+- Bound process lifetime through cooperative cancellation backed by a supervisor: any stop signal (`SIGINT`/`SIGTERM`/`SIGHUP`) tears down every in-flight child and reaps its process group, and `--timeout` sets an opt-in per-unit ceiling. Task processes carry no default wall-clock limit, because legitimate build/test tasks run arbitrarily long. Short-lived tool calls (metadata probes, `gh`, VCS queries) keep their own fixed internal timeouts.
 - Require explicit approval before release mutation.
 
 ## Observability

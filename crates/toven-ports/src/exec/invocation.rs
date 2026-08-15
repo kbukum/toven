@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use rskit_process::LifecyclePolicy;
 use toven_model::{ExecutionReadiness, ExecutionUnit};
 
 use super::InvocationEnvironment;
@@ -30,6 +31,12 @@ pub struct Invocation {
     pub fail_if_output: bool,
     /// Explicit environment policy for the invocation.
     pub environment: InvocationEnvironment,
+    /// Caller-declared subprocess lifecycle intent (grace period, process-group
+    /// isolation, descendant targeting, kill escalation) the concrete runner
+    /// honors when spawning and reaping this invocation's child. It lets an
+    /// interactive CLI and a CI runner get different teardown behavior through
+    /// the same port without the port ever rewriting argv.
+    pub lifecycle: LifecyclePolicy,
 }
 
 impl Invocation {
@@ -44,6 +51,7 @@ impl Invocation {
             readiness_timeout: Duration::from_secs(30),
             fail_if_output: false,
             environment: InvocationEnvironment::default(),
+            lifecycle: LifecyclePolicy::default(),
         }
     }
 
@@ -59,6 +67,7 @@ impl Invocation {
             readiness_timeout: unit.readiness_timeout,
             fail_if_output: unit.fail_if_output,
             environment,
+            lifecycle: LifecyclePolicy::default(),
         }
     }
 
@@ -94,6 +103,14 @@ impl Invocation {
     #[must_use]
     pub fn with_environment(mut self, environment: InvocationEnvironment) -> Self {
         self.environment = environment;
+        self
+    }
+
+    /// Set the subprocess lifecycle intent the runner honors for this
+    /// invocation (grace period, isolation, descendant targeting, escalation).
+    #[must_use]
+    pub const fn with_lifecycle_policy(mut self, lifecycle: LifecyclePolicy) -> Self {
+        self.lifecycle = lifecycle;
         self
     }
 }

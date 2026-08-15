@@ -21,7 +21,7 @@ use std::sync::Arc;
 use toven_core::config::VerbId;
 use toven_core::plan::PlanRequest;
 use toven_core::vcs::BaselineFlags;
-use toven_exec::ProcessToolRunner;
+use toven_exec::{ProcessSupervisor, ProcessToolRunner};
 use toven_model::{Entrypoint, ModuleRef};
 use toven_ports::{
     BaselineSourceConfig, BumpLevel, Provider, PublicationPolicy, Reporter, TagMode, TaskIntent,
@@ -50,6 +50,7 @@ use crate::host::{Project, Report, new_run_id, resolve_output};
 /// publishing).
 pub(crate) fn execute(
     providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
     project: &Project,
     cli: &Cli,
     action: ReleaseAction,
@@ -67,8 +68,10 @@ pub(crate) fn execute(
         ReleaseAction::Image => image(providers, project, cli),
         ReleaseAction::Provenance => provenance(providers, project, cli),
         ReleaseAction::Publish if cli.dry_run => rehearse(providers, project, cli),
-        ReleaseAction::Bump => bump(providers, project, cli),
-        ReleaseAction::Tag | ReleaseAction::Publish => run(providers, project, cli, action),
+        ReleaseAction::Bump => bump(providers, supervisor, project, cli),
+        ReleaseAction::Tag | ReleaseAction::Publish => {
+            run(providers, supervisor, project, cli, action)
+        }
     }
 }
 
@@ -464,6 +467,7 @@ fn rehearse(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRes
 /// after commit/tag/push; `publish` continues to the registry.
 fn run(
     providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
     project: &Project,
     cli: &Cli,
     action: ReleaseAction,
@@ -488,7 +492,7 @@ fn run(
         publish: matches!(action, ReleaseAction::Publish),
         ..ReleaseApplyOptions::default()
     };
-    let hooks = crate::commands::hook::CliHookRunner::new(providers, project, cli);
+    let hooks = crate::commands::hook::CliHookRunner::new(providers, supervisor, project, cli);
     let verb = match action {
         ReleaseAction::Publish => VerbId::Publish,
         _ => VerbId::Tag,
@@ -530,7 +534,12 @@ fn require_release_confirmation(confirmed: bool) -> AppResult<()> {
 /// wrap a real bump: `pre` runs fail-closed before the mutation, `post` after it
 /// stages successfully. A `--dry-run` preview mutates nothing, so it runs no
 /// hooks.
-fn bump(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+fn bump(
+    providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
+    project: &Project,
+    cli: &Cli,
+) -> AppResult<ExitCode> {
     if !cli.dry_run {
         require_release_confirmation(cli.confirm_release)?;
     }
@@ -548,7 +557,8 @@ fn bump(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<
     } else {
         project.document.hooks_for(VerbId::Bump)
     };
-    let hook_runner = crate::commands::hook::CliHookRunner::new(providers, project, cli);
+    let hook_runner =
+        crate::commands::hook::CliHookRunner::new(providers, supervisor, project, cli);
     crate::commands::hook::run_with_lifecycle(&lifecycle, &hook_runner, || {
         let mut reporter = QuietReporter;
         let report = release_bump(

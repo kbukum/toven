@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use rskit_errors::{AppError, AppResult, ErrorCode};
+use rskit_process::LifecyclePolicy;
 use tokio_util::sync::CancellationToken;
 use toven_model::{OutputStream, UnitOutput};
 use toven_ports::{
@@ -30,6 +31,7 @@ struct RunLog {
     finished: Vec<String>,
     cancelled: Vec<String>,
     coactive: Vec<(String, Vec<String>)>,
+    lifecycles: Vec<(String, LifecyclePolicy)>,
 }
 
 /// A scriptable [`CommandRunner`] that records scheduling behavior.
@@ -167,6 +169,22 @@ impl FakeCommandRunner {
         self.log.lock().expect("log poisoned").coactive.clone()
     }
 
+    /// For each unit run through the port, the [`LifecyclePolicy`] its
+    /// [`Invocation`] carried, in call order. Lets a test assert the caller's
+    /// lifecycle intent rides intact across the [`CommandRunner`] boundary.
+    #[must_use]
+    pub fn lifecycles(&self) -> Vec<(String, LifecyclePolicy)> {
+        self.log.lock().expect("log poisoned").lifecycles.clone()
+    }
+
+    fn record_lifecycle(&self, unit_id: &str, lifecycle: LifecyclePolicy) {
+        self.log
+            .lock()
+            .expect("log poisoned")
+            .lifecycles
+            .push((unit_id.to_string(), lifecycle));
+    }
+
     fn enter(&self, unit_id: &str) {
         let mut active = self.active.lock().expect("active poisoned");
         let others: Vec<String> = active.iter().cloned().collect();
@@ -243,6 +261,7 @@ impl CommandRunner for FakeCommandRunner {
         live: Option<OutputObserver>,
     ) -> AppResult<RunOutcome> {
         let unit_id = invocation.unit_id.clone();
+        self.record_lifecycle(&unit_id, invocation.lifecycle);
         self.enter(&unit_id);
         let output = self.output_for(&unit_id);
 
@@ -294,6 +313,7 @@ impl CommandRunner for FakeCommandRunner {
         output: OutputObserver,
     ) -> AppResult<StartOutcome> {
         let unit_id = invocation.unit_id.clone();
+        self.record_lifecycle(&unit_id, invocation.lifecycle);
         self.log
             .lock()
             .expect("log poisoned")

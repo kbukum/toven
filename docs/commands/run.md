@@ -149,7 +149,7 @@ toven test --workspace rust --watch
 toven test --workspace rust --watch --watch-debounce-ms 500
 ```
 
-Watch mode reruns the affected subgraph after file changes. Ctrl+C cancels active work and exits.
+Watch mode reruns the affected subgraph after file changes. Any stop signal (Ctrl+C, `kill`/IDE-stop, or a closed terminal) cancels active work and exits; see [Interrupting a run](#interrupting-a-run).
 
 ## Timeout and failure policy
 
@@ -158,6 +158,35 @@ toven test --workspace rust --timeout 90s --fail-fast
 ```
 
 `--timeout` applies per execution unit. `--fail-fast` stops scheduling new work after the first failure.
+
+## Interrupting a run
+
+Toven treats every graceful stop signal the same way. Ctrl+C (`SIGINT`), a `kill` or IDE stop (`SIGTERM`), and a closed terminal or dropped SSH session (`SIGHUP`) all begin the same cooperative teardown: the engine stops scheduling new units, sends `SIGTERM` to every in-flight worker, tears down held processes, and prints the normal terminal summary before exiting with code `130`. A watched run cancels the active rerun and leaves watch mode the same way. You get a clean summary rather than a half-killed run, and nothing is left holding Cargo's `target/debug/.cargo-lock`.
+
+Behind that cooperative phase sits a supervisor backstop. Each spawned `cargo`/`nextest`/`rustc` group is isolated into its own process group and registered with a process supervisor; a process-level signal reaps every registered group even if no individual unit observes the signal. This is what makes non-orphaning structural rather than incidental — the guarantee does not depend on which task happened to be holding a child when the signal arrived.
+
+If a run is wedged and the first signal's cooperative drain does not finish, send the stop signal a **second** time. The second signal skips cooperation and force-exits immediately with code `130`.
+
+```mermaid
+sequenceDiagram
+    participant OS
+    participant Toven as toven run/watch
+    participant Sup as Process supervisor
+    participant Kids as cargo / nextest / rustc groups
+    OS->>Toven: SIGINT | SIGTERM | SIGHUP
+    Toven->>Toven: stop scheduling, tear down in-flight units
+    Toven->>Sup: backstop shutdown
+    Sup->>Kids: SIGTERM group → grace → SIGKILL (concurrent)
+    Toven->>OS: exit 130 with terminal summary
+    OS->>Toven: second signal
+    Toven->>OS: force-exit(130)
+```
+
+The shutdown behavior is policy-driven, so an embedder can select the signal set, the cooperative drain deadline, and the second-signal exit code, and the supervisor exposes the grace period before escalation to `SIGKILL` and whether children are isolated into their own group. The `toven` CLI ships the defaults described above.
+
+### The one residual: a hard kill of `toven` itself
+
+`SIGKILL` (`kill -9`) cannot be intercepted, so a hard kill of the `toven` process itself runs no in-process cleanup. Each `cargo`/`nextest`/`rustc` group is isolated into its own process group (via `setpgid`) so cooperative teardown can signal the whole tree, but that isolation is not a death-link: Toven does not tie a child's lifetime to the parent (there is no `PR_SET_PDEATHSIG` on Linux, and the BSDs/macOS have no equivalent), so on **every** Unix platform a hard kill of `toven` can orphan a `cargo`/`nextest` group. The symptom is a `cargo` or `cargo-nextest` process reparented to `init` (parent PID `1`) still holding `target/debug/.cargo-lock`, which makes the next build block on `Blocking waiting for file lock on artifact directory`. Spot it with `pgrep -fl cargo` (look for a `cargo`/`nextest` process whose parent PID is `1`) and clear it by terminating that process. Prefer a graceful stop signal over `kill -9` so this never arises.
 
 ## Options
 

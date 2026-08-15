@@ -58,6 +58,7 @@ pub(crate) fn run_with_lifecycle(
 /// contending with the release reporter the engine already holds.
 pub(crate) struct CliHookRunner<'a> {
     providers: &'a [&'a dyn Provider],
+    supervisor: &'a std::sync::Arc<toven_exec::ProcessSupervisor>,
     project: &'a Project,
     cli: &'a Cli,
 }
@@ -66,11 +67,13 @@ impl<'a> CliHookRunner<'a> {
     /// Bind the runner to the providers, project, and argv it plans/applies with.
     pub(crate) fn new(
         providers: &'a [&'a dyn Provider],
+        supervisor: &'a std::sync::Arc<toven_exec::ProcessSupervisor>,
         project: &'a Project,
         cli: &'a Cli,
     ) -> Self {
         Self {
             providers,
+            supervisor,
             project,
             cli,
         }
@@ -94,6 +97,7 @@ impl CliHookRunner<'_> {
         );
         crate::commands::run::execute(
             self.providers,
+            self.supervisor,
             self.project,
             report,
             TaskIntent::resolve(reference),

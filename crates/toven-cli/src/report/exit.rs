@@ -19,6 +19,24 @@ pub const fn exit_code(summary: &RunStats) -> ExitCode {
     }
 }
 
+/// Derive the terminal process exit code, honoring a graceful-stop signal.
+///
+/// A cooperatively cancelled run (the shared shutdown token fired on
+/// SIGINT/SIGTERM/SIGHUP) exits [`ExitCode::Cancelled`] (`130`) regardless of the
+/// summary counters: cancellation records `cancelled_units`, which
+/// [`RunStats::has_failures`] deliberately excludes, so without this an
+/// interrupted-but-otherwise-healthy run would misreport success (`0`).
+/// Cancellation takes precedence so the documented "graceful stop → 130"
+/// contract holds; an uninterrupted run falls through to [`exit_code`].
+#[must_use]
+pub const fn terminal_exit_code(summary: &RunStats, cancelled: bool) -> ExitCode {
+    if cancelled {
+        ExitCode::Cancelled
+    } else {
+        exit_code(summary)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rskit_cli::ExitCode;
@@ -68,5 +86,25 @@ mod tests {
         let mut stats = RunStats::new(1);
         stats.timed_out_units = 1;
         assert_eq!(exit_code(&stats), ExitCode::Failure);
+    }
+
+    #[test]
+    fn an_interrupted_healthy_run_exits_cancelled() {
+        // Cancellation records `cancelled_units`, which `has_failures` excludes,
+        // so an otherwise-healthy interrupted run must still map to 130 — not the
+        // summary-derived success — when the shutdown token fired.
+        let mut stats = RunStats::new(2);
+        stats.cancelled_units = 1;
+        assert_eq!(super::terminal_exit_code(&stats, true), ExitCode::Cancelled);
+    }
+
+    #[test]
+    fn an_uninterrupted_run_falls_through_to_the_summary_code() {
+        let mut stats = RunStats::new(1);
+        stats.failed_units = 1;
+        assert_eq!(super::terminal_exit_code(&stats, false), ExitCode::Failure);
+
+        let clean = RunStats::new(1);
+        assert_eq!(super::terminal_exit_code(&clean, false), ExitCode::Success);
     }
 }

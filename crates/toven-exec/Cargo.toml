@@ -19,5 +19,8 @@ async-trait.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 
+[dev-dependencies]
+rskit-testutil.workspace = true
+
 [lints]
 workspace = true

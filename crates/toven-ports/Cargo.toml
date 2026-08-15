@@ -15,6 +15,7 @@ toven-semver.workspace = true
 rskit-errors.workspace = true
 rskit-config.workspace = true
 rskit-cli.workspace = true
+rskit-process.workspace = true
 rskit-util.workspace = true
 rskit-validation.workspace = true
 rskit-version.workspace = true

@@ -9,26 +9,53 @@
 //! decides success/failure policy — it maps the process result straight into a
 //! [`ToolOutcome`] the caller classifies.
 
+use std::sync::Arc;
+
 use rskit_errors::AppResult;
-use rskit_process::run;
+use rskit_process::{LifecyclePolicy, ProcessSupervisor, run_supervised};
 use toven_ports::{ToolInvocation, ToolOutcome, ToolRunner};
 
 use crate::spec::{tool_config, tool_spec};
 
 /// The production [`ToolRunner`].
 ///
-/// A captured, bounded, optionally-timed subprocess. Stateless and cheap to
-/// construct; holds no credentials — secrets are resolved from the ambient
-/// environment at run time by the names the invocation forwards, never stored
-/// and never placed on argv.
-#[derive(Debug, Clone, Default)]
-pub struct ProcessToolRunner;
+/// A captured, bounded, optionally-timed subprocess. Cheap to construct and
+/// holds no credentials — secrets are resolved from the ambient environment at
+/// run time by the names the invocation forwards, never stored and never placed
+/// on argv. Each spawned child registers with a [`ProcessSupervisor`] so a
+/// process-level shutdown reaps the tool's process group as the backstop.
+#[derive(Debug, Clone)]
+pub struct ProcessToolRunner {
+    supervisor: Arc<ProcessSupervisor>,
+}
+
+impl Default for ProcessToolRunner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl ProcessToolRunner {
-    /// Construct a process-backed tool runner.
+    /// Construct a process-backed tool runner owning a private supervisor.
     #[must_use]
-    pub const fn new() -> Self {
-        Self
+    pub fn new() -> Self {
+        Self {
+            supervisor: Arc::new(ProcessSupervisor::new(LifecyclePolicy::default())),
+        }
+    }
+
+    /// Drive spawned children through a caller-owned [`ProcessSupervisor`] so a
+    /// process-level shutdown handle can reap them as the backstop.
+    #[must_use]
+    pub fn with_supervisor(mut self, supervisor: Arc<ProcessSupervisor>) -> Self {
+        self.supervisor = supervisor;
+        self
+    }
+
+    /// The supervisor this runner registers spawned children with.
+    #[must_use]
+    pub fn supervisor(&self) -> Arc<ProcessSupervisor> {
+        Arc::clone(&self.supervisor)
     }
 }
 
@@ -36,7 +63,7 @@ impl ToolRunner for ProcessToolRunner {
     fn run(&self, invocation: &ToolInvocation) -> AppResult<ToolOutcome> {
         let spec = tool_spec(invocation)?;
         let config = tool_config(invocation);
-        let result = run(&spec, &config)?;
+        let result = run_supervised(&self.supervisor, &spec, &config)?;
         Ok(
             ToolOutcome::new(result.exit_code, result.stdout, result.stderr)
                 .timed_out_flag(result.timed_out)
