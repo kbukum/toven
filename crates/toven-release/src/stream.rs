@@ -65,18 +65,20 @@ pub(crate) fn no_change_event(module: &ModuleKey, current_version: &Version) -> 
 ///
 /// Constructed only after the module's side effect has landed (a `bump` stage,
 /// or a `run` commit + tag), so a commit event never reports rolled-back work.
+/// `new_version` is absent for a dependency-floor-only mutation, which stages a
+/// rewritten manifest without cutting a new version of the module.
 #[allow(clippy::redundant_pub_crate)]
 #[must_use]
 pub(crate) fn staged_event(
     module: &ModuleKey,
-    new_version: &Version,
+    new_version: Option<&Version>,
     manifests: Vec<String>,
     changelog: Option<String>,
     tag: Option<String>,
 ) -> Event {
     Event::ModuleReleaseStaged {
         module: module.to_string(),
-        new_version: new_version.to_string(),
+        new_version: new_version.map(ToString::to_string),
         manifests,
         changelog,
         tag,

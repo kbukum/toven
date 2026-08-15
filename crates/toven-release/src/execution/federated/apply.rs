@@ -270,18 +270,17 @@ fn commit_member_shard(
 ///
 /// Draws the version and planned tag from the shard's plan entries and the
 /// rewritten manifest paths from the member's mutation set, in deterministic
-/// plan order. A module with no own-version bump receives no tag and emits no
-/// event, matching the plan's tagging truth. `run` rolls no changelog (that is
-/// the `bump` phase's job), so the commit event carries none.
+/// plan order. A module with no own-version bump receives no tag, but a
+/// dependency-floor-only module still committed its rewritten manifest, so it
+/// emits a staged event carrying no `new_version` and no tag rather than being
+/// dropped. `run` rolls no changelog (that is the `bump` phase's job), so the
+/// commit event carries none.
 fn emit_member_committed(
     reporter: &mut dyn toven_ports::Reporter,
     shard: &MemberReleaseShard,
     mutated: &[(ModuleKey, Vec<RepoPath>)],
 ) -> AppResult<()> {
     for entry in &shard.plan.entries {
-        let Some(new_version) = entry.planned_version.as_ref() else {
-            continue;
-        };
         let manifests = mutated
             .iter()
             .find(|(module, _)| *module == entry.module)
@@ -294,7 +293,7 @@ fn emit_member_committed(
             .unwrap_or_default();
         reporter.emit(&crate::stream::staged_event(
             &entry.module,
-            new_version,
+            entry.planned_version.as_ref(),
             manifests,
             None,
             entry.planned_tag.clone(),

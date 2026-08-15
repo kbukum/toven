@@ -291,16 +291,20 @@ impl<W: Write> HumanReporter<W> {
     /// Render a per-module release *commit* line (after the side effect landed).
     ///
     /// Confirms the decision only once the module's mutation is real; the
-    /// created tag, when any, rides the same line.
+    /// created tag, when any, rides the same line. A dependency-floor-only
+    /// stage has no `new_version`, so it reads as a floored-dependency commit
+    /// rather than a version transition.
     fn write_release_staged(
         &mut self,
         module: &str,
-        new_version: &str,
+        new_version: Option<&str>,
         tag: Option<&str>,
     ) -> AppResult<()> {
+        let subject =
+            new_version.map_or_else(|| "dependency floors".to_string(), ToString::to_string);
         let detail = tag.map_or_else(
-            || format!("{module}: staged {new_version}"),
-            |tag| format!("{module}: staged {new_version} (tag {tag})"),
+            || format!("{module}: staged {subject}"),
+            |tag| format!("{module}: staged {subject} (tag {tag})"),
         );
         let line = self.labeled_line("  release ", "Staged", &detail, Tone::Success);
         self.write_line(&line)
@@ -471,7 +475,7 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
                 new_version,
                 tag,
                 ..
-            } => self.write_release_staged(module, new_version, tag.as_deref()),
+            } => self.write_release_staged(module, new_version.as_deref(), tag.as_deref()),
             Event::ModuleCoverageFinished {
                 module,
                 measurements,
@@ -1079,7 +1083,7 @@ summary
             },
             Event::ModuleReleaseStaged {
                 module: "core".into(),
-                new_version: "1.3.0".into(),
+                new_version: Some("1.3.0".into()),
                 manifests: vec!["crates/core/Cargo.toml".into()],
                 changelog: Some("crates/core/CHANGELOG.md".into()),
                 tag: Some("core-v1.3.0".into()),
@@ -1165,7 +1169,7 @@ summary
     fn a_tag_less_stage_omits_the_tag_suffix() {
         let staged = Event::ModuleReleaseStaged {
             module: "leaf".into(),
-            new_version: "0.4.2".into(),
+            new_version: Some("0.4.2".into()),
             manifests: Vec::new(),
             changelog: None,
             tag: None,
@@ -1173,6 +1177,23 @@ summary
         assert_eq!(
             render(std::slice::from_ref(&staged)),
             "  release leaf: staged 0.4.2\n"
+        );
+    }
+
+    #[test]
+    fn a_dependency_floor_only_stage_reads_without_a_version() {
+        // A floor-only stage rewrote a manifest but cut no version, so it reads
+        // as a floored-dependency commit rather than a bogus version transition.
+        let staged = Event::ModuleReleaseStaged {
+            module: "app".into(),
+            new_version: None,
+            manifests: vec!["crates/app/Cargo.toml".into()],
+            changelog: None,
+            tag: None,
+        };
+        assert_eq!(
+            render(std::slice::from_ref(&staged)),
+            "  release app: staged dependency floors\n"
         );
     }
 

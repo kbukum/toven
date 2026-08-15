@@ -45,8 +45,10 @@ pub struct BumpModuleOutcome {
     pub module: ModuleKey,
     /// The module's version before the bump.
     pub old_version: Version,
-    /// The module's version after the bump.
-    pub new_version: Version,
+    /// The module's version after the bump, when it received an own-version
+    /// bump. `None` for a dependency-floor-only module, whose manifest is
+    /// rewritten (its dependency pins move) without cutting a new version.
+    pub new_version: Option<Version>,
     /// Repo-relative manifest paths the mutation rewrote (empty under
     /// `--dry-run`, which previews without writing, and for a mutation-free
     /// tag-only ecosystem).

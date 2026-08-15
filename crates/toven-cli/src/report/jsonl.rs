@@ -127,7 +127,7 @@ mod tests {
             },
             Event::ModuleReleaseStaged {
                 module: "core".into(),
-                new_version: "1.3.0".into(),
+                new_version: Some("1.3.0".into()),
                 manifests: vec!["crates/core/Cargo.toml".into()],
                 changelog: None,
                 tag: Some("core-v1.3.0".into()),

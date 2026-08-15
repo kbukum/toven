@@ -457,7 +457,7 @@ fn a_module_changed_since_its_tag_still_enters_the_bump_plan() {
     assert_eq!(report.modules[0].old_version, Version::new(0, 1, 0));
     assert_eq!(
         report.modules[0].new_version,
-        Version::new(0, 1, 1),
+        Some(Version::new(0, 1, 1)),
         "a real change advances the version: {report:?}"
     );
     assert!(report.staged, "the changed module is staged: {report:?}");
@@ -501,7 +501,7 @@ fn bump_syncs_a_declared_version_reference() {
     );
 
     assert!(report.staged, "the mutation is staged: {report:?}");
-    assert_eq!(report.modules[0].new_version, Version::new(0, 1, 1));
+    assert_eq!(report.modules[0].new_version, Some(Version::new(0, 1, 1)));
 
     let readme = std::fs::read_to_string(ws.path().join("README.md")).expect("readme");
     assert!(
@@ -544,7 +544,7 @@ fn a_pin_referencing_the_ecosystem_identity_is_synced() {
         &reader,
     );
 
-    assert_eq!(report.modules[0].new_version, Version::new(0, 1, 1));
+    assert_eq!(report.modules[0].new_version, Some(Version::new(0, 1, 1)));
     let readme = std::fs::read_to_string(ws.path().join("README.md")).expect("readme");
     assert!(
         readme.contains("rust:core = \"0.1.1\""),
@@ -575,7 +575,7 @@ fn an_already_synced_version_reference_is_not_restaged() {
         &reader,
     );
 
-    assert_eq!(report.modules[0].new_version, Version::new(0, 1, 1));
+    assert_eq!(report.modules[0].new_version, Some(Version::new(0, 1, 1)));
     let readme = std::fs::read_to_string(ws.path().join("README.md")).expect("readme");
     assert_eq!(
         readme, "# core\n\ncore = \"0.1.1\"\n",

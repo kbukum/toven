@@ -848,8 +848,9 @@ fn a_maintainer_owned_member_fails_closed_when_the_tag_diverges_from_head() {
 }
 
 /// Extract the ordered `(module, new_version, tag)` triples from every
-/// `ModuleReleaseStaged` commit event a run recorded.
-fn staged(reporter: &RecordingReporter) -> Vec<(String, String, Option<String>)> {
+/// `ModuleReleaseStaged` commit event a run recorded. `new_version` is `None`
+/// for a dependency-floor-only stage.
+fn staged(reporter: &RecordingReporter) -> Vec<(String, Option<String>, Option<String>)> {
     reporter
         .events()
         .iter()
@@ -913,12 +914,12 @@ fn release_apply_streams_a_staged_event_per_committed_module_after_its_tag_lands
         vec![
             (
                 "core/rust:shared".to_string(),
-                "0.1.1".to_string(),
+                Some("0.1.1".to_string()),
                 Some("rust/shared@0.1.1".to_string()),
             ),
             (
                 "gateway/rust:api".to_string(),
-                "0.1.1".to_string(),
+                Some("0.1.1".to_string()),
                 Some("rust/api@0.1.1".to_string()),
             ),
         ],
@@ -977,7 +978,7 @@ fn a_member_commit_failure_emits_no_staged_event_for_the_failing_member() {
         staged(&reporter),
         vec![(
             "core/rust:shared".to_string(),
-            "0.1.1".to_string(),
+            Some("0.1.1".to_string()),
             Some("rust/shared@0.1.1".to_string()),
         )],
         "only the genuinely-committed core member may emit a staged event",
@@ -1034,8 +1035,16 @@ fn release_bump_streams_a_staged_event_per_genuinely_staged_module() {
     assert_eq!(
         staged(&reporter),
         vec![
-            ("core/rust:shared".to_string(), "0.1.1".to_string(), None),
-            ("gateway/rust:api".to_string(), "0.1.1".to_string(), None),
+            (
+                "core/rust:shared".to_string(),
+                Some("0.1.1".to_string()),
+                None
+            ),
+            (
+                "gateway/rust:api".to_string(),
+                Some("0.1.1".to_string()),
+                None
+            ),
         ],
     );
     // Each staged event carries the manifests the mutation actually rewrote.
@@ -1110,5 +1119,66 @@ fn release_bump_emits_no_staged_event_when_a_mutation_fails_mid_transaction() {
         staged(&reporter).is_empty(),
         "a restored member must emit no staged event: {:?}",
         reporter.events()
+    );
+}
+
+#[test]
+fn release_bump_streams_a_staged_event_for_a_dependency_floor_only_module() {
+    // `app` receives no own-version bump but re-floors its dependency on `shared`,
+    // so its manifest is genuinely rewritten and staged. It must surface a staged
+    // event carrying no `new_version` (and no tag) rather than being filtered out.
+    let mut app = entry("core", "app", Version::new(0, 1, 1), 1);
+    app.planned_version = None;
+    app.planned_tag = None;
+    app.mutation = ReleaseMutation {
+        new_version: None,
+        dep_floor_updates: std::collections::BTreeMap::from([(
+            mref("shared"),
+            Version::new(0, 1, 1),
+        )]),
+        dep_floor_import_updates: std::collections::BTreeMap::new(),
+    };
+    let plan = ReleasePlan::new(
+        BumpPolicy::SemverCascade,
+        vec![entry("core", "shared", Version::new(0, 1, 1), 0), app],
+    );
+    let modules = vec![module("core", "shared"), module("core", "app")];
+    let target = FakeReleaseTarget::new();
+    let core_reader = FakeVcsReader::new();
+    let core_writer = FakeVcsWriter::new();
+    let repos = MemberReleaseRepos::new(vec![MemberReleaseRepo::new(
+        Some(member("core")),
+        std::path::PathBuf::from("/repos/core"),
+        &core_reader,
+        &core_writer,
+    )]);
+    let hooks = toven_testkit::RecordingHookRunner::new();
+
+    let mut reporter = RecordingReporter::new();
+    let report = release_bump_by_member(
+        &plan,
+        &modules,
+        &targets(&target),
+        &repos,
+        "2026-01-01",
+        &hooks,
+        &mut reporter,
+        crate::BumpOptions::default(),
+    )
+    .unwrap();
+
+    assert!(report.staged);
+    // The floor-only module emits a staged event with no version and no tag,
+    // alongside the own-version bump — one record per landed module.
+    assert_eq!(
+        staged(&reporter),
+        vec![
+            (
+                "core/rust:shared".to_string(),
+                Some("0.1.1".to_string()),
+                None
+            ),
+            ("core/rust:app".to_string(), None, None),
+        ],
     );
 }

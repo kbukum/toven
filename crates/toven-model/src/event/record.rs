@@ -161,12 +161,17 @@ pub enum Event {
     /// whole-run restore never leaves an emitted-but-rolled-back "staged" event
     /// — the fail-closed guarantee holds by construction. A module that stages
     /// nothing (a tag-only ecosystem with no rolled changelog) emits no staged
-    /// event, matching the reported staging truth.
+    /// event, matching the reported staging truth. A dependency-floor-only
+    /// module *does* stage its rewritten manifest, so it emits a staged event
+    /// with no `new_version` and no `tag` rather than being filtered out.
     ModuleReleaseStaged {
         /// Module the commit is for (its canonical key).
         module: String,
-        /// The version actually cut for the module.
-        new_version: String,
+        /// The version cut for the module, when it received an own-version
+        /// bump. `None` for a dependency-floor-only mutation, which stages a
+        /// rewritten manifest without cutting a new version of the module.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        new_version: Option<String>,
         /// Manifest paths rewritten for the module (workspace-relative).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         manifests: Vec<String>,
@@ -336,7 +341,7 @@ mod tests {
         });
         round_trip(&Event::ModuleReleaseStaged {
             module: "core".into(),
-            new_version: "1.3.0".into(),
+            new_version: Some("1.3.0".into()),
             manifests: vec!["crates/core/Cargo.toml".into()],
             changelog: Some("crates/core/CHANGELOG.md".into()),
             tag: Some("core-v1.3.0".into()),
@@ -345,8 +350,17 @@ mod tests {
         // of the machine projection.
         round_trip(&Event::ModuleReleaseStaged {
             module: "leaf".into(),
-            new_version: "0.4.2".into(),
+            new_version: Some("0.4.2".into()),
             manifests: Vec::new(),
+            changelog: None,
+            tag: None,
+        });
+        // A dependency-floor-only stage rewrites its manifest without cutting a
+        // new version, so `new_version` (and any tag) is absent.
+        round_trip(&Event::ModuleReleaseStaged {
+            module: "app".into(),
+            new_version: None,
+            manifests: vec!["crates/app/Cargo.toml".into()],
             changelog: None,
             tag: None,
         });
@@ -403,7 +417,7 @@ mod tests {
 
         let staged = serde_json::to_value(Event::ModuleReleaseStaged {
             module: "leaf".into(),
-            new_version: "0.4.2".into(),
+            new_version: Some("0.4.2".into()),
             manifests: Vec::new(),
             changelog: None,
             tag: None,
@@ -411,6 +425,18 @@ mod tests {
         .expect("serializes");
         assert_eq!(staged["event"], "module-release-staged");
         assert!(staged.get("manifests").is_none());
+
+        // A dependency-floor-only stage omits `new_version` from the projection.
+        let floor_only = serde_json::to_value(Event::ModuleReleaseStaged {
+            module: "app".into(),
+            new_version: None,
+            manifests: vec!["crates/app/Cargo.toml".into()],
+            changelog: None,
+            tag: None,
+        })
+        .expect("serializes");
+        assert!(floor_only.get("new_version").is_none());
+        assert!(floor_only.get("tag").is_none());
 
         let coverage = serde_json::to_value(Event::ModuleCoverageFinished {
             module: "core".into(),
