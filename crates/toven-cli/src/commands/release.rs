@@ -497,7 +497,7 @@ fn checksums(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
 }
 
 /// `release sign`: sign the declared `SHA256SUMS` manifest into its declared
-/// detached-signature and certificate sidecars with cosign, mutating no history.
+/// self-contained Sigstore bundle with cosign, mutating no history.
 fn sign(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
