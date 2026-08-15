@@ -42,7 +42,7 @@ jobs:
           rustup override set "${RUST_VERSION}"
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@72d126e709cad40056a62344eee609d696d62d33 # v2.7.8
+        uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2.7.8
 
       - name: Install cargo-cyclonedx
         run: cargo install cargo-cyclonedx --locked --version 0.5.9
@@ -108,13 +108,13 @@ jobs:
           rustup target add ${{ matrix.target }}
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@72d126e709cad40056a62344eee609d696d62d33 # v2.7.8
+        uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2.7.8
         with:
           key: ${{ matrix.target }}
 
       - name: Install cross
         if: matrix.use_cross
-        uses: taiki-e/install-action@cb33e69fad06166ca28a42b2575e4dadabf62ee8 # v2
+        uses: taiki-e/install-action@7f4eb899022d8fe70b20c4f3de697aa85c309026 # v2
         with:
           tool: cross
 
