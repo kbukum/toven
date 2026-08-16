@@ -22,7 +22,7 @@ L3   crates/toven-cli
 L4   apps/toven, apps/toven-rs, apps/toven-go
 ```
 
-Dependencies point downward only. `toven-semver` is a pure L0.5 toolkit — semver bump math and the release-tag codec, reusable by any layer, depending on no other Toven crate. `toven-exec`, `toven-vcs`, and `toven-runtime` are focused L1.5 utilities — `toven-exec` owns the concrete subprocess runners, `toven-vcs` owns the git mechanism behind the VCS ports, and `toven-runtime` owns the generic streaming, wave-scheduled, bounded-parallel unit-operation engine (shared GATHER → per-unit STREAM) that every multi-module verb runs on. `toven-version` is the L2 version-decision capability whose pure `plan_bumps` is the single path every bump flows through; the three engine crates share layer 2 above `toven-core`, with `toven-release` composing `toven-version` for its bump phase.
+Dependencies point downward only. `toven-semver` is a pure L0.5 toolkit — semver bump math and the release-tag codec, reusable by any layer, depending on no other Toven crate. `toven-exec`, `toven-vcs`, and `toven-runtime` are focused L1.5 utilities — `toven-exec` owns the concrete subprocess runners, `toven-vcs` owns the git mechanism behind the VCS ports, and `toven-runtime` owns the generic streaming, wave-scheduled, bounded-parallel unit-operation engine (shared GATHER → per-unit STREAM) that the streamed `release` verbs run on today (`run` and `coverage` are not yet migrated). `toven-version` is the L2 version-decision capability whose pure `plan_bumps` is the single path every bump flows through; the three engine crates share layer 2 above `toven-core`, with `toven-release` composing `toven-version` for its bump phase.
 
 ```mermaid
 flowchart TB
@@ -73,7 +73,7 @@ Only the thin `apps/*` binaries wire the ecosystem adapters (`toven-rust`, `tove
 | `toven-ports` | Adapter contracts and shared configuration values |
 | `toven-exec` | The concrete subprocess runners (`ProcessToolRunner`, `ProcessCommandRunner`, persistent spawn) and the shared argv→`ProcessSpec` lowering |
 | `toven-vcs` | The git mechanism: the rskit-git-backed `VcsReader`/`VcsWriter` adapter, the change foundation (diff-range resolution), and the per-repo reader-set fan-out |
-| `toven-runtime` | The generic streaming, wave-scheduled, bounded-parallel unit-operation engine: the unit graph + dependency-wave levelling, fail-closed gating, the shared-GATHER/per-unit `UnitOperation` seam, and the typed per-unit lifecycle every multi-module verb streams through |
+| `toven-runtime` | The generic streaming, wave-scheduled, bounded-parallel unit-operation engine: the unit graph + dependency-wave levelling, fail-closed gating, the shared-GATHER/per-unit `UnitOperation` seam, and the typed per-unit lifecycle the streamed `release` verbs stream through (`run`/`coverage` not yet migrated) |
 | `toven-core` | Strict `toven.toml` loading, the engine-owned VCS baseline policy over the git seam, the PLAN spine, and federation-core |
 | `toven-version` | The pure `plan_bumps` bump/cascade/idempotency decision, baseline anchoring, entrypoint/`CutIntent` policy, change detection, and Conventional-Commit changelog generation |
 | `toven-release` | Release PLAN/APPLY flow: tag, package, checksums, SBOM, signing, hosted publishing — composing `toven-version` for the bump decision |

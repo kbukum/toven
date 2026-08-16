@@ -1133,8 +1133,9 @@ core = \"1.4.2\"    # A core crate
     }
 
     #[test]
-    #[allow(clippy::duration_suboptimal_units)]
     fn retry_after_hint_honors_a_future_crates_io_deadline() {
+        // 2100-01-01T00:00:00Z is 4_102_444_800 epoch seconds.
+        const DEADLINE_EPOCH_SECS: u64 = 4_102_444_800;
         // The exact rate-limit rejection crates.io emits, lowercased as the
         // classifier sees it. The deadline sits far in the future so the hint
         // must be preferred over any cadence fallback.
@@ -1145,10 +1146,9 @@ core = \"1.4.2\"    # A core crate
             https://crates.io/docs/rate-limits for more details.";
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
         let deadline = retry_after_hint(output, now).expect("a future GMT deadline parses");
-        // 2100-01-01T00:00:00Z is 4_102_444_800 epoch seconds.
         assert_eq!(
             deadline,
-            SystemTime::UNIX_EPOCH + Duration::from_secs(4_102_444_800)
+            SystemTime::UNIX_EPOCH + Duration::from_secs(DEADLINE_EPOCH_SECS)
         );
     }
 

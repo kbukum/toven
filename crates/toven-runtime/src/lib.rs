@@ -1,12 +1,18 @@
 //! `toven-runtime` — the one generic unit-operation engine.
 //!
-//! Every multi-module verb in Toven (`run`, `release *`, `coverage`) decomposes
-//! into the same two phases: a **shared GATHER** that resolves the verb's
-//! workspace-coupled prerequisites exactly once, then a **per-unit STREAM** that
-//! processes each unit and emits its settled outcome the instant it lands,
-//! parallelized within the dependency graph and bounded by a job limit.
+//! Multi-module work in Toven decomposes into the same two phases: a **shared
+//! GATHER** that resolves the verb's workspace-coupled prerequisites exactly
+//! once, then a **per-unit STREAM** that processes each unit and emits its
+//! settled outcome the instant it lands, parallelized within the dependency
+//! graph and bounded by a job limit.
 //!
-//! This crate owns that shape once, so no verb hand-rolls a second executor:
+//! This crate owns that shape once, so a verb streams per-unit outcomes without
+//! hand-rolling a second executor. The streamed `release` verbs run on it today
+//! — `status`, `readiness`, and the artifact verbs (`sbom`, `depgraphs`,
+//! `package`, `checksums`, `sign`, `verify`, `image`, `provenance`). `run` and
+//! `coverage` still use their own executors and are not yet migrated.
+//!
+//! The engine's parts:
 //!
 //! - [`UnitSpec`] + [`level_waves`] — the unit graph and its dependency-wave
 //!   levelling (an edgeless graph collapses to one wide parallel wave; an edged

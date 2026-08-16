@@ -13,7 +13,7 @@
 //! CLI layer is the only one that prints, following the introspection stream
 //! convention (projection on stdout, warnings/summaries on stderr).
 
-use rskit_cli::{ExitCode, OutputKV, OutputTable, Tone};
+use rskit_cli::{ExitCode, OutputKV, OutputTable, ShutdownController, ShutdownPolicy, Tone};
 use rskit_errors::{AppError, AppResult};
 use rskit_util::time::Clock;
 use rskit_version::semver::Version;
@@ -343,6 +343,53 @@ fn engine_jobs(cli: &Cli, project: &Project) -> usize {
         .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, std::num::NonZero::get))
 }
 
+/// Bridge a streamed release verb onto the async engine under graceful
+/// shutdown.
+///
+/// Builds the Tokio runtime that bridges the sync CLI to the async engine,
+/// installs the shared stop-signal controller *inside* that runtime (SIGINT /
+/// SIGTERM / SIGHUP cancel a shared token; a second signal force-exits), and
+/// threads that token into [`toven_runtime::execute`] — so on a signal the
+/// engine stops launching waves and asks in-flight units to cancel instead of
+/// running to completion and reporting success. Returns the aggregated summary
+/// and whether the stop signal fired, so the caller can map an interrupted run
+/// to [`ExitCode::Cancelled`] (`130`).
+///
+/// This installs the cooperative token only; reaping an already-running blocking
+/// tool/registry call mid-invocation still depends on the underlying process
+/// mechanism (tracked as follow-up work).
+///
+/// # Errors
+/// Propagates runtime construction, shutdown-controller installation, and any
+/// hard operation error from the engine.
+fn drive_streamed<Op: toven_runtime::UnitOperation>(
+    units: &[toven_runtime::UnitSpec],
+    operation: Op,
+    jobs: usize,
+    progress: &mut dyn toven_runtime::Progress<Op::Outcome>,
+) -> AppResult<(toven_runtime::RunSummary, bool)> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(AppError::internal)?;
+    runtime.block_on(async move {
+        let shutdown = ShutdownController::install(ShutdownPolicy::default())?;
+        let cancel = shutdown.token();
+        let summary = toven_runtime::execute(
+            units,
+            operation,
+            toven_runtime::EngineConfig {
+                jobs,
+                fail_fast: false,
+            },
+            progress,
+            cancel.clone(),
+        )
+        .await?;
+        Ok((summary, cancel.is_cancelled()))
+    })
+}
+
 /// `release status`: render each module's declared/published/tagged state.
 fn status(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
@@ -363,23 +410,10 @@ fn status(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResul
     let mut projector = StatusProjector::new(output);
     projector.open();
 
-    // A tokio runtime bridges the sync CLI to the async engine, exactly as the
-    // `run` path does; per-module registry I/O is a sync port call the operation
-    // runs on a blocking thread.
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(AppError::internal)?;
-    let summary = runtime.block_on(toven_runtime::execute(
-        &units,
-        operation,
-        toven_runtime::EngineConfig {
-            jobs,
-            fail_fast: false,
-        },
-        &mut projector,
-        tokio_util::sync::CancellationToken::new(),
-    ))?;
+    let (summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    if cancelled {
+        return Ok(ExitCode::Cancelled);
+    }
 
     Ok(if summary.has_failures() {
         ExitCode::Failure
@@ -427,22 +461,12 @@ fn readiness(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
         // reads as broken output and a silent "go" is false confidence).
         projector.note_no_checks();
     } else {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .map_err(AppError::internal)?;
         // A failing check is a settled verdict, not a unit error, so the engine
         // runs every check; only I/O or an unknown check errors out here.
-        runtime.block_on(toven_runtime::execute(
-            &units,
-            operation,
-            toven_runtime::EngineConfig {
-                jobs,
-                fail_fast: false,
-            },
-            &mut projector,
-            tokio_util::sync::CancellationToken::new(),
-        ))?;
+        let (_summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+        if cancelled {
+            return Ok(ExitCode::Cancelled);
+        }
     }
 
     // Fail closed: any failing check makes the verdict no-go.
@@ -481,20 +505,10 @@ fn sbom(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<
     let mut projector = SbomProjector::new(output);
     projector.open();
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(AppError::internal)?;
-    runtime.block_on(toven_runtime::execute(
-        &units,
-        operation,
-        toven_runtime::EngineConfig {
-            jobs,
-            fail_fast: false,
-        },
-        &mut projector,
-        tokio_util::sync::CancellationToken::new(),
-    ))?;
+    let (_summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    if cancelled {
+        return Ok(ExitCode::Cancelled);
+    }
 
     // Assemble the trailing aggregate from the streamed outcomes: stage the
     // declared hosted-release assets, then report staged assets and skips.
@@ -522,20 +536,10 @@ fn depgraphs(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
     let mut projector = DepgraphProjector::new(output);
     projector.open();
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(AppError::internal)?;
-    runtime.block_on(toven_runtime::execute(
-        &units,
-        operation,
-        toven_runtime::EngineConfig {
-            jobs,
-            fail_fast: false,
-        },
-        &mut projector,
-        tokio_util::sync::CancellationToken::new(),
-    ))?;
+    let (_summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    if cancelled {
+        return Ok(ExitCode::Cancelled);
+    }
     Ok(ExitCode::Success)
 }
 
@@ -572,20 +576,10 @@ fn package(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResu
     let mut projector = PackageProjector::new(output, inputs.target().to_string());
     projector.open();
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(AppError::internal)?;
-    runtime.block_on(toven_runtime::execute(
-        &units,
-        operation,
-        toven_runtime::EngineConfig {
-            jobs,
-            fail_fast: false,
-        },
-        &mut projector,
-        tokio_util::sync::CancellationToken::new(),
-    ))?;
+    let (_summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    if cancelled {
+        return Ok(ExitCode::Cancelled);
+    }
     Ok(ExitCode::Success)
 }
 
@@ -610,20 +604,10 @@ fn checksums(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
     let mut projector = ChecksumProjector::new(output, inputs.manifest().to_string());
     projector.open();
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(AppError::internal)?;
-    runtime.block_on(toven_runtime::execute(
-        &units,
-        operation,
-        toven_runtime::EngineConfig {
-            jobs,
-            fail_fast: false,
-        },
-        &mut projector,
-        tokio_util::sync::CancellationToken::new(),
-    ))?;
+    let (_summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    if cancelled {
+        return Ok(ExitCode::Cancelled);
+    }
 
     let report = inputs.write_manifest(&projector.entries)?;
     projector.finish(&report.manifest);
@@ -654,20 +638,10 @@ fn sign(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<
     let mut projector = SignProjector::new(output);
     projector.open();
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(AppError::internal)?;
-    runtime.block_on(toven_runtime::execute(
-        &units,
-        operation,
-        toven_runtime::EngineConfig {
-            jobs,
-            fail_fast: false,
-        },
-        &mut projector,
-        tokio_util::sync::CancellationToken::new(),
-    ))?;
+    let (_summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    if cancelled {
+        return Ok(ExitCode::Cancelled);
+    }
     Ok(ExitCode::Success)
 }
 
@@ -710,20 +684,10 @@ fn verify(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResul
     );
     projector.open();
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(AppError::internal)?;
-    runtime.block_on(toven_runtime::execute(
-        &units,
-        operation,
-        toven_runtime::EngineConfig {
-            jobs,
-            fail_fast: false,
-        },
-        &mut projector,
-        tokio_util::sync::CancellationToken::new(),
-    ))?;
+    let (_summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    if cancelled {
+        return Ok(ExitCode::Cancelled);
+    }
     Ok(ExitCode::Success)
 }
 
@@ -760,20 +724,10 @@ fn image(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult
     let mut projector = ImageProjector::new(output, inputs.preview());
     projector.open();
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(AppError::internal)?;
-    runtime.block_on(toven_runtime::execute(
-        &units,
-        operation,
-        toven_runtime::EngineConfig {
-            jobs,
-            fail_fast: false,
-        },
-        &mut projector,
-        tokio_util::sync::CancellationToken::new(),
-    ))?;
+    let (_summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    if cancelled {
+        return Ok(ExitCode::Cancelled);
+    }
     Ok(ExitCode::Success)
 }
 
@@ -811,20 +765,10 @@ fn provenance(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppR
     let mut projector = ProvenanceProjector::new(output, inputs.preview());
     projector.open();
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(AppError::internal)?;
-    let summary = runtime.block_on(toven_runtime::execute(
-        &units,
-        operation,
-        toven_runtime::EngineConfig {
-            jobs,
-            fail_fast: false,
-        },
-        &mut projector,
-        tokio_util::sync::CancellationToken::new(),
-    ))?;
+    let (summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    if cancelled {
+        return Ok(ExitCode::Cancelled);
+    }
     // An enforced run fails closed if any published subject lacked an
     // attestation; the preview only reports presence and never fails.
     if !inputs.preview() && summary.has_failures() {
