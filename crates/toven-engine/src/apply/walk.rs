@@ -76,7 +76,7 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             output,
             options,
             units: unit_index(plan),
-            gate: Gate::new(plan),
+            gate: super::gating::gate_for(plan),
             held: HeldSet::new(plan),
             stats,
             dropped_output,

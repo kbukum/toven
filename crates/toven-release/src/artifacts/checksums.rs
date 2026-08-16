@@ -15,14 +15,18 @@
 //! error: no declared assets, no `SHA256SUMS` manifest asset declared, an empty
 //! input set, or a missing input file.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use rskit_errors::{AppError, AppResult};
+use async_trait::async_trait;
+use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir::create_all;
 use rskit_fs::sync_io::file::{read as read_file, write_atomic};
 use rskit_util::hash::sha256::sha256;
+use tokio_util::sync::CancellationToken;
 use toven_ports::{Provider, Reporter};
+use toven_runtime::{Completed, UnitOperation, UnitSpec};
 
 use crate::planning::plan::{release_targets, resolve_release_settings};
 use toven_core::config::Document;
@@ -91,69 +95,204 @@ pub fn release_checksums(
     readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
     reporter: &mut dyn Reporter,
 ) -> AppResult<ChecksumReport> {
-    let locator = PathDriverLocator::new();
-    let context = prepare_front(
-        &request.project_root,
-        document,
-        providers,
-        &locator,
-        reporter,
-    )?;
-    let targets = release_targets(&context, readers)?;
-    let settings = resolve_release_settings(&context, &targets)?;
+    let inputs = ChecksumInputs::gather(request, document, providers, readers, reporter)?;
+    let entries = inputs
+        .assets
+        .iter()
+        .map(|asset| checksum_for(&inputs, asset))
+        .collect::<AppResult<Vec<_>>>()?;
+    inputs.write_manifest(&entries)
+}
 
-    let declared = crate::artifacts::assets::declared_release_assets(&settings);
-    if declared.is_empty() {
-        return Err(AppError::invalid_input(
-            "release.host.assets",
-            "no hosted-release assets are declared; nothing to checksum (set \
-             […release.host] forge + assets)",
-        ));
+/// Shared prerequisites for `release checksums`, resolved once before streaming.
+pub struct ChecksumInputs {
+    project_root: PathBuf,
+    manifest: String,
+    assets: Vec<String>,
+}
+
+impl ChecksumInputs {
+    /// Resolve the declared checksum inputs and manifest path.
+    ///
+    /// # Errors
+    /// Propagates configuration/discovery/graph failures and fail-closed asset validation errors.
+    pub fn gather(
+        request: &PlanRequest,
+        document: &Document,
+        providers: &[&dyn Provider],
+        readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
+        reporter: &mut dyn Reporter,
+    ) -> AppResult<Self> {
+        let locator = PathDriverLocator::new();
+        let context = prepare_front(
+            &request.project_root,
+            document,
+            providers,
+            &locator,
+            reporter,
+        )?;
+        let targets = release_targets(&context, readers)?;
+        let settings = resolve_release_settings(&context, &targets)?;
+
+        let declared = crate::artifacts::assets::declared_release_assets(&settings);
+        if declared.is_empty() {
+            return Err(AppError::invalid_input(
+                "release.host.assets",
+                "no hosted-release assets are declared; nothing to checksum (set \
+                 […release.host] forge + assets)",
+            ));
+        }
+
+        let manifest = declared
+            .iter()
+            .find(|asset| asset_file_name(asset) == Some(MANIFEST_NAME))
+            .copied()
+            .ok_or_else(|| {
+                AppError::invalid_input(
+                    "release.host.assets",
+                    format!(
+                        "no '{MANIFEST_NAME}' asset is declared to write the checksum manifest to"
+                    ),
+                )
+            })?;
+
+        let assets: Vec<String> = declared
+            .iter()
+            .filter(|asset| is_checksum_input(asset))
+            .map(|asset| (*asset).clone())
+            .collect();
+        if assets.is_empty() {
+            return Err(AppError::invalid_input(
+                "release.host.assets",
+                "no checksum-input assets are declared (every declared asset is the \
+                 manifest or one of its signature sidecars)",
+            ));
+        }
+
+        Ok(Self {
+            project_root: request.project_root.as_path().to_path_buf(),
+            manifest: manifest.clone(),
+            assets,
+        })
     }
 
-    let manifest = declared
-        .iter()
-        .find(|asset| asset_file_name(asset) == Some(MANIFEST_NAME))
-        .copied()
-        .ok_or_else(|| {
+    fn asset(&self, id: &str) -> Option<&String> {
+        self.assets.iter().find(|asset| asset.as_str() == id)
+    }
+
+    /// The engine unit graph: one independent unit per checksum input asset.
+    #[must_use]
+    pub fn units(&self) -> Vec<UnitSpec> {
+        self.assets
+            .iter()
+            .map(|asset| UnitSpec::new(asset.clone(), Vec::<String>::new()))
+            .collect()
+    }
+
+    /// The project-relative checksum manifest path.
+    #[must_use]
+    pub fn manifest(&self) -> &str {
+        &self.manifest
+    }
+
+    /// Write the final `SHA256SUMS` manifest from streamed entries.
+    ///
+    /// # Errors
+    /// Propagates manifest path and write failures.
+    pub fn write_manifest(&self, entries: &[ChecksumEntry]) -> AppResult<ChecksumReport> {
+        let report = ChecksumReport::new(self.manifest.clone(), entries.to_vec());
+        let dest = safe_join(&self.project_root, &self.manifest).map_err(|error| {
             AppError::invalid_input(
                 "release.host.assets",
-                format!("no '{MANIFEST_NAME}' asset is declared to write the checksum manifest to"),
+                format!(
+                    "asset '{}' is not a safe project-relative path",
+                    self.manifest
+                ),
             )
+            .with_cause(error)
         })?;
+        if let Some(parent) = dest.parent() {
+            create_all(parent)?;
+        }
+        write_atomic(&dest, report.render(), "toven-sha256sums")?;
+        Ok(report)
+    }
+}
 
-    let inputs: Vec<&String> = declared
-        .iter()
-        .filter(|asset| is_checksum_input(asset))
-        .copied()
-        .collect();
-    if inputs.is_empty() {
-        return Err(AppError::invalid_input(
-            "release.host.assets",
-            "no checksum-input assets are declared (every declared asset is the \
-             manifest or one of its signature sidecars)",
-        ));
+/// One settled checksum entry.
+pub type ChecksumOutcome = ChecksumEntry;
+
+fn checksum_for(inputs: &ChecksumInputs, asset: &str) -> AppResult<ChecksumOutcome> {
+    checksum_entry(&inputs.project_root, asset)
+}
+
+/// The `release checksums` per-unit operation on the shared runtime engine.
+pub struct ChecksumOperation {
+    inputs: Arc<ChecksumInputs>,
+}
+
+impl ChecksumOperation {
+    /// Wrap gathered inputs as a runnable operation.
+    #[must_use]
+    pub fn new(inputs: ChecksumInputs) -> Self {
+        Self {
+            inputs: Arc::new(inputs),
+        }
     }
 
-    let project_root = request.project_root.as_path();
-    let mut entries = Vec::with_capacity(inputs.len());
-    for asset in inputs {
-        entries.push(checksum_entry(project_root, asset)?);
+    /// Share the gathered inputs so the CLI can write the manifest after streaming.
+    #[must_use]
+    pub fn inputs(&self) -> Arc<ChecksumInputs> {
+        Arc::clone(&self.inputs)
+    }
+}
+
+#[async_trait]
+impl UnitOperation for ChecksumOperation {
+    type Shared = Arc<ChecksumInputs>;
+    type Outcome = ChecksumOutcome;
+
+    async fn gather(&self) -> AppResult<Self::Shared> {
+        Ok(Arc::clone(&self.inputs))
     }
 
-    let report = ChecksumReport::new(manifest.clone(), entries);
-    let dest = safe_join(project_root, manifest).map_err(|error| {
-        AppError::invalid_input(
-            "release.host.assets",
-            format!("asset '{manifest}' is not a safe project-relative path"),
-        )
-        .with_cause(error)
-    })?;
-    if let Some(parent) = dest.parent() {
-        create_all(parent)?;
+    async fn run(
+        &self,
+        shared: &Self::Shared,
+        unit_id: &str,
+        _cancel: CancellationToken,
+    ) -> AppResult<Completed<Self::Outcome>> {
+        let shared = Arc::clone(shared);
+        let id = unit_id.to_string();
+        let outcome = tokio::task::spawn_blocking(move || {
+            let asset = shared.asset(&id).ok_or_else(|| {
+                AppError::new(
+                    ErrorCode::Internal,
+                    format!("unknown checksums unit '{id}'"),
+                )
+            })?;
+            checksum_for(&shared, asset)
+        })
+        .await
+        .map_err(AppError::internal)??;
+        Ok(Completed::succeeded(outcome))
     }
-    write_atomic(&dest, report.render(), "toven-sha256sums")?;
-    Ok(report)
+}
+
+/// Build the `release checksums` operation and its engine unit graph.
+///
+/// # Errors
+/// Propagates GATHER failures.
+pub fn checksums_operation(
+    request: &PlanRequest,
+    document: &Document,
+    providers: &[&dyn Provider],
+    readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
+    reporter: &mut dyn Reporter,
+) -> AppResult<(ChecksumOperation, Vec<UnitSpec>)> {
+    let inputs = ChecksumInputs::gather(request, document, providers, readers, reporter)?;
+    let units = inputs.units();
+    Ok((ChecksumOperation::new(inputs), units))
 }
 
 /// Digest one declared asset, reading its bytes through the filesystem owner.
@@ -218,7 +357,7 @@ mod tests {
         FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, RecordingReporter,
     };
 
-    use super::{ChecksumReport, release_checksums};
+    use super::{ChecksumOutcome, ChecksumReport, checksums_operation, release_checksums};
     use toven_core::config::{Document, ProjectConfig, TovenConfig};
     use toven_core::federation::MemberVcsReaders;
     use toven_core::plan::PlanRequest;
@@ -393,6 +532,103 @@ mod tests {
             }],
         );
         assert_eq!(report.render(), "abc  a.tar.gz\n");
+    }
+
+    #[derive(Default)]
+    struct Recorder {
+        started: Vec<String>,
+        settled: Vec<(String, toven_runtime::UnitStatus, Option<ChecksumOutcome>)>,
+    }
+
+    impl toven_runtime::Progress<ChecksumOutcome> for Recorder {
+        fn started(&mut self, unit_id: &str) -> rskit_errors::AppResult<()> {
+            self.started.push(unit_id.to_string());
+            Ok(())
+        }
+
+        fn settled(
+            &mut self,
+            report: &toven_runtime::UnitReport<ChecksumOutcome>,
+        ) -> rskit_errors::AppResult<()> {
+            self.settled.push((
+                report.unit_id.clone(),
+                report.status,
+                report.outcome.clone(),
+            ));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn checksums_units_are_edgeless_one_per_input_asset() {
+        let root = TempDir::new().unwrap();
+        write_asset(root.path(), "dist/a.tar.gz", b"a");
+        write_asset(root.path(), "dist/b.cdx.json", b"b");
+        let provider =
+            provider_with_assets(vec!["dist/a.tar.gz", "dist/SHA256SUMS", "dist/b.cdx.json"]);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let (_op, units) = checksums_operation(
+            &request(root.path()),
+            &document(),
+            &providers,
+            &readers,
+            &mut reporter,
+        )
+        .unwrap();
+
+        assert_eq!(units.len(), 2);
+        assert!(units.iter().all(|unit| unit.depends_on.is_empty()));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn checksums_streams_a_settled_entry_per_asset() {
+        let root = TempDir::new().unwrap();
+        write_asset(root.path(), "dist/a.tar.gz", b"a");
+        write_asset(root.path(), "dist/b.cdx.json", b"b");
+        let provider =
+            provider_with_assets(vec!["dist/a.tar.gz", "dist/SHA256SUMS", "dist/b.cdx.json"]);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let (op, units) = checksums_operation(
+            &request(root.path()),
+            &document(),
+            &providers,
+            &readers,
+            &mut reporter,
+        )
+        .unwrap();
+        let mut rec = Recorder::default();
+        let summary = toven_runtime::execute(
+            &units,
+            op,
+            toven_runtime::EngineConfig {
+                jobs: 2,
+                fail_fast: false,
+            },
+            &mut rec,
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(summary.total, 2);
+        assert_eq!(summary.succeeded, 2);
+        assert_eq!(rec.started.len(), 2);
+        assert_eq!(rec.settled.len(), 2);
+        for (unit_id, status, outcome) in &rec.settled {
+            assert_eq!(*status, toven_runtime::UnitStatus::Succeeded);
+            assert_eq!(
+                &outcome.as_ref().unwrap().name,
+                Path::new(unit_id).file_name().unwrap().to_str().unwrap()
+            );
+        }
     }
 
     #[test]

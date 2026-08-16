@@ -1,4 +1,3 @@
-
 Release readiness
-  no readiness checks configured
-  verdict:  go
+no readiness checks configured
+verdict: go

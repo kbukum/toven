@@ -10,6 +10,7 @@ L0.5 crates/toven-semver
 L1   crates/toven-ports
 L1.5 crates/toven-exec
 L1.5 crates/toven-vcs
+L1.5 crates/toven-runtime
 L2a  crates/toven-core
 L2   crates/toven-version
 L2b  crates/toven-release
@@ -21,7 +22,7 @@ L3   crates/toven-cli
 L4   apps/toven, apps/toven-rs, apps/toven-go
 ```
 
-Dependencies point downward only. `toven-semver` is a pure L0.5 toolkit — semver bump math and the release-tag codec, reusable by any layer, depending on no other Toven crate. `toven-exec` and `toven-vcs` are focused L1.5 utilities — `toven-exec` owns the concrete subprocess runners, and `toven-vcs` owns the git mechanism behind the VCS ports. `toven-version` is the L2 version-decision capability whose pure `plan_bumps` is the single path every bump flows through; the three engine crates share layer 2 above `toven-core`, with `toven-release` composing `toven-version` for its bump phase.
+Dependencies point downward only. `toven-semver` is a pure L0.5 toolkit — semver bump math and the release-tag codec, reusable by any layer, depending on no other Toven crate. `toven-exec`, `toven-vcs`, and `toven-runtime` are focused L1.5 utilities — `toven-exec` owns the concrete subprocess runners, `toven-vcs` owns the git mechanism behind the VCS ports, and `toven-runtime` owns the generic streaming, wave-scheduled, bounded-parallel unit-operation engine (shared GATHER → per-unit STREAM) that every multi-module verb runs on. `toven-version` is the L2 version-decision capability whose pure `plan_bumps` is the single path every bump flows through; the three engine crates share layer 2 above `toven-core`, with `toven-release` composing `toven-version` for its bump phase.
 
 ```mermaid
 flowchart TB
@@ -30,6 +31,7 @@ flowchart TB
     ports["L1 · toven-ports"]
     exec["L1.5 · toven-exec"]
     vcs["L1.5 · toven-vcs"]
+    runtime["L1.5 · toven-runtime"]
     core["L2a · toven-core"]
     version["L2 · toven-version"]
     release["L2b · toven-release"]
@@ -51,6 +53,7 @@ flowchart TB
     release --> version
     engine --> core
     engine --> exec
+    engine --> runtime
     ecosystems --> ports
     cli --> engine
     cli --> release
@@ -70,6 +73,7 @@ Only the thin `apps/*` binaries wire the ecosystem adapters (`toven-rust`, `tove
 | `toven-ports` | Adapter contracts and shared configuration values |
 | `toven-exec` | The concrete subprocess runners (`ProcessToolRunner`, `ProcessCommandRunner`, persistent spawn) and the shared argv→`ProcessSpec` lowering |
 | `toven-vcs` | The git mechanism: the rskit-git-backed `VcsReader`/`VcsWriter` adapter, the change foundation (diff-range resolution), and the per-repo reader-set fan-out |
+| `toven-runtime` | The generic streaming, wave-scheduled, bounded-parallel unit-operation engine: the unit graph + dependency-wave levelling, fail-closed gating, the shared-GATHER/per-unit `UnitOperation` seam, and the typed per-unit lifecycle every multi-module verb streams through |
 | `toven-core` | Strict `toven.toml` loading, the engine-owned VCS baseline policy over the git seam, the PLAN spine, and federation-core |
 | `toven-version` | The pure `plan_bumps` bump/cascade/idempotency decision, baseline anchoring, entrypoint/`CutIntent` policy, change detection, and Conventional-Commit changelog generation |
 | `toven-release` | Release PLAN/APPLY flow: tag, package, checksums, SBOM, signing, hosted publishing — composing `toven-version` for the bump decision |
@@ -225,7 +229,7 @@ working-tree↔{branch,tag,commit}   current↔latest-matching-tag
 
 `resolve_range` resolves each endpoint to a concrete ref (or the working tree), then maps the pair onto the seam: a working-tree target composes committed `from..HEAD` with working-tree status, and two committed endpoints diff directly. Baseline *policy* — merge-base selection, `--base` and config precedence — stays in the engine's `BaselineStrategy`; the foundation only resolves endpoints and diffs. "Latest matching tag" is a reusable primitive here rather than release-private code.
 
-A single path→owning-module resolver classifies each changed path to the module that owns it, failing closed to a full plan on any unclassified path. Both affected-task selection and release change gating consume the one foundation and the one resolver, so a commit-range diff, a working-tree preview, and a release baseline all agree on what changed and who owns it.
+A single path→owning-module resolver classifies each changed path to the module that owns it. A path that no single module root can claim — because nothing claims it (a workspace-root, CI, docs, or skills change) or because only a whole-workspace blast-radius glob does (a shared `Cargo.lock`) — is resolved by the caller's explicit attribution policy, because the two consumers want opposite safe answers. Task/`run` selection fails **open**: an unattributable path activates every module and a blast-radius match activates its whole workspace, since the safe default there is never to skip a build. Release gating fails **closed**: neither an unattributable path nor a lockfile blast-radius is release-relevant, so a lockfile-only or root/CI/docs-only diff bumps nothing, since the safe default there is never to over-publish — a real first-party dependency floor still reaches dependents through the graph cascade, not through blanket blast-radius activation. Both consume the one foundation and the one resolver, so a commit-range diff, a working-tree preview, and a release baseline all agree on what changed and who owns it; only the no-single-owner policy differs.
 
 ## Process execution
 

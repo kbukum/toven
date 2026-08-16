@@ -33,4 +33,4 @@ steps:
     argv: [release, readiness]
     config: toven.clean-tree.toml
     exit: 1
-    stdout: { match: normalized }
+    stdout: { match: line-set, frame_prefix: 1, frame_suffix: 1 }

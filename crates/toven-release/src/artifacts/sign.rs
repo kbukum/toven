@@ -23,6 +23,7 @@ use rskit_fs::sync_io::dir::create_all;
 use rskit_fs::sync_io::file::{exists as file_exists, remove_if_exists};
 use toven_model::ReleasePhase;
 use toven_ports::{DelegatedTool, Provider, Reporter, Signer, ToolInvocation, ToolRunner};
+use toven_runtime::UnitSpec;
 
 use crate::hosting::run_delegated_preview;
 use crate::planning::plan::{release_targets, resolve_release_settings};
@@ -101,78 +102,240 @@ pub fn release_sign(
     tool_runner: &dyn ToolRunner,
     reporter: &mut dyn Reporter,
 ) -> AppResult<SignReport> {
-    let locator = PathDriverLocator::new();
-    let context = prepare_front(
-        &request.project_root,
-        document,
-        providers,
-        &locator,
-        reporter,
-    )?;
-    let targets = release_targets(&context, readers)?;
-    let settings = resolve_release_settings(&context, &targets)?;
+    let inputs = SignInputs::gather(request, document, providers, readers, tool_runner, reporter)?;
+    sign_for(&inputs, signer)
+}
 
-    let selection = match resolve_signer(&settings)? {
-        SignerSelection::Disabled => {
+/// The shared prerequisites for `release sign`, resolved once by
+/// [`SignInputs::gather`].
+///
+/// The verb cuts exactly one signature over the shared `SHA256SUMS` manifest, so
+/// GATHER performs every workspace-level policy check (signer selection, the
+/// declared manifest/bundle assets, the produced-manifest precondition, the
+/// single sign backing) and, for a delegated backing, the shared tool preview.
+/// The lone streamed unit then either signs natively or normalizes the
+/// delegated bundle.
+pub struct SignInputs {
+    /// The project-relative manifest asset that is signed.
+    blob: String,
+    /// The project-relative Sigstore bundle asset produced.
+    bundle: String,
+    /// The resolved absolute manifest path.
+    blob_path: std::path::PathBuf,
+    /// The resolved absolute bundle path.
+    bundle_path: std::path::PathBuf,
+    /// The resolved signer selection (`None` = keyless default).
+    selection: Option<String>,
+    /// Whether a delegated tool already produced the bundle during GATHER.
+    delegated: bool,
+}
+
+impl SignInputs {
+    /// Resolve the signing policy and, for a delegated backing, run the shared
+    /// tool preview once.
+    ///
+    /// # Errors
+    /// Fails closed with a typed error when signing is disabled, the manifest or
+    /// bundle asset is not declared, the manifest has not been produced, the
+    /// sign backing is divergent, or a delegated tool fails — as well as
+    /// propagating configuration, discovery, graph, and I/O failures.
+    pub fn gather(
+        request: &PlanRequest,
+        document: &Document,
+        providers: &[&dyn Provider],
+        readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
+        tool_runner: &dyn ToolRunner,
+        reporter: &mut dyn Reporter,
+    ) -> AppResult<Self> {
+        let locator = PathDriverLocator::new();
+        let context = prepare_front(
+            &request.project_root,
+            document,
+            providers,
+            &locator,
+            reporter,
+        )?;
+        let targets = release_targets(&context, readers)?;
+        let settings = resolve_release_settings(&context, &targets)?;
+
+        let selection = match resolve_signer(&settings)? {
+            SignerSelection::Disabled => {
+                return Err(AppError::invalid_input(
+                    "release.sign",
+                    "signing is disabled; set […release.sign].enabled = true before signing",
+                ));
+            }
+            SignerSelection::Enabled(signer) => signer,
+        };
+
+        let declared = crate::artifacts::assets::declared_release_assets(&settings);
+        let blob = require_declared_asset(&declared, MANIFEST_NAME)?;
+        let bundle = require_declared_asset(&declared, BUNDLE_NAME)?;
+
+        let project_root = request.project_root.as_path();
+        let blob_path = safe_join_asset(project_root, blob)?;
+        // The signing policy is that only an already-produced manifest is signed
+        // — it holds for every backing, so the precondition is checked before
+        // the native/delegated dispatch (a delegated tool must not be handed, or
+        // asked to sign, a missing manifest).
+        if !file_exists(&blob_path)? {
             return Err(AppError::invalid_input(
-                "release.sign",
-                "signing is disabled; set […release.sign].enabled = true before signing",
-            ));
-        }
-        SignerSelection::Enabled(signer) => signer,
-    };
-
-    let declared = crate::artifacts::assets::declared_release_assets(&settings);
-    let blob = require_declared_asset(&declared, MANIFEST_NAME)?;
-    let bundle = require_declared_asset(&declared, BUNDLE_NAME)?;
-
-    let project_root = request.project_root.as_path();
-    let blob_path = safe_join_asset(project_root, blob)?;
-    // The signing policy is that only an already-produced manifest is signed —
-    // it holds for every backing, so the precondition is checked before the
-    // native/delegated dispatch rather than only on the native path (a
-    // delegated tool must not be handed, or asked to sign, a missing manifest).
-    if !file_exists(&blob_path)? {
-        return Err(AppError::invalid_input(
-            "release.sign.manifest",
-            format!(
-                "manifest '{blob}' has not been produced; run `toven release checksums` before \
-                 signing"
-            ),
-        ));
-    }
-
-    let bundle_path = safe_join_asset(project_root, bundle)?;
-    if let Some(parent) = bundle_path.parent() {
-        create_all(parent)?;
-    }
-
-    // The scope's `Sign` backing decides how the bundle is produced; a
-    // delegated backing is dispatched through the runner, native cosign
-    // otherwise.
-    if let Some(tool) = resolve_sign_delegation(&settings)? {
-        // Clear the declared bundle before the tool runs, so the post-preview
-        // existence check proves *this* run produced it. Without this, a stale
-        // `.bundle` from a previous attempt plus a tool that exits 0 without
-        // rewriting would be accepted, silently reusing a stale signature over
-        // the manifest.
-        remove_if_exists(&bundle_path)?;
-        run_delegated_preview(ReleasePhase::Sign, &tool, tool_runner, project_root)?;
-        if !file_exists(&bundle_path)? {
-            return Err(AppError::invalid_input(
-                "release.sign.delegated",
+                "release.sign.manifest",
                 format!(
-                    "delegated sign tool did not produce the declared asset '{bundle}' at '{}'",
-                    bundle_path.display()
+                    "manifest '{blob}' has not been produced; run `toven release checksums` \
+                     before signing"
                 ),
             ));
         }
-        return Ok(SignReport::delegated(blob.clone(), bundle.clone()));
+
+        let bundle_path = safe_join_asset(project_root, bundle)?;
+        if let Some(parent) = bundle_path.parent() {
+            create_all(parent)?;
+        }
+
+        // The scope's `Sign` backing decides how the bundle is produced. A
+        // delegated backing runs its tool's shared preview once here in GATHER;
+        // the streamed unit then only normalizes the produced bundle.
+        let delegated = if let Some(tool) = resolve_sign_delegation(&settings)? {
+            // Clear the declared bundle before the tool runs, so the streamed
+            // existence check proves *this* run produced it. Without this, a
+            // stale `.bundle` from a previous attempt plus a tool that exits 0
+            // without rewriting would be accepted, silently reusing a stale
+            // signature over the manifest.
+            remove_if_exists(&bundle_path)?;
+            run_delegated_preview(ReleasePhase::Sign, &tool, tool_runner, project_root)?;
+            true
+        } else {
+            false
+        };
+
+        Ok(Self {
+            blob: blob.clone(),
+            bundle: bundle.clone(),
+            blob_path,
+            bundle_path,
+            selection,
+            delegated,
+        })
     }
 
-    signer.sign_blob(&blob_path, &bundle_path, selection.as_deref())?;
+    /// The engine unit graph: the single manifest-signing unit.
+    #[must_use]
+    pub fn units(&self) -> Vec<UnitSpec> {
+        vec![UnitSpec::new(self.blob.clone(), Vec::<String>::new())]
+    }
 
-    Ok(SignReport::new(blob.clone(), bundle.clone()))
+    /// The manifest asset that is the lone unit's id.
+    #[must_use]
+    pub fn blob(&self) -> &str {
+        &self.blob
+    }
+}
+
+/// One settled signing outcome (the whole report — a single signature).
+pub type SignOutcome = SignReport;
+
+/// Produce the signature — the per-unit compute over the gathered
+/// [`SignInputs`]. A native backing signs the manifest with `signer`; a
+/// delegated backing was produced by its tool's shared preview during GATHER, so
+/// this only normalizes the bundle back into the report, failing closed when the
+/// tool produced none.
+fn sign_for(inputs: &SignInputs, signer: &dyn Signer) -> AppResult<SignOutcome> {
+    if inputs.delegated {
+        if !file_exists(&inputs.bundle_path)? {
+            return Err(AppError::invalid_input(
+                "release.sign.delegated",
+                format!(
+                    "delegated sign tool did not produce the declared asset '{}' at '{}'",
+                    inputs.bundle,
+                    inputs.bundle_path.display()
+                ),
+            ));
+        }
+        return Ok(SignReport::delegated(
+            inputs.blob.clone(),
+            inputs.bundle.clone(),
+        ));
+    }
+    signer.sign_blob(
+        &inputs.blob_path,
+        &inputs.bundle_path,
+        inputs.selection.as_deref(),
+    )?;
+    Ok(SignReport::new(inputs.blob.clone(), inputs.bundle.clone()))
+}
+
+/// The `release sign` per-unit operation on the shared runtime engine.
+///
+/// GATHER resolves the signing policy (and runs the shared delegated preview)
+/// once into [`SignInputs`]; the lone unit signs the shared manifest. Signing is
+/// synchronous port work, so it runs on a blocking thread.
+pub struct SignOperation {
+    inputs: Arc<SignInputs>,
+    signer: Arc<dyn Signer>,
+}
+
+impl SignOperation {
+    /// Wrap gathered inputs and the injected signer as a runnable operation.
+    #[must_use]
+    pub fn new(inputs: SignInputs, signer: Arc<dyn Signer>) -> Self {
+        Self {
+            inputs: Arc::new(inputs),
+            signer,
+        }
+    }
+
+    /// Share the gathered inputs.
+    #[must_use]
+    pub fn inputs(&self) -> Arc<SignInputs> {
+        Arc::clone(&self.inputs)
+    }
+}
+
+#[async_trait::async_trait]
+impl toven_runtime::UnitOperation for SignOperation {
+    type Shared = Arc<SignInputs>;
+    type Outcome = SignOutcome;
+
+    async fn gather(&self) -> AppResult<Self::Shared> {
+        Ok(Arc::clone(&self.inputs))
+    }
+
+    async fn run(
+        &self,
+        shared: &Self::Shared,
+        _unit_id: &str,
+        _cancel: tokio_util::sync::CancellationToken,
+    ) -> AppResult<toven_runtime::Completed<Self::Outcome>> {
+        let shared = Arc::clone(shared);
+        let signer = Arc::clone(&self.signer);
+        let outcome = tokio::task::spawn_blocking(move || sign_for(&shared, signer.as_ref()))
+            .await
+            .map_err(AppError::internal)??;
+        Ok(toven_runtime::Completed::succeeded(outcome))
+    }
+}
+
+/// Build the `release sign` operation and its single-unit engine graph.
+///
+/// GATHER runs the shared delegated preview once; the returned unit streams the
+/// signing step.
+///
+/// # Errors
+/// Propagates GATHER failures (signing policy, produced-manifest precondition,
+/// delegated-preview failures).
+pub fn sign_operation(
+    request: &PlanRequest,
+    document: &Document,
+    providers: &[&dyn Provider],
+    readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
+    signer: Arc<dyn Signer>,
+    tool_runner: &dyn ToolRunner,
+    reporter: &mut dyn Reporter,
+) -> AppResult<(SignOperation, Vec<UnitSpec>)> {
+    let inputs = SignInputs::gather(request, document, providers, readers, tool_runner, reporter)?;
+    let units = inputs.units();
+    Ok((SignOperation::new(inputs, signer), units))
 }
 
 /// Resolve the scope's `Sign` phase delegation: `Some(tool)` when the modules
@@ -836,5 +999,91 @@ mod tests {
             resolve_signer(&agreeing).unwrap(),
             SignerSelection::Enabled(Some(selected)) if selected == "cosign.key"
         ));
+    }
+
+    #[derive(Default)]
+    struct Recorder {
+        started: Vec<String>,
+        settled: Vec<(
+            String,
+            toven_runtime::UnitStatus,
+            Option<super::SignOutcome>,
+        )>,
+    }
+
+    impl toven_runtime::Progress<super::SignOutcome> for Recorder {
+        fn started(&mut self, unit_id: &str) -> rskit_errors::AppResult<()> {
+            self.started.push(unit_id.to_string());
+            Ok(())
+        }
+
+        fn settled(
+            &mut self,
+            report: &toven_runtime::UnitReport<super::SignOutcome>,
+        ) -> rskit_errors::AppResult<()> {
+            self.settled.push((
+                report.unit_id.clone(),
+                report.status,
+                report.outcome.clone(),
+            ));
+            Ok(())
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn sign_streams_a_single_settled_signature() {
+        use std::sync::Arc;
+
+        let root = TempDir::new().unwrap();
+        write_manifest(root.path());
+        let provider = provider(
+            SignConfig {
+                enabled: true,
+                signer: Some("keyref".to_string()),
+                ..SignConfig::default()
+            },
+            sign_assets(),
+        );
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+        let signer: Arc<dyn toven_ports::Signer> = Arc::new(FakeSigner::default());
+        let mut reporter = RecordingReporter::new();
+
+        let (op, units) = super::sign_operation(
+            &request(root.path()),
+            &document(),
+            &providers,
+            &readers,
+            signer,
+            &FakeToolRunner::new(),
+            &mut reporter,
+        )
+        .unwrap();
+        assert_eq!(units.len(), 1);
+        assert!(units.iter().all(|unit| unit.depends_on.is_empty()));
+
+        let mut rec = Recorder::default();
+        let summary = toven_runtime::execute(
+            &units,
+            op,
+            toven_runtime::EngineConfig {
+                jobs: 2,
+                fail_fast: false,
+            },
+            &mut rec,
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(summary.total, 1);
+        assert_eq!(summary.succeeded, 1);
+        assert_eq!(rec.started.len(), 1);
+        assert_eq!(rec.settled.len(), 1);
+        let (_id, status, outcome) = &rec.settled[0];
+        assert_eq!(*status, toven_runtime::UnitStatus::Succeeded);
+        assert_eq!(outcome.as_ref().unwrap().backing, "native");
+        assert!(root.path().join("dist").join("SHA256SUMS.bundle").exists());
     }
 }

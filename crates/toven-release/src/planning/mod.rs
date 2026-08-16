@@ -10,7 +10,10 @@ mod run;
 mod status;
 
 pub use plan::release_plan;
-pub use readiness::{ReadinessCheck, ReadinessReport, release_readiness};
+pub use readiness::{
+    ReadinessCheck, ReadinessInputs, ReadinessOperation, ReadinessReport, readiness_operation,
+    release_readiness,
+};
 pub use rehearse::release_rehearse;
 pub use run::release_run;
-pub use status::release_status;
+pub use status::{StatusInputs, StatusOperation, release_status, status_operation};

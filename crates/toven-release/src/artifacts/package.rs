@@ -19,14 +19,18 @@
 //! asset for the target, or a missing built binary.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use async_trait::async_trait;
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::archive::{self, ArchiveEntry};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir::create_all;
 use rskit_fs::sync_io::file::{exists as file_exists, metadata, remove_if_exists};
+use tokio_util::sync::CancellationToken;
 use toven_model::ReleasePhase;
 use toven_ports::{Provider, Reporter, ToolRunner};
+use toven_runtime::{Completed, UnitOperation, UnitSpec};
 
 use crate::hosting::run_delegated_preview;
 use crate::planning::plan::{release_targets, resolve_release_settings};
@@ -141,84 +145,278 @@ pub fn release_package(
     tool_runner: &dyn ToolRunner,
     reporter: &mut dyn Reporter,
 ) -> AppResult<PackageReport> {
-    validate_target(target)?;
-    let locator = PathDriverLocator::new();
-    let context = prepare_front(
-        &request.project_root,
+    let inputs = PackageInputs::gather(
+        request,
         document,
         providers,
-        &locator,
+        readers,
+        target,
+        binary_override,
+        tool_runner,
         reporter,
     )?;
-    let targets = release_targets(&context, readers)?;
-    let settings = resolve_release_settings(&context, &targets)?;
-
-    if crate::artifacts::assets::declared_release_assets(&settings).is_empty() {
-        return Err(AppError::invalid_input(
-            "release.host.assets",
-            "no hosted-release assets are declared; nothing to package (set \
-             […release.host] forge + assets)",
-        ));
-    }
-
-    let format = ArchiveFormat::for_target(target);
-    let suffix = format!("-{target}.{}", format.extension());
-    // Resolve each declared archive asset matching the target to its owning
-    // module's Package backing, first-owner-wins in `ModuleKey` order so a
-    // shared asset is produced once and deterministically.
-    let matched = resolve_matched_assets(&settings, &suffix)?;
-    if matched.is_empty() {
-        return Err(AppError::invalid_input(
-            "release.host.assets",
-            format!(
-                "no hosted-release asset is declared for target '{target}' (expected an asset \
-                 named '*{suffix}')"
-            ),
-        ));
-    }
-
-    let project_root = request.project_root.as_path();
-    // Clear each delegated owner's declared archive before its tool runs, so the
-    // post-preview existence check proves *this* run produced it. Without this, a
-    // stale archive from a prior run plus a tool that exits 0 without rewriting
-    // would be silently accepted — undermining the fail-closed guarantee.
-    for owner in &matched {
-        if matches!(owner.backing, AssetBacking::Delegated(_)) {
-            remove_if_exists(&safe_join_asset(project_root, owner.asset)?)?;
-        }
-    }
-    // Run each distinct delegated tool's preview once — a single preview (e.g.
-    // GoReleaser's `--snapshot`) produces every archive that tool owns, so
-    // re-running it per matched asset would repeat a multi-minute build. Dedup
-    // on the fully-resolved argv so two identically-configured tools collapse to
-    // one run while genuinely distinct invocations each run once.
-    let mut previewed: std::collections::BTreeSet<Vec<String>> = std::collections::BTreeSet::new();
-    for owner in &matched {
-        if let AssetBacking::Delegated(tool) = &owner.backing
-            && previewed.insert(delegated_preview_key(tool))
-        {
-            run_delegated_preview(ReleasePhase::Package, tool, tool_runner, project_root)?;
-        }
-    }
-
-    let mut assets = Vec::with_capacity(matched.len());
-    for owner in &matched {
-        assets.push(match &owner.backing {
-            AssetBacking::Native => package_asset_native(
-                project_root,
-                owner.asset,
-                target,
-                format,
-                &suffix,
-                binary_override,
-            )?,
-            AssetBacking::Delegated(_) => {
-                package_asset_delegated(project_root, owner.asset, format)?
-            }
-        });
-    }
+    let mut assets = inputs
+        .matched
+        .iter()
+        .map(|matched| package_for(&inputs, matched))
+        .collect::<AppResult<Vec<_>>>()?;
     assets.sort_by(|left, right| left.asset.cmp(&right.asset));
-    Ok(PackageReport::new(target.to_string(), assets))
+    Ok(PackageReport::new(inputs.target, assets))
+}
+
+/// One declared asset resolved to its owned Package backing during GATHER, so
+/// the streamed per-unit phase borrows neither the settings nor VCS readers.
+struct OwnedMatched {
+    /// The project-relative declared asset path.
+    asset: String,
+    /// Whether Toven archives a built binary (`true`) or a delegated tool
+    /// already produced the archive during GATHER (`false`).
+    native: bool,
+}
+
+/// The shared prerequisites for `release package`, resolved once by
+/// [`PackageInputs::gather`] and shared across every per-unit run.
+///
+/// GATHER also performs the genuinely shared side effects: it clears each
+/// delegated owner's declared archive and runs each distinct delegated tool's
+/// preview exactly once (one preview produces every archive that tool owns), so
+/// the streamed per-unit phase is a pure archive-or-normalize step per asset.
+pub struct PackageInputs {
+    project_root: PathBuf,
+    target: String,
+    format: ArchiveFormat,
+    suffix: String,
+    binary_override: Option<PathBuf>,
+    matched: Vec<OwnedMatched>,
+}
+
+impl PackageInputs {
+    /// Resolve the declared archive assets for `target`, run the shared
+    /// delegated previews once, and record each asset's owned backing.
+    ///
+    /// # Errors
+    /// Fails closed with a typed error when the target triple is malformed, no
+    /// hosted-release asset is declared for the target, or a delegated tool
+    /// fails — as well as propagating configuration, discovery, graph, and I/O
+    /// failures.
+    #[allow(clippy::too_many_arguments)]
+    pub fn gather(
+        request: &PlanRequest,
+        document: &Document,
+        providers: &[&dyn Provider],
+        readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
+        target: &str,
+        binary_override: Option<&Path>,
+        tool_runner: &dyn ToolRunner,
+        reporter: &mut dyn Reporter,
+    ) -> AppResult<Self> {
+        validate_target(target)?;
+        let locator = PathDriverLocator::new();
+        let context = prepare_front(
+            &request.project_root,
+            document,
+            providers,
+            &locator,
+            reporter,
+        )?;
+        let targets = release_targets(&context, readers)?;
+        let settings = resolve_release_settings(&context, &targets)?;
+
+        if crate::artifacts::assets::declared_release_assets(&settings).is_empty() {
+            return Err(AppError::invalid_input(
+                "release.host.assets",
+                "no hosted-release assets are declared; nothing to package (set \
+                 […release.host] forge + assets)",
+            ));
+        }
+
+        let format = ArchiveFormat::for_target(target);
+        let suffix = format!("-{target}.{}", format.extension());
+        // Resolve each declared archive asset matching the target to its owning
+        // module's Package backing, first-owner-wins in `ModuleKey` order so a
+        // shared asset is produced once and deterministically.
+        let matched = resolve_matched_assets(&settings, &suffix)?;
+        if matched.is_empty() {
+            return Err(AppError::invalid_input(
+                "release.host.assets",
+                format!(
+                    "no hosted-release asset is declared for target '{target}' (expected an asset \
+                     named '*{suffix}')"
+                ),
+            ));
+        }
+
+        let project_root = request.project_root.as_path();
+        // Clear each delegated owner's declared archive before its tool runs, so
+        // the post-preview existence check proves *this* run produced it.
+        // Without this, a stale archive from a prior run plus a tool that exits 0
+        // without rewriting would be silently accepted — undermining the
+        // fail-closed guarantee.
+        for owner in &matched {
+            if matches!(owner.backing, AssetBacking::Delegated(_)) {
+                remove_if_exists(&safe_join_asset(project_root, owner.asset)?)?;
+            }
+        }
+        // Run each distinct delegated tool's preview once — a single preview
+        // (e.g. GoReleaser's `--snapshot`) produces every archive that tool owns,
+        // so re-running it per matched asset would repeat a multi-minute build.
+        // Dedup on the fully-resolved argv so two identically-configured tools
+        // collapse to one run while genuinely distinct invocations each run once.
+        let mut previewed: std::collections::BTreeSet<Vec<String>> =
+            std::collections::BTreeSet::new();
+        for owner in &matched {
+            if let AssetBacking::Delegated(tool) = &owner.backing
+                && previewed.insert(delegated_preview_key(tool))
+            {
+                run_delegated_preview(ReleasePhase::Package, tool, tool_runner, project_root)?;
+            }
+        }
+
+        let owned = matched
+            .iter()
+            .map(|owner| OwnedMatched {
+                asset: owner.asset.to_string(),
+                native: matches!(owner.backing, AssetBacking::Native),
+            })
+            .collect();
+        Ok(Self {
+            project_root: project_root.to_path_buf(),
+            target: target.to_string(),
+            format,
+            suffix,
+            binary_override: binary_override.map(Path::to_path_buf),
+            matched: owned,
+        })
+    }
+
+    /// The target triple this package run stages assets for.
+    #[must_use]
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+
+    fn matched(&self, id: &str) -> Option<&OwnedMatched> {
+        self.matched.iter().find(|owner| owner.asset == id)
+    }
+
+    /// The engine unit graph: one independent unit per declared archive asset.
+    #[must_use]
+    pub fn units(&self) -> Vec<UnitSpec> {
+        self.matched
+            .iter()
+            .map(|owner| UnitSpec::new(owner.asset.clone(), Vec::<String>::new()))
+            .collect()
+    }
+}
+
+/// One settled packaged archive asset.
+pub type PackageOutcome = PackagedAsset;
+
+/// Produce one declared asset — the pure per-unit compute over the gathered
+/// [`PackageInputs`]. A native asset archives its built binary; a delegated
+/// asset was produced by its tool's shared preview during GATHER, so this only
+/// normalizes it back into the typed report.
+fn package_for(inputs: &PackageInputs, matched: &OwnedMatched) -> AppResult<PackageOutcome> {
+    if matched.native {
+        package_asset_native(
+            &inputs.project_root,
+            &matched.asset,
+            &inputs.target,
+            inputs.format,
+            &inputs.suffix,
+            inputs.binary_override.as_deref(),
+        )
+    } else {
+        package_asset_delegated(&inputs.project_root, &matched.asset, inputs.format)
+    }
+}
+
+/// The `release package` per-unit operation on the shared runtime engine.
+///
+/// GATHER resolves the matched assets and runs the shared delegated previews
+/// once into [`PackageInputs`]; each unit streams one archive asset. The archive
+/// step is synchronous port/filesystem work, so it runs on a blocking thread to
+/// let the engine schedule the assets bounded-parallel.
+pub struct PackageOperation {
+    inputs: Arc<PackageInputs>,
+}
+
+impl PackageOperation {
+    /// Wrap gathered inputs as a runnable operation.
+    #[must_use]
+    pub fn new(inputs: PackageInputs) -> Self {
+        Self {
+            inputs: Arc::new(inputs),
+        }
+    }
+
+    /// Share the gathered inputs so the CLI can title its output with the target.
+    #[must_use]
+    pub fn inputs(&self) -> Arc<PackageInputs> {
+        Arc::clone(&self.inputs)
+    }
+}
+
+#[async_trait]
+impl UnitOperation for PackageOperation {
+    type Shared = Arc<PackageInputs>;
+    type Outcome = PackageOutcome;
+
+    async fn gather(&self) -> AppResult<Self::Shared> {
+        Ok(Arc::clone(&self.inputs))
+    }
+
+    async fn run(
+        &self,
+        shared: &Self::Shared,
+        unit_id: &str,
+        _cancel: CancellationToken,
+    ) -> AppResult<Completed<Self::Outcome>> {
+        let shared = Arc::clone(shared);
+        let id = unit_id.to_string();
+        let outcome = tokio::task::spawn_blocking(move || {
+            let matched = shared.matched(&id).ok_or_else(|| {
+                AppError::new(ErrorCode::Internal, format!("unknown package unit '{id}'"))
+            })?;
+            package_for(&shared, matched)
+        })
+        .await
+        .map_err(AppError::internal)??;
+        Ok(Completed::succeeded(outcome))
+    }
+}
+
+/// Build the `release package` operation and its engine unit graph.
+///
+/// GATHER runs the shared delegated previews once; the returned units stream the
+/// per-asset archive/normalize step.
+///
+/// # Errors
+/// Propagates GATHER failures (target validation, configuration/discovery/graph,
+/// asset resolution, delegated-preview failures).
+#[allow(clippy::too_many_arguments)]
+pub fn package_operation(
+    request: &PlanRequest,
+    document: &Document,
+    providers: &[&dyn Provider],
+    readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
+    target: &str,
+    binary_override: Option<&Path>,
+    tool_runner: &dyn ToolRunner,
+    reporter: &mut dyn Reporter,
+) -> AppResult<(PackageOperation, Vec<UnitSpec>)> {
+    let inputs = PackageInputs::gather(
+        request,
+        document,
+        providers,
+        readers,
+        target,
+        binary_override,
+        tool_runner,
+        reporter,
+    )?;
+    let units = inputs.units();
+    Ok((PackageOperation::new(inputs), units))
 }
 
 /// How a declared asset is backed: archived natively by Toven, or produced by a
@@ -958,5 +1156,104 @@ mod tests {
             error.to_string().contains("invalid target triple"),
             "{error}"
         );
+    }
+
+    #[derive(Default)]
+    struct Recorder {
+        started: Vec<String>,
+        settled: Vec<(
+            String,
+            toven_runtime::UnitStatus,
+            Option<super::PackageOutcome>,
+        )>,
+    }
+
+    impl toven_runtime::Progress<super::PackageOutcome> for Recorder {
+        fn started(&mut self, unit_id: &str) -> rskit_errors::AppResult<()> {
+            self.started.push(unit_id.to_string());
+            Ok(())
+        }
+
+        fn settled(
+            &mut self,
+            report: &toven_runtime::UnitReport<super::PackageOutcome>,
+        ) -> rskit_errors::AppResult<()> {
+            self.settled.push((
+                report.unit_id.clone(),
+                report.status,
+                report.outcome.clone(),
+            ));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn package_units_are_edgeless_one_per_matched_asset() {
+        let root = TempDir::new().unwrap();
+        write_built_binary(root.path(), LINUX, "toven");
+        let provider = provider_with_assets(vec!["dist/toven-x86_64-unknown-linux-gnu.tar.gz"]);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let (_op, units) = super::package_operation(
+            &request(root.path()),
+            &document(),
+            &providers,
+            &readers,
+            LINUX,
+            None,
+            &FakeToolRunner::new(),
+            &mut reporter,
+        )
+        .unwrap();
+
+        assert_eq!(units.len(), 1);
+        assert!(units.iter().all(|unit| unit.depends_on.is_empty()));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn package_streams_a_settled_asset_per_unit() {
+        let root = TempDir::new().unwrap();
+        write_built_binary(root.path(), LINUX, "toven");
+        let provider = provider_with_assets(vec!["dist/toven-x86_64-unknown-linux-gnu.tar.gz"]);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let (op, units) = super::package_operation(
+            &request(root.path()),
+            &document(),
+            &providers,
+            &readers,
+            LINUX,
+            None,
+            &FakeToolRunner::new(),
+            &mut reporter,
+        )
+        .unwrap();
+        let mut rec = Recorder::default();
+        let summary = toven_runtime::execute(
+            &units,
+            op,
+            toven_runtime::EngineConfig {
+                jobs: 2,
+                fail_fast: false,
+            },
+            &mut rec,
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(summary.total, 1);
+        assert_eq!(summary.succeeded, 1);
+        assert_eq!(rec.started.len(), 1);
+        assert_eq!(rec.settled.len(), 1);
+        let (_id, status, outcome) = &rec.settled[0];
+        assert_eq!(*status, toven_runtime::UnitStatus::Succeeded);
+        assert_eq!(outcome.as_ref().unwrap().backing, "native");
     }
 }

@@ -1,11 +1,15 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use async_trait::async_trait;
 use rskit_errors::{AppError, AppResult};
 use rskit_util::Template;
+use tokio_util::sync::CancellationToken;
 use toven_core::config::Document;
 use toven_core::federation::resolve::PathDriverLocator;
 use toven_core::plan::{PlanRequest, prepare_front};
 use toven_ports::{ImageOutcome, ImagePhase, ImageRequest, Provider, ReleaseVar, Reporter};
+use toven_runtime::{Completed, UnitOperation, UnitSpec};
 
 use crate::planning::plan::{release_targets, resolve_release_settings};
 
@@ -93,41 +97,224 @@ pub fn release_image(
     options: ImageOptions,
     reporter: &mut dyn Reporter,
 ) -> AppResult<ImageReport> {
-    let locator = PathDriverLocator::new();
-    let context = prepare_front(
-        &request.project_root,
-        document,
-        providers,
-        &locator,
-        reporter,
-    )?;
-    let targets = release_targets(&context, readers)?;
-    let settings = resolve_release_settings(&context, &targets)?;
-    let project_root = request.project_root.as_path();
-
+    let inputs = ImageInputs::gather(request, document, providers, readers, options, reporter)?;
     let mut images = Vec::new();
-    for (module_key, image_request) in resolved_image_requests(&context, &targets, &settings)? {
-        let outcome = if options.dry_run {
-            preview_image(project_root, image_phase, &module_key, &image_request)?
-        } else {
-            publish_one(project_root, image_phase, &module_key, &image_request)?
-        };
-        images.push(outcome);
+    for unit in &inputs.units {
+        images.push(image_for(&inputs, image_phase, unit)?);
+    }
+    Ok(inputs.report(images))
+}
+
+/// One resolved image unit: a module's label paired with its fully-rendered
+/// [`ImageRequest`], resolved once during GATHER so the streamed per-unit phase
+/// borrows neither the providers nor VCS readers.
+struct ImageUnit {
+    /// Stable unit id (the module's canonical key string).
+    module_key: String,
+    /// The resolved image request (name/tag/registries/sign).
+    request: ImageRequest,
+}
+
+/// The shared prerequisites for `release image`, resolved once by
+/// [`ImageInputs::gather`] and shared across every per-unit run.
+pub struct ImageInputs {
+    /// Whether this run is a mutation-free `--dry-run` preview.
+    preview: bool,
+    /// The project root each image is built and resolved relative to.
+    project_root: PathBuf,
+    /// The resolved image units, one per module declaring `[…release.image]`.
+    units: Vec<ImageUnit>,
+}
+
+impl ImageInputs {
+    /// Resolve every releasable module's image request once, failing closed when
+    /// no module declares an image phase so the run never streams zero units.
+    ///
+    /// # Errors
+    /// Fails closed with a typed error when no module declares an image block,
+    /// and propagates configuration/discovery/graph failures and
+    /// template-render failures.
+    pub fn gather(
+        request: &PlanRequest,
+        document: &Document,
+        providers: &[&dyn Provider],
+        readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
+        options: ImageOptions,
+        reporter: &mut dyn Reporter,
+    ) -> AppResult<Self> {
+        let locator = PathDriverLocator::new();
+        let context = prepare_front(
+            &request.project_root,
+            document,
+            providers,
+            &locator,
+            reporter,
+        )?;
+        let targets = release_targets(&context, readers)?;
+        let settings = resolve_release_settings(&context, &targets)?;
+
+        let mut units = Vec::new();
+        for (module_key, request) in resolved_image_requests(&context, &targets, &settings)? {
+            units.push(ImageUnit {
+                module_key,
+                request,
+            });
+        }
+        if units.is_empty() {
+            return Err(AppError::invalid_input(
+                "release.image",
+                "no module declares an image phase; add a […release.image] block to the module \
+                 that ships a container image",
+            ));
+        }
+        units.sort_by(|left, right| left.module_key.cmp(&right.module_key));
+
+        Ok(Self {
+            preview: options.dry_run,
+            project_root: request.project_root.as_path().to_path_buf(),
+            units,
+        })
     }
 
-    if images.is_empty() {
-        return Err(AppError::invalid_input(
-            "release.image",
-            "no module declares an image phase; add a […release.image] block to the module that \
-             ships a container image",
-        ));
+    /// Look up a resolved image unit by its unit id.
+    fn unit(&self, id: &str) -> Option<&ImageUnit> {
+        self.units.iter().find(|unit| unit.module_key == id)
     }
-    images.sort_by(|left, right| left.module.cmp(&right.module));
 
-    Ok(ImageReport {
-        preview: options.dry_run,
-        images,
-    })
+    /// Whether this run is a mutation-free `--dry-run` preview.
+    #[must_use]
+    pub const fn preview(&self) -> bool {
+        self.preview
+    }
+
+    /// The engine unit graph: one independent (edgeless) unit per module that
+    /// declares an image phase, so the engine schedules them bounded-parallel.
+    #[must_use]
+    pub fn units(&self) -> Vec<UnitSpec> {
+        self.units
+            .iter()
+            .map(|unit| UnitSpec::new(unit.module_key.clone(), Vec::<String>::new()))
+            .collect()
+    }
+
+    /// Assemble the terminal report from the per-module outcomes — the
+    /// post-stream aggregate.
+    #[must_use]
+    pub fn report(&self, mut images: Vec<ImageModuleOutcome>) -> ImageReport {
+        images.sort_by(|left, right| left.module.cmp(&right.module));
+        ImageReport {
+            preview: self.preview,
+            images,
+        }
+    }
+}
+
+/// Build/push/sign or preview one module's image — the pure per-unit compute
+/// over the gathered [`ImageInputs`], with the [`ImagePhase`] port call as its
+/// only I/O.
+fn image_for(
+    inputs: &ImageInputs,
+    image_phase: &dyn ImagePhase,
+    unit: &ImageUnit,
+) -> AppResult<ImageModuleOutcome> {
+    if inputs.preview {
+        preview_image(
+            &inputs.project_root,
+            image_phase,
+            &unit.module_key,
+            &unit.request,
+        )
+    } else {
+        publish_one(
+            &inputs.project_root,
+            image_phase,
+            &unit.module_key,
+            &unit.request,
+        )
+    }
+}
+
+/// The `release image` per-unit operation on the shared runtime engine.
+///
+/// GATHER resolves each module's image request once into [`ImageInputs`]; each
+/// unit streams one module's build/push/sign (or preview). The [`ImagePhase`]
+/// call is synchronous port work, so each unit runs on a blocking thread
+/// ([`tokio::task::spawn_blocking`]) to let the engine schedule the modules
+/// bounded-parallel.
+pub struct ImageOperation {
+    inputs: Arc<ImageInputs>,
+    image_phase: Arc<dyn ImagePhase>,
+}
+
+impl ImageOperation {
+    /// Wrap gathered inputs and the injected image phase as a runnable
+    /// operation.
+    #[must_use]
+    pub fn new(inputs: ImageInputs, image_phase: Arc<dyn ImagePhase>) -> Self {
+        Self {
+            inputs: Arc::new(inputs),
+            image_phase,
+        }
+    }
+
+    /// Share the gathered inputs so the CLI can title its output with the
+    /// preview flag and assemble the terminal aggregate.
+    #[must_use]
+    pub fn inputs(&self) -> Arc<ImageInputs> {
+        Arc::clone(&self.inputs)
+    }
+}
+
+#[async_trait]
+impl UnitOperation for ImageOperation {
+    type Shared = Arc<ImageInputs>;
+    type Outcome = ImageModuleOutcome;
+
+    async fn gather(&self) -> AppResult<Self::Shared> {
+        Ok(Arc::clone(&self.inputs))
+    }
+
+    async fn run(
+        &self,
+        shared: &Self::Shared,
+        unit_id: &str,
+        _cancel: CancellationToken,
+    ) -> AppResult<Completed<Self::Outcome>> {
+        let shared = Arc::clone(shared);
+        let image_phase = Arc::clone(&self.image_phase);
+        let id = unit_id.to_string();
+        let outcome = tokio::task::spawn_blocking(move || {
+            let unit = shared.unit(&id).ok_or_else(|| {
+                AppError::new(
+                    rskit_errors::ErrorCode::Internal,
+                    format!("unknown image unit '{id}'"),
+                )
+            })?;
+            image_for(&shared, image_phase.as_ref(), unit)
+        })
+        .await
+        .map_err(AppError::internal)??;
+        Ok(Completed::succeeded(outcome))
+    }
+}
+
+/// Build the `release image` operation and its engine unit graph.
+///
+/// # Errors
+/// Propagates GATHER failures (configuration/discovery/graph, template render,
+/// and the fail-closed empty-image-set check).
+pub fn image_operation(
+    request: &PlanRequest,
+    document: &Document,
+    providers: &[&dyn Provider],
+    readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
+    image_phase: Arc<dyn ImagePhase>,
+    options: ImageOptions,
+    reporter: &mut dyn Reporter,
+) -> AppResult<(ImageOperation, Vec<UnitSpec>)> {
+    let inputs = ImageInputs::gather(request, document, providers, readers, options, reporter)?;
+    let units = inputs.units();
+    Ok((ImageOperation::new(inputs, image_phase), units))
 }
 
 /// Resolve the [`ImageRequest`] for every module that declares a

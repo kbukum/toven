@@ -3,8 +3,12 @@
 //! The engine-owned longest-prefix change mapper attributes each changed
 //! workspace-relative path to the module whose root is its longest prefix,
 //! refined by adapter-declared workspace **blast-radius** globs (a `Cargo.lock`
-//! change activates its whole workspace). An unclassifiable path conservatively
-//! activates every module (fail-closed).
+//! change is a whole-workspace input). A path that only a blast-radius glob can
+//! claim — or that nothing can claim (root / CI / docs / skills) — has no single
+//! owning module; what happens then is the caller's [`AttributionPolicy`]:
+//! `run` fails *open* (activate the workspace / every module, never skip a
+//! build) while release fails *closed* (seed nothing, never over-publish — a
+//! real first-party change still cascades to dependents through the graph).
 //!
 //! This is a first-class shared concern, not an affected-selection internal:
 //! both task-affected selection (`plan::affected`) and release change detection
@@ -18,6 +22,36 @@ use toven_ports::ChangeRecord;
 
 use crate::plan::discover::Federation;
 
+/// What change attribution does with a changed path that no single module root
+/// can claim.
+///
+/// Such a path is either unattributable (root / CI / docs / skills) or a
+/// whole-workspace blast-radius match (a shared `Cargo.lock`).
+///
+/// The two verbs that attribute change want *opposite* safe answers to the same
+/// "who owns this?" question, so the policy is an explicit parameter rather
+/// than a hard-wired rule (see the operation taxonomy in the plan):
+///
+/// - [`FailOpen`](AttributionPolicy::FailOpen) — task/`run` selection: an
+///   unattributable path activates *every* module, and a blast-radius match
+///   activates its whole workspace. Safety here is *never skip a build*, so when
+///   a change could affect any member the conservative choice is to run all.
+/// - [`FailClosed`](AttributionPolicy::FailClosed) — release gating: neither an
+///   unattributable path nor a blast-radius match contributes a seed. Safety
+///   here is *never over-publish*, so a lockfile-only or root/CI/docs-only diff
+///   bumps nothing. A real dependency floor still reaches dependents through the
+///   graph cascade (a changed *first-party* crate cascades to its dependents),
+///   not through blanket blast-radius activation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttributionPolicy {
+    /// Unattributable or blast-radius path → activate every affected module
+    /// (`run`: never skip a build).
+    FailOpen,
+    /// Unattributable or blast-radius path → contribute no seed (release: never
+    /// over-publish).
+    FailClosed,
+}
+
 /// How one changed path was attributed to workspace/module ownership.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) enum Classification {
@@ -25,7 +59,7 @@ pub(crate) enum Classification {
     Module(ModuleKey),
     /// Matched a workspace blast-radius glob (whole-workspace invalidation).
     Workspace(WorkspaceId),
-    /// Could not be attributed — forces fail-closed full activation.
+    /// Could not be attributed — resolved per the caller's [`AttributionPolicy`].
     Unclassified,
 }
 
@@ -34,7 +68,8 @@ pub(crate) enum Classification {
 /// Blast-radius globs win first (whole-workspace invalidation), then the module
 /// whose root is the longest path-prefix of the record's path (or its
 /// pre-rename path). A record no module root or blast-radius glob can claim is
-/// [`Classification::Unclassified`], which callers fail closed on.
+/// [`Classification::Unclassified`], which callers resolve per their
+/// [`AttributionPolicy`].
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn owning_module(record: &ChangeRecord, federation: &Federation) -> Classification {
     for path in record_paths(record) {
@@ -58,12 +93,19 @@ pub(crate) fn owning_module(record: &ChangeRecord, federation: &Federation) -> C
 /// Map changed records to direct seed modules before any reverse-dependent
 /// closure is applied.
 ///
-/// An unclassifiable path fails closed to every module in the graph.
+/// A path attributable to one module always seeds that module. A path that only
+/// a whole-workspace blast-radius glob or nothing at all can claim is resolved
+/// per `policy`: [`FailOpen`](AttributionPolicy::FailOpen) activates the whole
+/// workspace (blast-radius) or every module (unattributable) — the `run`/task
+/// rule; [`FailClosed`](AttributionPolicy::FailClosed) drops it and contributes
+/// no seed — the release rule, so a lockfile-only diff bumps nothing while a
+/// real first-party change still cascades to dependents through the graph.
 #[allow(clippy::redundant_pub_crate)]
 pub fn changed_seeds(
     changed: &[ChangeRecord],
     graph: &Graph,
     federation: &Federation,
+    policy: AttributionPolicy,
 ) -> BTreeSet<ModuleKey> {
     let mut seeds = BTreeSet::new();
     for record in changed {
@@ -71,10 +113,16 @@ pub fn changed_seeds(
             Classification::Module(reference) => {
                 seeds.insert(reference);
             }
-            Classification::Workspace(workspace) => {
-                seeds.extend(modules_in_workspace(&workspace, federation));
-            }
-            Classification::Unclassified => return graph.modules().map(Module::key).collect(),
+            Classification::Workspace(workspace) => match policy {
+                AttributionPolicy::FailOpen => {
+                    seeds.extend(modules_in_workspace(&workspace, federation));
+                }
+                AttributionPolicy::FailClosed => {}
+            },
+            Classification::Unclassified => match policy {
+                AttributionPolicy::FailOpen => return graph.modules().map(Module::key).collect(),
+                AttributionPolicy::FailClosed => {}
+            },
         }
     }
     seeds
@@ -83,10 +131,11 @@ pub fn changed_seeds(
 /// The changed paths that no module root or workspace blast-radius glob could
 /// claim.
 ///
-/// A non-empty result is exactly the condition under which [`changed_seeds`]
-/// fails closed to every module: the CLI reports these paths as the reason
-/// every module was activated, so a full run is never silent. Paths are sorted
-/// and de-duplicated for a stable diagnostic.
+/// A non-empty result is exactly the condition under which
+/// [`changed_seeds`] with [`AttributionPolicy::FailOpen`] activates every
+/// module: the CLI reports these paths as the reason every module was activated,
+/// so a full run is never silent. Paths are sorted and de-duplicated for a
+/// stable diagnostic.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn unclassified_paths(changed: &[ChangeRecord], federation: &Federation) -> Vec<String> {
     let mut paths: Vec<String> = changed
@@ -107,9 +156,9 @@ pub(crate) fn unclassified_paths(changed: &[ChangeRecord], federation: &Federati
 /// Return only records directly attributable to `module`.
 ///
 /// Module-root matches belong to that one module; workspace blast-radius
-/// matches belong to every module in that workspace. Unclassified records still
-/// fail closed for activation through [`changed_seeds`], but they are not
-/// assigned to a per-module changelog because no owner can be identified.
+/// matches belong to every module in that workspace. Unclassified records are
+/// resolved by [`changed_seeds`] per its [`AttributionPolicy`], but they are
+/// never assigned to a per-module changelog because no owner can be identified.
 #[allow(clippy::redundant_pub_crate)]
 pub fn changed_records_for_module(
     module: &Module,
@@ -284,5 +333,106 @@ mod tests {
             owning_module(&record, &federation),
             Classification::Unclassified
         ));
+    }
+
+    fn graph_of(federation: &Federation) -> Graph {
+        Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap()
+    }
+
+    #[test]
+    fn changed_seeds_fail_open_activates_all_on_unclassified() {
+        let federation = federation();
+        let graph = graph_of(&federation);
+        let changed = [ChangeRecord::new("docs/guide.md", ChangeStatus::Modified)];
+
+        let seeds = changed_seeds(&changed, &graph, &federation, AttributionPolicy::FailOpen);
+
+        assert_eq!(
+            seeds,
+            BTreeSet::from([key("rust", "app"), key("rust", "app-core")]),
+            "task fail-open activates every module on an unattributable path"
+        );
+    }
+
+    #[test]
+    fn changed_seeds_fail_closed_drops_unclassified_and_keeps_real_seeds() {
+        let federation = federation();
+        let graph = graph_of(&federation);
+        let changed = [
+            ChangeRecord::new("docs/guide.md", ChangeStatus::Modified),
+            ChangeRecord::new("crates/app-core/src/lib.rs", ChangeStatus::Modified),
+        ];
+
+        let seeds = changed_seeds(&changed, &graph, &federation, AttributionPolicy::FailClosed);
+
+        assert_eq!(
+            seeds,
+            BTreeSet::from([key("rust", "app-core")]),
+            "release fail-closed ignores the unattributable path and keeps only real owners"
+        );
+    }
+
+    #[test]
+    fn changed_seeds_fail_closed_is_empty_for_a_root_only_diff() {
+        let federation = federation();
+        let graph = graph_of(&federation);
+        let changed = [
+            ChangeRecord::new("README.md", ChangeStatus::Modified),
+            ChangeRecord::new(".github/workflows/ci.yml", ChangeStatus::Modified),
+        ];
+
+        let seeds = changed_seeds(&changed, &graph, &federation, AttributionPolicy::FailClosed);
+
+        assert!(
+            seeds.is_empty(),
+            "a root/CI-only diff is not release-relevant and seeds nothing"
+        );
+    }
+
+    #[test]
+    fn changed_seeds_fail_open_blast_radius_activates_whole_workspace() {
+        let federation = federation();
+        let graph = graph_of(&federation);
+        let changed = [ChangeRecord::new("Cargo.lock", ChangeStatus::Modified)];
+
+        let seeds = changed_seeds(&changed, &graph, &federation, AttributionPolicy::FailOpen);
+
+        assert_eq!(
+            seeds,
+            BTreeSet::from([key("rust", "app"), key("rust", "app-core")]),
+            "task fail-open lets a lockfile blast-radius activate its whole workspace"
+        );
+    }
+
+    #[test]
+    fn changed_seeds_fail_closed_drops_blast_radius_lockfile() {
+        let federation = federation();
+        let graph = graph_of(&federation);
+        let changed = [ChangeRecord::new("Cargo.lock", ChangeStatus::Modified)];
+
+        let seeds = changed_seeds(&changed, &graph, &federation, AttributionPolicy::FailClosed);
+
+        assert!(
+            seeds.is_empty(),
+            "release fail-closed does not let a lockfile blast-radius over-activate the workspace"
+        );
+    }
+
+    #[test]
+    fn changed_seeds_fail_closed_keeps_real_seed_alongside_lockfile() {
+        let federation = federation();
+        let graph = graph_of(&federation);
+        let changed = [
+            ChangeRecord::new("Cargo.lock", ChangeStatus::Modified),
+            ChangeRecord::new("crates/app-core/src/lib.rs", ChangeStatus::Modified),
+        ];
+
+        let seeds = changed_seeds(&changed, &graph, &federation, AttributionPolicy::FailClosed);
+
+        assert_eq!(
+            seeds,
+            BTreeSet::from([key("rust", "app-core")]),
+            "release fail-closed drops the lockfile blast-radius but keeps the real owner"
+        );
     }
 }

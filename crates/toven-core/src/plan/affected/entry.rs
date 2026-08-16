@@ -14,14 +14,14 @@ use crate::plan::request::{PlanRequest, Selection};
 
 use super::changed::changed_for_members;
 use super::select::explicit_seeds;
-use crate::plan::ownership::{changed_seeds, unclassified_paths};
+use crate::plan::ownership::{AttributionPolicy, changed_seeds, unclassified_paths};
 
 /// The resolved active module set plus any forced-full-activation diagnostic.
 ///
 /// `modules` is the input to scheduling. `full_activation` is empty for an
 /// explicit or all-modules selection; for a changed selection it names the
 /// changed paths that no module or workspace could claim, which is exactly why
-/// every module was activated (fail-closed). The CLI renders it so a full run
+/// every module was activated (fail-open). The CLI renders it so a full run
 /// is never silent; the engine only returns the typed data.
 #[derive(Debug, Default)]
 #[allow(clippy::redundant_pub_crate)]
@@ -38,8 +38,9 @@ pub struct ActiveModules {
 /// the user-named selectors and optionally unions the forward-dependencies
 /// and/or reverse-dependents closures; [`Selection::Changed`] maps the changed
 /// paths (committed ∪ worktree) reported by every member reader to seed modules
-/// and returns the reverse-dependents closure, failing closed to the full set
-/// on any unclassifiable path. Each member reader uses its own resolved
+/// and returns the reverse-dependents closure, failing open to the full set
+/// (the [`FailOpen`](AttributionPolicy) task rule) on any unclassifiable path.
+/// Each member reader uses its own resolved
 /// baseline; the single-repo project is the N=1 degenerate member.
 ///
 /// # Errors
@@ -100,9 +101,10 @@ impl ActiveModules {
 /// diagnostic.
 ///
 /// When every changed path is attributable the active set is the
-/// reverse-dependents closure of the seeds; an unattributable path fails closed
-/// to every module and names the offending path(s) so the CLI can explain the
-/// full run.
+/// reverse-dependents closure of the seeds; an unattributable path fails open
+/// (the [`FailOpen`](AttributionPolicy::FailOpen) rule for task selection) to
+/// every module and names the offending path(s) so the CLI can explain the full
+/// run.
 fn resolve_changed(
     request: &PlanRequest,
     graph: &Graph,
@@ -110,7 +112,7 @@ fn resolve_changed(
     changed: &[ChangeRecord],
 ) -> AppResult<ActiveModules> {
     let full_activation = unclassified_paths(changed, federation);
-    let seeds = changed_seeds(changed, graph, federation);
+    let seeds = changed_seeds(changed, graph, federation, AttributionPolicy::FailOpen);
     let modules = graph.closure(&seeds, dependents_filter(&request.intent))?;
     Ok(ActiveModules {
         modules,

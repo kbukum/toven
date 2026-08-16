@@ -140,8 +140,17 @@ pub(crate) fn detect_in_order(
             module_changes
                 .retain(|record| !path_matches_any(&reference_globs, record.path.as_path()));
         }
-        let seeds =
-            toven_core::plan::changed_seeds(&module_changes, &context.graph, &context.federation);
+        // Release gates fail-closed: a changed path that attributes to no single
+        // module (workspace-root / CI / docs / skills) or only to a workspace
+        // blast-radius glob (a shared Cargo.lock) is not release-relevant and must
+        // bump nothing. A real first-party dependency floor still reaches
+        // dependents through the graph cascade, never through blanket activation.
+        let seeds = toven_core::plan::changed_seeds(
+            &module_changes,
+            &context.graph,
+            &context.federation,
+            toven_core::plan::AttributionPolicy::FailClosed,
+        );
         let force_maintainer =
             intent.forces_maintainer_owned() && resolved.entrypoint.is_maintainer_owned();
         if seeds.contains(key) || force_maintainer {

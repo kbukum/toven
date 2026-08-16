@@ -25,19 +25,20 @@ use toven_core::federation::member_repo::MemberReleaseRepos;
 use toven_core::plan::PlanRequest;
 use toven_core::vcs::BaselineFlags;
 use toven_exec::{ProcessSupervisor, ProcessToolRunner};
-use toven_model::{Entrypoint, ModuleRef, OutcomeSummary};
+use toven_model::{Entrypoint, ModuleKey, ModuleRef, OutcomeSummary};
 use toven_ports::{
     BumpLevel, HookRunner, Provider, PublicationPolicy, Reporter, TaskIntent, ToolRunner,
 };
 use toven_release::{
-    BuildxImagePhase, BumpOptions, BumpOverrides, BumpReport, ChecksumReport, CosignSigner,
-    CosignVerifier, DepgraphReport, GhAssetDownloader, GhAttestationProvenance, ImageOptions,
-    ImageReport, PackageReport, ProcessVersionProbe, ProvenanceOptions, ProvenanceReport,
-    PublishDecision, ReadinessReport, ReleaseApplyOptions, ReleasePlan, ReleaseRehearsal,
-    ReleaseStats, ReleaseStatus, SbomReport, SignReport, VerifyOptions, VerifyReport, release_bump,
-    release_checksums, release_depgraphs, release_image, release_package, release_plan,
-    release_provenance, release_readiness, release_rehearse, release_run, release_sbom,
-    release_sign, release_status, release_verify,
+    ArtifactManifest, BuildxImagePhase, BumpOptions, BumpOverrides, BumpReport, ChecksumOutcome,
+    CosignSigner, CosignVerifier, DepgraphOutcome, GhAssetDownloader, GhAttestationProvenance,
+    ImageModuleOutcome, ImageOptions, PackageOutcome, ProcessVersionProbe, ProvenanceOptions,
+    ProvenanceOutcome, PublishDecision, ReadinessCheck, ReleaseApplyOptions, ReleaseModuleStatus,
+    ReleasePlan, ReleaseRehearsal, ReleaseStats, SbomOutcome, SignOutcome, StagedSbom,
+    VerifyOptions, VerifyOutcome, checksums_operation, depgraph_operation, image_operation,
+    package_operation, provenance_operation, readiness_operation, release_bump, release_plan,
+    release_rehearse, release_run, sbom_operation, sign_operation, status_operation,
+    verify_operation,
 };
 
 use crate::commands::support::QuietReporter;
@@ -60,8 +61,8 @@ pub(crate) fn execute(
 ) -> AppResult<ExitCode> {
     match action {
         ReleaseAction::Plan => plan(providers, project, cli),
-        ReleaseAction::Status => status(providers, project, cli.output),
-        ReleaseAction::Readiness => readiness(providers, project, cli.output),
+        ReleaseAction::Status => status(providers, project, cli),
+        ReleaseAction::Readiness => readiness(providers, project, cli),
         ReleaseAction::Sbom => sbom(providers, project, cli),
         ReleaseAction::Depgraphs => depgraphs(providers, project, cli),
         ReleaseAction::Package => package(providers, project, cli),
@@ -334,28 +335,57 @@ fn stream_bump(
     Ok(release_exit(&bump_outcome(&report)))
 }
 
+/// The engine parallelism for a streamed release verb: `--jobs` /
+/// `[toven].max_parallel` when set, else the machine's available parallelism
+/// (mirroring `run`) so slow per-unit I/O overlaps.
+fn engine_jobs(cli: &Cli, project: &Project) -> usize {
+    crate::commands::run::resolve_max_parallel(cli.jobs, project)
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, std::num::NonZero::get))
+}
+
 /// `release status`: render each module's declared/published/tagged state.
-fn status(
-    providers: &[&dyn Provider],
-    project: &Project,
-    output: Option<OutputKind>,
-) -> AppResult<ExitCode> {
+fn status(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
     let mut reporter = QuietReporter;
-    let status = release_status(
+    let (operation, units) = status_operation(
         &request,
         &project.document,
         providers,
         &readers,
         &mut reporter,
     )?;
-    match resolve_output(output, &project.document) {
-        OutputKind::Jsonl => render_status_jsonl(&status)?,
-        OutputKind::Human => render_status_human(&status),
-    }
-    Ok(ExitCode::Success)
+
+    let output = resolve_output(cli.output, &project.document);
+    // Independent modules — one bounded-parallel wave.
+    let jobs = engine_jobs(cli, project);
+    let mut projector = StatusProjector::new(output);
+    projector.open();
+
+    // A tokio runtime bridges the sync CLI to the async engine, exactly as the
+    // `run` path does; per-module registry I/O is a sync port call the operation
+    // runs on a blocking thread.
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(AppError::internal)?;
+    let summary = runtime.block_on(toven_runtime::execute(
+        &units,
+        operation,
+        toven_runtime::EngineConfig {
+            jobs,
+            fail_fast: false,
+        },
+        &mut projector,
+        tokio_util::sync::CancellationToken::new(),
+    ))?;
+
+    Ok(if summary.has_failures() {
+        ExitCode::Failure
+    } else {
+        ExitCode::Success
+    })
 }
 
 /// The default artifact output directory when `--out-dir` is not given.
@@ -370,29 +400,55 @@ fn resolve_out_dir(cli: &Cli, project: &Project) -> std::path::PathBuf {
     })
 }
 
-/// `release readiness`: evaluate the fail-closed go/no-go preflight, mutating
-/// nothing. A no-go verdict exits non-zero so CI gates on it.
-fn readiness(
-    providers: &[&dyn Provider],
-    project: &Project,
-    output: Option<OutputKind>,
-) -> AppResult<ExitCode> {
+/// `release readiness`: stream the fail-closed go/no-go preflight, mutating
+/// nothing. Each composed check streams its verdict as it settles; the go/no-go
+/// conclusion is assembled from the streamed verdicts. A no-go verdict exits
+/// non-zero so CI gates on it.
+fn readiness(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
     let mut reporter = QuietReporter;
-    let report = release_readiness(
+    let (operation, units) = readiness_operation(
         &request,
         &project.document,
         providers,
         &readers,
         &mut reporter,
     )?;
-    match resolve_output(output, &project.document) {
-        OutputKind::Jsonl => render_readiness_jsonl(&report)?,
-        OutputKind::Human => render_readiness_human(&report),
+
+    let output = resolve_output(cli.output, &project.document);
+    let jobs = engine_jobs(cli, project);
+    let mut projector = ReadinessProjector::new(output);
+    projector.open();
+
+    if units.is_empty() {
+        // No composed checks: state the absence explicitly (an empty check list
+        // reads as broken output and a silent "go" is false confidence).
+        projector.note_no_checks();
+    } else {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(AppError::internal)?;
+        // A failing check is a settled verdict, not a unit error, so the engine
+        // runs every check; only I/O or an unknown check errors out here.
+        runtime.block_on(toven_runtime::execute(
+            &units,
+            operation,
+            toven_runtime::EngineConfig {
+                jobs,
+                fail_fast: false,
+            },
+            &mut projector,
+            tokio_util::sync::CancellationToken::new(),
+        ))?;
     }
-    Ok(if report.is_go() {
+
+    // Fail closed: any failing check makes the verdict no-go.
+    let is_go = projector.is_go();
+    projector.verdict(is_go);
+    Ok(if is_go {
         ExitCode::Success
     } else {
         ExitCode::Failure
@@ -407,7 +463,7 @@ fn sbom(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<
     let readers = opened.readers();
     let out_dir = resolve_out_dir(cli, project);
     let mut reporter = QuietReporter;
-    let report = release_sbom(
+    let (operation, units) = sbom_operation(
         &request,
         &project.document,
         providers,
@@ -415,10 +471,35 @@ fn sbom(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<
         &out_dir,
         &mut reporter,
     )?;
-    match resolve_output(cli.output, &project.document) {
-        OutputKind::Jsonl => render_sbom_jsonl(&report)?,
-        OutputKind::Human => render_sbom_human(&report),
-    }
+    // Retain the gathered inputs so the declared hosted assets are staged from
+    // the streamed artifacts once the parallel wave settles.
+    let inputs = operation.inputs();
+
+    let output = resolve_output(cli.output, &project.document);
+    // Independent modules — one bounded-parallel wave.
+    let jobs = engine_jobs(cli, project);
+    let mut projector = SbomProjector::new(output);
+    projector.open();
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(AppError::internal)?;
+    runtime.block_on(toven_runtime::execute(
+        &units,
+        operation,
+        toven_runtime::EngineConfig {
+            jobs,
+            fail_fast: false,
+        },
+        &mut projector,
+        tokio_util::sync::CancellationToken::new(),
+    ))?;
+
+    // Assemble the trailing aggregate from the streamed outcomes: stage the
+    // declared hosted-release assets, then report staged assets and skips.
+    let staged = inputs.stage(&projector.artifacts)?;
+    projector.finish(&staged)?;
     Ok(ExitCode::Success)
 }
 
@@ -428,17 +509,33 @@ fn depgraphs(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
     let request = release_request(project)?;
     let out_dir = resolve_out_dir(cli, project);
     let mut reporter = QuietReporter;
-    let report = release_depgraphs(
+    let (operation, units) = depgraph_operation(
         &request,
         &project.document,
         providers,
         &out_dir,
         &mut reporter,
     )?;
-    match resolve_output(cli.output, &project.document) {
-        OutputKind::Jsonl => render_depgraphs_jsonl(&report)?,
-        OutputKind::Human => render_depgraphs_human(&report),
-    }
+
+    let output = resolve_output(cli.output, &project.document);
+    let jobs = engine_jobs(cli, project);
+    let mut projector = DepgraphProjector::new(output);
+    projector.open();
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(AppError::internal)?;
+    runtime.block_on(toven_runtime::execute(
+        &units,
+        operation,
+        toven_runtime::EngineConfig {
+            jobs,
+            fail_fast: false,
+        },
+        &mut projector,
+        tokio_util::sync::CancellationToken::new(),
+    ))?;
     Ok(ExitCode::Success)
 }
 
@@ -458,7 +555,7 @@ fn package(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResu
     })?;
     let mut reporter = QuietReporter;
     let tool_runner = ProcessToolRunner::new();
-    let report = release_package(
+    let (operation, units) = package_operation(
         &request,
         &project.document,
         providers,
@@ -468,10 +565,27 @@ fn package(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResu
         &tool_runner,
         &mut reporter,
     )?;
-    match resolve_output(cli.output, &project.document) {
-        OutputKind::Jsonl => render_package_jsonl(&report)?,
-        OutputKind::Human => render_package_human(&report),
-    }
+    let inputs = operation.inputs();
+
+    let output = resolve_output(cli.output, &project.document);
+    let jobs = engine_jobs(cli, project);
+    let mut projector = PackageProjector::new(output, inputs.target().to_string());
+    projector.open();
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(AppError::internal)?;
+    runtime.block_on(toven_runtime::execute(
+        &units,
+        operation,
+        toven_runtime::EngineConfig {
+            jobs,
+            fail_fast: false,
+        },
+        &mut projector,
+        tokio_util::sync::CancellationToken::new(),
+    ))?;
     Ok(ExitCode::Success)
 }
 
@@ -482,17 +596,37 @@ fn checksums(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
     let mut reporter = QuietReporter;
-    let report = release_checksums(
+    let (operation, units) = checksums_operation(
         &request,
         &project.document,
         providers,
         &readers,
         &mut reporter,
     )?;
-    match resolve_output(cli.output, &project.document) {
-        OutputKind::Jsonl => render_checksums_jsonl(&report)?,
-        OutputKind::Human => render_checksums_human(&report),
-    }
+    let inputs = operation.inputs();
+
+    let output = resolve_output(cli.output, &project.document);
+    let jobs = engine_jobs(cli, project);
+    let mut projector = ChecksumProjector::new(output, inputs.manifest().to_string());
+    projector.open();
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(AppError::internal)?;
+    runtime.block_on(toven_runtime::execute(
+        &units,
+        operation,
+        toven_runtime::EngineConfig {
+            jobs,
+            fail_fast: false,
+        },
+        &mut projector,
+        tokio_util::sync::CancellationToken::new(),
+    ))?;
+
+    let report = inputs.write_manifest(&projector.entries)?;
+    projector.finish(&report.manifest);
     Ok(ExitCode::Success)
 }
 
@@ -503,21 +637,37 @@ fn sign(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
     let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
-    let signer = CosignSigner::new(runner.clone());
+    let signer: Arc<dyn toven_ports::Signer> = Arc::new(CosignSigner::new(runner.clone()));
     let mut reporter = QuietReporter;
-    let report = release_sign(
+    let (operation, units) = sign_operation(
         &request,
         &project.document,
         providers,
         &readers,
-        &signer,
+        signer,
         runner.as_ref(),
         &mut reporter,
     )?;
-    match resolve_output(cli.output, &project.document) {
-        OutputKind::Jsonl => render_sign_jsonl(&report)?,
-        OutputKind::Human => render_sign_human(&report),
-    }
+
+    let output = resolve_output(cli.output, &project.document);
+    let jobs = engine_jobs(cli, project);
+    let mut projector = SignProjector::new(output);
+    projector.open();
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(AppError::internal)?;
+    runtime.block_on(toven_runtime::execute(
+        &units,
+        operation,
+        toven_runtime::EngineConfig {
+            jobs,
+            fail_fast: false,
+        },
+        &mut projector,
+        tokio_util::sync::CancellationToken::new(),
+    ))?;
     Ok(ExitCode::Success)
 }
 
@@ -531,13 +681,13 @@ fn verify(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResul
     let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
     let downloader = GhAssetDownloader::new(runner.clone());
     let verifier = CosignVerifier::new(runner.clone());
-    let probe = ProcessVersionProbe::new(runner.clone());
+    let probe: Arc<dyn toven_ports::VersionProbe> = Arc::new(ProcessVersionProbe::new(runner));
     let options = VerifyOptions {
         download: cli.download,
         run: !cli.no_run,
     };
     let mut reporter = QuietReporter;
-    let report = release_verify(
+    let (operation, units) = verify_operation(
         &request,
         &project.document,
         providers,
@@ -545,13 +695,35 @@ fn verify(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResul
         options,
         &downloader,
         &verifier,
-        &probe,
+        probe,
         &mut reporter,
     )?;
-    match resolve_output(cli.output, &project.document) {
-        OutputKind::Jsonl => render_verify_jsonl(&report)?,
-        OutputKind::Human => render_verify_human(&report),
-    }
+    let inputs = operation.inputs();
+
+    let output = resolve_output(cli.output, &project.document);
+    let jobs = engine_jobs(cli, project);
+    let mut projector = VerifyProjector::new(
+        output,
+        inputs.mode().as_str().to_string(),
+        inputs.tag().map(str::to_string),
+        inputs.expected_version(),
+    );
+    projector.open();
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(AppError::internal)?;
+    runtime.block_on(toven_runtime::execute(
+        &units,
+        operation,
+        toven_runtime::EngineConfig {
+            jobs,
+            fail_fast: false,
+        },
+        &mut projector,
+        tokio_util::sync::CancellationToken::new(),
+    ))?;
     Ok(ExitCode::Success)
 }
 
@@ -567,24 +739,41 @@ fn image(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
     let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
-    let image_phase = BuildxImagePhase::new(runner.clone());
+    let image_phase: Arc<dyn toven_ports::ImagePhase> = Arc::new(BuildxImagePhase::new(runner));
     let options = ImageOptions {
         dry_run: cli.dry_run,
     };
     let mut reporter = QuietReporter;
-    let report = release_image(
+    let (operation, units) = image_operation(
         &request,
         &project.document,
         providers,
         &readers,
-        &image_phase,
+        image_phase,
         options,
         &mut reporter,
     )?;
-    match resolve_output(cli.output, &project.document) {
-        OutputKind::Jsonl => render_image_jsonl(&report)?,
-        OutputKind::Human => render_image_human(&report),
-    }
+    let inputs = operation.inputs();
+
+    let output = resolve_output(cli.output, &project.document);
+    let jobs = engine_jobs(cli, project);
+    let mut projector = ImageProjector::new(output, inputs.preview());
+    projector.open();
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(AppError::internal)?;
+    runtime.block_on(toven_runtime::execute(
+        &units,
+        operation,
+        toven_runtime::EngineConfig {
+            jobs,
+            fail_fast: false,
+        },
+        &mut projector,
+        tokio_util::sync::CancellationToken::new(),
+    ))?;
     Ok(ExitCode::Success)
 }
 
@@ -598,50 +787,139 @@ fn provenance(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppR
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
     let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
-    let provenance_phase = GhAttestationProvenance::new(runner.clone());
-    let image_phase = BuildxImagePhase::new(runner.clone());
+    let provenance_phase: Arc<dyn toven_ports::ProvenancePhase> =
+        Arc::new(GhAttestationProvenance::new(runner.clone()));
+    let image_phase = BuildxImagePhase::new(runner);
     let options = ProvenanceOptions {
         dry_run: cli.dry_run,
     };
     let mut reporter = QuietReporter;
-    let report = release_provenance(
+    let (operation, units) = provenance_operation(
         &request,
         &project.document,
         providers,
         &readers,
-        &provenance_phase,
+        provenance_phase,
         &image_phase,
         options,
         &mut reporter,
     )?;
-    match resolve_output(cli.output, &project.document) {
-        OutputKind::Jsonl => render_provenance_jsonl(&report)?,
-        OutputKind::Human => render_provenance_human(&report),
+    let inputs = operation.inputs();
+
+    let output = resolve_output(cli.output, &project.document);
+    let jobs = engine_jobs(cli, project);
+    let mut projector = ProvenanceProjector::new(output, inputs.preview());
+    projector.open();
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(AppError::internal)?;
+    let summary = runtime.block_on(toven_runtime::execute(
+        &units,
+        operation,
+        toven_runtime::EngineConfig {
+            jobs,
+            fail_fast: false,
+        },
+        &mut projector,
+        tokio_util::sync::CancellationToken::new(),
+    ))?;
+    // An enforced run fails closed if any published subject lacked an
+    // attestation; the preview only reports presence and never fails.
+    if !inputs.preview() && summary.has_failures() {
+        return Err(AppError::invalid_input(
+            "release.provenance.subject",
+            format!(
+                "{} of {} published subject(s) lack a build-provenance attestation",
+                summary.failed + summary.blocked,
+                summary.total
+            ),
+        ));
     }
     Ok(ExitCode::Success)
 }
 
 /// `release publish --dry-run`: rehearse the publish loop, mutating nothing.
+///
+/// Reuses the plan cut's dependency-ordered streaming: driving the rehearsal
+/// through the live reporter streams one `module-release-examining` /
+/// `module-release-resolved` pair per module in publication order during the
+/// slow cascade I/O (baseline resolution, change detection, registry lookups),
+/// so the preview shows module-by-module motion instead of hanging silently.
+/// The publish verdicts and the hosted-release plan are the rehearsal-specific
+/// result, rendered after the streamed decisions.
 fn rehearse(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
     let overrides = build_overrides(cli)?;
-    let mut reporter = QuietReporter;
+    let output = resolve_output(cli.output, &project.document);
+    print_release_header("publish", output, cli.color_choice());
+    // Human mode streams the slow dependency-ordered plan cascade live so an
+    // operator sees module-by-module motion during the otherwise-silent seconds;
+    // jsonl stays one clean record per unit (the publish/hosted verdicts below),
+    // so it drives the cut through a quiet reporter and never interleaves the
+    // plan's per-module events with those verdicts.
+    let mut quiet = QuietReporter;
+    let mut live: Option<Box<dyn toven_ports::Reporter>> =
+        (output == OutputKind::Human).then(|| {
+            Report::resolve(
+                cli.output,
+                cli.verbosity(),
+                cli.color_choice(),
+                &project.document,
+            )
+            .reporter()
+        });
+    let reporter: &mut dyn toven_ports::Reporter = match live.as_mut() {
+        Some(boxed) => boxed.as_mut(),
+        None => &mut quiet,
+    };
     let rehearsal = release_rehearse(
         &request,
         &project.document,
         providers,
         &readers,
         &overrides,
-        &mut reporter,
+        reporter,
         cli.no_push,
     )?;
-    match resolve_output(cli.output, &project.document) {
+    match output {
         OutputKind::Jsonl => render_rehearsal_jsonl(&rehearsal)?,
         OutputKind::Human => render_rehearsal_human(&rehearsal),
     }
+    print_release_summary(
+        &rehearsal_summary_line(&rehearsal),
+        output,
+        cli.color_choice(),
+    );
     Ok(ExitCode::Success)
+}
+
+/// The closing line for a `release publish --dry-run`, phrased as a rehearsal
+/// (nothing was mutated): how many modules *would* publish, plus the tag-only
+/// and already-published tallies when non-zero.
+fn rehearsal_summary_line(rehearsal: &ReleaseRehearsal) -> String {
+    let would_publish = rehearsal
+        .verdicts
+        .iter()
+        .filter(|verdict| verdict.decision == PublishDecision::WouldPublish)
+        .count();
+    let tag_only = rehearsal
+        .verdicts
+        .iter()
+        .filter(|verdict| verdict.decision == PublishDecision::TagOnly)
+        .count();
+    let already = rehearsal.verdicts.len() - would_publish - tag_only;
+    let mut parts = vec![format!("{would_publish} would publish")];
+    if tag_only > 0 {
+        parts.push(format!("{tag_only} tag only"));
+    }
+    if already > 0 {
+        parts.push(format!("{already} already published"));
+    }
+    format!("release (dry run): {}", parts.join(", "))
 }
 
 /// `release tag/publish`: drive the mutating release pipeline. `tag` stops
@@ -816,53 +1094,97 @@ struct StatusRecord {
     maintainer_tag_present: Option<bool>,
 }
 
-fn render_status_human(status: &ReleaseStatus) {
-    let mut table = OutputTable::new(vec![
-        "Module",
-        "Publication",
-        "Declared",
-        "Latest tag",
-        "Hosted on",
-        "Flow",
-        "Published",
-    ])
-    .with_title("Release status");
-    for module in &status.modules {
-        table.add_row(vec![
-            module.module.to_string(),
-            publication_label(&module.publication),
-            module.declared_version.to_string(),
-            module.latest_tag.clone().unwrap_or_else(|| "-".to_string()),
-            module.host_forge.clone().unwrap_or_else(|| "-".to_string()),
-            status_flow_label(module.entrypoint, module.maintainer_tag_present),
-            if module.is_published { "yes" } else { "no" }.to_string(),
-        ]);
-    }
-    println!("{table}");
+/// Streams `release status` per module as each settles on the runtime engine,
+/// never buffering a terminal aggregate before first output.
+///
+/// Human mode prints one row per module to stdout (a `Release status` header is
+/// the deterministic frame; module rows stream in completion order, so goldens
+/// match order-insensitively); an `examining` line goes to stderr for live
+/// motion. JSONL mode emits one [`StatusRecord`] per module to stdout.
+struct StatusProjector {
+    output: OutputKind,
 }
 
-fn render_status_jsonl(status: &ReleaseStatus) -> AppResult<()> {
-    for module in &status.modules {
-        let record = StatusRecord {
-            module: module.module.to_string(),
-            publication: module.publication.as_str().to_string(),
-            registry: module.publication.registry().map(str::to_string),
-            declared_version: module.declared_version.to_string(),
-            latest_tag: module.latest_tag.clone(),
-            host_forge: module.host_forge.clone(),
-            published_versions: module
-                .published_versions
-                .iter()
-                .map(ToString::to_string)
-                .collect(),
-            is_published: module.is_published,
-            entrypoint: module.entrypoint.as_str().to_string(),
-            maintainer_tag_present: module.maintainer_tag_present,
-        };
-        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
-        println!("{line}");
+impl StatusProjector {
+    const fn new(output: OutputKind) -> Self {
+        Self { output }
     }
-    Ok(())
+
+    /// Print the deterministic human header once, before any module streams.
+    fn open(&self) {
+        if matches!(self.output, OutputKind::Human) {
+            println!("Release status");
+        }
+    }
+
+    fn render(&self, module: &ReleaseModuleStatus) -> AppResult<()> {
+        match self.output {
+            OutputKind::Jsonl => {
+                let line =
+                    serde_json::to_string(&status_record(module)).map_err(AppError::internal)?;
+                println!("{line}");
+            }
+            OutputKind::Human => println!("{}", status_line(module)),
+        }
+        Ok(())
+    }
+}
+
+impl toven_runtime::Progress<ReleaseModuleStatus> for StatusProjector {
+    fn started(&mut self, unit_id: &str) -> AppResult<()> {
+        if matches!(self.output, OutputKind::Human) {
+            eprintln!("examining {unit_id}");
+        }
+        Ok(())
+    }
+
+    fn settled(
+        &mut self,
+        report: &toven_runtime::UnitReport<ReleaseModuleStatus>,
+    ) -> AppResult<()> {
+        if let Some(module) = &report.outcome {
+            self.render(module)?;
+        }
+        Ok(())
+    }
+}
+
+/// A compact one-line human projection of a module's release status.
+fn status_line(module: &ReleaseModuleStatus) -> String {
+    format!(
+        "{}  {}  declared {}  tag {}  hosted {}  {}  {}",
+        module.module,
+        publication_label(&module.publication),
+        module.declared_version,
+        module.latest_tag.as_deref().unwrap_or("-"),
+        module.host_forge.as_deref().unwrap_or("-"),
+        status_flow_label(module.entrypoint, module.maintainer_tag_present),
+        if module.is_published {
+            "published"
+        } else {
+            "unpublished"
+        },
+    )
+}
+
+/// Project one module's status onto its stable JSON-lines record.
+fn status_record(module: &ReleaseModuleStatus) -> StatusRecord {
+    StatusRecord {
+        module: module.module.to_string(),
+        publication: module.publication.as_str().to_string(),
+        registry: module.publication.registry().map(str::to_string),
+        declared_version: module.declared_version.to_string(),
+        latest_tag: module.latest_tag.clone(),
+        host_forge: module.host_forge.clone(),
+        published_versions: module
+            .published_versions
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        is_published: module.is_published,
+        entrypoint: module.entrypoint.as_str().to_string(),
+        maintainer_tag_present: module.maintainer_tag_present,
+    }
 }
 
 /// A stable JSON-lines record for one rehearsed publish verdict.
@@ -1001,44 +1323,96 @@ struct ReadinessRecord {
     detail: String,
 }
 
-fn render_readiness_human(report: &ReadinessReport) {
-    if report.checks.is_empty() {
-        // An empty-bordered table reads as broken output and a "go" with zero
-        // rows is false confidence; state the absence explicitly instead.
-        println!("\nRelease readiness");
-        println!("  no readiness checks configured");
-    } else {
-        let mut table =
-            OutputTable::new(vec!["Check", "Result", "Detail"]).with_title("Release readiness");
-        for check in &report.checks {
-            table.add_row(vec![
-                check.name.clone(),
-                if check.passed { "pass" } else { "fail" }.to_string(),
-                check.detail.clone(),
-            ]);
-        }
-        println!("{table}");
-    }
-    // Verdict last: the go/no-go conclusion reads after the evidence it summarizes.
-    let mut verdict = OutputKV::new();
-    verdict.add(
-        "verdict",
-        if report.is_go() { "go" } else { "no-go" }.to_string(),
-    );
-    print!("{verdict}");
+/// Streams `release readiness` per composed check on the runtime engine.
+///
+/// Human mode prints one line per check to stdout under a `Release readiness`
+/// header (checks stream in completion order, so goldens match
+/// order-insensitively) and closes with a `verdict:` line; a `checking` line
+/// goes to stderr for live motion. JSONL mode emits one [`ReadinessRecord`] per
+/// check to stdout (the go/no-go conclusion is conveyed by the exit status). The
+/// projector accumulates the settled verdicts so the fail-closed go/no-go is
+/// assembled from the streamed outcomes.
+struct ReadinessProjector {
+    output: OutputKind,
+    checks: Vec<ReadinessCheck>,
 }
 
-fn render_readiness_jsonl(report: &ReadinessReport) -> AppResult<()> {
-    for check in &report.checks {
-        let record = ReadinessRecord {
-            check: check.name.clone(),
-            passed: check.passed,
-            detail: check.detail.clone(),
-        };
-        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
-        println!("{line}");
+impl ReadinessProjector {
+    const fn new(output: OutputKind) -> Self {
+        Self {
+            output,
+            checks: Vec::new(),
+        }
     }
-    Ok(())
+
+    /// Print the deterministic human header once, before any check streams.
+    fn open(&self) {
+        if matches!(self.output, OutputKind::Human) {
+            println!("Release readiness");
+        }
+    }
+
+    /// State the empty-check-list case explicitly (human only).
+    fn note_no_checks(&self) {
+        if matches!(self.output, OutputKind::Human) {
+            println!("no readiness checks configured");
+        }
+    }
+
+    fn render(&self, check: &ReadinessCheck) -> AppResult<()> {
+        match self.output {
+            OutputKind::Jsonl => {
+                let record = ReadinessRecord {
+                    check: check.name.clone(),
+                    passed: check.passed,
+                    detail: check.detail.clone(),
+                };
+                let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+                println!("{line}");
+            }
+            OutputKind::Human => println!("{}", readiness_line(check)),
+        }
+        Ok(())
+    }
+
+    /// Fail closed: a go requires every settled check to have passed.
+    fn is_go(&self) -> bool {
+        self.checks.iter().all(|check| check.passed)
+    }
+
+    /// Print the go/no-go conclusion last (human only), after its evidence.
+    fn verdict(&self, is_go: bool) {
+        if matches!(self.output, OutputKind::Human) {
+            println!("verdict: {}", if is_go { "go" } else { "no-go" });
+        }
+    }
+}
+
+impl toven_runtime::Progress<ReadinessCheck> for ReadinessProjector {
+    fn started(&mut self, unit_id: &str) -> AppResult<()> {
+        if matches!(self.output, OutputKind::Human) {
+            eprintln!("checking {unit_id}");
+        }
+        Ok(())
+    }
+
+    fn settled(&mut self, report: &toven_runtime::UnitReport<ReadinessCheck>) -> AppResult<()> {
+        if let Some(check) = &report.outcome {
+            self.render(check)?;
+            self.checks.push(check.clone());
+        }
+        Ok(())
+    }
+}
+
+/// A compact one-line human projection of one readiness check's verdict.
+fn readiness_line(check: &ReadinessCheck) -> String {
+    format!(
+        "{}  {}  {}",
+        check.name,
+        if check.passed { "pass" } else { "fail" },
+        check.detail,
+    )
 }
 
 /// A stable JSON-lines record for one generated SBOM artifact.
@@ -1055,49 +1429,103 @@ struct StagedSbomRecord {
     source: String,
 }
 
-fn render_sbom_human(report: &SbomReport) {
-    let mut table =
-        OutputTable::new(vec!["Module", "Artifact"]).with_title("Release SBOM artifacts");
-    for artifact in &report.artifacts {
-        table.add_row(vec![
-            artifact.label.clone(),
-            artifact.path.display().to_string(),
-        ]);
-    }
-    println!("{table}");
-    if !report.staged.is_empty() {
-        let mut staged = OutputTable::new(vec!["Asset", "Source"]).with_title("Staged SBOM assets");
-        for asset in &report.staged {
-            staged.add_row(vec![asset.asset.clone(), asset.source.clone()]);
+/// Streams `release sbom` per module as each artifact settles on the runtime
+/// engine, never buffering a terminal table before first output.
+///
+/// Human mode prints one row per produced artifact to stdout under a
+/// deterministic `Release SBOM artifacts` header (rows stream in completion
+/// order, matched order-insensitively); an `examining` line goes to stderr for
+/// live motion. JSONL mode emits one [`SbomRecord`] per artifact to stdout. The
+/// staged hosted assets and skipped modules are the trailing aggregate emitted
+/// by [`SbomProjector::finish`].
+struct SbomProjector {
+    output: OutputKind,
+    /// The produced artifacts, accumulated in completion order for staging.
+    artifacts: Vec<ArtifactManifest>,
+    /// Modules skipped because their ecosystem has no SBOM tooling.
+    skipped: Vec<ModuleKey>,
+}
+
+impl SbomProjector {
+    const fn new(output: OutputKind) -> Self {
+        Self {
+            output,
+            artifacts: Vec::new(),
+            skipped: Vec::new(),
         }
-        println!("{staged}");
     }
-    for module in &report.skipped {
-        eprintln!("warning: {module} skipped (ecosystem has no SBOM tooling)");
+
+    /// Print the deterministic human header once, before any module streams.
+    fn open(&self) {
+        if matches!(self.output, OutputKind::Human) {
+            println!("Release SBOM artifacts");
+        }
+    }
+
+    /// Emit the trailing aggregate: staged hosted assets, then skip warnings.
+    fn finish(&self, staged: &[StagedSbom]) -> AppResult<()> {
+        match self.output {
+            OutputKind::Jsonl => {
+                for asset in staged {
+                    let record = StagedSbomRecord {
+                        asset: asset.asset.clone(),
+                        source: asset.source.clone(),
+                    };
+                    let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+                    println!("{line}");
+                }
+            }
+            OutputKind::Human => {
+                if !staged.is_empty() {
+                    let mut table =
+                        OutputTable::new(vec!["Asset", "Source"]).with_title("Staged SBOM assets");
+                    for asset in staged {
+                        table.add_row(vec![asset.asset.clone(), asset.source.clone()]);
+                    }
+                    println!("{table}");
+                }
+            }
+        }
+        for module in &self.skipped {
+            eprintln!("warning: {module} skipped (ecosystem has no SBOM tooling)");
+        }
+        Ok(())
     }
 }
 
-fn render_sbom_jsonl(report: &SbomReport) -> AppResult<()> {
-    for artifact in &report.artifacts {
-        let record = SbomRecord {
-            module: artifact.label.clone(),
-            path: artifact.path.display().to_string(),
+impl toven_runtime::Progress<SbomOutcome> for SbomProjector {
+    fn started(&mut self, unit_id: &str) -> AppResult<()> {
+        if matches!(self.output, OutputKind::Human) {
+            eprintln!("examining {unit_id}");
+        }
+        Ok(())
+    }
+
+    fn settled(&mut self, report: &toven_runtime::UnitReport<SbomOutcome>) -> AppResult<()> {
+        let Some(outcome) = &report.outcome else {
+            return Ok(());
         };
-        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
-        println!("{line}");
+        match &outcome.artifact {
+            Some(artifact) => {
+                match self.output {
+                    OutputKind::Jsonl => {
+                        let record = SbomRecord {
+                            module: artifact.label.clone(),
+                            path: artifact.path.display().to_string(),
+                        };
+                        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+                        println!("{line}");
+                    }
+                    OutputKind::Human => {
+                        println!("{}  {}", artifact.label, artifact.path.display());
+                    }
+                }
+                self.artifacts.push(artifact.clone());
+            }
+            None => self.skipped.push(outcome.module.clone()),
+        }
+        Ok(())
     }
-    for asset in &report.staged {
-        let record = StagedSbomRecord {
-            asset: asset.asset.clone(),
-            source: asset.source.clone(),
-        };
-        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
-        println!("{line}");
-    }
-    for module in &report.skipped {
-        eprintln!("warning: {module} skipped (ecosystem has no SBOM tooling)");
-    }
-    Ok(())
 }
 
 /// A stable JSON-lines record for one generated dependency-graph artifact.
@@ -1107,28 +1535,47 @@ struct DepgraphRecord {
     path: String,
 }
 
-fn render_depgraphs_human(report: &DepgraphReport) {
-    let mut table =
-        OutputTable::new(vec!["Graph", "Artifact"]).with_title("Release dependency graphs");
-    for artifact in &report.artifacts {
-        table.add_row(vec![
-            artifact.label.clone(),
-            artifact.path.display().to_string(),
-        ]);
-    }
-    println!("{table}");
+struct DepgraphProjector {
+    output: OutputKind,
 }
 
-fn render_depgraphs_jsonl(report: &DepgraphReport) -> AppResult<()> {
-    for artifact in &report.artifacts {
-        let record = DepgraphRecord {
-            label: artifact.label.clone(),
-            path: artifact.path.display().to_string(),
-        };
-        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
-        println!("{line}");
+impl DepgraphProjector {
+    const fn new(output: OutputKind) -> Self {
+        Self { output }
     }
-    Ok(())
+
+    fn open(&self) {
+        if matches!(self.output, OutputKind::Human) {
+            println!("Release dependency graphs");
+        }
+    }
+}
+
+impl toven_runtime::Progress<DepgraphOutcome> for DepgraphProjector {
+    fn started(&mut self, unit_id: &str) -> AppResult<()> {
+        if matches!(self.output, OutputKind::Human) {
+            eprintln!("examining {unit_id}");
+        }
+        Ok(())
+    }
+
+    fn settled(&mut self, report: &toven_runtime::UnitReport<DepgraphOutcome>) -> AppResult<()> {
+        let Some(artifact) = &report.outcome else {
+            return Ok(());
+        };
+        match self.output {
+            OutputKind::Jsonl => {
+                let record = DepgraphRecord {
+                    label: artifact.label.clone(),
+                    path: artifact.path.display().to_string(),
+                };
+                let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+                println!("{line}");
+            }
+            OutputKind::Human => println!("{}  {}", artifact.label, artifact.path.display()),
+        }
+        Ok(())
+    }
 }
 
 /// A stable JSON-lines record for one packaged release archive.
@@ -1142,35 +1589,65 @@ struct PackageRecord {
     backing: String,
 }
 
-fn render_package_human(report: &PackageReport) {
-    let mut table = OutputTable::new(vec!["Asset", "Source", "Format", "Bytes", "Backing"])
-        .with_title(format!("Release packages ({})", report.target));
-    for asset in &report.assets {
-        table.add_row(vec![
-            asset.asset.clone(),
-            asset.source.display().to_string(),
-            asset.format.as_str().to_string(),
-            asset.bytes.to_string(),
-            asset.backing.to_string(),
-        ]);
-    }
-    println!("{table}");
+/// Streams `release package` per declared asset as each archive settles on the
+/// runtime engine, never buffering a terminal aggregate before first output.
+///
+/// Human mode prints a `Release packages (<target>)` header once, then one row
+/// per asset to stdout as it settles; a `packaging` line goes to stderr for live
+/// motion. JSONL mode emits one [`PackageRecord`] per asset to stdout.
+struct PackageProjector {
+    output: OutputKind,
+    target: String,
 }
 
-fn render_package_jsonl(report: &PackageReport) -> AppResult<()> {
-    for asset in &report.assets {
-        let record = PackageRecord {
-            target: report.target.clone(),
-            asset: asset.asset.clone(),
-            source: asset.source.display().to_string(),
-            format: asset.format.as_str().to_string(),
-            bytes: asset.bytes,
-            backing: asset.backing.to_string(),
-        };
-        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
-        println!("{line}");
+impl PackageProjector {
+    const fn new(output: OutputKind, target: String) -> Self {
+        Self { output, target }
     }
-    Ok(())
+
+    fn open(&self) {
+        if matches!(self.output, OutputKind::Human) {
+            println!("Release packages ({})", self.target);
+        }
+    }
+}
+
+impl toven_runtime::Progress<PackageOutcome> for PackageProjector {
+    fn started(&mut self, unit_id: &str) -> AppResult<()> {
+        if matches!(self.output, OutputKind::Human) {
+            eprintln!("packaging {unit_id}");
+        }
+        Ok(())
+    }
+
+    fn settled(&mut self, report: &toven_runtime::UnitReport<PackageOutcome>) -> AppResult<()> {
+        let Some(asset) = &report.outcome else {
+            return Ok(());
+        };
+        match self.output {
+            OutputKind::Jsonl => {
+                let record = PackageRecord {
+                    target: self.target.clone(),
+                    asset: asset.asset.clone(),
+                    source: asset.source.display().to_string(),
+                    format: asset.format.as_str().to_string(),
+                    bytes: asset.bytes,
+                    backing: asset.backing.to_string(),
+                };
+                let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+                println!("{line}");
+            }
+            OutputKind::Human => println!(
+                "{}  {}  {}  {}  {}",
+                asset.asset,
+                asset.source.display(),
+                asset.format.as_str(),
+                asset.bytes,
+                asset.backing
+            ),
+        }
+        Ok(())
+    }
 }
 
 /// A stable JSON-lines record for one checksummed release asset.
@@ -1182,31 +1659,62 @@ struct ChecksumRecord {
     bytes: u64,
 }
 
-fn render_checksums_human(report: &ChecksumReport) {
-    let mut table = OutputTable::new(vec!["Asset", "SHA-256", "Bytes"])
-        .with_title(format!("Release checksums ({})", report.manifest));
-    for entry in &report.entries {
-        table.add_row(vec![
-            entry.name.clone(),
-            entry.sha256.clone(),
-            entry.bytes.to_string(),
-        ]);
-    }
-    println!("{table}");
+struct ChecksumProjector {
+    output: OutputKind,
+    manifest: String,
+    entries: Vec<ChecksumOutcome>,
 }
 
-fn render_checksums_jsonl(report: &ChecksumReport) -> AppResult<()> {
-    for entry in &report.entries {
-        let record = ChecksumRecord {
-            manifest: report.manifest.clone(),
-            name: entry.name.clone(),
-            sha256: entry.sha256.clone(),
-            bytes: entry.bytes,
-        };
-        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
-        println!("{line}");
+impl ChecksumProjector {
+    const fn new(output: OutputKind, manifest: String) -> Self {
+        Self {
+            output,
+            manifest,
+            entries: Vec::new(),
+        }
     }
-    Ok(())
+
+    fn open(&self) {
+        if matches!(self.output, OutputKind::Human) {
+            println!("Release checksums");
+        }
+    }
+
+    fn finish(&self, manifest: &str) {
+        if matches!(self.output, OutputKind::Human) {
+            println!("manifest  {manifest}");
+        }
+    }
+}
+
+impl toven_runtime::Progress<ChecksumOutcome> for ChecksumProjector {
+    fn started(&mut self, unit_id: &str) -> AppResult<()> {
+        if matches!(self.output, OutputKind::Human) {
+            eprintln!("checksumming {unit_id}");
+        }
+        Ok(())
+    }
+
+    fn settled(&mut self, report: &toven_runtime::UnitReport<ChecksumOutcome>) -> AppResult<()> {
+        let Some(entry) = &report.outcome else {
+            return Ok(());
+        };
+        match self.output {
+            OutputKind::Jsonl => {
+                let record = ChecksumRecord {
+                    manifest: self.manifest.clone(),
+                    name: entry.name.clone(),
+                    sha256: entry.sha256.clone(),
+                    bytes: entry.bytes,
+                };
+                let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+                println!("{line}");
+            }
+            OutputKind::Human => println!("{}  {}  {}", entry.name, entry.sha256, entry.bytes),
+        }
+        self.entries.push(entry.clone());
+        Ok(())
+    }
 }
 
 /// A stable JSON-lines record for the signing outputs.
@@ -1217,26 +1725,54 @@ struct SignRecord {
     backing: String,
 }
 
-fn render_sign_human(report: &SignReport) {
-    let mut table = OutputTable::new(vec!["Blob", "Bundle", "Backing"])
-        .with_title("Release signing".to_string());
-    table.add_row(vec![
-        report.blob.clone(),
-        report.bundle.clone(),
-        report.backing.to_string(),
-    ]);
-    println!("{table}");
+/// Streams `release sign` as its single signature settles on the runtime
+/// engine, never buffering a terminal aggregate before first output.
+///
+/// Human mode prints a `Release signing` header once, then one row as the
+/// signature settles; a `signing` line goes to stderr for live motion. JSONL
+/// mode emits one [`SignRecord`] to stdout.
+struct SignProjector {
+    output: OutputKind,
 }
 
-fn render_sign_jsonl(report: &SignReport) -> AppResult<()> {
-    let record = SignRecord {
-        blob: report.blob.clone(),
-        bundle: report.bundle.clone(),
-        backing: report.backing.to_string(),
-    };
-    let line = serde_json::to_string(&record).map_err(AppError::internal)?;
-    println!("{line}");
-    Ok(())
+impl SignProjector {
+    const fn new(output: OutputKind) -> Self {
+        Self { output }
+    }
+
+    fn open(&self) {
+        if matches!(self.output, OutputKind::Human) {
+            println!("Release signing");
+        }
+    }
+}
+
+impl toven_runtime::Progress<SignOutcome> for SignProjector {
+    fn started(&mut self, unit_id: &str) -> AppResult<()> {
+        if matches!(self.output, OutputKind::Human) {
+            eprintln!("signing {unit_id}");
+        }
+        Ok(())
+    }
+
+    fn settled(&mut self, report: &toven_runtime::UnitReport<SignOutcome>) -> AppResult<()> {
+        let Some(sign) = &report.outcome else {
+            return Ok(());
+        };
+        match self.output {
+            OutputKind::Jsonl => {
+                let record = SignRecord {
+                    blob: sign.blob.clone(),
+                    bundle: sign.bundle.clone(),
+                    backing: sign.backing.to_string(),
+                };
+                let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+                println!("{line}");
+            }
+            OutputKind::Human => println!("{}  {}  {}", sign.blob, sign.bundle, sign.backing),
+        }
+        Ok(())
+    }
 }
 
 /// A stable JSON-lines record for one archive's verification outcome.
@@ -1252,29 +1788,7 @@ struct VerifiedAssetRecord {
     reported_version: Option<String>,
 }
 
-fn render_verify_human(report: &VerifyReport) {
-    let mut table = OutputTable::new(vec!["Asset", "Checksum", "Signature", "Ran", "Reported"])
-        .with_title(format!(
-            "Release verify ({}, expected {})",
-            report.mode.as_str(),
-            report.expected_version
-        ));
-    for asset in &report.assets {
-        table.add_row(vec![
-            asset.name.clone(),
-            render_optional_check(asset.checksum_ok),
-            render_optional_check(asset.signature_ok),
-            if asset.ran { "yes" } else { "no" }.to_string(),
-            asset
-                .reported_version
-                .clone()
-                .unwrap_or_else(|| "—".to_string()),
-        ]);
-    }
-    println!("{table}");
-}
-
-/// Render an optional pass/fail check for the human table.
+/// Render an optional pass/fail check for the human output.
 fn render_optional_check(value: Option<bool>) -> String {
     match value {
         Some(true) => "ok".to_string(),
@@ -1283,22 +1797,86 @@ fn render_optional_check(value: Option<bool>) -> String {
     }
 }
 
-fn render_verify_jsonl(report: &VerifyReport) -> AppResult<()> {
-    for asset in &report.assets {
-        let record = VerifiedAssetRecord {
-            mode: report.mode.as_str().to_string(),
-            tag: report.tag.clone(),
-            expected_version: report.expected_version.clone(),
-            name: asset.name.clone(),
-            checksum_ok: asset.checksum_ok,
-            signature_ok: asset.signature_ok,
-            ran: asset.ran,
-            reported_version: asset.reported_version.clone(),
-        };
-        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
-        println!("{line}");
+/// Streams `release verify` per declared archive as each settles on the runtime
+/// engine, never buffering a terminal aggregate before first output.
+///
+/// Human mode prints a `Release verify (<mode>, expected <version>)` header
+/// once, then one row per archive to stdout as it settles; a `verifying` line
+/// goes to stderr for live motion. JSONL mode emits one [`VerifiedAssetRecord`]
+/// per archive to stdout.
+struct VerifyProjector {
+    output: OutputKind,
+    mode: String,
+    tag: Option<String>,
+    expected_version: String,
+}
+
+impl VerifyProjector {
+    const fn new(
+        output: OutputKind,
+        mode: String,
+        tag: Option<String>,
+        expected_version: String,
+    ) -> Self {
+        Self {
+            output,
+            mode,
+            tag,
+            expected_version,
+        }
     }
-    Ok(())
+
+    fn open(&self) {
+        if matches!(self.output, OutputKind::Human) {
+            println!(
+                "Release verify ({}, expected {})",
+                self.mode, self.expected_version
+            );
+        }
+    }
+}
+
+impl toven_runtime::Progress<VerifyOutcome> for VerifyProjector {
+    fn started(&mut self, unit_id: &str) -> AppResult<()> {
+        if matches!(self.output, OutputKind::Human) {
+            eprintln!("verifying {unit_id}");
+        }
+        Ok(())
+    }
+
+    fn settled(&mut self, report: &toven_runtime::UnitReport<VerifyOutcome>) -> AppResult<()> {
+        let Some(asset) = &report.outcome else {
+            return Ok(());
+        };
+        match self.output {
+            OutputKind::Jsonl => {
+                let record = VerifiedAssetRecord {
+                    mode: self.mode.clone(),
+                    tag: self.tag.clone(),
+                    expected_version: self.expected_version.clone(),
+                    name: asset.name.clone(),
+                    checksum_ok: asset.checksum_ok,
+                    signature_ok: asset.signature_ok,
+                    ran: asset.ran,
+                    reported_version: asset.reported_version.clone(),
+                };
+                let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+                println!("{line}");
+            }
+            OutputKind::Human => println!(
+                "{}  {}  {}  {}  {}",
+                asset.name,
+                render_optional_check(asset.checksum_ok),
+                render_optional_check(asset.signature_ok),
+                if asset.ran { "yes" } else { "no" },
+                asset
+                    .reported_version
+                    .clone()
+                    .unwrap_or_else(|| "—".to_string()),
+            ),
+        }
+        Ok(())
+    }
 }
 
 /// A stable JSON-lines record for one module's `release image` outcome.
@@ -1312,40 +1890,69 @@ struct ImageRecord {
     status: String,
 }
 
-fn render_image_human(report: &ImageReport) {
-    let title = if report.preview {
-        "Release image (preview)".to_string()
-    } else {
-        "Release image".to_string()
-    };
-    let mut table = OutputTable::new(vec!["Module", "Reference", "Digest", "Signed", "Status"])
-        .with_title(title);
-    for outcome in &report.images {
-        table.add_row(vec![
-            outcome.module.clone(),
-            outcome.references.join(", "),
-            outcome.digest.clone().unwrap_or_else(|| "—".to_string()),
-            if outcome.signed { "yes" } else { "no" }.to_string(),
-            outcome.status.as_str().to_string(),
-        ]);
-    }
-    println!("{table}");
+/// Streams `release image` per module as each settles on the runtime engine,
+/// never buffering a terminal aggregate before first output.
+///
+/// Human mode prints a `Release image[ (preview)]` header once, then one row
+/// per module as it settles; a `building image for <module>` line goes to
+/// stderr for live motion. JSONL mode emits one [`ImageRecord`] per module.
+struct ImageProjector {
+    output: OutputKind,
+    preview: bool,
 }
 
-fn render_image_jsonl(report: &ImageReport) -> AppResult<()> {
-    for outcome in &report.images {
-        let record = ImageRecord {
-            preview: report.preview,
-            module: outcome.module.clone(),
-            references: outcome.references.clone(),
-            digest: outcome.digest.clone(),
-            signed: outcome.signed,
-            status: outcome.status.as_str().to_string(),
-        };
-        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
-        println!("{line}");
+impl ImageProjector {
+    const fn new(output: OutputKind, preview: bool) -> Self {
+        Self { output, preview }
     }
-    Ok(())
+
+    fn open(&self) {
+        if matches!(self.output, OutputKind::Human) {
+            if self.preview {
+                println!("Release image (preview)");
+            } else {
+                println!("Release image");
+            }
+        }
+    }
+}
+
+impl toven_runtime::Progress<ImageModuleOutcome> for ImageProjector {
+    fn started(&mut self, unit_id: &str) -> AppResult<()> {
+        if matches!(self.output, OutputKind::Human) {
+            eprintln!("building image for {unit_id}");
+        }
+        Ok(())
+    }
+
+    fn settled(&mut self, report: &toven_runtime::UnitReport<ImageModuleOutcome>) -> AppResult<()> {
+        let Some(outcome) = &report.outcome else {
+            return Ok(());
+        };
+        match self.output {
+            OutputKind::Jsonl => {
+                let record = ImageRecord {
+                    preview: self.preview,
+                    module: outcome.module.clone(),
+                    references: outcome.references.clone(),
+                    digest: outcome.digest.clone(),
+                    signed: outcome.signed,
+                    status: outcome.status.as_str().to_string(),
+                };
+                let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+                println!("{line}");
+            }
+            OutputKind::Human => println!(
+                "{}  {}  {}  {}  {}",
+                outcome.module,
+                outcome.references.join(", "),
+                outcome.digest.clone().unwrap_or_else(|| "—".to_string()),
+                if outcome.signed { "yes" } else { "no" },
+                outcome.status.as_str(),
+            ),
+        }
+        Ok(())
+    }
 }
 
 /// A stable JSON-lines record for one `release provenance` subject.
@@ -1357,35 +1964,66 @@ struct ProvenanceRecord {
     digest: String,
 }
 
-fn render_provenance_human(report: &ProvenanceReport) {
-    let title = if report.preview {
-        format!("Release provenance (preview, {})", report.status.as_str())
-    } else {
-        format!("Release provenance ({})", report.status.as_str())
-    };
-    let mut table = OutputTable::new(vec!["Subject", "Digest", "Status"]).with_title(title);
-    for entry in &report.subjects {
-        table.add_row(vec![
-            entry.subject.name.clone(),
-            entry.subject.digest.clone(),
-            entry.status.as_str().to_string(),
-        ]);
-    }
-    println!("{table}");
+/// Streams `release provenance` per published subject as each attestation check
+/// settles on the runtime engine, never buffering a terminal aggregate before
+/// first output.
+///
+/// Human mode prints a `Release provenance[ (preview)]` header once, then one
+/// row per subject as it settles; a `checking` line goes to stderr for live
+/// motion. JSONL mode emits one [`ProvenanceRecord`] per subject.
+struct ProvenanceProjector {
+    output: OutputKind,
+    preview: bool,
 }
 
-fn render_provenance_jsonl(report: &ProvenanceReport) -> AppResult<()> {
-    for entry in &report.subjects {
-        let record = ProvenanceRecord {
-            preview: report.preview,
-            status: entry.status.as_str().to_string(),
-            name: entry.subject.name.clone(),
-            digest: entry.subject.digest.clone(),
-        };
-        let line = serde_json::to_string(&record).map_err(AppError::internal)?;
-        println!("{line}");
+impl ProvenanceProjector {
+    const fn new(output: OutputKind, preview: bool) -> Self {
+        Self { output, preview }
     }
-    Ok(())
+
+    fn open(&self) {
+        if matches!(self.output, OutputKind::Human) {
+            if self.preview {
+                println!("Release provenance (preview)");
+            } else {
+                println!("Release provenance");
+            }
+        }
+    }
+}
+
+impl toven_runtime::Progress<ProvenanceOutcome> for ProvenanceProjector {
+    fn started(&mut self, unit_id: &str) -> AppResult<()> {
+        if matches!(self.output, OutputKind::Human) {
+            eprintln!("checking {unit_id}");
+        }
+        Ok(())
+    }
+
+    fn settled(&mut self, report: &toven_runtime::UnitReport<ProvenanceOutcome>) -> AppResult<()> {
+        let Some(entry) = &report.outcome else {
+            return Ok(());
+        };
+        match self.output {
+            OutputKind::Jsonl => {
+                let record = ProvenanceRecord {
+                    preview: self.preview,
+                    status: entry.status.as_str().to_string(),
+                    name: entry.subject.name.clone(),
+                    digest: entry.subject.digest.clone(),
+                };
+                let line = serde_json::to_string(&record).map_err(AppError::internal)?;
+                println!("{line}");
+            }
+            OutputKind::Human => println!(
+                "{}  {}  {}",
+                entry.subject.name,
+                entry.subject.digest,
+                entry.status.as_str()
+            ),
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

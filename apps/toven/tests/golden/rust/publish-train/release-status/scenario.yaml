@@ -4,4 +4,4 @@ repo: rust/publish-train
 steps:
   - id: 01-release-status
     argv: [release, status]
-    stdout: { match: normalized }
+    stdout: { match: line-set, frame_prefix: 1 }

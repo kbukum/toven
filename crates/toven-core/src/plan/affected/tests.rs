@@ -204,7 +204,7 @@ fn closure_spans_ecosystems_via_overlay() {
 }
 
 #[test]
-fn unclassifiable_path_fails_closed_to_all_modules() {
+fn unclassifiable_path_fails_open_and_activates_all_modules() {
     let federation = Federation {
         workspaces: vec![rust_workspace_with_blast()],
         modules: vec![

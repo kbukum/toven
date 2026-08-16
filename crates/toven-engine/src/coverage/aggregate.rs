@@ -209,6 +209,66 @@ mod tests {
     }
 
     #[test]
+    fn cross_module_coverage_from_one_workspace_measurement_is_preserved() {
+        // A single workspace measurement attributes coverage by covered-file
+        // path, so a downstream module's file is credited even when an upstream
+        // module's tests produced that coverage. This is the invariant that a
+        // per-module isolated measurement would break: `app` has no tests of its
+        // own here, yet its file is fully covered by `core`'s integration tests.
+        let core = module("core", "crates/core");
+        let app = module("app", "apps/app");
+        let workspace_profile = CoverageProfile {
+            files: vec![
+                file("crates/core/src/lib.rs", 10, 10),
+                // Covered by core's tests exercising app, attributed to app by path.
+                file("apps/app/src/run.rs", 10, 10),
+            ],
+        };
+        let mut resolved = BTreeMap::new();
+        resolved.insert(core.key(), settings(100.0, Enforcement::Block));
+        resolved.insert(app.key(), settings(100.0, Enforcement::Block));
+        let modules = [core, app.clone()];
+
+        let shared = aggregate(&CoverageInputs {
+            project_root: std::path::Path::new("/repo"),
+            modules: &modules,
+            profiles: &[workspace_profile],
+            settings: &resolved,
+            changed: None,
+        });
+
+        // The shared measurement credits app fully, so both modules pass.
+        let app_verdict = shared
+            .modules
+            .iter()
+            .find(|module| module.module == app.key())
+            .expect("app measured from the shared workspace profile");
+        assert!((app_verdict.metrics.line - 100.0).abs() < 1e-9);
+        assert_eq!(app_verdict.status, ModuleStatus::Passed);
+        assert!(shared.gate_passed());
+
+        // Contrast: an isolated measurement of only app's own tests (none here)
+        // never attributes that cross-module coverage — app would be unmeasured
+        // (skipped), which is exactly the number the shared measurement rescues.
+        let isolated = aggregate(&CoverageInputs {
+            project_root: std::path::Path::new("/repo"),
+            modules: &modules,
+            profiles: &[CoverageProfile {
+                files: vec![file("crates/core/src/lib.rs", 10, 10)],
+            }],
+            settings: &resolved,
+            changed: None,
+        });
+        assert!(
+            !isolated
+                .modules
+                .iter()
+                .any(|module| module.module == app.key()),
+            "isolated core-only profile must not measure app"
+        );
+    }
+
+    #[test]
     fn changed_scope_gates_changed_line_over_changed_files() {
         let core = module("core", "crates/core");
         let profile = CoverageProfile {

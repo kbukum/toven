@@ -70,6 +70,8 @@ JSONL also carries the 1-based publication `order`, cascade origin, prerelease c
 
 `release status` reports each module's flow and `entrypoint`. For maintainer-owned modules, it reports whether the required release tag for the declared version exists. Human output uses `tag ready` or `tag missing`; JSONL uses `maintainer_tag_present`. A maintainer-owned module cannot publish until its tag exists. See [entrypoint flows](../config/release.md#entrypoint-flows).
 
+Status is read-only and its modules are independent, so it streams: the shared tag snapshot and target set are resolved once, then each module's registry and tag lookup runs concurrently (bounded by `--jobs`) and its row prints the moment that module settles rather than after the whole workspace is gathered. Because rows arrive in completion order, the human output is one self-describing line per module under a `Release status` header instead of a buffered aligned table, and `--output jsonl` emits one record per module as it settles.
+
 ## Output
 
 Human output goes to stderr. Every release verb (`plan`, `bump`, `tag`, `publish`) funnels through the same dependency-first decision path, whose slow per-module I/O — baseline resolution, change detection, and registry lookups — can take a while on a large workspace. Each module now resolves before the next begins: `checking <module>…` appears while that module's I/O runs and is immediately followed by its `release <module>: …` decision. On a terminal the settled decision replaces the transient checking line in place; redirected human output keeps both as plain newline-delimited text without terminal control characters. stdout is reserved for the `--output jsonl` stream. The progress lines appear at normal verbosity and are suppressed at `--quiet`.
@@ -160,6 +162,8 @@ Recognized checks:
 
 Any failed check returns a non-zero exit status. An unknown check is invalid configuration. Readiness is evidence for approval; the mutating pipeline also enforces its own clean-tree guard.
 
+Readiness streams like status: the release prerequisites are gathered once, then each composed check runs on the shared engine (bounded by `--jobs`) and prints its verdict the moment it settles — the slow `registry-idempotent` registry lookups no longer block the fast `clean-tree` check. Human output is one line per check under a `Release readiness` header and closes with a `verdict: go` / `verdict: no-go` line; `--output jsonl` emits one record per check, with the go/no-go conclusion carried by the exit status. The go/no-go is assembled from the streamed verdicts, so it still fails closed on any failing check.
+
 ## SBOM and dependency graphs
 
 ```bash
@@ -167,7 +171,7 @@ toven release sbom --out-dir dist/sbom
 toven release depgraphs --out-dir dist/graphs
 ```
 
-Artifact paths are written to stdout. Unsupported-ecosystem skips are warnings on stderr. Rust SBOM generation requires `cargo-cyclonedx`. Go SBOM generation requires `cyclonedx-gomod` and produces one CycloneDX `<module>.cdx.json` per module.
+Artifact paths are written to stdout. Unsupported-ecosystem skips are warnings on stderr. Rust SBOM generation requires `cargo-cyclonedx`. Go SBOM generation requires `cyclonedx-gomod` and produces one CycloneDX `<module>.cdx.json` per module. Both verbs stream: the inputs are gathered once, then each module's artifact is produced concurrently on the shared engine (bounded by `--jobs`) and its path prints the moment that module settles under a `Release SBOM artifacts` / `Release dependency graphs` header, with `--output jsonl` emitting one record per module as it settles rather than a buffered closing table.
 
 ## Binary release artifacts
 
@@ -180,7 +184,7 @@ toven release sign
 toven release verify --no-run
 ```
 
-These verbs scope to modules that declare assets. Registry libraries in a mixed repository carry no archives, so only the binary app is packaged, checksummed, signed, and verified.
+These verbs scope to modules that declare assets. Registry libraries in a mixed repository carry no archives, so only the binary app is packaged, checksummed, signed, and verified. Each verb streams on the shared engine: workspace-level policy (the target set, the signing identity, the asset manifest) is gathered once, then each per-asset unit runs concurrently bounded by `--jobs` and prints one line the moment it settles, with `--output jsonl` emitting one record per settled unit rather than a buffered closing table.
 
 `package` archives an already-built binary for `--target` into the exact declared per-target archive path. It does not support globbing or version placeholders; `host.assets` is a set of fixed project-relative paths. Use `--binary <PATH>` to package an explicit binary path.
 
@@ -229,7 +233,7 @@ Registry credentials come from the ambient environment only. They are never plac
 
 Verification is read-only and idempotent. A default run reports `verified` once every subject carries an attestation. The forge token comes from the ambient environment only. A missing attestation is recognized only by `gh`'s explicit "no attestations found" result; any other tool failure (auth, an inaccessible private repository, network) fails closed rather than being read as absent.
 
-`--dry-run` reports, per subject, whether an attestation exists as `present` or `missing` and never fails on a missing one — an attested subject is never masked by an unattested sibling. Typed JSONL emits one record per module image for `image` or per subject for `provenance`, with `preview` and the subject's resolved `status`; data goes to stdout and warnings go to stderr.
+`--dry-run` reports, per subject, whether an attestation exists as `present` or `missing` and never fails on a missing one — an attested subject is never masked by an unattested sibling. Both verbs stream: `image` gathers the declared image set once then publishes each module concurrently (bounded by `--jobs`), and `provenance` gathers the published subjects once then verifies each on the shared engine, printing one line per module image or subject the moment it settles under a `Release image` / `Release provenance` header. Typed JSONL emits one record per module image for `image` or per subject for `provenance`, with `preview` and the subject's resolved `status`; data goes to stdout and warnings go to stderr.
 
 ## Mutation-free publication rehearsal
 
@@ -239,6 +243,8 @@ toven release publish --dry-run --output jsonl > release-preview.jsonl
 ```
 
 The rehearsal resolves the same module order, versions, publication policies, target idempotency verdicts, hosted tags, prerelease flags, and configured asset paths as a real publish. Registry entries report `would-publish` or `already-published`; tag-only entries report `tag-only`.
+
+The rehearsal runs the same dependency-first plan cut as a real publish, whose slow per-module I/O can take a while on a large workspace. Human output streams that cascade live — `checking <module>…` followed by each module's decision in dependency order — so an operator sees module-by-module motion before the closing rehearsal tables. `--output jsonl` stays one clean record per unit: it does not interleave the plan's per-module events, emitting one publish or tag-only verdict per module (in dependency order) followed by one record per hosted Release.
 
 Each hosted Release preview includes the fully rendered, commit-derived notes body. Human output prints the body under the hosted-release table. JSONL carries it as a `notes` field. The rehearsal does not call manifest mutation, packaging, publication, tag creation, push, or forge commands.
 

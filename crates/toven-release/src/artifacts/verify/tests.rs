@@ -21,7 +21,7 @@ use toven_testkit::{
 use super::assets::extract_binary;
 use super::{
     CosignVerifier, GhAssetDownloader, ProcessVersionProbe, VerifyMode, VerifyOptions,
-    release_verify,
+    VerifyOutcome, release_verify, verify_operation,
 };
 use toven_core::config::{Document, ProjectConfig, TovenConfig};
 use toven_core::federation::MemberVcsReaders;
@@ -665,5 +665,123 @@ fn version_probe_runs_binary_version_argv_first() {
     assert_eq!(
         requests[0].argv,
         vec![binary.to_str().unwrap(), "--version"]
+    );
+}
+
+#[derive(Default)]
+struct Recorder {
+    started: Vec<String>,
+    settled: Vec<(String, toven_runtime::UnitStatus, Option<VerifyOutcome>)>,
+}
+
+impl toven_runtime::Progress<VerifyOutcome> for Recorder {
+    fn started(&mut self, unit_id: &str) -> rskit_errors::AppResult<()> {
+        self.started.push(unit_id.to_string());
+        Ok(())
+    }
+
+    fn settled(
+        &mut self,
+        report: &toven_runtime::UnitReport<VerifyOutcome>,
+    ) -> rskit_errors::AppResult<()> {
+        self.settled.push((
+            report.unit_id.clone(),
+            report.status,
+            report.outcome.clone(),
+        ));
+        Ok(())
+    }
+}
+
+#[test]
+fn verify_units_are_edgeless_one_per_declared_archive() {
+    let root = TempDir::new().unwrap();
+    write_archive(root.path());
+    let provider = provider(vec![LINUX_ARCHIVE], SignConfig::default());
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+    let mut reporter = RecordingReporter::new();
+    let downloader = FakeAssetDownloader::from_dir(root.path());
+    let verifier = FakeSignatureVerifier::new();
+    let probe: Arc<dyn VersionProbe> =
+        Arc::new(FakeVersionProbe::reporting(format!("toven {VERSION}")));
+
+    let (_op, units) = verify_operation(
+        &request(root.path()),
+        &document(),
+        &providers,
+        &readers,
+        VerifyOptions {
+            download: false,
+            run: true,
+        },
+        &downloader,
+        &verifier,
+        probe,
+        &mut reporter,
+    )
+    .unwrap();
+
+    assert_eq!(units.len(), 1);
+    assert!(units.iter().all(|unit| unit.depends_on.is_empty()));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn verify_streams_a_settled_asset_per_unit() {
+    let root = TempDir::new().unwrap();
+    write_archive(root.path());
+    let provider = provider(vec![LINUX_ARCHIVE], SignConfig::default());
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+    let mut reporter = RecordingReporter::new();
+    let downloader = FakeAssetDownloader::from_dir(root.path());
+    let verifier = FakeSignatureVerifier::new();
+    let probe: Arc<dyn VersionProbe> =
+        Arc::new(FakeVersionProbe::reporting(format!("toven {VERSION}")));
+
+    let (op, units) = verify_operation(
+        &request(root.path()),
+        &document(),
+        &providers,
+        &readers,
+        VerifyOptions {
+            download: false,
+            run: true,
+        },
+        &downloader,
+        &verifier,
+        probe,
+        &mut reporter,
+    )
+    .unwrap();
+
+    let mut rec = Recorder::default();
+    let summary = toven_runtime::execute(
+        &units,
+        op,
+        toven_runtime::EngineConfig {
+            jobs: 2,
+            fail_fast: false,
+        },
+        &mut rec,
+        tokio_util::sync::CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(summary.total, 1);
+    assert_eq!(summary.succeeded, 1);
+    assert_eq!(rec.started.len(), 1);
+    assert_eq!(rec.settled.len(), 1);
+    let (_id, status, outcome) = &rec.settled[0];
+    assert_eq!(*status, toven_runtime::UnitStatus::Succeeded);
+    let asset = outcome.as_ref().unwrap();
+    assert_eq!(asset.name, ARCHIVE_NAME);
+    assert!(asset.ran);
+    assert_eq!(
+        asset.reported_version.as_deref(),
+        Some(&*format!("toven {VERSION}"))
     );
 }

@@ -44,6 +44,7 @@ toven-version = { path = "crates/toven-version" }
 toven-release = { path = "crates/toven-release" }
 toven-engine = { path = "crates/toven-engine" }
 toven-exec = { path = "crates/toven-exec" }
+toven-runtime = { path = "crates/toven-runtime" }
 toven-cli = { path = "crates/toven-cli" }
 toven-rust = { path = "crates/toven-rust" }
 toven-go = { path = "crates/toven-go" }

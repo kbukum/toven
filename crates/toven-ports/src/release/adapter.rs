@@ -24,6 +24,12 @@ use super::{
 /// contracts plus [`ReleaseDefaultsSource`] a `ReleaseAdapter`, so an ecosystem
 /// adapter (e.g. the cargo or Go target) implements the phase traits it needs,
 /// states its default release model, and gains the composite for free.
+///
+/// `Send + Sync` is part of the seam: a resolved target is shared across the
+/// runtime engine's bounded worker pool so the read-only per-module release
+/// verbs (`status`, `readiness`, `rehearse`) can stream and parallelize their
+/// per-module registry/tag I/O. Concrete adapters hold only thread-safe state
+/// (an `Arc<dyn ToolRunner>` plus parsed config), so the bound is free.
 pub trait ReleaseAdapter:
     VersionSource
     + TagGrammar
@@ -32,6 +38,8 @@ pub trait ReleaseAdapter:
     + Publisher
     + SbomProducer
     + ReleaseDefaultsSource
+    + Send
+    + Sync
 {
 }
 
@@ -43,5 +51,7 @@ impl<T> ReleaseAdapter for T where
         + Publisher
         + SbomProducer
         + ReleaseDefaultsSource
+        + Send
+        + Sync
 {
 }

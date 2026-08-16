@@ -1,15 +1,19 @@
 //! Provenance flow and published subject collection.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use async_trait::async_trait;
 use rskit_errors::{AppError, AppResult};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::file::read_string_bounded;
+use tokio_util::sync::CancellationToken;
 use toven_core::config::Document;
 use toven_core::federation::resolve::PathDriverLocator;
 use toven_core::plan::{PlanRequest, prepare_front};
 use toven_ports::{ProvenancePhase, ProvenanceSubject, Provider, Reporter};
+use toven_runtime::{Completed, UnitOperation, UnitSpec};
 
 use crate::artifacts::{assets, image};
 use crate::planning::plan::{release_targets, resolve_release_settings};
@@ -163,6 +167,223 @@ pub fn release_provenance(
         subjects: subject_reports,
         status,
     })
+}
+
+/// The shared prerequisites for `release provenance`, resolved once by
+/// [`ProvenanceInputs::gather`] and shared across every per-subject run.
+///
+/// GATHER performs every workspace-coupled step: it resolves the released
+/// settings, resolves each pushed image's live digest, and collects the
+/// published subjects (the `SHA256SUMS` manifest entries plus pushed image
+/// digests), failing closed when nothing published resolves to a subject. The
+/// streamed per-unit phase then verifies one subject's attestation.
+pub struct ProvenanceInputs {
+    /// Whether this run is a report-only `--dry-run` preview.
+    preview: bool,
+    /// The project root each subject is verified relative to.
+    project_root: PathBuf,
+    /// The published subjects, in manifest-then-image order.
+    subjects: Vec<ProvenanceSubject>,
+}
+
+impl ProvenanceInputs {
+    /// Resolve the published subjects once, failing closed when nothing
+    /// published resolves to a subject so the run never streams zero units.
+    ///
+    /// # Errors
+    /// Fails closed with a typed error when neither a manifest nor a pushed
+    /// image resolves to a subject, the manifest is missing/malformed, or the
+    /// image digest lookup fails — as well as propagating
+    /// configuration/discovery/graph failures.
+    #[allow(clippy::too_many_arguments)]
+    pub fn gather(
+        request: &PlanRequest,
+        document: &Document,
+        providers: &[&dyn Provider],
+        readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
+        image_phase: &dyn toven_ports::ImagePhase,
+        options: ProvenanceOptions,
+        reporter: &mut dyn Reporter,
+    ) -> AppResult<Self> {
+        let locator = PathDriverLocator::new();
+        let context = prepare_front(
+            &request.project_root,
+            document,
+            providers,
+            &locator,
+            reporter,
+        )?;
+        let targets = release_targets(&context, readers)?;
+        let settings = resolve_release_settings(&context, &targets)?;
+        let project_root = request.project_root.as_path();
+
+        let image_requests = image::resolved_image_requests(&context, &targets, &settings)?;
+        let subjects = published_subjects(project_root, &settings, &image_requests, image_phase)?;
+
+        Ok(Self {
+            preview: options.dry_run,
+            project_root: project_root.to_path_buf(),
+            subjects,
+        })
+    }
+
+    /// Look up a published subject by its unit id (the subject's display name).
+    fn subject(&self, id: &str) -> Option<&ProvenanceSubject> {
+        self.subjects.iter().find(|subject| subject.name == id)
+    }
+
+    /// Whether this run is a report-only `--dry-run` preview.
+    #[must_use]
+    pub const fn preview(&self) -> bool {
+        self.preview
+    }
+
+    /// The engine unit graph: one independent (edgeless) unit per published
+    /// subject, so the engine schedules them bounded-parallel.
+    #[must_use]
+    pub fn units(&self) -> Vec<UnitSpec> {
+        self.subjects
+            .iter()
+            .map(|subject| UnitSpec::new(subject.name.clone(), Vec::<String>::new()))
+            .collect()
+    }
+}
+
+/// One settled per-subject provenance outcome.
+pub type ProvenanceOutcome = ProvenanceSubjectReport;
+
+/// Verify one published subject's attestation — the per-unit compute over the
+/// gathered [`ProvenanceInputs`], with the [`ProvenancePhase`] existence check
+/// (the same `gh attestation verify --signer-workflow` argv as an enforced
+/// batch verify) as its only I/O.
+///
+/// In `--dry-run` the subject always settles as `succeeded`, reporting
+/// `present`/`missing`. In an enforced run a present attestation settles
+/// `succeeded` (`verified`); a missing one settles as a `failed` unit so the run
+/// fails closed while still streaming every remaining subject.
+fn provenance_for(
+    inputs: &ProvenanceInputs,
+    phase: &dyn ProvenancePhase,
+    subject: &ProvenanceSubject,
+) -> AppResult<Completed<ProvenanceOutcome>> {
+    let present = phase.attestation_exists(&inputs.project_root, subject)?;
+    if inputs.preview {
+        let status = if present {
+            ProvenancePhaseStatus::Present
+        } else {
+            ProvenancePhaseStatus::Missing
+        };
+        return Ok(Completed::succeeded(ProvenanceSubjectReport {
+            subject: subject.clone(),
+            status,
+        }));
+    }
+    if present {
+        Ok(Completed::succeeded(ProvenanceSubjectReport {
+            subject: subject.clone(),
+            status: ProvenancePhaseStatus::Verified,
+        }))
+    } else {
+        Ok(Completed::failed(ProvenanceSubjectReport {
+            subject: subject.clone(),
+            status: ProvenancePhaseStatus::Missing,
+        }))
+    }
+}
+
+/// The `release provenance` per-unit operation on the shared runtime engine.
+///
+/// GATHER collects the published subjects once into [`ProvenanceInputs`]; each
+/// unit streams one subject's attestation check. The check is a synchronous
+/// argv-first port call, so each unit runs on a blocking thread
+/// ([`tokio::task::spawn_blocking`]) to let the engine schedule the subjects
+/// bounded-parallel.
+pub struct ProvenanceOperation {
+    inputs: Arc<ProvenanceInputs>,
+    phase: Arc<dyn ProvenancePhase>,
+}
+
+impl ProvenanceOperation {
+    /// Wrap gathered inputs and the injected provenance phase as a runnable
+    /// operation.
+    #[must_use]
+    pub fn new(inputs: ProvenanceInputs, phase: Arc<dyn ProvenancePhase>) -> Self {
+        Self {
+            inputs: Arc::new(inputs),
+            phase,
+        }
+    }
+
+    /// Share the gathered inputs so the CLI can title its output with the
+    /// preview flag.
+    #[must_use]
+    pub fn inputs(&self) -> Arc<ProvenanceInputs> {
+        Arc::clone(&self.inputs)
+    }
+}
+
+#[async_trait]
+impl UnitOperation for ProvenanceOperation {
+    type Shared = Arc<ProvenanceInputs>;
+    type Outcome = ProvenanceOutcome;
+
+    async fn gather(&self) -> AppResult<Self::Shared> {
+        Ok(Arc::clone(&self.inputs))
+    }
+
+    async fn run(
+        &self,
+        shared: &Self::Shared,
+        unit_id: &str,
+        _cancel: CancellationToken,
+    ) -> AppResult<Completed<Self::Outcome>> {
+        let shared = Arc::clone(shared);
+        let phase = Arc::clone(&self.phase);
+        let id = unit_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let subject = shared.subject(&id).ok_or_else(|| {
+                AppError::new(
+                    rskit_errors::ErrorCode::Internal,
+                    format!("unknown provenance unit '{id}'"),
+                )
+            })?;
+            provenance_for(&shared, phase.as_ref(), subject)
+        })
+        .await
+        .map_err(AppError::internal)?
+    }
+}
+
+/// Build the `release provenance` operation and its engine unit graph.
+///
+/// GATHER collects the published subjects (resolving each pushed image's live
+/// digest) once; the returned units stream the per-subject attestation check.
+///
+/// # Errors
+/// Propagates GATHER failures (configuration/discovery/graph, subject
+/// collection, image digest lookup, and the fail-closed no-subjects check).
+#[allow(clippy::too_many_arguments)]
+pub fn provenance_operation(
+    request: &PlanRequest,
+    document: &Document,
+    providers: &[&dyn Provider],
+    readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
+    provenance_phase: Arc<dyn ProvenancePhase>,
+    image_phase: &dyn toven_ports::ImagePhase,
+    options: ProvenanceOptions,
+    reporter: &mut dyn Reporter,
+) -> AppResult<(ProvenanceOperation, Vec<UnitSpec>)> {
+    let inputs = ProvenanceInputs::gather(
+        request,
+        document,
+        providers,
+        readers,
+        image_phase,
+        options,
+        reporter,
+    )?;
+    let units = inputs.units();
+    Ok((ProvenanceOperation::new(inputs, provenance_phase), units))
 }
 
 /// Collect the published subjects: the entries of the declared `SHA256SUMS`

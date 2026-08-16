@@ -26,4 +26,4 @@ steps:
   - id: 04-dirty-tree-readiness-rejected
     argv: [release, readiness]
     exit: 1
-    stdout: { match: normalized }
+    stdout: { match: line-set, frame_prefix: 1, frame_suffix: 1 }

@@ -21,4 +21,7 @@ mod tests;
 
 pub use buildx::BuildxImagePhase;
 pub(super) use phase::resolved_image_requests;
-pub use phase::{ImageModuleOutcome, ImageOptions, ImagePhaseStatus, ImageReport, release_image};
+pub use phase::{
+    ImageInputs, ImageModuleOutcome, ImageOperation, ImageOptions, ImagePhaseStatus, ImageReport,
+    image_operation, release_image,
+};

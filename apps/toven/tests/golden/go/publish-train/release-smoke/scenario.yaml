@@ -20,16 +20,16 @@ steps:
     stdout: { match: normalized }
   - id: 02-release-status
     argv: [release, status]
-    stdout: { match: normalized }
+    stdout: { match: line-set, frame_prefix: 1 }
   - id: 03-release-readiness
     argv: [release, readiness]
-    stdout: { match: normalized }
+    stdout: { match: line-set, frame_prefix: 1, frame_suffix: 1 }
   - id: 04-release-sbom
     argv: [release, sbom, --out-dir, out/sbom]
     # The go adapter shells out to the cyclonedx-gomod tool; runners without it
     # skip just this step green.
     requires: [cyclonedx-gomod]
-    stdout: { match: normalized }
+    stdout: { match: line-set, frame_prefix: 1 }
     # The command prints artifact paths; assert each file is actually written.
     effects:
       - file_exists: out/sbom/core.cdx.json

@@ -1,7 +1,2 @@
-
 Release dependency graphs
-┌──────────────────┬────────────────────────────────────┐
-│ Graph            │ Artifact                           │
-├──────────────────┼────────────────────────────────────┤
-│ publish-train-go │ out/depgraphs/publish-train-go.dot │
-└──────────────────┴────────────────────────────────────┘
+publish-train-go  out/depgraphs/publish-train-go.dot

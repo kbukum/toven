@@ -3,7 +3,10 @@ use std::collections::BTreeMap;
 use rskit_config::RawValue;
 use rskit_version::semver::Version;
 use serde_json::json;
-use toven_model::{AbsPath, DepKind, EcosystemId, Edge, Module, ModuleKey, ModuleRef, RepoPath};
+use toven_model::{
+    AbsPath, DepKind, EcosystemId, Edge, Module, ModuleKey, ModuleRef, RepoPath, ToolchainTag,
+    Workspace, WorkspaceId,
+};
 use toven_ports::{
     BaselineSpec, BumpLevel, ChangeRecord, ChangeStatus, ChangelogConfig, CommonEcosystemConfig,
     DependentVersion, DiscoverResponse, Oid, PrereleaseConfig, Provider, PublicationPolicy,
@@ -1072,6 +1075,182 @@ fn release_plan_cascades_transitively_to_indirect_dependents() {
         plan.entries[2].mutation.dep_floor_updates.get(&mref("mid")),
         Some(&Version::new(0, 1, 1))
     );
+}
+
+#[test]
+fn release_plan_fails_closed_on_unattributable_root_paths() {
+    // A real-world diff: one changed leaf crate alongside several root / CI /
+    // docs files. Release must fail closed — the unattributable paths bump
+    // nothing, so only the changed leaf and its dependent cascade are planned.
+    // `solo` (no dependency on the leaf) must stay absent, not be over-bumped.
+    let core = module("core", "crates/core");
+    let app = module("app", "crates/app");
+    let solo = module("solo", "crates/solo");
+    let mut response = DiscoverResponse::new(eid("rust"));
+    response.modules = vec![core.clone(), app.clone(), solo.clone()];
+    response.edges = vec![Edge::new(app.id.clone(), core.id.clone(), DepKind::Normal)];
+
+    let adapter = FakeConfiguredAdapter::new(eid("rust"))
+        .with_response(response)
+        .with_common(common_with_registry())
+        .with_release_target(FakeReleaseTarget::new());
+    let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let request = PlanRequest::new(
+        "r1",
+        "t",
+        TaskIntent::resolve("test"),
+        AbsPath::new("/repo").unwrap(),
+    )
+    .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+    let vcs = FakeVcsReader::new()
+        .with_tags(released_at_0_1_0(&["core", "app", "solo"]))
+        .with_changed_since(vec![
+            ChangeRecord::new("crates/core/src/lib.rs", ChangeStatus::Modified),
+            ChangeRecord::new("README.md", ChangeStatus::Modified),
+            ChangeRecord::new(".github/workflows/ci.yml", ChangeStatus::Modified),
+            ChangeRecord::new("docs/guide.md", ChangeStatus::Modified),
+        ]);
+    let mut reporter = RecordingReporter::new();
+
+    let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+    let overrides = BumpOverrides::new();
+    let plan = release_plan(
+        &request,
+        &document(),
+        &providers,
+        &readers,
+        &overrides,
+        &mut reporter,
+    )
+    .unwrap();
+
+    // Only core (directly changed) and app (dependency cascade) publish; the
+    // root/CI/docs files attribute to no module and bump nothing.
+    assert_eq!(plan.publish_count(), 2);
+    assert_eq!(plan.entries[0].module, core.key());
+    assert_eq!(plan.entries[0].reason, BumpReason::Changed);
+    assert_eq!(plan.entries[1].module, app.key());
+    assert_eq!(plan.entries[1].reason, BumpReason::DependencyCascade);
+    assert!(
+        plan.entries.iter().all(|entry| entry.module != solo.key()),
+        "an independent module must not be over-bumped by an unattributable path"
+    );
+}
+
+#[test]
+fn release_plan_is_empty_for_a_root_only_diff() {
+    // Root / CI-only changes are not release-relevant: the plan is empty.
+    let core = module("core", "crates/core");
+    let app = module("app", "crates/app");
+    let mut response = DiscoverResponse::new(eid("rust"));
+    response.modules = vec![core.clone(), app.clone()];
+    response.edges = vec![Edge::new(app.id, core.id, DepKind::Normal)];
+
+    let adapter = FakeConfiguredAdapter::new(eid("rust"))
+        .with_response(response)
+        .with_common(common_with_registry())
+        .with_release_target(FakeReleaseTarget::new());
+    let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let request = PlanRequest::new(
+        "r1",
+        "t",
+        TaskIntent::resolve("test"),
+        AbsPath::new("/repo").unwrap(),
+    )
+    .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+    let vcs = FakeVcsReader::new()
+        .with_tags(released_at_0_1_0(&["core", "app"]))
+        .with_changed_since(vec![
+            ChangeRecord::new("README.md", ChangeStatus::Modified),
+            ChangeRecord::new(".github/workflows/ci.yml", ChangeStatus::Modified),
+        ]);
+    let mut reporter = RecordingReporter::new();
+
+    let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+    let overrides = BumpOverrides::new();
+    let plan = release_plan(
+        &request,
+        &document(),
+        &providers,
+        &readers,
+        &overrides,
+        &mut reporter,
+    )
+    .unwrap();
+
+    assert_eq!(
+        plan.publish_count(),
+        0,
+        "a root-only diff attributes to no module and publishes nothing"
+    );
+    assert!(plan.entries.iter().all(|entry| !entry.publish_needed));
+}
+
+#[test]
+fn release_plan_fails_closed_on_a_lockfile_only_diff() {
+    // A shared `Cargo.lock` is a whole-workspace blast-radius input, not a
+    // per-module owner. For `run` it activates every member; for release it must
+    // bump nothing — a lockfile-only diff changes no first-party source, so the
+    // dependency cascade (not blanket blast-radius activation) is the only path
+    // by which a real floor change reaches dependents. This pins that release
+    // gating does not over-publish the whole workspace on a lockfile move.
+    let mut core = module("core", "crates/core");
+    let mut app = module("app", "crates/app");
+    core.workspace = Some(WorkspaceId::new("rust").unwrap());
+    app.workspace = Some(WorkspaceId::new("rust").unwrap());
+    let mut workspace = Workspace::new(
+        WorkspaceId::new("rust").unwrap(),
+        RepoPath::new(".").unwrap(),
+        ToolchainTag::new("cargo"),
+    );
+    workspace.blast_radius = vec!["Cargo.lock".to_string()];
+
+    let mut response = DiscoverResponse::new(eid("rust"));
+    response.modules = vec![core.clone(), app.clone()];
+    response.edges = vec![Edge::new(app.id, core.id, DepKind::Normal)];
+    response.workspaces = vec![workspace];
+
+    let adapter = FakeConfiguredAdapter::new(eid("rust"))
+        .with_response(response)
+        .with_common(common_with_registry())
+        .with_release_target(FakeReleaseTarget::new());
+    let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let request = PlanRequest::new(
+        "r1",
+        "t",
+        TaskIntent::resolve("test"),
+        AbsPath::new("/repo").unwrap(),
+    )
+    .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+    let vcs = FakeVcsReader::new()
+        .with_tags(released_at_0_1_0(&["core", "app"]))
+        .with_changed_since(vec![ChangeRecord::new(
+            "Cargo.lock",
+            ChangeStatus::Modified,
+        )]);
+    let mut reporter = RecordingReporter::new();
+
+    let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+    let overrides = BumpOverrides::new();
+    let plan = release_plan(
+        &request,
+        &document(),
+        &providers,
+        &readers,
+        &overrides,
+        &mut reporter,
+    )
+    .unwrap();
+
+    assert_eq!(
+        plan.publish_count(),
+        0,
+        "a lockfile-only diff is a blast-radius input, not a per-module change, and publishes nothing"
+    );
+    assert!(plan.entries.iter().all(|entry| !entry.publish_needed));
 }
 
 #[test]
