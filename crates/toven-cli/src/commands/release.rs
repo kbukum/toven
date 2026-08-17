@@ -61,16 +61,16 @@ pub(crate) fn execute(
 ) -> AppResult<ExitCode> {
     match action {
         ReleaseAction::Plan => plan(providers, project, cli),
-        ReleaseAction::Status => status(providers, project, cli),
-        ReleaseAction::Readiness => readiness(providers, project, cli),
-        ReleaseAction::Sbom => sbom(providers, project, cli),
-        ReleaseAction::Depgraphs => depgraphs(providers, project, cli),
-        ReleaseAction::Package => package(providers, project, cli),
-        ReleaseAction::Checksums => checksums(providers, project, cli),
-        ReleaseAction::Sign => sign(providers, project, cli),
-        ReleaseAction::Verify => verify(providers, project, cli),
-        ReleaseAction::Image => image(providers, project, cli),
-        ReleaseAction::Provenance => provenance(providers, project, cli),
+        ReleaseAction::Status => status(providers, supervisor, project, cli),
+        ReleaseAction::Readiness => readiness(providers, supervisor, project, cli),
+        ReleaseAction::Sbom => sbom(providers, supervisor, project, cli),
+        ReleaseAction::Depgraphs => depgraphs(providers, supervisor, project, cli),
+        ReleaseAction::Package => package(providers, supervisor, project, cli),
+        ReleaseAction::Checksums => checksums(providers, supervisor, project, cli),
+        ReleaseAction::Sign => sign(providers, supervisor, project, cli),
+        ReleaseAction::Verify => verify(providers, supervisor, project, cli),
+        ReleaseAction::Image => image(providers, supervisor, project, cli),
+        ReleaseAction::Provenance => provenance(providers, supervisor, project, cli),
         ReleaseAction::Publish if cli.dry_run => rehearse(providers, project, cli),
         ReleaseAction::Bump => bump(providers, supervisor, project, cli),
         ReleaseAction::Tag | ReleaseAction::Publish => {
@@ -355,17 +355,22 @@ fn engine_jobs(cli: &Cli, project: &Project) -> usize {
 /// and whether the stop signal fired, so the caller can map an interrupted run
 /// to [`ExitCode::Cancelled`] (`130`).
 ///
-/// This installs the cooperative token only; reaping an already-running blocking
-/// tool/registry call mid-invocation still depends on the underlying process
-/// mechanism (tracked as follow-up work).
+/// The `supervisor` is the shared process supervisor every release tool/registry
+/// child registers with (the providers' runner and the CLI-local runners are all
+/// built against it). Subscribing it to the same token as the backstop — exactly
+/// as `run` does — means a fired signal terminates the *underlying supervised
+/// process* of an in-flight blocking tool call (a slow `syft`/`cargo`/`cosign`
+/// invocation), not merely the cooperative wrapper, so a long registry/tool call
+/// is actually reaped rather than run to completion.
 ///
 /// # Errors
-/// Propagates runtime construction, shutdown-controller installation, and any
-/// hard operation error from the engine.
+/// Propagates runtime construction, shutdown-controller installation, backstop
+/// subscription, and any hard operation error from the engine.
 fn drive_streamed<Op: toven_runtime::UnitOperation>(
     units: &[toven_runtime::UnitSpec],
     operation: Op,
     jobs: usize,
+    supervisor: &Arc<ProcessSupervisor>,
     progress: &mut dyn toven_runtime::Progress<Op::Outcome>,
 ) -> AppResult<(toven_runtime::RunSummary, bool)> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -375,6 +380,10 @@ fn drive_streamed<Op: toven_runtime::UnitOperation>(
     runtime.block_on(async move {
         let shutdown = ShutdownController::install(ShutdownPolicy::default())?;
         let cancel = shutdown.token();
+        // Backstop: on a stop signal the supervisor reaps every still-registered
+        // child (provider- and CLI-runner-spawned alike), so an in-flight blocking
+        // tool/registry call is terminated instead of run to completion.
+        let _backstop = supervisor.subscribe_shutdown(cancel.clone())?;
         let summary = toven_runtime::execute(
             units,
             operation,
@@ -391,7 +400,12 @@ fn drive_streamed<Op: toven_runtime::UnitOperation>(
 }
 
 /// `release status`: render each module's declared/published/tagged state.
-fn status(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+fn status(
+    providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
+    project: &Project,
+    cli: &Cli,
+) -> AppResult<ExitCode> {
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
@@ -410,7 +424,7 @@ fn status(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResul
     let mut projector = StatusProjector::new(output);
     projector.open();
 
-    let (summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    let (summary, cancelled) = drive_streamed(&units, operation, jobs, supervisor, &mut projector)?;
     if cancelled {
         return Ok(ExitCode::Cancelled);
     }
@@ -438,7 +452,12 @@ fn resolve_out_dir(cli: &Cli, project: &Project) -> std::path::PathBuf {
 /// nothing. Each composed check streams its verdict as it settles; the go/no-go
 /// conclusion is assembled from the streamed verdicts. A no-go verdict exits
 /// non-zero so CI gates on it.
-fn readiness(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+fn readiness(
+    providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
+    project: &Project,
+    cli: &Cli,
+) -> AppResult<ExitCode> {
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
@@ -463,7 +482,8 @@ fn readiness(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
     } else {
         // A failing check is a settled verdict, not a unit error, so the engine
         // runs every check; only I/O or an unknown check errors out here.
-        let (_summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+        let (_summary, cancelled) =
+            drive_streamed(&units, operation, jobs, supervisor, &mut projector)?;
         if cancelled {
             return Ok(ExitCode::Cancelled);
         }
@@ -481,7 +501,12 @@ fn readiness(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
 
 /// `release sbom`: generate a `CycloneDX` SBOM per releasable module under the
 /// resolved output directory, mutating nothing outside it.
-fn sbom(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+fn sbom(
+    providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
+    project: &Project,
+    cli: &Cli,
+) -> AppResult<ExitCode> {
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
@@ -505,7 +530,8 @@ fn sbom(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<
     let mut projector = SbomProjector::new(output);
     projector.open();
 
-    let (_summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    let (_summary, cancelled) =
+        drive_streamed(&units, operation, jobs, supervisor, &mut projector)?;
     if cancelled {
         return Ok(ExitCode::Cancelled);
     }
@@ -519,7 +545,12 @@ fn sbom(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<
 
 /// `release depgraphs`: render the dependency graph to a DOT artifact under the
 /// resolved output directory, mutating nothing outside it.
-fn depgraphs(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+fn depgraphs(
+    providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
+    project: &Project,
+    cli: &Cli,
+) -> AppResult<ExitCode> {
     let request = release_request(project)?;
     let out_dir = resolve_out_dir(cli, project);
     let mut reporter = QuietReporter;
@@ -536,7 +567,8 @@ fn depgraphs(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
     let mut projector = DepgraphProjector::new(output);
     projector.open();
 
-    let (_summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    let (_summary, cancelled) =
+        drive_streamed(&units, operation, jobs, supervisor, &mut projector)?;
     if cancelled {
         return Ok(ExitCode::Cancelled);
     }
@@ -546,7 +578,12 @@ fn depgraphs(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
 /// `release package`: archive the already-built binary for `--target` into its
 /// declared hosted-release asset, mutating no history. `--target` is required;
 /// `--binary` overrides the default `target/<triple>/release/<binary>` source.
-fn package(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+fn package(
+    providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
+    project: &Project,
+    cli: &Cli,
+) -> AppResult<ExitCode> {
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
@@ -558,7 +595,7 @@ fn package(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResu
         )
     })?;
     let mut reporter = QuietReporter;
-    let tool_runner = ProcessToolRunner::new();
+    let tool_runner = ProcessToolRunner::new().with_supervisor(Arc::clone(supervisor));
     let (operation, units) = package_operation(
         &request,
         &project.document,
@@ -576,7 +613,8 @@ fn package(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResu
     let mut projector = PackageProjector::new(output, inputs.target().to_string());
     projector.open();
 
-    let (_summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    let (_summary, cancelled) =
+        drive_streamed(&units, operation, jobs, supervisor, &mut projector)?;
     if cancelled {
         return Ok(ExitCode::Cancelled);
     }
@@ -585,7 +623,12 @@ fn package(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResu
 
 /// `release checksums`: emit the `SHA256SUMS` manifest over the declared
 /// release assets to its declared asset path, mutating no history.
-fn checksums(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+fn checksums(
+    providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
+    project: &Project,
+    cli: &Cli,
+) -> AppResult<ExitCode> {
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
@@ -604,7 +647,8 @@ fn checksums(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
     let mut projector = ChecksumProjector::new(output, inputs.manifest().to_string());
     projector.open();
 
-    let (_summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    let (_summary, cancelled) =
+        drive_streamed(&units, operation, jobs, supervisor, &mut projector)?;
     if cancelled {
         return Ok(ExitCode::Cancelled);
     }
@@ -616,11 +660,17 @@ fn checksums(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppRe
 
 /// `release sign`: sign the declared `SHA256SUMS` manifest into its declared
 /// self-contained Sigstore bundle with cosign, mutating no history.
-fn sign(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+fn sign(
+    providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
+    project: &Project,
+    cli: &Cli,
+) -> AppResult<ExitCode> {
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
-    let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
+    let runner: Arc<dyn ToolRunner> =
+        Arc::new(ProcessToolRunner::new().with_supervisor(Arc::clone(supervisor)));
     let signer: Arc<dyn toven_ports::Signer> = Arc::new(CosignSigner::new(runner.clone()));
     let mut reporter = QuietReporter;
     let (operation, units) = sign_operation(
@@ -638,7 +688,8 @@ fn sign(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<
     let mut projector = SignProjector::new(output);
     projector.open();
 
-    let (_summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    let (_summary, cancelled) =
+        drive_streamed(&units, operation, jobs, supervisor, &mut projector)?;
     if cancelled {
         return Ok(ExitCode::Cancelled);
     }
@@ -648,11 +699,17 @@ fn sign(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<
 /// `release verify`: verify the declared release archives — locally (presence +
 /// reported version) or, with `--download`, against the hosted release
 /// (signature + checksum + reported version) — mutating nothing.
-fn verify(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+fn verify(
+    providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
+    project: &Project,
+    cli: &Cli,
+) -> AppResult<ExitCode> {
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
-    let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
+    let runner: Arc<dyn ToolRunner> =
+        Arc::new(ProcessToolRunner::new().with_supervisor(Arc::clone(supervisor)));
     let downloader = GhAssetDownloader::new(runner.clone());
     let verifier = CosignVerifier::new(runner.clone());
     let probe: Arc<dyn toven_ports::VersionProbe> = Arc::new(ProcessVersionProbe::new(runner));
@@ -684,7 +741,8 @@ fn verify(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResul
     );
     projector.open();
 
-    let (_summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    let (_summary, cancelled) =
+        drive_streamed(&units, operation, jobs, supervisor, &mut projector)?;
     if cancelled {
         return Ok(ExitCode::Cancelled);
     }
@@ -695,14 +753,20 @@ fn verify(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResul
 /// primary registry plus mirrors immutably, and cosign-sign the pushed digest.
 /// `--dry-run` previews the references and existing digests mutation-free, so it
 /// needs no `--yes`; the real push requires confirmation.
-fn image(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+fn image(
+    providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
+    project: &Project,
+    cli: &Cli,
+) -> AppResult<ExitCode> {
     if !cli.dry_run {
         require_release_confirmation(cli.confirm_release)?;
     }
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
-    let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
+    let runner: Arc<dyn ToolRunner> =
+        Arc::new(ProcessToolRunner::new().with_supervisor(Arc::clone(supervisor)));
     let image_phase: Arc<dyn toven_ports::ImagePhase> = Arc::new(BuildxImagePhase::new(runner));
     let options = ImageOptions {
         dry_run: cli.dry_run,
@@ -724,7 +788,8 @@ fn image(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult
     let mut projector = ImageProjector::new(output, inputs.preview());
     projector.open();
 
-    let (_summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    let (_summary, cancelled) =
+        drive_streamed(&units, operation, jobs, supervisor, &mut projector)?;
     if cancelled {
         return Ok(ExitCode::Cancelled);
     }
@@ -736,11 +801,17 @@ fn image(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult
 /// build-provenance attestation cut by the CI trusted builder. `--dry-run`
 /// reports presence without failing; the default run fails closed if any
 /// subject lacks an attestation. Read-only, so it needs no `--yes`.
-fn provenance(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppResult<ExitCode> {
+fn provenance(
+    providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
+    project: &Project,
+    cli: &Cli,
+) -> AppResult<ExitCode> {
     let request = release_request(project)?;
     let opened = project.open_member_vcs(providers, &BaselineFlags::new())?;
     let readers = opened.readers();
-    let runner: Arc<dyn ToolRunner> = Arc::new(ProcessToolRunner::new());
+    let runner: Arc<dyn ToolRunner> =
+        Arc::new(ProcessToolRunner::new().with_supervisor(Arc::clone(supervisor)));
     let provenance_phase: Arc<dyn toven_ports::ProvenancePhase> =
         Arc::new(GhAttestationProvenance::new(runner.clone()));
     let image_phase = BuildxImagePhase::new(runner);
@@ -765,7 +836,7 @@ fn provenance(providers: &[&dyn Provider], project: &Project, cli: &Cli) -> AppR
     let mut projector = ProvenanceProjector::new(output, inputs.preview());
     projector.open();
 
-    let (summary, cancelled) = drive_streamed(&units, operation, jobs, &mut projector)?;
+    let (summary, cancelled) = drive_streamed(&units, operation, jobs, supervisor, &mut projector)?;
     if cancelled {
         return Ok(ExitCode::Cancelled);
     }
