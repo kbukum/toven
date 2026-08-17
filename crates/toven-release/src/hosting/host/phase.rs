@@ -44,6 +44,12 @@ pub(crate) struct PlannedHostRelease {
     pub member: Option<MemberId>,
     /// Fully-resolved hosted Release.
     pub release: HostedRelease,
+    /// Whether the maintainer owns this Release. When `true`
+    /// (`entrypoint = "maintainer"`), Toven verifies the Release exists for the
+    /// resolved tag but never creates, edits, or content-verifies it (the
+    /// maintainer authored it out-of-band, e.g. the GitHub Release whose
+    /// `release.published` event started CI).
+    pub maintainer_owned: bool,
 }
 
 /// Build the concrete forge hosts referenced by the resolved release settings.
@@ -137,7 +143,7 @@ pub(crate) fn planned_host_releases(
         if !entry.umbrella && umbrella_by_member.contains_key(&entry.module.member) {
             continue;
         }
-        let Some(host) = settings.get(&entry.module).map(|resolved| &resolved.host) else {
+        let Some(resolved) = settings.get(&entry.module) else {
             return Err(AppError::new(
                 ErrorCode::Internal,
                 format!(
@@ -146,6 +152,7 @@ pub(crate) fn planned_host_releases(
                 ),
             ));
         };
+        let host = &resolved.host;
         let Some(forge) = &host.forge else {
             continue;
         };
@@ -200,6 +207,7 @@ pub(crate) fn planned_host_releases(
                 forge: forge.clone(),
                 member: module.member.clone(),
                 release,
+                maintainer_owned: resolved.entrypoint.is_maintainer_owned(),
             },
             &entry.module,
         )?;
@@ -243,6 +251,17 @@ fn merge_planned(
                 candidate.release.prerelease,
                 existing.release.draft,
                 existing.release.prerelease,
+            ),
+        ));
+    }
+
+    if existing.maintainer_owned != candidate.maintainer_owned {
+        return Err(AppError::invalid_input(
+            "release.host",
+            format!(
+                "modules sharing release tag '{}' disagree on hosted Release ownership; module \
+                 '{module}' resolves maintainer_owned={} against {}",
+                candidate.release.tag, candidate.maintainer_owned, existing.maintainer_owned,
             ),
         ));
     }
@@ -308,6 +327,27 @@ pub(crate) fn run_host_phase(
         let root = repos
             .root_for(entry.member.as_ref())
             .unwrap_or(project_root);
+        if entry.maintainer_owned {
+            // The maintainer authored and published this Release out-of-band
+            // (e.g. the GitHub Release whose `release.published` event started
+            // CI). Toven never creates, edits, or content-verifies it — it only
+            // confirms the Release exists for the resolved tag, failing closed
+            // when it is missing so the publish still gates on the maintainer's
+            // Release being present.
+            if !host.release_exists(root, &entry.release.tag)? {
+                return Err(AppError::new(
+                    ErrorCode::Conflict,
+                    format!(
+                        "maintainer-owned hosted release '{}' is missing on forge '{}'; publish \
+                         the Release for the tag before releasing (entrypoint = \"maintainer\" \
+                         means Toven verifies the maintainer's Release rather than cutting one)",
+                        entry.release.tag, entry.forge,
+                    ),
+                ));
+            }
+            stats.hosted_releases += 1;
+            continue;
+        }
         host.ensure_release(root, &entry.release)?;
         stats.hosted_releases += 1;
     }
@@ -667,6 +707,7 @@ mod tests {
             forge: "github".to_string(),
             member: None,
             release,
+            maintainer_owned: false,
         };
 
         // Same path, same label: deduped to one asset without error.
@@ -829,6 +870,88 @@ mod tests {
         run_host_phase(&planned, &hosts, &repos, Path::new("/fallback"), &mut stats).unwrap();
 
         assert_eq!(host.calls()[0].root, Path::new("/fallback"));
+    }
+
+    fn maintainer_settings(name: &str) -> BTreeMap<ModuleKey, ResolvedReleaseSettings> {
+        let config = ReleaseConfig {
+            host: Some(github_host()),
+            entrypoint: Some(toven_model::Entrypoint::Maintainer),
+            ..ReleaseConfig::default()
+        };
+        let resolved = ResolvedReleaseSettings::resolve(&config, None).unwrap();
+        let mut map = BTreeMap::new();
+        map.insert(mkey(name), resolved);
+        map
+    }
+
+    #[test]
+    fn planned_release_carries_maintainer_ownership_from_the_entrypoint() {
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry("core", None)]);
+        let modules = vec![module("core")];
+
+        let toven_owned = planned_host_releases(
+            &plan,
+            &modules,
+            &targets(),
+            &settings("core", Some(github_host())),
+        )
+        .unwrap();
+        assert!(!toven_owned[0].maintainer_owned);
+
+        let maintainer_owned =
+            planned_host_releases(&plan, &modules, &targets(), &maintainer_settings("core"))
+                .unwrap();
+        assert!(maintainer_owned[0].maintainer_owned);
+    }
+
+    #[test]
+    fn run_host_phase_verifies_a_maintainer_owned_release_without_cutting_one() {
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry("core", None)]);
+        let modules = vec![module("core")];
+        let planned =
+            planned_host_releases(&plan, &modules, &targets(), &maintainer_settings("core"))
+                .unwrap();
+
+        // The maintainer's Release already exists on the forge.
+        let host = FakeReleaseHost::new().with_existing(true);
+        let mut hosts = super::ReleaseHosts::new();
+        hosts.insert("github".to_string(), Box::new(host.clone()));
+        let mut stats = ReleaseStats::new(1);
+        let repos = MemberReleaseRepos::new(Vec::new());
+
+        run_host_phase(&planned, &hosts, &repos, Path::new("/fallback"), &mut stats).unwrap();
+
+        // Verified as present and accounted, but never authored or verified for
+        // content — `ensure_release` (the create-or-verify path) is never called.
+        assert_eq!(stats.hosted_releases, 1);
+        assert!(
+            host.calls().is_empty(),
+            "a maintainer-owned Release is existence-verified, never cut or content-verified"
+        );
+    }
+
+    #[test]
+    fn run_host_phase_fails_closed_when_a_maintainer_owned_release_is_missing() {
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry("core", None)]);
+        let modules = vec![module("core")];
+        let planned =
+            planned_host_releases(&plan, &modules, &targets(), &maintainer_settings("core"))
+                .unwrap();
+
+        // No Release exists for the tag: the maintainer has not published it.
+        let host = FakeReleaseHost::new().with_existing(false);
+        let mut hosts = super::ReleaseHosts::new();
+        hosts.insert("github".to_string(), Box::new(host.clone()));
+        let mut stats = ReleaseStats::new(1);
+        let repos = MemberReleaseRepos::new(Vec::new());
+
+        let error = run_host_phase(&planned, &hosts, &repos, Path::new("/fallback"), &mut stats)
+            .unwrap_err();
+
+        assert_eq!(error.code(), ErrorCode::Conflict);
+        assert!(error.to_string().contains("maintainer-owned"), "{error}");
+        assert_eq!(stats.hosted_releases, 0);
+        assert!(host.calls().is_empty(), "no Release is ever cut on failure");
     }
 
     #[test]

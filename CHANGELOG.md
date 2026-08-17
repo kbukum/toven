@@ -14,6 +14,8 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Fixed
 
+- `entrypoint = "maintainer"` is now honored in the hosted-Release phase. Previously the entrypoint governed only tag create-vs-verify, so `release publish` still ran the create-or-content-verify path against the maintainer's Release and failed with a `CONFLICT` when Toven's generated notes differed from the maintainer-authored ones (e.g. a GitHub Release published by hand to trigger CI). Under a maintainer entrypoint Toven now only verifies the hosted Release exists for the resolved tag — it never creates, edits, content-verifies, or reconciles it — and fails closed with a `Conflict` when the maintainer's Release is missing.
+
 ### Security
 
 ## [0.1.0-alpha.6] - 2026-08-12
