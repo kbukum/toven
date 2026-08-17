@@ -72,6 +72,13 @@ pub(crate) fn plan_reconcile_releases(
         let Some(forge) = resolved.host.forge.clone() else {
             continue;
         };
+        // A maintainer-owned Release (`entrypoint = "maintainer"`) is authored
+        // and published by the maintainer, never by Toven. If it is missing,
+        // Toven must not silently create one — the normal publish path fails
+        // closed on the missing Release instead.
+        if resolved.entrypoint.is_maintainer_owned() {
+            continue;
+        }
         let Some(target) = targets
             .get(&(module.member.clone(), module.id.ecosystem.clone()))
             .map(Box::as_ref)
@@ -126,6 +133,7 @@ pub(crate) fn plan_reconcile_releases(
             forge,
             member: module.member.clone(),
             release,
+            maintainer_owned: false,
         });
     }
     Ok(planned)

@@ -276,7 +276,7 @@ GitHub and GitLab expose different release models:
 
 One release tag maps to one hosted Release. If `tag_format = "v{version}"` maps several modules to the same tag, their notes and assets collapse into a deduplicated union and the shared tag is created once. Modules sharing a tag must agree on `draft`, `prerelease`, and rendered `tag_message`, or planning fails before mutation.
 
-Hosted Release rehearsal is mutation-free. Real hosted Release creation runs after a pushing `release publish`, not after `release tag`.
+Hosted Release rehearsal is mutation-free. Real hosted Release creation runs after a pushing `release publish`, not after `release tag`. Under `entrypoint = "maintainer"` (see [Entrypoint flows](#entrypoint-flows)) none of this create-or-verify machinery runs: the hosted Release is a maintainer-authored input that Toven only confirms exists for the tag.
 
 ## Registry, tag-only, and excluded modules
 
@@ -389,9 +389,9 @@ sign = true
 | Value | Meaning |
 |---|---|
 | `"toven"` | Toven bumps versions, writes the release commit, creates and pushes the tag, publishes, and cuts the hosted Release |
-| `"maintainer"` | A maintainer already created the tag and hosted Release; Toven verifies them, then publishes, attaches assets, and verifies provenance |
+| `"maintainer"` | A maintainer already created the tag and hosted Release; Toven verifies both exist, then publishes and verifies provenance. It never creates, edits, content-verifies, or attaches assets to the maintainer's Release |
 
-In a maintainer-owned flow, the tag is an input. Toven never creates or moves it, mutates no manifest, and creates no release commit during publish. The manifest already declares the released version, so registry idempotency decides whether publish is still needed.
+In a maintainer-owned flow, the tag is an input. Toven never creates or moves it, mutates no manifest, and creates no release commit during publish. The manifest already declares the released version, so registry idempotency decides whether publish is still needed. The hosted Release is likewise an input: the hosted-Release phase only confirms a Release exists for the resolved tag and fails closed when it is missing — it never creates, edits, content-verifies, reconciles, or attaches assets to it, so the maintainer's authored notes, title, and flags are authoritative.
 
 `release plan` and `release status` show each module's entrypoint. For maintainer-owned modules, `release status` also reports whether the required tag for the declared version exists.
 
