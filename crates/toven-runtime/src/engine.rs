@@ -48,8 +48,12 @@ impl Default for EngineConfig {
 ///
 /// `cancel` is a cooperative external abort (e.g. Ctrl+C): when it fires,
 /// scheduling stops, in-flight units are asked to cancel, and any unit that
-/// never ran settles as `Cancelled`. The worker pool is always shut down before
-/// returning, even on error, so no worker task is leaked.
+/// never ran settles as `Cancelled`. The engine also fires this same token when
+/// it aborts the run *internally* — a hard operation error, or fail-fast after a
+/// unit failure — so a process supervisor the caller subscribed to it reaps
+/// in-flight supervised children (a slow tool/registry subprocess) instead of
+/// waiting them out. The worker pool is always shut down before returning, even
+/// on error, so no worker task is leaked.
 ///
 /// # Errors
 /// Returns [`rskit_errors::ErrorCode::InvalidInput`] if the unit graph is malformed
@@ -124,6 +128,20 @@ async fn drive<Op: UnitOperation>(
     let mut summary = RunSummary::new(units.len());
     let mut aborting = false;
 
+    // Abort teardown: fire the shared run token so a backstop subscribed to it
+    // (the CLI's process supervisor) reaps in-flight *supervised children* — a
+    // slow tool/registry subprocess — and cancel each per-task cooperative
+    // token. The per-task token is only a cooperative hint a blocking unit may
+    // ignore, so without firing the shared token a sibling's subprocess would be
+    // waited out to completion or the pool's shutdown grace on any internal
+    // abort. Cancelling an already-cancelled token (external abort) is a no-op.
+    let abort = |inflight: &[CancellationToken]| {
+        cancel.cancel();
+        for token in inflight {
+            token.cancel();
+        }
+    };
+
     for wave in waves {
         if cancel.is_cancelled() || (config.fail_fast && summary.has_failures()) {
             break;
@@ -147,12 +165,10 @@ async fn drive<Op: UnitOperation>(
         while !joins.is_empty() {
             let joined = tokio::select! {
                 // External abort: stop selecting it once handled (guard against a busy spin),
-                // ask in-flight units to cancel, then keep draining their results below.
+                // tear down the in-flight units, then keep draining their results below.
                 () = cancel.cancelled(), if !aborting => {
                     aborting = true;
-                    for token in &inflight {
-                        token.cancel();
-                    }
+                    abort(&inflight);
                     continue;
                 }
                 joined = joins.join_next() => joined,
@@ -167,21 +183,17 @@ async fn drive<Op: UnitOperation>(
                     settle(&mut summary, &mut gate, progress, &unit_id, completed)?;
                     if failed && config.fail_fast && !aborting {
                         aborting = true;
-                        for token in &inflight {
-                            token.cancel();
-                        }
+                        abort(&inflight);
                     }
                 }
                 // A cancelled worker leaves its unit `Pending`; the post-wave sweep emits its
                 // terminal `Cancelled` event, so dropping the cancellation error is safe.
                 Err(_) if aborting => {}
-                // A hard operation error aborts the run: tear down the concurrent siblings
-                // (as fail-fast/external-cancel do) so we don't wait out the pool grace
-                // period, then propagate the typed error.
+                // A hard operation error aborts the run: tear down the concurrent siblings —
+                // firing the shared run token so the supervisor reaps their subprocesses
+                // rather than waiting out the pool grace — then propagate the typed error.
                 Err(error) => {
-                    for token in &inflight {
-                        token.cancel();
-                    }
+                    abort(&inflight);
                     return Err(error);
                 }
             }

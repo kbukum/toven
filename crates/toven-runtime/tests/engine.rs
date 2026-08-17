@@ -408,3 +408,46 @@ async fn hard_error_cancels_inflight_siblings() {
         "every in-flight sibling observed cancellation"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hard_error_fires_the_shared_run_token_for_the_supervisor_backstop() {
+    // The CLI subscribes its process supervisor to the shared run token, not the
+    // pool's per-task tokens (which a blocking unit may ignore). A hard abort must
+    // therefore fire the shared token, or an in-flight supervised subprocess would
+    // be waited out to completion / pool grace instead of reaped.
+    let units = [spec("boom", &[]), spec("s1", &[])];
+    let op = HardErrOp {
+        boom: "boom".to_string(),
+        cancelled_siblings: Arc::new(AtomicUsize::new(0)),
+    };
+    let mut rec = Recorder::default();
+    let cancel = CancellationToken::new();
+
+    execute(&units, op, config(4, false), &mut rec, cancel.clone())
+        .await
+        .expect_err("hard operation error propagates");
+
+    assert!(
+        cancel.is_cancelled(),
+        "a hard error must fire the shared run token so the supervisor reaps children",
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fail_fast_fires_the_shared_run_token_for_the_supervisor_backstop() {
+    // Fail-fast is an internal abort too: a settled unit failure must fire the
+    // shared run token so a subscribed supervisor reaps in-flight children.
+    let units = [spec("a", &[]), spec("bad", &[]), spec("c", &[])];
+    let op = FakeOp::new(&["bad"], Duration::from_millis(5));
+    let mut rec = Recorder::default();
+    let cancel = CancellationToken::new();
+
+    execute(&units, op, config(4, true), &mut rec, cancel.clone())
+        .await
+        .expect("fail-fast records failures in the summary, not as Err");
+
+    assert!(
+        cancel.is_cancelled(),
+        "fail-fast must fire the shared run token for the supervisor backstop",
+    );
+}
