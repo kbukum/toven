@@ -51,6 +51,7 @@ flowchart TB
     version --> semver
     release --> core
     release --> version
+    release --> runtime
     engine --> core
     engine --> exec
     engine --> runtime
@@ -59,6 +60,7 @@ flowchart TB
     cli --> release
     cli --> core
     cli --> exec
+    cli --> runtime
     apps --> cli
     apps --> ecosystems
     apps --> exec

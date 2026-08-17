@@ -65,8 +65,20 @@ pub trait UnitOperation: Send + Sync + 'static {
     /// Run one unit against the gathered shared value.
     ///
     /// `cancel` fires when the run is aborting (fail-fast or external cancel);
-    /// long operations should honour it. Returning `Err` is a hard engine error
-    /// (aborts the run); an ordinary unit failure is `Ok(Completed::failed(..))`.
+    /// long operations should honour it as their cooperative abort seam. It is
+    /// *cooperative*: a blocking closure ([`tokio::task::spawn_blocking`]) cannot
+    /// be aborted mid-flight, so a unit that ignores the token runs to
+    /// completion. That is safe — the engine keeps such a unit in flight until
+    /// its blocking work actually joins (the driver drains its in-flight set on
+    /// external cancel, and the worker pool drains its tasks within its shutdown
+    /// grace on a hard error), so a still-running unit is never reported
+    /// `Cancelled` while it keeps writing; only never-launched units settle
+    /// `Cancelled`. To reap an in-flight *supervised subprocess* (a slow
+    /// tool/registry call) rather than wait it out, the operation's runner
+    /// subscribes a shared process supervisor to the same token at the CLI seam.
+    ///
+    /// Returning `Err` is a hard engine error (aborts the run); an ordinary unit
+    /// failure is `Ok(Completed::failed(..))`.
     ///
     /// # Errors
     /// Propagates a hard, non-recoverable operation error.

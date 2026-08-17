@@ -210,14 +210,33 @@ impl SbomInputs {
         self.modules.iter().find(|module| module.id == id)
     }
 
-    /// The engine unit graph: one independent (edgeless) unit per releasable
-    /// module, so the engine schedules them as a single bounded-parallel wave.
+    /// The engine unit graph: one unit per releasable module, serialized within
+    /// each shared release target and parallel across independent targets.
+    ///
+    /// Modules that share a `(member, ecosystem)` release target share one
+    /// ecosystem workspace, and an SBOM tool can resolve that whole workspace and
+    /// write output beside *every* member manifest (`cargo cyclonedx` does), so
+    /// two such modules run concurrently would race on those sibling files — one
+    /// unit's stray-cleanup could delete another's output mid-run. Chaining the
+    /// modules of each target into a serial dependency line makes them run one at
+    /// a time, while modules of independent targets stay edgeless and run as one
+    /// bounded-parallel wave.
     #[must_use]
     pub fn units(&self) -> Vec<UnitSpec> {
-        self.modules
-            .iter()
-            .map(|module| UnitSpec::new(module.id.clone(), Vec::<String>::new()))
-            .collect()
+        let mut previous: std::collections::BTreeMap<(Option<MemberId>, EcosystemId), String> =
+            std::collections::BTreeMap::new();
+        let mut units = Vec::with_capacity(self.modules.len());
+        for module in &self.modules {
+            let target = (module.member.clone(), module.ecosystem.clone());
+            let depends_on = previous
+                .get(&target)
+                .cloned()
+                .into_iter()
+                .collect::<Vec<_>>();
+            units.push(UnitSpec::new(module.id.clone(), depends_on));
+            previous.insert(target, module.id.clone());
+        }
+        units
     }
 
     /// Stage every declared SBOM hosted-release asset from the produced
@@ -722,9 +741,12 @@ mod tests {
     }
 
     #[test]
-    fn sbom_units_are_edgeless_one_per_releasable_module() {
-        // SBOM modules share nothing, so every unit is edgeless — the engine
-        // schedules them as one bounded-parallel wave.
+    fn sbom_units_of_a_shared_target_are_serialized() {
+        // `core` and `cli` share one `(member, ecosystem)` release target — one
+        // Cargo workspace — so their SBOM tool would race on the sibling files
+        // `cargo cyclonedx` writes beside every member manifest. The units must
+        // therefore form a serial chain (the second depends on the first), not
+        // an edgeless parallel wave.
         let out = TempDir::new().unwrap();
         let provider = two_module_provider();
         let providers: Vec<&dyn Provider> = vec![&provider];
@@ -743,10 +765,17 @@ mod tests {
         .unwrap();
 
         assert_eq!(units.len(), 2);
-        assert!(
-            units.iter().all(|unit| unit.depends_on.is_empty()),
-            "sbom units must be edgeless: {units:?}"
+        let edges: usize = units.iter().map(|unit| unit.depends_on.len()).sum();
+        assert_eq!(
+            edges, 1,
+            "two modules of one shared target must be a serial chain: {units:?}"
         );
+        // The chain is total: exactly one unit is a root, the other depends on it.
+        let roots = units
+            .iter()
+            .filter(|unit| unit.depends_on.is_empty())
+            .count();
+        assert_eq!(roots, 1, "a serial chain has exactly one root: {units:?}");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
