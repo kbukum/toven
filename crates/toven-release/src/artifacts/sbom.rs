@@ -7,18 +7,25 @@
 //! module whose ecosystem has no SBOM tooling is recorded as skipped rather
 //! than failing the whole projection.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use async_trait::async_trait;
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir::create_all;
 use rskit_fs::sync_io::file::copy as copy_file;
-use toven_model::ModuleKey;
+use tokio_util::sync::CancellationToken;
+use toven_model::{EcosystemId, MemberId, Module, ModuleKey};
 use toven_ports::{Provider, PublicationPolicy, Reporter};
+use toven_runtime::{Completed, UnitOperation, UnitSpec};
 
 use crate::ArtifactManifest;
+use crate::ReleaseTargets;
+use crate::ResolvedReleaseSettings;
 use crate::planning::plan::{release_targets, resolve_release_settings};
 use toven_core::config::Document;
+use toven_core::federation::baseline::MemberVcsReaders;
 use toven_core::federation::resolve::PathDriverLocator;
 use toven_core::plan::{PlanRequest, prepare_front};
 
@@ -72,68 +79,286 @@ pub fn release_sbom(
     request: &PlanRequest,
     document: &Document,
     providers: &[&dyn Provider],
-    readers: &toven_core::federation::baseline::MemberVcsReaders<'_>,
+    readers: &MemberVcsReaders<'_>,
     out_dir: &Path,
     reporter: &mut dyn Reporter,
 ) -> AppResult<SbomReport> {
-    let locator = PathDriverLocator::new();
-    let context = prepare_front(
-        &request.project_root,
-        document,
-        providers,
-        &locator,
-        reporter,
-    )?;
-    let targets = release_targets(&context, readers)?;
-    let settings = resolve_release_settings(&context, &targets)?;
-
-    create_all(out_dir)?;
+    let inputs = SbomInputs::gather(request, document, providers, readers, out_dir, reporter)?;
     let mut artifacts = Vec::new();
     let mut skipped = Vec::new();
-    for module in &context.federation.modules {
-        let key = (module.member.clone(), module.id.ecosystem.clone());
-        let Some(target) = targets.get(&key) else {
-            continue;
-        };
-        // A release-excluded module is outside the release surface (no bump,
-        // tag, publish, or hosted-release asset), so it contributes no SBOM —
-        // matching the publish/tag scope rather than sweeping demos and fuzz
-        // targets onto the release. Every module with a release target has
-        // resolved settings, so a missing entry is an internal invariant
-        // violation: fail closed rather than silently emit an SBOM for a module
-        // whose release scope is unknown.
-        let resolved = settings.get(&module.key()).ok_or_else(|| {
-            AppError::new(
-                ErrorCode::Internal,
-                format!(
-                    "module '{}' has a release target but no resolved release settings",
-                    module.key()
-                ),
-            )
-        })?;
-        if matches!(resolved.publication, PublicationPolicy::Excluded) {
-            continue;
-        }
-        match target.sbom(module, out_dir)? {
-            Some(artifact) => {
-                artifacts.push(ArtifactManifest::new(
-                    module.key().to_string(),
-                    artifact.path,
-                ));
-            }
-            None => skipped.push(module.key()),
+    for module in &inputs.modules {
+        match sbom_for(&inputs, module)?.artifact {
+            Some(artifact) => artifacts.push(artifact),
+            None => skipped.push(module.key.clone()),
         }
     }
     artifacts.sort_by(|left, right| left.label.cmp(&right.label));
     skipped.sort();
-
-    let staged = stage_sbom_assets(request.project_root.as_path(), &settings, &artifacts)?;
-
+    let staged = inputs.stage(&artifacts)?;
     Ok(SbomReport {
         artifacts,
         skipped,
         staged,
     })
+}
+
+/// One releasable module's fully-owned SBOM inputs, resolved during GATHER so
+/// the streamed per-unit phase borrows neither the providers nor VCS readers.
+struct SbomModule {
+    /// Stable unit id (the module's canonical key string).
+    id: String,
+    /// The module's canonical key.
+    key: ModuleKey,
+    /// The train the module's release target is keyed under.
+    member: Option<MemberId>,
+    /// The train's ecosystem.
+    ecosystem: EcosystemId,
+    /// The discovered module handed to the SBOM tool.
+    module: Module,
+}
+
+/// The shared prerequisites for `release sbom`, resolved once by
+/// [`SbomInputs::gather`] and shared across every per-unit run.
+pub struct SbomInputs {
+    /// Release targets keyed by `(member, ecosystem)` — `Send + Sync` so they
+    /// cross the engine's worker pool.
+    targets: ReleaseTargets,
+    /// Each module's resolved release settings, keyed by module key.
+    settings: std::collections::BTreeMap<ModuleKey, ResolvedReleaseSettings>,
+    /// The bounded output directory every SBOM artifact is written under.
+    out_dir: PathBuf,
+    /// The project root the declared hosted assets are staged relative to.
+    project_root: PathBuf,
+    /// The releasable modules, in discovery order.
+    modules: Vec<SbomModule>,
+}
+
+impl SbomInputs {
+    /// Resolve the release targets, settings, and releasable-module set once,
+    /// creating the bounded output directory.
+    ///
+    /// A module is releasable when its ecosystem adapter exposes a release
+    /// target and it is not release-excluded. A module with a release target but
+    /// no resolved settings is an internal invariant violation and fails closed.
+    ///
+    /// # Errors
+    /// Propagates configuration/discovery/graph failures, output-directory I/O
+    /// failures, and an unresolved-settings invariant violation.
+    pub fn gather(
+        request: &PlanRequest,
+        document: &Document,
+        providers: &[&dyn Provider],
+        readers: &MemberVcsReaders<'_>,
+        out_dir: &Path,
+        reporter: &mut dyn Reporter,
+    ) -> AppResult<Self> {
+        let locator = PathDriverLocator::new();
+        let context = prepare_front(
+            &request.project_root,
+            document,
+            providers,
+            &locator,
+            reporter,
+        )?;
+        let targets = release_targets(&context, readers)?;
+        let settings = resolve_release_settings(&context, &targets)?;
+        create_all(out_dir)?;
+
+        let mut modules = Vec::new();
+        for module in &context.federation.modules {
+            let key = (module.member.clone(), module.id.ecosystem.clone());
+            if !targets.contains_key(&key) {
+                continue;
+            }
+            // A release-excluded module is outside the release surface (no bump,
+            // tag, publish, or hosted-release asset), so it contributes no SBOM.
+            // Every module with a release target has resolved settings, so a
+            // missing entry is an internal invariant violation: fail closed
+            // rather than silently emit an SBOM for a module whose release scope
+            // is unknown.
+            let resolved = settings.get(&module.key()).ok_or_else(|| {
+                AppError::new(
+                    ErrorCode::Internal,
+                    format!(
+                        "module '{}' has a release target but no resolved release settings",
+                        module.key()
+                    ),
+                )
+            })?;
+            if matches!(resolved.publication, PublicationPolicy::Excluded) {
+                continue;
+            }
+            modules.push(SbomModule {
+                id: module.key().to_string(),
+                key: module.key(),
+                member: module.member.clone(),
+                ecosystem: module.id.ecosystem.clone(),
+                module: module.clone(),
+            });
+        }
+        Ok(Self {
+            targets,
+            settings,
+            out_dir: out_dir.to_path_buf(),
+            project_root: request.project_root.as_path().to_path_buf(),
+            modules,
+        })
+    }
+
+    /// Look up a releasable module by its unit id.
+    fn module(&self, id: &str) -> Option<&SbomModule> {
+        self.modules.iter().find(|module| module.id == id)
+    }
+
+    /// The engine unit graph: one unit per releasable module, serialized within
+    /// each shared release target and parallel across independent targets.
+    ///
+    /// Modules that share a `(member, ecosystem)` release target share one
+    /// ecosystem workspace, and an SBOM tool can resolve that whole workspace and
+    /// write output beside *every* member manifest (`cargo cyclonedx` does), so
+    /// two such modules run concurrently would race on those sibling files — one
+    /// unit's stray-cleanup could delete another's output mid-run. Chaining the
+    /// modules of each target into a serial dependency line makes them run one at
+    /// a time, while modules of independent targets stay edgeless and run as one
+    /// bounded-parallel wave.
+    #[must_use]
+    pub fn units(&self) -> Vec<UnitSpec> {
+        let mut previous: std::collections::BTreeMap<(Option<MemberId>, EcosystemId), String> =
+            std::collections::BTreeMap::new();
+        let mut units = Vec::with_capacity(self.modules.len());
+        for module in &self.modules {
+            let target = (module.member.clone(), module.ecosystem.clone());
+            let depends_on = previous
+                .get(&target)
+                .cloned()
+                .into_iter()
+                .collect::<Vec<_>>();
+            units.push(UnitSpec::new(module.id.clone(), depends_on));
+            previous.insert(target, module.id.clone());
+        }
+        units
+    }
+
+    /// Stage every declared SBOM hosted-release asset from the produced
+    /// artifacts — the post-stream aggregate assembled from the streamed
+    /// outcomes.
+    ///
+    /// # Errors
+    /// Propagates staging I/O failures and a declared-asset-without-artifact
+    /// fail-closed violation.
+    pub fn stage(&self, artifacts: &[ArtifactManifest]) -> AppResult<Vec<StagedSbom>> {
+        stage_sbom_assets(&self.project_root, &self.settings, artifacts)
+    }
+}
+
+/// One module's settled SBOM outcome: the produced artifact, or `None` when the
+/// ecosystem has no SBOM tooling (a skip, not a failure).
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct SbomOutcome {
+    /// The module the outcome is for.
+    pub module: ModuleKey,
+    /// The produced `CycloneDX` artifact, or `None` when the module was skipped.
+    pub artifact: Option<ArtifactManifest>,
+}
+
+/// Produce one releasable module's SBOM — the pure per-unit compute over the
+/// gathered [`SbomInputs`], with the argv-first tool invocation as its only I/O.
+///
+/// # Errors
+/// Returns [`ErrorCode::Internal`] if the module's release target is missing
+/// from the gathered set, and propagates SBOM tool spawn/exit failures.
+fn sbom_for(inputs: &SbomInputs, module: &SbomModule) -> AppResult<SbomOutcome> {
+    let target = inputs
+        .targets
+        .get(&(module.member.clone(), module.ecosystem.clone()))
+        .ok_or_else(|| {
+            AppError::new(
+                ErrorCode::Internal,
+                format!("module '{}' has no gathered release target", module.key),
+            )
+        })?;
+    let artifact = target
+        .sbom(&module.module, &inputs.out_dir)?
+        .map(|artifact| ArtifactManifest::new(module.key.to_string(), artifact.path));
+    Ok(SbomOutcome {
+        module: module.key.clone(),
+        artifact,
+    })
+}
+
+/// The `release sbom` per-unit operation on the shared runtime engine.
+///
+/// GATHER resolves the targets, settings, and output directory once into
+/// [`SbomInputs`]; each unit streams one module's SBOM tool invocation. That
+/// invocation is a synchronous port call, so it runs on a blocking thread
+/// ([`tokio::task::spawn_blocking`]) to let the engine schedule the modules
+/// bounded-parallel.
+pub struct SbomOperation {
+    inputs: Arc<SbomInputs>,
+}
+
+impl SbomOperation {
+    /// Wrap gathered inputs as a runnable operation.
+    #[must_use]
+    pub fn new(inputs: SbomInputs) -> Self {
+        Self {
+            inputs: Arc::new(inputs),
+        }
+    }
+
+    /// Share the gathered inputs so the CLI can stage declared assets from the
+    /// streamed artifacts once the run completes.
+    #[must_use]
+    pub fn inputs(&self) -> Arc<SbomInputs> {
+        Arc::clone(&self.inputs)
+    }
+}
+
+#[async_trait]
+impl UnitOperation for SbomOperation {
+    type Shared = Arc<SbomInputs>;
+    type Outcome = SbomOutcome;
+
+    async fn gather(&self) -> AppResult<Self::Shared> {
+        Ok(Arc::clone(&self.inputs))
+    }
+
+    async fn run(
+        &self,
+        shared: &Self::Shared,
+        unit_id: &str,
+        _cancel: CancellationToken,
+    ) -> AppResult<Completed<Self::Outcome>> {
+        let shared = Arc::clone(shared);
+        let id = unit_id.to_string();
+        let outcome = tokio::task::spawn_blocking(move || {
+            let module = shared.module(&id).ok_or_else(|| {
+                AppError::new(ErrorCode::Internal, format!("unknown sbom unit '{id}'"))
+            })?;
+            sbom_for(&shared, module)
+        })
+        .await
+        .map_err(AppError::internal)??;
+        Ok(Completed::succeeded(outcome))
+    }
+}
+
+/// Build the `release sbom` operation and its engine unit graph.
+///
+/// # Errors
+/// Propagates GATHER failures (configuration/discovery/graph, output-directory
+/// I/O, unresolved settings).
+pub fn sbom_operation(
+    request: &PlanRequest,
+    document: &Document,
+    providers: &[&dyn Provider],
+    readers: &MemberVcsReaders<'_>,
+    out_dir: &Path,
+    reporter: &mut dyn Reporter,
+) -> AppResult<(SbomOperation, Vec<UnitSpec>)> {
+    let inputs = SbomInputs::gather(request, document, providers, readers, out_dir, reporter)?;
+    let units = inputs.units();
+    Ok((SbomOperation::new(inputs), units))
 }
 
 /// Stage every declared `*.cdx.json` hosted-release asset from the produced SBOM
@@ -215,7 +440,7 @@ mod tests {
         FakeConfiguredAdapter, FakeProvider, FakeReleaseTarget, FakeVcsReader, RecordingReporter,
     };
 
-    use super::release_sbom;
+    use super::{SbomOutcome, release_sbom, sbom_operation};
     use toven_core::config::{Document, ModuleConfig, ProjectConfig, TovenConfig};
     use toven_core::federation::MemberVcsReaders;
     use toven_core::plan::PlanRequest;
@@ -478,5 +703,129 @@ mod tests {
         )
         .expect_err("a declared SBOM asset with no artifact must fail closed");
         assert!(error.to_string().contains("missing.cdx.json"));
+    }
+
+    #[derive(Default)]
+    struct Recorder {
+        started: Vec<String>,
+        settled: Vec<(String, toven_runtime::UnitStatus, Option<SbomOutcome>)>,
+    }
+
+    impl toven_runtime::Progress<SbomOutcome> for Recorder {
+        fn started(&mut self, unit_id: &str) -> rskit_errors::AppResult<()> {
+            self.started.push(unit_id.to_string());
+            Ok(())
+        }
+
+        fn settled(
+            &mut self,
+            report: &toven_runtime::UnitReport<SbomOutcome>,
+        ) -> rskit_errors::AppResult<()> {
+            self.settled.push((
+                report.unit_id.clone(),
+                report.status,
+                report.outcome.clone(),
+            ));
+            Ok(())
+        }
+    }
+
+    /// A provider with two releasable modules whose target produces an SBOM.
+    fn two_module_provider() -> FakeProvider {
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![module("core"), module("cli")];
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_release_target(FakeReleaseTarget::new().with_sbom_artifact("sbom.cdx.json"));
+        FakeProvider::new(eid("rust")).with_adapter(adapter)
+    }
+
+    #[test]
+    fn sbom_units_of_a_shared_target_are_serialized() {
+        // `core` and `cli` share one `(member, ecosystem)` release target — one
+        // Cargo workspace — so their SBOM tool would race on the sibling files
+        // `cargo cyclonedx` writes beside every member manifest. The units must
+        // therefore form a serial chain (the second depends on the first), not
+        // an edgeless parallel wave.
+        let out = TempDir::new().unwrap();
+        let provider = two_module_provider();
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let (_op, units) = sbom_operation(
+            &request(),
+            &document(),
+            &providers,
+            &readers,
+            out.path(),
+            &mut reporter,
+        )
+        .unwrap();
+
+        assert_eq!(units.len(), 2);
+        let edges: usize = units.iter().map(|unit| unit.depends_on.len()).sum();
+        assert_eq!(
+            edges, 1,
+            "two modules of one shared target must be a serial chain: {units:?}"
+        );
+        // The chain is total: exactly one unit is a root, the other depends on it.
+        let roots = units
+            .iter()
+            .filter(|unit| unit.depends_on.is_empty())
+            .count();
+        assert_eq!(roots, 1, "a serial chain has exactly one root: {units:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn sbom_streams_a_settled_artifact_per_module() {
+        // The engine streams a start + settled pair per module, each settled
+        // event carrying that module's produced artifact — never buffering a
+        // terminal table before first output.
+        let out = TempDir::new().unwrap();
+        let provider = two_module_provider();
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let reader = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let (op, units) = sbom_operation(
+            &request(),
+            &document(),
+            &providers,
+            &readers,
+            out.path(),
+            &mut reporter,
+        )
+        .unwrap();
+        let mut rec = Recorder::default();
+        let summary = toven_runtime::execute(
+            &units,
+            op,
+            toven_runtime::EngineConfig {
+                jobs: 2,
+                fail_fast: false,
+            },
+            &mut rec,
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(summary.total, 2);
+        assert_eq!(summary.succeeded, 2);
+        assert!(!summary.has_failures());
+        assert_eq!(rec.started.len(), 2);
+        assert_eq!(rec.settled.len(), 2);
+        for (unit_id, status, outcome) in &rec.settled {
+            assert_eq!(*status, toven_runtime::UnitStatus::Succeeded);
+            let outcome = outcome.as_ref().expect("settled sbom carries an outcome");
+            assert_eq!(&outcome.module.to_string(), unit_id);
+            assert!(
+                outcome.artifact.is_some(),
+                "each module's SBOM artifact streams as its unit settles"
+            );
+        }
     }
 }

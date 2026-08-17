@@ -96,12 +96,12 @@ docs-build:
 # check` → `test` → nextest `--all-targets` picks up the `golden` harness — so
 # this target is the focused inner loop.
 golden:
-	cargo test --locked -p toven --test golden
+	cargo nextest run --profile $(NEXTEST_PROFILE) --locked -p toven --test golden
 
 # Regenerate goldens from live output (RSKIT_BLESS=1), then run the matrix in
 # check mode to prove the regenerated tree is clean and deterministic.
 bless:
-	RSKIT_BLESS=1 cargo test --locked -p toven --test golden
+	RSKIT_BLESS=1 cargo nextest run --profile $(NEXTEST_PROFILE) --locked -p toven --test golden
 	$(MAKE) golden
 
 # Prove the release fixture wrapper fails closed when its filter matches no

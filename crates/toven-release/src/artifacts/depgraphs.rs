@@ -6,13 +6,17 @@
 //! syntax. It mutates nothing outside the output directory and returns a typed
 //! artifact manifest for the reporter.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use rskit_errors::{AppError, AppResult};
+use async_trait::async_trait;
+use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::safe_join;
 use rskit_fs::sync_io::dir::create_all;
 use rskit_fs::sync_io::file::write_atomic;
+use tokio_util::sync::CancellationToken;
 use toven_ports::{Provider, Reporter};
+use toven_runtime::{Completed, UnitOperation, UnitSpec};
 
 use crate::ArtifactManifest;
 use toven_core::config::Document;
@@ -53,30 +57,158 @@ pub fn release_depgraphs(
     out_dir: &Path,
     reporter: &mut dyn Reporter,
 ) -> AppResult<DepgraphReport> {
-    let locator = PathDriverLocator::new();
-    let context = prepare_front(
-        &request.project_root,
-        document,
-        providers,
-        &locator,
-        reporter,
-    )?;
+    let inputs = DepgraphInputs::gather(request, document, providers, out_dir, reporter)?;
+    let mut artifacts = inputs
+        .graphs
+        .iter()
+        .map(|graph| depgraph_for(&inputs, graph))
+        .collect::<AppResult<Vec<_>>>()?;
+    artifacts.sort_by(|left, right| left.label.cmp(&right.label));
+    Ok(DepgraphReport::new(artifacts))
+}
 
-    create_all(out_dir)?;
-    let label = document.project.name.clone();
-    let file_name = format!("{}.dot", sanitize_stem(&label));
-    let path = safe_join(out_dir, &file_name).map_err(|error| {
-        AppError::invalid_input(
-            "release.out-dir",
-            format!("depgraph artifact '{file_name}' escapes the output directory: {error}"),
-        )
-    })?;
-    let rendered = toven_model::graph::render(&context.graph);
-    write_atomic(&path, rendered.as_bytes(), DEPGRAPH_TEMP_PREFIX)?;
+/// One dependency graph artifact resolved during GATHER.
+struct DepgraphArtifact {
+    id: String,
+    label: String,
+    path: PathBuf,
+    rendered: String,
+}
 
-    Ok(DepgraphReport::new(vec![ArtifactManifest::new(
-        label, path,
-    )]))
+/// Shared prerequisites for `release depgraphs`, resolved once before streaming.
+pub struct DepgraphInputs {
+    graphs: Vec<DepgraphArtifact>,
+}
+
+impl DepgraphInputs {
+    /// Resolve the dependency graph DOT artifacts and create the bounded output directory.
+    ///
+    /// # Errors
+    /// Propagates configuration/discovery/graph failures and output-directory failures.
+    pub fn gather(
+        request: &PlanRequest,
+        document: &Document,
+        providers: &[&dyn Provider],
+        out_dir: &Path,
+        reporter: &mut dyn Reporter,
+    ) -> AppResult<Self> {
+        let locator = PathDriverLocator::new();
+        let context = prepare_front(
+            &request.project_root,
+            document,
+            providers,
+            &locator,
+            reporter,
+        )?;
+        create_all(out_dir)?;
+        let label = document.project.name.clone();
+        let file_name = format!("{}.dot", sanitize_stem(&label));
+        let path = safe_join(out_dir, &file_name).map_err(|error| {
+            AppError::invalid_input(
+                "release.out-dir",
+                format!("depgraph artifact '{file_name}' escapes the output directory: {error}"),
+            )
+        })?;
+        let rendered = toven_model::graph::render(&context.graph);
+        Ok(Self {
+            graphs: vec![DepgraphArtifact {
+                id: label.clone(),
+                label,
+                path,
+                rendered,
+            }],
+        })
+    }
+
+    fn graph(&self, id: &str) -> Option<&DepgraphArtifact> {
+        self.graphs.iter().find(|graph| graph.id == id)
+    }
+
+    /// The engine unit graph: one independent unit per dependency graph artifact.
+    #[must_use]
+    pub fn units(&self) -> Vec<UnitSpec> {
+        self.graphs
+            .iter()
+            .map(|graph| UnitSpec::new(graph.id.clone(), Vec::<String>::new()))
+            .collect()
+    }
+}
+
+/// One settled dependency-graph artifact.
+pub type DepgraphOutcome = ArtifactManifest;
+
+fn depgraph_for(_inputs: &DepgraphInputs, graph: &DepgraphArtifact) -> AppResult<DepgraphOutcome> {
+    write_atomic(&graph.path, graph.rendered.as_bytes(), DEPGRAPH_TEMP_PREFIX)?;
+    Ok(ArtifactManifest::new(
+        graph.label.clone(),
+        graph.path.clone(),
+    ))
+}
+
+/// The `release depgraphs` per-unit operation on the shared runtime engine.
+pub struct DepgraphOperation {
+    inputs: Arc<DepgraphInputs>,
+}
+
+impl DepgraphOperation {
+    /// Wrap gathered inputs as a runnable operation.
+    #[must_use]
+    pub fn new(inputs: DepgraphInputs) -> Self {
+        Self {
+            inputs: Arc::new(inputs),
+        }
+    }
+
+    /// Share the gathered inputs.
+    #[must_use]
+    pub fn inputs(&self) -> Arc<DepgraphInputs> {
+        Arc::clone(&self.inputs)
+    }
+}
+
+#[async_trait]
+impl UnitOperation for DepgraphOperation {
+    type Shared = Arc<DepgraphInputs>;
+    type Outcome = DepgraphOutcome;
+
+    async fn gather(&self) -> AppResult<Self::Shared> {
+        Ok(Arc::clone(&self.inputs))
+    }
+
+    async fn run(
+        &self,
+        shared: &Self::Shared,
+        unit_id: &str,
+        _cancel: CancellationToken,
+    ) -> AppResult<Completed<Self::Outcome>> {
+        let shared = Arc::clone(shared);
+        let id = unit_id.to_string();
+        let outcome = tokio::task::spawn_blocking(move || {
+            let graph = shared.graph(&id).ok_or_else(|| {
+                AppError::new(ErrorCode::Internal, format!("unknown depgraph unit '{id}'"))
+            })?;
+            depgraph_for(&shared, graph)
+        })
+        .await
+        .map_err(AppError::internal)??;
+        Ok(Completed::succeeded(outcome))
+    }
+}
+
+/// Build the `release depgraphs` operation and its engine unit graph.
+///
+/// # Errors
+/// Propagates GATHER failures.
+pub fn depgraph_operation(
+    request: &PlanRequest,
+    document: &Document,
+    providers: &[&dyn Provider],
+    out_dir: &Path,
+    reporter: &mut dyn Reporter,
+) -> AppResult<(DepgraphOperation, Vec<UnitSpec>)> {
+    let inputs = DepgraphInputs::gather(request, document, providers, out_dir, reporter)?;
+    let units = inputs.units();
+    Ok((DepgraphOperation::new(inputs), units))
 }
 
 /// Reduce a label to a filesystem-safe file stem: any non-alphanumeric run
@@ -114,7 +246,7 @@ mod tests {
     use toven_ports::{DiscoverResponse, Provider, TaskIntent};
     use toven_testkit::{FakeConfiguredAdapter, FakeProvider, RecordingReporter};
 
-    use super::{release_depgraphs, sanitize_stem};
+    use super::{DepgraphOutcome, depgraph_operation, release_depgraphs, sanitize_stem};
     use toven_core::config::{Document, ProjectConfig, TovenConfig};
     use toven_core::plan::PlanRequest;
 
@@ -186,6 +318,97 @@ mod tests {
         let contents = read_string_bounded(&artifact.path, 64 * 1024).unwrap();
         assert!(contents.starts_with("digraph toven {"));
         assert!(contents.contains("\"rust:core\";"));
+    }
+
+    #[derive(Default)]
+    struct Recorder {
+        started: Vec<String>,
+        settled: Vec<(String, toven_runtime::UnitStatus, Option<DepgraphOutcome>)>,
+    }
+
+    impl toven_runtime::Progress<DepgraphOutcome> for Recorder {
+        fn started(&mut self, unit_id: &str) -> rskit_errors::AppResult<()> {
+            self.started.push(unit_id.to_string());
+            Ok(())
+        }
+
+        fn settled(
+            &mut self,
+            report: &toven_runtime::UnitReport<DepgraphOutcome>,
+        ) -> rskit_errors::AppResult<()> {
+            self.settled.push((
+                report.unit_id.clone(),
+                report.status,
+                report.outcome.clone(),
+            ));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn depgraph_units_are_edgeless_one_per_artifact() {
+        let core = module("core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+        let adapter = FakeConfiguredAdapter::new(eid("rust")).with_response(response);
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let out = TempDir::new().unwrap();
+        let mut reporter = RecordingReporter::new();
+
+        let (_op, units) = depgraph_operation(
+            &request(),
+            &document(),
+            &providers,
+            out.path(),
+            &mut reporter,
+        )
+        .unwrap();
+
+        assert_eq!(units.len(), 1);
+        assert!(units.iter().all(|unit| unit.depends_on.is_empty()));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn depgraph_streams_a_settled_artifact_per_unit() {
+        let core = module("core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core];
+        let adapter = FakeConfiguredAdapter::new(eid("rust")).with_response(response);
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let out = TempDir::new().unwrap();
+        let mut reporter = RecordingReporter::new();
+
+        let (op, units) = depgraph_operation(
+            &request(),
+            &document(),
+            &providers,
+            out.path(),
+            &mut reporter,
+        )
+        .unwrap();
+        let mut rec = Recorder::default();
+        let summary = toven_runtime::execute(
+            &units,
+            op,
+            toven_runtime::EngineConfig {
+                jobs: 2,
+                fail_fast: false,
+            },
+            &mut rec,
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(summary.total, 1);
+        assert_eq!(summary.succeeded, 1);
+        assert_eq!(rec.started.len(), 1);
+        assert_eq!(rec.settled.len(), 1);
+        let (_id, status, outcome) = &rec.settled[0];
+        assert_eq!(*status, toven_runtime::UnitStatus::Succeeded);
+        assert!(outcome.as_ref().unwrap().path.is_file());
     }
 
     #[test]

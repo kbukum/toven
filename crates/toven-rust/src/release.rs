@@ -19,6 +19,7 @@ use rskit_fs::sync_io::file::{
     exists, move_file, read_string_bounded, remove_if_exists, write_atomic_replace,
 };
 use rskit_fs::{canonicalize, safe_join};
+use rskit_util::time::parse_rfc2822;
 use rskit_util::{Template, TemplatePart};
 use rskit_version::semver::Version;
 use toml_edit::{DocumentMut, Item, value};
@@ -682,14 +683,37 @@ fn classify_publish(
         let is_new_release = target
             .published_versions(module)
             .is_ok_and(|versions| versions.is_empty());
-        return Ok(PublishOutcome::RateLimited {
-            retry_after: fallback_retry_after(is_new_release, SystemTime::now()),
-        });
+        let now = SystemTime::now();
+        // Prefer crates.io's own authoritative deadline ("try again after <HTTP-date>")
+        // when it parses to a future instant; only guess the cadence when the rejection
+        // carries no usable hint (or the hint is already in the past from clock skew).
+        let retry_after =
+            retry_after_hint(&combined, now).or_else(|| fallback_retry_after(is_new_release, now));
+        return Ok(PublishOutcome::RateLimited { retry_after });
     }
 
     output
         .require_success("publish tool `cargo`")
         .map(|()| PublishOutcome::Published)
+}
+
+/// Extract crates.io's rate-limit deadline from a rejected `cargo publish`
+/// output. crates.io renders it as `...try again after <RFC 2822 date> and
+/// see...`, where the date is terminated by its `GMT` zone. Returns the instant
+/// only when it parses and lies in the future — a past or absent hint yields
+/// `None` so the caller falls back to the cadence rather than busy-retrying.
+fn retry_after_hint(output: &str, now: SystemTime) -> Option<SystemTime> {
+    // `output` is already lowercased by the caller; `parse_rfc2822` is
+    // case-insensitive, and the marker/zone matching below assumes lowercase.
+    let tail = output
+        .split_once("try again after ")
+        .map(|(_, rest)| rest)?;
+    // Cut at the inclusive `gmt` zone token that closes the date.
+    let end = tail.find("gmt")? + "gmt".len();
+    let epoch_secs = parse_rfc2822(tail.get(..end)?)?;
+    let deadline =
+        SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(u64::try_from(epoch_secs).ok()?))?;
+    (deadline > now).then_some(deadline)
 }
 
 fn fallback_retry_after(is_new_release: bool, now: SystemTime) -> Option<SystemTime> {
@@ -916,6 +940,7 @@ fn parse_manifest(text: &str, path: &Path) -> AppResult<DocumentMut> {
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
+    use std::time::{Duration, SystemTime};
 
     use rskit_version::semver::Version;
     use toven_model::{EcosystemId, ModuleRef};
@@ -924,9 +949,10 @@ mod tests {
     use toml_edit::Item;
 
     use super::{
-        apply_mutation, cargo_token_env_name, create_all, parse_cargo_search_versions,
-        publish_argv, read_declared_version, registry_token_injection, remove_stray_sbom_files,
-        sbom_argv, sbom_output_candidates, version_in_manifest_contents,
+        apply_mutation, cargo_token_env_name, create_all, fallback_retry_after,
+        parse_cargo_search_versions, publish_argv, read_declared_version, registry_token_injection,
+        remove_stray_sbom_files, retry_after_hint, sbom_argv, sbom_output_candidates,
+        version_in_manifest_contents,
     };
     use toven_ports::ReleaseCredentials;
 
@@ -1103,6 +1129,59 @@ core = \"1.4.2\"    # A core crate
         assert_eq!(
             parse_cargo_search_versions("core", stdout),
             vec![Version::new(1, 4, 2)]
+        );
+    }
+
+    #[test]
+    fn retry_after_hint_honors_a_future_crates_io_deadline() {
+        // 2100-01-01T00:00:00Z is 4_102_444_800 epoch seconds.
+        const DEADLINE_EPOCH_SECS: u64 = 4_102_444_800;
+        // The exact rate-limit rejection crates.io emits, lowercased as the
+        // classifier sees it. The deadline sits far in the future so the hint
+        // must be preferred over any cadence fallback.
+        let output = "error: failed to publish to registry at https://crates.io\n\
+            caused by: the remote server responded with an error (status 429 too many requests): \
+            you have published too many new crates in a short period of time. \
+            please try again after fri, 01 jan 2100 00:00:00 gmt and see \
+            https://crates.io/docs/rate-limits for more details.";
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let deadline = retry_after_hint(output, now).expect("a future GMT deadline parses");
+        assert_eq!(
+            deadline,
+            SystemTime::UNIX_EPOCH + Duration::from_secs(DEADLINE_EPOCH_SECS)
+        );
+    }
+
+    #[test]
+    fn retry_after_hint_ignores_a_past_deadline() {
+        // A deadline already in the past (clock skew, or a stale message) must
+        // not be honored — the caller falls back to the cadence instead.
+        let output = "status 429 too many requests. please try again after \
+            sun, 06 nov 1994 08:49:37 gmt and see https://crates.io/docs/rate-limits.";
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        assert_eq!(retry_after_hint(output, now), None);
+    }
+
+    #[test]
+    fn retry_after_hint_absent_without_a_deadline_marker() {
+        // A 429 with no "try again after" hint yields nothing to schedule from.
+        let output = "status 429 too many requests: slow down.";
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        assert_eq!(retry_after_hint(output, now), None);
+    }
+
+    #[test]
+    fn fallback_cadence_is_longer_for_a_brand_new_crate_name() {
+        // crates.io throttles a first-ever crate name (10-minute refill) harder
+        // than a new version of an existing name (1-minute refill).
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        assert_eq!(
+            fallback_retry_after(true, now),
+            Some(now + Duration::from_mins(10))
+        );
+        assert_eq!(
+            fallback_retry_after(false, now),
+            Some(now + Duration::from_mins(1))
         );
     }
 

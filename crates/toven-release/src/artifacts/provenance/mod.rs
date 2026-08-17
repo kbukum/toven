@@ -8,7 +8,8 @@ mod tests;
 
 pub use attestation::GhAttestationProvenance;
 pub use phase::{
-    ProvenanceOptions, ProvenancePhaseStatus, ProvenanceReport, ProvenanceSubjectReport,
+    ProvenanceInputs, ProvenanceOperation, ProvenanceOptions, ProvenanceOutcome,
+    ProvenancePhaseStatus, ProvenanceReport, ProvenanceSubjectReport, provenance_operation,
     release_provenance,
 };
 #[cfg(test)]

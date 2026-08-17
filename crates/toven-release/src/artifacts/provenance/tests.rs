@@ -21,7 +21,8 @@ use super::attestation::{
 };
 use super::phase::subject_file_path;
 use super::{
-    GhAttestationProvenance, ProvenanceOptions, ProvenancePhaseStatus, release_provenance,
+    GhAttestationProvenance, ProvenanceOptions, ProvenanceOutcome, ProvenancePhaseStatus,
+    provenance_operation, release_provenance,
 };
 use rskit_version::semver::Version;
 use toven_core::config::{Document, ProjectConfig, TovenConfig};
@@ -827,4 +828,228 @@ fn gh_attestation_repo_spawn_failure_surfaces() {
 
     assert_eq!(error.code(), ErrorCode::Internal);
     assert!(error.to_string().contains("gh not found"), "{error}");
+}
+
+#[derive(Default)]
+struct Recorder {
+    started: Vec<String>,
+    settled: Vec<(String, toven_runtime::UnitStatus, Option<ProvenanceOutcome>)>,
+}
+
+impl toven_runtime::Progress<ProvenanceOutcome> for Recorder {
+    fn started(&mut self, unit_id: &str) -> rskit_errors::AppResult<()> {
+        self.started.push(unit_id.to_string());
+        Ok(())
+    }
+
+    fn settled(
+        &mut self,
+        report: &toven_runtime::UnitReport<ProvenanceOutcome>,
+    ) -> rskit_errors::AppResult<()> {
+        self.settled.push((
+            report.unit_id.clone(),
+            report.status,
+            report.outcome.clone(),
+        ));
+        Ok(())
+    }
+}
+
+#[test]
+fn provenance_units_are_edgeless_one_per_published_subject() {
+    let root = TempDir::new().unwrap();
+    write_manifest(
+        root.path(),
+        &[
+            ("a".repeat(64).as_str(), "toven.tar.gz"),
+            ("b".repeat(64).as_str(), "toven-sbom.cdx.json"),
+        ],
+    );
+    let provider = provider_with_assets(vec![
+        "dist/toven.tar.gz",
+        "dist/SHA256SUMS",
+        "dist/toven-sbom.cdx.json",
+    ]);
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+    let phase: Arc<dyn ProvenancePhase> = Arc::new(FakeProvenancePhase::new());
+    let mut reporter = RecordingReporter::new();
+
+    let (_op, units) = provenance_operation(
+        &request(root.path()),
+        &document(),
+        &providers,
+        &readers,
+        phase,
+        &FakeImagePhase::new(),
+        ProvenanceOptions::default(),
+        &mut reporter,
+    )
+    .expect("provenance gather succeeds");
+
+    assert_eq!(units.len(), 2);
+    assert!(units.iter().all(|unit| unit.depends_on.is_empty()));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn provenance_streams_a_verified_subject_per_unit() {
+    let root = TempDir::new().unwrap();
+    write_manifest(
+        root.path(),
+        &[
+            ("a".repeat(64).as_str(), "toven.tar.gz"),
+            ("b".repeat(64).as_str(), "toven-sbom.cdx.json"),
+        ],
+    );
+    let provider = provider_with_assets(vec![
+        "dist/toven.tar.gz",
+        "dist/SHA256SUMS",
+        "dist/toven-sbom.cdx.json",
+    ]);
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+    let phase: Arc<dyn ProvenancePhase> = Arc::new(FakeProvenancePhase::new());
+    let mut reporter = RecordingReporter::new();
+
+    let (op, units) = provenance_operation(
+        &request(root.path()),
+        &document(),
+        &providers,
+        &readers,
+        phase,
+        &FakeImagePhase::new(),
+        ProvenanceOptions::default(),
+        &mut reporter,
+    )
+    .expect("provenance gather succeeds");
+
+    let mut rec = Recorder::default();
+    let summary = toven_runtime::execute(
+        &units,
+        op,
+        toven_runtime::EngineConfig {
+            jobs: 2,
+            fail_fast: false,
+        },
+        &mut rec,
+        tokio_util::sync::CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(summary.total, 2);
+    assert_eq!(summary.succeeded, 2);
+    assert!(!summary.has_failures());
+    assert_eq!(rec.started.len(), 2);
+    assert_eq!(rec.settled.len(), 2);
+    assert!(
+        rec.settled
+            .iter()
+            .all(|(_, status, _)| *status == toven_runtime::UnitStatus::Succeeded)
+    );
+    assert!(rec.settled.iter().all(|(_, _, outcome)| {
+        outcome
+            .as_ref()
+            .is_some_and(|o| o.status == ProvenancePhaseStatus::Verified)
+    }));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn provenance_stream_fails_a_subject_lacking_an_attestation() {
+    let root = TempDir::new().unwrap();
+    write_manifest(root.path(), &[("e".repeat(64).as_str(), "toven.tar.gz")]);
+    let provider = provider_with_assets(vec!["dist/toven.tar.gz", "dist/SHA256SUMS"]);
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+    let phase: Arc<dyn ProvenancePhase> = Arc::new(FakeProvenancePhase::new().with_existing(false));
+    let mut reporter = RecordingReporter::new();
+
+    let (op, units) = provenance_operation(
+        &request(root.path()),
+        &document(),
+        &providers,
+        &readers,
+        phase,
+        &FakeImagePhase::new(),
+        ProvenanceOptions::default(),
+        &mut reporter,
+    )
+    .expect("provenance gather succeeds");
+
+    let mut rec = Recorder::default();
+    let summary = toven_runtime::execute(
+        &units,
+        op,
+        toven_runtime::EngineConfig {
+            jobs: 2,
+            fail_fast: false,
+        },
+        &mut rec,
+        tokio_util::sync::CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+
+    // A missing attestation streams as a failed unit (fail-closed) rather than
+    // aborting the run — the enforced CLI turns any failure into a non-zero exit.
+    assert!(summary.has_failures());
+    assert_eq!(summary.failed, 1);
+    let (_id, status, outcome) = &rec.settled[0];
+    assert_eq!(*status, toven_runtime::UnitStatus::Failed);
+    assert_eq!(
+        outcome.as_ref().unwrap().status,
+        ProvenancePhaseStatus::Missing
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn provenance_stream_preview_reports_presence_without_failing() {
+    let root = TempDir::new().unwrap();
+    write_manifest(root.path(), &[("c".repeat(64).as_str(), "toven.tar.gz")]);
+    let provider = provider_with_assets(vec!["dist/toven.tar.gz", "dist/SHA256SUMS"]);
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+    let phase: Arc<dyn ProvenancePhase> = Arc::new(FakeProvenancePhase::new().with_existing(false));
+    let mut reporter = RecordingReporter::new();
+
+    let (op, units) = provenance_operation(
+        &request(root.path()),
+        &document(),
+        &providers,
+        &readers,
+        phase,
+        &FakeImagePhase::new(),
+        ProvenanceOptions { dry_run: true },
+        &mut reporter,
+    )
+    .expect("provenance gather succeeds");
+
+    let mut rec = Recorder::default();
+    let summary = toven_runtime::execute(
+        &units,
+        op,
+        toven_runtime::EngineConfig {
+            jobs: 2,
+            fail_fast: false,
+        },
+        &mut rec,
+        tokio_util::sync::CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+
+    // Preview never fails, even with a missing attestation: the subject settles
+    // succeeded carrying a `missing` status.
+    assert!(!summary.has_failures());
+    assert_eq!(summary.succeeded, 1);
+    let (_id, status, outcome) = &rec.settled[0];
+    assert_eq!(*status, toven_runtime::UnitStatus::Succeeded);
+    assert_eq!(
+        outcome.as_ref().unwrap().status,
+        ProvenancePhaseStatus::Missing
+    );
 }

@@ -13,6 +13,7 @@ publish = false
 toven-model.workspace = true
 toven-ports.workspace = true
 toven-core.workspace = true
+toven-runtime.workspace = true
 toven-semver.workspace = true
 toven-version.workspace = true
 rskit-errors.workspace = true
@@ -22,6 +23,9 @@ rskit-process.workspace = true
 rskit-config.workspace = true
 rskit-util.workspace = true
 rskit-version.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
@@ -35,6 +39,7 @@ vendored-openssl = ["rskit-git/vendored-openssl"]
 toven-testkit.workspace = true
 toven-vcs.workspace = true
 rskit-util.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [lints]
 workspace = true

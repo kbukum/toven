@@ -48,4 +48,4 @@ pub use request::{CacheMode, PlanRequest, Selection};
 pub use toven_model::ModuleSelector;
 
 pub use front::{PlanContext, prepare as prepare_front};
-pub use ownership::{changed_records_for_module, changed_seeds};
+pub use ownership::{AttributionPolicy, changed_records_for_module, changed_seeds};

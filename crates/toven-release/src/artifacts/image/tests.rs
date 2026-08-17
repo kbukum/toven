@@ -18,7 +18,9 @@ use toven_testkit::{
 use super::buildx::{
     BuildxImagePhase, buildx_build_argv, buildx_push_argv, inspect_argv, parse_metadata_digest,
 };
-use super::phase::{ImageOptions, ImagePhaseStatus, release_image};
+use super::phase::{
+    ImageModuleOutcome, ImageOptions, ImagePhaseStatus, image_operation, release_image,
+};
 use rskit_version::semver::Version;
 use toven_core::config::{Document, ProjectConfig, TovenConfig};
 use toven_core::federation::MemberVcsReaders;
@@ -474,4 +476,104 @@ fn buildx_publish_build_failure_records_argv_first_and_maps_error() {
             .any(|pair| pair == ["--tag", "docker.io/acme/toven:1.2.3"])
     );
     assert_eq!(argv.last().map(String::as_str), Some("services/api"));
+}
+
+#[derive(Default)]
+struct Recorder {
+    started: Vec<String>,
+    settled: Vec<(
+        String,
+        toven_runtime::UnitStatus,
+        Option<ImageModuleOutcome>,
+    )>,
+}
+
+impl toven_runtime::Progress<ImageModuleOutcome> for Recorder {
+    fn started(&mut self, unit_id: &str) -> rskit_errors::AppResult<()> {
+        self.started.push(unit_id.to_string());
+        Ok(())
+    }
+
+    fn settled(
+        &mut self,
+        report: &toven_runtime::UnitReport<ImageModuleOutcome>,
+    ) -> rskit_errors::AppResult<()> {
+        self.settled.push((
+            report.unit_id.clone(),
+            report.status,
+            report.outcome.clone(),
+        ));
+        Ok(())
+    }
+}
+
+#[test]
+fn image_units_are_edgeless_one_per_module_with_an_image_block() {
+    let provider = provider_with_image(Some(image_config()), Version::new(1, 2, 3));
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+    let phase: Arc<dyn ImagePhase> = Arc::new(FakeImagePhase::new().with_digest("sha256:abc"));
+    let mut reporter = RecordingReporter::new();
+
+    let (_op, units) = image_operation(
+        &request(),
+        &document(),
+        &providers,
+        &readers,
+        phase,
+        ImageOptions::default(),
+        &mut reporter,
+    )
+    .expect("image gather succeeds");
+
+    assert_eq!(units.len(), 1);
+    assert!(units.iter().all(|unit| unit.depends_on.is_empty()));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn image_streams_a_settled_outcome_per_unit() {
+    let provider = provider_with_image(Some(image_config()), Version::new(1, 2, 3));
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+    let recording = FakeImagePhase::new().with_digest("sha256:abc");
+    let phase: Arc<dyn ImagePhase> = Arc::new(recording.clone());
+    let mut reporter = RecordingReporter::new();
+
+    let (op, units) = image_operation(
+        &request(),
+        &document(),
+        &providers,
+        &readers,
+        phase,
+        ImageOptions::default(),
+        &mut reporter,
+    )
+    .expect("image gather succeeds");
+
+    let mut rec = Recorder::default();
+    let summary = toven_runtime::execute(
+        &units,
+        op,
+        toven_runtime::EngineConfig {
+            jobs: 2,
+            fail_fast: false,
+        },
+        &mut rec,
+        tokio_util::sync::CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(summary.total, 1);
+    assert_eq!(summary.succeeded, 1);
+    assert_eq!(rec.started.len(), 1);
+    assert_eq!(rec.settled.len(), 1);
+    let (_id, status, outcome) = &rec.settled[0];
+    assert_eq!(*status, toven_runtime::UnitStatus::Succeeded);
+    let outcome = outcome.as_ref().unwrap();
+    assert_eq!(outcome.status, ImagePhaseStatus::Pushed);
+    assert_eq!(outcome.digest.as_deref(), Some("sha256:abc"));
+    assert_eq!(recording.calls().len(), 1);
 }

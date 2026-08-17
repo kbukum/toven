@@ -23,13 +23,19 @@ mod stream;
 mod versioning;
 
 pub use artifacts::{
-    ArchiveFormat, BuildxImagePhase, ChecksumEntry, ChecksumReport, CosignSigner, CosignVerifier,
-    DepgraphReport, GhAssetDownloader, GhAttestationProvenance, ImageModuleOutcome, ImageOptions,
-    ImagePhaseStatus, ImageReport, PackageReport, PackagedAsset, ProcessVersionProbe,
-    ProvenanceOptions, ProvenancePhaseStatus, ProvenanceReport, ProvenanceSubjectReport,
-    SbomReport, SignReport, StagedSbom, VerifiedAsset, VerifyMode, VerifyOptions, VerifyReport,
-    release_checksums, release_depgraphs, release_image, release_package, release_provenance,
-    release_sbom, release_sign, release_verify,
+    ArchiveFormat, BuildxImagePhase, ChecksumEntry, ChecksumInputs, ChecksumOperation,
+    ChecksumOutcome, ChecksumReport, CosignSigner, CosignVerifier, DepgraphInputs,
+    DepgraphOperation, DepgraphOutcome, DepgraphReport, GhAssetDownloader, GhAttestationProvenance,
+    ImageInputs, ImageModuleOutcome, ImageOperation, ImageOptions, ImagePhaseStatus, ImageReport,
+    PackageInputs, PackageOperation, PackageOutcome, PackageReport, PackagedAsset,
+    ProcessVersionProbe, ProvenanceInputs, ProvenanceOperation, ProvenanceOptions,
+    ProvenanceOutcome, ProvenancePhaseStatus, ProvenanceReport, ProvenanceSubjectReport,
+    SbomInputs, SbomOperation, SbomOutcome, SbomReport, SignInputs, SignOperation, SignOutcome,
+    SignReport, StagedSbom, VerifiedAsset, VerifyInputs, VerifyMode, VerifyOperation,
+    VerifyOptions, VerifyOutcome, VerifyReport, checksums_operation, depgraph_operation,
+    image_operation, package_operation, provenance_operation, release_checksums, release_depgraphs,
+    release_image, release_package, release_provenance, release_sbom, release_sign, release_verify,
+    sbom_operation, sign_operation, verify_operation,
 };
 pub use execution::{ReleaseApplyOptions, release_apply};
 pub use hosting::{
@@ -43,8 +49,9 @@ pub use model::{
     ResolvedHostSettings, ResolvedReleaseSettings,
 };
 pub use planning::{
-    ReadinessCheck, ReadinessReport, release_plan, release_readiness, release_rehearse,
-    release_run, release_status,
+    ReadinessCheck, ReadinessInputs, ReadinessOperation, ReadinessReport, StatusInputs,
+    StatusOperation, readiness_operation, release_plan, release_readiness, release_rehearse,
+    release_run, release_status, status_operation,
 };
 pub use toven_version::{
     BaselineSource, BumpOverrides, BumpPolicy, BumpReason, BumpSource, ChangelogEntry,

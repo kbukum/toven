@@ -7,4 +7,7 @@ mod flow;
 mod tests;
 
 pub use adapters::{CosignVerifier, GhAssetDownloader, ProcessVersionProbe};
-pub use flow::{VerifiedAsset, VerifyMode, VerifyOptions, VerifyReport, release_verify};
+pub use flow::{
+    VerifiedAsset, VerifyInputs, VerifyMode, VerifyOperation, VerifyOptions, VerifyOutcome,
+    VerifyReport, release_verify, verify_operation,
+};

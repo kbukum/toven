@@ -1,1 +1,3 @@
+Release publish
+  checking rust:train-core…
 error[INVALID_INPUT]: invalid release.changelog.required: required changelog 'MISSING_CHANGELOG.md' for changed module 'rust:train-core' could not be read; create it and document the change before releasing
