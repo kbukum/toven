@@ -1,7 +1,7 @@
 [package]
 name = "toven-testkit"
 description = "Toven shared test support: fixtures, port doubles, sample-repo harness (dev-only, never shipped)"
-version.workspace = true
+version = "0.1.0-alpha.6"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
