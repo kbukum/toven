@@ -205,7 +205,7 @@ flowchart TB
     Barrier2 --> Wave3 --> App --> Result
 ```
 
-Modules inside one wave are independent for the selected task and may execute concurrently. `--jobs <N>` or `[toven].max_parallel` bounds how many units run at once; it does not remove dependency barriers. A batchable task may combine compatible modules in the same wave into fewer process invocations.
+Modules inside one wave are independent for the selected task and may execute concurrently. `--jobs <N>` or `[toven].max_parallel` bounds how many units run at once; it does not remove dependency barriers. A batchable task may combine compatible modules in the same wave into fewer process invocations. Where concurrency bounds *how many* units run, `compute_budget` bounds how much CPU parallelism each fanned-out tool gets internally: the engine splits a total thread budget across the wave and injects each share through an ecosystem environment variable (never argv), so a per-module fan-out does not oversubscribe toward cores². See [compute budget](config/README.md#compute-budget).
 
 Affected planning changes the active subgraph, not the dependency rules. For example, a change in `rust:core` activates its dependents, while an isolated `go:api` change can select only the Go branch unless an overlay connects it to another workspace.
 

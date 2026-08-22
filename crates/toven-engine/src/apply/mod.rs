@@ -1,6 +1,7 @@
 //! APPLY spine: wave-driven exec, failure gating, cache recording, and
 //! teardown.
 
+mod budget;
 mod entry;
 mod gating;
 mod options;

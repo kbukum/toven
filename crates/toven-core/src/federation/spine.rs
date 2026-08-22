@@ -50,6 +50,37 @@ pub(crate) fn compose(
     compose_members(document, &members, &loaded, &canonical)
 }
 
+/// Compose the federation and configure every member's *in-process* adapters,
+/// keyed by member.
+///
+/// Unlike the full PLAN front half ([`prepare`](crate::plan::prepare_front))
+/// this performs no discovery, graph build, or out-of-process driver
+/// resolution — it composes each member's authoritative `toven.toml` and bakes
+/// only the in-proc `[ecosystems.*]` adapters. That is exactly what an
+/// APPLY-time consumer needs to read per-member, per-ecosystem settings (e.g.
+/// compute-budget env names and overrides) after PLAN has already validated the
+/// federation, without re-spawning driver subprocesses. In the degenerate
+/// single-repo case this is one member under the `None` key whose document is
+/// the umbrella itself, so the result resolves exactly like configuring the
+/// lone document directly.
+///
+/// # Errors
+/// Propagates member enumeration/composition failures and any provider's
+/// `configure` failure.
+pub fn member_ecosystem_adapters(
+    project_root: &AbsPath,
+    document: &Document,
+    providers: &[&dyn Provider],
+) -> AppResult<MemberAdapters> {
+    let composed = compose(project_root, document, providers)?;
+    let mut adapters = MemberAdapters::default();
+    for member in composed.members() {
+        let set = configure::configure(member.document(), providers)?;
+        adapters.insert(member.member().id().cloned(), set);
+    }
+    Ok(adapters)
+}
+
 /// Configure every member's adapters, returning them keyed by member.
 ///
 /// `warnings` collects every member's absent-driver skips so the caller can

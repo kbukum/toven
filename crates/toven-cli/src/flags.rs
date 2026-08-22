@@ -16,6 +16,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use rskit_errors::{AppError, AppResult};
 use rskit_util::time::parse_duration;
 use toven_core::vcs::BaselineFlags;
+use toven_ports::ComputeBudget;
 
 /// Default trailing-edge debounce window (ms) for `--watch` when
 /// `--watch-debounce-ms` is not given.
@@ -256,6 +257,24 @@ pub(crate) fn parse_jobs_arg(value: &str) -> Result<usize, String> {
     }
 }
 
+/// Parse `--compute-budget`: `auto`, `inherit`, or a non-negative integer
+/// (`0` = `inherit`).
+///
+/// Mirrors the `[toven].compute_budget` config grammar so the flag and the
+/// config setting accept the same spellings.
+pub(crate) fn parse_compute_budget_arg(value: &str) -> Result<ComputeBudget, String> {
+    match value {
+        "auto" => Ok(ComputeBudget::Auto),
+        "inherit" => Ok(ComputeBudget::Inherit),
+        other => match other.parse::<usize>() {
+            Ok(threads) => Ok(ComputeBudget::fixed(threads)),
+            Err(error) => Err(format!(
+                "`--compute-budget` requires `auto`, `inherit`, or a non-negative integer (got `{value}`): {error}"
+            )),
+        },
+    }
+}
+
 /// Parse a coverage threshold flag (`--line`/`--function`/`--region`/
 /// `--changed-line`): a percentage in `0..=100`.
 pub(crate) fn parse_percentage_arg(value: &str) -> Result<f64, String> {
@@ -488,6 +507,13 @@ pub struct Cli {
     /// as a single continuous log instead of buffered per-unit blocks.
     #[arg(long, short = 'j', global = true, value_name = "N", value_parser = parse_jobs_arg, help_heading = "Execution")]
     pub jobs: Option<usize>,
+    /// When running tasks only: cap the CPU parallelism handed to each spawned
+    /// tool, overriding `[toven].compute_budget`. The engine splits this total
+    /// budget across the units running concurrently and injects each share as an
+    /// ecosystem env var (e.g. `GOMAXPROCS`). `auto` sizes it to the host CPUs;
+    /// `inherit` (or `0`) injects nothing.
+    #[arg(long, global = true, value_name = "BUDGET", value_parser = parse_compute_budget_arg, help_heading = "Execution")]
+    pub compute_budget: Option<ComputeBudget>,
     /// Change-selection commands only: override the diff baseline reference
     /// (per-member under a federation; falls back to `[[members]].base_ref` /
     /// `[project].base_ref`).
@@ -1160,6 +1186,15 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     // verbs that actually run units.
     reject_apply_only_flag(cli.timeout.is_some(), "--timeout", &cli.command, verb)?;
     reject_apply_only_flag(cli.jobs.is_some(), "--jobs", &cli.command, verb)?;
+    // `--compute-budget` bounds the CPU parallelism handed to each spawned tool
+    // during APPLY fan-out, so — like `--jobs` — it is meaningful only on the
+    // task-APPLY verbs that actually run units; elsewhere it is a silent no-op.
+    reject_apply_only_flag(
+        cli.compute_budget.is_some(),
+        "--compute-budget",
+        &cli.command,
+        verb,
+    )?;
     gate_watch_flags(cli, verb)?;
     // `--base`/`--merge-base` only shape changed selection, and
     // `--module`/`--workspace`/`--with-dependents` shape explicit selection — both
@@ -1168,8 +1203,9 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     Ok(())
 }
 
-/// Reject an APPLY-only flag (`--fail-fast`/`--timeout`/`--jobs`) on any verb
-/// that never runs units; elsewhere the flag would be a silent no-op.
+/// Reject an APPLY-only flag (`--fail-fast`/`--timeout`/`--jobs`/
+/// `--compute-budget`) on any verb that never runs units; elsewhere the flag
+/// would be a silent no-op.
 fn reject_apply_only_flag(
     present: bool,
     flag: &str,
@@ -2292,6 +2328,27 @@ mod tests {
     }
 
     #[test]
+    fn compute_budget_only_on_task_apply_verbs() {
+        for args in [
+            ["--compute-budget", "8", "run", "test"].as_slice(),
+            ["--compute-budget", "inherit", "test"].as_slice(),
+        ] {
+            assert!(super::gate(&parse(args).unwrap()).is_ok(), "{args:?}");
+        }
+        // `plan` stops at PLAN and `release`/introspection never run bounded
+        // units, so the budget is a no-op and is rejected rather than silently
+        // ignored.
+        for args in [
+            ["--compute-budget", "8", "plan", "test"].as_slice(),
+            ["--compute-budget", "8", "release", "publish"].as_slice(),
+            ["--compute-budget", "8", "affected", "test"].as_slice(),
+            ["--compute-budget", "8", "doctor"].as_slice(),
+        ] {
+            assert!(super::gate(&parse(args).unwrap()).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
     fn timeout_rejects_a_malformed_or_zero_duration() {
         assert!(parse(&["--timeout", "soon", "test"]).is_err());
         assert!(parse(&["--timeout", "0s", "test"]).is_err());
@@ -2493,5 +2550,41 @@ mod tests {
         use super::Verbosity;
         assert_eq!(Verbosity::for_execution(0, 0, true), Verbosity::Verbose);
         assert_eq!(Verbosity::for_execution(0, 1, true), Verbosity::Normal);
+    }
+
+    #[test]
+    fn compute_budget_flag_accepts_words_and_integers() {
+        use super::ComputeBudget;
+        assert_eq!(
+            parse(&["--compute-budget", "auto", "test"])
+                .expect("parses")
+                .compute_budget,
+            Some(ComputeBudget::Auto)
+        );
+        assert_eq!(
+            parse(&["--compute-budget", "inherit", "test"])
+                .expect("parses")
+                .compute_budget,
+            Some(ComputeBudget::Inherit)
+        );
+        assert_eq!(
+            parse(&["--compute-budget", "8", "test"])
+                .expect("parses")
+                .compute_budget,
+            Some(ComputeBudget::fixed(8))
+        );
+        // Zero is the numeric spelling of the opt-out, matching `inherit`.
+        assert_eq!(
+            parse(&["--compute-budget", "0", "test"])
+                .expect("parses")
+                .compute_budget,
+            Some(ComputeBudget::Inherit)
+        );
+    }
+
+    #[test]
+    fn compute_budget_flag_rejects_an_unknown_word() {
+        let error = parse(&["--compute-budget", "turbo", "test"]).expect_err("rejected");
+        assert!(error.to_string().contains("compute-budget"), "{error}");
     }
 }

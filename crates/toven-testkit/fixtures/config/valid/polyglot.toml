@@ -7,6 +7,7 @@ base_ref = "origin/main"
 [toven]
 report = "json"
 max_parallel = 8
+compute_budget = 6
 
 [toven.cache]
 dir = ".toven/cache"

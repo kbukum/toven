@@ -1,6 +1,7 @@
 //! Identity + topology vocabulary: the references everyone speaks.
 
 mod ecosystem;
+mod ecosystem_scope;
 mod member_id;
 mod module_key;
 mod module_ref;
@@ -8,6 +9,7 @@ mod paths;
 mod workspace_id;
 
 pub use ecosystem::EcosystemId;
+pub use ecosystem_scope::EcosystemScope;
 pub use member_id::MemberId;
 pub use module_key::ModuleKey;
 pub use module_ref::ModuleRef;

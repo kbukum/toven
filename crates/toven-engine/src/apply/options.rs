@@ -2,7 +2,8 @@
 
 use std::time::Duration;
 
-use toven_ports::InvocationEnvironment;
+use toven_model::EcosystemScope;
+use toven_ports::{ComputeBudget, InvocationEnvironment};
 
 /// Default bound on the live raw-output bridge (see
 /// [`ApplyOptions::live_output_capacity`]). Generous enough to absorb ordinary
@@ -47,6 +48,33 @@ pub struct ApplyOptions {
     /// their own [`readiness_timeout`](toven_model::ExecutionUnit::readiness_timeout)
     /// probe, not this bound.
     pub unit_timeout: Option<Duration>,
+    /// CPU-parallelism budget divided across the units running concurrently in
+    /// a wave and injected into each fanned-out tool (see
+    /// [`ComputeBudget`]). This is the global default; per-scope overrides
+    /// live in [`ecosystem_budgets`]. Only scopes present in [`budget_env`]
+    /// receive an injection.
+    ///
+    /// [`ecosystem_budgets`]: Self::ecosystem_budgets
+    /// [`budget_env`]: Self::budget_env
+    pub compute_budget: ComputeBudget,
+    /// Per-scope [`compute_budget`] overrides
+    /// (`[ecosystems.<id>].compute_budget`), keyed by
+    /// [`EcosystemScope`] so a cross-repo umbrella can pin two members' shared
+    /// ecosystem (`go`) independently; a scope absent here uses the global
+    /// [`compute_budget`].
+    ///
+    /// [`compute_budget`]: Self::compute_budget
+    pub ecosystem_budgets: std::collections::BTreeMap<EcosystemScope, ComputeBudget>,
+    /// Per-scope environment-variable names that carry a fanned-out tool's
+    /// share of the [`compute_budget`]. Built by the CLI from each configured
+    /// adapter's
+    /// [`compute_budget_env`](toven_ports::ConfiguredAdapter::compute_budget_env),
+    /// keyed by [`EcosystemScope`] so per-member config is not collapsed; a
+    /// scope absent here (or mapped to an empty list) is never injected, so the
+    /// default (empty) preserves today's behavior.
+    ///
+    /// [`compute_budget`]: Self::compute_budget
+    pub budget_env: std::collections::BTreeMap<EcosystemScope, Vec<String>>,
 }
 
 impl Default for ApplyOptions {
@@ -57,6 +85,9 @@ impl Default for ApplyOptions {
             environment: InvocationEnvironment::inherit_parent(std::collections::BTreeMap::new()),
             live_output_capacity: DEFAULT_LIVE_OUTPUT_CAPACITY,
             unit_timeout: None,
+            compute_budget: ComputeBudget::default(),
+            ecosystem_budgets: std::collections::BTreeMap::new(),
+            budget_env: std::collections::BTreeMap::new(),
         }
     }
 }

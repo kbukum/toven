@@ -6,8 +6,8 @@ use std::time::Duration;
 use toven_engine::apply::{ApplyOptions, apply};
 use toven_engine::output::UnitOutputChannel;
 use toven_model::{
-    CacheVerdict, EcosystemId, Event, ExecutionReadiness, ExecutionUnit, ModuleKey, ModuleRef,
-    OutputStream, Plan, UnitOutput, UnitStatus,
+    CacheVerdict, EcosystemId, EcosystemScope, Event, ExecutionReadiness, ExecutionUnit, ModuleKey,
+    ModuleRef, OutputStream, Plan, UnitOutput, UnitStatus,
 };
 use toven_ports::CommandRunner;
 use toven_testkit::{
@@ -1411,4 +1411,173 @@ fn a_forced_verdict_unit_re_runs_and_writes_its_cache_record() {
     assert_eq!(stats.ran_units, 1);
     assert_eq!(stats.cache_forced, 1);
     assert_eq!(cache.recorded(), vec!["key-forced".to_string()]);
+}
+
+// --- Compute-budget injection -------------------------------------------------
+
+#[test]
+fn compute_budget_never_clobbers_an_operator_set_base_var() {
+    // An operator who sets the budget var explicitly on the run environment
+    // must keep that value — the injected share must not overwrite it. Seeding
+    // the pool environment's `vars` exercises the "base wins" precedence
+    // hermetically, without depending on any ambient parent-process variable.
+    let ids = ["a", "b"];
+    let units: Vec<_> = ids.iter().map(|id| go_unit(id)).collect();
+    let plan = Plan::new(units, vec![ids.iter().map(|s| (*s).to_string()).collect()]);
+    let runner = Arc::new(FakeCommandRunner::new());
+
+    let options = ApplyOptions {
+        max_parallel: 2,
+        compute_budget: toven_ports::ComputeBudget::fixed(12),
+        environment: toven_ports::InvocationEnvironment::inherit_parent(
+            std::collections::BTreeMap::from([("GOMAXPROCS".to_string(), "7".to_string())]),
+        ),
+        budget_env: std::collections::BTreeMap::from([(
+            EcosystemScope::bare(EcosystemId::new("go").expect("ecosystem")),
+            vec!["GOMAXPROCS".to_string()],
+        )]),
+        ..ApplyOptions::default()
+    };
+    run_with_options(&plan, runner.clone(), options);
+
+    let shadowed: Vec<_> = runner
+        .environments()
+        .into_iter()
+        .filter(|(_, env)| env.vars.get("GOMAXPROCS").map(String::as_str) != Some("7"))
+        .collect();
+    assert!(
+        shadowed.is_empty(),
+        "an operator-set base env var must be left untouched (not shadowed by the injected \
+         share), but got {shadowed:?}",
+    );
+}
+
+fn go_unit(id: &str) -> ExecutionUnit {
+    let go_ref =
+        ModuleRef::new(EcosystemId::new("go").expect("ecosystem"), id).expect("module ref");
+    ExecutionUnit {
+        module: ModuleKey::bare(go_ref.clone()),
+        members: vec![ModuleKey::bare(go_ref)],
+        ..unit(id)
+    }
+}
+
+fn run_with_options(
+    plan: &Plan,
+    runner: Arc<FakeCommandRunner>,
+    options: ApplyOptions,
+) -> toven_model::RunStats {
+    let runner_port: Arc<dyn CommandRunner> = runner;
+    let cache = RecordingCacheWriter::new();
+    let mut reporter = RecordingReporter::new();
+    let sink = RecordingRawOutputSink::new();
+    let mut output = UnitOutputChannel::new(sink);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .expect("runtime");
+    runtime
+        .block_on(apply(
+            plan,
+            runner_port,
+            &cache,
+            &mut reporter,
+            &mut output,
+            options,
+            tokio_util::sync::CancellationToken::new(),
+        ))
+        .expect("apply succeeds")
+}
+
+fn go_budget_options(max_parallel: usize, budget: toven_ports::ComputeBudget) -> ApplyOptions {
+    ApplyOptions {
+        max_parallel,
+        compute_budget: budget,
+        budget_env: std::collections::BTreeMap::from([(
+            EcosystemScope::bare(EcosystemId::new("go").expect("ecosystem")),
+            vec!["GOMAXPROCS".to_string()],
+        )]),
+        ..ApplyOptions::default()
+    }
+}
+
+/// Collect each unit's injected `GOMAXPROCS`, if any.
+fn injected_gomaxprocs(runner: &FakeCommandRunner) -> std::collections::BTreeMap<String, String> {
+    runner
+        .environments()
+        .into_iter()
+        .filter_map(|(unit_id, env)| env.vars.get("GOMAXPROCS").map(|v| (unit_id, v.clone())))
+        .collect()
+}
+
+#[test]
+fn compute_budget_divides_across_concurrent_units() {
+    // 4 independent Go units, 12-thread budget, all 4 running at once → each
+    // fanned-out `go` gets 12 / 4 = 3.
+    let ids = ["a", "b", "c", "d"];
+    let units: Vec<_> = ids.iter().map(|id| go_unit(id)).collect();
+    let plan = Plan::new(units, vec![ids.iter().map(|s| (*s).to_string()).collect()]);
+    let runner = Arc::new(FakeCommandRunner::new());
+
+    let options = go_budget_options(4, toven_ports::ComputeBudget::fixed(12));
+    let stats = run_with_options(&plan, runner.clone(), options);
+
+    assert_eq!(stats.ran_units, 4);
+    let injected = injected_gomaxprocs(&runner);
+    assert_eq!(injected.len(), 4);
+    for id in ids {
+        assert_eq!(injected.get(id).map(String::as_str), Some("3"), "unit {id}");
+    }
+}
+
+#[test]
+fn compute_budget_holds_the_per_process_floor() {
+    // A saturated wave (4 units, budget 4) would divide to 1; the floor keeps it
+    // at 2 so no child is starved to a single thread.
+    let ids = ["a", "b", "c", "d"];
+    let units: Vec<_> = ids.iter().map(|id| go_unit(id)).collect();
+    let plan = Plan::new(units, vec![ids.iter().map(|s| (*s).to_string()).collect()]);
+    let runner = Arc::new(FakeCommandRunner::new());
+
+    let options = go_budget_options(4, toven_ports::ComputeBudget::fixed(4));
+    run_with_options(&plan, runner.clone(), options);
+
+    let injected = injected_gomaxprocs(&runner);
+    assert_eq!(injected.len(), 4);
+    for id in ids {
+        assert_eq!(injected.get(id).map(String::as_str), Some("2"), "unit {id}");
+    }
+}
+
+#[test]
+fn compute_budget_inherit_injects_nothing() {
+    let ids = ["a", "b"];
+    let units: Vec<_> = ids.iter().map(|id| go_unit(id)).collect();
+    let plan = Plan::new(units, vec![ids.iter().map(|s| (*s).to_string()).collect()]);
+    let runner = Arc::new(FakeCommandRunner::new());
+
+    let options = go_budget_options(2, toven_ports::ComputeBudget::Inherit);
+    run_with_options(&plan, runner.clone(), options);
+
+    assert!(
+        injected_gomaxprocs(&runner).is_empty(),
+        "inherit opts out of injection entirely"
+    );
+}
+
+#[test]
+fn compute_budget_skips_ecosystems_without_a_registered_name() {
+    // The plan is Rust; only Go registers GOMAXPROCS, so nothing is injected
+    // even under an active budget.
+    let plan = Plan::new(vec![unit("only")], vec![vec!["only".into()]]);
+    let runner = Arc::new(FakeCommandRunner::new());
+
+    let options = go_budget_options(2, toven_ports::ComputeBudget::fixed(8));
+    run_with_options(&plan, runner.clone(), options);
+
+    assert!(
+        injected_gomaxprocs(&runner).is_empty(),
+        "an ecosystem with no registered env name is never injected"
+    );
 }

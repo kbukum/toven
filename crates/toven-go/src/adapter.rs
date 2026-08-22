@@ -49,6 +49,14 @@ impl ConfiguredAdapter for GoAdapter {
             .unwrap_or_else(|| tasks::default_run_strategy(kind))
     }
 
+    fn compute_budget_env(&self) -> Vec<String> {
+        // Each `go` invocation fans out one process per module and, left
+        // unbounded, defaults its own parallelism to the whole machine. The
+        // engine hands each process its share of the compute budget through
+        // `GOMAXPROCS`.
+        vec!["GOMAXPROCS".to_string()]
+    }
+
     fn release_target(&self, reader: &dyn VcsReader) -> AppResult<Option<Box<dyn ReleaseAdapter>>> {
         Ok(Some(Box::new(GoVcsTarget::new(
             self.runner.clone(),

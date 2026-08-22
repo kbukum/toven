@@ -14,8 +14,11 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult};
+use toven_ports::ComputeBudget;
 
-use crate::flags::{ColorWhen, OutputKind, ViewMode, parse_duration_arg, parse_jobs_arg};
+use crate::flags::{
+    ColorWhen, OutputKind, ViewMode, parse_compute_budget_arg, parse_duration_arg, parse_jobs_arg,
+};
 
 /// The reserved built-in words. A bare top-level token equal to one of these
 /// dispatches the built-in; any other token is an argv-first task name.
@@ -104,6 +107,9 @@ pub struct TaskFlags {
     pub timeout: Option<Duration>,
     /// `--jobs`/`-j <n>`: concurrency ceiling override (`1` forces serial).
     pub jobs: Option<usize>,
+    /// `--compute-budget <budget>`: per-tool CPU budget override
+    /// (`auto`/`inherit`/int).
+    pub compute_budget: Option<ComputeBudget>,
     /// `--base <ref>`: override the changed-selection baseline reference.
     pub base: Option<String>,
     /// `--merge-base`: diff against `merge-base(reference, HEAD)`.
@@ -183,6 +189,12 @@ pub fn parse_task(tokens: &[String]) -> AppResult<TaskInvocation> {
             }
             "--jobs" | "-j" => {
                 flags.jobs = Some(parse_jobs(&value_for("--jobs", &mut iter)?)?);
+            }
+            "--compute-budget" => {
+                flags.compute_budget = Some(parse_compute_budget(&value_for(
+                    "--compute-budget",
+                    &mut iter,
+                )?)?);
             }
             "--merge-base" => flags.merge_base = true,
             "--dependents" | "--with-dependents" => flags.with_dependents = true,
@@ -302,6 +314,11 @@ fn parse_timeout(value: &str) -> AppResult<Duration> {
 
 fn parse_jobs(value: &str) -> AppResult<usize> {
     parse_jobs_arg(value).map_err(|message| AppError::invalid_input("--jobs", message))
+}
+
+fn parse_compute_budget(value: &str) -> AppResult<ComputeBudget> {
+    parse_compute_budget_arg(value)
+        .map_err(|message| AppError::invalid_input("--compute-budget", message))
 }
 
 #[cfg(test)]
@@ -483,6 +500,24 @@ mod tests {
         assert!(parse_task(&tokens(&["test", "--jobs", "0"])).is_err());
         assert!(parse_task(&tokens(&["test", "--jobs", "many"])).is_err());
         assert!(parse_task(&tokens(&["test", "--jobs"])).is_err());
+    }
+
+    #[test]
+    fn parses_compute_budget_on_a_bare_task() {
+        use toven_ports::ComputeBudget;
+        let auto = parse_task(&tokens(&["test", "--compute-budget", "auto"])).expect("parses");
+        assert_eq!(auto.flags.compute_budget, Some(ComputeBudget::Auto));
+        let fixed = parse_task(&tokens(&["test", "--compute-budget", "8"])).expect("parses");
+        assert_eq!(fixed.flags.compute_budget, Some(ComputeBudget::fixed(8)));
+        let inherit =
+            parse_task(&tokens(&["test", "--compute-budget", "inherit"])).expect("parses");
+        assert_eq!(inherit.flags.compute_budget, Some(ComputeBudget::Inherit));
+    }
+
+    #[test]
+    fn rejects_a_malformed_compute_budget_value() {
+        assert!(parse_task(&tokens(&["test", "--compute-budget", "turbo"])).is_err());
+        assert!(parse_task(&tokens(&["test", "--compute-budget"])).is_err());
     }
 
     #[test]

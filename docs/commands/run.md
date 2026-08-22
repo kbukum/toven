@@ -124,6 +124,16 @@ toven test --workspace rust -j 4
 
 `--jobs <N>` overrides `[toven].max_parallel`. `--jobs 1` executes serially and uses an inline stream under the default view.
 
+## Compute budget
+
+```bash
+toven test --workspace go --compute-budget auto
+toven test --workspace go --compute-budget 12
+toven test --workspace go --compute-budget inherit
+```
+
+Where `--jobs` bounds how many units run at once, `--compute-budget` bounds the CPU parallelism handed to each spawned tool, overriding `[toven].compute_budget`. The engine splits the total budget across the units running concurrently and injects each unit's share through an ecosystem environment variable, so the flag only affects ecosystems that expose a supported variable — Go reads `GOMAXPROCS`. An ecosystem that registers no such variable is never injected: Cargo, for instance, self-balances a single invocation internally and is left entirely unchanged, running with its own default parallelism regardless of the budget. `auto` sizes the budget to the host CPUs, an integer sets a fixed total, and `inherit` (or `0`) injects nothing and lets every tool keep its own default parallelism. The value is never added to your argv. See [compute budget](../config/README.md#compute-budget) for the sizing model and per-ecosystem overrides.
+
 ## Live output
 
 ```bash
@@ -199,6 +209,7 @@ The shutdown behavior is policy-driven, so an embedder can select the signal set
 | `--refresh` | Re-run and replace successful cache records |
 | `--timeout <DURATION>` | Bound each unit, such as `30s` or `5m` |
 | `--jobs <N>`, `-j <N>` | Limit concurrent units |
+| `--compute-budget <auto\|inherit\|N>` | Cap CPU parallelism per spawned tool |
 | `--base <REF>` | Select changed work against a Git baseline |
 | `--merge-base` | Compare from the baseline's merge base |
 | `--module <SELECTOR>` | Select modules; repeatable |

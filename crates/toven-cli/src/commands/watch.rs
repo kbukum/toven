@@ -71,6 +71,8 @@ pub(crate) struct WatchRun<'a> {
     pub(crate) unit_timeout: Option<Duration>,
     /// The `--jobs`/`-j` concurrency override.
     pub(crate) jobs: Option<usize>,
+    /// The `--compute-budget` per-tool CPU budget override.
+    pub(crate) compute_budget: Option<toven_ports::ComputeBudget>,
     /// The resolved trailing-edge debounce window, in milliseconds.
     pub(crate) debounce_ms: u64,
     /// The resolved live-output binding for the session.
@@ -101,6 +103,13 @@ pub(crate) async fn run_watch(run: WatchRun<'_>, sink: &mut dyn Reporter) -> App
     if let Some(max_parallel) = super::run::resolve_max_parallel(run.jobs, run.project) {
         apply_options.max_parallel = max_parallel.max(1);
     }
+    super::support::compute_budget::resolve(
+        &run.project.project_root,
+        &run.project.document,
+        run.providers,
+        run.compute_budget,
+    )?
+    .apply_to(&mut apply_options);
     // Bind the resolved live view for the whole watch session. The affected-set
     // size varies per rerun, so the unit count is unknown here (passed as `0`):
     // `auto` therefore resolves to tiles rather than panes, while an explicit

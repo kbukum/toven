@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use rskit_config::RawValue;
 use serde::{Deserialize, Serialize};
+use toven_ports::ComputeBudget;
 
 /// The reserved `[toven]` section: engine-level settings.
 ///
@@ -20,6 +21,12 @@ pub struct TovenConfig {
     /// Global concurrency ceiling; `None` lets the engine pick a default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_parallel: Option<usize>,
+    /// CPU-parallelism budget handed to each fanned-out tool. `auto` (the
+    /// default) sizes it to the host's CPUs and splits it across the units
+    /// running concurrently; a positive integer fixes the total; `inherit`
+    /// injects nothing. May be overridden per `[ecosystems.<id>]`.
+    #[serde(default, skip_serializing_if = "ComputeBudget::is_default")]
+    pub compute_budget: ComputeBudget,
     /// How live per-unit output is rendered on an interactive terminal.
     #[serde(default, skip_serializing_if = "ViewMode::is_default")]
     pub view: ViewMode,

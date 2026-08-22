@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::{CoverageConfig, ReleaseConfig, RunStrategy, TaskEntry};
+use crate::config::ComputeBudget;
 
 /// The engine-common `[ecosystems.<id>]` knobs shared by every adapter config.
 ///
@@ -21,6 +22,11 @@ pub struct CommonEcosystemConfig {
     /// default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_strategy: Option<RunStrategy>,
+    /// Ecosystem-level compute-budget override (else the `[toven]` default).
+    /// Governs how much CPU parallelism each fanned-out tool of this ecosystem
+    /// is granted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compute_budget: Option<ComputeBudget>,
     /// Release sub-config (`release.strategy`, `release.registry`).
     #[serde(default, skip_serializing_if = "ReleaseConfig::is_default")]
     pub release: ReleaseConfig,
