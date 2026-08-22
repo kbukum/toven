@@ -14,9 +14,24 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Fixed
 
-- `entrypoint = "maintainer"` is now honored in the hosted-Release phase. Previously the entrypoint governed only tag create-vs-verify, so `release publish` still ran the create-or-content-verify path against the maintainer's Release and failed with a `CONFLICT` when Toven's generated notes differed from the maintainer-authored ones (e.g. a GitHub Release published by hand to trigger CI). Under a maintainer entrypoint Toven now only verifies the hosted Release exists for the resolved tag — it never creates, edits, content-verifies, or reconciles it — and fails closed with a `Conflict` when the maintainer's Release is missing.
-
 ### Security
+
+## [0.1.0-alpha.7] - 2026-08-22
+
+### Added
+
+- Compute budget (`[toven].compute_budget`, per-ecosystem overrides, and `--compute-budget <auto|inherit|N>`) that bounds per-tool CPU parallelism during fan-out by injecting each unit's share of a host-sized thread budget through an env var (Go's `GOMAXPROCS`), never argv. Defaults to `auto`; `inherit`/`0` opts out. Cargo self-balances and is unaffected. Stops a per-module fan-out from oversubscribing toward cores² threads (#193).
+- `toven-runtime`: a generic streaming unit-operation engine (shared GATHER, then per-unit results emitted as they settle, wave-scheduled and job-bounded). The `release` read/artifact verbs now stream per-item output instead of per-phase (#189).
+
+### Changed
+
+- Go `test` and `coverage` now default to the `Unordered` strategy (single wave, no build-order barriers), since `go test` resolves cross-module builds through Go's own cache; a 50-module `go test -race` run dropped ~153s → ~80s. `build`/`check` keep `LeafToTop` for compile fail-fast (#191).
+- Path-to-module attribution is now per-caller: `run`/affected fails open, release gating fails closed, so a lockfile- or docs-only diff no longer over-publishes (#189).
+- `release publish` now honors an accepted registry `Retry-After` for up to 15 minutes (was 2) before giving up, so a rate-limited publish can block that much longer instead of failing fast (#189).
+
+### Fixed
+
+- `entrypoint = "maintainer"` is now honored in the hosted-Release phase: Toven only verifies the Release exists for the tag (never creating, editing, or reconciling it) and fails closed when it is missing, instead of hitting a `CONFLICT` on maintainer-authored notes (#190).
 
 ## [0.1.0-alpha.6] - 2026-08-12
 
