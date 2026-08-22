@@ -37,6 +37,14 @@ fn configure_reads_the_authoritative_task_table() {
 }
 
 #[test]
+fn go_injects_gomaxprocs_as_its_compute_budget_env() {
+    // Go tasks fan out one process per module, so the engine caps each process's
+    // internal parallelism through GOMAXPROCS.
+    let adapter = configure(SINGLE_MODULE);
+    assert_eq!(adapter.compute_budget_env(), ["GOMAXPROCS"]);
+}
+
+#[test]
 fn configure_accepts_the_flattened_common_knobs() {
     // `deny_unknown_fields` on the outer struct must still admit the flattened
     // engine-common knobs (`run_strategy`, `[tasks.*]`). This locks in the fragile

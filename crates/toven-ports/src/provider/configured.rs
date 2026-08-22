@@ -46,6 +46,23 @@ pub trait ConfiguredAdapter {
     /// applied).
     fn run_strategy_default(&self, kind: TaskKind) -> RunStrategy;
 
+    /// Environment variable names that carry a per-process CPU-parallelism
+    /// budget for this ecosystem's fanned-out tools.
+    ///
+    /// The engine sizes a total compute budget and divides it across the units
+    /// running concurrently (see
+    /// [`ComputeBudget`](crate::config::ComputeBudget)); for each name returned
+    /// here it sets that per-process share in the child's environment, never on
+    /// argv. Returning an empty vector (the default) opts the ecosystem out —
+    /// correct for a self-balancing single-invocation toolchain (one `cargo
+    /// build` already parallelizes internally across all its targets) and for
+    /// the escape-hatch **command** ecosystem, whose heterogeneous tools expose
+    /// no common parallelism knob. An ecosystem that fans out one CPU-bound
+    /// process per module (e.g. Go's `GOMAXPROCS`) overrides this.
+    fn compute_budget_env(&self) -> Vec<String> {
+        Vec::new()
+    }
+
     /// The ecosystem release adapter when the adapter supports release
     /// mechanics — the composed per-phase seam
     /// ([`ReleaseAdapter`]). Publication policy (`registry`, tag-only, excluded)

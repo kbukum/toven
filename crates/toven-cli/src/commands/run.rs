@@ -29,10 +29,12 @@ use toven_engine::source::FsSourceDigest;
 use toven_engine::toolchain::ProcessToolchainProber;
 use toven_exec::ProcessToolRunner;
 use toven_model::{CacheVerdict, Event, Plan, RunStats};
-use toven_ports::{PlanReporter, Provider, Reporter, SourceDigest, TaskIntent, ToolchainProber};
+use toven_ports::{
+    ComputeBudget, PlanReporter, Provider, Reporter, SourceDigest, TaskIntent, ToolchainProber,
+};
 
 use crate::commands::selection::TaskSelection;
-use crate::commands::support::{LiveApplyBinding, build_live_apply_host};
+use crate::commands::support::{LiveApplyBinding, build_live_apply_host, compute_budget};
 use crate::commands::watch::{LiveOutput, WatchRun, run_watch};
 use crate::host::{Project, Report, new_run_id};
 use crate::report::terminal_exit_code;
@@ -81,6 +83,7 @@ pub(crate) fn execute(
     watch: WatchFlags,
     view: Option<ViewMode>,
     jobs: Option<usize>,
+    compute_budget: Option<ComputeBudget>,
     selection: &TaskSelection,
 ) -> AppResult<ExitCode> {
     let run_id = new_run_id()?;
@@ -159,6 +162,7 @@ pub(crate) fn execute(
             fail_fast,
             unit_timeout,
             jobs,
+            compute_budget,
             plan_only,
             watch,
         },
@@ -209,6 +213,8 @@ struct TaskRun<'a> {
     unit_timeout: Option<std::time::Duration>,
     /// The `--jobs`/`-j` concurrency override.
     jobs: Option<usize>,
+    /// The `--compute-budget` per-tool CPU budget override.
+    compute_budget: Option<ComputeBudget>,
     /// Whether the run stops at PLAN (`--dry-run`/`--explain`).
     plan_only: bool,
     /// Whether the run enters watch mode, and its debounce window.
@@ -256,6 +262,7 @@ async fn run_supervised(run: TaskRun<'_>, sink: &mut dyn Reporter) -> AppResult<
                 fail_fast: run.fail_fast,
                 unit_timeout: run.unit_timeout,
                 jobs: run.jobs,
+                compute_budget: run.compute_budget,
                 debounce_ms: run.watch.debounce_ms,
                 live: &LiveOutput {
                     view: run.effective_view,
@@ -316,6 +323,8 @@ async fn run_supervised(run: TaskRun<'_>, sink: &mut dyn Reporter) -> AppResult<
     if let Some(max_parallel) = resolve_max_parallel(run.jobs, run.project) {
         options.max_parallel = max_parallel.max(1);
     }
+    compute_budget::resolve(run.providers, &run.project.document, run.compute_budget)?
+        .apply_to(&mut options);
 
     // Bind the resolved live view (tiles/panes/stream) to a raw-output sink and the
     // PTY sizing live units run under, binding the runner to the shared supervisor.

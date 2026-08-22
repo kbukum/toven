@@ -2,6 +2,7 @@
 //! every adapter flattens into its own strict schema.
 
 mod common;
+mod compute_budget;
 mod coverage;
 mod hooks;
 mod release;
@@ -11,6 +12,7 @@ mod task_override;
 mod units;
 
 pub use common::CommonEcosystemConfig;
+pub use compute_budget::ComputeBudget;
 pub use coverage::{CoverageConfig, CoverageProfile, CoverageThresholds, Enforcement};
 pub use hooks::HooksConfig;
 pub use release::{

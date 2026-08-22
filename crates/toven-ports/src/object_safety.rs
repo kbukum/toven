@@ -414,6 +414,10 @@ fn port_traits_are_object_safe() {
         configured.run_strategy_default(TaskKind::Build),
         RunStrategy::LeafToTop
     );
+    assert!(
+        configured.compute_budget_env().is_empty(),
+        "the default adapter injects no compute-budget env"
+    );
     assert_eq!(configured.common(), &CommonEcosystemConfig::default());
 
     // Exercise every release phase contract (directly and via the adapter seam).

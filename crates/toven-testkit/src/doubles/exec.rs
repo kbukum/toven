@@ -18,7 +18,8 @@ use rskit_process::LifecyclePolicy;
 use tokio_util::sync::CancellationToken;
 use toven_model::{OutputStream, UnitOutput};
 use toven_ports::{
-    CommandRunner, HeldProcess, Invocation, OutputObserver, RunOutcome, StartOutcome,
+    CommandRunner, HeldProcess, Invocation, InvocationEnvironment, OutputObserver, RunOutcome,
+    StartOutcome,
 };
 
 /// How long a non-blocking scripted run "occupies" a slot, so concurrent runs
@@ -32,6 +33,7 @@ struct RunLog {
     cancelled: Vec<String>,
     coactive: Vec<(String, Vec<String>)>,
     lifecycles: Vec<(String, LifecyclePolicy)>,
+    environments: Vec<(String, InvocationEnvironment)>,
 }
 
 /// A scriptable [`CommandRunner`] that records scheduling behavior.
@@ -185,6 +187,22 @@ impl FakeCommandRunner {
             .push((unit_id.to_string(), lifecycle));
     }
 
+    /// For each unit run through the port, the [`InvocationEnvironment`] its
+    /// [`Invocation`] carried, in call order. Lets a test assert the per-unit
+    /// compute-budget env the engine injected (e.g. `GOMAXPROCS`).
+    #[must_use]
+    pub fn environments(&self) -> Vec<(String, InvocationEnvironment)> {
+        self.log.lock().expect("log poisoned").environments.clone()
+    }
+
+    fn record_environment(&self, unit_id: &str, environment: &InvocationEnvironment) {
+        self.log
+            .lock()
+            .expect("log poisoned")
+            .environments
+            .push((unit_id.to_string(), environment.clone()));
+    }
+
     fn enter(&self, unit_id: &str) {
         let mut active = self.active.lock().expect("active poisoned");
         let others: Vec<String> = active.iter().cloned().collect();
@@ -262,6 +280,7 @@ impl CommandRunner for FakeCommandRunner {
     ) -> AppResult<RunOutcome> {
         let unit_id = invocation.unit_id.clone();
         self.record_lifecycle(&unit_id, invocation.lifecycle);
+        self.record_environment(&unit_id, &invocation.environment);
         self.enter(&unit_id);
         let output = self.output_for(&unit_id);
 
@@ -314,6 +333,7 @@ impl CommandRunner for FakeCommandRunner {
     ) -> AppResult<StartOutcome> {
         let unit_id = invocation.unit_id.clone();
         self.record_lifecycle(&unit_id, invocation.lifecycle);
+        self.record_environment(&unit_id, &invocation.environment);
         self.log
             .lock()
             .expect("log poisoned")

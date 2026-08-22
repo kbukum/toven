@@ -15,6 +15,7 @@ use toven_ports::{CacheWriter, RawOutputSink, Reporter};
 use crate::output::{OutputMode, UnitOutputChannel};
 
 use super::ApplyOptions;
+use super::budget::BudgetPlan;
 use super::gating::{Gate, UnitState, unit_index};
 use super::persistent::held::HeldSet;
 use super::pool::{ApplyPool, WorkItem, WorkOutcome};
@@ -45,6 +46,12 @@ pub(super) struct Walker<'a, S: RawOutputSink> {
     /// Cooperative external cancellation (Ctrl+C); fires the fail-fast
     /// teardown.
     external_cancel: CancellationToken,
+    /// Resolved compute-budget policy: the total thread budget and the
+    /// per-ecosystem env names its share is injected through.
+    budget: BudgetPlan,
+    /// Number of units the current wave runs concurrently (`min(max_parallel,
+    /// group count)`), the deterministic divisor for the per-unit budget share.
+    wave_parallel: usize,
 }
 
 impl<'a, S: RawOutputSink> Walker<'a, S> {
@@ -60,6 +67,11 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         let concurrent_live = output.supports_concurrent_live();
         let stream_normal_live =
             super::options::stream_normal_live(&options, plan, concurrent_live);
+        let budget = BudgetPlan::new(
+            options.compute_budget,
+            options.ecosystem_budgets.clone(),
+            options.budget_env.clone(),
+        );
         let mut stats = RunStats::new(plan.units.len());
         for unit in &plan.units {
             match unit.cache {
@@ -84,6 +96,8 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             concurrent_live,
             regioned: std::collections::HashSet::new(),
             external_cancel,
+            budget,
+            wave_parallel: 1,
         }
     }
 
@@ -254,6 +268,11 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                 .unwrap_or_else(|| format!("unit:{unit_id}"));
             groups.entry(group).or_default().push_back(unit_id.clone());
         }
+        // Each resource group runs one unit at a time, so the wave's concurrency
+        // is its group count, capped by the pool. This is the deterministic
+        // divisor for the compute-budget share (derived from plan structure, not
+        // live scheduling), so plans and goldens stay stable.
+        self.wave_parallel = self.options.max_parallel.min(groups.len()).max(1);
         self.run_groups(groups, pool, live_output).await
     }
 
@@ -333,7 +352,13 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
             return Ok(());
         };
         let unit = self.unit(&unit_id)?.clone();
-        let handle = pool.submit(WorkItem::new(unit)).await?;
+        let extra_env = if self.budget.is_active() {
+            self.budget
+                .env_for(&unit.module.module().ecosystem, self.wave_parallel)
+        } else {
+            std::collections::BTreeMap::new()
+        };
+        let handle = pool.submit(WorkItem::new(unit, extra_env)).await?;
         self.reporter.emit(&Event::UnitStarted {
             unit_id: unit_id.clone(),
         })?;

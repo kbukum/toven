@@ -8,6 +8,7 @@
 //! [`release`](super::release)) share the quiet reporter that surfaces only
 //! warnings while stdout carries their projection.
 
+pub(crate) mod compute_budget;
 pub(crate) mod live_apply;
 pub(crate) mod reporter;
 

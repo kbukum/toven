@@ -139,6 +139,7 @@ fn measure(
         },
         Some(ViewMode::Stream),
         None,
+        None,
         selection,
     )
 }

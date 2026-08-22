@@ -216,6 +216,7 @@ fn dispatch(
                     global_watch(cli),
                     cli.view.map(Into::into),
                     cli.jobs,
+                    cli.compute_budget,
                     &global_selection(cli),
                 )
             })
@@ -317,6 +318,7 @@ fn plan_command(
         },
         None,
         cli.jobs,
+        cli.compute_budget,
         &global_selection(cli),
     )
 }
@@ -393,6 +395,7 @@ fn dispatch_task(
     };
     let view = flags.view.or(cli.view).map(Into::into);
     let jobs = flags.jobs.or(cli.jobs);
+    let compute_budget = flags.compute_budget.or(cli.compute_budget);
 
     with_hooks(providers, supervisor, cli, &project, VerbId::Run, || {
         commands::run::execute(
@@ -410,6 +413,7 @@ fn dispatch_task(
             watch,
             view,
             jobs,
+            compute_budget,
             &selection,
         )
         .map_err(|error| advise_builtin_typo(&invocation.task, error))

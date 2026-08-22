@@ -19,6 +19,11 @@ fn loads_minimal_single_ecosystem() {
     assert_eq!(document.project.name, "single-rust");
     assert_eq!(document.project.root(), ".");
     assert!(document.ecosystems.contains_key(&common::eid("rust")));
+    assert_eq!(
+        document.toven.compute_budget,
+        toven_ports::ComputeBudget::Auto,
+        "an unset compute_budget defaults to auto"
+    );
 }
 
 #[test]
@@ -29,6 +34,10 @@ fn loads_full_polyglot_document() {
     assert_eq!(document.project.base_ref.as_deref(), Some("origin/main"));
     assert_eq!(document.toven.report, ReportFormat::Json);
     assert_eq!(document.toven.max_parallel, Some(8));
+    assert_eq!(
+        document.toven.compute_budget,
+        toven_ports::ComputeBudget::Fixed(6)
+    );
     assert_eq!(document.toven.cache.dir.as_deref(), Some(".toven/cache"));
 
     // Reserved sections are typed; ecosystem subtrees are kept verbatim.

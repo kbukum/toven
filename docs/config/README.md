@@ -57,6 +57,7 @@ base_ref = "origin/main"
 [toven]
 report = "human"
 max_parallel = 8
+compute_budget = "auto"
 view = "auto"
 include = ["ci/shared-tasks.toml"]
 
@@ -74,6 +75,7 @@ go = { version = "0.4.1" }
 |---|---|---|---|
 | `report` | `"human"` or `"json"` | `"human"` | Default report format; the CLI override is `--output human|jsonl` |
 | `max_parallel` | integer | Engine default | Global concurrency ceiling |
+| `compute_budget` | `"auto"`, `"inherit"`, or integer | `"auto"` | CPU parallelism handed to each spawned tool (see [Compute budget](#compute-budget)) |
 | `view` | `"auto"`, `"tiles"`, `"panes"`, or `"stream"` | `"auto"` | Live per-unit output shape for interactive runs |
 | `include` | string list | `[]` | Committed TOML files merged beneath the canonical file as defaults |
 | `drivers` | table | `{}` | Out-of-process driver settings kept for federation |
@@ -83,6 +85,32 @@ go = { version = "0.4.1" }
 Included files provide defaults. The canonical `toven.toml` wins on scalar and table conflicts, and included files must be committed.
 
 `[toven.git].push_token_env` is forge-agnostic. The embedded git backend uses the first present, non-empty value as the HTTPS token password for engine-owned git network operations, including release pushes and planning fetches. If none are set, local development falls back to the ambient git transport.
+
+## Compute budget
+
+`max_parallel` bounds how many units run at once; `compute_budget` bounds how much CPU parallelism each of those units gets *internally*. They solve different halves of the same problem. A per-module task (Go's `go test ./...` per module) fans out into one child process per module, and the worker pool runs several of those children at once. Left alone, each child also defaults its own internal parallelism to the whole machine, so peak thread pressure climbs toward cores² and the machine thrashes instead of getting faster.
+
+`compute_budget` caps that. The engine resolves a total thread budget, divides it across the units running concurrently in a wave, and hands each fanned-out tool its share through an ecosystem environment variable — never through argv, so your commands are never rewritten. Go reads `GOMAXPROCS`. A self-balancing single-invocation toolchain such as Cargo (one `cargo` build parallelizes internally) registers no variable and simply keeps the whole budget.
+
+| Value | Meaning |
+|---|---|
+| `"auto"` (default) | Size the total budget to the host's available CPUs, then split it across the wave |
+| integer (`8`) | Use a fixed total thread budget, split across the wave |
+| `"inherit"` or `0` | Inject nothing; every tool keeps its own default parallelism |
+
+The per-process share is `clamp(ceil(budget / concurrent), 2, budget)`: ceiling division so the whole budget is always spent, a floor of `2` so a saturated wave never starves a child down to a single thread, and a ceiling of the whole budget so a lone unit is never handed more than exists.
+
+The budget is expressed once on `[toven]` and may be overridden per ecosystem. An `[ecosystems.<id>].compute_budget` override wins over the global value, so a polyglot repo can bound its Go fan-out while leaving another ecosystem on `auto` or opting it out entirely:
+
+```toml
+[toven]
+compute_budget = "auto"
+
+[ecosystems.go]
+compute_budget = 12
+```
+
+The `--compute-budget <auto|inherit|N>` CLI flag overrides both for a single run. See [run options](../commands/run.md#compute-budget).
 
 ## Ecosystem discovery
 

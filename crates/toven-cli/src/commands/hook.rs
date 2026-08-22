@@ -113,6 +113,7 @@ impl CliHookRunner<'_> {
             },
             None,
             self.cli.jobs,
+            self.cli.compute_budget,
             &TaskSelection::default(),
         )
     }

@@ -33,6 +33,7 @@ pub struct FakeConfiguredAdapter {
     run_strategy: RunStrategy,
     release_target: Option<FakeReleaseTarget>,
     common: CommonEcosystemConfig,
+    compute_budget_env: Vec<String>,
 }
 
 impl FakeConfiguredAdapter {
@@ -46,6 +47,7 @@ impl FakeConfiguredAdapter {
             run_strategy: RunStrategy::LeafToTop,
             release_target: None,
             common: CommonEcosystemConfig::default(),
+            compute_budget_env: Vec::new(),
         }
     }
 
@@ -95,6 +97,14 @@ impl FakeConfiguredAdapter {
         self.common = common;
         self
     }
+
+    /// Set the compute-budget env var names this ecosystem injects into its
+    /// fanned-out tools (e.g. Go's `GOMAXPROCS`); empty (the default) opts out.
+    #[must_use]
+    pub fn with_compute_budget_env(mut self, names: Vec<String>) -> Self {
+        self.compute_budget_env = names;
+        self
+    }
 }
 
 /// Project a resolved [`Task`] into a `(key, TaskEntry)` config pair — the
@@ -136,6 +146,10 @@ impl ConfiguredAdapter for FakeConfiguredAdapter {
 
     fn run_strategy_default(&self, _kind: TaskKind) -> RunStrategy {
         self.run_strategy
+    }
+
+    fn compute_budget_env(&self) -> Vec<String> {
+        self.compute_budget_env.clone()
     }
 
     fn release_target(
@@ -300,5 +314,15 @@ mod tests {
         assert_eq!(entry.argv, ["cargo", "test"]);
         assert_eq!(entry.fan_out, FanOut::Batchable);
         assert!(entry.kind.is_none());
+    }
+
+    #[test]
+    fn compute_budget_env_defaults_empty_and_is_configurable() {
+        let default = FakeConfiguredAdapter::new(rust());
+        assert!(default.compute_budget_env().is_empty());
+
+        let configured =
+            FakeConfiguredAdapter::new(rust()).with_compute_budget_env(vec!["GOMAXPROCS".into()]);
+        assert_eq!(configured.compute_budget_env(), ["GOMAXPROCS"]);
     }
 }

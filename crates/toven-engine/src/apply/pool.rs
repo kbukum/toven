@@ -49,13 +49,19 @@ pub(super) enum WorkOutcome {
 #[derive(Clone)]
 pub(super) struct WorkItem {
     unit: ExecutionUnit,
+    /// Per-unit compute-budget environment merged on top of the pool's shared
+    /// environment (empty when this unit's ecosystem opts out).
+    extra_env: std::collections::BTreeMap<String, String>,
 }
 
 impl WorkItem {
-    /// Build a work item for `unit`.
+    /// Build a work item for `unit` with its resolved compute-budget env.
     #[must_use]
-    pub(super) const fn new(unit: ExecutionUnit) -> Self {
-        Self { unit }
+    pub(super) const fn new(
+        unit: ExecutionUnit,
+        extra_env: std::collections::BTreeMap<String, String>,
+    ) -> Self {
+        Self { unit, extra_env }
     }
 }
 
@@ -74,6 +80,25 @@ struct WorkHandler {
     unit_timeout: Option<Duration>,
 }
 
+impl WorkHandler {
+    /// The pool's shared environment with this unit's compute-budget share
+    /// merged on top (the share never clobbers an operator-set base var of the
+    /// same name — the base takes precedence).
+    fn environment_for(&self, task: &WorkItem) -> InvocationEnvironment {
+        if task.extra_env.is_empty() {
+            return self.environment.clone();
+        }
+        let mut environment = self.environment.clone();
+        for (name, value) in &task.extra_env {
+            environment
+                .vars
+                .entry(name.clone())
+                .or_insert_with(|| value.clone());
+        }
+        environment
+    }
+}
+
 #[async_trait]
 impl Handler<WorkItem, WorkOutcome> for WorkHandler {
     async fn handle(
@@ -82,7 +107,7 @@ impl Handler<WorkItem, WorkOutcome> for WorkHandler {
         _emit: mpsc::Sender<rskit_worker::Event<WorkOutcome>>,
         cancel: CancellationToken,
     ) -> AppResult<WorkOutcome> {
-        let invocation = Invocation::from_unit(&task.unit, self.environment.clone());
+        let invocation = Invocation::from_unit(&task.unit, self.environment_for(&task));
         if task.unit.persistent {
             match self
                 .runner

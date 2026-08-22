@@ -347,7 +347,7 @@ _toven() {
 
     case "${cmd}" in
         toven)
-            opts="-j -v -q -h -V --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help --version run plan release coverage explain init affected modules list ls graph deps tasks doctor commit-lint completions driver federation cache help"
+            opts="-j -v -q -h -V --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help --version run plan release coverage explain init affected modules list ls graph deps tasks doctor commit-lint completions driver federation cache help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -378,6 +378,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -469,7 +473,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__affected)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -500,6 +504,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -591,7 +599,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__cache)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help stats clean path help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help stats clean path help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -622,6 +630,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -713,7 +725,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__cache__subcmd__clean)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -744,6 +756,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -905,7 +921,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__cache__subcmd__path)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -936,6 +952,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1027,7 +1047,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__cache__subcmd__stats)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1058,6 +1078,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1149,7 +1173,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__commit__subcmd__lint)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1180,6 +1204,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1271,7 +1299,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__completions)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help bash elvish fish powershell zsh"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help bash elvish fish powershell zsh"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1302,6 +1330,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1393,7 +1425,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__coverage)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1424,6 +1456,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1515,7 +1551,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__doctor)
-            opts="-j -v -q -h --ensure --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --ensure --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1546,6 +1582,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1637,7 +1677,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__driver)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help install list help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help install list help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1668,6 +1708,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1815,7 +1859,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__driver__subcmd__install)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1846,6 +1890,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1937,7 +1985,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__driver__subcmd__list)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1968,6 +2016,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2059,7 +2111,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__explain)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2090,6 +2142,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2181,7 +2237,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__federation)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help sync status help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help sync status help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2212,6 +2268,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2359,7 +2419,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__federation__subcmd__status)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2390,6 +2450,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2481,7 +2545,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__federation__subcmd__sync)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2512,6 +2576,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2603,7 +2671,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__graph)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2634,6 +2702,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -3271,7 +3343,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__init)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3302,6 +3374,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -3393,7 +3469,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__modules)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3424,6 +3500,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -3515,7 +3595,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__plan)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3546,6 +3626,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -3637,7 +3721,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__release)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help plan status tag bump publish readiness sbom depgraphs package checksums sign verify image provenance help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help plan status tag bump publish readiness sbom depgraphs package checksums sign verify image provenance help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3668,6 +3752,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -3759,7 +3847,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__release__subcmd__bump)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3790,6 +3878,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -3881,7 +3973,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__release__subcmd__checksums)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3912,6 +4004,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -4003,7 +4099,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__release__subcmd__depgraphs)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4034,6 +4130,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -4349,7 +4449,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__release__subcmd__image)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4380,6 +4480,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -4471,7 +4575,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__release__subcmd__package)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4502,6 +4606,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -4593,7 +4701,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__release__subcmd__plan)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4624,6 +4732,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -4715,7 +4827,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__release__subcmd__provenance)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4746,6 +4858,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -4837,7 +4953,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__release__subcmd__publish)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4868,6 +4984,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -4959,7 +5079,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__release__subcmd__readiness)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4990,6 +5110,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -5081,7 +5205,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__release__subcmd__sbom)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -5112,6 +5236,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -5203,7 +5331,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__release__subcmd__sign)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -5234,6 +5362,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -5325,7 +5457,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__release__subcmd__status)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -5356,6 +5488,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -5447,7 +5583,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__release__subcmd__tag)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -5478,6 +5614,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -5569,7 +5709,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__release__subcmd__verify)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -5600,6 +5740,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -5691,7 +5835,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__run)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -5722,6 +5866,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -5813,7 +5961,7 @@ _toven() {
             return 0
             ;;
         toven__subcmd__tasks)
-            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -5844,6 +5992,10 @@ _toven() {
                     return 0
                     ;;
                 -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compute-budget)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

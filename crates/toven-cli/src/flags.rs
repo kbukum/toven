@@ -16,6 +16,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use rskit_errors::{AppError, AppResult};
 use rskit_util::time::parse_duration;
 use toven_core::vcs::BaselineFlags;
+use toven_ports::ComputeBudget;
 
 /// Default trailing-edge debounce window (ms) for `--watch` when
 /// `--watch-debounce-ms` is not given.
@@ -256,6 +257,25 @@ pub(crate) fn parse_jobs_arg(value: &str) -> Result<usize, String> {
     }
 }
 
+/// Parse `--compute-budget`: `auto`, `inherit`, or a non-negative integer
+/// (`0` = `inherit`).
+///
+/// Mirrors the `[toven].compute_budget` config grammar so the flag and the
+/// config setting accept the same spellings.
+pub(crate) fn parse_compute_budget_arg(value: &str) -> Result<ComputeBudget, String> {
+    match value {
+        "auto" => Ok(ComputeBudget::Auto),
+        "inherit" => Ok(ComputeBudget::Inherit),
+        other => match other.parse::<usize>() {
+            Ok(0) => Ok(ComputeBudget::Inherit),
+            Ok(threads) => Ok(ComputeBudget::Fixed(threads)),
+            Err(error) => Err(format!(
+                "`--compute-budget` requires `auto`, `inherit`, or a non-negative integer (got `{value}`): {error}"
+            )),
+        },
+    }
+}
+
 /// Parse a coverage threshold flag (`--line`/`--function`/`--region`/
 /// `--changed-line`): a percentage in `0..=100`.
 pub(crate) fn parse_percentage_arg(value: &str) -> Result<f64, String> {
@@ -488,6 +508,13 @@ pub struct Cli {
     /// as a single continuous log instead of buffered per-unit blocks.
     #[arg(long, short = 'j', global = true, value_name = "N", value_parser = parse_jobs_arg, help_heading = "Execution")]
     pub jobs: Option<usize>,
+    /// When running tasks only: cap the CPU parallelism handed to each spawned
+    /// tool, overriding `[toven].compute_budget`. The engine splits this total
+    /// budget across the units running concurrently and injects each share as an
+    /// ecosystem env var (e.g. `GOMAXPROCS`). `auto` sizes it to the host CPUs;
+    /// `inherit` (or `0`) injects nothing.
+    #[arg(long, global = true, value_name = "BUDGET", value_parser = parse_compute_budget_arg, help_heading = "Execution")]
+    pub compute_budget: Option<ComputeBudget>,
     /// Change-selection commands only: override the diff baseline reference
     /// (per-member under a federation; falls back to `[[members]].base_ref` /
     /// `[project].base_ref`).
@@ -2493,5 +2520,41 @@ mod tests {
         use super::Verbosity;
         assert_eq!(Verbosity::for_execution(0, 0, true), Verbosity::Verbose);
         assert_eq!(Verbosity::for_execution(0, 1, true), Verbosity::Normal);
+    }
+
+    #[test]
+    fn compute_budget_flag_accepts_words_and_integers() {
+        use super::ComputeBudget;
+        assert_eq!(
+            parse(&["--compute-budget", "auto", "test"])
+                .expect("parses")
+                .compute_budget,
+            Some(ComputeBudget::Auto)
+        );
+        assert_eq!(
+            parse(&["--compute-budget", "inherit", "test"])
+                .expect("parses")
+                .compute_budget,
+            Some(ComputeBudget::Inherit)
+        );
+        assert_eq!(
+            parse(&["--compute-budget", "8", "test"])
+                .expect("parses")
+                .compute_budget,
+            Some(ComputeBudget::Fixed(8))
+        );
+        // Zero is the numeric spelling of the opt-out, matching `inherit`.
+        assert_eq!(
+            parse(&["--compute-budget", "0", "test"])
+                .expect("parses")
+                .compute_budget,
+            Some(ComputeBudget::Inherit)
+        );
+    }
+
+    #[test]
+    fn compute_budget_flag_rejects_an_unknown_word() {
+        let error = parse(&["--compute-budget", "turbo", "test"]).expect_err("rejected");
+        assert!(error.to_string().contains("compute-budget"), "{error}");
     }
 }
