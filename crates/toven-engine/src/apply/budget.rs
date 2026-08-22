@@ -10,13 +10,16 @@
 //! env name, so nothing is injected and it runs with its own default
 //! parallelism, unaffected by the budget.
 //!
-//! The total budget is per-ecosystem: an `[ecosystems.<id>].compute_budget`
-//! override wins over the global `[toven].compute_budget`, so a polyglot repo
-//! can size Go and (say) a future fan-out ecosystem independently.
+//! The total budget is per [`EcosystemScope`](toven_model::EcosystemScope): an
+//! `[ecosystems.<id>].compute_budget` override wins over the global
+//! `[toven].compute_budget`, so a polyglot repo can size Go and (say) a future
+//! fan-out ecosystem independently, and — because the scope carries the owning
+//! federation member — two members of a cross-repo umbrella can size the same
+//! ecosystem (`go`) differently.
 
 use std::collections::BTreeMap;
 
-use toven_model::EcosystemId;
+use toven_model::EcosystemScope;
 use toven_ports::ComputeBudget;
 
 /// Per-process floor: never hand a fanned-out tool fewer than this many threads,
@@ -26,27 +29,30 @@ const PER_PROCESS_FLOOR: usize = 2;
 
 /// Resolved compute-budget policy for one APPLY run.
 ///
-/// Holds the global [`ComputeBudget`], its per-ecosystem overrides, and the
-/// per-ecosystem environment-variable names each fanned-out tool's share is
-/// injected through.
+/// Holds the global [`ComputeBudget`], its per-scope overrides, and the
+/// per-scope environment-variable names each fanned-out tool's share is
+/// injected through. Keying by [`EcosystemScope`] (member + ecosystem) keeps a
+/// cross-repo umbrella's two members' shared ecosystem (`go`) apart, since each
+/// member configures its own budget; the single-repo case keys under the `None`
+/// member and is unchanged.
 #[derive(Debug, Clone)]
 pub(super) struct BudgetPlan {
-    /// Default budget for any ecosystem without an explicit override.
+    /// Default budget for any scope without an explicit override.
     global: ComputeBudget,
-    /// Per-ecosystem budget overrides (`[ecosystems.<id>].compute_budget`).
-    overrides: BTreeMap<EcosystemId, ComputeBudget>,
-    /// Environment-variable names each ecosystem's tools read for their share.
-    env_names: BTreeMap<EcosystemId, Vec<String>>,
+    /// Per-scope budget overrides (`[ecosystems.<id>].compute_budget`).
+    overrides: BTreeMap<EcosystemScope, ComputeBudget>,
+    /// Environment-variable names each scope's tools read for their share.
+    env_names: BTreeMap<EcosystemScope, Vec<String>>,
 }
 
 impl BudgetPlan {
-    /// Assemble a policy from the global budget, its per-ecosystem overrides,
-    /// and the ecosystem→env-name map the CLI built from the configured
+    /// Assemble a policy from the global budget, its per-scope overrides,
+    /// and the scope→env-name map the CLI built from the configured
     /// adapters.
     pub(super) const fn new(
         global: ComputeBudget,
-        overrides: BTreeMap<EcosystemId, ComputeBudget>,
-        env_names: BTreeMap<EcosystemId, Vec<String>>,
+        overrides: BTreeMap<EcosystemScope, ComputeBudget>,
+        env_names: BTreeMap<EcosystemScope, Vec<String>>,
     ) -> Self {
         Self {
             global,
@@ -55,33 +61,29 @@ impl BudgetPlan {
         }
     }
 
-    /// Whether any ecosystem can be injected, so the wave loop can skip the
+    /// Whether any scope can be injected, so the wave loop can skip the
     /// per-unit computation entirely when none can.
     pub(super) fn is_active(&self) -> bool {
         self.env_names
             .iter()
-            .any(|(ecosystem, names)| !names.is_empty() && self.total_for(ecosystem).is_some())
+            .any(|(scope, names)| !names.is_empty() && self.total_for(scope).is_some())
     }
 
-    /// The per-process environment for a unit of `ecosystem` in a wave running
+    /// The per-process environment for a unit of `scope` in a wave running
     /// `concurrent` units at once (already capped at `max_parallel`).
     ///
-    /// Empty when the ecosystem's budget is opted out, it registers no name, or
+    /// Empty when the scope's budget is opted out, it registers no name, or
     /// the registered list is empty — i.e. the unit runs with the tool's own
     /// default parallelism.
     pub(super) fn env_for(
         &self,
-        ecosystem: &EcosystemId,
+        scope: &EcosystemScope,
         concurrent: usize,
     ) -> BTreeMap<String, String> {
-        let Some(names) = self
-            .env_names
-            .get(ecosystem)
-            .filter(|names| !names.is_empty())
-        else {
+        let Some(names) = self.env_names.get(scope).filter(|names| !names.is_empty()) else {
             return BTreeMap::new();
         };
-        let Some(total) = self.total_for(ecosystem) else {
+        let Some(total) = self.total_for(scope) else {
             return BTreeMap::new();
         };
         let share = per_process(total, concurrent).to_string();
@@ -91,18 +93,15 @@ impl BudgetPlan {
             .collect()
     }
 
-    /// The effective [`ComputeBudget`] for `ecosystem` (override else global).
-    fn budget_for(&self, ecosystem: &EcosystemId) -> ComputeBudget {
-        self.overrides
-            .get(ecosystem)
-            .copied()
-            .unwrap_or(self.global)
+    /// The effective [`ComputeBudget`] for `scope` (override else global).
+    fn budget_for(&self, scope: &EcosystemScope) -> ComputeBudget {
+        self.overrides.get(scope).copied().unwrap_or(self.global)
     }
 
-    /// The resolved total thread budget for `ecosystem`, or `None` when opted
+    /// The resolved total thread budget for `scope`, or `None` when opted
     /// out ([`ComputeBudget::Inherit`]).
-    fn total_for(&self, ecosystem: &EcosystemId) -> Option<usize> {
-        match self.budget_for(ecosystem) {
+    fn total_for(&self, scope: &EcosystemScope) -> Option<usize> {
+        match self.budget_for(scope) {
             ComputeBudget::Inherit => None,
             ComputeBudget::Fixed(threads) => Some(threads.get()),
             // `Auto` and any future sizing mode fall back to the host-sized,
@@ -133,20 +132,20 @@ fn host_cpus() -> usize {
 mod tests {
     use std::collections::BTreeMap;
 
-    use toven_model::EcosystemId;
+    use toven_model::{EcosystemId, EcosystemScope, MemberId};
     use toven_ports::ComputeBudget;
 
     use super::{BudgetPlan, per_process};
 
-    fn go() -> EcosystemId {
-        EcosystemId::new("go").expect("valid id")
+    fn go() -> EcosystemScope {
+        EcosystemScope::bare(EcosystemId::new("go").expect("valid id"))
     }
 
-    fn rust() -> EcosystemId {
-        EcosystemId::new("rust").expect("valid id")
+    fn rust() -> EcosystemScope {
+        EcosystemScope::bare(EcosystemId::new("rust").expect("valid id"))
     }
 
-    fn go_env() -> BTreeMap<EcosystemId, Vec<String>> {
+    fn go_env() -> BTreeMap<EcosystemScope, Vec<String>> {
         BTreeMap::from([(go(), vec!["GOMAXPROCS".to_string()])])
     }
 
@@ -225,5 +224,35 @@ mod tests {
         let plan = BudgetPlan::new(ComputeBudget::fixed(12), overrides, go_env());
         assert!(!plan.is_active());
         assert!(plan.env_for(&go(), 4).is_empty());
+    }
+
+    #[test]
+    fn two_members_size_the_same_ecosystem_independently() {
+        // A cross-repo umbrella: `core` and `services` both expose Go, but each
+        // pins its own budget. Keying by member keeps them apart, so each
+        // member's Go units get their own share rather than colliding on a
+        // single ecosystem key.
+        let go_id = EcosystemId::new("go").expect("valid id");
+        let core = EcosystemScope::new(Some(MemberId::new("core").expect("id")), go_id.clone());
+        let services =
+            EcosystemScope::new(Some(MemberId::new("services").expect("id")), go_id);
+        let env = BTreeMap::from([
+            (core.clone(), vec!["GOMAXPROCS".to_string()]),
+            (services.clone(), vec!["GOMAXPROCS".to_string()]),
+        ]);
+        let overrides = BTreeMap::from([
+            (core.clone(), ComputeBudget::fixed(12)),
+            (services.clone(), ComputeBudget::Inherit),
+        ]);
+        let plan = BudgetPlan::new(ComputeBudget::Inherit, overrides, env);
+
+        assert!(plan.is_active());
+        // `core` runs under its fixed budget: 12 / 4 concurrent → 3 each.
+        assert_eq!(
+            plan.env_for(&core, 4).get("GOMAXPROCS").map(String::as_str),
+            Some("3"),
+        );
+        // `services` opted out → nothing injected for its Go units.
+        assert!(plan.env_for(&services, 4).is_empty());
     }
 }

@@ -52,3 +52,4 @@ pub use resolve::{
     resolve_ecosystem,
 };
 pub use serve::{serve, serve_wizard};
+pub use spine::member_ecosystem_adapters;

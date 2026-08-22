@@ -104,8 +104,9 @@ pub(crate) async fn run_watch(run: WatchRun<'_>, sink: &mut dyn Reporter) -> App
         apply_options.max_parallel = max_parallel.max(1);
     }
     super::support::compute_budget::resolve(
-        run.providers,
+        &run.project.project_root,
         &run.project.document,
+        run.providers,
         run.compute_budget,
     )?
     .apply_to(&mut apply_options);

@@ -323,8 +323,13 @@ async fn run_supervised(run: TaskRun<'_>, sink: &mut dyn Reporter) -> AppResult<
     if let Some(max_parallel) = resolve_max_parallel(run.jobs, run.project) {
         options.max_parallel = max_parallel.max(1);
     }
-    compute_budget::resolve(run.providers, &run.project.document, run.compute_budget)?
-        .apply_to(&mut options);
+    compute_budget::resolve(
+        &run.project.project_root,
+        &run.project.document,
+        run.providers,
+        run.compute_budget,
+    )?
+    .apply_to(&mut options);
 
     // Bind the resolved live view (tiles/panes/stream) to a raw-output sink and the
     // PTY sizing live units run under, binding the runner to the shared supervisor.

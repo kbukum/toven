@@ -353,8 +353,11 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
         };
         let unit = self.unit(&unit_id)?.clone();
         let extra_env = if self.budget.is_active() {
-            self.budget
-                .env_for(&unit.module.module().ecosystem, self.wave_parallel)
+            let scope = toven_model::EcosystemScope::new(
+                unit.module.member().cloned(),
+                unit.module.module().ecosystem.clone(),
+            );
+            self.budget.env_for(&scope, self.wave_parallel)
         } else {
             std::collections::BTreeMap::new()
         };

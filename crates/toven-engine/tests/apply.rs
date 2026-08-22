@@ -6,8 +6,8 @@ use std::time::Duration;
 use toven_engine::apply::{ApplyOptions, apply};
 use toven_engine::output::UnitOutputChannel;
 use toven_model::{
-    CacheVerdict, EcosystemId, Event, ExecutionReadiness, ExecutionUnit, ModuleKey, ModuleRef,
-    OutputStream, Plan, UnitOutput, UnitStatus,
+    CacheVerdict, EcosystemId, EcosystemScope, Event, ExecutionReadiness, ExecutionUnit, ModuleKey,
+    ModuleRef, OutputStream, Plan, UnitOutput, UnitStatus,
 };
 use toven_ports::CommandRunner;
 use toven_testkit::{
@@ -1436,7 +1436,7 @@ fn compute_budget_never_clobbers_an_operator_set_parent_var() {
         max_parallel: 2,
         compute_budget: toven_ports::ComputeBudget::fixed(12),
         budget_env: std::collections::BTreeMap::from([(
-            EcosystemId::new("go").expect("ecosystem"),
+            EcosystemScope::bare(EcosystemId::new("go").expect("ecosystem")),
             vec!["PATH".to_string()],
         )]),
         ..ApplyOptions::default()
@@ -1498,7 +1498,7 @@ fn go_budget_options(max_parallel: usize, budget: toven_ports::ComputeBudget) ->
         max_parallel,
         compute_budget: budget,
         budget_env: std::collections::BTreeMap::from([(
-            EcosystemId::new("go").expect("ecosystem"),
+            EcosystemScope::bare(EcosystemId::new("go").expect("ecosystem")),
             vec!["GOMAXPROCS".to_string()],
         )]),
         ..ApplyOptions::default()
