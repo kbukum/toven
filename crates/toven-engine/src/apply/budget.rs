@@ -103,7 +103,7 @@ impl BudgetPlan {
     fn total_for(&self, ecosystem: &EcosystemId) -> Option<usize> {
         match self.budget_for(ecosystem) {
             ComputeBudget::Inherit => None,
-            ComputeBudget::Fixed(threads) => Some(threads.max(1)),
+            ComputeBudget::Fixed(threads) => Some(threads.get()),
             // `Auto` and any future sizing mode fall back to the host-sized,
             // load-agnostic budget.
             _ => Some(host_cpus()),
@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn injects_the_registered_name_for_a_fanned_out_ecosystem() {
-        let plan = plan(ComputeBudget::Fixed(12));
+        let plan = plan(ComputeBudget::fixed(12));
         assert!(plan.is_active());
         let env = plan.env_for(&go(), 4);
         assert_eq!(env.get("GOMAXPROCS").map(String::as_str), Some("3"));
@@ -188,7 +188,7 @@ mod tests {
     fn an_ecosystem_without_a_name_injects_nothing() {
         // Rust registers no env name (cargo self-balances) → no injection even
         // though Go does.
-        let plan = plan(ComputeBudget::Fixed(12));
+        let plan = plan(ComputeBudget::fixed(12));
         assert!(plan.env_for(&rust(), 4).is_empty());
     }
 
@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn a_per_ecosystem_override_wins_over_the_global_budget() {
         // Global inherits (opts out), but Go overrides to a fixed budget.
-        let overrides = BTreeMap::from([(go(), ComputeBudget::Fixed(8))]);
+        let overrides = BTreeMap::from([(go(), ComputeBudget::fixed(8))]);
         let plan = BudgetPlan::new(ComputeBudget::Inherit, overrides, go_env());
         assert!(plan.is_active());
         assert_eq!(
@@ -221,7 +221,7 @@ mod tests {
     fn a_per_ecosystem_inherit_override_opts_one_ecosystem_out() {
         // Global is fixed, but Go overrides to inherit → Go injects nothing.
         let overrides = BTreeMap::from([(go(), ComputeBudget::Inherit)]);
-        let plan = BudgetPlan::new(ComputeBudget::Fixed(12), overrides, go_env());
+        let plan = BudgetPlan::new(ComputeBudget::fixed(12), overrides, go_env());
         assert!(!plan.is_active());
         assert!(plan.env_for(&go(), 4).is_empty());
     }

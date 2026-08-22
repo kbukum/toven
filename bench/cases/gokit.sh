@@ -39,9 +39,12 @@ OUTPUT_DIR="${OUTPUT_DIR:-$ROOT/bench/out/gokit}"
 WARMUPS="${WARMUPS:-1}"
 ITERATIONS="${ITERATIONS:-3}"
 
-# Modules the native per-module comparison drives directly (a representative
-# leaf + a widely-imported shared module), and the source files the mutation
-# scenarios touch. Overridable so the case can be pointed at a different repo
+# The representative modules the mutation scenarios touch (a leaf + a
+# widely-imported shared module) and whose presence preflight asserts. The
+# native baseline does not stop at these — it tests the *whole* workspace (see
+# `gokit_workspace_modules`) so it drives the same module set `toven test` fans
+# out over; otherwise the native-vs-Toven timings would compare different
+# amounts of work. Overridable so the case can be pointed at a different repo
 # shape without editing the file.
 GOKIT_BENCH_MODULES=(${GOKIT_BENCH_MODULES:-errors util})
 GOKIT_LEAF_SOURCE="${GOKIT_LEAF_SOURCE:-errors/errors.go}"
@@ -111,9 +114,14 @@ append_mutation() {
   local path="$1"
   local comment="#"
   require_target_file "$path"
-  if [[ "$path" == *.go ]]; then
-    comment="//"
-  fi
+  # Go source and workspace/module files (`.go`, `go.work`, `go.mod`) use `//`
+  # comments; only the TOML config uses `#`. Emitting the wrong comment leaf
+  # would make the tool parse-fail on the mutation instead of measuring a
+  # changed input.
+  case "$path" in
+    *.go | */go.work | go.work | */go.mod | go.mod) comment="//" ;;
+    *) comment="#" ;;
+  esac
   printf '\n%s toven benchmark mutation: %s %s %s %s\n' \
     "$comment" \
     "$BENCH_SCENARIO" "$BENCH_APPROACH" "$BENCH_PHASE" "$BENCH_ITERATION" \
@@ -230,13 +238,23 @@ restore_cache_clean() {
   reset_target_repo
 }
 
+# The disk paths of every module the Go workspace composes, read from the
+# authoritative `go work edit -json` `Use` list. The native baseline drives this
+# complete set so it tests exactly what `toven test` fans out over — a fair
+# same-work comparison rather than native-two-modules against Toven-whole-repo.
+gokit_workspace_modules() {
+  (cd "$TARGET_REPO" && go work edit -json) \
+    | sed -n 's/.*"DiskPath": *"\([^"]*\)".*/\1/p'
+}
+
 run_go_test_modules() {
   (
     cd "$TARGET_REPO"
-    for module in "${GOKIT_BENCH_MODULES[@]}"; do
+    while IFS= read -r module; do
+      [[ -n "$module" ]] || continue
       GOCACHE="$(bench_gocache_dir)/go" \
         go -C "$module" test ./...
-    done
+    done < <(gokit_workspace_modules)
   )
 }
 

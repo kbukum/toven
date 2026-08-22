@@ -508,7 +508,7 @@ mod tests {
         let auto = parse_task(&tokens(&["test", "--compute-budget", "auto"])).expect("parses");
         assert_eq!(auto.flags.compute_budget, Some(ComputeBudget::Auto));
         let fixed = parse_task(&tokens(&["test", "--compute-budget", "8"])).expect("parses");
-        assert_eq!(fixed.flags.compute_budget, Some(ComputeBudget::Fixed(8)));
+        assert_eq!(fixed.flags.compute_budget, Some(ComputeBudget::fixed(8)));
         let inherit =
             parse_task(&tokens(&["test", "--compute-budget", "inherit"])).expect("parses");
         assert_eq!(inherit.flags.compute_budget, Some(ComputeBudget::Inherit));

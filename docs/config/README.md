@@ -98,7 +98,7 @@ Included files provide defaults. The canonical `toven.toml` wins on scalar and t
 | integer (`8`) | Use a fixed total thread budget, split across the wave |
 | `"inherit"` or `0` | Inject nothing; every tool keeps its own default parallelism |
 
-The per-process share is `clamp(ceil(budget / concurrent), 2, budget)`: ceiling division so the whole budget is always spent, a floor of `2` so a saturated wave never starves a child down to a single thread, and a ceiling of the whole budget so a lone unit is never handed more than exists.
+The per-process share is `clamp(ceil(budget / concurrent), min(2, budget), budget)`: ceiling division so the whole budget is always spent, a floor of `2` so a saturated wave never starves a child down to a single thread, and a ceiling of the whole budget so a lone unit is never handed more than exists. The floor is itself capped at the budget (`min(2, budget)`) so the accepted value `compute_budget = 1` stays valid and resolves to a single thread rather than an impossible range.
 
 The budget is expressed once on `[toven]` and may be overridden per ecosystem. An `[ecosystems.<id>].compute_budget` override wins over the global value, so a polyglot repo can bound its Go fan-out while leaving another ecosystem on `auto` or opting it out entirely:
 

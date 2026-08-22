@@ -2,6 +2,7 @@
 //! CPU-bound tool fan-out.
 
 use std::fmt;
+use std::num::NonZeroUsize;
 
 use serde::de::{self, Deserializer};
 use serde::ser::Serializer;
@@ -19,8 +20,9 @@ use serde::{Deserialize, Serialize};
 /// whole budget.
 ///
 /// Selected by config: `compute_budget = "auto"` (default), a positive integer
-/// (`compute_budget = 8`), or `compute_budget = "inherit"`. It is expressed once
-/// on `[toven]` and may be overridden per `[ecosystems.<id>]`.
+/// (`compute_budget = 8`), or `compute_budget = "inherit"` (`0` is the numeric
+/// spelling of `inherit`). It is expressed once on `[toven]` and may be
+/// overridden per `[ecosystems.<id>]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum ComputeBudget {
@@ -28,14 +30,29 @@ pub enum ComputeBudget {
     /// the units running concurrently.
     #[default]
     Auto,
-    /// A fixed total thread budget (`>= 1`) split across the concurrent units.
-    Fixed(usize),
+    /// A fixed total thread budget split across the concurrent units. The
+    /// [`NonZeroUsize`] payload makes the documented `>= 1` invariant
+    /// unrepresentable at zero — a zero input is [`Inherit`](Self::Inherit),
+    /// never a `Fixed(0)` that would disagree with its serde round-trip. Build
+    /// one from a raw count with [`ComputeBudget::fixed`].
+    Fixed(NonZeroUsize),
     /// Inject nothing: every tool keeps its own default parallelism (today's
     /// behavior). The opt-out escape hatch.
     Inherit,
 }
 
 impl ComputeBudget {
+    /// Build a fixed budget from a raw thread count, mapping `0` to the
+    /// [`Inherit`](Self::Inherit) opt-out (zero is the numeric spelling of
+    /// `"inherit"`, so a zero can never construct an invalid `Fixed(0)`).
+    #[must_use]
+    pub const fn fixed(threads: usize) -> Self {
+        match NonZeroUsize::new(threads) {
+            Some(threads) => Self::Fixed(threads),
+            None => Self::Inherit,
+        }
+    }
+
     /// Whether this is the default (`Auto`), so it can be skipped on serialize.
     #[must_use]
     pub const fn is_default(&self) -> bool {
@@ -64,7 +81,7 @@ impl Serialize for ComputeBudget {
             Self::Auto => serializer.serialize_str(AUTO),
             Self::Inherit => serializer.serialize_str(INHERIT),
             // A `usize` always fits `u64` on the platforms Toven targets.
-            Self::Fixed(threads) => serializer.serialize_u64(*threads as u64),
+            Self::Fixed(threads) => serializer.serialize_u64(threads.get() as u64),
         }
     }
 }
@@ -95,12 +112,10 @@ impl de::Visitor<'_> for BudgetVisitor {
     }
 
     fn visit_u64<E: de::Error>(self, value: u64) -> Result<ComputeBudget, E> {
-        // Zero is the numeric spelling of the opt-out, matching `"inherit"`.
-        if value == 0 {
-            return Ok(ComputeBudget::Inherit);
-        }
+        // Zero is the numeric spelling of the opt-out, matching `"inherit"`;
+        // `ComputeBudget::fixed` folds it into `Inherit` for us.
         usize::try_from(value)
-            .map(ComputeBudget::Fixed)
+            .map(ComputeBudget::fixed)
             .map_err(|_| de::Error::invalid_value(de::Unexpected::Unsigned(value), &self))
     }
 
@@ -142,13 +157,16 @@ mod tests {
 
     #[test]
     fn positive_integer_is_a_fixed_budget() {
-        assert_eq!(parse("8"), ComputeBudget::Fixed(8));
-        assert_eq!(parse("1"), ComputeBudget::Fixed(1));
+        assert_eq!(parse("8"), ComputeBudget::fixed(8));
+        assert_eq!(parse("1"), ComputeBudget::fixed(1));
     }
 
     #[test]
     fn zero_is_the_numeric_opt_out() {
         assert_eq!(parse("0"), ComputeBudget::Inherit);
+        // The constructor folds zero into `Inherit` too, so a `Fixed(0)` that
+        // would disagree with its serde round-trip is unrepresentable.
+        assert_eq!(ComputeBudget::fixed(0), ComputeBudget::Inherit);
     }
 
     #[test]
@@ -163,7 +181,7 @@ mod tests {
         for budget in [
             ComputeBudget::Auto,
             ComputeBudget::Inherit,
-            ComputeBudget::Fixed(6),
+            ComputeBudget::fixed(6),
         ] {
             let holder = Holder { budget };
             let text = toml::to_string(&holder).expect("serializes");

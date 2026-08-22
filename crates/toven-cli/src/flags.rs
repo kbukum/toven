@@ -267,8 +267,7 @@ pub(crate) fn parse_compute_budget_arg(value: &str) -> Result<ComputeBudget, Str
         "auto" => Ok(ComputeBudget::Auto),
         "inherit" => Ok(ComputeBudget::Inherit),
         other => match other.parse::<usize>() {
-            Ok(0) => Ok(ComputeBudget::Inherit),
-            Ok(threads) => Ok(ComputeBudget::Fixed(threads)),
+            Ok(threads) => Ok(ComputeBudget::fixed(threads)),
             Err(error) => Err(format!(
                 "`--compute-budget` requires `auto`, `inherit`, or a non-negative integer (got `{value}`): {error}"
             )),
@@ -1187,6 +1186,15 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     // verbs that actually run units.
     reject_apply_only_flag(cli.timeout.is_some(), "--timeout", &cli.command, verb)?;
     reject_apply_only_flag(cli.jobs.is_some(), "--jobs", &cli.command, verb)?;
+    // `--compute-budget` bounds the CPU parallelism handed to each spawned tool
+    // during APPLY fan-out, so — like `--jobs` — it is meaningful only on the
+    // task-APPLY verbs that actually run units; elsewhere it is a silent no-op.
+    reject_apply_only_flag(
+        cli.compute_budget.is_some(),
+        "--compute-budget",
+        &cli.command,
+        verb,
+    )?;
     gate_watch_flags(cli, verb)?;
     // `--base`/`--merge-base` only shape changed selection, and
     // `--module`/`--workspace`/`--with-dependents` shape explicit selection — both
@@ -1195,8 +1203,9 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     Ok(())
 }
 
-/// Reject an APPLY-only flag (`--fail-fast`/`--timeout`/`--jobs`) on any verb
-/// that never runs units; elsewhere the flag would be a silent no-op.
+/// Reject an APPLY-only flag (`--fail-fast`/`--timeout`/`--jobs`/
+/// `--compute-budget`) on any verb that never runs units; elsewhere the flag
+/// would be a silent no-op.
 fn reject_apply_only_flag(
     present: bool,
     flag: &str,
@@ -2319,6 +2328,27 @@ mod tests {
     }
 
     #[test]
+    fn compute_budget_only_on_task_apply_verbs() {
+        for args in [
+            ["--compute-budget", "8", "run", "test"].as_slice(),
+            ["--compute-budget", "inherit", "test"].as_slice(),
+        ] {
+            assert!(super::gate(&parse(args).unwrap()).is_ok(), "{args:?}");
+        }
+        // `plan` stops at PLAN and `release`/introspection never run bounded
+        // units, so the budget is a no-op and is rejected rather than silently
+        // ignored.
+        for args in [
+            ["--compute-budget", "8", "plan", "test"].as_slice(),
+            ["--compute-budget", "8", "release", "publish"].as_slice(),
+            ["--compute-budget", "8", "affected", "test"].as_slice(),
+            ["--compute-budget", "8", "doctor"].as_slice(),
+        ] {
+            assert!(super::gate(&parse(args).unwrap()).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
     fn timeout_rejects_a_malformed_or_zero_duration() {
         assert!(parse(&["--timeout", "soon", "test"]).is_err());
         assert!(parse(&["--timeout", "0s", "test"]).is_err());
@@ -2541,7 +2571,7 @@ mod tests {
             parse(&["--compute-budget", "8", "test"])
                 .expect("parses")
                 .compute_budget,
-            Some(ComputeBudget::Fixed(8))
+            Some(ComputeBudget::fixed(8))
         );
         // Zero is the numeric spelling of the opt-out, matching `inherit`.
         assert_eq!(

@@ -36,7 +36,7 @@ fn loads_full_polyglot_document() {
     assert_eq!(document.toven.max_parallel, Some(8));
     assert_eq!(
         document.toven.compute_budget,
-        toven_ports::ComputeBudget::Fixed(6)
+        toven_ports::ComputeBudget::fixed(6)
     );
     assert_eq!(document.toven.cache.dir.as_deref(), Some(".toven/cache"));
 

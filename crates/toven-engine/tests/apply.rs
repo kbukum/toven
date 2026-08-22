@@ -1434,7 +1434,7 @@ fn compute_budget_never_clobbers_an_operator_set_parent_var() {
 
     let options = ApplyOptions {
         max_parallel: 2,
-        compute_budget: toven_ports::ComputeBudget::Fixed(12),
+        compute_budget: toven_ports::ComputeBudget::fixed(12),
         budget_env: std::collections::BTreeMap::from([(
             EcosystemId::new("go").expect("ecosystem"),
             vec!["PATH".to_string()],
@@ -1523,7 +1523,7 @@ fn compute_budget_divides_across_concurrent_units() {
     let plan = Plan::new(units, vec![ids.iter().map(|s| (*s).to_string()).collect()]);
     let runner = Arc::new(FakeCommandRunner::new());
 
-    let options = go_budget_options(4, toven_ports::ComputeBudget::Fixed(12));
+    let options = go_budget_options(4, toven_ports::ComputeBudget::fixed(12));
     let stats = run_with_options(&plan, runner.clone(), options);
 
     assert_eq!(stats.ran_units, 4);
@@ -1543,7 +1543,7 @@ fn compute_budget_holds_the_per_process_floor() {
     let plan = Plan::new(units, vec![ids.iter().map(|s| (*s).to_string()).collect()]);
     let runner = Arc::new(FakeCommandRunner::new());
 
-    let options = go_budget_options(4, toven_ports::ComputeBudget::Fixed(4));
+    let options = go_budget_options(4, toven_ports::ComputeBudget::fixed(4));
     run_with_options(&plan, runner.clone(), options);
 
     let injected = injected_gomaxprocs(&runner);
@@ -1576,7 +1576,7 @@ fn compute_budget_skips_ecosystems_without_a_registered_name() {
     let plan = Plan::new(vec![unit("only")], vec![vec!["only".into()]]);
     let runner = Arc::new(FakeCommandRunner::new());
 
-    let options = go_budget_options(2, toven_ports::ComputeBudget::Fixed(8));
+    let options = go_budget_options(2, toven_ports::ComputeBudget::fixed(8));
     run_with_options(&plan, runner.clone(), options);
 
     assert!(

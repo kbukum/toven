@@ -41,10 +41,15 @@ impl BudgetConfig {
 /// Resolve the compute-budget inputs from the configured adapters and the
 /// global budget selection.
 ///
-/// `flag_override` is the `--compute-budget` CLI value when present; it wins
-/// over `[toven].compute_budget`. Per-ecosystem overrides and the injected env
-/// names both come from each ecosystem's configured adapter, so only ecosystems
-/// that declare a fan-out knob (e.g. Go's `GOMAXPROCS`) are ever injected.
+/// `flag_override` is the `--compute-budget` CLI value when present. It is a
+/// whole-run override: it wins over `[toven].compute_budget` *and* over every
+/// per-ecosystem `[ecosystems.<id>].compute_budget`, so the documented CLI
+/// escape hatch (`--compute-budget inherit`) actually opts every ecosystem out
+/// rather than being silently overridden by a config override that the engine's
+/// `BudgetPlan` would give precedence. When no flag is present the per-ecosystem
+/// overrides apply as configured. The injected env names always come from each
+/// ecosystem's configured adapter, so only ecosystems that declare a fan-out
+/// knob (e.g. Go's `GOMAXPROCS`) are ever injected.
 ///
 /// # Errors
 /// Propagates a provider's `configure` failure (already surfaced by PLAN, so
@@ -59,7 +64,12 @@ pub(crate) fn resolve(
     let mut overrides = BTreeMap::new();
     let mut env = BTreeMap::new();
     for (ecosystem, adapter) in &configured {
-        if let Some(budget) = adapter.common().compute_budget {
+        // A CLI `--compute-budget` overrides the whole run, so per-ecosystem
+        // config overrides are ignored while it is present — otherwise the flag
+        // could not opt out an ecosystem that config had pinned to a budget.
+        if flag_override.is_none()
+            && let Some(budget) = adapter.common().compute_budget
+        {
             overrides.insert(ecosystem.clone(), budget);
         }
         let names = adapter.compute_budget_env();
@@ -72,4 +82,73 @@ pub(crate) fn resolve(
         overrides,
         env,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use toven_core::config::{CanonicalRegistry, Document, load};
+    use toven_model::EcosystemId;
+    use toven_ports::{CommonEcosystemConfig, ComputeBudget, Provider};
+    use toven_testkit::{FakeConfiguredAdapter, FakeProvider, document_path};
+
+    use super::resolve;
+
+    fn go() -> EcosystemId {
+        EcosystemId::new("go").expect("valid id")
+    }
+
+    /// A Go provider whose configured adapter registers `GOMAXPROCS` and carries
+    /// the given per-ecosystem `[ecosystems.go].compute_budget` override.
+    fn go_provider(override_budget: Option<ComputeBudget>) -> FakeProvider {
+        let common = CommonEcosystemConfig {
+            compute_budget: override_budget,
+            ..CommonEcosystemConfig::default()
+        };
+        let adapter = FakeConfiguredAdapter::new(go())
+            .with_compute_budget_env(vec!["GOMAXPROCS".to_string()])
+            .with_common(common);
+        FakeProvider::new(go()).with_adapter(adapter)
+    }
+
+    /// The shared polyglot fixture (`[toven].compute_budget = 6`, `rust` + `go`).
+    fn polyglot_document() -> Document {
+        let path = document_path("valid/polyglot.toml").expect("fixture path");
+        let loaded: BTreeSet<EcosystemId> = ["rust", "go"]
+            .iter()
+            .map(|id| EcosystemId::new(*id).expect("valid id"))
+            .collect();
+        load(&path, &loaded, &CanonicalRegistry::model())
+            .expect("loads")
+            .document
+    }
+
+    #[test]
+    fn a_compute_budget_flag_suppresses_per_ecosystem_overrides() {
+        let provider = go_provider(Some(ComputeBudget::fixed(8)));
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let document = polyglot_document();
+
+        // With the flag, the config override is dropped so the flag wins across
+        // every ecosystem — `--compute-budget inherit` truly opts Go out.
+        let config = resolve(&providers, &document, Some(ComputeBudget::Inherit))
+            .expect("resolves with a flag");
+        assert_eq!(config.global, ComputeBudget::Inherit);
+        assert!(
+            config.overrides.is_empty(),
+            "a flag override suppresses per-ecosystem config overrides, got {:?}",
+            config.overrides,
+        );
+        assert_eq!(
+            config.env.get(&go()).map(Vec::as_slice),
+            Some(["GOMAXPROCS".to_string()].as_slice()),
+            "the injected env name is unaffected by the flag",
+        );
+
+        // Without a flag, the configured per-ecosystem override applies as set.
+        let config = resolve(&providers, &document, None).expect("resolves without a flag");
+        assert_eq!(config.global, ComputeBudget::fixed(6));
+        assert_eq!(config.overrides.get(&go()), Some(&ComputeBudget::fixed(8)));
+    }
 }
