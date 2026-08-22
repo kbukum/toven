@@ -27,6 +27,7 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 - Go `test` and `coverage` now default to the `Unordered` strategy (single wave, no build-order barriers), since `go test` resolves cross-module builds through Go's own cache; a 50-module `go test -race` run dropped ~153s → ~80s. `build`/`check` keep `LeafToTop` for compile fail-fast (#191).
 - Path-to-module attribution is now per-caller: `run`/affected fails open, release gating fails closed, so a lockfile- or docs-only diff no longer over-publishes (#189).
+- `release publish` now honors an accepted registry `Retry-After` for up to 15 minutes (was 2) before giving up, so a rate-limited publish can block that much longer instead of failing fast (#189).
 
 ### Fixed
 
