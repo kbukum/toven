@@ -6,8 +6,9 @@
 //! pressure approaches cores². This resolves a total thread budget `B` and
 //! divides it across the units running concurrently in a wave, handing each
 //! fanned-out tool its share through an environment variable (never argv). A
-//! self-balancing single-invocation toolchain (one `cargo` build) injects no
-//! name and so keeps the whole budget.
+//! self-balancing single-invocation toolchain (one `cargo` build) registers no
+//! env name, so nothing is injected and it runs with its own default
+//! parallelism, unaffected by the budget.
 //!
 //! The total budget is per-ecosystem: an `[ecosystems.<id>].compute_budget`
 //! override wins over the global `[toven].compute_budget`, so a polyglot repo

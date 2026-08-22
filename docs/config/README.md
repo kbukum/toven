@@ -90,7 +90,7 @@ Included files provide defaults. The canonical `toven.toml` wins on scalar and t
 
 `max_parallel` bounds how many units run at once; `compute_budget` bounds how much CPU parallelism each of those units gets *internally*. They solve different halves of the same problem. A per-module task (Go's `go test ./...` per module) fans out into one child process per module, and the worker pool runs several of those children at once. Left alone, each child also defaults its own internal parallelism to the whole machine, so peak thread pressure climbs toward cores² and the machine thrashes instead of getting faster.
 
-`compute_budget` caps that. The engine resolves a total thread budget, divides it across the units running concurrently in a wave, and hands each fanned-out tool its share through an ecosystem environment variable — never through argv, so your commands are never rewritten. Go reads `GOMAXPROCS`. A self-balancing single-invocation toolchain such as Cargo (one `cargo` build parallelizes internally) registers no variable and simply keeps the whole budget.
+`compute_budget` caps that. The engine resolves a total thread budget, divides it across the units running concurrently in a wave, and hands each fanned-out tool its share through an ecosystem environment variable — never through argv, so your commands are never rewritten. It therefore only affects ecosystems that expose a supported variable: Go reads `GOMAXPROCS`. A self-balancing single-invocation toolchain such as Cargo (one `cargo` build parallelizes internally) registers no such variable and is left entirely unchanged — it runs with its own default parallelism regardless of the budget.
 
 | Value | Meaning |
 |---|---|

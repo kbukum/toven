@@ -108,6 +108,15 @@ preflight_case() {
   for module in "${GOKIT_BENCH_MODULES[@]}"; do
     require_target_file "$module/go.mod"
   done
+
+  # Start every approach from the documented default: an inherited, non-empty
+  # `GOMAXPROCS` is deliberately left to win over the injected budget share, so
+  # if the caller's environment exports one the `auto` and `inherit` legs would
+  # both see the same value and the A/B would stop measuring budget injection.
+  # Clearing it here makes `auto` inject its host-sized share while `inherit`
+  # falls back to Go's own default, which is the comparison this case exists to
+  # make.
+  unset GOMAXPROCS
 }
 
 append_mutation() {

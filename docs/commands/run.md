@@ -132,7 +132,7 @@ toven test --workspace go --compute-budget 12
 toven test --workspace go --compute-budget inherit
 ```
 
-Where `--jobs` bounds how many units run at once, `--compute-budget` bounds the CPU parallelism handed to each spawned tool, overriding `[toven].compute_budget`. The engine splits the total budget across the units running concurrently and injects each unit's share through an ecosystem environment variable (Go reads `GOMAXPROCS`); a self-balancing toolchain such as Cargo keeps the whole budget. `auto` sizes the budget to the host CPUs, an integer sets a fixed total, and `inherit` (or `0`) injects nothing and lets every tool keep its own default parallelism. The value is never added to your argv. See [compute budget](../config/README.md#compute-budget) for the sizing model and per-ecosystem overrides.
+Where `--jobs` bounds how many units run at once, `--compute-budget` bounds the CPU parallelism handed to each spawned tool, overriding `[toven].compute_budget`. The engine splits the total budget across the units running concurrently and injects each unit's share through an ecosystem environment variable, so the flag only affects ecosystems that expose a supported variable — Go reads `GOMAXPROCS`. An ecosystem that registers no such variable is never injected: Cargo, for instance, self-balances a single invocation internally and is left entirely unchanged, running with its own default parallelism regardless of the budget. `auto` sizes the budget to the host CPUs, an integer sets a fixed total, and `inherit` (or `0`) injects nothing and lets every tool keep its own default parallelism. The value is never added to your argv. See [compute budget](../config/README.md#compute-budget) for the sizing model and per-ecosystem overrides.
 
 ## Live output
 
