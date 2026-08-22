@@ -101,13 +101,9 @@ impl BudgetPlan {
     /// The resolved total thread budget for `scope`, or `None` when opted
     /// out ([`ComputeBudget::Inherit`]).
     fn total_for(&self, scope: &EcosystemScope) -> Option<usize> {
-        match self.budget_for(scope) {
-            ComputeBudget::Inherit => None,
-            ComputeBudget::Fixed(threads) => Some(threads.get()),
-            // `Auto` and any future sizing mode fall back to the host-sized,
-            // load-agnostic budget.
-            _ => Some(host_cpus()),
-        }
+        self.budget_for(scope)
+            .total_threads(host_cpus)
+            .map(std::num::NonZero::get)
     }
 }
 

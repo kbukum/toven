@@ -92,6 +92,8 @@ Included files provide defaults. The canonical `toven.toml` wins on scalar and t
 
 `compute_budget` caps that. The engine resolves a total thread budget, divides it across the units running concurrently in a wave, and hands each fanned-out tool its share through an ecosystem environment variable — never through argv, so your commands are never rewritten. It therefore only affects ecosystems that expose a supported variable: Go reads `GOMAXPROCS`. A self-balancing single-invocation toolchain such as Cargo (one `cargo` build parallelizes internally) registers no such variable and is left entirely unchanged — it runs with its own default parallelism regardless of the budget.
 
+Injection never overrides a value you set yourself. If the same variable is already set explicitly for the run (through the invocation environment) or is inherited non-empty from the parent process (an exported `GOMAXPROCS`), that value wins and the computed share is not applied. So `auto` may inject nothing when the environment already pins the variable — the budget only fills in a share where you have not.
+
 | Value | Meaning |
 |---|---|
 | `"auto"` (default) | Size the total budget to the host's available CPUs, then split it across the wave |

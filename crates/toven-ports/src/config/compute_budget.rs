@@ -15,9 +15,11 @@ use serde::{Deserialize, Serialize};
 /// defaults its own internal parallelism to the full core count, so peak thread
 /// pressure approaches cores². This policy caps that: the engine divides a total
 /// budget across the units running concurrently and injects the per-process
-/// share as an environment variable (never argv). A `Batchable` task is a single
-/// self-balancing invocation, so the divisor is naturally one and it keeps the
-/// whole budget.
+/// share as an environment variable (never argv), for exactly the tasks whose
+/// ecosystem registers a compute-budget env name (e.g. Go's `GOMAXPROCS`). A
+/// task whose ecosystem registers none is left untouched and keeps its own
+/// default parallelism — Cargo, for instance, exposes no such env knob, so it
+/// opts out regardless of how many units share its wave.
 ///
 /// Selected by config: `compute_budget = "auto"` (default), a positive integer
 /// (`compute_budget = 8`), or `compute_budget = "inherit"` (`0` is the numeric
@@ -57,6 +59,26 @@ impl ComputeBudget {
     #[must_use]
     pub const fn is_default(&self) -> bool {
         matches!(self, Self::Auto)
+    }
+
+    /// Resolve this budget into a total thread count, or `None` when it opts
+    /// out of injection entirely ([`Inherit`](Self::Inherit)).
+    ///
+    /// `host_cpus` supplies the host-sized total for [`Auto`](Self::Auto) (and
+    /// any future host-sized mode); it is injected so this stays pure and
+    /// deterministic in tests. The match is **exhaustive**: adding a sizing
+    /// variant to this enum will not compile until its resolution is defined
+    /// here, so a new mode can never fall through to a success-shaped default
+    /// that silently gives it the wrong budget.
+    #[must_use]
+    pub fn total_threads(self, host_cpus: impl FnOnce() -> usize) -> Option<NonZeroUsize> {
+        match self {
+            Self::Inherit => None,
+            Self::Fixed(threads) => Some(threads),
+            // A host that cannot report its CPU count resolves to a single
+            // thread rather than zero (which is not a valid budget).
+            Self::Auto => Some(NonZeroUsize::new(host_cpus()).unwrap_or(NonZeroUsize::MIN)),
+        }
     }
 }
 
@@ -130,6 +152,7 @@ impl de::Visitor<'_> for BudgetVisitor {
 mod tests {
     use super::ComputeBudget;
     use serde::{Deserialize, Serialize};
+    use std::num::NonZeroUsize;
 
     #[derive(Debug, PartialEq, Deserialize, Serialize)]
     struct Holder {
@@ -188,5 +211,30 @@ mod tests {
             let back: Holder = toml::from_str(&text).expect("re-parses");
             assert_eq!(back.budget, budget, "round-trip via {text:?}");
         }
+    }
+
+    #[test]
+    fn total_threads_resolves_each_variant() {
+        // `Inherit` opts out; `Fixed` keeps its count; `Auto` takes the injected
+        // host size. The host closure is injected so the result is deterministic.
+        assert_eq!(ComputeBudget::Inherit.total_threads(|| 8), None);
+        assert_eq!(
+            ComputeBudget::fixed(5).total_threads(|| 8).map(NonZeroUsize::get),
+            Some(5),
+        );
+        assert_eq!(
+            ComputeBudget::Auto.total_threads(|| 8).map(NonZeroUsize::get),
+            Some(8),
+        );
+    }
+
+    #[test]
+    fn auto_falls_back_to_one_when_the_host_reports_zero_cpus() {
+        // A zero host count is not a valid budget; `Auto` resolves to a single
+        // thread rather than producing `NonZeroUsize::new(0) == None`.
+        assert_eq!(
+            ComputeBudget::Auto.total_threads(|| 0).map(NonZeroUsize::get),
+            Some(1),
+        );
     }
 }
