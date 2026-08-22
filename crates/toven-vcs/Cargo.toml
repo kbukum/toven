@@ -1,7 +1,7 @@
 [package]
 name = "toven-vcs"
 description = "Toven's focused git-mechanism crate: the single rskit-git-backed VCS adapter, the change foundation, and the per-repo reader-set fan-out"
-version.workspace = true
+version = "0.1.0-alpha.7"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
