@@ -230,8 +230,7 @@ mod tests {
         // single ecosystem key.
         let go_id = EcosystemId::new("go").expect("valid id");
         let core = EcosystemScope::new(Some(MemberId::new("core").expect("id")), go_id.clone());
-        let services =
-            EcosystemScope::new(Some(MemberId::new("services").expect("id")), go_id);
+        let services = EcosystemScope::new(Some(MemberId::new("services").expect("id")), go_id);
         let env = BTreeMap::from([
             (core.clone(), vec!["GOMAXPROCS".to_string()]),
             (services.clone(), vec!["GOMAXPROCS".to_string()]),

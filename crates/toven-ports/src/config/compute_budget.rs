@@ -219,11 +219,15 @@ mod tests {
         // host size. The host closure is injected so the result is deterministic.
         assert_eq!(ComputeBudget::Inherit.total_threads(|| 8), None);
         assert_eq!(
-            ComputeBudget::fixed(5).total_threads(|| 8).map(NonZeroUsize::get),
+            ComputeBudget::fixed(5)
+                .total_threads(|| 8)
+                .map(NonZeroUsize::get),
             Some(5),
         );
         assert_eq!(
-            ComputeBudget::Auto.total_threads(|| 8).map(NonZeroUsize::get),
+            ComputeBudget::Auto
+                .total_threads(|| 8)
+                .map(NonZeroUsize::get),
             Some(8),
         );
     }
@@ -233,7 +237,9 @@ mod tests {
         // A zero host count is not a valid budget; `Auto` resolves to a single
         // thread rather than producing `NonZeroUsize::new(0) == None`.
         assert_eq!(
-            ComputeBudget::Auto.total_threads(|| 0).map(NonZeroUsize::get),
+            ComputeBudget::Auto
+                .total_threads(|| 0)
+                .map(NonZeroUsize::get),
             Some(1),
         );
     }
