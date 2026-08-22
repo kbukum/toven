@@ -1416,17 +1416,11 @@ fn a_forced_verdict_unit_re_runs_and_writes_its_cache_record() {
 // --- Compute-budget injection -------------------------------------------------
 
 #[test]
-fn compute_budget_never_clobbers_an_operator_set_parent_var() {
-    // The default apply environment is `InheritParent` with no explicit vars,
-    // so an operator's budget var can live only in the parent process env. The
-    // injected share must not shadow it — the base var wins. `PATH` is a var
-    // guaranteed present and non-empty in the parent env, so registering it as
-    // the (stand-in) budget env name exercises the parent-present skip path
-    // without the edition-2024-unsafe `std::env::set_var`.
-    assert!(
-        std::env::var_os("PATH").is_some_and(|value| !value.is_empty()),
-        "test precondition: PATH is set in the parent env",
-    );
+fn compute_budget_never_clobbers_an_operator_set_base_var() {
+    // An operator who sets the budget var explicitly on the run environment
+    // must keep that value — the injected share must not overwrite it. Seeding
+    // the pool environment's `vars` exercises the "base wins" precedence
+    // hermetically, without depending on any ambient parent-process variable.
     let ids = ["a", "b"];
     let units: Vec<_> = ids.iter().map(|id| go_unit(id)).collect();
     let plan = Plan::new(units, vec![ids.iter().map(|s| (*s).to_string()).collect()]);
@@ -1435,23 +1429,26 @@ fn compute_budget_never_clobbers_an_operator_set_parent_var() {
     let options = ApplyOptions {
         max_parallel: 2,
         compute_budget: toven_ports::ComputeBudget::fixed(12),
+        environment: toven_ports::InvocationEnvironment::inherit_parent(
+            std::collections::BTreeMap::from([("GOMAXPROCS".to_string(), "7".to_string())]),
+        ),
         budget_env: std::collections::BTreeMap::from([(
             EcosystemScope::bare(EcosystemId::new("go").expect("ecosystem")),
-            vec!["PATH".to_string()],
+            vec!["GOMAXPROCS".to_string()],
         )]),
         ..ApplyOptions::default()
     };
     run_with_options(&plan, runner.clone(), options);
 
-    let injected: Vec<_> = runner
+    let shadowed: Vec<_> = runner
         .environments()
         .into_iter()
-        .filter(|(_, env)| env.vars.contains_key("PATH"))
+        .filter(|(_, env)| env.vars.get("GOMAXPROCS").map(String::as_str) != Some("7"))
         .collect();
     assert!(
-        injected.is_empty(),
-        "an operator-set parent env var must be left untouched (not shadowed by the injected \
-         share); the inherited parent value survives, but got {injected:?}",
+        shadowed.is_empty(),
+        "an operator-set base env var must be left untouched (not shadowed by the injected \
+         share), but got {shadowed:?}",
     );
 }
 

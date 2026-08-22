@@ -1,5 +1,6 @@
 //! rskit-worker wrapper for already-computed command invocations.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -90,24 +91,43 @@ impl WorkHandler {
     /// in `self.environment.vars` or, under `InheritParent`, come from the
     /// parent process environment; both win over the injected share.
     fn environment_for(&self, task: &WorkItem) -> InvocationEnvironment {
-        if task.extra_env.is_empty() {
-            return self.environment.clone();
-        }
-        let inherits_parent = self.environment.policy == InvocationEnvPolicy::InheritParent;
-        let mut environment = self.environment.clone();
-        for (name, value) in &task.extra_env {
-            // Skip an inherited parent var of the same name: it is not present
-            // in `vars`, so `entry(..).or_insert` alone would still shadow it.
-            if inherits_parent && std::env::var_os(name).is_some_and(|value| !value.is_empty()) {
-                continue;
-            }
-            environment
-                .vars
-                .entry(name.clone())
-                .or_insert_with(|| value.clone());
+        merge_extra_env(&self.environment, &task.extra_env, |name| {
+            std::env::var_os(name).is_some_and(|value| !value.is_empty())
+        })
+    }
+}
+
+/// Merge a unit's compute-budget `extra_env` on top of `base`, never clobbering
+/// an operator-set base var of the same name.
+///
+/// A base var can be set explicitly in `base.vars` or, under `InheritParent`,
+/// come from the parent process environment; both win over the injected share.
+/// `parent_has_nonempty` reports whether a name is present and non-empty in the
+/// inherited parent environment — injected rather than read from
+/// [`std::env`] here so the precedence stays pure and hermetically testable
+/// without touching process-global state.
+fn merge_extra_env(
+    base: &InvocationEnvironment,
+    extra_env: &BTreeMap<String, String>,
+    parent_has_nonempty: impl Fn(&str) -> bool,
+) -> InvocationEnvironment {
+    if extra_env.is_empty() {
+        return base.clone();
+    }
+    let inherits_parent = base.policy == InvocationEnvPolicy::InheritParent;
+    let mut environment = base.clone();
+    for (name, value) in extra_env {
+        // Skip an inherited parent var of the same name: it is not present in
+        // `vars`, so `entry(..).or_insert` alone would still shadow it.
+        if inherits_parent && parent_has_nonempty(name) {
+            continue;
         }
         environment
+            .vars
+            .entry(name.clone())
+            .or_insert_with(|| value.clone());
     }
+    environment
 }
 
 #[async_trait]
@@ -217,5 +237,60 @@ impl ApplyPool {
     /// Shut down the underlying worker pool.
     pub(super) async fn shutdown(self) -> AppResult<()> {
         self.pool.shutdown().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use toven_ports::InvocationEnvironment;
+
+    use super::merge_extra_env;
+
+    fn extra() -> BTreeMap<String, String> {
+        BTreeMap::from([("GOMAXPROCS".to_string(), "3".to_string())])
+    }
+
+    #[test]
+    fn injects_the_share_when_no_base_var_exists() {
+        // InheritParent with the name absent from both `vars` and the parent
+        // env → the computed share is injected.
+        let base = InvocationEnvironment::inherit_parent(BTreeMap::new());
+        let merged = merge_extra_env(&base, &extra(), |_| false);
+        assert_eq!(merged.vars.get("GOMAXPROCS").map(String::as_str), Some("3"));
+    }
+
+    #[test]
+    fn an_explicit_base_var_wins_over_the_injected_share() {
+        // The name is set explicitly in `vars`; `or_insert` must not overwrite
+        // it regardless of the parent probe.
+        let base = InvocationEnvironment::inherit_parent(BTreeMap::from([(
+            "GOMAXPROCS".to_string(),
+            "7".to_string(),
+        )]));
+        let merged = merge_extra_env(&base, &extra(), |_| false);
+        assert_eq!(merged.vars.get("GOMAXPROCS").map(String::as_str), Some("7"));
+    }
+
+    #[test]
+    fn a_non_empty_inherited_parent_var_wins_over_the_injected_share() {
+        // InheritParent and the parent holds a non-empty value (modeled by the
+        // injected probe): the base wins, so nothing is added to `vars`.
+        let base = InvocationEnvironment::inherit_parent(BTreeMap::new());
+        let merged = merge_extra_env(&base, &extra(), |name| name == "GOMAXPROCS");
+        assert!(
+            !merged.vars.contains_key("GOMAXPROCS"),
+            "an inherited parent var must not be shadowed by the injected share",
+        );
+    }
+
+    #[test]
+    fn a_non_inherit_policy_ignores_the_parent_and_injects() {
+        // Without InheritParent the parent env is irrelevant, so the share is
+        // injected even when the probe would report the name present.
+        let base = InvocationEnvironment::explicit(BTreeMap::new());
+        let merged = merge_extra_env(&base, &extra(), |_| true);
+        assert_eq!(merged.vars.get("GOMAXPROCS").map(String::as_str), Some("3"));
     }
 }
