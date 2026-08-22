@@ -82,7 +82,8 @@ impl de::Visitor<'_> for BudgetVisitor {
     type Value = ComputeBudget;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(r#""auto", "inherit", or a positive integer thread count"#)
+        formatter
+            .write_str(r#""auto", "inherit", or a non-negative integer thread count (0 = inherit)"#)
     }
 
     fn visit_str<E: de::Error>(self, value: &str) -> Result<ComputeBudget, E> {

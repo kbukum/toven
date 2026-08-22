@@ -9,7 +9,10 @@ use rskit_worker::{Handler, Pool, PoolConfig, TaskHandle};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use toven_model::{ExecutionUnit, UnitOutput};
-use toven_ports::{CommandRunner, Invocation, InvocationEnvironment, OutputObserver, StartOutcome};
+use toven_ports::{
+    CommandRunner, Invocation, InvocationEnvPolicy, InvocationEnvironment, OutputObserver,
+    StartOutcome,
+};
 
 use super::persistent::held::SharedHeldProcess;
 
@@ -83,13 +86,21 @@ struct WorkHandler {
 impl WorkHandler {
     /// The pool's shared environment with this unit's compute-budget share
     /// merged on top (the share never clobbers an operator-set base var of the
-    /// same name — the base takes precedence).
+    /// same name — the base takes precedence). A base var can be set explicitly
+    /// in `self.environment.vars` or, under `InheritParent`, come from the
+    /// parent process environment; both win over the injected share.
     fn environment_for(&self, task: &WorkItem) -> InvocationEnvironment {
         if task.extra_env.is_empty() {
             return self.environment.clone();
         }
+        let inherits_parent = self.environment.policy == InvocationEnvPolicy::InheritParent;
         let mut environment = self.environment.clone();
         for (name, value) in &task.extra_env {
+            // Skip an inherited parent var of the same name: it is not present
+            // in `vars`, so `entry(..).or_insert` alone would still shadow it.
+            if inherits_parent && std::env::var_os(name).is_some_and(|value| !value.is_empty()) {
+                continue;
+            }
             environment
                 .vars
                 .entry(name.clone())
