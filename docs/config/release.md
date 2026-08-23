@@ -162,6 +162,10 @@ A pushing release usually updates the release branch and tags. Set `push_branch 
 
 Use `manifest` when a workspace curates prerelease versions in `Cargo.toml`, such as successive `0.1.0-alpha.2` and `0.1.0-alpha.3` releases.
 
+### Where the version is written
+
+A Cargo member that inherits its version with `version.workspace = true` is bumped at its owning workspace root's `[workspace.package].version` — the single source of truth — not by stamping a literal `version` into the member's `[package]`. A single-version workspace maps every member onto that one root entry, so a bump rewrites it exactly once and leaves every member manifest untouched. A member that declares a literal `[package].version` is still rewritten in place. This matches how the same version is read back for `release plan` and `release status`, so the preview and the applied mutation never diverge.
+
 ## Prereleases
 
 ```toml
