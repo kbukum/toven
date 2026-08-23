@@ -9,7 +9,7 @@ use rskit_errors::{AppError, AppResult};
 use toven_model::{
     AbsPath, ExecutionReadiness, Module, ModuleKey, ToolchainTag, Workspace, WorkspaceId,
 };
-use toven_ports::{CommandTemplate, Readiness, TaskOrigin, TaskVar};
+use toven_ports::{CommandTemplate, FanOut, Readiness, TaskOrigin, TaskVar};
 
 use super::grouping::group_dependencies;
 use super::task::{EffectiveTask, effective_for};
@@ -65,6 +65,11 @@ pub(in crate::plan) struct PlannedUnit {
     pub(in crate::plan) toolchain_identity: String,
     /// Unit ids this unit depends on (scheduled dependency edges) for gating.
     pub(in crate::plan) depends_on: Vec<String>,
+    /// Whether this unit is an atomic whole-workspace invocation
+    /// ([`FanOut::WholeWorkspace`]). Only whole-workspace units are eligible to
+    /// co-schedule inside an irreducible facade cycle; a residual cycle
+    /// touching any non-whole-workspace unit stays a hard scheduling error.
+    pub(in crate::plan) whole_workspace: bool,
     /// Optional within-wave serialization key from the module metadata.
     pub(in crate::plan) resource_group: Option<String>,
 }
@@ -119,6 +124,7 @@ pub(super) fn plan_unit(
     let task_name = task.name.clone();
     crate::plan::shared_inputs::validate_shared_inputs(id, &task.shared_inputs)?;
     let depends_on = group_dependencies(id, members, kept_deps, group_ids);
+    let whole_workspace = task.fan_out == FanOut::WholeWorkspace;
     let resource_group = representative.resource_group.clone();
 
     Ok(PlannedUnit {
@@ -139,6 +145,7 @@ pub(super) fn plan_unit(
         fail_if_output: task.fail_if_output,
         toolchain_identity,
         depends_on,
+        whole_workspace,
         resource_group,
     })
 }

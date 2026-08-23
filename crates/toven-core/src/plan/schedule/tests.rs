@@ -647,8 +647,10 @@ fn whole_workspace_facade_cycle_co_schedules_the_cycle_into_one_wave() {
         ]
     );
 
-    // The mutual gating edges survive on the units (the cycle is real); the
-    // reverse-dependency gate is cycle-safe, so they are not dropped.
+    // The mutual gating edges inside the co-scheduled cycle are stripped: the two
+    // whole-workspace peers launch concurrently in one wave, so a surviving
+    // intra-cycle gate would let a failing peer contradict an in-flight peer in
+    // APPLY. Each is left gated on nothing (the only edges were intra-cycle).
     let unit = |id: &str| {
         scheduled
             .units
@@ -656,14 +658,8 @@ fn whole_workspace_facade_cycle_co_schedules_the_cycle_into_one_wave() {
             .find(|unit| unit.id == id)
             .unwrap_or_else(|| panic!("missing unit '{id}': {:?}", ids(&scheduled)))
     };
-    assert_eq!(
-        unit("rust@core#test").depends_on,
-        vec!["rust@contrib#test".to_string()]
-    );
-    assert_eq!(
-        unit("rust@contrib#test").depends_on,
-        vec!["rust@core#test".to_string()]
-    );
+    assert!(unit("rust@core#test").depends_on.is_empty());
+    assert!(unit("rust@contrib#test").depends_on.is_empty());
 
     // The strongly-connected component collapses into a single co-scheduled wave.
     assert_eq!(scheduled.waves.len(), 1);
@@ -1066,5 +1062,104 @@ fn non_run_tasks_never_filter_library_only_modules() {
             "rust:app#test".to_string(),
             "rust:lib#test".to_string()
         ]]
+    );
+}
+
+/// Build a bare [`PlannedUnit`] for direct leveling tests: only the id,
+/// whole-workspace flag, and gating edges vary; every other field takes an
+/// inert default.
+fn planned_unit(id: &str, whole_workspace: bool, depends_on: &[&str]) -> super::unit::PlannedUnit {
+    super::unit::PlannedUnit {
+        id: id.to_string(),
+        module: toven_model::ModuleKey::bare(mref("rust", "m")),
+        members: vec![toven_model::ModuleKey::bare(mref("rust", "m"))],
+        task: "test".to_string(),
+        origin: TaskOrigin::AdapterDefault,
+        workspace: None,
+        argv: Vec::new(),
+        persistent: false,
+        readiness: toven_model::ExecutionReadiness::Started,
+        readiness_timeout: std::time::Duration::from_secs(0),
+        base_argv: Vec::new(),
+        shared_inputs: Vec::new(),
+        cache_args: false,
+        cacheable: true,
+        fail_if_output: false,
+        toolchain_identity: String::new(),
+        depends_on: depends_on.iter().map(|dep| (*dep).to_string()).collect(),
+        whole_workspace,
+        resource_group: None,
+    }
+}
+
+#[test]
+fn non_whole_workspace_cycle_fails_closed_instead_of_co_scheduling() {
+    // A residual cycle among units where at least one is not a whole-workspace
+    // invocation (here a `PerModule`-shaped pair) encodes a real build handoff no
+    // co-scheduling can honor, so leveling fails closed with a typed cycle error
+    // rather than silently condensing it into one wave.
+    let mut units = vec![
+        planned_unit("rust:a#test", false, &["rust:b#test"]),
+        planned_unit("rust:b#test", false, &["rust:a#test"]),
+    ];
+    let error = super::grouping::level_units_into_waves(&mut units)
+        .expect_err("a non-whole-workspace cycle must fail closed");
+    let message = error.to_string();
+    assert!(message.contains("cannot be co-scheduled"), "{message}");
+    assert!(message.contains("rust:a#test"), "{message}");
+    assert!(message.contains("rust:b#test"), "{message}");
+}
+
+#[test]
+fn mixed_cycle_with_one_non_whole_workspace_unit_fails_closed() {
+    // Eligibility is all-or-nothing: a cycle of two whole-workspace units and one
+    // non-whole-workspace unit is still rejected — the single real handoff makes
+    // the whole component un-co-schedulable.
+    let mut units = vec![
+        planned_unit("rust@core#test", true, &["rust:leaf#test"]),
+        planned_unit("rust@app#test", true, &["rust@core#test"]),
+        planned_unit("rust:leaf#test", false, &["rust@app#test"]),
+    ];
+    let error = super::grouping::level_units_into_waves(&mut units)
+        .expect_err("a mixed cycle must fail closed");
+    assert!(
+        error.to_string().contains("cannot be co-scheduled"),
+        "{error}"
+    );
+}
+
+#[test]
+fn all_whole_workspace_cycle_co_schedules_and_strips_intra_cycle_edges() {
+    // A cycle whose units are all whole-workspace co-schedules into one wave and
+    // has its mutual intra-cycle gating edges stripped, while a real
+    // cross-component handoff into the cycle is preserved.
+    let mut units = vec![
+        planned_unit(
+            "rust@core#test",
+            true,
+            &["rust@contrib#test", "rust:dep#test"],
+        ),
+        planned_unit("rust@contrib#test", true, &["rust@core#test"]),
+        planned_unit("rust:dep#test", false, &[]),
+    ];
+    let waves = super::grouping::level_units_into_waves(&mut units)
+        .expect("an all-whole-workspace cycle co-schedules");
+
+    let unit = |id: &str| units.iter().find(|unit| unit.id == id).expect("unit");
+    // The intra-cycle edge core⇄contrib is stripped; the real dep→core handoff
+    // survives.
+    assert_eq!(unit("rust@core#test").depends_on, vec!["rust:dep#test"]);
+    assert!(unit("rust@contrib#test").depends_on.is_empty());
+    // `dep` levels first; the co-scheduled cycle shares the next wave.
+    assert_eq!(waves.len(), 2);
+    assert_eq!(waves[0], vec!["rust:dep#test"]);
+    let mut cycle_wave = waves[1].clone();
+    cycle_wave.sort_unstable();
+    assert_eq!(
+        cycle_wave,
+        vec![
+            "rust@contrib#test".to_string(),
+            "rust@core#test".to_string()
+        ]
     );
 }

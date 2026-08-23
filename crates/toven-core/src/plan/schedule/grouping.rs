@@ -12,10 +12,12 @@
 //! cross-group cycle, so it stays one collapsed unit. [`level_units_into_waves`]
 //! then condenses the strongly-connected components of the unit graph and
 //! levels them into dependency-respecting waves: an acyclic graph levels
-//! exactly as a longest-path topo-level would, while an irreducible
-//! whole-workspace facade cycle co-schedules into a single wave rather than
-//! failing closed. [`ensure_distinct_ids`] still fails closed on a residual
-//! id collision.
+//! exactly as a longest-path topo-level would, while an irreducible facade
+//! cycle co-schedules into a single wave **only** when every unit in it is a
+//! whole-workspace invocation — a cycle touching any other unit still fails
+//! closed. The mutual edges inside a co-scheduled cycle are stripped so its
+//! concurrent peers do not gate on one another in APPLY. [`ensure_distinct_ids`]
+//! still fails closed on a residual id collision.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -312,18 +314,29 @@ pub(super) fn group_dependencies(
 /// Strongly-connected components of the unit graph are condensed before
 /// leveling ([`strongly_connected_components`], [`level_components`]): an
 /// acyclic graph has only singleton components, so its waves are byte-identical
-/// to a plain longest-path level. An irreducible cycle among whole-workspace
-/// units — the facade back-dependency shape, where each atomic whole-workspace
-/// invocation resolves its own path-dependency closure and so has no real build
-/// handoff to another unit — condenses into a single co-scheduled wave rather
-/// than failing closed. The within-wave APPLY gate launches those units
-/// concurrently and its reverse-dependency walk is cycle-safe, so the surviving
-/// mutual edges neither deadlock nor mutually block.
+/// to a plain longest-path level. A **non-trivial** component (a genuine cycle
+/// of two or more units) is co-scheduled into one wave **only** when every one
+/// of its units is an atomic whole-workspace invocation ([`whole_workspace`]) —
+/// the facade back-dependency shape, where each unit resolves its own
+/// path-dependency closure and so has no real build handoff to another unit. A
+/// residual cycle touching any non-whole-workspace unit (a `PerModule` unit, or
+/// a `Batchable` base a layer split could not break) has a real intra-cycle
+/// handoff that co-scheduling would silently violate, so it stays a hard typed
+/// scheduling error rather than being co-scheduled.
+///
+/// The mutual `depends_on` edges **inside** a co-scheduled component are then
+/// stripped from the units: those peers launch concurrently in one wave, so a
+/// surviving intra-cycle gate would let a failing peer block an already
+/// in-flight peer and emit a contradictory second terminal outcome for it in
+/// APPLY. Cross-component edges (the real handoffs) are preserved untouched.
+///
+/// [`whole_workspace`]: PlannedUnit::whole_workspace
 ///
 /// # Errors
-/// A typed internal error if a unit gates on an id absent from `units` — a
-/// scheduler inconsistency surfaced loudly rather than silently dropped.
-pub(super) fn level_units_into_waves(units: &[PlannedUnit]) -> AppResult<Vec<Vec<String>>> {
+/// A typed internal error if a unit gates on an id absent from `units`, or if a
+/// residual cycle contains a non-whole-workspace unit — both surfaced loudly
+/// rather than silently dropped or co-scheduled.
+pub(super) fn level_units_into_waves(units: &mut [PlannedUnit]) -> AppResult<Vec<Vec<String>>> {
     let order: Vec<&str> = units.iter().map(|unit| unit.id.as_str()).collect();
     let mut index_of: BTreeMap<&str, usize> = BTreeMap::new();
     for (position, id) in order.iter().enumerate() {
@@ -343,14 +356,87 @@ pub(super) fn level_units_into_waves(units: &[PlannedUnit]) -> AppResult<Vec<Vec
     }
 
     let component_of = strongly_connected_components(&adjacency);
+    ensure_cycles_co_schedulable(units, &component_of)?;
     let level = level_components(&adjacency, &component_of);
     let depth = level.iter().copied().max().map_or(0, |lvl| lvl + 1);
     let mut waves: Vec<Vec<String>> = vec![Vec::new(); depth];
     for (position, unit) in units.iter().enumerate() {
         waves[level[component_of[position]]].push(unit.id.clone());
     }
+    strip_intra_component_edges(units, &component_of);
     waves.retain(|wave| !wave.is_empty());
     Ok(waves)
+}
+
+/// Fail closed unless every non-trivial strongly-connected component is
+/// composed exclusively of whole-workspace units.
+///
+/// A component of two or more units is a genuine cycle. Co-scheduling it is
+/// only sound when each unit is an atomic whole-workspace invocation
+/// ([`PlannedUnit::whole_workspace`]) that resolves its own path-dependency
+/// closure — then the mutual edges are bookkeeping, not build handoffs. If any
+/// unit in the cycle is `PerModule` or an un-splittable `Batchable` base, the
+/// cycle encodes a real handoff that co-scheduling would silently violate, so
+/// it stays the same hard scheduling error a cyclic graph produced before
+/// facade co-scheduling existed.
+///
+/// # Errors
+/// A typed internal error naming the cyclic units when a non-trivial component
+/// contains a non-whole-workspace unit.
+fn ensure_cycles_co_schedulable(units: &[PlannedUnit], component_of: &[usize]) -> AppResult<()> {
+    let component_count = component_of.iter().copied().max().map_or(0, |id| id + 1);
+    let mut sizes = vec![0usize; component_count];
+    for &component in component_of {
+        sizes[component] += 1;
+    }
+    for (component, size) in sizes.iter().enumerate() {
+        if *size < 2 {
+            continue;
+        }
+        let members: Vec<&PlannedUnit> = units
+            .iter()
+            .zip(component_of)
+            .filter(|&(_, &unit_component)| unit_component == component)
+            .map(|(unit, _)| unit)
+            .collect();
+        if members.iter().all(|unit| unit.whole_workspace) {
+            continue;
+        }
+        let ids: Vec<&str> = members.iter().map(|unit| unit.id.as_str()).collect();
+        return Err(AppError::new(
+            rskit_errors::ErrorCode::Internal,
+            format!(
+                "scheduling cycle among non-whole-workspace units cannot be co-scheduled: {}",
+                ids.join(", ")
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Strip the `depends_on` edges that point **inside** a unit's own
+/// strongly-connected component.
+///
+/// Only non-trivial components (co-scheduled facade cycles) carry such edges.
+/// Their units launch concurrently in one wave, so a surviving intra-cycle gate
+/// would let a failing peer mark an already in-flight peer `Blocked` and emit a
+/// contradictory second terminal outcome for it. Dropping the mutual edges
+/// before APPLY leaves each co-scheduled unit gated only on the real
+/// cross-component handoffs. A self-loop-free acyclic graph is unaffected: its
+/// components are all singletons, so no edge is intra-component.
+fn strip_intra_component_edges(units: &mut [PlannedUnit], component_of: &[usize]) {
+    let component_by_id: BTreeMap<String, usize> = units
+        .iter()
+        .zip(component_of)
+        .map(|(unit, &component)| (unit.id.clone(), component))
+        .collect();
+    for (unit, &component) in units.iter_mut().zip(component_of) {
+        unit.depends_on.retain(|dependency| {
+            component_by_id
+                .get(dependency)
+                .is_none_or(|&dependency_component| dependency_component != component)
+        });
+    }
 }
 
 /// Assign each unit its strongly-connected-component id via iterative Tarjan
