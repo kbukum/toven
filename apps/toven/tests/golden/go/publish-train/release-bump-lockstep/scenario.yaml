@@ -1,10 +1,13 @@
 # Lock-step bump UX: one workspace-wide `--set-version` puts every module of a
 # Go tag-only train on the same target in a single argv — including the root,
-# whose own tracked files did not change since the baseline. The train is
-# pre-tagged at v0.1.0 (root + nested `core/v0.1.0`); a later commit touches
-# only `core`, so the root reads as unchanged. Without the lock-step redesign
-# the root would drop out as "no change"; here both modules land at the target
-# with an `explicit` reason.
+# whose own tracked files did not change since the baseline. The root is
+# pre-tagged at v0.1.0 while the nested `core` module has never been tagged
+# (no declared version), so the scenario also exercises the never-tagged
+# first-release path: its absent current version streams through and the
+# workspace target (or a level-seeded first version) becomes its planned cut.
+# A later commit touches only `core`, so the root reads as unchanged. Without
+# the lock-step redesign the root would drop out as "no change"; here both
+# modules land at the target with an `explicit` reason.
 repo: go/publish-train
 requires: [go]
 git:
@@ -14,10 +17,9 @@ git:
         - core/core.go
   tags:
     - { name: v0.1.0, at: 0 }
-    - { name: core/v0.1.0, at: 0 }
 steps:
   # A single workspace-wide target drives both modules — root (unchanged) and
-  # core (changed) — to 0.2.0-alpha.1. `--dry-run` rehearses only.
+  # core (changed, never tagged) — to 0.2.0-alpha.1. `--dry-run` rehearses only.
   - id: 01-lockstep-set-version
     argv: [release, bump, --dry-run, --set-version, 0.2.0-alpha.1, --output, jsonl]
     stdout: { match: normalized }
@@ -25,7 +27,8 @@ steps:
       - git_tag_absent: v0.2.0-alpha.1
       - git_tag_absent: core/v0.2.0-alpha.1
   # A valueless workspace level advances every module one minor from its own
-  # baseline (root 0.1.0 -> 0.2.0, core 0.1.0 -> 0.2.0).
+  # baseline: the tagged root goes 0.1.0 -> 0.2.0, while the never-tagged core
+  # module is seeded its first version.
   - id: 02-lockstep-minor
     argv: [release, bump, --dry-run, --minor, --output, jsonl]
     stdout: { match: normalized }

@@ -92,10 +92,19 @@ impl BumpOverrides {
     ///
     /// # Errors
     /// Rejects a run that already carries a workspace-wide level (a workspace
-    /// target and a workspace level are mutually exclusive).
+    /// target and a workspace level are mutually exclusive) or a second,
+    /// distinct workspace target (an identical repeat is idempotent).
     pub fn with_workspace_set_version(mut self, version: Version) -> AppResult<Self> {
         if self.workspace_level.is_some() {
             return Err(workspace_conflict());
+        }
+        if let Some(existing) = &self.workspace_set_version
+            && *existing != version
+        {
+            return Err(AppError::invalid_input(
+                "release.bump",
+                format!("conflicting workspace-wide target versions ({existing} vs {version})"),
+            ));
         }
         self.workspace_set_version = Some(version);
         Ok(self)
@@ -106,8 +115,9 @@ impl BumpOverrides {
     ///
     /// # Errors
     /// Rejects `BumpLevel::Auto` (a workspace level is always an explicit
-    /// `patch`/`minor`/`major`) or a run that already carries a workspace-wide
-    /// target.
+    /// `patch`/`minor`/`major`), a run that already carries a workspace-wide
+    /// target, or a second, distinct workspace level (an identical repeat is
+    /// idempotent).
     pub fn with_workspace_level(mut self, level: BumpLevel) -> AppResult<Self> {
         if level == BumpLevel::Auto {
             return Err(AppError::invalid_input(
@@ -117,6 +127,18 @@ impl BumpOverrides {
         }
         if self.workspace_set_version.is_some() {
             return Err(workspace_conflict());
+        }
+        if let Some(existing) = self.workspace_level
+            && existing != level
+        {
+            return Err(AppError::invalid_input(
+                "release.bump",
+                format!(
+                    "conflicting workspace-wide bump levels ({} vs {})",
+                    existing.as_str(),
+                    level.as_str(),
+                ),
+            ));
         }
         self.workspace_level = Some(level);
         Ok(self)
@@ -314,6 +336,56 @@ mod tests {
             with_level
                 .with_workspace_set_version(Version::new(0, 3, 0))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn a_second_distinct_workspace_target_is_rejected() {
+        let overrides = BumpOverrides::new()
+            .with_workspace_set_version(Version::new(1, 0, 0))
+            .unwrap();
+        assert!(
+            overrides
+                .with_workspace_set_version(Version::new(2, 0, 0))
+                .is_err(),
+            "a second distinct workspace target is a usage error, not an overwrite"
+        );
+    }
+
+    #[test]
+    fn a_repeated_identical_workspace_target_is_idempotent() {
+        let overrides = BumpOverrides::new()
+            .with_workspace_set_version(Version::new(1, 0, 0))
+            .unwrap()
+            .with_workspace_set_version(Version::new(1, 0, 0))
+            .unwrap();
+        assert_eq!(
+            overrides.set_version(&mref("core")),
+            Some(&Version::new(1, 0, 0))
+        );
+    }
+
+    #[test]
+    fn a_second_distinct_workspace_level_is_rejected() {
+        let overrides = BumpOverrides::new()
+            .with_workspace_level(BumpLevel::Minor)
+            .unwrap();
+        assert!(
+            overrides.with_workspace_level(BumpLevel::Major).is_err(),
+            "`--minor --major` valueless is a usage error, not iteration-order-dependent"
+        );
+    }
+
+    #[test]
+    fn a_repeated_identical_workspace_level_is_idempotent() {
+        let overrides = BumpOverrides::new()
+            .with_workspace_level(BumpLevel::Minor)
+            .unwrap()
+            .with_workspace_level(BumpLevel::Minor)
+            .unwrap();
+        assert_eq!(
+            overrides.module_level(&mref("core")),
+            Some(BumpLevel::Minor)
         );
     }
 

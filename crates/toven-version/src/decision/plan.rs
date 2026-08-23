@@ -1365,10 +1365,10 @@ mod tests {
 
     #[test]
     fn incremental_planner_forces_an_override_for_an_otherwise_inactive_module() {
-        // Defect B redesign: a `--set-version`/level override on a module that
-        // did not change (and has no dependency-floor cascade) must force that
-        // module into the release rather than silently dropping it. This is what
-        // lets an unchanged root (or any pinned module) join a lock-step cut.
+        // A `--set-version`/level override on a module that did not change (and
+        // has no dependency-floor cascade) must force that module into the
+        // release rather than silently dropping it. This is what lets an
+        // unchanged root (or any pinned module) join a lock-step cut.
         let input = dep_input("core", DependentVersion::Bump);
         let graph = Graph::build(vec![module("core")], Vec::new()).expect("graph");
         let overrides = BumpOverrides::new()

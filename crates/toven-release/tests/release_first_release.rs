@@ -28,6 +28,12 @@ fn eid(id: &str) -> EcosystemId {
 
 /// A registry-publishing rust provider exposing one releaseable `core` module.
 fn registry_provider() -> FakeProvider {
+    registry_provider_with_target(FakeReleaseTarget::new())
+}
+
+/// A registry-publishing rust provider whose `core` module releases through
+/// the given target.
+fn registry_provider_with_target(target: FakeReleaseTarget) -> FakeProvider {
     let mut response = DiscoverResponse::new(eid("rust"));
     response.modules.push(Module::new(
         ModuleRef::new(eid("rust"), "core").expect("ref"),
@@ -43,7 +49,7 @@ fn registry_provider() -> FakeProvider {
     let adapter = FakeConfiguredAdapter::new(eid("rust"))
         .with_response(response)
         .with_common(common)
-        .with_release_target(FakeReleaseTarget::new());
+        .with_release_target(target);
     FakeProvider::new(eid("rust")).with_adapter(adapter)
 }
 
@@ -123,6 +129,50 @@ fn a_repository_with_no_release_tag_plans_an_initial_release() {
         entry.changelog.summary, "initial release",
         "a first release is not a dependency cascade"
     );
+}
+
+#[test]
+fn a_versionless_tagless_module_takes_the_workspace_target() {
+    // A never-released module with no declared version (a Go tag-only module
+    // that has never been tagged) has no version to cut on its own; a
+    // workspace-wide `--set-version` seeds its first release at the target and
+    // its absent current version streams through the plan.
+    let (ws, root, document) = tagless_repo();
+    let provider =
+        registry_provider_with_target(FakeReleaseTarget::new().with_no_declared_version());
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = RskitGitVcs::open(ws.path()).expect("open reader");
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("HEAD"));
+    let overrides = BumpOverrides::new()
+        .with_workspace_set_version(rskit_version::semver::Version::new(0, 3, 0))
+        .expect("workspace target");
+
+    let mut reporter = RecordingReporter::new();
+    let plan = release_plan(
+        &request(root),
+        &document,
+        &providers,
+        &readers,
+        &overrides,
+        &mut reporter,
+    )
+    .expect("plan");
+
+    let entry = plan
+        .entries
+        .iter()
+        .find(|entry| entry.module.module.name == "core")
+        .expect("the versionless module is forced into the release");
+    assert_eq!(
+        entry.current_version, None,
+        "a never-versioned module has no current version: {entry:?}"
+    );
+    assert_eq!(
+        entry.planned_version,
+        Some(rskit_version::semver::Version::new(0, 3, 0)),
+        "the workspace target seeds the first release: {entry:?}"
+    );
+    assert_eq!(entry.reason, BumpReason::Explicit);
 }
 
 #[test]

@@ -5,6 +5,6 @@
 {"event":"phase-started","phase":"graph"}
 {"event":"phase-finished","phase":"graph"}
 {"event":"module-release-examining","module":"go:core"}
-{"event":"module-release-resolved","module":"go:core","current_version":"0.1.0","planned_version":"0.2.0","level":"minor","reason":"changed","tag":"core/v0.2.0","publication":"tag-only","up_to_date":false}
+{"event":"module-release-resolved","module":"go:core","planned_version":"0.1.0","level":"minor","reason":"changed","tag":"core/v0.1.0","publication":"tag-only","up_to_date":false}
 {"event":"module-release-examining","module":"go:train"}
 {"event":"module-release-resolved","module":"go:train","current_version":"0.1.0","planned_version":"0.2.0","level":"minor","reason":"changed","tag":"v0.2.0","publication":"tag-only","up_to_date":false}

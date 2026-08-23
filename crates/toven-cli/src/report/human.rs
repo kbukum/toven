@@ -222,11 +222,12 @@ impl<W: Write> HumanReporter<W> {
     /// Render a per-module release *decision* line (before any mutation).
     ///
     /// A planned transition a reader sees take shape per module; every decision
-    /// reads honestly rather than as a bogus version change. The four shapes:
+    /// reads honestly rather than as a bogus version change. The five shapes:
     /// an already-released module is `already at X`; a genuine own-version bump
     /// is `X → Y (level)`; a first cut at the declared version (no numeric move
     /// yet a real release) is `initial release X` rather than a no-op `X → X`;
-    /// and a dependency-floor-only entry (no own-version bump) is
+    /// a never-versioned module's first cut is `unreleased → X (level)`; and a
+    /// dependency-floor-only entry (no own-version bump) is
     /// `X (dependency floor)`.
     fn write_release_resolved(
         &mut self,
@@ -256,7 +257,10 @@ impl<W: Write> HumanReporter<W> {
                 Tone::Dim,
             )
         } else if let Some(planned) = planned_version {
-            if current_version.is_none_or(|current| current == planned) {
+            // Only an actual current version equal to the target takes the
+            // no-numeric-move branch; a never-versioned module (`None`) falls
+            // through to `unreleased → X`.
+            if current_version.is_some_and(|current| current == planned) {
                 match reason {
                     "initial-release" => (
                         format!("{module}: initial release {planned}"),
@@ -1174,6 +1178,27 @@ summary
         assert_eq!(
             render(std::slice::from_ref(&initial)),
             "  release core: initial release 0.1.0\n"
+        );
+    }
+
+    #[test]
+    fn a_versionless_first_release_reads_as_unreleased_to_target() {
+        // A never-versioned module (no declared/current version) forced in by an
+        // explicit override has no current version equal to the target; it must
+        // read as `unreleased → X`, never `release X (explicit)`.
+        let seeded = Event::ModuleReleaseResolved {
+            module: "core".into(),
+            current_version: None,
+            planned_version: Some("0.2.0".into()),
+            level: "minor".into(),
+            reason: "explicit".into(),
+            tag: Some("core-v0.2.0".into()),
+            publication: Some("tag-only".into()),
+            up_to_date: false,
+        };
+        assert_eq!(
+            render(std::slice::from_ref(&seeded)),
+            "  release core: unreleased → 0.2.0 (minor)\n"
         );
     }
 

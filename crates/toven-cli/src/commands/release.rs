@@ -117,7 +117,8 @@ fn build_overrides(cli: &Cli) -> AppResult<BumpOverrides> {
 }
 
 /// The reserved `--patch`/`--minor`/`--major` value that selects the
-/// workspace-wide (lock-step / ecosystem-wide) scope instead of one module.
+/// repo-wide scope (every in-scope module, each from its own baseline)
+/// instead of one module.
 const WORKSPACE_SCOPE: &str = "*";
 
 /// Parse a `--set-version` argument. `<module>=<x.y.z>` pins one module;
