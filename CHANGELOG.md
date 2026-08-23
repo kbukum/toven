@@ -16,6 +16,16 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Security
 
+## [0.1.0-alpha.8] - 2026-08-22
+
+### Added
+
+- Lock-step, forced, and first-release version bumps. A lock-step repository can now cut a first release — including brand-new, never-tagged modules — instead of failing with "no reachable release tag": `plan_bumps` seeds from `changed ∪ forced` and the planner forces override modules active. New force/level controls: `--set-version <VERSION>` (bare form applies workspace lock-step) and valueless `--patch` / `--minor` / `--major` (repo-wide level), with per-module overrides beating the workspace value. Bare `--set-version` still requires a value and the level flags are parser-scoped, so user argv is never rewritten (#195).
+
+### Changed
+
+- A module's declared/tagged version is now optional throughout the version→release pipeline: `VersionSource::declared_version` returns `AppResult<Option<Version>>` (no tag means "unreleased", not an error), with a `declared_version_required` default that fails closed with an actionable, module-named error only where a concrete version is genuinely required. The `Option` flows through `VersionInputs` / `BumpEntry` / `BumpResolution` / `ReleaseEntry` / `BumpModuleOutcome` / `Event::ModuleReleaseResolved` and the human/jsonl projections render `unreleased` / `initial release` rather than a bogus `X → X`. Pre-1.0 port-trait break absorbed within the workspace (Go/Rust adapters, testkit double, object-safety fixture) (#195).
+
 ## [0.1.0-alpha.7] - 2026-08-22
 
 ### Added
