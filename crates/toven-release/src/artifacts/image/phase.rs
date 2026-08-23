@@ -345,7 +345,7 @@ pub(in crate::artifacts) fn resolved_image_requests(
             continue;
         };
 
-        let version = target.declared_version(module)?;
+        let version = target.declared_version_required(module)?;
         let name = render_template(&image_config.name, "release.image.name", module, &version)?;
         let tag = render_template(
             image_config.tag_template(),

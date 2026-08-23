@@ -119,7 +119,7 @@ Examples:
   toven release status             Compare declared vs published/tagged versions
   toven release readiness          Run the fail-closed preflight go/no-go checks
   toven release publish --dry-run  Rehearse the full pipeline without mutating
-  toven release tag --minor rust:core  Cut a minor bump for one module";
+  toven release tag --minor=rust:core  Cut a minor bump for one module";
 
 /// `release plan` action examples.
 const RELEASE_PLAN_EXAMPLES: &str = "\
@@ -136,7 +136,7 @@ Examples:
 const RELEASE_TAG_EXAMPLES: &str = "\
 Examples:
   toven release tag --yes          Bump, commit, tag, and push (no publish)
-  toven release tag --minor rust:core --yes  Force a minor bump for one module
+  toven release tag --minor=rust:core --yes  Force a minor bump for one module
   toven release tag --no-push --yes  Cut the tag locally without pushing";
 
 /// `release bump` action examples.
@@ -576,45 +576,61 @@ pub struct Cli {
     /// Release only: skip pushing the release commit and tags.
     #[arg(long, global = true, help_heading = "Release")]
     pub no_push: bool,
-    /// Release tag/publish only: force `<module>` to bump at the patch level
-    /// (repeatable). Highest precedence with the other level flags and
-    /// `--set-version`; a module named in two level flags or a level flag plus
-    /// `--set-version` is a usage error.
+    /// Release bump/tag/publish only: force `<module>` to bump at the patch
+    /// level (repeatable; valued form `--patch=<module>`). Given with no value,
+    /// bumps every in-scope module at patch, each advancing from its own
+    /// baseline (repo-wide). Highest precedence with the other level
+    /// flags and `--set-version`; a module named in two level flags or a level
+    /// flag plus `--set-version` is a usage error.
     #[arg(
         long = "patch",
         global = true,
         value_name = "MODULE",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "*",
         help_heading = "Release"
     )]
     pub patch: Vec<String>,
-    /// Release tag/publish only: force `<module>` to bump at the minor level
-    /// (repeatable).
+    /// Release bump/tag/publish only: force `<module>` to bump at the minor
+    /// level (repeatable; valued form `--minor=<module>`). Given with no value,
+    /// bumps every in-scope module at minor, each advancing from its own
+    /// baseline (repo-wide).
     #[arg(
         long = "minor",
         global = true,
         value_name = "MODULE",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "*",
         help_heading = "Release"
     )]
     pub minor: Vec<String>,
-    /// Release tag/publish only: force `<module>` to bump at the major level
-    /// (repeatable).
+    /// Release bump/tag/publish only: force `<module>` to bump at the major
+    /// level (repeatable; valued form `--major=<module>`). Given with no value,
+    /// bumps every in-scope module at major, each advancing from its own
+    /// baseline (repo-wide).
     #[arg(
         long = "major",
         global = true,
         value_name = "MODULE",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "*",
         help_heading = "Release"
     )]
     pub major: Vec<String>,
-    /// Release tag/publish only: pin `<module>=<x.y.z>` to an explicit target
-    /// version (repeatable).
+    /// Release bump/tag/publish only: pin `<module>=<x.y.z>` to an explicit
+    /// target version (repeatable), or a bare `<x.y.z>` to set every in-scope
+    /// module to that version (lock-step, root included).
     #[arg(
         long = "set-version",
         global = true,
-        value_name = "MODULE=VERSION",
+        value_name = "[MODULE=]VERSION",
         help_heading = "Release"
     )]
     pub set_version: Vec<String>,
-    /// Release tag/publish only: cut a prerelease on a configured channel
+    /// Release bump/tag/publish only: cut a prerelease on a configured channel
     /// (`rc`/`alpha`/`beta`).
     #[arg(
         long = "pre",
@@ -623,8 +639,8 @@ pub struct Cli {
         help_heading = "Release"
     )]
     pub pre: Option<String>,
-    /// Release tag/publish only: skip registry `published_versions` lookups and
-    /// anchor idempotency on the release tag only.
+    /// Release bump/tag/publish only: skip registry `published_versions`
+    /// lookups and anchor idempotency on the release tag only.
     #[arg(long, global = true, help_heading = "Release")]
     pub offline: bool,
     /// Release sbom/depgraphs only: directory to write generated artifacts into
@@ -679,7 +695,8 @@ pub struct Cli {
     /// Init only: answer the wizard non-interactively, accepting every default.
     #[arg(long = "non-interactive", global = true, help_heading = "Init")]
     pub non_interactive: bool,
-    /// Release tag/publish only: confirm the real mutation. Kept separate from
+    /// Release bump/tag/publish/image only: confirm the real mutation. Kept
+    /// separate from
     /// `--non-interactive` so authorizing a release is always a deliberate flag,
     /// never something learned as harmless on `init`.
     #[arg(long = "yes", global = true, help_heading = "Release")]
@@ -1877,6 +1894,33 @@ mod tests {
     }
 
     #[test]
+    fn a_valueless_level_flag_is_repo_wide_at_either_placement() {
+        // The valueless form takes the missing-value default (`*`, repo-wide)
+        // without consuming the next token, so global placement before the
+        // subcommand keeps `release` as the verb rather than swallowing it as
+        // the module value.
+        let before = parse(&["--minor", "release", "bump"]).expect("parses");
+        assert_eq!(before.minor, ["*"]);
+        let after = parse(&["release", "bump", "--minor"]).expect("parses");
+        assert_eq!(after.minor, ["*"]);
+    }
+
+    #[test]
+    fn a_valued_level_flag_requires_equals_at_either_placement() {
+        let before = parse(&["--minor=rust:core", "release", "bump"]).expect("parses");
+        assert_eq!(before.minor, ["rust:core"]);
+        let after = parse(&["release", "bump", "--minor=rust:core"]).expect("parses");
+        assert_eq!(after.minor, ["rust:core"]);
+        // The space-separated form is never read as a valued level flag:
+        // `--minor` keeps its repo-wide default and the bare token parses as a
+        // task, which the gate then rejects as a misplaced bump flag rather
+        // than silently planning the wrong thing.
+        let spaced = parse(&["--minor", "rust:core", "release", "bump"]).expect("parses");
+        assert!(matches!(spaced.command, Command::External(_)));
+        assert!(super::gate(&spaced).is_err());
+    }
+
+    #[test]
     fn release_only_flag_on_other_reserved_verb_is_gated() {
         let cli = parse(&["--no-push", "plan", "test"]).expect("parses");
         assert!(super::gate(&cli).is_err());
@@ -2048,9 +2092,9 @@ mod tests {
     #[test]
     fn bump_argv_only_on_mutating_release_actions() {
         let flags = [
-            vec!["--minor", "rust:core"],
-            vec!["--major", "rust:core"],
-            vec!["--patch", "rust:core"],
+            vec!["--minor=rust:core"],
+            vec!["--major=rust:core"],
+            vec!["--patch=rust:core"],
             vec!["--set-version", "rust:core=1.0.0"],
             vec!["--pre", "rc"],
             vec!["--offline"],

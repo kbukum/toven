@@ -66,7 +66,7 @@ pub struct FakeReleaseTarget {
 
 #[derive(Debug, Clone)]
 struct FakeReleaseState {
-    declared: Version,
+    declared: Option<Version>,
     published: Vec<Version>,
     artifact_path: String,
     tag_scheme: Option<TagScheme>,
@@ -91,7 +91,7 @@ impl Default for FakeReleaseTarget {
     fn default() -> Self {
         Self {
             inner: Arc::new(Mutex::new(FakeReleaseState {
-                declared: Version::new(0, 1, 0),
+                declared: Some(Version::new(0, 1, 0)),
                 published: Vec::new(),
                 artifact_path: "dist/fake.pkg".to_string(),
                 tag_scheme: None,
@@ -128,7 +128,15 @@ impl FakeReleaseTarget {
     /// Set the version read from the manifest.
     #[must_use]
     pub fn with_declared_version(self, version: Version) -> Self {
-        self.state().declared = version;
+        self.state().declared = Some(version);
+        self
+    }
+
+    /// Model a module with no released version (a never-released, tagless
+    /// module), so `declared_version` reports `None`.
+    #[must_use]
+    pub fn with_no_declared_version(self) -> Self {
+        self.state().declared = None;
         self
     }
 
@@ -294,7 +302,7 @@ impl FakeReleaseTarget {
 }
 
 impl VersionSource for FakeReleaseTarget {
-    fn declared_version(&self, module: &Module) -> AppResult<Version> {
+    fn declared_version(&self, module: &Module) -> AppResult<Option<Version>> {
         self.record(ReleaseCall::DeclaredVersion(module.id.clone()));
         let state = self.state();
         if let Some(message) = &state.fail_version_read {
@@ -529,7 +537,7 @@ mod tests {
 
         assert_eq!(
             target.declared_version(&module).expect("ok"),
-            Version::new(1, 2, 3)
+            Some(Version::new(1, 2, 3))
         );
         assert_eq!(
             target

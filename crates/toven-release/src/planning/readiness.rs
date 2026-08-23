@@ -269,7 +269,11 @@ fn eval_registry_idempotent(inputs: &ReadinessInputs) -> AppResult<ReadinessChec
                     format!("module '{}' has no gathered release target", module.key),
                 )
             })?;
-        let declared = target.declared_version(&module.module)?;
+        // A module with no declared version has never been released, so it can
+        // never be "behind" the registry.
+        let Some(declared) = target.declared_version(&module.module)? else {
+            continue;
+        };
         if let Some(max_published) = target.published_versions(&module.module)?.into_iter().max()
             && declared < max_published
         {

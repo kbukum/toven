@@ -148,16 +148,13 @@ pub(crate) fn reachable_tags(reader: &dyn VcsReader) -> AppResult<Vec<String>> {
 }
 
 impl VersionSource for GoVcsTarget {
-    fn declared_version(&self, module: &Module) -> AppResult<Version> {
-        self.published_versions(module)?.into_iter().max().ok_or_else(|| {
-            AppError::invalid_input(
-                "release.tags",
-                format!(
-                    "Go module '{}' has no reachable release tag; set an explicit release version before the first Go release",
-                    module.key()
-                ),
-            )
-        })
+    fn declared_version(&self, module: &Module) -> AppResult<Option<Version>> {
+        // A Go module's version lives in its reachable release tags. A module
+        // with no reachable tag has never been released, so it has no declared
+        // version: report `None` — a first-class "never released" signal the
+        // bump decision resolves to an initial release driven by an explicit or
+        // lock-step target — rather than failing the whole plan closed.
+        Ok(self.published_versions(module)?.into_iter().max())
     }
 
     fn published_versions(&self, module: &Module) -> AppResult<Vec<Version>> {
@@ -469,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn declared_version_rejects_a_module_without_a_reachable_release_tag() {
+    fn declared_version_is_none_for_a_module_without_a_reachable_release_tag() {
         let workspace = toven_testkit::TestWorkspace::new("go-release-no-tags");
         let scenario = GitScenario::init(workspace.path()).expect("git init");
         scenario
@@ -478,11 +475,14 @@ mod tests {
         let reader = RskitGitVcs::open(workspace.path()).expect("open repository");
         let target = target_with_reader(&reader);
 
-        let error = target
+        // A tag-only Go module with no reachable release tag has never been
+        // released: its declared version is `None` (a first-release signal),
+        // not a hard error, so it can join a lock-step release on its first cut.
+        let declared = target
             .declared_version(&module("root", "."))
-            .expect_err("missing tag rejected");
+            .expect("tagless module resolves to None rather than erroring");
 
-        assert!(error.to_string().contains("reachable release tag"));
+        assert_eq!(declared, None);
     }
 
     #[test]

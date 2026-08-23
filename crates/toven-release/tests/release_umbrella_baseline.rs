@@ -173,7 +173,8 @@ fn only_the_crate_changed_since_the_umbrella_tag_bumps() {
         .expect("core is in the plan");
     let planned = core.planned_version.as_ref().expect("core is bumped");
     assert_ne!(
-        planned, &core.current_version,
+        Some(planned),
+        core.current_version.as_ref(),
         "the changed crate must advance (From != To): {core:?}"
     );
     assert_eq!(

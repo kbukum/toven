@@ -88,12 +88,24 @@ fn build_overrides(cli: &Cli) -> AppResult<BumpOverrides> {
         (&cli.major, BumpLevel::Major),
     ] {
         for module in modules {
-            overrides = overrides.with_module_level(ModuleRef::parse(module)?, level)?;
+            if module == WORKSPACE_SCOPE {
+                overrides = overrides.with_workspace_level(level)?;
+            } else {
+                overrides = overrides.with_module_level(ModuleRef::parse(module)?, level)?;
+            }
         }
     }
     for pair in &cli.set_version {
-        let (module, version) = parse_set_version(pair)?;
-        overrides = overrides.with_set_version(module, version)?;
+        match parse_set_version(pair)? {
+            (Some(module), version) => {
+                overrides = overrides.with_set_version(module, version)?;
+            }
+            // A bare `--set-version <version>` (no `<module>=`) targets every
+            // in-scope module in one argv — the lock-step / ecosystem-wide cut.
+            (None, version) => {
+                overrides = overrides.with_workspace_set_version(version)?;
+            }
+        }
     }
     if let Some(channel) = &cli.pre {
         overrides = overrides.with_prerelease(channel.clone());
@@ -104,22 +116,31 @@ fn build_overrides(cli: &Cli) -> AppResult<BumpOverrides> {
     Ok(overrides.with_offline(cli.offline))
 }
 
-/// Parse a `--set-version <module>=<x.y.z>` argument into its module and
-/// target.
-fn parse_set_version(pair: &str) -> AppResult<(ModuleRef, Version)> {
-    let (module, version) = pair.split_once('=').ok_or_else(|| {
-        AppError::invalid_input(
-            "release.set-version",
-            format!("expected '<module>=<x.y.z>', got '{pair}'"),
-        )
-    })?;
-    let version = Version::parse(version).map_err(|error| {
+/// The reserved `--patch`/`--minor`/`--major` value that selects the
+/// repo-wide scope (every in-scope module, each from its own baseline)
+/// instead of one module.
+const WORKSPACE_SCOPE: &str = "*";
+
+/// Parse a `--set-version` argument. `<module>=<x.y.z>` pins one module;
+/// a bare `<x.y.z>` (no `=`) is the workspace-wide lock-step target.
+fn parse_set_version(pair: &str) -> AppResult<(Option<ModuleRef>, Version)> {
+    match pair.split_once('=') {
+        Some((module, version)) => {
+            let version = parse_target_version(version)?;
+            Ok((Some(ModuleRef::parse(module)?), version))
+        }
+        None => Ok((None, parse_target_version(pair)?)),
+    }
+}
+
+/// Parse a `--set-version` target version, surfacing an actionable error.
+fn parse_target_version(version: &str) -> AppResult<Version> {
+    Version::parse(version).map_err(|error| {
         AppError::invalid_input(
             "release.set-version",
             format!("invalid version '{version}': {error}"),
         )
-    })?;
-    Ok((ModuleRef::parse(module)?, version))
+    })
 }
 
 /// Build the release-scoped PLAN request rooted at the project.
@@ -1100,7 +1121,8 @@ struct StatusRecord {
     module: String,
     publication: String,
     registry: Option<String>,
-    declared_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    declared_version: Option<String>,
     latest_tag: Option<String>,
     host_forge: Option<String>,
     published_versions: Vec<String>,
@@ -1170,7 +1192,10 @@ fn status_line(module: &ReleaseModuleStatus) -> String {
         "{}  {}  declared {}  tag {}  hosted {}  {}  {}",
         module.module,
         publication_label(&module.publication),
-        module.declared_version,
+        module
+            .declared_version
+            .as_ref()
+            .map_or_else(|| "unreleased".to_owned(), ToString::to_string),
         module.latest_tag.as_deref().unwrap_or("-"),
         module.host_forge.as_deref().unwrap_or("-"),
         status_flow_label(module.entrypoint, module.maintainer_tag_present),
@@ -1188,7 +1213,7 @@ fn status_record(module: &ReleaseModuleStatus) -> StatusRecord {
         module: module.module.to_string(),
         publication: module.publication.as_str().to_string(),
         registry: module.publication.registry().map(str::to_string),
-        declared_version: module.declared_version.to_string(),
+        declared_version: module.declared_version.as_ref().map(ToString::to_string),
         latest_tag: module.latest_tag.clone(),
         host_forge: module.host_forge.clone(),
         published_versions: module
@@ -2217,5 +2242,88 @@ mod tests {
             "the decision must precede the commit: {:?}",
             sink.events()
         );
+    }
+
+    #[test]
+    fn status_line_renders_unreleased_when_version_is_absent() {
+        use super::status_line;
+        use toven_ports::PublicationPolicy;
+        use toven_release::ReleaseModuleStatus;
+
+        let status = ReleaseModuleStatus {
+            module: ModuleRef::new(EcosystemId::new("go").unwrap(), "core")
+                .unwrap()
+                .into(),
+            publication: PublicationPolicy::TagOnly,
+            declared_version: None,
+            latest_tag: None,
+            host_forge: None,
+            published_versions: Vec::new(),
+            is_published: false,
+            entrypoint: toven_model::Entrypoint::Toven,
+            maintainer_tag_present: None,
+        };
+        assert_eq!(
+            status_line(&status),
+            "go:core  tag-only  declared unreleased  tag -  hosted -  toven  unpublished"
+        );
+    }
+
+    #[test]
+    fn status_record_omits_declared_version_when_absent_in_jsonl() {
+        use super::status_record;
+        use toven_ports::PublicationPolicy;
+        use toven_release::ReleaseModuleStatus;
+
+        let status = ReleaseModuleStatus {
+            module: ModuleRef::new(EcosystemId::new("go").unwrap(), "core")
+                .unwrap()
+                .into(),
+            publication: PublicationPolicy::TagOnly,
+            declared_version: None,
+            latest_tag: None,
+            host_forge: None,
+            published_versions: Vec::new(),
+            is_published: false,
+            entrypoint: toven_model::Entrypoint::Toven,
+            maintainer_tag_present: None,
+        };
+        let json = serde_json::to_string(&status_record(&status)).expect("serializes to json");
+        assert!(
+            !json.contains("declared_version"),
+            "absent declared_version should be omitted from jsonl record: {json}"
+        );
+        assert!(json.contains("\"module\":\"go:core\""));
+        assert!(json.contains("\"publication\":\"tag-only\""));
+    }
+
+    #[test]
+    fn status_line_and_record_render_concrete_declared_version() {
+        use super::{status_line, status_record};
+        use rskit_version::semver::Version;
+        use toven_ports::PublicationPolicy;
+        use toven_release::ReleaseModuleStatus;
+
+        let status = ReleaseModuleStatus {
+            module: ModuleRef::new(EcosystemId::new("rust").unwrap(), "core")
+                .unwrap()
+                .into(),
+            publication: PublicationPolicy::Registry {
+                registry: "crates-io".into(),
+            },
+            declared_version: Some(Version::new(0, 2, 0)),
+            latest_tag: Some("rust/core@0.1.0".into()),
+            host_forge: Some("github".into()),
+            published_versions: vec![Version::new(0, 1, 0)],
+            is_published: false,
+            entrypoint: toven_model::Entrypoint::Toven,
+            maintainer_tag_present: None,
+        };
+        assert_eq!(
+            status_line(&status),
+            "rust:core  registry (crates-io)  declared 0.2.0  tag rust/core@0.1.0  hosted github  toven  unpublished"
+        );
+        let json = serde_json::to_string(&status_record(&status)).expect("serializes to json");
+        assert!(json.contains("\"declared_version\":\"0.2.0\""));
     }
 }

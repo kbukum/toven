@@ -43,8 +43,9 @@ pub struct BumpOptions {
 pub struct BumpModuleOutcome {
     /// The bumped module.
     pub module: ModuleKey,
-    /// The module's version before the bump.
-    pub old_version: Version,
+    /// The module's version before the bump, or `None` when it had never been
+    /// released (a tag-only module cutting its first version).
+    pub old_version: Option<Version>,
     /// The module's version after the bump, when it received an own-version
     /// bump. `None` for a dependency-floor-only module, whose manifest is
     /// rewritten (its dependency pins move) without cutting a new version.

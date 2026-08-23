@@ -117,7 +117,7 @@ mod tests {
             },
             Event::ModuleReleaseResolved {
                 module: "core".into(),
-                current_version: "1.2.0".into(),
+                current_version: Some("1.2.0".into()),
                 planned_version: Some("1.3.0".into()),
                 level: "minor".into(),
                 reason: "changed".into(),

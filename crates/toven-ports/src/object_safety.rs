@@ -36,8 +36,8 @@ impl RawOutputSink for FakeRawOutputSink {
 
 struct FakeReleaseTarget;
 impl VersionSource for FakeReleaseTarget {
-    fn declared_version(&self, _module: &Module) -> AppResult<Version> {
-        Ok(Version::new(0, 1, 0))
+    fn declared_version(&self, _module: &Module) -> AppResult<Option<Version>> {
+        Ok(Some(Version::new(0, 1, 0)))
     }
     fn published_versions(&self, _module: &Module) -> AppResult<Vec<Version>> {
         Ok(Vec::new())
@@ -426,7 +426,18 @@ fn port_traits_are_object_safe() {
         .release_target(&reader)
         .expect("ok")
         .expect("present");
-    assert_eq!(target.declared_version(&module).expect("ok").minor, 1);
+    assert_eq!(
+        target
+            .declared_version(&module)
+            .expect("ok")
+            .expect("some")
+            .minor,
+        1
+    );
+    assert_eq!(
+        target.declared_version_required(&module).expect("ok").minor,
+        1
+    );
     assert!(target.published_versions(&module).expect("ok").is_empty());
     let artifact = target.package(&module).expect("packages");
     target

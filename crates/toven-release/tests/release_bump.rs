@@ -454,7 +454,7 @@ fn a_module_changed_since_its_tag_still_enters_the_bump_plan() {
         1,
         "the changed module still enters the bump plan: {report:?}"
     );
-    assert_eq!(report.modules[0].old_version, Version::new(0, 1, 0));
+    assert_eq!(report.modules[0].old_version, Some(Version::new(0, 1, 0)));
     assert_eq!(
         report.modules[0].new_version,
         Some(Version::new(0, 1, 1)),

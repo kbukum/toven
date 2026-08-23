@@ -113,9 +113,9 @@ flowchart LR
 
 Release change detection asks what changed since a module's baseline. The baseline source is configurable per ecosystem and per module — the module's own latest release tag, the member's umbrella tag, the registry's max published version, or `registry+umbrella` — and resolves to a per-ecosystem default (`registry+umbrella` for Rust, `own-tag` for Go). See [tag modes and baseline sources](../config/release.md#tag-modes-and-baseline-sources) for the full model and defaults. Release detection does not use a branch ref by default; `[project].base_ref` and `[[members]].base_ref` apply to changed-selection commands such as `toven affected`.
 
-Use `--base <REF>` to override a release diff explicitly. A module with no resolvable baseline always joins the plan as an initial release with reason `initial-release`. Its first release cuts the version the module already declares, such as `0.1.0-alpha.1`, instead of bumping past it.
+Use `--base <REF>` to override a release diff explicitly. A module with no resolvable baseline that already declares a version joins the plan as an initial release with reason `initial-release`; its first release cuts the declared version, such as `0.1.0-alpha.1`, instead of bumping past it. A tag-only module with no reachable release tag has no declared version to cut on its own; supply its first version with an explicit override — a per-module or workspace-wide `--set-version` (reason `explicit`), or a valueless level flag (reason `changed`), which seeds the first version. Without an explicit override, a never-tagged module with no declared version fails closed. Toven never fabricates a `0.0.0` published baseline.
 
-Explicit version argv still wins when you want a deliberate first bump: `--patch`, `--minor`, `--major`, `--set-version`, or `--pre`.
+Explicit version argv still wins when you want a deliberate first bump: `--patch`, `--minor`, `--major`, `--set-version`, or `--pre`. A per-module or workspace-wide override also **forces** an otherwise-unchanged module into the release — the root of a lock-step-tag-all set is the canonical case — so no forced module is silently dropped as `no change`.
 
 Status performs read-only tag and ecosystem-target lookups and reports each releasable module's publication policy. Lookup failures surface as errors. With `offline = true`, status uses release tags for idempotency and skips registry lookups.
 
@@ -251,22 +251,36 @@ Each hosted Release preview includes the fully rendered, commit-derived notes bo
 Supply version choices to rehearsal and mutating actions:
 
 ```bash
-toven release publish --dry-run --minor rust:core
+toven release publish --dry-run --minor=rust:core
 toven release publish --dry-run --set-version rust:cli=2.0.0
 toven release publish --dry-run --pre rc --base origin/main
 ```
 
 | Option | Meaning |
 |---|---|
-| `--patch <MODULE>` | Force a patch bump; repeatable |
-| `--minor <MODULE>` | Force a minor bump; repeatable |
-| `--major <MODULE>` | Force a major bump; repeatable |
-| `--set-version <MODULE>=<VERSION>` | Set an exact version; repeatable |
+| `--patch[=<MODULE>]` | Force a patch bump. With `=<MODULE>`, that module (repeatable); with no value, every in-scope module, each advancing from its own baseline (repo-wide) |
+| `--minor[=<MODULE>]` | Force a minor bump. With `=<MODULE>`, that module (repeatable); with no value, every in-scope module, each advancing from its own baseline (repo-wide) |
+| `--major[=<MODULE>]` | Force a major bump. With `=<MODULE>`, that module (repeatable); with no value, every in-scope module, each advancing from its own baseline (repo-wide) |
+| `--set-version <VERSION>` | Set one exact target for **every** in-scope module (lock-step): root and submodules, changed or not, tagged or brand-new |
+| `--set-version <MODULE>=<VERSION>` | Set an exact version for one module (repeatable) |
 | `--pre <CHANNEL>` | Select a configured prerelease channel |
 | `--base <REF>` | Override the change baseline |
 | `--offline` | Skip target version queries and use release tags for idempotency |
 
-Conflicting overrides fail before mutation.
+The valued form of a level flag requires `=` (`--minor=rust:core`): a space-separated value would be ambiguous against the valueless repo-wide form, so it is rejected rather than guessed. Conflicting overrides fail before mutation. A workspace-wide target (`--set-version <VERSION>`) and a workspace-wide level (a valueless `--patch`/`--minor`/`--major`) are mutually exclusive, as are two distinct workspace targets or two distinct workspace levels; a per-module `--set-version <MODULE>=…` or level flag still wins for the module it names. A target that does not strictly exceed a module's current version is rejected with the module and both versions named.
+
+### Lock-step versioning
+
+A tag-only monorepo that tags every module together (a root `vX.Y.Z` plus per-module `<path>/vX.Y.Z`) sets one version across the whole set in a single argv, without a per-module flag each:
+
+```bash
+toven release bump --dry-run --set-version 0.3.0-alpha.1   # every module → 0.3.0-alpha.1
+toven release bump --dry-run --set-version 0.3.0           # finalize a pending prerelease train
+```
+
+A valueless level flag is the repo-wide counterpart that keeps per-module baselines instead of pinning one version: `toven release bump --minor` advances every in-scope module one minor from its own current version (`0.1.0` → `0.2.0` for one module, `1.4.2` → `1.5.0` for another), seeding a first version for brand-new modules.
+
+The root/hosted module is always included, even when its own tracked files did not change since the baseline — so a lock-step-tag-all repository never drops the module that fronts the hosted Release. Brand-new modules with no reachable release tag join their first release at the target rather than erroring; a level flag seeds their first version.
 
 ## Bump versions and changelogs
 
@@ -276,7 +290,7 @@ toven release bump --dry-run
 toven release bump --output jsonl
 ```
 
-`bump` runs only the version decision phase. It is **change-gated**: only modules that actually advanced (a direct change or a dependency cascade) enter the bump; a workspace with nothing to release is a clean no-op that reports `nothing to bump`. For each bumped module it rewrites the manifest version and dependency floors and, where configured, rolls the changelog.
+`bump` runs only the version decision phase. It is **change-gated**: modules that actually advanced (a direct change or a dependency cascade) enter the bump; a workspace with nothing to release is a clean no-op that reports `nothing to bump`. An explicit override — a per-module or workspace-wide `--set-version`/level flag — forces the modules it names in regardless, so a lock-step cut releases every module (root included) even when only some changed. For each bumped module it rewrites the manifest version and dependency floors and, where configured, rolls the changelog.
 
 `bump` is **write-only**: it leaves the manifest and changelog mutation **staged** in the index for a maintainer to review and land through their own pull request. It never commits, tags, pushes, publishes, or cuts a hosted Release. In the Toven and rskit release flow the version and changelog change *is* the release decision; `tag` and `publish` own the commit, tags, and push, and run after the staged change merges. The workflow is: `toven release bump` → review the staged diff → open a branch and pull request → merge → `toven release tag` / `toven release publish`.
 
