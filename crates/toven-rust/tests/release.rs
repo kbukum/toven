@@ -74,25 +74,40 @@ fn apply_release_bumps_the_workspace_root_not_the_member() {
 #[test]
 fn apply_release_on_shared_root_routes_every_member_to_one_root() {
     // Many members of a single-version workspace resolve to one workspace root.
-    // Each member's `apply_release` reports that same root path (the engine
-    // dedupes the staged set), and the repeated write is idempotent.
+    // The FIRST member to request the bump actually rewrites the shared root and
+    // reports it; every later member requesting the SAME version finds the root
+    // already at target, so its write is a no-op that reports NO path. The root
+    // is thus written exactly once, and the empty second result proves we no
+    // longer restage an untouched manifest per member.
     let repo = SampleRepo::materialize("rust/workspace-inherited-multi").expect("materialize");
     let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
 
     let target = target();
-    let root_path = RepoPath::new("Cargo.toml").unwrap();
+
+    let first = target
+        .apply_release(
+            &member_module("app"),
+            &ReleaseMutation::version(Version::new(0, 4, 0)),
+        )
+        .expect("apply release for first member");
+    assert_eq!(
+        first,
+        vec![RepoPath::new("Cargo.toml").unwrap()],
+        "the first member rewrites and reports the one workspace root"
+    );
+
+    let second = target
+        .apply_release(
+            &member_module("lib"),
+            &ReleaseMutation::version(Version::new(0, 4, 0)),
+        )
+        .expect("apply release for second member");
+    assert!(
+        second.is_empty(),
+        "the second member finds the root already at target and reports no write: {second:?}"
+    );
 
     for name in ["app", "lib"] {
-        let module = member_module(name);
-        let changed = target
-            .apply_release(&module, &ReleaseMutation::version(Version::new(0, 4, 0)))
-            .expect("apply release");
-        assert_eq!(
-            changed,
-            vec![root_path.clone()],
-            "member '{name}' routes its bump to the one workspace root"
-        );
-
         let member =
             std::fs::read_to_string(repo.child(format!("crates/{name}/Cargo.toml"))).expect("read");
         assert!(
@@ -105,6 +120,38 @@ fn apply_release_on_shared_root_routes_every_member_to_one_root() {
     assert!(
         root.contains("version = \"0.4.0\""),
         "shared workspace version bumped once: {root}"
+    );
+}
+
+#[test]
+fn apply_release_rejects_divergent_bumps_to_a_shared_workspace_root() {
+    // Two members of one single-version workspace requesting DIFFERENT versions
+    // is a real conflict: their inherited `[workspace.package].version` is shared,
+    // so a silent last-writer-wins would tag one member at a version the root no
+    // longer carries. The second, divergent request must fail closed with a typed
+    // `release.version` error rather than corrupt the release.
+    let repo = SampleRepo::materialize("rust/workspace-inherited-multi").expect("materialize");
+    let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
+
+    let target = target();
+
+    target
+        .apply_release(
+            &member_module("app"),
+            &ReleaseMutation::version(Version::new(0, 4, 0)),
+        )
+        .expect("first member bumps the shared root");
+
+    let error = target
+        .apply_release(
+            &member_module("lib"),
+            &ReleaseMutation::version(Version::new(0, 5, 0)),
+        )
+        .expect_err("a divergent sibling bump to the same root must fail closed");
+    let message = error.to_string();
+    assert!(
+        message.contains("divergent"),
+        "expected a typed divergent-bump conflict, got: {message}"
     );
 }
 

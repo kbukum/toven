@@ -9,8 +9,9 @@
 //! and a hard timeout. Each method returns typed data or a typed error — never
 //! a success-shaped fallback.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
@@ -67,13 +68,25 @@ const CARGO_COMMAND_TIMEOUT: Duration = Duration::from_mins(2);
 #[derive(Clone)]
 pub struct CargoRegistryTarget {
     runner: Arc<dyn ToolRunner>,
+    /// The version each workspace-root manifest has been asked to bump to,
+    /// keyed by absolute manifest path. A single `release apply` fans
+    /// `apply_release` across every member; members of one inheriting workspace
+    /// all route their version bump to the same root. Recording the intended
+    /// version per root lets a second member that requests a **different**
+    /// version (e.g. a semver cascade that bumps one sibling minor and another
+    /// patch) fail closed with a typed conflict instead of last-writer-wins
+    /// clobbering the shared root while earlier tags used the other version.
+    workspace_root_versions: Arc<Mutex<BTreeMap<PathBuf, Version>>>,
 }
 
 impl CargoRegistryTarget {
     /// Construct the crates.io target.
     #[must_use]
     pub fn new(runner: Arc<dyn ToolRunner>) -> Self {
-        Self { runner }
+        Self {
+            runner,
+            workspace_root_versions: Arc::new(Mutex::new(BTreeMap::new())),
+        }
     }
 
     /// Resolve a module's repo-relative manifest to an absolute path under the
@@ -109,6 +122,51 @@ impl CargoRegistryTarget {
             ));
         }
         Ok(resolved)
+    }
+
+    /// Record the version a workspace-root manifest is being asked to bump to,
+    /// failing closed on a conflicting request.
+    ///
+    /// A single `release apply` invokes [`Self::apply_release`] once per member;
+    /// every inheriting member of one workspace routes its version bump to the
+    /// same root. The first request records `owner → version`; a later request
+    /// for the **same** root and the **same** version is idempotent, but a
+    /// request for a **different** version is a real conflict (a per-sibling
+    /// bump divergence such as minor vs patch) that would otherwise silently
+    /// last-writer-wins the shared root while earlier siblings tagged the other
+    /// version. Reject it with an actionable typed error rather than corrupting
+    /// the release.
+    ///
+    /// # Errors
+    /// A typed conflict error when `owner` was already recorded at a different
+    /// version, or an internal error if the shared lock is poisoned.
+    fn record_workspace_version(&self, owner: &Path, new_version: &Version) -> AppResult<()> {
+        let mut recorded = self.workspace_root_versions.lock().map_err(|_| {
+            AppError::new(
+                ErrorCode::Internal,
+                "workspace-root version ledger lock was poisoned",
+            )
+        })?;
+        if let Some(existing) = recorded.get(owner) {
+            if existing == new_version {
+                return Ok(());
+            }
+            let existing = existing.clone();
+            drop(recorded);
+            return Err(AppError::invalid_input(
+                "release.version",
+                format!(
+                    "workspace root '{}' received divergent version bumps ('{existing}' and \
+                     '{new_version}'); its members share one inherited \
+                     `[workspace.package].version`, so release them lock-step with a single \
+                     `--set-version` rather than per-member cascade levels",
+                    owner.display()
+                ),
+            ));
+        }
+        recorded.insert(owner.to_path_buf(), new_version.clone());
+        drop(recorded);
+        Ok(())
     }
 
     /// Resolve the cargo target directory for `manifest`, honoring
@@ -349,11 +407,14 @@ impl ManifestMutator for CargoRegistryTarget {
 
         if let (Some(new_version), Some(site)) = (&mutation.new_version, version_site.as_ref()) {
             match site {
-                // Literal member version, or a root that is both workspace and
-                // package (the inherited version lives in this same manifest):
-                // bump in place.
+                // Literal member version: bump in place.
                 VersionSite::OwnPackage => set_package_version(&mut doc, new_version, &path)?,
+                // A root that is both workspace and package (the inherited
+                // version lives in this same manifest): record the intended
+                // workspace-root version for conflict detection, then bump in
+                // place.
                 VersionSite::Workspace(owner) if owner == &path => {
+                    self.record_workspace_version(&path, new_version)?;
                     set_workspace_package_version(&mut doc, new_version, &path)?;
                 }
                 // Inherited from a *separate* workspace-root manifest: this
@@ -371,18 +432,21 @@ impl ManifestMutator for CargoRegistryTarget {
 
         // Route an inherited version bump to the owning workspace-root manifest
         // exactly once. Many members of a single-version workspace resolve to
-        // the same root; the engine dedupes the staged path set, and the write
-        // is idempotent, so a repeated bump to the same version is a no-op.
+        // the same root; recording the intended version fails closed on a
+        // divergent sibling bump, and the owner path is staged only when a write
+        // actually landed — an already-at-target root is a no-op returning no
+        // path (the engine still dedupes across members as a backstop).
         if let (Some(new_version), Some(VersionSite::Workspace(owner))) =
             (&mutation.new_version, version_site.as_ref())
             && owner != &path
         {
+            self.record_workspace_version(owner, new_version)?;
             let owner_text = read_string_bounded(owner, MAX_MANIFEST_BYTES)?;
             let owner_rewritten = apply_workspace_root_version(&owner_text, owner, new_version)?;
             if owner_rewritten != owner_text {
                 write_atomic_replace(owner, owner_rewritten.as_bytes(), MANIFEST_TEMP_PREFIX)?;
+                changed.push(workspace_root_repo_path(owner, &working_root)?);
             }
-            changed.push(workspace_root_repo_path(owner, &working_root)?);
         }
 
         Ok(changed)
