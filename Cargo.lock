@@ -2010,7 +2010,7 @@ checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 
 [[package]]
 name = "toven"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "libtest-mimic",
  "rskit-cli",
@@ -2026,7 +2026,7 @@ dependencies = [
 
 [[package]]
 name = "toven-cli"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2053,7 +2053,7 @@ dependencies = [
 
 [[package]]
 name = "toven-command"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "rskit-codec",
  "rskit-config",
@@ -2067,7 +2067,7 @@ dependencies = [
 
 [[package]]
 name = "toven-core"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "rskit-codec",
  "rskit-config",
@@ -2088,7 +2088,7 @@ dependencies = [
 
 [[package]]
 name = "toven-engine"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "async-trait",
  "futures",
@@ -2115,7 +2115,7 @@ dependencies = [
 
 [[package]]
 name = "toven-exec"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "async-trait",
  "rskit-errors",
@@ -2130,7 +2130,7 @@ dependencies = [
 
 [[package]]
 name = "toven-go"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "rskit-cli",
  "rskit-codec",
@@ -2150,7 +2150,7 @@ dependencies = [
 
 [[package]]
 name = "toven-go-app"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "rskit-cli",
  "rskit-codec",
@@ -2168,7 +2168,7 @@ dependencies = [
 
 [[package]]
 name = "toven-model"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "rskit-errors",
  "rskit-fs",
@@ -2180,7 +2180,7 @@ dependencies = [
 
 [[package]]
 name = "toven-ports"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "async-trait",
  "futures",
@@ -2201,7 +2201,7 @@ dependencies = [
 
 [[package]]
 name = "toven-release"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "async-trait",
  "rskit-config",
@@ -2228,7 +2228,7 @@ dependencies = [
 
 [[package]]
 name = "toven-rs"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "rskit-cli",
  "rskit-errors",
@@ -2242,7 +2242,7 @@ dependencies = [
 
 [[package]]
 name = "toven-runtime"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "async-trait",
  "rskit-errors",
@@ -2253,7 +2253,7 @@ dependencies = [
 
 [[package]]
 name = "toven-rust"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "cargo_metadata",
  "rskit-cli",
@@ -2275,7 +2275,7 @@ dependencies = [
 
 [[package]]
 name = "toven-semver"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "rskit-errors",
  "rskit-version",
@@ -2284,7 +2284,7 @@ dependencies = [
 
 [[package]]
 name = "toven-testkit"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "async-trait",
  "futures",
@@ -2307,7 +2307,7 @@ dependencies = [
 
 [[package]]
 name = "toven-vcs"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "rskit-errors",
  "rskit-fs",
@@ -2320,7 +2320,7 @@ dependencies = [
 
 [[package]]
 name = "toven-version"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "rskit-errors",
  "rskit-version",
