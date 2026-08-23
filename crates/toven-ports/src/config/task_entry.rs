@@ -35,6 +35,21 @@ pub struct TaskEntry {
     /// The intrinsic fan-out ceiling.
     #[serde(default = "default_fan_out")]
     pub fan_out: FanOut,
+    /// Whether this task's whole-workspace invocation resolves its own
+    /// cross-workspace dependency closure, so co-scheduling it inside an
+    /// irreducible facade back-dependency cycle is sound.
+    ///
+    /// Only honored together with `fan_out = whole-workspace`: it is the
+    /// *verified semantic* — distinct from the fan-out ceiling — that lets the
+    /// scheduler condense a whole-workspace facade cycle into one co-scheduled
+    /// wave instead of failing closed. Adapters set it for tool invocations
+    /// that build/operate on their entire workspace atomically and so have no
+    /// real handoff to a sibling unit (`cargo … --workspace`, `go … ./...`). It
+    /// defaults `false`, so an arbitrary custom whole-workspace command is never
+    /// assumed self-contained — a cycle touching one keeps failing closed until
+    /// its author opts in explicitly.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub workspace_closure: bool,
     /// Whether this is a persistent (long-lived) task.
     #[serde(default, skip_serializing_if = "is_false")]
     pub persistent: bool,
@@ -116,6 +131,7 @@ impl TaskEntry {
         let mut task =
             Task::new(key, self.argv.clone(), self.fan_out).with_kind(self.resolved_kind(key));
         task.origin = TaskOrigin::Project;
+        task.workspace_closure = self.workspace_closure;
         task.selector.clone_from(&self.selector);
         task.cache_args = self.cache_args;
         task.cacheable = self.cacheable;
@@ -149,6 +165,7 @@ mod tests {
             argv: argv.iter().map(ToString::to_string).collect(),
             selector: Vec::new(),
             fan_out: FanOut::PerModule,
+            workspace_closure: false,
             persistent: false,
             readiness: super::Readiness::Started,
             readiness_timeout_secs: None,
@@ -254,5 +271,37 @@ mod tests {
             .materialize("go", "format-check")
             .expect("materializes");
         assert!(task.fail_if_output);
+    }
+
+    #[test]
+    fn workspace_closure_defaults_false_and_is_omitted_when_off() {
+        let entry = entry(&["cargo", "test", "-p", "app"]);
+        assert!(!entry.workspace_closure);
+        let serialized = toml::to_string(&entry).expect("serialize");
+        assert!(
+            !serialized.contains("workspace_closure"),
+            "the off-by-default capability is omitted: {serialized}"
+        );
+        let task = entry.materialize("rust", "test").expect("materializes");
+        assert!(
+            !task.workspace_closure,
+            "an arbitrary task is never assumed self-contained"
+        );
+    }
+
+    #[test]
+    fn workspace_closure_true_survives_a_round_trip_and_materializes() {
+        let mut entry = entry(&["cargo", "test", "--workspace"]);
+        entry.fan_out = FanOut::WholeWorkspace;
+        entry.workspace_closure = true;
+        let serialized = toml::to_string(&entry).expect("serialize");
+        assert!(
+            serialized.contains("workspace_closure = true"),
+            "{serialized}"
+        );
+        let back: TaskEntry = toml::from_str(&serialized).expect("deserialize");
+        assert!(back.workspace_closure);
+        let task = back.materialize("rust", "test").expect("materializes");
+        assert!(task.workspace_closure);
     }
 }

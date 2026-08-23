@@ -85,7 +85,25 @@ fn adapter_with(
     strategy: RunStrategy,
     fan_out: FanOut,
 ) -> Box<dyn ConfiguredAdapter> {
-    let task = Task::new("test", vec!["x".to_string()], fan_out);
+    // Real ecosystem adapters mark their whole-workspace tool invocations as
+    // resolving their own cross-workspace closure, so mirror that here: a
+    // whole-workspace `test` task is co-schedulable inside a facade cycle.
+    adapter_with_closure(
+        ecosystem,
+        strategy,
+        fan_out,
+        fan_out == FanOut::WholeWorkspace,
+    )
+}
+
+fn adapter_with_closure(
+    ecosystem: &str,
+    strategy: RunStrategy,
+    fan_out: FanOut,
+    workspace_closure: bool,
+) -> Box<dyn ConfiguredAdapter> {
+    let mut task = Task::new("test", vec!["x".to_string()], fan_out);
+    task.workspace_closure = workspace_closure;
     Box::new(
         FakeConfiguredAdapter::new(eid(ecosystem))
             .with_response(DiscoverResponse::new(eid(ecosystem)))
@@ -675,6 +693,60 @@ fn whole_workspace_facade_cycle_co_schedules_the_cycle_into_one_wave() {
 }
 
 #[test]
+fn whole_workspace_facade_cycle_without_closure_capability_fails_closed() {
+    // The identical whole-workspace facade cycle, but the adapter's task does NOT
+    // carry the verified `workspace_closure` capability — the shape of an arbitrary
+    // custom whole-workspace command that could hand output to another workspace.
+    // Fan-out alone is not proof of self-containment, so the leveler must keep the
+    // cycle failing closed rather than strip its real edges and co-schedule it.
+    let federation = Federation {
+        workspaces: vec![workspace("core"), workspace("contrib")],
+        modules: vec![
+            module("rust", "base", "core"),
+            module("rust", "suite", "core"),
+            module("rust", "plugin", "contrib"),
+        ],
+        edges: vec![
+            Edge::new(
+                mref("rust", "plugin"),
+                mref("rust", "base"),
+                DepKind::Normal,
+            ),
+            Edge::new(
+                mref("rust", "suite"),
+                mref("rust", "plugin"),
+                DepKind::Normal,
+            ),
+        ],
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with_closure(
+            "rust",
+            RunStrategy::LeafToTop,
+            FanOut::WholeWorkspace,
+            false,
+        ),
+    );
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+    let error = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &GroupOverrides::default(),
+        &toolchains(&federation),
+    )
+    .expect_err("a whole-workspace cycle without the closure capability must fail closed");
+    assert!(
+        error.to_string().contains("cannot be co-scheduled"),
+        "{error}"
+    );
+}
+
+#[test]
 fn whole_workspace_acyclic_dependency_orders_units_across_waves() {
     // Two whole-workspace units with a one-way dependency (no facade cycle): the
     // `app` workspace depends on the `core` workspace. SCC condensation leaves both
@@ -1068,7 +1140,11 @@ fn non_run_tasks_never_filter_library_only_modules() {
 /// Build a bare [`PlannedUnit`] for direct leveling tests: only the id,
 /// whole-workspace flag, and gating edges vary; every other field takes an
 /// inert default.
-fn planned_unit(id: &str, whole_workspace: bool, depends_on: &[&str]) -> super::unit::PlannedUnit {
+fn planned_unit(
+    id: &str,
+    cycle_co_schedulable: bool,
+    depends_on: &[&str],
+) -> super::unit::PlannedUnit {
     super::unit::PlannedUnit {
         id: id.to_string(),
         module: toven_model::ModuleKey::bare(mref("rust", "m")),
@@ -1087,7 +1163,7 @@ fn planned_unit(id: &str, whole_workspace: bool, depends_on: &[&str]) -> super::
         fail_if_output: false,
         toolchain_identity: String::new(),
         depends_on: depends_on.iter().map(|dep| (*dep).to_string()).collect(),
-        whole_workspace,
+        cycle_co_schedulable,
         resource_group: None,
     }
 }

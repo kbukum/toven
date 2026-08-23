@@ -316,11 +316,12 @@ pub(super) fn group_dependencies(
 /// acyclic graph has only singleton components, so its waves are byte-identical
 /// to a plain longest-path level. A **non-trivial** component (a genuine cycle
 /// of two or more units) is co-scheduled into one wave **only** when every one
-/// of its units is an atomic whole-workspace invocation ([`whole_workspace`]) —
-/// the facade back-dependency shape, where each unit resolves its own
-/// path-dependency closure and so has no real build handoff to another unit. A
-/// residual cycle touching any non-whole-workspace unit (a `PerModule` unit, or
-/// a `Batchable` base a layer split could not break) has a real intra-cycle
+/// of its units is a whole-workspace invocation whose tool resolves its own
+/// cross-workspace dependency closure ([`cycle_co_schedulable`]) — the facade
+/// back-dependency shape, where each unit has no real build handoff to another
+/// unit. A residual cycle touching any other unit (a `PerModule` unit, a
+/// `Batchable` base a layer split could not break, or even a whole-workspace
+/// task without the verified closure capability) may encode a real intra-cycle
 /// handoff that co-scheduling would silently violate, so it stays a hard typed
 /// scheduling error rather than being co-scheduled.
 ///
@@ -330,12 +331,12 @@ pub(super) fn group_dependencies(
 /// in-flight peer and emit a contradictory second terminal outcome for it in
 /// APPLY. Cross-component edges (the real handoffs) are preserved untouched.
 ///
-/// [`whole_workspace`]: PlannedUnit::whole_workspace
+/// [`cycle_co_schedulable`]: PlannedUnit::cycle_co_schedulable
 ///
 /// # Errors
 /// A typed internal error if a unit gates on an id absent from `units`, or if a
-/// residual cycle contains a non-whole-workspace unit — both surfaced loudly
-/// rather than silently dropped or co-scheduled.
+/// residual cycle contains a unit that is not co-schedulable — both surfaced
+/// loudly rather than silently dropped or co-scheduled.
 pub(super) fn level_units_into_waves(units: &mut [PlannedUnit]) -> AppResult<Vec<Vec<String>>> {
     let order: Vec<&str> = units.iter().map(|unit| unit.id.as_str()).collect();
     let mut index_of: BTreeMap<&str, usize> = BTreeMap::new();
@@ -369,20 +370,21 @@ pub(super) fn level_units_into_waves(units: &mut [PlannedUnit]) -> AppResult<Vec
 }
 
 /// Fail closed unless every non-trivial strongly-connected component is
-/// composed exclusively of whole-workspace units.
+/// composed exclusively of co-schedulable units.
 ///
 /// A component of two or more units is a genuine cycle. Co-scheduling it is
-/// only sound when each unit is an atomic whole-workspace invocation
-/// ([`PlannedUnit::whole_workspace`]) that resolves its own path-dependency
-/// closure — then the mutual edges are bookkeeping, not build handoffs. If any
-/// unit in the cycle is `PerModule` or an un-splittable `Batchable` base, the
-/// cycle encodes a real handoff that co-scheduling would silently violate, so
-/// it stays the same hard scheduling error a cyclic graph produced before
-/// facade co-scheduling existed.
+/// only sound when each unit is a whole-workspace invocation whose tool
+/// resolves its own cross-workspace dependency closure
+/// ([`PlannedUnit::cycle_co_schedulable`]) — then the mutual edges are
+/// bookkeeping, not build handoffs. If any unit in the cycle is `PerModule`, an
+/// un-splittable `Batchable` base, or a whole-workspace task lacking the
+/// verified closure capability, the cycle may encode a real handoff that
+/// co-scheduling would silently violate, so it stays the same hard scheduling
+/// error a cyclic graph produced before facade co-scheduling existed.
 ///
 /// # Errors
 /// A typed internal error naming the cyclic units when a non-trivial component
-/// contains a non-whole-workspace unit.
+/// contains a unit that is not co-schedulable.
 fn ensure_cycles_co_schedulable(units: &[PlannedUnit], component_of: &[usize]) -> AppResult<()> {
     let component_count = component_of.iter().copied().max().map_or(0, |id| id + 1);
     let mut sizes = vec![0usize; component_count];
@@ -399,14 +401,15 @@ fn ensure_cycles_co_schedulable(units: &[PlannedUnit], component_of: &[usize]) -
             .filter(|&(_, &unit_component)| unit_component == component)
             .map(|(unit, _)| unit)
             .collect();
-        if members.iter().all(|unit| unit.whole_workspace) {
+        if members.iter().all(|unit| unit.cycle_co_schedulable) {
             continue;
         }
         let ids: Vec<&str> = members.iter().map(|unit| unit.id.as_str()).collect();
         return Err(AppError::new(
             rskit_errors::ErrorCode::Internal,
             format!(
-                "scheduling cycle among non-whole-workspace units cannot be co-scheduled: {}",
+                "scheduling cycle among units that are not co-schedulable cannot be \
+                 co-scheduled: {}",
                 ids.join(", ")
             ),
         ));

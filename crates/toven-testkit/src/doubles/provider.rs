@@ -122,6 +122,7 @@ fn task_entry(task: &Task) -> (String, TaskEntry) {
         argv: task.argv.clone(),
         selector: task.selector.clone(),
         fan_out: task.fan_out,
+        workspace_closure: task.workspace_closure,
         persistent: task.persistent,
         readiness: task.readiness.clone(),
         readiness_timeout_secs,

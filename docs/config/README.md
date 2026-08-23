@@ -221,6 +221,7 @@ fail_if_output = false
 | `argv` | string list | Required | Exact argument-vector template |
 | `selector` | string list | `[]` | Module selector inserted at `{module.selector}` |
 | `fan_out` | `"per-module"`, `"batchable"`, or `"whole-workspace"` | `"per-module"` | Maximum batching shape the task supports |
+| `workspace_closure` | boolean | `false` | Whether a `whole-workspace` invocation resolves its own cross-workspace dependency closure, so it may be co-scheduled inside an irreducible facade back-dependency cycle. Only honored with `fan_out = "whole-workspace"`; adapters set it on tool invocations that operate on the whole workspace atomically (`cargo … --workspace`, `go … ./...`). It stays off for arbitrary custom commands, so a cycle touching one keeps failing closed until its author opts in. |
 | `persistent` | boolean | `false` | Keep the process alive after readiness |
 | `readiness` | readiness enum | `"started"` | Signal for persistent tasks |
 | `readiness_timeout_secs` | integer | `30` | Readiness timeout for persistent tasks |

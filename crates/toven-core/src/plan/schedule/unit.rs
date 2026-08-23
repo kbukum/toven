@@ -65,11 +65,15 @@ pub(in crate::plan) struct PlannedUnit {
     pub(in crate::plan) toolchain_identity: String,
     /// Unit ids this unit depends on (scheduled dependency edges) for gating.
     pub(in crate::plan) depends_on: Vec<String>,
-    /// Whether this unit is an atomic whole-workspace invocation
-    /// ([`FanOut::WholeWorkspace`]). Only whole-workspace units are eligible to
-    /// co-schedule inside an irreducible facade cycle; a residual cycle
-    /// touching any non-whole-workspace unit stays a hard scheduling error.
-    pub(in crate::plan) whole_workspace: bool,
+    /// Whether this unit is a whole-workspace invocation whose tool resolves its
+    /// own cross-workspace dependency closure ([`FanOut::WholeWorkspace`] **and**
+    /// the task's verified [`workspace_closure`] capability). Only such units are
+    /// eligible to co-schedule inside an irreducible facade cycle; a residual
+    /// cycle touching any other unit — an ordinary whole-workspace task without
+    /// the closure capability included — stays a hard scheduling error.
+    ///
+    /// [`workspace_closure`]: toven_ports::Task::workspace_closure
+    pub(in crate::plan) cycle_co_schedulable: bool,
     /// Optional within-wave serialization key from the module metadata.
     pub(in crate::plan) resource_group: Option<String>,
 }
@@ -124,7 +128,13 @@ pub(super) fn plan_unit(
     let task_name = task.name.clone();
     crate::plan::shared_inputs::validate_shared_inputs(id, &task.shared_inputs)?;
     let depends_on = group_dependencies(id, members, kept_deps, group_ids);
-    let whole_workspace = task.fan_out == FanOut::WholeWorkspace;
+    // A facade cycle may only be co-scheduled when the unit's whole-workspace
+    // invocation resolves its own cross-workspace dependency closure. That is a
+    // verified task capability, not an implication of the fan-out ceiling alone:
+    // an arbitrary custom `whole-workspace` command could still hand output to
+    // another workspace, so it stays ineligible and keeps such a cycle failing
+    // closed.
+    let cycle_co_schedulable = task.fan_out == FanOut::WholeWorkspace && task.workspace_closure;
     let resource_group = representative.resource_group.clone();
 
     Ok(PlannedUnit {
@@ -145,7 +155,7 @@ pub(super) fn plan_unit(
         fail_if_output: task.fail_if_output,
         toolchain_identity,
         depends_on,
-        whole_workspace,
+        cycle_co_schedulable,
         resource_group,
     })
 }
