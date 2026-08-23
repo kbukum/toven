@@ -1121,7 +1121,8 @@ struct StatusRecord {
     module: String,
     publication: String,
     registry: Option<String>,
-    declared_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    declared_version: Option<String>,
     latest_tag: Option<String>,
     host_forge: Option<String>,
     published_versions: Vec<String>,
@@ -1191,7 +1192,10 @@ fn status_line(module: &ReleaseModuleStatus) -> String {
         "{}  {}  declared {}  tag {}  hosted {}  {}  {}",
         module.module,
         publication_label(&module.publication),
-        module.declared_version,
+        module
+            .declared_version
+            .as_ref()
+            .map_or_else(|| "unreleased".to_owned(), ToString::to_string),
         module.latest_tag.as_deref().unwrap_or("-"),
         module.host_forge.as_deref().unwrap_or("-"),
         status_flow_label(module.entrypoint, module.maintainer_tag_present),
@@ -1209,7 +1213,7 @@ fn status_record(module: &ReleaseModuleStatus) -> StatusRecord {
         module: module.module.to_string(),
         publication: module.publication.as_str().to_string(),
         registry: module.publication.registry().map(str::to_string),
-        declared_version: module.declared_version.to_string(),
+        declared_version: module.declared_version.as_ref().map(ToString::to_string),
         latest_tag: module.latest_tag.clone(),
         host_forge: module.host_forge.clone(),
         published_versions: module

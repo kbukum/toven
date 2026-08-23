@@ -160,7 +160,7 @@ fn module_status(inputs: &StatusInputs, module: &StatusModule) -> AppResult<Rele
             )
         })?;
     let resolved = &module.settings;
-    let declared = target.declared_version_required(&module.module)?;
+    let declared = target.declared_version(&module.module)?;
     // Only a registry-published module in online mode has a meaningful
     // published set. A tag-only module never publishes (querying it would
     // still hit the network — e.g. `cargo search` — for a set that is
@@ -181,13 +181,18 @@ fn module_status(inputs: &StatusInputs, module: &StatusModule) -> AppResult<Rele
     // Offline there is no registry set to consult — idempotency anchors on
     // release tags instead (mirroring plan-time `planned <= tagged`), so the
     // published verdict comes from the newest release tag: a declared
-    // version at/below it has already been released.
+    // version at/below it has already been released. A never-versioned module
+    // has no declared version to compare, so it is simply not published yet.
     let is_published = if resolved.offline {
-        latest
-            .as_ref()
-            .is_some_and(|(tagged, _)| &declared <= tagged)
+        declared.as_ref().is_some_and(|declared| {
+            latest
+                .as_ref()
+                .is_some_and(|(tagged, _)| declared <= tagged)
+        })
     } else if resolved.publication.publishes_to_registry() {
-        published.contains(&declared)
+        declared
+            .as_ref()
+            .is_some_and(|declared| published.contains(declared))
     } else {
         false
     };
@@ -195,16 +200,17 @@ fn module_status(inputs: &StatusInputs, module: &StatusModule) -> AppResult<Rele
     // For a maintainer-owned module the maintainer creates the release tag
     // before Toven publishes against it, so surface whether the tag for the
     // declared version is already present — a fail-closed readiness signal.
-    // A Toven-owned module creates its own tag, so the question does not
-    // apply (`None`).
+    // A never-versioned module has no declared version to tag, so it reports
+    // `Some(false)` (not ready). A Toven-owned module creates its own tag, so
+    // the question does not apply (`None`).
     let maintainer_tag_present = if resolved.entrypoint.is_maintainer_owned() {
-        let expected = tag::format(&scheme, &declared);
-        Some(
+        Some(declared.as_ref().is_some_and(|declared| {
+            let expected = tag::format(&scheme, declared);
             inputs
                 .tags_by_member
                 .get(&module.member)
-                .is_some_and(|tags| tags.iter().any(|tag| tag.name == expected)),
-        )
+                .is_some_and(|tags| tags.iter().any(|tag| tag.name == expected))
+        }))
     } else {
         None
     };
@@ -438,9 +444,38 @@ mod tests {
                 registry: "crates-io".into()
             }
         );
-        assert_eq!(entry.declared_version, Version::new(0, 2, 0));
+        assert_eq!(entry.declared_version, Some(Version::new(0, 2, 0)));
         assert_eq!(entry.latest_tag.as_deref(), Some("rust/core@0.1.0"));
         assert_eq!(entry.published_versions, vec![Version::new(0, 1, 0)]);
+        assert!(!entry.is_published);
+    }
+
+    #[test]
+    fn status_reports_a_never_versioned_module_as_unreleased() {
+        // A never-tagged tag-only module has no declared version; the
+        // pre-release status step must report it as unreleased rather than
+        // failing the whole verb.
+        let core = module("core");
+        let mut response = DiscoverResponse::new(eid("rust"));
+        response.modules = vec![core.clone()];
+        let target = FakeReleaseTarget::new().with_no_declared_version();
+        let adapter = FakeConfiguredAdapter::new(eid("rust"))
+            .with_response(response)
+            .with_release_target(target);
+        let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
+        let providers: Vec<&dyn Provider> = vec![&provider];
+
+        let vcs = FakeVcsReader::new();
+        let readers = MemberVcsReaders::single(&vcs, BaselineSpec::explicit("main"));
+        let mut reporter = RecordingReporter::new();
+
+        let status = release_status(&request(), &document(), &providers, &readers, &mut reporter)
+            .expect("a versionless module is reported, not an error");
+
+        let entry = &status.modules[0];
+        assert_eq!(entry.module, core.key());
+        assert_eq!(entry.declared_version, None);
+        assert_eq!(entry.latest_tag, None);
         assert!(!entry.is_published);
     }
 
@@ -922,7 +957,7 @@ mod tests {
             assert_eq!(*status, UnitStatus::Succeeded);
             let outcome = outcome.as_ref().expect("settled status carries an outcome");
             assert_eq!(&outcome.module.to_string(), unit_id);
-            assert_eq!(outcome.declared_version, Version::new(0, 2, 0));
+            assert_eq!(outcome.declared_version, Some(Version::new(0, 2, 0)));
             assert_eq!(outcome.published_versions, vec![Version::new(0, 1, 0)]);
         }
     }

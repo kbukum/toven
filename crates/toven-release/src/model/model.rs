@@ -201,8 +201,11 @@ pub struct ReleaseModuleStatus {
     pub module: ModuleKey,
     /// Typed publication policy resolved for this module.
     pub publication: PublicationPolicy,
-    /// Version the module's manifest currently declares.
-    pub declared_version: Version,
+    /// Version the module's manifest currently declares, or `None` when the
+    /// module has never been released (a tag-only module with no reachable
+    /// release tag) — status reports such a module as `unreleased` rather
+    /// than failing the whole verb.
+    pub declared_version: Option<Version>,
     /// Newest release tag cut for the module, if any.
     pub latest_tag: Option<String>,
     /// Forge the module resolves for hosted Release participation

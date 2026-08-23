@@ -241,6 +241,23 @@ impl<'a> BumpPlanner<'a> {
         let current = input.current_version.clone();
         self.decision.insert(input);
 
+        // An excluded module stays entirely outside the release — even when a
+        // workspace-wide override forces it: no seed, no cascade activation,
+        // and above all no recorded planned version, so a dependent's floor
+        // can never cascade toward a version that is never mutated or tagged.
+        let releases = self
+            .decision
+            .config(&reference)
+            .is_none_or(|config| config.publication.releases());
+        if !releases {
+            self.next += 1;
+            return Ok(BumpResolution {
+                module: reference,
+                current_version: current,
+                entry: None,
+            });
+        }
+
         let dep_floor_updates = dep_floor_updates(
             &reference,
             self.decision.cfg.graph.edges(),
@@ -286,13 +303,7 @@ impl<'a> BumpPlanner<'a> {
                 .insert(reference.clone(), version.clone());
         }
 
-        let publication = self
-            .decision
-            .config(&reference)
-            .map(|config| &config.publication);
-        let entry = if (bump.planned.is_none() && dep_floor_updates.is_empty())
-            || !publication.is_none_or(toven_ports::PublicationPolicy::releases)
-        {
+        let entry = if bump.planned.is_none() && dep_floor_updates.is_empty() {
             None
         } else {
             let input = self.decision.input(&reference)?;
@@ -1392,6 +1403,86 @@ mod tests {
         assert_eq!(entry.reason, BumpReason::Changed);
         assert_eq!(entry.winning_input, BumpSource::Argv);
         assert_eq!(entry.planned_version, Some(Version::new(1, 0, 0)));
+    }
+
+    #[test]
+    fn an_excluded_module_stays_outside_a_workspace_wide_override() {
+        // A workspace-wide override forces every in-scope module — except an
+        // excluded one: it plans no version, so a dependent's floor can never
+        // cascade toward a version that will never be mutated or tagged.
+        let mut excluded = dep_input("core", DependentVersion::Bump);
+        excluded.config.publication = PublicationPolicy::Excluded;
+        let dependent = dep_input("leaf", DependentVersion::Bump);
+        let (core_key, leaf_key) = (key("core"), key("leaf"));
+        let edges = vec![Edge::new(
+            leaf_key.clone(),
+            core_key.clone(),
+            DepKind::Normal,
+        )];
+        let graph = Graph::build(vec![module("core"), module("leaf")], edges).expect("graph");
+        let overrides = BumpOverrides::new()
+            .with_workspace_set_version(Version::new(1, 0, 0))
+            .expect("workspace target");
+        let inputs = vec![excluded, dependent];
+
+        let plan = plan_bumps(
+            &inputs,
+            &BumpConfig {
+                graph: &graph,
+                branches: &no_branches(),
+                policy: BumpPolicy::SemverCascade,
+                overrides: &overrides,
+                intent: CutIntent::Bump,
+            },
+        )
+        .expect("plan");
+
+        let by_module = |k: &ModuleKey| plan.entries.iter().find(|e| &e.module == k);
+        assert!(
+            by_module(&core_key).is_none(),
+            "an excluded module never plans a release"
+        );
+        let leaf = by_module(&leaf_key).expect("the forced dependent still releases");
+        assert_eq!(leaf.planned_version, Some(Version::new(1, 0, 0)));
+        assert!(
+            leaf.dep_floor_updates.is_empty(),
+            "no floor cascade toward the excluded module's never-cut version: {:?}",
+            leaf.dep_floor_updates
+        );
+    }
+
+    #[test]
+    fn an_excluded_changed_module_neither_seeds_nor_cascades() {
+        // A change inside an excluded module releases nothing and activates no
+        // dependent: the changed module plans no version, so there is no floor
+        // for the cascade to raise.
+        let mut excluded = dep_input("core", DependentVersion::Bump);
+        excluded.config.publication = PublicationPolicy::Excluded;
+        excluded.changed = true;
+        let dependent = dep_input("leaf", DependentVersion::Bump);
+        let (core_key, leaf_key) = (key("core"), key("leaf"));
+        let edges = vec![Edge::new(leaf_key, core_key, DepKind::Normal)];
+        let graph = Graph::build(vec![module("core"), module("leaf")], edges).expect("graph");
+        let overrides = BumpOverrides::new();
+        let inputs = vec![excluded, dependent];
+
+        let plan = plan_bumps(
+            &inputs,
+            &BumpConfig {
+                graph: &graph,
+                branches: &no_branches(),
+                policy: BumpPolicy::SemverCascade,
+                overrides: &overrides,
+                intent: CutIntent::Verify,
+            },
+        )
+        .expect("plan");
+
+        assert!(
+            plan.entries.is_empty(),
+            "an excluded change activates nothing: {:?}",
+            plan.entries
+        );
     }
 
     #[test]
