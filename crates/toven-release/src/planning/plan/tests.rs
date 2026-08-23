@@ -382,7 +382,7 @@ fn release_plan_streams_a_decision_per_module_before_any_mutation() {
         decisions,
         vec![(
             "rust:core".to_string(),
-            "0.1.0".to_string(),
+            Some("0.1.0".to_string()),
             Some("0.2.0".to_string()),
             "minor".to_string(),
         )],

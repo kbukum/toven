@@ -160,7 +160,7 @@ fn module_status(inputs: &StatusInputs, module: &StatusModule) -> AppResult<Rele
             )
         })?;
     let resolved = &module.settings;
-    let declared = target.declared_version(&module.module)?;
+    let declared = target.declared_version_required(&module.module)?;
     // Only a registry-published module in online mode has a meaningful
     // published set. A tag-only module never publishes (querying it would
     // still hit the network — e.g. `cargo search` — for a set that is

@@ -435,7 +435,7 @@ mod tests {
         let version = Version::new(0, 1, 1);
         ReleaseEntry {
             module: mkey(name),
-            current_version: Version::new(0, 1, 0),
+            current_version: Some(Version::new(0, 1, 0)),
             planned_version: Some(version.clone()),
             planned_tag: Some(format!("rust/{name}@{version}")),
             level: BumpLevel::Patch,

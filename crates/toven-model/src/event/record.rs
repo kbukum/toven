@@ -128,8 +128,10 @@ pub enum Event {
     ModuleReleaseResolved {
         /// Module the decision is for (its canonical key).
         module: String,
-        /// Version the module's manifest currently declares.
-        current_version: String,
+        /// Version the module currently declares, or `None` when it has never
+        /// been released (a tag-only module with no reachable release tag).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        current_version: Option<String>,
         /// Version to release, when the module receives an own-version bump.
         /// `None` when only a dependency floor moves or the module is already
         /// up to date, so a decision with no own-version change is not rendered
@@ -320,7 +322,7 @@ mod tests {
         // Full decision with every optional field populated.
         round_trip(&Event::ModuleReleaseResolved {
             module: "core".into(),
-            current_version: "1.2.0".into(),
+            current_version: Some("1.2.0".into()),
             planned_version: Some("1.3.0".into()),
             level: "minor".into(),
             reason: "changed".into(),
@@ -331,7 +333,7 @@ mod tests {
         // A decision with no own-version bump omits the optional fields.
         round_trip(&Event::ModuleReleaseResolved {
             module: "leaf".into(),
-            current_version: "0.4.1".into(),
+            current_version: Some("0.4.1".into()),
             planned_version: None,
             level: "patch".into(),
             reason: "dependency-cascade".into(),
@@ -400,7 +402,7 @@ mod tests {
 
         let resolved = serde_json::to_value(Event::ModuleReleaseResolved {
             module: "core".into(),
-            current_version: "1.2.0".into(),
+            current_version: Some("1.2.0".into()),
             planned_version: None,
             level: "patch".into(),
             reason: "changed".into(),

@@ -105,7 +105,7 @@ pub(super) fn decide_version(
         if !resolved.publication.releases() {
             continue;
         }
-        let declared = target.declared_version(module)?;
+        let declared = target.declared_version_required(module)?;
         match &decided {
             None => decided = Some(declared),
             Some(existing) if existing != &declared => {

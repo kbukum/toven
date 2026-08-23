@@ -128,8 +128,11 @@ pub struct ModuleVersionConfig {
 pub struct VersionInputs {
     /// The module this input describes.
     pub module: ModuleKey,
-    /// The version the module's manifest currently declares.
-    pub current_version: Version,
+    /// The version the module currently declares, or `None` when the module has
+    /// never been released and declares no version (a tag-only ecosystem module
+    /// with no reachable release tag). A `None` resolves to an initial release
+    /// driven by an explicit or lock-step target.
+    pub current_version: Option<Version>,
     /// The registry's published versions for the module (empty offline or when
     /// a lookup failed — treated as "publish needed").
     pub published_versions: Vec<Version>,

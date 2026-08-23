@@ -160,10 +160,13 @@ pub(super) fn resolved_version_map(
     let mut canonical = BTreeMap::new();
     let mut alias_owners: BTreeMap<String, Option<Version>> = BTreeMap::new();
     for entry in &plan.entries {
-        let version = entry
+        let Some(version) = entry
             .planned_version
             .clone()
-            .unwrap_or_else(|| entry.current_version.clone());
+            .or_else(|| entry.current_version.clone())
+        else {
+            continue;
+        };
         let Some(module) = module_by_ref.get(&entry.module) else {
             continue;
         };

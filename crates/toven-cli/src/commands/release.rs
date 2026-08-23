@@ -88,12 +88,24 @@ fn build_overrides(cli: &Cli) -> AppResult<BumpOverrides> {
         (&cli.major, BumpLevel::Major),
     ] {
         for module in modules {
-            overrides = overrides.with_module_level(ModuleRef::parse(module)?, level)?;
+            if module == WORKSPACE_SCOPE {
+                overrides = overrides.with_workspace_level(level)?;
+            } else {
+                overrides = overrides.with_module_level(ModuleRef::parse(module)?, level)?;
+            }
         }
     }
     for pair in &cli.set_version {
-        let (module, version) = parse_set_version(pair)?;
-        overrides = overrides.with_set_version(module, version)?;
+        match parse_set_version(pair)? {
+            (Some(module), version) => {
+                overrides = overrides.with_set_version(module, version)?;
+            }
+            // A bare `--set-version <version>` (no `<module>=`) targets every
+            // in-scope module in one argv — the lock-step / ecosystem-wide cut.
+            (None, version) => {
+                overrides = overrides.with_workspace_set_version(version)?;
+            }
+        }
     }
     if let Some(channel) = &cli.pre {
         overrides = overrides.with_prerelease(channel.clone());
@@ -104,22 +116,30 @@ fn build_overrides(cli: &Cli) -> AppResult<BumpOverrides> {
     Ok(overrides.with_offline(cli.offline))
 }
 
-/// Parse a `--set-version <module>=<x.y.z>` argument into its module and
-/// target.
-fn parse_set_version(pair: &str) -> AppResult<(ModuleRef, Version)> {
-    let (module, version) = pair.split_once('=').ok_or_else(|| {
-        AppError::invalid_input(
-            "release.set-version",
-            format!("expected '<module>=<x.y.z>', got '{pair}'"),
-        )
-    })?;
-    let version = Version::parse(version).map_err(|error| {
+/// The reserved `--patch`/`--minor`/`--major` value that selects the
+/// workspace-wide (lock-step / ecosystem-wide) scope instead of one module.
+const WORKSPACE_SCOPE: &str = "*";
+
+/// Parse a `--set-version` argument. `<module>=<x.y.z>` pins one module;
+/// a bare `<x.y.z>` (no `=`) is the workspace-wide lock-step target.
+fn parse_set_version(pair: &str) -> AppResult<(Option<ModuleRef>, Version)> {
+    match pair.split_once('=') {
+        Some((module, version)) => {
+            let version = parse_target_version(version)?;
+            Ok((Some(ModuleRef::parse(module)?), version))
+        }
+        None => Ok((None, parse_target_version(pair)?)),
+    }
+}
+
+/// Parse a `--set-version` target version, surfacing an actionable error.
+fn parse_target_version(version: &str) -> AppResult<Version> {
+    Version::parse(version).map_err(|error| {
         AppError::invalid_input(
             "release.set-version",
             format!("invalid version '{version}': {error}"),
         )
-    })?;
-    Ok((ModuleRef::parse(module)?, version))
+    })
 }
 
 /// Build the release-scoped PLAN request rooted at the project.

@@ -165,6 +165,34 @@ mod tests {
     }
 
     #[test]
+    fn patch_finalizes_a_0x_alpha_prerelease_without_advancing_the_train() {
+        // gokit's finalize: an alpha lock-step train 0.3.0-alpha.N promotes to
+        // the stable 0.3.0 it was staging, not 0.3.1.
+        assert_eq!(
+            next_version(&parse("0.3.0-alpha.1"), EffectiveLevel::Patch, None).unwrap(),
+            Version::new(0, 3, 0)
+        );
+        assert_eq!(
+            next_version(&parse("0.3.0-alpha.7"), EffectiveLevel::Patch, None).unwrap(),
+            Version::new(0, 3, 0)
+        );
+    }
+
+    #[test]
+    fn a_higher_level_on_a_prerelease_leaves_the_pending_train_and_advances() {
+        // A minor/major on a pending prerelease does not finalize it: it moves
+        // the numeric train off the staged release.
+        assert_eq!(
+            next_version(&parse("0.3.0-alpha.1"), EffectiveLevel::Minor, None).unwrap(),
+            Version::new(0, 4, 0)
+        );
+        assert_eq!(
+            next_version(&parse("0.3.0-alpha.1"), EffectiveLevel::Major, None).unwrap(),
+            Version::new(1, 0, 0)
+        );
+    }
+
+    #[test]
     fn prerelease_channel_starts_and_continues_a_train() {
         // Stable + patch + rc starts a fresh train on the bumped base.
         assert_eq!(

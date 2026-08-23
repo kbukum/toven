@@ -33,7 +33,7 @@ fn reads_the_declared_version_from_the_manifest() {
     let version = target()
         .declared_version(&app_module())
         .expect("declared version");
-    assert_eq!(version, Version::new(0, 1, 0));
+    assert_eq!(version, Some(Version::new(0, 1, 0)));
 }
 
 #[test]
@@ -48,7 +48,7 @@ fn apply_release_rewrites_the_declared_version() {
         .expect("apply release");
 
     let version = target.declared_version(&module).expect("re-read version");
-    assert_eq!(version, Version::new(0, 2, 0));
+    assert_eq!(version, Some(Version::new(0, 2, 0)));
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn reads_a_version_inherited_from_the_workspace_root() {
     let version = target()
         .declared_version(&app_module())
         .expect("inherited version resolves from [workspace.package]");
-    assert_eq!(version, Version::new(0, 3, 0));
+    assert_eq!(version, Some(Version::new(0, 3, 0)));
 }
 
 #[test]

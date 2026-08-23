@@ -35,7 +35,7 @@ pub(crate) fn examining_event(module: &ModuleKey) -> Event {
 pub(crate) fn resolved_event(entry: &ReleaseEntry) -> Event {
     Event::ModuleReleaseResolved {
         module: entry.module.to_string(),
-        current_version: entry.current_version.to_string(),
+        current_version: entry.current_version.as_ref().map(ToString::to_string),
         planned_version: entry.planned_version.as_ref().map(ToString::to_string),
         level: entry.level.as_str().to_string(),
         reason: entry.reason.as_str().to_string(),
@@ -48,10 +48,10 @@ pub(crate) fn resolved_event(entry: &ReleaseEntry) -> Event {
 /// Project a module with no release work onto its settled decision event.
 #[allow(clippy::redundant_pub_crate)]
 #[must_use]
-pub(crate) fn no_change_event(module: &ModuleKey, current_version: &Version) -> Event {
+pub(crate) fn no_change_event(module: &ModuleKey, current_version: Option<&Version>) -> Event {
     Event::ModuleReleaseResolved {
         module: module.to_string(),
-        current_version: current_version.to_string(),
+        current_version: current_version.map(ToString::to_string),
         planned_version: None,
         level: "patch".to_string(),
         reason: "no-change".to_string(),

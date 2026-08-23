@@ -240,11 +240,13 @@ impl CargoRegistryTarget {
 }
 
 impl VersionSource for CargoRegistryTarget {
-    fn declared_version(&self, module: &Module) -> AppResult<Version> {
+    fn declared_version(&self, module: &Module) -> AppResult<Option<Version>> {
         let root = Self::working_root()?;
         let path = Self::manifest_path(module)?;
         let text = read_string_bounded(&path, MAX_MANIFEST_BYTES)?;
-        read_declared_version(&text, &path, &root)
+        // A Cargo manifest always declares a version, so a Rust crate always has
+        // a concrete declared version.
+        read_declared_version(&text, &path, &root).map(Some)
     }
 
     fn published_versions(&self, module: &Module) -> AppResult<Vec<Version>> {
@@ -305,7 +307,7 @@ impl Packager for CargoRegistryTarget {
         let artifact = self.target_directory(&path)?.join("package").join(format!(
             "{}-{}.crate",
             package_name(module),
-            self.declared_version(module)?
+            self.declared_version_required(module)?
         ));
         Ok(Artifact::new(artifact))
     }

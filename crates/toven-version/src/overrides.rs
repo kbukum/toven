@@ -24,6 +24,8 @@ use toven_ports::BumpLevel;
 pub struct BumpOverrides {
     module_levels: BTreeMap<ModuleRef, BumpLevel>,
     set_versions: BTreeMap<ModuleRef, Version>,
+    workspace_level: Option<BumpLevel>,
+    workspace_set_version: Option<Version>,
     prerelease: Option<String>,
     base: Option<String>,
     offline: bool,
@@ -79,6 +81,47 @@ impl BumpOverrides {
         Ok(self)
     }
 
+    /// Force every in-scope module to the same explicit target `version`
+    /// (lock-step / ecosystem-wide), unless a per-module override names it.
+    ///
+    /// The single-argv lock-step target: every release-scope module — root and
+    /// submodules, changed or not, tagged or brand-new — is put on `version`,
+    /// so a lock-step-tag-all repository cuts one version across the whole set
+    /// without a per-module flag each. A per-module `--set-version`/level still
+    /// wins for the module it names (argv-precedence within the same run).
+    ///
+    /// # Errors
+    /// Rejects a run that already carries a workspace-wide level (a workspace
+    /// target and a workspace level are mutually exclusive).
+    pub fn with_workspace_set_version(mut self, version: Version) -> AppResult<Self> {
+        if self.workspace_level.is_some() {
+            return Err(workspace_conflict());
+        }
+        self.workspace_set_version = Some(version);
+        Ok(self)
+    }
+
+    /// Force every in-scope module to bump at the same `level` (lock-step /
+    /// ecosystem-wide), unless a per-module override names it.
+    ///
+    /// # Errors
+    /// Rejects `BumpLevel::Auto` (a workspace level is always an explicit
+    /// `patch`/`minor`/`major`) or a run that already carries a workspace-wide
+    /// target.
+    pub fn with_workspace_level(mut self, level: BumpLevel) -> AppResult<Self> {
+        if level == BumpLevel::Auto {
+            return Err(AppError::invalid_input(
+                "release.bump",
+                "workspace bump level must be patch, minor, or major",
+            ));
+        }
+        if self.workspace_set_version.is_some() {
+            return Err(workspace_conflict());
+        }
+        self.workspace_level = Some(level);
+        Ok(self)
+    }
+
     /// Cut a prerelease on `channel`.
     #[must_use]
     pub fn with_prerelease(mut self, channel: impl Into<String>) -> Self {
@@ -118,14 +161,42 @@ impl BumpOverrides {
         self.offline
     }
 
-    /// The forced level for `module`, if any.
+    /// The forced level for `module`, if any (per-module, else workspace-wide).
     pub(crate) fn module_level(&self, module: &ModuleRef) -> Option<BumpLevel> {
-        self.module_levels.get(module).copied()
+        if let Some(level) = self.module_levels.get(module).copied() {
+            return Some(level);
+        }
+        // A per-module target pins the module and takes the set-version path, so
+        // the workspace level must not also apply to it.
+        if self.set_versions.contains_key(module) {
+            return None;
+        }
+        self.workspace_level
     }
 
-    /// The pinned version for `module`, if any.
+    /// The pinned version for `module`, if any (per-module, else workspace-wide).
     pub(crate) fn set_version(&self, module: &ModuleRef) -> Option<&Version> {
-        self.set_versions.get(module)
+        if let Some(version) = self.set_versions.get(module) {
+            return Some(version);
+        }
+        // A per-module level pins the module and takes the level path, so the
+        // workspace target must not also apply to it.
+        if self.module_levels.contains_key(module) {
+            return None;
+        }
+        self.workspace_set_version.as_ref()
+    }
+
+    /// Whether an explicit override (per-module or workspace-wide) forces
+    /// `module` into the release, even when it is otherwise unchanged.
+    ///
+    /// A `--set-version`/level override is an explicit instruction to release
+    /// the named module (or, workspace-wide, every module) at a version, so it
+    /// must be included even if its own tracked files did not change since the
+    /// baseline — the root/hosted module of a lock-step set is the canonical
+    /// case.
+    pub(crate) fn forces(&self, module: &ModuleRef) -> bool {
+        self.set_version(module).is_some() || self.module_level(module).is_some()
     }
 
     /// Validate that every module named in an override is in the release scope.
@@ -153,6 +224,15 @@ fn conflict(module: &ModuleRef) -> AppError {
     AppError::invalid_input(
         "release.bump",
         format!("conflicting bump overrides for module '{module}'"),
+    )
+}
+
+/// The typed error for a run that mixes a workspace-wide target and level.
+fn workspace_conflict() -> AppError {
+    AppError::invalid_input(
+        "release.bump",
+        "a workspace-wide target version and a workspace-wide bump level cannot be combined; \
+         choose one",
     )
 }
 
@@ -218,5 +298,103 @@ mod tests {
     fn an_auto_level_override_is_rejected() {
         let result = BumpOverrides::new().with_module_level(mref("core"), BumpLevel::Auto);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn a_workspace_target_and_workspace_level_cannot_combine() {
+        let with_target = BumpOverrides::new()
+            .with_workspace_set_version(Version::new(0, 3, 0))
+            .unwrap();
+        assert!(with_target.with_workspace_level(BumpLevel::Minor).is_err());
+
+        let with_level = BumpOverrides::new()
+            .with_workspace_level(BumpLevel::Minor)
+            .unwrap();
+        assert!(
+            with_level
+                .with_workspace_set_version(Version::new(0, 3, 0))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_workspace_target_applies_to_every_module() {
+        let overrides = BumpOverrides::new()
+            .with_workspace_set_version(Version::new(0, 3, 0))
+            .unwrap();
+        assert_eq!(
+            overrides.set_version(&mref("root")),
+            Some(&Version::new(0, 3, 0))
+        );
+        assert_eq!(
+            overrides.set_version(&mref("submodule")),
+            Some(&Version::new(0, 3, 0))
+        );
+        assert!(overrides.forces(&mref("anything")));
+    }
+
+    #[test]
+    fn a_per_module_target_wins_over_the_workspace_target() {
+        let overrides = BumpOverrides::new()
+            .with_workspace_set_version(Version::new(0, 3, 0))
+            .unwrap()
+            .with_set_version(mref("core"), Version::new(1, 0, 0))
+            .unwrap();
+        assert_eq!(
+            overrides.set_version(&mref("core")),
+            Some(&Version::new(1, 0, 0)),
+            "the per-module pin wins for the module it names"
+        );
+        assert_eq!(
+            overrides.set_version(&mref("other")),
+            Some(&Version::new(0, 3, 0)),
+            "every other module still takes the workspace target"
+        );
+    }
+
+    #[test]
+    fn a_per_module_level_wins_over_the_workspace_target_for_its_module() {
+        let overrides = BumpOverrides::new()
+            .with_workspace_set_version(Version::new(0, 3, 0))
+            .unwrap()
+            .with_module_level(mref("core"), BumpLevel::Major)
+            .unwrap();
+        // The named module takes its level path, not the workspace target.
+        assert_eq!(overrides.set_version(&mref("core")), None);
+        assert_eq!(
+            overrides.module_level(&mref("core")),
+            Some(BumpLevel::Major)
+        );
+        // Other modules still take the workspace target.
+        assert_eq!(
+            overrides.set_version(&mref("other")),
+            Some(&Version::new(0, 3, 0))
+        );
+        assert_eq!(overrides.module_level(&mref("other")), None);
+    }
+
+    #[test]
+    fn a_workspace_level_applies_to_every_module() {
+        let overrides = BumpOverrides::new()
+            .with_workspace_level(BumpLevel::Minor)
+            .unwrap();
+        assert_eq!(
+            overrides.module_level(&mref("root")),
+            Some(BumpLevel::Minor)
+        );
+        assert_eq!(
+            overrides.module_level(&mref("leaf")),
+            Some(BumpLevel::Minor)
+        );
+        assert!(overrides.forces(&mref("leaf")));
+    }
+
+    #[test]
+    fn an_auto_workspace_level_is_rejected() {
+        assert!(
+            BumpOverrides::new()
+                .with_workspace_level(BumpLevel::Auto)
+                .is_err()
+        );
     }
 }

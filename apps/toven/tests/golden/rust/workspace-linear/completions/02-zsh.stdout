@@ -33,10 +33,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -105,10 +105,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -170,10 +170,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -234,10 +234,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -305,10 +305,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -368,10 +368,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -431,10 +431,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -494,10 +494,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -557,10 +557,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -620,10 +620,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -683,10 +683,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -746,10 +746,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -809,10 +809,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -872,10 +872,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -935,10 +935,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -998,10 +998,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -1061,10 +1061,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -1124,10 +1124,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -1267,10 +1267,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -1330,10 +1330,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -1394,10 +1394,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -1457,10 +1457,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -1521,10 +1521,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -1584,10 +1584,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -1647,10 +1647,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -1710,10 +1710,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -1773,10 +1773,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -1836,10 +1836,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -1900,10 +1900,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -1964,10 +1964,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -2028,10 +2028,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -2092,10 +2092,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -2163,10 +2163,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -2227,10 +2227,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -2322,10 +2322,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -2393,10 +2393,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -2456,10 +2456,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -2551,10 +2551,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -2622,10 +2622,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -2685,10 +2685,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
@@ -2748,10 +2748,10 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
-'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]:MODULE:_default' \
-'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable)]:MODULE:_default' \
-'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable)]:MODULE:_default' \
-'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable)]:MODULE=VERSION:_default' \
+'*--patch=[Release tag/publish only\: force \`<module>\` to bump at the patch level (repeatable). Given with no value, bumps every in-scope module at patch (lock-step / ecosystem-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release tag/publish only\: force \`<module>\` to bump at the minor level (repeatable). Given with no value, bumps every in-scope module at minor (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--major=[Release tag/publish only\: force \`<module>\` to bump at the major level (repeatable). Given with no value, bumps every in-scope module at major (lock-step / ecosystem-wide)]::MODULE:_default' \
+'*--set-version=[Release tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step / ecosystem-wide, root included)]:[MODULE=]VERSION:_default' \
 '--pre=[Release tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
 '--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
 '--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \

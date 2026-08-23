@@ -49,10 +49,13 @@ pub(crate) fn authoritative_versions(
 ) -> BTreeMap<String, Version> {
     let mut versions = BTreeMap::new();
     for entry in &plan.entries {
-        let version = entry
+        let Some(version) = entry
             .planned_version
             .clone()
-            .unwrap_or_else(|| entry.current_version.clone());
+            .or_else(|| entry.current_version.clone())
+        else {
+            continue;
+        };
         if let Some(module) = module_by_ref.get(&entry.module) {
             if let Some(package) = &module.package {
                 versions.insert(package.clone(), version.clone());

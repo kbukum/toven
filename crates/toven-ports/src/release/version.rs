@@ -1,6 +1,6 @@
 //! [`VersionSource`] — the version-read phase contract (`select`/`bump` seed).
 
-use rskit_errors::AppResult;
+use rskit_errors::{AppError, AppResult};
 use rskit_version::semver::Version;
 use toven_model::Module;
 
@@ -12,8 +12,45 @@ use toven_model::Module;
 /// the engine can hold it as a trait object behind
 /// [`ReleaseAdapter`](super::ReleaseAdapter).
 pub trait VersionSource {
-    /// Read the module's declared version from its manifest.
-    fn declared_version(&self, module: &Module) -> AppResult<Version>;
+    /// Read the module's declared version, or `None` when the module has no
+    /// released version yet.
+    ///
+    /// A manifest ecosystem (Rust) always reports the version its manifest
+    /// declares. A tag-only ecosystem (Go) has no manifest version: its
+    /// declared version is the highest reachable release tag, and a module with
+    /// **no** reachable release tag has never been released, so it reports
+    /// `None` rather than failing closed. `None` is a first-class "never
+    /// released" signal the bump decision resolves to an initial release (a
+    /// brand-new module joining a lock-step set), driven by an explicit or
+    /// lock-step target — it is not an error. Callers that genuinely need a
+    /// concrete version (verify/publish/status of an already-released module)
+    /// use [`declared_version_required`](Self::declared_version_required).
+    fn declared_version(&self, module: &Module) -> AppResult<Option<Version>>;
+
+    /// Read the module's declared version, failing closed when it has none.
+    ///
+    /// The verify/publish/status paths operate on an already-released module and
+    /// require a concrete version; a `None` there is a genuine error with an
+    /// actionable message telling the operator to supply a first release
+    /// version. The bump decision, by contrast, consults
+    /// [`declared_version`](Self::declared_version) directly so a never-released
+    /// module resolves to an initial release.
+    ///
+    /// # Errors
+    /// Propagates a read failure, or fails closed when the module has no
+    /// released version.
+    fn declared_version_required(&self, module: &Module) -> AppResult<Version> {
+        self.declared_version(module)?.ok_or_else(|| {
+            AppError::invalid_input(
+                "release.version",
+                format!(
+                    "module '{}' has no released version; supply an explicit first release \
+                     version (for example `--set-version <version>`) before releasing it",
+                    module.key()
+                ),
+            )
+        })
+    }
 
     /// Query the registry for the versions it already reports as published —
     /// the publish loop's idempotency pre-skip and the tag seed.

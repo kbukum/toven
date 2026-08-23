@@ -231,7 +231,7 @@ impl<W: Write> HumanReporter<W> {
     fn write_release_resolved(
         &mut self,
         module: &str,
-        current_version: &str,
+        current_version: Option<&str>,
         planned_version: Option<&str>,
         level: &str,
         reason: &str,
@@ -239,18 +239,24 @@ impl<W: Write> HumanReporter<W> {
     ) -> AppResult<()> {
         let (detail, label, tone) = if up_to_date {
             (
-                format!("{module}: already at {current_version}"),
+                format!(
+                    "{module}: already at {}",
+                    current_version.unwrap_or("(unreleased)")
+                ),
                 "Unchanged",
                 Tone::Dim,
             )
         } else if reason == "no-change" {
             (
-                format!("{module}: no change ({current_version})"),
+                format!(
+                    "{module}: no change ({})",
+                    current_version.unwrap_or("unreleased")
+                ),
                 "Unchanged",
                 Tone::Dim,
             )
         } else if let Some(planned) = planned_version {
-            if planned == current_version {
+            if current_version.is_none_or(|current| current == planned) {
                 match reason {
                     "initial-release" => (
                         format!("{module}: initial release {planned}"),
@@ -265,14 +271,20 @@ impl<W: Write> HumanReporter<W> {
                 }
             } else {
                 (
-                    format!("{module}: {current_version} → {planned} ({level})"),
+                    format!(
+                        "{module}: {} → {planned} ({level})",
+                        current_version.unwrap_or("unreleased")
+                    ),
                     "Releasing",
                     Tone::Success,
                 )
             }
         } else {
             (
-                format!("{module}: {current_version} (dependency floor)"),
+                format!(
+                    "{module}: {} (dependency floor)",
+                    current_version.unwrap_or("unreleased")
+                ),
                 "Updating",
                 Tone::Warning,
             )
@@ -464,7 +476,7 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
                 ..
             } => self.write_release_resolved(
                 module,
-                current_version,
+                current_version.as_deref(),
                 planned_version.as_deref(),
                 level,
                 reason,
@@ -913,7 +925,7 @@ summary
         reporter
             .emit(&Event::ModuleReleaseResolved {
                 module: "rust:core".into(),
-                current_version: "1.2.0".into(),
+                current_version: Some("1.2.0".into()),
                 planned_version: Some("1.3.0".into()),
                 level: "minor".into(),
                 reason: "changed".into(),
@@ -1006,7 +1018,7 @@ summary
             },
             Event::ModuleReleaseResolved {
                 module: "core".into(),
-                current_version: "1.2.0".into(),
+                current_version: Some("1.2.0".into()),
                 planned_version: Some("1.3.0".into()),
                 level: "minor".into(),
                 reason: "changed".into(),
@@ -1029,7 +1041,7 @@ summary
             },
             Event::ModuleReleaseResolved {
                 module: "core".into(),
-                current_version: "1.2.0".into(),
+                current_version: Some("1.2.0".into()),
                 planned_version: Some("1.3.0".into()),
                 level: "minor".into(),
                 reason: "changed".into(),
@@ -1073,7 +1085,7 @@ summary
         let events = vec![
             Event::ModuleReleaseResolved {
                 module: "core".into(),
-                current_version: "1.2.0".into(),
+                current_version: Some("1.2.0".into()),
                 planned_version: Some("1.3.0".into()),
                 level: "minor".into(),
                 reason: "changed".into(),
@@ -1100,7 +1112,7 @@ summary
         // No planned bump must never render as a bogus version change.
         let up_to_date = Event::ModuleReleaseResolved {
             module: "leaf".into(),
-            current_version: "0.4.1".into(),
+            current_version: Some("0.4.1".into()),
             planned_version: None,
             level: "patch".into(),
             reason: "changed".into(),
@@ -1115,7 +1127,7 @@ summary
 
         let floor_only = Event::ModuleReleaseResolved {
             module: "leaf".into(),
-            current_version: "0.4.1".into(),
+            current_version: Some("0.4.1".into()),
             planned_version: None,
             level: "patch".into(),
             reason: "dependency-cascade".into(),
@@ -1130,7 +1142,7 @@ summary
 
         let no_change = Event::ModuleReleaseResolved {
             module: "idle".into(),
-            current_version: "0.4.1".into(),
+            current_version: Some("0.4.1".into()),
             planned_version: None,
             level: "patch".into(),
             reason: "no-change".into(),
@@ -1151,7 +1163,7 @@ summary
         // `0.1.0 → 0.1.0` transition.
         let initial = Event::ModuleReleaseResolved {
             module: "core".into(),
-            current_version: "0.1.0".into(),
+            current_version: Some("0.1.0".into()),
             planned_version: Some("0.1.0".into()),
             level: "minor".into(),
             reason: "initial-release".into(),
@@ -1238,7 +1250,7 @@ summary
         let events = [
             Event::ModuleReleaseResolved {
                 module: "core".into(),
-                current_version: "1.2.0".into(),
+                current_version: Some("1.2.0".into()),
                 planned_version: Some("1.3.0".into()),
                 level: "minor".into(),
                 reason: "changed".into(),

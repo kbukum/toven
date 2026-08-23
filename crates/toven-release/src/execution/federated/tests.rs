@@ -43,7 +43,7 @@ fn module(member: &str, name: &str) -> Module {
 fn entry(member: &str, name: &str, version: Version, rank: usize) -> ReleaseEntry {
     ReleaseEntry {
         module: mkey(member, name),
-        current_version: Version::new(0, 1, 0),
+        current_version: Some(Version::new(0, 1, 0)),
         planned_version: Some(version.clone()),
         planned_tag: Some(format!("rust/{name}@{version}")),
         level: BumpLevel::Patch,

@@ -577,40 +577,50 @@ pub struct Cli {
     #[arg(long, global = true, help_heading = "Release")]
     pub no_push: bool,
     /// Release tag/publish only: force `<module>` to bump at the patch level
-    /// (repeatable). Highest precedence with the other level flags and
-    /// `--set-version`; a module named in two level flags or a level flag plus
-    /// `--set-version` is a usage error.
+    /// (repeatable). Given with no value, bumps every in-scope module at patch
+    /// (lock-step / ecosystem-wide). Highest precedence with the other level
+    /// flags and `--set-version`; a module named in two level flags or a level
+    /// flag plus `--set-version` is a usage error.
     #[arg(
         long = "patch",
         global = true,
         value_name = "MODULE",
+        num_args = 0..=1,
+        default_missing_value = "*",
         help_heading = "Release"
     )]
     pub patch: Vec<String>,
     /// Release tag/publish only: force `<module>` to bump at the minor level
-    /// (repeatable).
+    /// (repeatable). Given with no value, bumps every in-scope module at minor
+    /// (lock-step / ecosystem-wide).
     #[arg(
         long = "minor",
         global = true,
         value_name = "MODULE",
+        num_args = 0..=1,
+        default_missing_value = "*",
         help_heading = "Release"
     )]
     pub minor: Vec<String>,
     /// Release tag/publish only: force `<module>` to bump at the major level
-    /// (repeatable).
+    /// (repeatable). Given with no value, bumps every in-scope module at major
+    /// (lock-step / ecosystem-wide).
     #[arg(
         long = "major",
         global = true,
         value_name = "MODULE",
+        num_args = 0..=1,
+        default_missing_value = "*",
         help_heading = "Release"
     )]
     pub major: Vec<String>,
     /// Release tag/publish only: pin `<module>=<x.y.z>` to an explicit target
-    /// version (repeatable).
+    /// version (repeatable), or a bare `<x.y.z>` to set every in-scope module to
+    /// that version (lock-step / ecosystem-wide, root included).
     #[arg(
         long = "set-version",
         global = true,
-        value_name = "MODULE=VERSION",
+        value_name = "[MODULE=]VERSION",
         help_heading = "Release"
     )]
     pub set_version: Vec<String>,

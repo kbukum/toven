@@ -59,8 +59,9 @@ impl PushPolicy {
 pub struct ReleaseEntry {
     /// Module being considered for release.
     pub module: ModuleKey,
-    /// Version declared by the adapter.
-    pub current_version: Version,
+    /// Version declared by the adapter, or `None` when the module has never
+    /// been released (a tag-only module with no reachable release tag).
+    pub current_version: Option<Version>,
     /// Version to release, if this module receives an own-version bump.
     pub planned_version: Option<Version>,
     /// The release tag a mutating run would create for the planned version,
@@ -395,7 +396,7 @@ mod tests {
     fn publish_count_counts_only_needed_entries() {
         let entry = |name: &str, publish_needed: bool| ReleaseEntry {
             module: module(name),
-            current_version: Version::new(0, 1, 0),
+            current_version: Some(Version::new(0, 1, 0)),
             planned_version: Some(Version::new(0, 2, 0)),
             planned_tag: Some(format!("rust/{name}@0.2.0")),
             level: BumpLevel::Minor,

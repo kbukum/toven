@@ -31,8 +31,9 @@ use super::inputs::{BumpConfig, CutIntent, ModuleVersionConfig, VersionInputs};
 pub struct BumpEntry {
     /// Module being considered for release.
     pub module: ModuleKey,
-    /// Version the module's manifest currently declares.
-    pub current_version: Version,
+    /// Version the module currently declares, or `None` when it has never been
+    /// released (a tag-only module with no reachable release tag).
+    pub current_version: Option<Version>,
     /// Version to release, if this module receives an own-version bump.
     pub planned_version: Option<Version>,
     /// The effective bump level applied to reach the planned version.
@@ -74,8 +75,9 @@ pub struct BumpPlan {
 pub struct BumpResolution {
     /// Module that was resolved.
     pub module: ModuleKey,
-    /// Version currently declared by the module.
-    pub current_version: Version,
+    /// Version currently declared by the module, or `None` when it has never
+    /// been released.
+    pub current_version: Option<Version>,
     /// Planned release entry, absent when the module has no release work.
     pub entry: Option<BumpEntry>,
 }
@@ -244,7 +246,9 @@ impl<'a> BumpPlanner<'a> {
             self.decision.cfg.graph.edges(),
             &self.planned_versions,
         );
-        let active = self.decision.changed.contains(&reference) || !dep_floor_updates.is_empty();
+        let forces = self.decision.cfg.overrides.forces(&reference.module);
+        let is_seed = self.decision.changed.contains(&reference) || forces;
+        let active = is_seed || !dep_floor_updates.is_empty();
         if !active {
             self.next += 1;
             return Ok(BumpResolution {
@@ -255,7 +259,7 @@ impl<'a> BumpPlanner<'a> {
         }
         self.active.insert(reference.clone());
 
-        let origin = if self.decision.changed.contains(&reference) {
+        let origin = if is_seed {
             self.cascade_roots
                 .insert(reference.clone(), reference.clone());
             None
@@ -274,7 +278,7 @@ impl<'a> BumpPlanner<'a> {
         let bump = resolve_bump(
             &self.decision,
             &reference,
-            &current,
+            current.as_ref(),
             !dep_floor_updates.is_empty(),
         )?;
         if let Some(version) = &bump.planned {
@@ -380,12 +384,17 @@ fn reject_duplicate_inputs(inputs: &[VersionInputs]) -> AppResult<()> {
 #[allow(clippy::too_many_lines)]
 pub fn plan_bumps(inputs: &[VersionInputs], cfg: &BumpConfig<'_>) -> AppResult<BumpPlan> {
     reject_duplicate_inputs(inputs)?;
-    let changed = inputs
+    // Seed the release from every changed module AND every module an explicit
+    // override forces in (a per-module or workspace-wide `--set-version`/level).
+    // A forced-but-unchanged module — the root/hosted module of a lock-step set
+    // is the canonical case — must join the release rather than being scoped out
+    // by the changed-only closure and later rejected as "not in scope".
+    let seeds = inputs
         .iter()
-        .filter(|input| input.changed)
+        .filter(|input| input.changed || cfg.overrides.forces(&input.module.module))
         .map(|input| input.module.clone())
         .collect();
-    let active = cfg.graph.closure(&changed, release_closure_edge)?;
+    let active = cfg.graph.closure(&seeds, release_closure_edge)?;
     let mut planner = BumpPlanner::new(active, cfg)?;
     let indexed = inputs
         .iter()
@@ -463,7 +472,7 @@ fn maintainer_decision(
 fn resolve_bump(
     decision: &Decision<'_>,
     reference: &ModuleKey,
-    current: &Version,
+    current: Option<&Version>,
     is_cascade: bool,
 ) -> AppResult<BumpDecision> {
     let cfg = decision.cfg;
@@ -477,20 +486,24 @@ fn resolve_bump(
     if cfg.intent.verifies_maintainer_version()
         && config.is_some_and(|config| config.entrypoint.is_maintainer_owned())
     {
+        let current = current.ok_or_else(|| first_release_needs_version(reference))?;
         return maintainer_decision(decision, reference, current);
     }
 
     if let Some(version) = cfg.overrides.set_version(module_ref) {
-        if version <= current {
+        if let Some(current) = current
+            && version <= current
+        {
             return Err(AppError::invalid_input(
                 "release.bump",
                 format!(
-                    "--set-version for module '{module_ref}' must exceed the current version {current} (got {version})"
+                    "--set-version for module '{module_ref}' must exceed the current version \
+                     {current} (got {version})"
                 ),
             ));
         }
         return Ok(BumpDecision {
-            level: classify(current, version),
+            level: classify(current.unwrap_or(&ZERO), version),
             planned: Some(version.clone()),
             reason: BumpReason::Explicit,
             winning_input: BumpSource::SetVersion,
@@ -498,7 +511,7 @@ fn resolve_bump(
         });
     }
 
-    let is_seed = decision.changed.contains(reference);
+    let is_seed = decision.changed.contains(reference) || cfg.overrides.forces(module_ref);
 
     // The prerelease channel is only consulted for a module that cuts its own
     // version, so it is resolved here for a changed seed and lazily below for a
@@ -522,9 +535,13 @@ fn resolve_bump(
         && cfg.overrides.module_level(module_ref).is_none()
         && seed_channel.is_none()
     {
+        // A never-released module with no declared version (a tag-only module
+        // with no reachable tag) has nothing to cut on its own: its first
+        // version must come from an explicit or lock-step target.
+        let current = current.ok_or_else(|| first_release_needs_version(reference))?;
         return Ok(BumpDecision {
             planned: Some(current.clone()),
-            level: classify(&Version::new(0, 0, 0), current),
+            level: classify(&ZERO, current),
             reason: BumpReason::InitialRelease,
             winning_input: BumpSource::Default,
             prerelease_channel: None,
@@ -559,6 +576,9 @@ fn resolve_bump(
     // from the matrix. An explicit argv level override (`--patch`/`--minor`/
     // `--major`) still wins and takes the computed path even under `manifest`.
     if cfg.policy == BumpPolicy::Manifest && cfg.overrides.module_level(module_ref).is_none() {
+        // The `manifest` policy reads the module's own declared version, so a
+        // manifest-policy module without one cannot resolve a target.
+        let current = current.ok_or_else(|| first_release_needs_version(reference))?;
         let baseline = decision
             .baseline(reference)
             .and_then(|b| b.version.as_ref());
@@ -575,7 +595,7 @@ fn resolve_bump(
                 prerelease_channel: None,
             },
             |planned| BumpDecision {
-                level: classify(baseline.unwrap_or(&Version::new(0, 0, 0)), &planned),
+                level: classify(baseline.unwrap_or(&ZERO), &planned),
                 planned: Some(planned),
                 reason: BumpReason::Manifest,
                 winning_input: BumpSource::Manifest,
@@ -588,14 +608,20 @@ fn resolve_bump(
     // baseline, not the declared manifest, so a version a prior `release bump`
     // already resolved and merged is not advanced a second time; `max(current,
     // target)` cuts the already-resolved manifest version rather than
-    // recomputing another increment. A module with no baseline (never released)
-    // falls back to the declared version as its anchor.
+    // recomputing another increment. A module with no baseline and no declared
+    // version (a never-released, tagless module carrying an explicit level)
+    // anchors on `0.0.0`, so a repo-wide level bump seeds its first version.
+    let zero = ZERO;
     let anchor = decision
         .baseline(reference)
         .and_then(|baseline| baseline.version.as_ref())
-        .unwrap_or(current);
+        .or(current)
+        .unwrap_or(&zero);
     let target = next_version(anchor, level, channel.as_deref())?;
-    let planned = target.max(current.clone());
+    let planned = current.map_or_else(
+        || target.clone(),
+        |current| target.clone().max(current.clone()),
+    );
     Ok(BumpDecision {
         planned: Some(planned),
         level: effective_to_level(level),
@@ -603,6 +629,24 @@ fn resolve_bump(
         winning_input,
         prerelease_channel: channel,
     })
+}
+
+/// The zero version, used as the classification/anchor floor for a module with
+/// no declared or baseline version.
+const ZERO: Version = Version::new(0, 0, 0);
+
+/// The typed error a never-released module raises when no explicit or lock-step
+/// target supplies its first version.
+fn first_release_needs_version(reference: &ModuleKey) -> AppError {
+    AppError::invalid_input(
+        "release.bump",
+        format!(
+            "module '{}' has never been released and declares no version; supply its first \
+             version with `--set-version <version>` (workspace-wide) or `--set-version \
+             {}=<version>` before releasing it",
+            reference.module, reference.module
+        ),
+    )
 }
 
 /// Resolve the version the `manifest` policy cuts: exactly the version the
@@ -878,6 +922,7 @@ fn publish_ranks(
 mod tests {
     use std::collections::BTreeMap;
 
+    use rskit_errors::AppResult;
     use rskit_version::semver::Version;
     use toven_model::{
         DepKind, EcosystemId, Edge, Entrypoint, Graph, MemberId, Module, ModuleKey, ModuleRef,
@@ -943,7 +988,7 @@ mod tests {
     ) -> VersionInputs {
         VersionInputs {
             module: key(name),
-            current_version: Version::parse(current).expect("current"),
+            current_version: Some(Version::parse(current).expect("current")),
             published_versions: Vec::new(),
             baseline: baseline(name, base),
             changed: true,
@@ -1034,7 +1079,7 @@ mod tests {
         );
         let input = VersionInputs {
             module: key("core"),
-            current_version: Version::new(0, 2, 0),
+            current_version: Some(Version::new(0, 2, 0)),
             published_versions: Vec::new(),
             baseline: umbrella_base,
             changed: true,
@@ -1149,7 +1194,7 @@ mod tests {
         cfg.dependent_version = dependent_version;
         VersionInputs {
             module: key(name),
-            current_version: Version::new(0, 1, 0),
+            current_version: Some(Version::new(0, 1, 0)),
             published_versions: Vec::new(),
             baseline: baseline(name, Some("0.1.0")),
             changed: false,
@@ -1319,7 +1364,11 @@ mod tests {
     }
 
     #[test]
-    fn incremental_planner_rejects_an_override_for_an_inactive_module() {
+    fn incremental_planner_forces_an_override_for_an_otherwise_inactive_module() {
+        // Defect B redesign: a `--set-version`/level override on a module that
+        // did not change (and has no dependency-floor cascade) must force that
+        // module into the release rather than silently dropping it. This is what
+        // lets an unchanged root (or any pinned module) join a lock-step cut.
         let input = dep_input("core", DependentVersion::Bump);
         let graph = Graph::build(vec![module("core")], Vec::new()).expect("graph");
         let overrides = BumpOverrides::new()
@@ -1330,19 +1379,19 @@ mod tests {
             branches: &no_branches(),
             policy: BumpPolicy::SemverCascade,
             overrides: &overrides,
-            intent: CutIntent::Verify,
+            intent: CutIntent::Bump,
         };
         let mut planner = BumpPlanner::new([input.module.clone()], &config)
             .expect("planner accepts known module");
-        planner.decide(input).expect("inactive decision");
+        planner.decide(input).expect("forced decision");
 
-        let error = planner
-            .finish()
-            .expect_err("an unchanged override must not silently no-op");
-        assert!(
-            error.to_string().contains("not in the release scope"),
-            "{error}"
-        );
+        let plan = planner.finish().expect("a forced override plans an entry");
+        assert_eq!(plan.entries.len(), 1, "the forced module must be planned");
+        let entry = &plan.entries[0];
+        assert_eq!(entry.level, BumpLevel::Major);
+        assert_eq!(entry.reason, BumpReason::Changed);
+        assert_eq!(entry.winning_input, BumpSource::Argv);
+        assert_eq!(entry.planned_version, Some(Version::new(1, 0, 0)));
     }
 
     #[test]
@@ -1418,5 +1467,182 @@ mod tests {
         );
 
         assert!(result.is_err());
+    }
+
+    /// A brand-new, tag-only module with no reachable release tag: no declared
+    /// version (`current` is `None`) and an initial baseline. It joins a release
+    /// only when something (a change, a per-module target, or a lock-step target)
+    /// pulls it in.
+    fn tagless(name: &str, changed: bool, config: ModuleVersionConfig) -> VersionInputs {
+        VersionInputs {
+            module: key(name),
+            current_version: None,
+            published_versions: Vec::new(),
+            baseline: baseline(name, None),
+            changed,
+            breaking: false,
+            config,
+        }
+    }
+
+    /// Plan the given inputs over an isolated (edge-free) graph with `overrides`.
+    fn plan_with_overrides(
+        inputs: &[VersionInputs],
+        overrides: &BumpOverrides,
+        intent: CutIntent,
+    ) -> AppResult<BumpPlan> {
+        let modules = inputs
+            .iter()
+            .map(|input| module(&input.module.module.name))
+            .collect::<Vec<_>>();
+        let graph = Graph::build(modules, Vec::new()).expect("graph");
+        plan_bumps(
+            inputs,
+            &BumpConfig {
+                graph: &graph,
+                branches: &no_branches(),
+                policy: BumpPolicy::SemverCascade,
+                overrides,
+                intent,
+            },
+        )
+    }
+
+    #[test]
+    fn a_lock_step_target_puts_every_module_at_the_same_version_including_the_unchanged_root() {
+        // gokit's contract: a workspace-wide `--set-version` cuts one version
+        // across a mixed set — a tagged-but-unchanged root, a tagged changed
+        // submodule, and a brand-new tagless submodule — every one at the target.
+        let root = seed("root", "0.2.0", Some("0.2.0"), config()); // unchanged (base == current)
+        let mut root = root;
+        root.changed = false;
+        let changed = seed("auth", "0.2.0", Some("0.2.0"), config());
+        let brand_new = tagless("agent", false, config());
+
+        let overrides = BumpOverrides::new()
+            .with_workspace_set_version(Version::new(0, 3, 0))
+            .expect("workspace target");
+        let plan = plan_with_overrides(&[root, changed, brand_new], &overrides, CutIntent::Bump)
+            .expect("plan");
+
+        assert_eq!(
+            plan.entries.len(),
+            3,
+            "no module is silently dropped: {plan:?}"
+        );
+        for entry in &plan.entries {
+            assert_eq!(
+                entry.planned_version,
+                Some(Version::new(0, 3, 0)),
+                "every lock-step module lands at the target: {entry:?}"
+            );
+            assert_eq!(entry.reason, BumpReason::Explicit);
+            assert_eq!(entry.winning_input, BumpSource::SetVersion);
+        }
+    }
+
+    #[test]
+    fn an_explicit_set_version_releases_a_tagless_module() {
+        // A never-released module (no declared version, initial baseline) is
+        // driven purely by the explicit target rather than erroring.
+        let brand_new = tagless("agent", false, config());
+        let overrides = BumpOverrides::new()
+            .with_set_version(key("agent").module, Version::new(0, 3, 0))
+            .expect("set-version");
+
+        let plan = plan_with_overrides(&[brand_new], &overrides, CutIntent::Bump).expect("plan");
+
+        assert_eq!(plan.entries.len(), 1);
+        assert_eq!(plan.entries[0].current_version, None);
+        assert_eq!(plan.entries[0].planned_version, Some(Version::new(0, 3, 0)));
+        assert_eq!(plan.entries[0].reason, BumpReason::Explicit);
+    }
+
+    #[test]
+    fn a_tagless_module_with_no_target_reports_an_actionable_first_release_error() {
+        // A brand-new module that changed but carries neither a declared version
+        // nor a target cannot invent a first version: it must fail closed with a
+        // fix, never fabricate 0.0.0.
+        let brand_new = tagless("agent", true, config());
+        let overrides = BumpOverrides::new();
+
+        let error = plan_with_overrides(&[brand_new], &overrides, CutIntent::Bump)
+            .expect_err("first release needs a version");
+        let message = error.to_string();
+        assert!(message.contains("agent"), "names the module: {message}");
+        assert!(
+            message.contains("set-version") || message.contains("never been released"),
+            "points at the fix: {message}"
+        );
+    }
+
+    #[test]
+    fn a_set_version_finalizes_a_prerelease_to_a_stable_target() {
+        // Sequence-preserving finalize: 0.3.0-alpha.1 (declared) -> 0.3.0 does
+        // not advance the numeric train, it promotes the pending prerelease.
+        let pre = seed("core", "0.3.0-alpha.1", Some("0.3.0-alpha.1"), config());
+        let overrides = BumpOverrides::new()
+            .with_set_version(key("core").module, Version::parse("0.3.0").expect("stable"))
+            .expect("set-version");
+
+        let plan = plan_with_overrides(&[pre], &overrides, CutIntent::Bump).expect("plan");
+
+        assert_eq!(plan.entries.len(), 1);
+        assert_eq!(plan.entries[0].planned_version, Some(Version::new(0, 3, 0)));
+        assert_eq!(plan.entries[0].reason, BumpReason::Explicit);
+    }
+
+    #[test]
+    fn a_repo_wide_level_bump_advances_every_module_including_unchanged_ones() {
+        // A valueless `--minor` (workspace level) advances a tagged unchanged
+        // root and a tagged changed submodule alike, seeding a tagless module's
+        // first minor from 0.0.0.
+        let mut root = seed("root", "0.2.0", Some("0.2.0"), config());
+        root.changed = false;
+        let changed = seed("auth", "0.2.0", Some("0.2.0"), config());
+        let brand_new = tagless("agent", false, config());
+
+        let overrides = BumpOverrides::new()
+            .with_workspace_level(BumpLevel::Minor)
+            .expect("workspace level");
+        let plan = plan_with_overrides(&[root, changed, brand_new], &overrides, CutIntent::Bump)
+            .expect("plan");
+
+        assert_eq!(plan.entries.len(), 3);
+        let planned = |name: &str| {
+            plan.entries
+                .iter()
+                .find(|entry| entry.module.module.name == name)
+                .and_then(|entry| entry.planned_version.clone())
+        };
+        assert_eq!(planned("root"), Some(Version::new(0, 3, 0)));
+        assert_eq!(planned("auth"), Some(Version::new(0, 3, 0)));
+        assert_eq!(
+            planned("agent"),
+            Some(Version::new(0, 1, 0)),
+            "a tagless module seeds its first minor from 0.0.0"
+        );
+        for entry in &plan.entries {
+            assert_eq!(entry.level, BumpLevel::Minor);
+        }
+    }
+
+    #[test]
+    fn a_lock_step_target_not_above_the_current_version_fails_actionably() {
+        // Validation: a target that does not strictly exceed a module's current
+        // version is rejected with the module named and both versions shown.
+        let root = seed("root", "0.4.0", Some("0.4.0"), config());
+        let overrides = BumpOverrides::new()
+            .with_workspace_set_version(Version::new(0, 3, 0))
+            .expect("workspace target");
+
+        let error = plan_with_overrides(&[root], &overrides, CutIntent::Bump)
+            .expect_err("a down-version must be rejected");
+        let message = error.to_string();
+        assert!(message.contains("root"), "names the module: {message}");
+        assert!(
+            message.contains("0.4.0"),
+            "shows the current version: {message}"
+        );
     }
 }

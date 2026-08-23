@@ -108,7 +108,7 @@ fn a_repository_with_no_release_tag_plans_an_initial_release() {
     let entry = &plan.entries[0];
     assert_eq!(
         entry.planned_version.as_ref(),
-        Some(&entry.current_version),
+        entry.current_version.as_ref(),
         "a first release cuts the declared version rather than bumping past it: {entry:?}"
     );
     assert_eq!(entry.reason, BumpReason::InitialRelease);

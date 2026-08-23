@@ -140,7 +140,7 @@ pub(crate) fn plan_with_context(
             } else {
                 reporter.emit(&crate::stream::no_change_event(
                     &resolution.module,
-                    &resolution.current_version,
+                    resolution.current_version.as_ref(),
                 ))?;
             }
             Ok(())
