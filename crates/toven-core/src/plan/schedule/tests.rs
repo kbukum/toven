@@ -592,13 +592,15 @@ fn facade_back_dependency_splits_a_workspace_across_layers_into_a_dag() {
 }
 
 #[test]
-fn whole_workspace_facade_cycle_is_an_irreducible_typed_error() {
+fn whole_workspace_facade_cycle_co_schedules_the_cycle_into_one_wave() {
     // The same facade back-dependency shape under `WholeWorkspace` fan-out: `core`
     // collapses into one indivisible unit covering both `base` and `suite`. With
-    // `suite` → `plugin` → `base`, the core and contrib units mutually depend, a
+    // `suite` → `plugin` → `base`, the core and contrib units mutually depend — a
     // cycle no layer split can break (a whole-workspace invocation cannot run half
-    // a workspace). The acyclicity guard must surface a typed internal error rather
-    // than silently serialize or mutually block.
+    // a workspace). Each atomic whole-workspace invocation resolves its own
+    // path-dependency closure, so the two units have no real build handoff and are
+    // safe to co-schedule: the leveler condenses the strongly-connected component
+    // into a single wave instead of failing closed.
     let federation = Federation {
         workspaces: vec![workspace("core"), workspace("contrib")],
         modules: vec![
@@ -626,7 +628,7 @@ fn whole_workspace_facade_cycle_is_an_irreducible_typed_error() {
         adapter_with("rust", RunStrategy::LeafToTop, FanOut::WholeWorkspace),
     );
     let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
-    let error = schedule(
+    let scheduled = schedule(
         &request(),
         &federation,
         &active,
@@ -634,10 +636,89 @@ fn whole_workspace_facade_cycle_is_an_irreducible_typed_error() {
         &GroupOverrides::default(),
         &toolchains(&federation),
     )
-    .expect_err("an irreducible whole-workspace cycle must fail");
-    assert!(
-        error.to_string().contains("cyclic after layering"),
-        "{error}"
+    .expect("an irreducible whole-workspace cycle co-schedules");
+
+    // The two whole-workspace units, each collapsed from its own workspace.
+    assert_eq!(
+        ids(&scheduled),
+        vec![
+            "rust@contrib#test".to_string(),
+            "rust@core#test".to_string()
+        ]
+    );
+
+    // The mutual gating edges survive on the units (the cycle is real); the
+    // reverse-dependency gate is cycle-safe, so they are not dropped.
+    let unit = |id: &str| {
+        scheduled
+            .units
+            .iter()
+            .find(|unit| unit.id == id)
+            .unwrap_or_else(|| panic!("missing unit '{id}': {:?}", ids(&scheduled)))
+    };
+    assert_eq!(
+        unit("rust@core#test").depends_on,
+        vec!["rust@contrib#test".to_string()]
+    );
+    assert_eq!(
+        unit("rust@contrib#test").depends_on,
+        vec!["rust@core#test".to_string()]
+    );
+
+    // The strongly-connected component collapses into a single co-scheduled wave.
+    assert_eq!(scheduled.waves.len(), 1);
+    let mut wave = scheduled.waves[0].clone();
+    wave.sort_unstable();
+    assert_eq!(
+        wave,
+        vec![
+            "rust@contrib#test".to_string(),
+            "rust@core#test".to_string()
+        ]
+    );
+}
+
+#[test]
+fn whole_workspace_acyclic_dependency_orders_units_across_waves() {
+    // Two whole-workspace units with a one-way dependency (no facade cycle): the
+    // `app` workspace depends on the `core` workspace. SCC condensation leaves both
+    // as singletons, so leveling still orders the dependency first and the
+    // dependent one wave later — the acyclic ordering guarantee is untouched.
+    let federation = Federation {
+        workspaces: vec![workspace("core"), workspace("app")],
+        modules: vec![
+            module("rust", "base", "core"),
+            module("rust", "service", "app"),
+        ],
+        edges: vec![Edge::new(
+            mref("rust", "service"),
+            mref("rust", "base"),
+            DepKind::Normal,
+        )],
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with("rust", RunStrategy::LeafToTop, FanOut::WholeWorkspace),
+    );
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+    let scheduled = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &GroupOverrides::default(),
+        &toolchains(&federation),
+    )
+    .expect("an acyclic whole-workspace pair schedules");
+
+    assert_eq!(
+        scheduled.waves,
+        vec![
+            vec!["rust@core#test".to_string()],
+            vec!["rust@app#test".to_string()],
+        ]
     );
 }
 

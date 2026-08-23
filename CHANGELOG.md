@@ -16,6 +16,12 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Security
 
+## [0.1.0-alpha.9] - 2026-08-23
+
+### Fixed
+
+- Whole-workspace tasks (e.g. `toven coverage`) no longer fail closed on a repository whose workspaces form a facade back-dependency cycle. The schedule leveler now condenses the strongly-connected components of the unit graph before leveling (iterative Tarjan): an acyclic graph levels byte-identically to before, while an irreducible whole-workspace facade cycle — where each atomic `--workspace` invocation resolves its own path-dependency closure and so has no real cross-unit build handoff — condenses into a single co-scheduled wave instead of erroring with `condensed unit graph is cyclic after layering`. The within-wave APPLY gate launches those units concurrently and its reverse-dependency walk is cycle-safe, so the surviving mutual edges neither deadlock nor mutually block. A consumer with four Cargo workspaces in a `core ⇄ contrib` facade cycle (plus `examples`/`fuzz`) now gates all of them green in one `toven coverage` invocation.
+
 ## [0.1.0-alpha.8] - 2026-08-22
 
 ### Added
