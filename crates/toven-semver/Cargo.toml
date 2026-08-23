@@ -1,7 +1,7 @@
 [package]
 name = "toven-semver"
 description = "Pure semver toolkit: the bump-increment matrix, release tag codec, and latest-tag selection — reusable by any adapter or crate"
-version.workspace = true
+version = "0.1.0-alpha.8"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

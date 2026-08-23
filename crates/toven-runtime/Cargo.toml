@@ -1,7 +1,7 @@
 [package]
 name = "toven-runtime"
 description = "Toven runtime — the generic streaming, wave-scheduled, bounded-parallel unit-operation engine (shared GATHER → per-unit STREAM) every multi-module verb runs on"
-version.workspace = true
+version = "0.1.0-alpha.8"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
