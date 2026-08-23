@@ -143,6 +143,46 @@ fn resolved_version_map_keeps_every_module_and_drops_ambiguous_aliases() {
 }
 
 #[test]
+fn resolved_version_map_drops_aliases_colliding_with_versionless_entries() {
+    use std::collections::BTreeMap;
+
+    use super::hooks::resolved_version_map;
+
+    // Member `billing` has a planned version for `rust:core`, while member
+    // `gateway` has a versionless entry (e.g. tagless floor-only upgrade) for
+    // `rust:core`. The shared aliases (`core`, `rust:core`) collide and must be
+    // omitted, rather than resolving to billing's version.
+    let billing = entry("billing", "core", Version::new(1, 0, 0), 0);
+    let mut gateway = entry("gateway", "core", Version::new(2, 0, 0), 1);
+    gateway.current_version = None;
+    gateway.planned_version = None;
+    gateway.mutation.new_version = None;
+
+    let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![billing, gateway]);
+    let modules = [module("billing", "core"), module("gateway", "core")];
+    let module_by_ref: BTreeMap<ModuleKey, &Module> = modules
+        .iter()
+        .map(|module| (module.key(), module))
+        .collect();
+
+    let map = resolved_version_map(&plan, &module_by_ref);
+
+    assert_eq!(
+        map.get("billing/rust:core"),
+        Some(&Version::new(1, 0, 0)),
+        "billing's canonical key resolves to its own version: {map:?}"
+    );
+    assert!(
+        !map.contains_key("gateway/rust:core"),
+        "gateway is versionless so it has no canonical version entry: {map:?}"
+    );
+    assert!(
+        !map.contains_key("core") && !map.contains_key("rust:core"),
+        "an alias shared with a versionless entry is dropped, not leaked to billing: {map:?}"
+    );
+}
+
+#[test]
 fn resolved_version_map_keeps_unambiguous_aliases() {
     use std::collections::BTreeMap;
 

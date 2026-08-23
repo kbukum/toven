@@ -22,19 +22,23 @@ pub trait VersionSource {
     /// `None` rather than failing closed. `None` is a first-class "never
     /// released" signal the bump decision resolves to an initial release (a
     /// brand-new module joining a lock-step set), driven by an explicit or
-    /// lock-step target — it is not an error. Callers that genuinely need a
-    /// concrete version (verify/publish/status of an already-released module)
-    /// use [`declared_version_required`](Self::declared_version_required).
+    /// lock-step target, and `release status` reports it as `unreleased` — it
+    /// is not an error. Callers that genuinely need a concrete version (such
+    /// as packaging, image rendering, and artifact verification of an
+    /// already-released module) use
+    /// [`declared_version_required`](Self::declared_version_required).
     fn declared_version(&self, module: &Module) -> AppResult<Option<Version>>;
 
     /// Read the module's declared version, failing closed when it has none.
     ///
-    /// The verify/publish/status paths operate on an already-released module and
-    /// require a concrete version; a `None` there is a genuine error with an
-    /// actionable message telling the operator to supply a first release
-    /// version. The bump decision, by contrast, consults
-    /// [`declared_version`](Self::declared_version) directly so a never-released
-    /// module resolves to an initial release.
+    /// Downstream release execution paths that produce concrete artifacts (such
+    /// as packaging, image rendering, and artifact verification) operate on an
+    /// already-released module and require a concrete version; a `None` there is
+    /// a genuine error with an actionable message telling the operator to
+    /// supply a first release version. The bump planner and `release status`,
+    /// by contrast, consult [`declared_version`](Self::declared_version)
+    /// directly so a never-released module can be planned or reported as
+    /// unreleased.
     ///
     /// # Errors
     /// Propagates a read failure, or fails closed when the module has no

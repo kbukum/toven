@@ -138,6 +138,12 @@ fn join_hook_edits(
     Ok(())
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AliasStatus {
+    Unique(Option<Version>),
+    Collided,
+}
+
 /// Build the collision-free `key → post-bump version` map handed to the bump
 /// `on-resolved` hooks.
 ///
@@ -158,19 +164,18 @@ pub(super) fn resolved_version_map(
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
 ) -> BTreeMap<String, Version> {
     let mut canonical = BTreeMap::new();
-    let mut alias_owners: BTreeMap<String, Option<Version>> = BTreeMap::new();
+    let mut alias_owners: BTreeMap<String, AliasStatus> = BTreeMap::new();
     for entry in &plan.entries {
-        let Some(version) = entry
+        let version = entry
             .planned_version
             .clone()
-            .or_else(|| entry.current_version.clone())
-        else {
-            continue;
-        };
+            .or_else(|| entry.current_version.clone());
         let Some(module) = module_by_ref.get(&entry.module) else {
             continue;
         };
-        canonical.insert(entry.module.to_string(), version.clone());
+        if let Some(version) = &version {
+            canonical.insert(entry.module.to_string(), version.clone());
+        }
         let mut aliases = vec![module.id.to_string(), module.id.name.clone()];
         if let Some(package) = &module.package {
             aliases.push(package.clone());
@@ -178,14 +183,14 @@ pub(super) fn resolved_version_map(
         for alias in aliases {
             alias_owners
                 .entry(alias)
-                .and_modify(|owner| *owner = None)
-                .or_insert_with(|| Some(version.clone()));
+                .and_modify(|status| *status = AliasStatus::Collided)
+                .or_insert_with(|| AliasStatus::Unique(version.clone()));
         }
     }
-    for (alias, owner) in alias_owners {
-        // Keep an alias only when a single module claimed it, and never let it
-        // shadow a canonical member-qualified key.
-        if let Some(version) = owner {
+    for (alias, status) in alias_owners {
+        // Keep an alias only when a single module claimed it, that module has a
+        // resolved version, and never let it shadow a canonical member-qualified key.
+        if let AliasStatus::Unique(Some(version)) = status {
             canonical.entry(alias).or_insert(version);
         }
     }

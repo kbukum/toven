@@ -2243,4 +2243,87 @@ mod tests {
             sink.events()
         );
     }
+
+    #[test]
+    fn status_line_renders_unreleased_when_version_is_absent() {
+        use super::status_line;
+        use toven_ports::PublicationPolicy;
+        use toven_release::ReleaseModuleStatus;
+
+        let status = ReleaseModuleStatus {
+            module: ModuleRef::new(EcosystemId::new("go").unwrap(), "core")
+                .unwrap()
+                .into(),
+            publication: PublicationPolicy::TagOnly,
+            declared_version: None,
+            latest_tag: None,
+            host_forge: None,
+            published_versions: Vec::new(),
+            is_published: false,
+            entrypoint: toven_model::Entrypoint::Toven,
+            maintainer_tag_present: None,
+        };
+        assert_eq!(
+            status_line(&status),
+            "go:core  tag-only  declared unreleased  tag -  hosted -  toven  unpublished"
+        );
+    }
+
+    #[test]
+    fn status_record_omits_declared_version_when_absent_in_jsonl() {
+        use super::status_record;
+        use toven_ports::PublicationPolicy;
+        use toven_release::ReleaseModuleStatus;
+
+        let status = ReleaseModuleStatus {
+            module: ModuleRef::new(EcosystemId::new("go").unwrap(), "core")
+                .unwrap()
+                .into(),
+            publication: PublicationPolicy::TagOnly,
+            declared_version: None,
+            latest_tag: None,
+            host_forge: None,
+            published_versions: Vec::new(),
+            is_published: false,
+            entrypoint: toven_model::Entrypoint::Toven,
+            maintainer_tag_present: None,
+        };
+        let json = serde_json::to_string(&status_record(&status)).expect("serializes to json");
+        assert!(
+            !json.contains("declared_version"),
+            "absent declared_version should be omitted from jsonl record: {json}"
+        );
+        assert!(json.contains("\"module\":\"go:core\""));
+        assert!(json.contains("\"publication\":\"tag-only\""));
+    }
+
+    #[test]
+    fn status_line_and_record_render_concrete_declared_version() {
+        use super::{status_line, status_record};
+        use rskit_version::semver::Version;
+        use toven_ports::PublicationPolicy;
+        use toven_release::ReleaseModuleStatus;
+
+        let status = ReleaseModuleStatus {
+            module: ModuleRef::new(EcosystemId::new("rust").unwrap(), "core")
+                .unwrap()
+                .into(),
+            publication: PublicationPolicy::Registry {
+                registry: "crates-io".into(),
+            },
+            declared_version: Some(Version::new(0, 2, 0)),
+            latest_tag: Some("rust/core@0.1.0".into()),
+            host_forge: Some("github".into()),
+            published_versions: vec![Version::new(0, 1, 0)],
+            is_published: false,
+            entrypoint: toven_model::Entrypoint::Toven,
+            maintainer_tag_present: None,
+        };
+        assert_eq!(
+            status_line(&status),
+            "rust:core  registry (crates-io)  declared 0.2.0  tag rust/core@0.1.0  hosted github  toven  unpublished"
+        );
+        let json = serde_json::to_string(&status_record(&status)).expect("serializes to json");
+        assert!(json.contains("\"declared_version\":\"0.2.0\""));
+    }
 }
