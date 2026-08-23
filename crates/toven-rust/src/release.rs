@@ -325,11 +325,67 @@ impl ManifestMutator for CargoRegistryTarget {
                 format!("module '{}' has no manifest to release", module.id),
             )
         })?;
+        let working_root = Self::working_root()?;
         let path = Self::manifest_path(module)?;
         let text = read_string_bounded(&path, MAX_MANIFEST_BYTES)?;
-        let rewritten = apply_mutation(&text, mutation, &path)?;
-        write_atomic_replace(&path, rewritten.as_bytes(), MANIFEST_TEMP_PREFIX)?;
-        Ok(vec![manifest])
+        let mut doc = parse_manifest(&text, &path)?;
+
+        // A version bump routes to whichever manifest actually *owns* the
+        // version: the member's own `[package].version` when it declares a
+        // literal, or the workspace root's `[workspace.package].version` when
+        // the member inherits it (`version.workspace = true`). Resolving this
+        // before mutating keeps the writer's source of truth identical to the
+        // reader's (`read_declared_version`), so `release plan`/`status` and the
+        // applied mutation can never diverge.
+        let version_site = match &mutation.new_version {
+            Some(_) => Some(resolve_version_site(&doc, &path, &working_root)?),
+            None => None,
+        };
+
+        // Dependency-floor rewrites are always per-member (`[dependencies]` &c.).
+        for (dependency, floor) in &mutation.dep_floor_updates {
+            set_dependency_floor(&mut doc, &dependency.name, floor);
+        }
+
+        if let (Some(new_version), Some(site)) = (&mutation.new_version, version_site.as_ref()) {
+            match site {
+                // Literal member version, or a root that is both workspace and
+                // package (the inherited version lives in this same manifest):
+                // bump in place.
+                VersionSite::OwnPackage => set_package_version(&mut doc, new_version, &path)?,
+                VersionSite::Workspace(owner) if owner == &path => {
+                    set_workspace_package_version(&mut doc, new_version, &path)?;
+                }
+                // Inherited from a *separate* workspace-root manifest: this
+                // member's version is not written here at all.
+                VersionSite::Workspace(_) => {}
+            }
+        }
+
+        let mut changed = Vec::new();
+        let rewritten = doc.to_string();
+        if rewritten != text {
+            write_atomic_replace(&path, rewritten.as_bytes(), MANIFEST_TEMP_PREFIX)?;
+            changed.push(manifest);
+        }
+
+        // Route an inherited version bump to the owning workspace-root manifest
+        // exactly once. Many members of a single-version workspace resolve to
+        // the same root; the engine dedupes the staged path set, and the write
+        // is idempotent, so a repeated bump to the same version is a no-op.
+        if let (Some(new_version), Some(VersionSite::Workspace(owner))) =
+            (&mutation.new_version, version_site.as_ref())
+            && owner != &path
+        {
+            let owner_text = read_string_bounded(owner, MAX_MANIFEST_BYTES)?;
+            let owner_rewritten = apply_workspace_root_version(&owner_text, owner, new_version)?;
+            if owner_rewritten != owner_text {
+                write_atomic_replace(owner, owner_rewritten.as_bytes(), MANIFEST_TEMP_PREFIX)?;
+            }
+            changed.push(workspace_root_repo_path(owner, &working_root)?);
+        }
+
+        Ok(changed)
     }
 }
 
@@ -807,12 +863,81 @@ fn is_workspace_inherited(item: &Item) -> bool {
 /// Resolve a `version.workspace = true` package version from the owning
 /// workspace's `[workspace.package].version`.
 ///
-/// The ancestor search is bounded to `root` (the working/repository-root trust
-/// boundary): a `Cargo.toml` above `root` is never consulted, so resolution
-/// cannot reach outside the repository and stays deterministic.
+/// Reader/writer share [`resolve_workspace_root_manifest`] so the version the
+/// reader reports and the manifest the writer bumps are always the same source
+/// of truth.
 fn resolve_inherited_version(doc: &DocumentMut, path: &Path, root: &Path) -> AppResult<Version> {
-    if let Some(raw) = workspace_package_version(doc) {
-        return parse_version(raw, path);
+    let (owner_path, owner_doc) = resolve_workspace_root_manifest(doc, path, root)?;
+    let raw = workspace_package_version(&owner_doc).ok_or_else(|| {
+        AppError::new(
+            ErrorCode::InvalidFormat,
+            format!(
+                "workspace root '{}' has no [workspace.package].version to inherit",
+                owner_path.display()
+            ),
+        )
+    })?;
+    parse_version(raw, &owner_path)
+}
+
+/// Where a member's version bump must be written.
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum VersionSite {
+    /// The member manifest's own `[package].version` (a literal version).
+    OwnPackage,
+    /// `[workspace.package].version` of the owning workspace-root manifest at
+    /// this path (an inherited `version.workspace = true`). The path equals the
+    /// member manifest when the root is both a workspace and a package.
+    Workspace(PathBuf),
+}
+
+/// Decide where a member's version bump lands: its own `[package].version`
+/// (literal) or the `[workspace.package].version` of the owning workspace root
+/// (`version.workspace = true`).
+///
+/// This mirrors [`read_declared_version`]'s classification exactly, so the
+/// mutation always targets the same manifest the reader resolves the version
+/// from. A `[package]` with no `version` key falls back to writing an own
+/// literal (a package cargo would otherwise reject).
+fn resolve_version_site(doc: &DocumentMut, path: &Path, root: &Path) -> AppResult<VersionSite> {
+    let version_item = doc
+        .get("package")
+        .and_then(Item::as_table_like)
+        .and_then(|package| package.get("version"));
+
+    match version_item {
+        Some(item) if item.as_str().is_some() => Ok(VersionSite::OwnPackage),
+        Some(item) if is_workspace_inherited(item) => {
+            let (owner_path, _) = resolve_workspace_root_manifest(doc, path, root)?;
+            Ok(VersionSite::Workspace(owner_path))
+        }
+        Some(_) => Err(AppError::new(
+            ErrorCode::InvalidFormat,
+            format!(
+                "manifest '{}' has a [package].version that is neither a string nor \
+                 `version.workspace = true`",
+                path.display()
+            ),
+        )),
+        None => Ok(VersionSite::OwnPackage),
+    }
+}
+
+/// Locate the manifest whose `[workspace.package]` backs a member's
+/// `version.workspace = true`, returning its path and parsed document.
+///
+/// The version may live inline in the member manifest (a root that is both a
+/// workspace and a package) or in an ancestor `Cargo.toml`. The ancestor search
+/// is bounded to `root` (the working/repository-root trust boundary): a
+/// `Cargo.toml` above `root` is never consulted, so resolution cannot reach
+/// outside the repository and stays deterministic.
+fn resolve_workspace_root_manifest(
+    doc: &DocumentMut,
+    path: &Path,
+    root: &Path,
+) -> AppResult<(PathBuf, DocumentMut)> {
+    if workspace_package_version(doc).is_some() {
+        return Ok((path.to_path_buf(), doc.clone()));
     }
 
     let mut ancestor = path.parent().and_then(Path::parent);
@@ -825,17 +950,16 @@ fn resolve_inherited_version(doc: &DocumentMut, path: &Path, root: &Path) -> App
             let text = read_string_bounded(&candidate, MAX_MANIFEST_BYTES)?;
             let manifest = parse_manifest(&text, &candidate)?;
             if manifest.get("workspace").is_some() {
-                return workspace_package_version(&manifest)
-                    .ok_or_else(|| {
-                        AppError::new(
-                            ErrorCode::InvalidFormat,
-                            format!(
-                                "workspace root '{}' has no [workspace.package].version to inherit",
-                                candidate.display()
-                            ),
-                        )
-                    })
-                    .and_then(|raw| parse_version(raw, &candidate));
+                if workspace_package_version(&manifest).is_some() {
+                    return Ok((candidate, manifest));
+                }
+                return Err(AppError::new(
+                    ErrorCode::InvalidFormat,
+                    format!(
+                        "workspace root '{}' has no [workspace.package].version to inherit",
+                        candidate.display()
+                    ),
+                ));
             }
         }
         ancestor = dir.parent();
@@ -872,30 +996,78 @@ fn parse_version(raw: &str, path: &Path) -> AppResult<Version> {
     })
 }
 
-/// Apply one [`ReleaseMutation`] to a `Cargo.toml` body, returning the
-/// rewritten text. Own version and each dependency floor are set with
-/// format-preserving edits; the document is otherwise untouched.
-fn apply_mutation(text: &str, mutation: &ReleaseMutation, path: &Path) -> AppResult<String> {
+/// Set a member's own `[package].version` to a literal string.
+fn set_package_version(doc: &mut DocumentMut, version: &Version, path: &Path) -> AppResult<()> {
+    let package = doc
+        .get_mut("package")
+        .and_then(Item::as_table_like_mut)
+        .ok_or_else(|| {
+            AppError::new(
+                ErrorCode::InvalidFormat,
+                format!("manifest '{}' has no [package] table", path.display()),
+            )
+        })?;
+    package.insert("version", value(version.to_string()));
+    Ok(())
+}
+
+/// Set `[workspace.package].version` to a literal string.
+fn set_workspace_package_version(
+    doc: &mut DocumentMut,
+    version: &Version,
+    path: &Path,
+) -> AppResult<()> {
+    let workspace = doc
+        .get_mut("workspace")
+        .and_then(Item::as_table_like_mut)
+        .ok_or_else(|| {
+            AppError::new(
+                ErrorCode::InvalidFormat,
+                format!(
+                    "workspace root '{}' has no [workspace] table",
+                    path.display()
+                ),
+            )
+        })?;
+    let package = workspace
+        .get_mut("package")
+        .and_then(Item::as_table_like_mut)
+        .ok_or_else(|| {
+            AppError::new(
+                ErrorCode::InvalidFormat,
+                format!(
+                    "workspace root '{}' has no [workspace.package] table to bump",
+                    path.display()
+                ),
+            )
+        })?;
+    package.insert("version", value(version.to_string()));
+    Ok(())
+}
+
+/// Rewrite a workspace-root manifest's `[workspace.package].version`, returning
+/// the format-preserving rewritten body. Used when a version bump must land on
+/// a manifest *separate* from the member being released.
+fn apply_workspace_root_version(text: &str, path: &Path, version: &Version) -> AppResult<String> {
     let mut doc = parse_manifest(text, path)?;
-
-    if let Some(new_version) = &mutation.new_version {
-        let package = doc
-            .get_mut("package")
-            .and_then(Item::as_table_like_mut)
-            .ok_or_else(|| {
-                AppError::new(
-                    ErrorCode::InvalidFormat,
-                    format!("manifest '{}' has no [package] table", path.display()),
-                )
-            })?;
-        package.insert("version", value(new_version.to_string()));
-    }
-
-    for (dependency, floor) in &mutation.dep_floor_updates {
-        set_dependency_floor(&mut doc, &dependency.name, floor);
-    }
-
+    set_workspace_package_version(&mut doc, version, path)?;
     Ok(doc.to_string())
+}
+
+/// Render a workspace-root manifest's absolute path as a repo-relative
+/// [`RepoPath`], failing closed if it escapes the working root.
+fn workspace_root_repo_path(owner: &Path, working_root: &Path) -> AppResult<RepoPath> {
+    let relative = owner.strip_prefix(working_root).map_err(|_| {
+        AppError::invalid_input(
+            "release.workspace_root",
+            format!(
+                "workspace root manifest '{}' is outside the working root '{}'",
+                owner.display(),
+                working_root.display()
+            ),
+        )
+    })?;
+    RepoPath::new(relative)
 }
 
 /// Rewrite the version requirement of one intra-project dependency across every
@@ -945,16 +1117,16 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use rskit_version::semver::Version;
-    use toven_model::{EcosystemId, ModuleRef};
-    use toven_ports::{ForwardEnvAs, ReleaseMutation};
 
     use toml_edit::Item;
+    use toven_ports::ForwardEnvAs;
 
     use super::{
-        apply_mutation, cargo_token_env_name, create_all, fallback_retry_after,
-        parse_cargo_search_versions, publish_argv, read_declared_version, registry_token_injection,
-        remove_stray_sbom_files, retry_after_hint, sbom_argv, sbom_output_candidates,
-        version_in_manifest_contents,
+        apply_workspace_root_version, cargo_token_env_name, create_all, fallback_retry_after,
+        parse_cargo_search_versions, parse_manifest, publish_argv, read_declared_version,
+        registry_token_injection, remove_stray_sbom_files, retry_after_hint, sbom_argv,
+        sbom_output_candidates, set_dependency_floor, set_package_version,
+        set_workspace_package_version, version_in_manifest_contents,
     };
     use toven_ports::ReleaseCredentials;
 
@@ -986,10 +1158,6 @@ version.workspace = true
 core = { workspace = true }
 plain = \"0.4.0\"
 ";
-
-    fn dep(name: &str) -> ModuleRef {
-        ModuleRef::new(EcosystemId::new("rust").unwrap(), name).unwrap()
-    }
 
     #[test]
     fn reads_declared_version() {
@@ -1070,40 +1238,25 @@ plain = \"0.4.0\"
 
     #[test]
     fn dep_floor_skips_workspace_inherited_dependencies() {
-        let mut mutation = ReleaseMutation::version(Version::new(2, 0, 0));
         // `core` is workspace-inherited; bumping its floor must not stamp a `version`
         // key onto it (cargo forbids `workspace = true` + `version`).
-        mutation
-            .dep_floor_updates
-            .insert(dep("core"), Version::new(0, 2, 0));
+        let mut doc = parse_manifest(ROOT_INHERITED_MANIFEST, Path::new("Cargo.toml")).unwrap();
+        set_dependency_floor(&mut doc, "core", &Version::new(0, 2, 0));
 
-        let rewritten =
-            apply_mutation(ROOT_INHERITED_MANIFEST, &mutation, Path::new("Cargo.toml")).unwrap();
-
-        let doc = rewritten
-            .parse::<toml_edit::DocumentMut>()
-            .expect("valid toml");
         let core = doc["dependencies"]["core"]
             .as_table_like()
             .expect("core is a table");
         assert_eq!(core.get("workspace").and_then(Item::as_bool), Some(true));
-        assert!(
-            core.get("version").is_none(),
-            "no version stamped: {rewritten}"
-        );
+        assert!(core.get("version").is_none(), "no version stamped");
     }
 
     #[test]
     fn applies_own_version_and_dep_floors() {
-        let mut mutation = ReleaseMutation::version(Version::new(2, 0, 0));
-        mutation
-            .dep_floor_updates
-            .insert(dep("core"), Version::new(0, 2, 0));
-        mutation
-            .dep_floor_updates
-            .insert(dep("plain"), Version::new(0, 5, 0));
-
-        let rewritten = apply_mutation(MANIFEST, &mutation, Path::new("Cargo.toml")).unwrap();
+        let mut doc = parse_manifest(MANIFEST, Path::new("Cargo.toml")).unwrap();
+        set_package_version(&mut doc, &Version::new(2, 0, 0), Path::new("Cargo.toml")).unwrap();
+        set_dependency_floor(&mut doc, "core", &Version::new(0, 2, 0));
+        set_dependency_floor(&mut doc, "plain", &Version::new(0, 5, 0));
+        let rewritten = doc.to_string();
 
         assert!(rewritten.contains("version = \"2.0.0\""));
         assert!(rewritten.contains("core = { version = \"0.2.0\""));
@@ -1113,12 +1266,60 @@ plain = \"0.4.0\"
 
     #[test]
     fn unknown_dep_floor_is_ignored() {
-        let mut mutation = ReleaseMutation::version(Version::new(2, 0, 0));
-        mutation
-            .dep_floor_updates
-            .insert(dep("absent"), Version::new(9, 9, 9));
-        let rewritten = apply_mutation(MANIFEST, &mutation, Path::new("Cargo.toml")).unwrap();
-        assert!(!rewritten.contains("9.9.9"));
+        let mut doc = parse_manifest(MANIFEST, Path::new("Cargo.toml")).unwrap();
+        set_dependency_floor(&mut doc, "absent", &Version::new(9, 9, 9));
+        assert!(!doc.to_string().contains("9.9.9"));
+    }
+
+    #[test]
+    fn set_workspace_package_version_bumps_the_shared_version_in_place() {
+        // A root that is both workspace and package: the bump lands on
+        // `[workspace.package].version`, and the member `[package]` keeps its
+        // `version.workspace = true` inheritance untouched.
+        let mut doc = parse_manifest(ROOT_INHERITED_MANIFEST, Path::new("Cargo.toml")).unwrap();
+        set_workspace_package_version(&mut doc, &Version::new(9, 9, 9), Path::new("Cargo.toml"))
+            .unwrap();
+        let rewritten = doc.to_string();
+
+        assert!(
+            rewritten.contains("[workspace.package]\nversion = \"9.9.9\""),
+            "workspace version bumped: {rewritten}"
+        );
+        assert!(
+            rewritten.contains("version.workspace = true"),
+            "member inheritance preserved: {rewritten}"
+        );
+        assert!(
+            !rewritten.contains("[package]\nname = \"app\"\nversion = \"9.9.9\""),
+            "member [package] must not gain a literal version: {rewritten}"
+        );
+    }
+
+    #[test]
+    fn apply_workspace_root_version_rewrites_only_the_workspace_version() {
+        // A virtual workspace root (no `[package]`): the bump lands on
+        // `[workspace.package].version` alone.
+        let root = "\
+[workspace]
+members = [\"crates/app\"]
+
+[workspace.package]
+version = \"0.3.0\"
+";
+        let rewritten =
+            apply_workspace_root_version(root, Path::new("Cargo.toml"), &Version::new(0, 4, 0))
+                .unwrap();
+        assert!(rewritten.contains("version = \"0.4.0\""));
+        assert!(!rewritten.contains("0.3.0"));
+    }
+
+    #[test]
+    fn apply_workspace_root_version_rejects_a_root_without_a_workspace_package_table() {
+        let root = "[workspace]\nmembers = [\"crates/app\"]\n";
+        assert!(
+            apply_workspace_root_version(root, Path::new("Cargo.toml"), &Version::new(0, 4, 0))
+                .is_err()
+        );
     }
 
     #[test]

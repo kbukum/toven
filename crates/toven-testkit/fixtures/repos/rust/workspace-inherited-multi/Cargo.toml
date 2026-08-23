@@ -1,0 +1,11 @@
+# A virtual workspace root whose members all inherit one shared version via
+# `[workspace.package]` (`version.workspace = true`) — the single-version
+# workspace shape. A version bump must rewrite this one `[workspace.package]`
+# entry, never each member's `[package]`.
+[workspace]
+resolver = "2"
+members = ["crates/app", "crates/lib"]
+
+[workspace.package]
+version = "0.3.0"
+edition = "2021"

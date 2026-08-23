@@ -25,6 +25,89 @@ fn app_module() -> Module {
     module
 }
 
+fn member_module(name: &str) -> Module {
+    let id = ModuleRef::new(EcosystemId::new("rust").unwrap(), name).unwrap();
+    let mut module = Module::new(id, RepoPath::new(format!("crates/{name}")).unwrap());
+    module.package = Some(name.to_string());
+    module.manifest = Some(RepoPath::new(format!("crates/{name}/Cargo.toml")).unwrap());
+    module
+}
+
+#[test]
+fn apply_release_bumps_the_workspace_root_not_the_member() {
+    // A single-version workspace: the member inherits `version.workspace = true`.
+    // The bump must land on the root's `[workspace.package].version` alone and
+    // must NOT stamp a literal `version` into the member's `[package]`.
+    let repo = SampleRepo::materialize("rust/workspace-inherited").expect("materialize");
+    let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
+
+    let target = target();
+    let module = app_module();
+    let changed = target
+        .apply_release(&module, &ReleaseMutation::version(Version::new(0, 4, 0)))
+        .expect("apply release");
+
+    // Only the workspace-root manifest is reported as rewritten.
+    assert_eq!(changed, vec![RepoPath::new("Cargo.toml").unwrap()]);
+
+    let member = std::fs::read_to_string(repo.child("crates/app/Cargo.toml")).expect("read member");
+    assert!(
+        member.contains("version.workspace = true"),
+        "member inheritance preserved: {member}"
+    );
+    assert!(
+        !member.contains("version = \"0.4.0\""),
+        "member must not gain a literal version: {member}"
+    );
+
+    let root = std::fs::read_to_string(repo.child("Cargo.toml")).expect("read root");
+    assert!(
+        root.contains("[workspace.package]") && root.contains("version = \"0.4.0\""),
+        "root workspace version bumped: {root}"
+    );
+
+    // Reader and writer agree on the same source of truth.
+    let version = target.declared_version(&module).expect("re-read version");
+    assert_eq!(version, Some(Version::new(0, 4, 0)));
+}
+
+#[test]
+fn apply_release_on_shared_root_routes_every_member_to_one_root() {
+    // Many members of a single-version workspace resolve to one workspace root.
+    // Each member's `apply_release` reports that same root path (the engine
+    // dedupes the staged set), and the repeated write is idempotent.
+    let repo = SampleRepo::materialize("rust/workspace-inherited-multi").expect("materialize");
+    let _cwd = CurrentDirGuard::change_to(repo.root()).expect("chdir");
+
+    let target = target();
+    let root_path = RepoPath::new("Cargo.toml").unwrap();
+
+    for name in ["app", "lib"] {
+        let module = member_module(name);
+        let changed = target
+            .apply_release(&module, &ReleaseMutation::version(Version::new(0, 4, 0)))
+            .expect("apply release");
+        assert_eq!(
+            changed,
+            vec![root_path.clone()],
+            "member '{name}' routes its bump to the one workspace root"
+        );
+
+        let member =
+            std::fs::read_to_string(repo.child(format!("crates/{name}/Cargo.toml"))).expect("read");
+        assert!(
+            member.contains("version.workspace = true") && !member.contains("version = \"0.4.0\""),
+            "member '{name}' keeps its inherited version: {member}"
+        );
+    }
+
+    let root = std::fs::read_to_string(repo.child("Cargo.toml")).expect("read root");
+    assert!(
+        root.contains("version = \"0.4.0\""),
+        "shared workspace version bumped once: {root}"
+    );
+}
+
 #[test]
 fn reads_the_declared_version_from_the_manifest() {
     let repo = SampleRepo::materialize("rust/single").expect("materialize");

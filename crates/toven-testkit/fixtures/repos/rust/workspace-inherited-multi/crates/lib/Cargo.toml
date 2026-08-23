@@ -1,0 +1,6 @@
+# A second member crate that also inherits its version from `[workspace.package]`.
+[package]
+name = "lib"
+version.workspace = true
+edition.workspace = true
+publish = false
