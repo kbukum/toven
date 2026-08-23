@@ -138,63 +138,16 @@ fn join_hook_edits(
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum AliasStatus {
-    Unique(Option<Version>),
-    Collided,
-}
-
 /// Build the collision-free `key → post-bump version` map handed to the bump
 /// `on-resolved` hooks.
 ///
-/// Unlike the native-sync map ([`authoritative_versions`](version_sync::authoritative_versions)),
-/// which folds every alias into one flat map and lets a later module win a
-/// shared alias, this map must never silently drop or mis-associate a planned
-/// module. Each planned module therefore always contributes its **canonical
-/// member-qualified key** ([`ModuleKey`] `Display`: `member/ecosystem:name`, or
-/// `ecosystem:name` in the single-repo case), which is unique per module. The
-/// convenience aliases (package name, `ecosystem:name`, and bare name) are added
-/// **only when unambiguous** — an alias claimed by two or more modules (two
-/// ecosystems both exposing `core`, or the same `ecosystem:name` in different
-/// federation members) is omitted rather than overwritten, so a task never reads
-/// a wrong version through a colliding alias. Every module stays reachable by its
-/// canonical key regardless.
+/// Delegates to [`version_sync::authoritative_versions`], which builds the
+/// canonical member-qualified and unambiguous alias mapping across all members.
 pub(super) fn resolved_version_map(
     plan: &ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
 ) -> BTreeMap<String, Version> {
-    let mut canonical = BTreeMap::new();
-    let mut alias_owners: BTreeMap<String, AliasStatus> = BTreeMap::new();
-    for entry in &plan.entries {
-        let version = entry
-            .planned_version
-            .clone()
-            .or_else(|| entry.current_version.clone());
-        let Some(module) = module_by_ref.get(&entry.module) else {
-            continue;
-        };
-        if let Some(version) = &version {
-            canonical.insert(entry.module.to_string(), version.clone());
-        }
-        let mut aliases = vec![module.id.to_string(), module.id.name.clone()];
-        if let Some(package) = &module.package {
-            aliases.push(package.clone());
-        }
-        for alias in aliases {
-            alias_owners
-                .entry(alias)
-                .and_modify(|status| *status = AliasStatus::Collided)
-                .or_insert_with(|| AliasStatus::Unique(version.clone()));
-        }
-    }
-    for (alias, status) in alias_owners {
-        // Keep an alias only when a single module claimed it, that module has a
-        // resolved version, and never let it shadow a canonical member-qualified key.
-        if let AliasStatus::Unique(Some(version)) = status {
-            canonical.entry(alias).or_insert(version);
-        }
-    }
-    canonical
+    crate::execution::version_sync::authoritative_versions(plan, module_by_ref)
 }
 
 /// Materialize the resolved `key → version` map as a stable JSON object at

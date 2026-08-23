@@ -33,38 +33,61 @@ const MAX_REFERENCE_BYTES: u64 = 4 * 1024 * 1024;
 /// Temp-file prefix for the atomic version-reference rewrite.
 const REFERENCE_TEMP_PREFIX: &str = "toven-version-ref";
 
-/// Build the authoritative `module → post-bump version` map from a plan's
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AliasStatus {
+    Unique(Option<Version>),
+    Collided,
+}
+
+/// Build the collision-free `module → post-bump version` map from a plan's
 /// entries.
 ///
-/// Each entry contributes its planned version (or, for a dependency-floor-only
-/// entry with no own-version bump, its current version) under both the module's
-/// package name and its `ecosystem:name` identity name, so a pin may reference
-/// either. A module absent from the plan (unchanged, not cascaded) is absent
-/// from the map, so its pin is left untouched — its version did not change.
+/// Each planned or existing module contributes its canonical member-qualified
+/// key ([`ModuleKey`] `Display`: `member/ecosystem:name`, or `ecosystem:name` in
+/// the single-repo case) when it has a resolved version. The convenience
+/// aliases (package name, `ecosystem:name`, and bare name) are added **only when
+/// unambiguous** — an alias claimed by two or more modules in the plan (such as
+/// two members exposing `core`, or a versioned module sharing a name with a
+/// versionless module) is omitted rather than overwritten, so a version reference
+/// never rewrites to a wrong version through a colliding alias.
 #[must_use]
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn authoritative_versions(
     plan: &ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
 ) -> BTreeMap<String, Version> {
-    let mut versions = BTreeMap::new();
+    let mut canonical = BTreeMap::new();
+    let mut alias_owners: BTreeMap<String, AliasStatus> = BTreeMap::new();
     for entry in &plan.entries {
-        let Some(version) = entry
+        let version = entry
             .planned_version
             .clone()
-            .or_else(|| entry.current_version.clone())
-        else {
+            .or_else(|| entry.current_version.clone());
+        let Some(module) = module_by_ref.get(&entry.module) else {
             continue;
         };
-        if let Some(module) = module_by_ref.get(&entry.module) {
-            if let Some(package) = &module.package {
-                versions.insert(package.clone(), version.clone());
-            }
-            versions.insert(module.id.to_string(), version.clone());
-            versions.insert(module.id.name.clone(), version);
+        if let Some(version) = &version {
+            canonical.insert(entry.module.to_string(), version.clone());
+        }
+        let mut aliases = vec![module.id.to_string(), module.id.name.clone()];
+        if let Some(package) = &module.package {
+            aliases.push(package.clone());
+        }
+        for alias in aliases {
+            alias_owners
+                .entry(alias)
+                .and_modify(|status| *status = AliasStatus::Collided)
+                .or_insert_with(|| AliasStatus::Unique(version.clone()));
         }
     }
-    versions
+    for (alias, status) in alias_owners {
+        // Keep an alias only when a single module claimed it, that module has a
+        // resolved version, and never let it shadow a canonical member-qualified key.
+        if let AliasStatus::Unique(Some(version)) = status {
+            canonical.entry(alias).or_insert(version);
+        }
+    }
+    canonical
 }
 
 /// Rewrite every declared version reference under `root` to the authoritative
@@ -427,5 +450,179 @@ mod tests {
         )
         .expect("content changed");
         assert_eq!(rewritten, "toven-rust = \"0.2.0\"");
+    }
+
+    #[test]
+    fn authoritative_versions_maps_canonical_and_unambiguous_aliases() {
+        use super::authoritative_versions;
+        use crate::{
+            BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PushPolicy, ReleaseEntry,
+            ReleasePlan,
+        };
+        use toven_model::{EcosystemId, MemberId, Module, ModuleKey, ModuleRef, RepoPath};
+        use toven_ports::{BumpLevel, ReleaseMutation};
+
+        let shared_key = ModuleKey::new(
+            Some(MemberId::new("core").unwrap()),
+            ModuleRef::new(EcosystemId::new("rust").unwrap(), "shared").unwrap(),
+        );
+        let mut shared_mod = Module::new(
+            ModuleRef::new(EcosystemId::new("rust").unwrap(), "shared").unwrap(),
+            RepoPath::new("crates/shared").unwrap(),
+        );
+        shared_mod.member = Some(MemberId::new("core").unwrap());
+        shared_mod.package = Some("core-shared".to_string());
+
+        let api_key = ModuleKey::new(
+            Some(MemberId::new("gateway").unwrap()),
+            ModuleRef::new(EcosystemId::new("rust").unwrap(), "api").unwrap(),
+        );
+        let mut api_mod = Module::new(
+            ModuleRef::new(EcosystemId::new("rust").unwrap(), "api").unwrap(),
+            RepoPath::new("crates/api").unwrap(),
+        );
+        api_mod.member = Some(MemberId::new("gateway").unwrap());
+
+        let entry_shared = ReleaseEntry {
+            module: shared_key.clone(),
+            current_version: Some(Version::new(0, 1, 0)),
+            planned_version: Some(Version::new(0, 2, 0)),
+            planned_tag: None,
+            level: BumpLevel::Minor,
+            reason: BumpReason::Changed,
+            winning_input: BumpSource::Default,
+            cascade_origin: None,
+            prerelease_channel: None,
+            up_to_date: false,
+            mutation: ReleaseMutation::version(Version::new(0, 2, 0)),
+            publication: toven_ports::PublicationPolicy::Registry {
+                registry: "crates-io".into(),
+            },
+            publish_needed: false,
+            tag_format: None,
+            tag_mode: None,
+            baseline_source: None,
+            tag_message: None,
+            signer: None,
+            commit_message: None,
+            token_env: None,
+            visibility: toven_ports::Visibility::Public,
+            push: PushPolicy::BranchAndTags,
+            remote: "origin".into(),
+            branches: Vec::new(),
+            topo_rank: 0,
+            baseline: None,
+            changelog: ChangelogEntry::new(shared_key.clone(), "changed", Vec::new()),
+            changelog_path: "CHANGELOG.md".into(),
+            changelog_roll: false,
+            entrypoint: toven_model::Entrypoint::Toven,
+            umbrella: false,
+            version_references: Vec::new(),
+            on_resolved: Vec::new(),
+        };
+
+        let mut entry_api = entry_shared.clone();
+        entry_api.module = api_key.clone();
+        entry_api.planned_version = Some(Version::new(1, 1, 0));
+
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry_shared, entry_api]);
+        let module_by_ref: BTreeMap<ModuleKey, &Module> =
+            BTreeMap::from([(shared_key, &shared_mod), (api_key, &api_mod)]);
+
+        let map = authoritative_versions(&plan, &module_by_ref);
+        assert_eq!(map.get("core/rust:shared"), Some(&Version::new(0, 2, 0)));
+        assert_eq!(map.get("core-shared"), Some(&Version::new(0, 2, 0)));
+        assert_eq!(map.get("gateway/rust:api"), Some(&Version::new(1, 1, 0)));
+        assert_eq!(map.get("api"), Some(&Version::new(1, 1, 0)));
+    }
+
+    #[test]
+    fn authoritative_versions_drops_aliases_colliding_with_versionless_entries() {
+        use super::authoritative_versions;
+        use crate::{
+            BumpPolicy, BumpReason, BumpSource, ChangelogEntry, PushPolicy, ReleaseEntry,
+            ReleasePlan,
+        };
+        use toven_model::{EcosystemId, MemberId, Module, ModuleKey, ModuleRef, RepoPath};
+        use toven_ports::{BumpLevel, ReleaseMutation};
+
+        let rust_key = ModuleKey::new(
+            Some(MemberId::new("rust-side").unwrap()),
+            ModuleRef::new(EcosystemId::new("rust").unwrap(), "core").unwrap(),
+        );
+        let mut rust_mod = Module::new(
+            ModuleRef::new(EcosystemId::new("rust").unwrap(), "core").unwrap(),
+            RepoPath::new("crates/core").unwrap(),
+        );
+        rust_mod.member = Some(MemberId::new("rust-side").unwrap());
+
+        let go_key = ModuleKey::new(
+            Some(MemberId::new("go-side").unwrap()),
+            ModuleRef::new(EcosystemId::new("go").unwrap(), "core").unwrap(),
+        );
+        let mut go_mod = Module::new(
+            ModuleRef::new(EcosystemId::new("go").unwrap(), "core").unwrap(),
+            RepoPath::new("modules/core").unwrap(),
+        );
+        go_mod.member = Some(MemberId::new("go-side").unwrap());
+
+        let entry_rust = ReleaseEntry {
+            module: rust_key.clone(),
+            current_version: Some(Version::new(0, 1, 0)),
+            planned_version: Some(Version::new(1, 0, 0)),
+            planned_tag: None,
+            level: BumpLevel::Major,
+            reason: BumpReason::Changed,
+            winning_input: BumpSource::Default,
+            cascade_origin: None,
+            prerelease_channel: None,
+            up_to_date: false,
+            mutation: ReleaseMutation::version(Version::new(1, 0, 0)),
+            publication: toven_ports::PublicationPolicy::Registry {
+                registry: "crates-io".into(),
+            },
+            publish_needed: false,
+            tag_format: None,
+            tag_mode: None,
+            baseline_source: None,
+            tag_message: None,
+            signer: None,
+            commit_message: None,
+            token_env: None,
+            visibility: toven_ports::Visibility::Public,
+            push: PushPolicy::BranchAndTags,
+            remote: "origin".into(),
+            branches: Vec::new(),
+            topo_rank: 0,
+            baseline: None,
+            changelog: ChangelogEntry::new(rust_key.clone(), "changed", Vec::new()),
+            changelog_path: "CHANGELOG.md".into(),
+            changelog_roll: false,
+            entrypoint: toven_model::Entrypoint::Toven,
+            umbrella: false,
+            version_references: Vec::new(),
+            on_resolved: Vec::new(),
+        };
+
+        let mut entry_go = entry_rust.clone();
+        entry_go.module = go_key.clone();
+        entry_go.current_version = None;
+        entry_go.planned_version = None;
+
+        let plan = ReleasePlan::new(BumpPolicy::SemverCascade, vec![entry_rust, entry_go]);
+        let module_by_ref: BTreeMap<ModuleKey, &Module> =
+            BTreeMap::from([(rust_key, &rust_mod), (go_key, &go_mod)]);
+
+        let map = authoritative_versions(&plan, &module_by_ref);
+        assert_eq!(
+            map.get("rust-side/rust:core"),
+            Some(&Version::new(1, 0, 0)),
+            "canonical member-qualified key must be retained"
+        );
+        assert_eq!(
+            map.get("core"),
+            None,
+            "bare name 'core' collided with the versionless module and must be dropped"
+        );
     }
 }
