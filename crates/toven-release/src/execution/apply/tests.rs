@@ -157,19 +157,19 @@ fn applies_mutations_commits_tags_and_publishes_in_order() {
 
     // Publish happens after the commit/tag writes (apply -> package -> publish).
     let calls = target.calls();
-    assert!(
+    assert_eq!(
         calls
             .iter()
             .filter(|c| matches!(c, ReleaseCall::ApplyRelease { .. }))
-            .count()
-            == 2
+            .count(),
+        2
     );
-    assert!(
+    assert_eq!(
         calls
             .iter()
             .filter(|c| matches!(c, ReleaseCall::Publish(_)))
-            .count()
-            == 2
+            .count(),
+        2
     );
 }
 
