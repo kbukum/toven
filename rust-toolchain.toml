@@ -1,6 +1,6 @@
 [toolchain]
-# Local development tracks the current stable toolchain; Cargo.toml rust-version
-# and the CI matrix define and enforce the lower supported MSRV.
-channel = "1.95"
+# Toven's supported Rust floor, matching the rskit foundation (MSRV == stable ==
+# 1.97). Cargo.toml `rust-version` and the CI matrix enforce the same version.
+channel = "1.97"
 components = ["clippy", "rustfmt", "llvm-tools-preview"]
 profile = "minimal"

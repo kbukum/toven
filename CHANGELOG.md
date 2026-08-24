@@ -16,6 +16,13 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Security
 
+## [0.1.0-alpha.10] - 2026-08-24
+
+### Changed
+
+- Raised the supported Rust toolchain floor to **1.97** (MSRV now equals the pinned stable), matching the rskit foundation which moved to a single 1.97 floor. `rust-toolchain.toml`, `[workspace.package].rust-version`, `clippy.toml`, and the CI/release/supply-chain workflows now pin 1.97; the previous dual `1.94`/`1.95` CI matrix collapses to a single 1.97 lane.
+- Bumped the vendored `rskit` submodule to `v0.2.0-alpha.8-11` (`cfa7bc6`), advancing the consumed rskit core crates (`rskit-fs`, `rskit-git`, `rskit-process`, `rskit-util`, `rskit-version`, `rskit-config`, `rskit-cli`, `rskit-testutil`) and refreshing `Cargo.lock` accordingly.
+
 ## [0.1.0-alpha.9] - 2026-08-23
 
 ### Fixed

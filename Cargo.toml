@@ -10,9 +10,9 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.1.0-alpha.9"
+version = "0.1.0-alpha.10"
 edition = "2024"
-rust-version = "1.94"
+rust-version = "1.97"
 license = "MIT"
 authors = ["Toven contributors"]
 repository = "https://github.com/kbukum/toven"
@@ -25,16 +25,16 @@ homepage = "https://github.com/kbukum/toven"
 rskit-errors = { version = "0.2.0-alpha.5", path = "rskit/core/rskit-errors" }
 rskit-validation = { version = "0.2.0-alpha.3", path = "rskit/core/rskit-validation" }
 rskit-codec = { version = "0.2.0-alpha.3", path = "rskit/core/rskit-codec" }
-rskit-git = { version = "0.2.0-alpha.4", path = "rskit/core/rskit-git" }
-rskit-testutil = { version = "0.2.0-alpha.4", path = "rskit/core/rskit-testutil" }
-rskit-util = { version = "0.2.0-alpha.5", path = "rskit/core/rskit-util" }
-rskit-version = { version = "0.2.0-alpha.4", path = "rskit/core/rskit-version" }
-rskit-fs = { version = "0.2.0-alpha.7", path = "rskit/core/rskit-fs" }
-rskit-process = { version = "0.2.0-alpha.6", path = "rskit/core/rskit-process" }
+rskit-git = { version = "0.2.0-alpha.5", path = "rskit/core/rskit-git" }
+rskit-testutil = { version = "0.2.0-alpha.5", path = "rskit/core/rskit-testutil" }
+rskit-util = { version = "0.2.0-alpha.6", path = "rskit/core/rskit-util" }
+rskit-version = { version = "0.2.0-alpha.5", path = "rskit/core/rskit-version" }
+rskit-fs = { version = "0.2.0-alpha.8", path = "rskit/core/rskit-fs" }
+rskit-process = { version = "0.2.0-alpha.7", path = "rskit/core/rskit-process" }
 rskit-worker = { version = "0.2.0-alpha.4", path = "rskit/core/rskit-worker" }
 rskit-component = { version = "0.2.0-alpha.3", path = "rskit/core/rskit-component" }
-rskit-config = { version = "0.2.0-alpha.4", path = "rskit/core/rskit-config", default-features = false }
-rskit-cli = { version = "0.2.0-alpha.5", path = "rskit/core/rskit-cli" }
+rskit-config = { version = "0.2.0-alpha.5", path = "rskit/core/rskit-config", default-features = false }
+rskit-cli = { version = "0.2.0-alpha.6", path = "rskit/core/rskit-cli" }
 toven-semver = { path = "crates/toven-semver" }
 toven-model = { path = "crates/toven-model" }
 toven-ports = { path = "crates/toven-ports" }

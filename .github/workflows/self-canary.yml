@@ -36,7 +36,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RUST_VERSION: "1.94"
+  RUST_VERSION: "1.97"
   TARGET: x86_64-unknown-linux-gnu
 
 jobs:

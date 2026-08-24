@@ -23,7 +23,7 @@ Standing, re-runnable development skills encoding this baseline live in [`.githu
 
 ## Build, test, and lint
 
-Requires the toolchain pinned in `rust-toolchain.toml` (Rust edition 2024, `rust-version = 1.94`). Initialize submodules first: `git submodule update --init --recursive`.
+Requires the toolchain pinned in `rust-toolchain.toml` (Rust edition 2024, `rust-version = 1.97`). Initialize submodules first: `git submodule update --init --recursive`.
 
 ```bash
 make check       # Canonical full gate: fmt-check, lint, test, structure, doc, deny, release build
