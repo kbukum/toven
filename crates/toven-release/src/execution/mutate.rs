@@ -60,12 +60,20 @@ pub(crate) fn mutate_manifests(
 
 /// Flatten the per-entry rewritten manifest paths into the ordered set staged
 /// into the release commit (or the PR-first index).
+///
+/// Duplicates are collapsed in first-seen order: a single-version workspace
+/// routes every member's version bump to one shared workspace-root manifest, so
+/// many entries report the same path. Staging it once keeps the staged set and
+/// the release commit honest.
 #[must_use]
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn staged_paths(mutated: &[(ModuleKey, Vec<RepoPath>)]) -> Vec<RepoPath> {
+    let mut seen = BTreeSet::new();
     mutated
         .iter()
-        .flat_map(|(_, paths)| paths.iter().cloned())
+        .flat_map(|(_, paths)| paths.iter())
+        .filter(|path| seen.insert((*path).clone()))
+        .cloned()
         .collect()
 }
 
@@ -124,4 +132,40 @@ pub(crate) fn roll_changelogs(
         changed.push(RepoPath::new(relative)?);
     }
     Ok(changed)
+}
+
+#[cfg(test)]
+mod tests {
+    use toven_model::{ModuleKey, ModuleRef, RepoPath};
+
+    use super::staged_paths;
+
+    fn key(name: &str) -> ModuleKey {
+        ModuleKey::bare(ModuleRef::parse(name).expect("module ref"))
+    }
+
+    #[test]
+    fn staged_paths_collapses_a_shared_root_in_first_seen_order() {
+        // A single-version workspace routes every member's bump to one shared
+        // workspace-root manifest, so many entries report the same path. The
+        // staged set must carry it once, in first-seen order.
+        let root = RepoPath::new("Cargo.toml").unwrap();
+        let mutated = vec![
+            (key("rust:app"), vec![root.clone()]),
+            (key("rust:lib"), vec![root.clone()]),
+            (key("rust:core"), vec![root.clone()]),
+        ];
+        assert_eq!(staged_paths(&mutated), vec![root]);
+    }
+
+    #[test]
+    fn staged_paths_preserves_distinct_per_member_manifests() {
+        let app = RepoPath::new("crates/app/Cargo.toml").unwrap();
+        let lib = RepoPath::new("crates/lib/Cargo.toml").unwrap();
+        let mutated = vec![
+            (key("rust:app"), vec![app.clone()]),
+            (key("rust:lib"), vec![lib.clone()]),
+        ];
+        assert_eq!(staged_paths(&mutated), vec![app, lib]);
+    }
 }

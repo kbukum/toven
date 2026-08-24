@@ -8,10 +8,12 @@
 //! subgraph is topo-levelled into waves. Modules are then grouped by the task's
 //! [`FanOut`]: a `PerModule` task yields one unit per module, while
 //! `Batchable`/`WholeWorkspace` tasks collapse all same-ecosystem-and-workspace
-//! modules into a single invocation. A collapsed base is split by dependency
-//! layer only when it participates in a cross-group cycle (the facade
-//! back-dependency shape); a clean single-workspace batch stays one unit.
-//! Splitting the cyclic bases keeps the condensed unit graph acyclic.
+//! modules into a single invocation. A collapsed `Batchable` base is split by
+//! dependency layer only when it participates in a cross-group cycle (the
+//! facade back-dependency shape); a clean single-workspace batch stays one unit.
+//! Splitting the cyclic batch bases keeps their condensed unit graph acyclic;
+//! an irreducible whole-workspace facade cycle (which cannot be split) is
+//! condensed by strongly-connected component and co-scheduled into one wave.
 //!
 //! ## Surface
 //! - [`ordering`] — `RunStrategy` relaxation, active-subgraph construction, and
@@ -21,8 +23,9 @@
 //!   [`Task`](toven_ports::Task) for the intent (adapter default field-merged
 //!   with any group override).
 //! - [`grouping`] — batch-group identity, the cross-group-cycle detection and
-//!   the dependency-layer fold that breaks such cycles, plus leveling the
-//!   condensed unit graph into dependency-respecting waves.
+//!   the dependency-layer fold that breaks splittable cycles, plus condensing
+//!   the unit graph's strongly-connected components into dependency-respecting
+//!   waves.
 //! - [`unit`] — render one [`PlannedUnit`] (argv, cache-keying facts, gating
 //!   edges).
 //! - [`entry`] — the [`schedule`] driver that assembles the waves of units.

@@ -16,6 +16,13 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Security
 
+## [0.1.0-alpha.9] - 2026-08-23
+
+### Fixed
+
+- Whole-workspace tasks (e.g. `toven coverage`) no longer fail closed on a repository whose workspaces form a facade back-dependency cycle. The schedule leveler now condenses the strongly-connected components of the unit graph before leveling (iterative Tarjan): an acyclic graph levels byte-identically to before, while an irreducible facade cycle whose units are all whole-workspace invocations that resolve their own cross-workspace dependency closure condenses into a single co-scheduled wave instead of erroring with `condensed unit graph is cyclic after layering`. Eligibility is a verified task capability (`workspace_closure`), not the fan-out ceiling alone — ecosystem adapters set it on tool invocations that operate on the whole workspace atomically (`cargo … --workspace`, `go … ./...`), while an arbitrary custom whole-workspace command stays ineligible so a cycle touching one keeps failing closed. The mutual gating edges inside a co-scheduled cycle are stripped before APPLY, so its peers launch concurrently in one wave with no residual intra-cycle gate to deadlock or mutually block; the real cross-cycle handoffs are preserved. A consumer with four Cargo workspaces in a `core ⇄ contrib` facade cycle (plus `examples`/`fuzz`) now gates all of them green in one `toven coverage` invocation.
+- Releasing a single-version Cargo workspace now routes every inheriting member's bump to the shared `[workspace.package].version` exactly once. The crates.io target rewrites the workspace root only on the first member that requests the bump and reports no path for later members that find the root already at target, instead of restaging the untouched root per member. Divergent sibling bumps to the same root (e.g. a per-member minor vs patch cascade) fail closed with a typed `release.version` conflict rather than silently last-writer-winning a version that earlier siblings already tagged.
+
 ## [0.1.0-alpha.8] - 2026-08-22
 
 ### Added

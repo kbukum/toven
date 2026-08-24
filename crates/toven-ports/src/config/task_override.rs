@@ -30,9 +30,12 @@ pub struct TaskOverride {
     /// Replacement per-module selector fragment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selector: Option<Vec<String>>,
-    /// Replacement fan-out ceiling.
+    /// Replacement `fan_out` ceiling.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fan_out: Option<FanOut>,
+    /// Replacement `workspace_closure` capability flag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_closure: Option<bool>,
     /// Replacement persistence flag.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persistent: Option<bool>,

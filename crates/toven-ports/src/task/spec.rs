@@ -33,6 +33,19 @@ pub struct Task {
     pub selector: Vec<String>,
     /// Capability ceiling; adapter default per kind.
     pub fan_out: FanOut,
+    /// Whether this task's whole-workspace invocation resolves its own
+    /// cross-workspace dependency closure, making it sound to co-schedule inside
+    /// an irreducible facade back-dependency cycle (default off).
+    ///
+    /// Only honored with [`fan_out`](Self::fan_out) =
+    /// [`WholeWorkspace`](FanOut::WholeWorkspace): it is the verified semantic —
+    /// separate from the fan-out ceiling — that the scheduler consults before
+    /// condensing a facade cycle into one co-scheduled wave. Adapters set it on
+    /// tool invocations that operate on the whole workspace atomically (`cargo …
+    /// --workspace`, `go … ./...`); it stays `false` for arbitrary custom
+    /// commands so a cycle touching one keeps failing closed.
+    #[serde(default)]
+    pub workspace_closure: bool,
     /// Where this resolved task came from.
     #[serde(default)]
     pub origin: TaskOrigin,
@@ -89,6 +102,7 @@ impl Task {
             argv,
             selector: Vec::new(),
             fan_out,
+            workspace_closure: false,
             origin: TaskOrigin::AdapterDefault,
             cache_args: false,
             cacheable: true,
@@ -142,6 +156,7 @@ mod tests {
         assert!(!task.fail_if_output);
         assert!(task.shared_inputs.is_empty());
         assert!(!task.persistent);
+        assert!(!task.workspace_closure);
     }
 
     #[test]

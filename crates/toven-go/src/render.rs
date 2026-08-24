@@ -179,6 +179,7 @@ fn coverage_entry() -> TaskEntry {
     );
     entry.kind = Some(TaskKind::Coverage);
     entry.cacheable = false;
+    entry.workspace_closure = true;
     entry
 }
 
@@ -197,6 +198,7 @@ fn base_entry(argv: Vec<String>, selector: Vec<String>, fan_out: FanOut) -> Task
         argv,
         selector,
         fan_out,
+        workspace_closure: false,
         persistent: false,
         readiness: Readiness::Started,
         readiness_timeout_secs: None,
@@ -283,6 +285,7 @@ fn format_entry(formatter: &Formatter, fix: bool) -> TaskEntry {
     // The check twin gates on the offender list `-l` prints; the mutating twin
     // rewrites in place and produces no gating output.
     entry.fail_if_output = !fix;
+    entry.workspace_closure = true;
     entry
 }
 

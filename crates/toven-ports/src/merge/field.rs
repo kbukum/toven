@@ -36,6 +36,9 @@ pub fn merge_task(default: &Task, over: &TaskOverride) -> Task {
     if let Some(fan_out) = over.fan_out {
         merged.fan_out = fan_out;
     }
+    if let Some(workspace_closure) = over.workspace_closure {
+        merged.workspace_closure = workspace_closure;
+    }
     if let Some(persistent) = over.persistent {
         merged.persistent = persistent;
     }
@@ -140,5 +143,25 @@ mod tests {
         let merged = merge_task(&default, &over);
 
         assert_eq!(merged.shared_inputs, ["Cargo.lock", "build.rs"]);
+    }
+
+    #[test]
+    fn workspace_closure_can_be_explicitly_overridden() {
+        let mut default = default_test_task();
+        default.workspace_closure = true;
+        let over_false = TaskOverride {
+            workspace_closure: Some(false),
+            ..TaskOverride::default()
+        };
+        let merged = merge_task(&default, &over_false);
+        assert!(!merged.workspace_closure);
+
+        default.workspace_closure = false;
+        let over_true = TaskOverride {
+            workspace_closure: Some(true),
+            ..TaskOverride::default()
+        };
+        let merged = merge_task(&default, &over_true);
+        assert!(merged.workspace_closure);
     }
 }

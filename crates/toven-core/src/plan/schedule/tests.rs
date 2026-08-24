@@ -4,12 +4,12 @@
 use std::collections::BTreeMap;
 
 use toven_model::{
-    AbsPath, DepKind, EcosystemId, Edge, Module, ModuleRef, RepoPath, ToolchainTag, Workspace,
-    WorkspaceId,
+    AbsPath, DepKind, EcosystemId, Edge, Module, ModuleKey, ModuleRef, RepoPath, ToolchainTag,
+    Workspace, WorkspaceId,
 };
 use toven_ports::{
     ConfiguredAdapter, DiscoverResponse, FanOut, RunStrategy, Task, TaskIntent, TaskKind,
-    TaskOrigin,
+    TaskOrigin, TaskOverride,
 };
 use toven_testkit::FakeConfiguredAdapter;
 
@@ -17,6 +17,7 @@ use super::super::configure::{ConfiguredSet, MemberAdapters};
 use super::super::overrides::GroupOverrides;
 use super::entry::{Scheduled, schedule};
 use super::task::unknown_task_error;
+use crate::config::GroupConfig;
 use crate::plan::discover::Federation;
 use crate::plan::request::PlanRequest;
 
@@ -85,7 +86,25 @@ fn adapter_with(
     strategy: RunStrategy,
     fan_out: FanOut,
 ) -> Box<dyn ConfiguredAdapter> {
-    let task = Task::new("test", vec!["x".to_string()], fan_out);
+    // Real ecosystem adapters mark their whole-workspace tool invocations as
+    // resolving their own cross-workspace closure, so mirror that here: a
+    // whole-workspace `test` task is co-schedulable inside a facade cycle.
+    adapter_with_closure(
+        ecosystem,
+        strategy,
+        fan_out,
+        fan_out == FanOut::WholeWorkspace,
+    )
+}
+
+fn adapter_with_closure(
+    ecosystem: &str,
+    strategy: RunStrategy,
+    fan_out: FanOut,
+    workspace_closure: bool,
+) -> Box<dyn ConfiguredAdapter> {
+    let mut task = Task::new("test", vec!["x".to_string()], fan_out);
+    task.workspace_closure = workspace_closure;
     Box::new(
         FakeConfiguredAdapter::new(eid(ecosystem))
             .with_response(DiscoverResponse::new(eid(ecosystem)))
@@ -592,13 +611,15 @@ fn facade_back_dependency_splits_a_workspace_across_layers_into_a_dag() {
 }
 
 #[test]
-fn whole_workspace_facade_cycle_is_an_irreducible_typed_error() {
+fn whole_workspace_facade_cycle_co_schedules_the_cycle_into_one_wave() {
     // The same facade back-dependency shape under `WholeWorkspace` fan-out: `core`
     // collapses into one indivisible unit covering both `base` and `suite`. With
-    // `suite` → `plugin` → `base`, the core and contrib units mutually depend, a
+    // `suite` → `plugin` → `base`, the core and contrib units mutually depend — a
     // cycle no layer split can break (a whole-workspace invocation cannot run half
-    // a workspace). The acyclicity guard must surface a typed internal error rather
-    // than silently serialize or mutually block.
+    // a workspace). Each atomic whole-workspace invocation resolves its own
+    // path-dependency closure, so the two units have no real build handoff and are
+    // safe to co-schedule: the leveler condenses the strongly-connected component
+    // into a single wave instead of failing closed.
     let federation = Federation {
         workspaces: vec![workspace("core"), workspace("contrib")],
         modules: vec![
@@ -626,6 +647,91 @@ fn whole_workspace_facade_cycle_is_an_irreducible_typed_error() {
         adapter_with("rust", RunStrategy::LeafToTop, FanOut::WholeWorkspace),
     );
     let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+    let scheduled = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &GroupOverrides::default(),
+        &toolchains(&federation),
+    )
+    .expect("an irreducible whole-workspace cycle co-schedules");
+
+    // The two whole-workspace units, each collapsed from its own workspace.
+    assert_eq!(
+        ids(&scheduled),
+        vec![
+            "rust@contrib#test".to_string(),
+            "rust@core#test".to_string()
+        ]
+    );
+
+    // The mutual gating edges inside the co-scheduled cycle are stripped: the two
+    // whole-workspace peers launch concurrently in one wave, so a surviving
+    // intra-cycle gate would let a failing peer contradict an in-flight peer in
+    // APPLY. Each is left gated on nothing (the only edges were intra-cycle).
+    let unit = |id: &str| {
+        scheduled
+            .units
+            .iter()
+            .find(|unit| unit.id == id)
+            .unwrap_or_else(|| panic!("missing unit '{id}': {:?}", ids(&scheduled)))
+    };
+    assert!(unit("rust@core#test").depends_on.is_empty());
+    assert!(unit("rust@contrib#test").depends_on.is_empty());
+
+    // The strongly-connected component collapses into a single co-scheduled wave.
+    assert_eq!(scheduled.waves.len(), 1);
+    let mut wave = scheduled.waves[0].clone();
+    wave.sort_unstable();
+    assert_eq!(
+        wave,
+        vec![
+            "rust@contrib#test".to_string(),
+            "rust@core#test".to_string()
+        ]
+    );
+}
+
+#[test]
+fn whole_workspace_facade_cycle_without_closure_capability_fails_closed() {
+    // The identical whole-workspace facade cycle, but the adapter's task does NOT
+    // carry the verified `workspace_closure` capability — the shape of an arbitrary
+    // custom whole-workspace command that could hand output to another workspace.
+    // Fan-out alone is not proof of self-containment, so the leveler must keep the
+    // cycle failing closed rather than strip its real edges and co-schedule it.
+    let federation = Federation {
+        workspaces: vec![workspace("core"), workspace("contrib")],
+        modules: vec![
+            module("rust", "base", "core"),
+            module("rust", "suite", "core"),
+            module("rust", "plugin", "contrib"),
+        ],
+        edges: vec![
+            Edge::new(
+                mref("rust", "plugin"),
+                mref("rust", "base"),
+                DepKind::Normal,
+            ),
+            Edge::new(
+                mref("rust", "suite"),
+                mref("rust", "plugin"),
+                DepKind::Normal,
+            ),
+        ],
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with_closure(
+            "rust",
+            RunStrategy::LeafToTop,
+            FanOut::WholeWorkspace,
+            false,
+        ),
+    );
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
     let error = schedule(
         &request(),
         &federation,
@@ -634,10 +740,156 @@ fn whole_workspace_facade_cycle_is_an_irreducible_typed_error() {
         &GroupOverrides::default(),
         &toolchains(&federation),
     )
-    .expect_err("an irreducible whole-workspace cycle must fail");
+    .expect_err("a whole-workspace cycle without the closure capability must fail closed");
     assert!(
-        error.to_string().contains("cyclic after layering"),
+        error.to_string().contains("cannot be co-scheduled"),
         "{error}"
+    );
+}
+
+#[test]
+fn group_task_override_workspace_closure_true_and_false() {
+    let federation = Federation {
+        workspaces: vec![workspace("core"), workspace("contrib")],
+        modules: vec![
+            module("rust", "base", "core"),
+            module("rust", "suite", "core"),
+            module("rust", "plugin", "contrib"),
+        ],
+        edges: vec![
+            Edge::new(
+                mref("rust", "plugin"),
+                mref("rust", "base"),
+                DepKind::Normal,
+            ),
+            Edge::new(
+                mref("rust", "suite"),
+                mref("rust", "plugin"),
+                DepKind::Normal,
+            ),
+        ],
+        warnings: Vec::new(),
+    };
+
+    // 1. Adapter defaults workspace_closure=true, but group task override sets workspace_closure=false.
+    // Must fail closed on the cycle.
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with_closure("rust", RunStrategy::LeafToTop, FanOut::WholeWorkspace, true),
+    );
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+
+    let mut overrides_false = GroupOverrides::default();
+    let group_cfg_false = GroupConfig {
+        tasks: std::collections::BTreeMap::from([(
+            "test".to_string(),
+            TaskOverride {
+                workspace_closure: Some(false),
+                ..TaskOverride::default()
+            },
+        )]),
+        ..GroupConfig::default()
+    };
+    let members: std::collections::BTreeSet<ModuleKey> = active.iter().cloned().collect();
+    overrides_false
+        .record("override_false", &group_cfg_false, &members)
+        .unwrap();
+
+    let error = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &overrides_false,
+        &toolchains(&federation),
+    )
+    .expect_err("group override resetting workspace_closure to false must fail closed on cycle");
+    assert!(
+        error.to_string().contains("cannot be co-scheduled"),
+        "{error}"
+    );
+
+    // 2. Adapter defaults workspace_closure=false, but group task override sets workspace_closure=true.
+    // Must co-schedule the cycle.
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with_closure(
+            "rust",
+            RunStrategy::LeafToTop,
+            FanOut::WholeWorkspace,
+            false,
+        ),
+    );
+    let mut overrides_true = GroupOverrides::default();
+    let group_cfg_true = GroupConfig {
+        tasks: std::collections::BTreeMap::from([(
+            "test".to_string(),
+            TaskOverride {
+                workspace_closure: Some(true),
+                ..TaskOverride::default()
+            },
+        )]),
+        ..GroupConfig::default()
+    };
+    overrides_true
+        .record("override_true", &group_cfg_true, &members)
+        .unwrap();
+
+    let scheduled = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &overrides_true,
+        &toolchains(&federation),
+    )
+    .expect("group override enabling workspace_closure to true co-schedules cycle");
+    assert_eq!(scheduled.waves.len(), 1);
+}
+
+#[test]
+fn whole_workspace_acyclic_dependency_orders_units_across_waves() {
+    // Two whole-workspace units with a one-way dependency (no facade cycle): the
+    // `app` workspace depends on the `core` workspace. SCC condensation leaves both
+    // as singletons, so leveling still orders the dependency first and the
+    // dependent one wave later — the acyclic ordering guarantee is untouched.
+    let federation = Federation {
+        workspaces: vec![workspace("core"), workspace("app")],
+        modules: vec![
+            module("rust", "base", "core"),
+            module("rust", "service", "app"),
+        ],
+        edges: vec![Edge::new(
+            mref("rust", "service"),
+            mref("rust", "base"),
+            DepKind::Normal,
+        )],
+        warnings: Vec::new(),
+    };
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with("rust", RunStrategy::LeafToTop, FanOut::WholeWorkspace),
+    );
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+    let scheduled = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &GroupOverrides::default(),
+        &toolchains(&federation),
+    )
+    .expect("an acyclic whole-workspace pair schedules");
+
+    assert_eq!(
+        scheduled.waves,
+        vec![
+            vec!["rust@core#test".to_string()],
+            vec!["rust@app#test".to_string()],
+        ]
     );
 }
 
@@ -985,5 +1237,108 @@ fn non_run_tasks_never_filter_library_only_modules() {
             "rust:app#test".to_string(),
             "rust:lib#test".to_string()
         ]]
+    );
+}
+
+/// Build a bare [`PlannedUnit`] for direct leveling tests: only the id,
+/// whole-workspace flag, and gating edges vary; every other field takes an
+/// inert default.
+fn planned_unit(
+    id: &str,
+    cycle_co_schedulable: bool,
+    depends_on: &[&str],
+) -> super::unit::PlannedUnit {
+    super::unit::PlannedUnit {
+        id: id.to_string(),
+        module: toven_model::ModuleKey::bare(mref("rust", "m")),
+        members: vec![toven_model::ModuleKey::bare(mref("rust", "m"))],
+        task: "test".to_string(),
+        origin: TaskOrigin::AdapterDefault,
+        workspace: None,
+        argv: Vec::new(),
+        persistent: false,
+        readiness: toven_model::ExecutionReadiness::Started,
+        readiness_timeout: std::time::Duration::from_secs(0),
+        base_argv: Vec::new(),
+        shared_inputs: Vec::new(),
+        cache_args: false,
+        cacheable: true,
+        fail_if_output: false,
+        toolchain_identity: String::new(),
+        depends_on: depends_on.iter().map(|dep| (*dep).to_string()).collect(),
+        cycle_co_schedulable,
+        resource_group: None,
+    }
+}
+
+#[test]
+fn non_whole_workspace_cycle_fails_closed_instead_of_co_scheduling() {
+    // A residual cycle among units where at least one is not a whole-workspace
+    // invocation (here a `PerModule`-shaped pair) encodes a real build handoff no
+    // co-scheduling can honor, so leveling fails closed with a typed cycle error
+    // rather than silently condensing it into one wave.
+    let mut units = vec![
+        planned_unit("rust:a#test", false, &["rust:b#test"]),
+        planned_unit("rust:b#test", false, &["rust:a#test"]),
+    ];
+    let error = super::grouping::level_units_into_waves(&mut units)
+        .expect_err("a non-whole-workspace cycle must fail closed");
+    let message = error.to_string();
+    assert!(message.contains("cannot be co-scheduled"), "{message}");
+    assert!(message.contains("rust:a#test"), "{message}");
+    assert!(message.contains("rust:b#test"), "{message}");
+}
+
+#[test]
+fn mixed_cycle_with_one_non_whole_workspace_unit_fails_closed() {
+    // Eligibility is all-or-nothing: a cycle of two whole-workspace units and one
+    // non-whole-workspace unit is still rejected — the single real handoff makes
+    // the whole component un-co-schedulable.
+    let mut units = vec![
+        planned_unit("rust@core#test", true, &["rust:leaf#test"]),
+        planned_unit("rust@app#test", true, &["rust@core#test"]),
+        planned_unit("rust:leaf#test", false, &["rust@app#test"]),
+    ];
+    let error = super::grouping::level_units_into_waves(&mut units)
+        .expect_err("a mixed cycle must fail closed");
+    assert!(
+        error.to_string().contains("cannot be co-scheduled"),
+        "{error}"
+    );
+}
+
+#[test]
+fn all_whole_workspace_cycle_co_schedules_and_strips_intra_cycle_edges() {
+    // A cycle whose units are all whole-workspace co-schedules into one wave and
+    // has its mutual intra-cycle gating edges stripped, while a real
+    // cross-component handoff into the cycle is preserved.
+    let mut units = vec![
+        planned_unit(
+            "rust@core#test",
+            true,
+            &["rust@contrib#test", "rust:dep#test"],
+        ),
+        planned_unit("rust@contrib#test", true, &["rust@core#test"]),
+        planned_unit("rust:dep#test", false, &[]),
+    ];
+    let waves = super::grouping::level_units_into_waves(&mut units)
+        .expect("an all-whole-workspace cycle co-schedules");
+
+    let unit = |id: &str| units.iter().find(|unit| unit.id == id).expect("unit");
+    // The intra-cycle edge core⇄contrib is stripped; the real dep→core handoff
+    // survives.
+    assert_eq!(unit("rust@core#test").depends_on, vec!["rust:dep#test"]);
+    assert!(unit("rust@contrib#test").depends_on.is_empty());
+    // `dep` levels first; the co-scheduled cycle shares the next wave.
+    assert_eq!(waves.len(), 2);
+    assert_eq!(waves[0], vec!["rust:dep#test"]);
+    let mut cycle_wave = waves[1].clone();
+    cycle_wave.sort_unstable();
+    assert_eq!(
+        cycle_wave,
+        vec![
+            "rust@contrib#test".to_string(),
+            "rust@core#test".to_string()
+        ]
     );
 }

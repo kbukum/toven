@@ -106,7 +106,7 @@ pub(in crate::plan) fn schedule(
     // Level waves from the condensed unit graph (`depends_on`), not from member
     // module wave-indices: an un-split multi-layer batch is pulled to the wave
     // after its latest dependency, so APPLY never runs a dependent before it.
-    let wave_ids = level_units_into_waves(&units)?;
+    let wave_ids = level_units_into_waves(&mut units)?;
 
     Ok(Scheduled {
         units,

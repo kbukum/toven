@@ -143,6 +143,7 @@ mod tests {
             argv: argv.iter().map(ToString::to_string).collect(),
             selector: Vec::new(),
             fan_out: FanOut::PerModule,
+            workspace_closure: false,
             persistent: false,
             readiness: Readiness::Started,
             readiness_timeout_secs: None,
