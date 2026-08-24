@@ -142,16 +142,27 @@ fn apply_release_rejects_divergent_bumps_to_a_shared_workspace_root() {
         )
         .expect("first member bumps the shared root");
 
+    let mut lib_mutation = ReleaseMutation::version(Version::new(0, 5, 0));
+    let dep_ref = ModuleRef::new(EcosystemId::new("rust").unwrap(), "dep").unwrap();
+    lib_mutation.dep_floor_updates.insert(dep_ref, Version::new(1, 0, 0));
+
+    let lib_text_before =
+        std::fs::read_to_string(repo.child("crates/lib/Cargo.toml")).expect("read lib before");
+
     let error = target
-        .apply_release(
-            &member_module("lib"),
-            &ReleaseMutation::version(Version::new(0, 5, 0)),
-        )
+        .apply_release(&member_module("lib"), &lib_mutation)
         .expect_err("a divergent sibling bump to the same root must fail closed");
     let message = error.to_string();
     assert!(
         message.contains("divergent"),
         "expected a typed divergent-bump conflict, got: {message}"
+    );
+
+    let lib_text_after =
+        std::fs::read_to_string(repo.child("crates/lib/Cargo.toml")).expect("read lib after");
+    assert_eq!(
+        lib_text_before, lib_text_after,
+        "divergent bump failure must leave no partial manifest writes on disk"
     );
 }
 

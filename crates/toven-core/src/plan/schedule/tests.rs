@@ -4,12 +4,12 @@
 use std::collections::BTreeMap;
 
 use toven_model::{
-    AbsPath, DepKind, EcosystemId, Edge, Module, ModuleRef, RepoPath, ToolchainTag, Workspace,
+    AbsPath, DepKind, EcosystemId, Edge, Module, ModuleKey, ModuleRef, RepoPath, ToolchainTag, Workspace,
     WorkspaceId,
 };
 use toven_ports::{
     ConfiguredAdapter, DiscoverResponse, FanOut, RunStrategy, Task, TaskIntent, TaskKind,
-    TaskOrigin,
+    TaskOrigin, TaskOverride,
 };
 use toven_testkit::FakeConfiguredAdapter;
 
@@ -17,6 +17,7 @@ use super::super::configure::{ConfiguredSet, MemberAdapters};
 use super::super::overrides::GroupOverrides;
 use super::entry::{Scheduled, schedule};
 use super::task::unknown_task_error;
+use crate::config::GroupConfig;
 use crate::plan::discover::Federation;
 use crate::plan::request::PlanRequest;
 
@@ -744,6 +745,103 @@ fn whole_workspace_facade_cycle_without_closure_capability_fails_closed() {
         error.to_string().contains("cannot be co-scheduled"),
         "{error}"
     );
+}
+
+#[test]
+fn group_task_override_workspace_closure_true_and_false() {
+    let federation = Federation {
+        workspaces: vec![workspace("core"), workspace("contrib")],
+        modules: vec![
+            module("rust", "base", "core"),
+            module("rust", "suite", "core"),
+            module("rust", "plugin", "contrib"),
+        ],
+        edges: vec![
+            Edge::new(
+                mref("rust", "plugin"),
+                mref("rust", "base"),
+                DepKind::Normal,
+            ),
+            Edge::new(
+                mref("rust", "suite"),
+                mref("rust", "plugin"),
+                DepKind::Normal,
+            ),
+        ],
+        warnings: Vec::new(),
+    };
+
+    // 1. Adapter defaults workspace_closure=true, but group task override sets workspace_closure=false.
+    // Must fail closed on the cycle.
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with_closure("rust", RunStrategy::LeafToTop, FanOut::WholeWorkspace, true),
+    );
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+
+    let mut overrides_false = GroupOverrides::default();
+    let group_cfg_false = GroupConfig {
+        tasks: std::collections::BTreeMap::from([(
+            "test".to_string(),
+            TaskOverride {
+                workspace_closure: Some(false),
+                ..TaskOverride::default()
+            },
+        )]),
+        ..GroupConfig::default()
+    };
+    let members: std::collections::BTreeSet<ModuleKey> = active.iter().cloned().collect();
+    overrides_false
+        .record("override_false", &group_cfg_false, &members)
+        .unwrap();
+
+    let error = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &overrides_false,
+        &toolchains(&federation),
+    )
+    .expect_err("group override resetting workspace_closure to false must fail closed on cycle");
+    assert!(
+        error.to_string().contains("cannot be co-scheduled"),
+        "{error}"
+    );
+
+    // 2. Adapter defaults workspace_closure=false, but group task override sets workspace_closure=true.
+    // Must co-schedule the cycle.
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(
+        eid("rust"),
+        adapter_with_closure("rust", RunStrategy::LeafToTop, FanOut::WholeWorkspace, false),
+    );
+    let mut overrides_true = GroupOverrides::default();
+    let group_cfg_true = GroupConfig {
+        tasks: std::collections::BTreeMap::from([(
+            "test".to_string(),
+            TaskOverride {
+                workspace_closure: Some(true),
+                ..TaskOverride::default()
+            },
+        )]),
+        ..GroupConfig::default()
+    };
+    overrides_true
+        .record("override_true", &group_cfg_true, &members)
+        .unwrap();
+
+    let scheduled = schedule(
+        &request(),
+        &federation,
+        &active,
+        &single_member(adapters),
+        &overrides_true,
+        &toolchains(&federation),
+    )
+    .expect("group override enabling workspace_closure to true co-schedules cycle");
+    assert_eq!(scheduled.waves.len(), 1);
 }
 
 #[test]
