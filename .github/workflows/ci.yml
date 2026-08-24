@@ -22,8 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         rust:
-          - "1.94"
-          - "1.95"
+          - "1.97"
 
     steps:
       - name: Checkout
@@ -84,7 +83,7 @@ jobs:
       # verify-release-platform-filter, release-dry-run) plus doctests. The
       # nextest suite runs separately in the sharded `test` job below; together
       # they equal `make check`. Doctests are not sharded (nextest does not run
-      # them) so they stay here, once per toolchain.
+      # them) so they stay here, once per toolchain run.
       - name: Run static checks
         run: make check-static
 
@@ -98,15 +97,14 @@ jobs:
       # Real-subprocess integration tests use the nextest CI profile (retries +
       # slow-timeout). Sharding with `--partition count:N/3` splits the suite
       # across runners for a wall-clock win without changing what runs; the union
-      # of the three shards is the full suite. Coverage is preserved on both the
-      # MSRV (1.94) and stable (1.95) toolchains.
+      # of the three shards is the full suite. Coverage runs on the single
+      # supported toolchain (1.97), matching the rskit foundation floor.
       NEXTEST_PROFILE: ci
     strategy:
       fail-fast: false
       matrix:
         rust:
-          - "1.94"
-          - "1.95"
+          - "1.97"
         shard:
           - 1
           - 2

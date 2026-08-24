@@ -18,7 +18,7 @@ git submodule update --init --recursive
 make check
 ```
 
-The repository uses the Rust toolchain pinned by `rust-toolchain.toml`. The language floor is **edition 2024** at a **minimum Rust version of 1.94**, declared once in `[workspace.package]` (`edition`, `rust-version`) and inherited by every crate. Treat those two fields as the single source of truth; do not restate a different floor elsewhere.
+The repository uses the Rust toolchain pinned by `rust-toolchain.toml`. The language floor is **edition 2024** at a **minimum Rust version of 1.97**, declared once in `[workspace.package]` (`edition`, `rust-version`) and inherited by every crate. Treat those two fields as the single source of truth; do not restate a different floor elsewhere.
 
 ## Canonical commands
 

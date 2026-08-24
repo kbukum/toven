@@ -22,7 +22,7 @@ concurrency:
 
 env:
   COSIGN_VERSION: v2.6.0
-  RUST_VERSION: "1.94"
+  RUST_VERSION: "1.97"
 
 jobs:
   crate-dry-run:

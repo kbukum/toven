@@ -27,7 +27,7 @@ toven doctor --ensure
 ```text
   tool mdbook (mdbook): present (mdbook v0.5.4)
   tool ast-grep (ast-grep): present (ast-grep 0.44.1)
-  tool cargo (cargo): present (cargo 1.95.0)
+  tool cargo (cargo): present (cargo 1.97.1)
 doctor: 3 checked, 0 missing
 ```
 
