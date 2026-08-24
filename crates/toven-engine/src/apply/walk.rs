@@ -278,15 +278,33 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
 
     async fn run_groups(
         &mut self,
-        mut groups: BTreeMap<String, VecDeque<String>>,
+        groups: BTreeMap<String, VecDeque<String>>,
         pool: &ApplyPool,
         live_output: &mut Receiver<toven_model::UnitOutput>,
     ) -> AppResult<()> {
+        // Flatten to indexed queues, preserving the deterministic group order; the
+        // index is the group's stable identity for compute-budget attribution and
+        // for resubmitting the next unit within the same group.
+        let mut groups: Vec<VecDeque<String>> = groups.into_values().collect();
         let mut joins = JoinSet::new();
         let mut cancels = Vec::<CancellationToken>::new();
-        for (index, group) in groups.values_mut().enumerate() {
-            self.submit_next(index, group, pool, &mut joins, &mut cancels)
-                .await?;
+        // Keep at most `wave_parallel` units in flight rather than submitting every
+        // group up front: over-submitting lets the pool start a later unit the instant
+        // an earlier one's worker returns, so its live output can be drained ahead of
+        // the earlier unit's terminal event and corrupt the single linear stream (the
+        // `--jobs 1` byte-stable ordering). `next_group` is the cursor over not-yet-
+        // started groups; a group is (re)activated only as an in-flight slot frees.
+        let mut next_group = 0;
+        while next_group < groups.len() && cancels.len() < self.wave_parallel {
+            self.submit_next(
+                next_group,
+                &mut groups[next_group],
+                pool,
+                &mut joins,
+                &mut cancels,
+            )
+            .await?;
+            next_group += 1;
         }
 
         let mut teardown_cancelled = false;
@@ -329,11 +347,37 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                     cancel.cancel();
                 }
             }
-            if !(teardown_cancelled || failed && self.options.fail_fast)
-                && let Some(group) = groups.values_mut().nth(group_index)
-            {
-                self.submit_next(group_index, group, pool, &mut joins, &mut cancels)
+            if !(teardown_cancelled || failed && self.options.fail_fast) {
+                // The finished unit freed one in-flight slot. Prefer the next unit in the
+                // same resource group (groups run one unit at a time); once that group is
+                // exhausted, advance the cursor to activate the next not-yet-started group.
+                // This keeps in-flight units at `wave_parallel` without over-submitting.
+                if groups[group_index].is_empty() {
+                    while next_group < groups.len() {
+                        let index = next_group;
+                        next_group += 1;
+                        if !groups[index].is_empty() {
+                            self.submit_next(
+                                index,
+                                &mut groups[index],
+                                pool,
+                                &mut joins,
+                                &mut cancels,
+                            )
+                            .await?;
+                            break;
+                        }
+                    }
+                } else {
+                    self.submit_next(
+                        group_index,
+                        &mut groups[group_index],
+                        pool,
+                        &mut joins,
+                        &mut cancels,
+                    )
                     .await?;
+                }
             }
         }
         self.drain_live_output(live_output)?;
