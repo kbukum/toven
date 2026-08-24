@@ -144,7 +144,9 @@ fn apply_release_rejects_divergent_bumps_to_a_shared_workspace_root() {
 
     let mut lib_mutation = ReleaseMutation::version(Version::new(0, 5, 0));
     let dep_ref = ModuleRef::new(EcosystemId::new("rust").unwrap(), "dep").unwrap();
-    lib_mutation.dep_floor_updates.insert(dep_ref, Version::new(1, 0, 0));
+    lib_mutation
+        .dep_floor_updates
+        .insert(dep_ref, Version::new(1, 0, 0));
 
     let lib_text_before =
         std::fs::read_to_string(repo.child("crates/lib/Cargo.toml")).expect("read lib before");

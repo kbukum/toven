@@ -463,7 +463,11 @@ impl ManifestMutator for CargoRegistryTarget {
         }
 
         if let Some((owner_path, owner_rewritten)) = owner_change {
-            write_atomic_replace(&owner_path, owner_rewritten.as_bytes(), MANIFEST_TEMP_PREFIX)?;
+            write_atomic_replace(
+                &owner_path,
+                owner_rewritten.as_bytes(),
+                MANIFEST_TEMP_PREFIX,
+            )?;
             changed.push(workspace_root_repo_path(&owner_path, &working_root)?);
         }
 

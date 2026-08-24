@@ -4,8 +4,8 @@
 use std::collections::BTreeMap;
 
 use toven_model::{
-    AbsPath, DepKind, EcosystemId, Edge, Module, ModuleKey, ModuleRef, RepoPath, ToolchainTag, Workspace,
-    WorkspaceId,
+    AbsPath, DepKind, EcosystemId, Edge, Module, ModuleKey, ModuleRef, RepoPath, ToolchainTag,
+    Workspace, WorkspaceId,
 };
 use toven_ports::{
     ConfiguredAdapter, DiscoverResponse, FanOut, RunStrategy, Task, TaskIntent, TaskKind,
@@ -815,7 +815,12 @@ fn group_task_override_workspace_closure_true_and_false() {
     let mut adapters = ConfiguredSet::new();
     adapters.insert(
         eid("rust"),
-        adapter_with_closure("rust", RunStrategy::LeafToTop, FanOut::WholeWorkspace, false),
+        adapter_with_closure(
+            "rust",
+            RunStrategy::LeafToTop,
+            FanOut::WholeWorkspace,
+            false,
+        ),
     );
     let mut overrides_true = GroupOverrides::default();
     let group_cfg_true = GroupConfig {
