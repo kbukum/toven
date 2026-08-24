@@ -89,13 +89,6 @@ impl CargoRegistryTarget {
         }
     }
 
-    /// Clear the workspace-root version conflict ledger.
-    pub fn clear_workspace_root_versions(&self) {
-        if let Ok(mut recorded) = self.workspace_root_versions.lock() {
-            recorded.clear();
-        }
-    }
-
     /// Resolve a module's repo-relative manifest to an absolute path under the
     /// current working directory.
     fn manifest_path(module: &Module) -> AppResult<PathBuf> {
@@ -456,6 +449,10 @@ impl ManifestMutator for CargoRegistryTarget {
         };
 
         // Perform disk writes after all in-memory validation and preparation.
+        // The mutation can span two files (a member's dependency floors plus a
+        // shared workspace-root version); keep it transactional: if the owner
+        // write fails after the member write landed, roll the member back so an
+        // `Err` never leaves partial state on disk.
         let mut changed = Vec::new();
         if path_changed {
             write_atomic_replace(&path, rewritten.as_bytes(), MANIFEST_TEMP_PREFIX)?;
@@ -463,11 +460,28 @@ impl ManifestMutator for CargoRegistryTarget {
         }
 
         if let Some((owner_path, owner_rewritten)) = owner_change {
-            write_atomic_replace(
+            if let Err(error) = write_atomic_replace(
                 &owner_path,
                 owner_rewritten.as_bytes(),
                 MANIFEST_TEMP_PREFIX,
-            )?;
+            ) {
+                if path_changed {
+                    write_atomic_replace(&path, text.as_bytes(), MANIFEST_TEMP_PREFIX).map_err(
+                        |rollback| {
+                            AppError::new(
+                                ErrorCode::Internal,
+                                format!(
+                                    "workspace-root write failed and rolling back '{}' failed \
+                                     too; the member manifest may be partially updated",
+                                    path.display()
+                                ),
+                            )
+                            .with_cause(rollback)
+                        },
+                    )?;
+                }
+                return Err(error);
+            }
             changed.push(workspace_root_repo_path(&owner_path, &working_root)?);
         }
 
