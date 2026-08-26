@@ -1611,7 +1611,10 @@ fn dirty_worktree_error_escapes_control_characters_in_paths() {
     let message = error.to_string();
     // The newline is escaped (backslash-n), not emitted raw, and the raw ESC
     // byte is gone — so the crafted filename cannot inject terminal control.
-    assert!(message.contains("evil\\n"), "newline not escaped: {message:?}");
+    assert!(
+        message.contains("evil\\n"),
+        "newline not escaped: {message:?}"
+    );
     assert!(
         !message.contains('\u{1b}'),
         "raw escape byte leaked: {message:?}"
