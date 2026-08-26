@@ -84,7 +84,7 @@ fn targets(pairs: Vec<(&str, FakeReleaseTarget)>) -> crate::ReleaseTargets {
 
 fn dirty() -> FakeVcsReader {
     FakeVcsReader::new()
-        .with_worktree_status(vec![ChangeRecord::new("a.rs", ChangeStatus::Modified)])
+        .with_worktree_status(vec![ChangeRecord::new("go.sum", ChangeStatus::Modified)])
 }
 
 #[cfg(unix)]
@@ -1541,9 +1541,196 @@ fn dirty_worktree_is_rejected() {
     )
     .expect_err("dirty worktree must be rejected");
     assert!(error.to_string().contains("uncommitted change"));
+    // The guard names the offending path (not just a count) so a CI-only dirty
+    // file — e.g. a regenerated `go.sum` — is diagnosable from the error alone.
+    // Paths are rendered quoted (no unreliable status word).
+    assert!(
+        error.to_string().contains("\"go.sum\""),
+        "clean-tree error should name the dirty path: {error}"
+    );
     assert!(
         writer.writes().is_empty(),
         "no writes on a tripped guardrail"
+    );
+}
+
+#[test]
+fn dirty_worktree_error_bounds_the_named_paths() {
+    // A pathologically dirty tree must not produce an unbounded message: the
+    // guard names up to 20 paths and summarizes the rest as `… and N more`.
+    let plan = ReleasePlan::new(
+        BumpPolicy::SemverCascade,
+        vec![entry("core", Version::new(0, 1, 1), true, 0)],
+    );
+    let changes: Vec<ChangeRecord> = (0..25)
+        .map(|i| ChangeRecord::new(format!("mod{i:02}/go.sum"), ChangeStatus::Modified))
+        .collect();
+    let reader = FakeVcsReader::new().with_worktree_status(changes);
+
+    let error = release_apply(
+        &plan,
+        &[module("core")],
+        &targets(vec![("core", FakeReleaseTarget::new())]),
+        &reader,
+        &FakeVcsWriter::new(),
+        &ReleaseApplyOptions::default(),
+    )
+    .expect_err("dirty worktree must be rejected");
+    let message = error.to_string();
+    assert!(message.contains("25 uncommitted change(s)"), "{message}");
+    assert!(message.contains("… and 5 more"), "{message}");
+    // Verify the bound actually truncates: the 20th sorted path is named and
+    // the 21st is not, so an implementation that emits all 25 and merely
+    // appends the tail fails this test.
+    assert!(message.contains("\"mod19/go.sum\""), "{message}");
+    assert!(!message.contains("\"mod20/go.sum\""), "{message}");
+}
+
+#[test]
+fn dirty_worktree_error_quotes_paths_to_defeat_delimiter_injection() {
+    // A crafted filename embedding the `", "` entry delimiter must not forge a
+    // second entry: quoting contains the comma inside one entry, and the record
+    // count proves it is still treated as a single change.
+    let plan = ReleasePlan::new(
+        BumpPolicy::SemverCascade,
+        vec![entry("core", Version::new(0, 1, 1), true, 0)],
+    );
+    let reader = FakeVcsReader::new().with_worktree_status(vec![ChangeRecord::new(
+        "a, deleted Cargo.toml",
+        ChangeStatus::Modified,
+    )]);
+
+    let error = release_apply(
+        &plan,
+        &[module("core")],
+        &targets(vec![("core", FakeReleaseTarget::new())]),
+        &reader,
+        &FakeVcsWriter::new(),
+        &ReleaseApplyOptions::default(),
+    )
+    .expect_err("dirty worktree must be rejected");
+    let message = error.to_string();
+    assert!(message.contains("1 uncommitted change(s)"), "{message}");
+    // The whole crafted path is contained in one quoted entry, not split into a
+    // forged `deleted Cargo.toml` entry.
+    assert!(
+        message.contains("\"a, deleted Cargo.toml\""),
+        "crafted delimiter not contained: {message:?}"
+    );
+}
+
+#[test]
+fn dirty_worktree_error_escapes_control_characters_in_paths() {
+    // Worktree paths are repository-controlled: a crafted filename embedding a
+    // newline or terminal escape must not forge or corrupt the diagnostic. The
+    // guard renders control characters as printable escapes.
+    let plan = ReleasePlan::new(
+        BumpPolicy::SemverCascade,
+        vec![entry("core", Version::new(0, 1, 1), true, 0)],
+    );
+    let reader = FakeVcsReader::new().with_worktree_status(vec![ChangeRecord::new(
+        "evil\n\u{1b}[31mmalicious.rs",
+        ChangeStatus::Modified,
+    )]);
+
+    let error = release_apply(
+        &plan,
+        &[module("core")],
+        &targets(vec![("core", FakeReleaseTarget::new())]),
+        &reader,
+        &FakeVcsWriter::new(),
+        &ReleaseApplyOptions::default(),
+    )
+    .expect_err("dirty worktree must be rejected");
+    let message = error.to_string();
+    // The newline is escaped (backslash-n), not emitted raw, and the raw ESC
+    // byte is gone — so the crafted filename cannot inject terminal control.
+    assert!(
+        message.contains("evil\\n"),
+        "newline not escaped: {message:?}"
+    );
+    assert!(
+        !message.contains('\u{1b}'),
+        "raw escape byte leaked: {message:?}"
+    );
+    assert!(
+        !message.contains("evil\n"),
+        "raw newline leaked into the path render: {message:?}"
+    );
+}
+
+#[test]
+fn dirty_worktree_error_bounds_total_rendered_bytes() {
+    // A single path is individually unbounded, so the per-entry count cap does
+    // not bound the message on its own; the total-byte ceiling is the backstop.
+    let plan = ReleasePlan::new(
+        BumpPolicy::SemverCascade,
+        vec![entry("core", Version::new(0, 1, 1), true, 0)],
+    );
+    let huge = format!("{}.rs", "a".repeat(10_000));
+    let reader = FakeVcsReader::new()
+        .with_worktree_status(vec![ChangeRecord::new(huge, ChangeStatus::Modified)]);
+
+    let error = release_apply(
+        &plan,
+        &[module("core")],
+        &targets(vec![("core", FakeReleaseTarget::new())]),
+        &reader,
+        &FakeVcsWriter::new(),
+        &ReleaseApplyOptions::default(),
+    )
+    .expect_err("dirty worktree must be rejected");
+    let message = error.to_string();
+    assert!(
+        message.len() < 5_000,
+        "rendered message is not byte-bounded ({} bytes)",
+        message.len()
+    );
+    assert!(
+        message.contains("..."),
+        "truncated message should carry an ellipsis suffix: {message:?}"
+    );
+}
+
+#[test]
+fn dirty_worktree_error_preserves_the_omission_tail_under_byte_truncation() {
+    // Combined case: more than 20 records AND a lexically-first oversized path
+    // that alone exceeds the byte budget. The byte cap must bound the named
+    // entries without swallowing the `… and N more` tail.
+    let plan = ReleasePlan::new(
+        BumpPolicy::SemverCascade,
+        vec![entry("core", Version::new(0, 1, 1), true, 0)],
+    );
+    // 'A' sorts before "mod…", so this oversized entry is truncated first.
+    let huge = format!("{}.rs", "A".repeat(10_000));
+    let mut changes = vec![ChangeRecord::new(huge, ChangeStatus::Modified)];
+    changes.extend(
+        (0..24).map(|i| ChangeRecord::new(format!("mod{i:02}/go.sum"), ChangeStatus::Modified)),
+    );
+    let reader = FakeVcsReader::new().with_worktree_status(changes);
+
+    let error = release_apply(
+        &plan,
+        &[module("core")],
+        &targets(vec![("core", FakeReleaseTarget::new())]),
+        &reader,
+        &FakeVcsWriter::new(),
+        &ReleaseApplyOptions::default(),
+    )
+    .expect_err("dirty worktree must be rejected");
+    let message = error.to_string();
+    assert!(message.contains("25 uncommitted change(s)"), "{message}");
+    // The oversized first entry is byte-truncated, yet the omission tail
+    // survives at the end of the message.
+    assert!(
+        message.contains("… and 5 more"),
+        "omission tail swallowed by byte truncation: {}",
+        message.len()
+    );
+    assert!(
+        message.len() < 5_000,
+        "rendered message is not byte-bounded ({} bytes)",
+        message.len()
     );
 }
 
