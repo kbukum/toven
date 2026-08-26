@@ -7,10 +7,32 @@ use toven_ports::{ChangeRecord, ChangeStatus, VcsReader, VcsWriter};
 /// pathologically dirty tree cannot produce an unbounded message.
 const MAX_NAMED_DIRTY_PATHS: usize = 20;
 
+/// Total-byte ceiling on the rendered dirty-path list. Worktree paths are
+/// repository-controlled and individually unbounded in length, so the
+/// per-entry count cap alone cannot bound the message: a single crafted
+/// filename could still be arbitrarily long. The joined list is truncated to
+/// this many bytes (with an ellipsis) as a hard backstop.
+const MAX_RENDERED_BYTES: usize = 4096;
+
+/// Escape a repository-controlled path for single-line diagnostic display.
+///
+/// Worktree paths are untrusted input: a crafted filename can embed newlines,
+/// carriage returns, or terminal escape sequences that would forge or corrupt
+/// the guard error if rendered verbatim. [`str::escape_debug`] renders every
+/// control character as a printable escape (`\n`, `\r`, `\u{1b}`, …) while
+/// leaving legitimate printable Unicode (e.g. `café`) intact.
+fn escape_path(path: &std::path::Path) -> String {
+    path.display().to_string().escape_debug().to_string()
+}
+
 /// Render the offending worktree changes as a bounded, sorted `"status path"`
 /// list for the clean-tree guard error, so an operator sees *which* files are
-/// dirty (e.g. a CI-only `go.sum`) rather than an opaque count. The list is
-/// truncated to [`MAX_NAMED_DIRTY_PATHS`] with a `… and N more` tail.
+/// dirty (e.g. a CI-only `go.sum`) rather than an opaque count.
+///
+/// The output is bounded twice over untrusted input: to [`MAX_NAMED_DIRTY_PATHS`]
+/// entries with a `… and N more` tail, and to [`MAX_RENDERED_BYTES`] total bytes
+/// via [`rskit_util::strings::truncate_owned`]. Each path is control-escaped by
+/// [`escape_path`] so a crafted filename cannot forge the diagnostic.
 fn describe_dirty_paths(changes: &[ChangeRecord]) -> String {
     let mut rendered: Vec<String> = changes
         .iter()
@@ -21,7 +43,7 @@ fn describe_dirty_paths(changes: &[ChangeRecord]) -> String {
                 ChangeStatus::Deleted => "deleted",
                 ChangeStatus::Renamed => "renamed",
             };
-            format!("{label} {}", change.path.display())
+            format!("{label} {}", escape_path(&change.path))
         })
         .collect();
     rendered.sort();
@@ -30,7 +52,7 @@ fn describe_dirty_paths(changes: &[ChangeRecord]) -> String {
         rendered.truncate(MAX_NAMED_DIRTY_PATHS);
         rendered.push(format!("… and {extra} more"));
     }
-    rendered.join(", ")
+    rskit_util::strings::truncate_owned(&rendered.join(", "), MAX_RENDERED_BYTES)
 }
 
 /// Wrap a failure that happens after externally visible release state exists

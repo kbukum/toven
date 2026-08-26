@@ -1578,6 +1578,81 @@ fn dirty_worktree_error_bounds_the_named_paths() {
     let message = error.to_string();
     assert!(message.contains("25 uncommitted change(s)"), "{message}");
     assert!(message.contains("… and 5 more"), "{message}");
+    // Verify the bound actually truncates: the 20th sorted path is named and
+    // the 21st is not, so an implementation that emits all 25 and merely
+    // appends the tail fails this test.
+    assert!(message.contains("modified mod19/go.sum"), "{message}");
+    assert!(!message.contains("modified mod20/go.sum"), "{message}");
+}
+
+#[test]
+fn dirty_worktree_error_escapes_control_characters_in_paths() {
+    // Worktree paths are repository-controlled: a crafted filename embedding a
+    // newline or terminal escape must not forge or corrupt the diagnostic. The
+    // guard renders control characters as printable escapes.
+    let plan = ReleasePlan::new(
+        BumpPolicy::SemverCascade,
+        vec![entry("core", Version::new(0, 1, 1), true, 0)],
+    );
+    let reader = FakeVcsReader::new().with_worktree_status(vec![ChangeRecord::new(
+        "evil\n\u{1b}[31mmalicious.rs",
+        ChangeStatus::Modified,
+    )]);
+
+    let error = release_apply(
+        &plan,
+        &[module("core")],
+        &targets(vec![("core", FakeReleaseTarget::new())]),
+        &reader,
+        &FakeVcsWriter::new(),
+        &ReleaseApplyOptions::default(),
+    )
+    .expect_err("dirty worktree must be rejected");
+    let message = error.to_string();
+    // The newline is escaped (backslash-n), not emitted raw, and the raw ESC
+    // byte is gone — so the crafted filename cannot inject terminal control.
+    assert!(message.contains("evil\\n"), "newline not escaped: {message:?}");
+    assert!(
+        !message.contains('\u{1b}'),
+        "raw escape byte leaked: {message:?}"
+    );
+    assert!(
+        !message.contains("evil\n"),
+        "raw newline leaked into the path render: {message:?}"
+    );
+}
+
+#[test]
+fn dirty_worktree_error_bounds_total_rendered_bytes() {
+    // A single path is individually unbounded, so the per-entry count cap does
+    // not bound the message on its own; the total-byte ceiling is the backstop.
+    let plan = ReleasePlan::new(
+        BumpPolicy::SemverCascade,
+        vec![entry("core", Version::new(0, 1, 1), true, 0)],
+    );
+    let huge = format!("{}.rs", "a".repeat(10_000));
+    let reader = FakeVcsReader::new()
+        .with_worktree_status(vec![ChangeRecord::new(huge, ChangeStatus::Modified)]);
+
+    let error = release_apply(
+        &plan,
+        &[module("core")],
+        &targets(vec![("core", FakeReleaseTarget::new())]),
+        &reader,
+        &FakeVcsWriter::new(),
+        &ReleaseApplyOptions::default(),
+    )
+    .expect_err("dirty worktree must be rejected");
+    let message = error.to_string();
+    assert!(
+        message.len() < 5_000,
+        "rendered message is not byte-bounded ({} bytes)",
+        message.len()
+    );
+    assert!(
+        message.contains("..."),
+        "truncated message should carry an ellipsis suffix: {message:?}"
+    );
 }
 
 #[test]
