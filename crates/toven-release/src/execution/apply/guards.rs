@@ -1,7 +1,37 @@
 use std::collections::BTreeSet;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_ports::{VcsReader, VcsWriter};
+use toven_ports::{ChangeRecord, ChangeStatus, VcsReader, VcsWriter};
+
+/// Cap on the number of dirty paths named in the clean-tree guard error, so a
+/// pathologically dirty tree cannot produce an unbounded message.
+const MAX_NAMED_DIRTY_PATHS: usize = 20;
+
+/// Render the offending worktree changes as a bounded, sorted `"status path"`
+/// list for the clean-tree guard error, so an operator sees *which* files are
+/// dirty (e.g. a CI-only `go.sum`) rather than an opaque count. The list is
+/// truncated to [`MAX_NAMED_DIRTY_PATHS`] with a `… and N more` tail.
+fn describe_dirty_paths(changes: &[ChangeRecord]) -> String {
+    let mut rendered: Vec<String> = changes
+        .iter()
+        .map(|change| {
+            let label = match change.status {
+                ChangeStatus::Added => "added",
+                ChangeStatus::Modified => "modified",
+                ChangeStatus::Deleted => "deleted",
+                ChangeStatus::Renamed => "renamed",
+            };
+            format!("{label} {}", change.path.display())
+        })
+        .collect();
+    rendered.sort();
+    if rendered.len() > MAX_NAMED_DIRTY_PATHS {
+        let extra = rendered.len() - MAX_NAMED_DIRTY_PATHS;
+        rendered.truncate(MAX_NAMED_DIRTY_PATHS);
+        rendered.push(format!("… and {extra} more"));
+    }
+    rendered.join(", ")
+}
 
 /// Wrap a failure that happens after externally visible release state exists
 /// (`state` says what) with forward-only recovery guidance, preserving the
@@ -73,8 +103,10 @@ pub(crate) fn guard_clean_tree(reader: &dyn VcsReader) -> AppResult<()> {
     Err(AppError::invalid_input(
         "release.worktree",
         format!(
-            "the working tree has {} uncommitted change(s); commit or stash them before releasing",
-            status.len()
+            "the working tree has {} uncommitted change(s); commit or stash them before \
+             releasing: {}",
+            status.len(),
+            describe_dirty_paths(&status)
         ),
     ))
 }

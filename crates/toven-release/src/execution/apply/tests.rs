@@ -84,7 +84,7 @@ fn targets(pairs: Vec<(&str, FakeReleaseTarget)>) -> crate::ReleaseTargets {
 
 fn dirty() -> FakeVcsReader {
     FakeVcsReader::new()
-        .with_worktree_status(vec![ChangeRecord::new("a.rs", ChangeStatus::Modified)])
+        .with_worktree_status(vec![ChangeRecord::new("go.sum", ChangeStatus::Modified)])
 }
 
 #[cfg(unix)]
@@ -1541,10 +1541,43 @@ fn dirty_worktree_is_rejected() {
     )
     .expect_err("dirty worktree must be rejected");
     assert!(error.to_string().contains("uncommitted change"));
+    // The guard names the offending path (not just a count) so a CI-only dirty
+    // file — e.g. a regenerated `go.sum` — is diagnosable from the error alone.
+    assert!(
+        error.to_string().contains("modified go.sum"),
+        "clean-tree error should name the dirty path: {error}"
+    );
     assert!(
         writer.writes().is_empty(),
         "no writes on a tripped guardrail"
     );
+}
+
+#[test]
+fn dirty_worktree_error_bounds_the_named_paths() {
+    // A pathologically dirty tree must not produce an unbounded message: the
+    // guard names up to 20 paths and summarizes the rest as `… and N more`.
+    let plan = ReleasePlan::new(
+        BumpPolicy::SemverCascade,
+        vec![entry("core", Version::new(0, 1, 1), true, 0)],
+    );
+    let changes: Vec<ChangeRecord> = (0..25)
+        .map(|i| ChangeRecord::new(format!("mod{i:02}/go.sum"), ChangeStatus::Modified))
+        .collect();
+    let reader = FakeVcsReader::new().with_worktree_status(changes);
+
+    let error = release_apply(
+        &plan,
+        &[module("core")],
+        &targets(vec![("core", FakeReleaseTarget::new())]),
+        &reader,
+        &FakeVcsWriter::new(),
+        &ReleaseApplyOptions::default(),
+    )
+    .expect_err("dirty worktree must be rejected");
+    let message = error.to_string();
+    assert!(message.contains("25 uncommitted change(s)"), "{message}");
+    assert!(message.contains("… and 5 more"), "{message}");
 }
 
 #[test]
