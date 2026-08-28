@@ -38,7 +38,7 @@ jobs:
       # (ast-grep for structure, mdbook + mdbook-mermaid for docs-build) must be
       # present for the gate to pass — the single source of truth for provisioning.
       - name: Install task-graph tooling
-        uses: taiki-e/install-action@5b4d68e2e660441203ab128a23676f1e4faf1532 # v2
+        uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2
         with:
           tool: ast-grep,mdbook,mdbook-mermaid
 
@@ -85,7 +85,7 @@ jobs:
       # `doctor`'s referenced tools (ast-grep for structure, mdbook +
       # mdbook-mermaid for docs-build) so the required-tool gate can pass.
       - name: Install task-graph tooling
-        uses: taiki-e/install-action@5b4d68e2e660441203ab128a23676f1e4faf1532 # v2
+        uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2
         with:
           tool: ast-grep,mdbook,mdbook-mermaid
 
@@ -109,12 +109,12 @@ jobs:
           submodules: recursive
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
+        uses: github/codeql-action/init@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4
         with:
           languages: rust
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
+        uses: github/codeql-action/autobuild@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4
 
       - name: Analyze
-        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
+        uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4
