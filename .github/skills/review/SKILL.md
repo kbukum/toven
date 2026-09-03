@@ -27,6 +27,10 @@ rskit lives in the `rskit/` submodule and the rskit-reuse pass needs it on disk:
 git submodule update --init --recursive
 ```
 
+## Scope: the blast radius, not just the diff
+
+A change is a probe into its neighborhood, not an island. Review the changed lines **and** their blast radius — the rest of each touched file, the code the change calls and is called by, and closely-related files in the same crate. Pre-existing defects, dead code, duplicated concerns, and design smells in that blast radius are **in scope** and reported like any other finding; the change set is not a shield for the code around it. Because Toven (and vendored rskit) is pre-stable with **no backward compatibility owed**, prefer a root-cause redesign over patching the symptom — decide Redesign / Align / Enhance / Drop, never "leave it patched." Don't expand into unrelated code silently; when a fix reaches past the touched files, say so and keep it coherent. (A whole-tree audit is [`references/review-project.md`](references/review-project.md).)
+
 ## Pick a driver
 
 - **Change set** → [`references/review-changes.md`](references/review-changes.md). A diff (branch, commit range, or `HEAD~1`). Use after every change set, especially fast/"vibe-coded" work.

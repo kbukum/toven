@@ -8,7 +8,7 @@ Catch debt and drift that compiles cleanly but should not land. None of this is 
 
 ## Checks
 
-- **Simplicity / root-cause.** Toven and rskit are pre-stable; backward compatibility is *not* a goal. A compatibility shim, an adapter-over-old-behavior, or a "leave the old path too" hedge is wrong here — the correct move is a clean redesign. Flag shims as should-fix with a redesign suggestion.
+- **Simplicity / root-cause.** Toven and rskit are pre-stable; backward compatibility is *not* a goal. A compatibility shim, an adapter-over-old-behavior, or a "leave the old path too" hedge is wrong here — the correct move is a clean redesign. Flag shims as should-fix with a redesign suggestion. Pre-existing defects and design smells in the change's blast radius (touched files and their close callers/callees) are in scope — report them, don't wave them through because "the diff didn't add them."
 - **Dead / useless code.** New (or existing, in project mode) code with no caller, speculative generality (a trait/param with one impl and no near-term second), commented-out blocks, leftover scaffolding. Remove.
 - **Outdated patterns.** Edition 2024 / Rust 1.97 is the floor — flag patterns superseded by current idioms: manual impls where `derive` suffices, pre-2024 borrow gymnastics, needless clones that clippy-pedantic would catch.
 - **Maintainability.** Is the change obvious to the next reader without the original author? Do names match Toven vocabulary? Is there hidden coupling across layers? Prefer focused, well-named files over piling functionality into one large file.
