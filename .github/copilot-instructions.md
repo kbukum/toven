@@ -6,7 +6,7 @@ Toven is a fast, argv-first development and CI task planner for multi-module rep
 
 Apply this baseline to all work here:
 
-- **Phases:** discover → decide (redesign / align / enhance / drop / leave) → implement completely → validate. Toven and rskit are pre-stable: prefer root-cause redesigns over compatibility shims; backward compatibility is not a goal yet.
+- **Phases:** discover → decide (redesign / align / enhance / drop / leave) → implement completely → validate. Toven and rskit are pre-stable: prefer root-cause redesigns over compatibility shims; backward compatibility is not a goal yet. Implement the *simplest* design that fully solves it — flexible, extensible, and scalable — on current idiomatic Rust best practices, not folklore; complexity must earn its place.
 - **Reuse rskit first:** before writing a shared concern (errors, config, validation, filesystem, git, process, logging), reuse or enhance the canonical rskit owner. If an rskit capability is missing or inadequate, improve rskit generically — never fork a Toven-specific copy or make rskit Toven-specific. Consult [`docs/concern-owners.md`](../docs/concern-owners.md) (rskit-reused vs toven-owned) for the canonical owner of each concern before writing new code.
 - **Cascade-complete changes:** a model change flows through schema, normalization, planner, executor, output, tests, and docs in the same change — no half-applied edits.
 - **Keep argv unchanged:** user-owned argv is never silently rewritten. Toven validates and expands selectors but does not infer hidden flags. Generated commands are argument vectors by default; shell execution must be opted into explicitly.
@@ -19,7 +19,7 @@ Apply this baseline to all work here:
 
 The authoritative, longer-form baseline lives in [`docs/engineering.md`](../docs/engineering.md).
 
-Standing, re-runnable development skills encoding this baseline live in [`.github/skills/`](skills/README.md) — the `review` skill runs the review passes in a fresh, clean-context agent after every change set and before releases; `create-branch`, `create-plan`, `apply-plan`, `apply-step`, `commit`, `create-pr`, `fix-reviews`, `validate`, `new-crate`, `rskit-reuse`, `release`, and `docs` cover the rest of the workflow.
+Standing, re-runnable development skills encoding this baseline live in [`.github/skills/`](skills/README.md) — the `review` skill runs the review passes in a fresh, clean-context agent after every change set and before releases (reviewing the change's **blast radius** — surrounding and related code, not just the diff — and reporting/fixing the pre-existing problems it surfaces, redesign over patch); `create-branch`, `create-plan`, `apply-plan`, `apply-step`, `commit`, `create-pr`, `fix-reviews`, `validate`, `new-crate`, `rskit-reuse`, `release`, and `docs` cover the rest of the workflow.
 
 ## Build, test, and lint
 
@@ -79,6 +79,7 @@ Beyond the enforced declare-only gate, splitting a module is **criteria-driven, 
 ## Testing
 
 - Behavioral and deterministic; no real network access.
+- **Test-first (TDD):** failing test → minimal code → refactor while green, failure paths included.
 - Use `toven-testkit` fixtures and declarative case files — do not embed large config/TOML strings in tests.
 - Cover failure paths; regression-test every fix.
 - Runtime paths surface typed errors, never panics.
