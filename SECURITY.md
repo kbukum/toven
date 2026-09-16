@@ -1,5 +1,7 @@
 # Security Policy
 
+How to report vulnerabilities privately and what security guarantees Toven currently makes.
+
 ## Supported Versions
 
 Toven is in **alpha**. Signed binary prereleases are published on the [Releases page](https://github.com/kbukum/toven/releases); no crate is published to crates.io. Security fixes target the latest alpha line and the `main` branch.
@@ -12,7 +14,7 @@ Toven is in **alpha**. Signed binary prereleases are published on the [Releases 
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in Toven, please report it **privately** through [GitHub Security Advisories](https://github.com/kbukum/toven/security/advisories/new), which opens a private disclosure thread visible only to maintainers.
+If you discover a security vulnerability in Toven, report it **privately** through [GitHub Security Advisories](https://github.com/kbukum/toven/security/advisories/new). That opens a private disclosure thread visible only to maintainers.
 
 Do **not** open a public GitHub issue for security reports.
 
@@ -20,7 +22,7 @@ Do **not** open a public GitHub issue for security reports.
 
 - A clear description of the issue and its potential impact.
 - Steps to reproduce, including a minimal proof-of-concept if possible.
-- The affected version(s), `toven.toml` shape, and `rustc` toolchain.
+- The affected version(s), `toven.toml` shape, and `rustc` toolchain version.
 - Any suggested mitigations or fixes.
 
 ### Response SLA
@@ -48,7 +50,7 @@ Do **not** open a public GitHub issue for security reports.
 
 ## Threat Model
 
-Toven runs against untrusted repositories and forwards user-authored commands, so the security boundary is the CLI input surface:
+Toven runs against untrusted repositories and forwards user-authored commands, so the main security boundary is the CLI input surface:
 
 - **Untrusted inputs:** `toven.toml`, repository files, and passthrough argv are treated as untrusted. Strict config loading rejects unknown fields early, and project roots are resolved relative to the config file.
 - **argv-first execution:** generated commands are argument vectors by default; shell execution must be opted into explicitly, never inferred.

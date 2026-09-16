@@ -2,9 +2,11 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![CI](https://github.com/kbukum/toven/actions/workflows/ci.yml/badge.svg)](https://github.com/kbukum/toven/actions/workflows/ci.yml) [![Supply Chain](https://github.com/kbukum/toven/actions/workflows/supply-chain.yml/badge.svg)](https://github.com/kbukum/toven/actions/workflows/supply-chain.yml) [![Release Readiness](https://github.com/kbukum/toven/actions/workflows/release-readiness.yml/badge.svg)](https://github.com/kbukum/toven/actions/workflows/release-readiness.yml)
 
-Toven is an argv-first development and CI task planner for multi-module repositories. It discovers workspace modules, orders work by dependency graph, plans only what changed, caches successful results, and renders reviewable command batches before running them.
+Plan and run development and CI tasks across multi-module repositories without rewriting the commands your repository already owns.
 
-**Status:** Alpha. Signed binaries are published on the [Releases page](https://github.com/kbukum/toven/releases); source installs are also supported. See [what Toven does](docs/product.md).
+Toven is an argv-first task planner. It discovers workspace modules, orders work by dependency graph, selects affected work, caches successful results, and shows the exact command batches it will run before anything executes.
+
+**Status:** Alpha. Signed binaries are published on the [Releases page](https://github.com/kbukum/toven/releases). You can also build from source. For the full product overview, see [core concepts](docs/product.md).
 
 ## Quick start
 
@@ -14,7 +16,7 @@ Install the latest signed binary on Linux or macOS:
 curl -fsSL https://raw.githubusercontent.com/kbukum/toven/main/scripts/install.sh | sh
 ```
 
-Or `brew tap kbukum/tap && brew install toven`, `scoop install toven` on Windows, or [build from source](docs/installation.md). Then, in your repository:
+Or use Homebrew (`brew tap kbukum/tap && brew install toven`), Scoop on Windows (`scoop install toven` after adding the bucket), or [build from source](docs/installation.md). Then, in your repository:
 
 ```bash
 toven init                    # onboarding wizard writes toven.toml
@@ -22,7 +24,7 @@ toven plan check              # see what would run
 toven check                   # run it
 ```
 
-Full walkthrough: [getting started](docs/getting-started.md).
+For a fuller walkthrough, see [getting started](docs/getting-started.md).
 
 ## What you get
 
@@ -56,7 +58,7 @@ cache_args = true
 shared_inputs = ["Cargo.lock", "rust-toolchain.toml"]
 ```
 
-See [what Toven does](docs/product.md) for the full config surface, [architecture](docs/architecture.md) for how it flows, and the [command reference](docs/commands/README.md) for every flag.
+See [core concepts](docs/product.md) for the full config surface, [architecture](docs/architecture.md) for how it fits together, and the [command reference](docs/commands/README.md) for every flag.
 
 ## Common commands
 
@@ -72,7 +74,7 @@ toven cache stats                      # inspect the local cache
 
 ## Documentation
 
-Start with the [documentation home](docs/README.md), then choose [installation](docs/installation.md), [getting started](docs/getting-started.md), [configuration](docs/config/README.md), [commands](docs/commands/README.md), or [release workflows](docs/commands/release.md). Every page renders directly on GitHub.
+Start with the [documentation home](docs/README.md), then jump to [installation](docs/installation.md), [getting started](docs/getting-started.md), [configuration](docs/config/README.md), [commands](docs/commands/README.md), or [release workflows](docs/commands/release.md). Every page renders directly on GitHub.
 
 Run `make docs-serve` to open the same documentation as a searchable local mdBook with sidebar navigation and live reload.
 
@@ -83,7 +85,7 @@ git submodule update --init --recursive
 make check      # canonical gate: fmt-check, lint, test, structure, doc, deny, release build
 ```
 
-The workspace is a hexagonal `crates/*` + `apps/*` stack rooted at [`toven-model`](crates/toven-model). See [engineering](docs/engineering.md) for standards and validation commands.
+The workspace is a hexagonal `crates/*` + `apps/*` stack: pure model and semver crates at the bottom, ports and focused mechanisms above them, planning and release engines in the middle, ecosystem adapters beside them, and thin app binaries on top. See [engineering](docs/engineering.md) for the full layout, standards, and validation commands.
 
 ## Community
 

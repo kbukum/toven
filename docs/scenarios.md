@@ -1,5 +1,7 @@
 # Worked scenarios
 
+This page shows common command sequences for inspecting work, narrowing scope, and rehearsing releases.
+
 ## Inspect before execution
 
 ```bash
@@ -9,7 +11,7 @@ toven plan test
 toven explain test
 ```
 
-Use this sequence after onboarding or after changing task configuration. The first three commands are read-only; `explain` shows the exact rendered argv.
+Use this sequence after onboarding or after changing task configuration. All four commands are read-only, and `explain` shows the exact rendered argv.
 
 ## Run only affected tests
 
@@ -19,10 +21,10 @@ toven test --base origin/main --merge-base
 
 Toven diffs the merge base against the working tree, selects changed modules, adds their dependents, and executes the resulting graph in dependency order.
 
-## Focus on one module and its dependencies
+## Focus on one module and what it needs
 
 ```bash
-toven test --module rust:cli --dependencies
+toven test --module rust:toven-cli --dependencies
 ```
 
 The selected module and everything it requires are planned. Use `--dependents` instead to include modules that require it.
@@ -30,7 +32,7 @@ The selected module and everything it requires are planned. Use `--dependents` i
 ## Rebuild a cached result
 
 ```bash
-toven test --module rust:core --refresh
+toven test --module rust:toven-core --refresh
 ```
 
 Existing records are ignored. Successful results replace the previous records. Use `--no-cache` when the run must neither read nor write cache data.

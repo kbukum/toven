@@ -1,8 +1,19 @@
 # Testing Toven
 
-Toven's end-to-end coverage is a **data-driven golden suite**. A test is a *scenario*: an ordered session of `toven` invocations run inside a real, git-initialized fixture repo, where each invocation's streams, exit code, and side-effects are compared against reviewable golden files. Adding coverage for a new command or flag means dropping a fixture repo, a `scenario.yaml`, and its golden output files into an organized folder tree — **no Rust changes**.
+Use this page to add or debug end-to-end coverage without rediscovering how the golden harness works.
 
-The engine that discovers, materializes, runs, normalizes, matches, and (on demand) regenerates scenarios lives in `toven-testkit` (`toven_testkit::scenario`). The `apps/toven/tests/golden.rs` harness is a thin `libtest-mimic` main that turns every `scenario.yaml` under `apps/toven/tests/golden/` into one reported test. You never edit it.
+## Quickstart
+
+To cover a new command or flag end to end:
+
+1. Pick or add a fixture repo under `crates/toven-testkit/fixtures/repos/`.
+2. Add a `scenario.yaml` under `apps/toven/tests/golden/...`.
+3. Run `make bless` to generate goldens.
+4. Review the generated files, then run `make golden` to prove the case is stable.
+
+Toven's end-to-end coverage is a **data-driven golden suite**. A test is a *scenario*: an ordered session of `toven` invocations run inside a real, git-initialized fixture repo, where each invocation's streams, exit code, and side-effects are compared against reviewable golden files. Adding coverage for a new command or flag usually means adding data, not Rust code.
+
+The engine that discovers, materializes, runs, normalizes, matches, and, when asked, regenerates scenarios lives in `toven-testkit` (`toven_testkit::scenario`). The `apps/toven/tests/golden.rs` harness is a thin `libtest-mimic` main that turns every `scenario.yaml` under `apps/toven/tests/golden/` into one reported test. You do not edit the harness when you add a new scenario.
 
 ## The scenario model
 
@@ -50,7 +61,7 @@ Fixture repos are real, minimal, buildable trees under `crates/toven-testkit/fix
 - `federation/cross-repo` — a `[[members]]` federation.
 - `edge/` — `empty`, `no-ecosystem`.
 
-The per-ecosystem task grammar is defined once in `fixtures/repos/_profiles/{rust,go,command}-tasks.toml` and injected into every materialized repo, so a fixture `toven.toml` declares only its project identity and discovery shape and `include`s the shared profile. It never restates the task grammar.
+The per-ecosystem task grammar is defined once in `fixtures/repos/_profiles/{rust,go,command}-tasks.toml` and injected into every materialized repo, so a fixture `toven.toml` declares only its project identity and discovery shape and `include`s the shared profile. It does not restate the task grammar.
 
 ### Config variants
 
@@ -91,7 +102,7 @@ make golden   # run the whole matrix — one reported case per scenario
 make bless    # regenerate goldens from live output (RSKIT_BLESS=1), then re-check
 ```
 
-`make bless` writes each golden from the actual captured output, then runs `make golden` to prove the regenerated tree is clean. After blessing, review every generated file by eye — the goldens are the contract — and run `make golden` twice to confirm the tree is deterministic. The matrix also runs inside the canonical gate (`make check` picks up the `golden` harness through nextest).
+`make bless` writes each golden from the actual captured output, then runs `make golden` to prove the regenerated tree is clean. After blessing, review every generated file by eye — the goldens are the contract — and run `make golden` twice to confirm the tree is deterministic. The matrix also runs inside the canonical gate: `make check` picks up the `golden` harness through nextest.
 
 ## Add coverage in three files, no code
 

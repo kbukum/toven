@@ -1,5 +1,18 @@
 # Self-hosting and CI
 
+Use this page to understand how Toven runs its own development gates, release previews, and binary canaries in CI.
+
+## Quickstart
+
+For the local equivalents of the self-hosted CI flow:
+
+```bash
+make doctor
+make check
+make release-plan
+make TOVEN=toven check
+```
+
 Toven uses its own planner for mapped development and release previews. The Makefile remains the stable local and CI entry point.
 
 ## Binary selection
@@ -172,7 +185,7 @@ Consumers pin both the action (by commit SHA) and the binary (by `version`):
     args: modules
 ```
 
-The direct download below remains fully supported for repositories that prefer an explicit install step; the action reproduces it rather than replacing it.
+A direct install step remains fully supported for repositories that prefer it; the action reproduces that flow rather than replacing it.
 
 ## Local workflow reproduction
 

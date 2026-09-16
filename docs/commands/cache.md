@@ -1,10 +1,22 @@
-# Manage cache
+# Cache
 
-Print the cache directory first:
+Inspect the local task cache, see where it lives, and clear it when you need a clean slate.
+
+## Quickstart
 
 ```bash
 toven cache path
+toven cache stats
+toven cache clean
 ```
+
+## Subcommands
+
+| Command | What it does |
+|---|---|
+| `toven cache path` | Print the resolved local cache directory |
+| `toven cache stats` | Summarize the local cache directory |
+| `toven cache clean` | Remove the local cache directory |
 
 Toven caches successful, cacheable task units. It skips them while their inputs still match.
 
@@ -80,4 +92,4 @@ toven test --workspace rust --refresh
 toven test --workspace rust --no-cache
 ```
 
-`--refresh` replaces records after success. `--no-cache` leaves cache state untouched. See [running tasks](run.md#cache-control).
+These flags live on task-running commands, not on `toven cache` itself. `--refresh` replaces records after success. `--no-cache` leaves cache state untouched. See [running tasks](run.md#cache-control).

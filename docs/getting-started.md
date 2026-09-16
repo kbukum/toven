@@ -1,6 +1,6 @@
 # Getting started
 
-This guide configures a repository, previews the work Toven discovered, and runs one task.
+This guide onboards a repository, shows what Toven discovered, and runs one task end to end.
 
 ## Prerequisites
 
@@ -18,7 +18,7 @@ From the repository root:
 toven init
 ```
 
-`init` detects supported ecosystems, asks configuration questions, previews the result, and writes `toven.toml`.
+`init` detects supported ecosystems, walks through a short wizard, previews the result, and writes `toven.toml`. Use `--non-interactive` when you want the default answers with no prompts.
 
 Typical stderr:
 
@@ -68,9 +68,10 @@ toven tasks
 Example stdout from `toven modules`:
 
 ```text
-Module       Workspace
-rust:core    rust
-rust:cli     rust
+Module             Workspace
+command:repo       command
+rust:toven-core    rust
+rust:toven-cli     rust
 ```
 
 Read-only projections use stdout. Warnings and final errors use stderr.
@@ -100,23 +101,24 @@ toven check
 
 Toven runs ready modules concurrently while preserving dependency order. Human progress, child-process output, and the run summary use stderr. A successful run exits with status `0`.
 
-Pass tool arguments unchanged after Toven's option prefix:
+Pass tool arguments unchanged after `--`:
 
 ```bash
-toven test --nocapture
-toven test -- --dry-run
+toven test -- --nocapture
+toven test -- --ignored
 ```
 
-The explicit `--` sends a flag that would otherwise be interpreted by Toven to the underlying task. See [running tasks](commands/run.md).
+The explicit `--` sends every following flag to the underlying task instead of Toven. See [running tasks](commands/run.md).
 
-## Plan only changed work
+## Preview or run only changed work
 
 ```bash
-toven plan test --base origin/main --merge-base
 toven affected test --base origin/main --merge-base
+toven plan test --base origin/main --merge-base
+toven test --base origin/main --merge-base
 ```
 
-Toven selects changed modules and the dependents that may be affected. A repository-level change that cannot be assigned to one module activates the complete scope and reports why.
+`affected` and `plan` are read-only previews. `toven test --base origin/main --merge-base` runs that same changed-selection cut. When Toven cannot assign a change to one module, it expands to the full safe scope and reports why.
 
 ## Next steps
 

@@ -1,6 +1,16 @@
 # Engineering guide
 
-This guide defines the contribution baseline for Toven.
+Use this guide for the day-to-day contribution baseline: setup, validation, layering, and the engineering rules every change should follow.
+
+## Quickstart
+
+For a normal local edit loop:
+
+```bash
+git submodule update --init --recursive
+make doctor
+make check
+```
 
 ## Development phases
 
@@ -11,12 +21,7 @@ This guide defines the contribution baseline for Toven.
 
 Toven is pre-stable. Prefer root-cause redesigns over compatibility shims.
 
-## Setup
-
-```bash
-git submodule update --init --recursive
-make check
-```
+## Toolchain
 
 The repository uses the Rust toolchain pinned by `rust-toolchain.toml`. The language floor is **edition 2024** at a **minimum Rust version of 1.97**, declared once in `[workspace.package]` (`edition`, `rust-version`) and inherited by every crate. Treat those two fields as the single source of truth; do not restate a different floor elsewhere.
 
@@ -39,10 +44,16 @@ The repository uses the Rust toolchain pinned by `rust-toolchain.toml`. The lang
 
 ## Layering
 
-Dependencies point from applications toward the model:
+Dependencies point downward only. If you are choosing where new code belongs, use this map first and then see [architecture](architecture.md) for the deeper breakdown:
 
 ```text
-model -> ports -> engine/adapters -> CLI -> apps
+L0   toven-model
+L0.5 toven-semver
+L1   toven-ports
+L1.5 toven-exec / toven-vcs / toven-runtime
+L2   toven-core / toven-version / toven-release / toven-engine / toven-rust / toven-go / toven-command
+L3   toven-cli
+L4   apps/*
 ```
 
 Lower layers never import higher layers. Ecosystem adapters do not import the engine or CLI.
@@ -88,7 +99,7 @@ cargo nextest run -p <crate>
 Run doctests separately when affected:
 
 ```bash
-toven run doctest -p <crate>   # the gate's Toven-driven form (cargo test --doc)
+toven run doctest --workspace rust -- --all-features
 cargo test -p <crate> --doc    # the equivalent low-level cargo escape hatch
 ```
 

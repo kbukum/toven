@@ -1,6 +1,8 @@
 # Installation
 
-Toven is distributed as signed, checksum-verified binaries on the [Releases page](https://github.com/kbukum/toven/releases), and can also be installed from a source checkout. Binary releases are pinned by an immutable version tag — never an unpinned latest-release URL, especially in CI.
+This page shows the install paths this repository actually supports: released binaries, a source checkout, and generated package-manager channels when they are published.
+
+Toven is distributed as signed, checksum-verified binaries on the [Releases page](https://github.com/kbukum/toven/releases). Every binary release is pinned by an immutable version tag, never by an unpinned latest-release URL, especially in CI.
 
 ## Quick install
 
@@ -16,25 +18,28 @@ On Windows (PowerShell):
 irm https://raw.githubusercontent.com/kbukum/toven/main/scripts/install.ps1 | iex
 ```
 
-Both resolve the newest published tag (including prereleases), then download and verify that tag's exact assets — the archive is never trusted before its checksum verifies, and the Sigstore signature on `SHA256SUMS` is checked first when `cosign` is present. Pass a directory or pin a version explicitly:
+Both scripts resolve the newest published tag, including prereleases, then download and verify that tag's exact assets. The archive is never trusted before its checksum verifies, and the Sigstore signature on `SHA256SUMS` is checked first when `cosign` is present. Pass a directory or pin a version explicitly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kbukum/toven/main/scripts/install.sh \
-  | sh -s -- --version v0.1.0-alpha.2 --dir /usr/local/bin
+curl -fsSL https://raw.githubusercontent.com/kbukum/toven/main/scripts/install.sh | sh -s -- --version v0.1.0-alpha.2 --dir /usr/local/bin
 ```
 
 In CI, always pin the version and pin the script URL itself to a release tag (for example `.../kbukum/toven/v0.1.0-alpha.2/scripts/install.sh`) so no unpinned latest-release URL enters an automated pipeline.
 
-## Homebrew
+## Package-manager channels
+
+This repository includes packaging templates for Homebrew and Scoop under `packaging/`, and the release flow is set up to publish rendered manifests to `kbukum/homebrew-tap` and `kbukum/scoop-bucket`. Use these channels only when those distribution repositories have been published for the version you want. If you need the always-available path, use the release installer above or build from source.
+
+When the Homebrew tap is published:
 
 ```bash
 brew tap kbukum/tap
 brew install toven
 ```
 
-This taps `kbukum/homebrew-tap` and installs the signed release binary for your platform. As a one-shot equivalent, `brew install kbukum/tap/toven` also works. Upgrade with `brew upgrade toven`.
+The one-shot equivalent is `brew install kbukum/tap/toven`. Upgrade with `brew upgrade toven`.
 
-## Scoop (Windows)
+When the Scoop bucket is published:
 
 ```powershell
 scoop bucket add toven https://github.com/kbukum/scoop-bucket
@@ -62,6 +67,8 @@ Requirements:
 - Git
 - the Rust toolchain pinned by `rust-toolchain.toml`
 - the tools used by repository tasks, such as Cargo or Go
+
+There is no `cargo install toven` from crates.io. Every workspace package is `publish = false`, so source installs use the checked-out `apps/toven` binary crate directly.
 
 ```bash
 git clone --recurse-submodules https://github.com/kbukum/toven.git
@@ -117,7 +124,7 @@ toven --version
 
 It prints `toven <version>`, matching the release tag you pinned.
 
-## Run from a checkout
+## Run without installing
 
 ```bash
 cargo run --quiet --locked -p toven -- --help

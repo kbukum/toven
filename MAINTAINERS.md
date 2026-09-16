@@ -1,6 +1,6 @@
 # Maintainers
 
-This file lists the people responsible for Toven. Maintainers handle code review, releases, security review, and project direction.
+Who currently maintains Toven, where help is most useful, and how new maintainers are added.
 
 ## Core Maintainers
 
@@ -8,7 +8,7 @@ This file lists the people responsible for Toven. Maintainers handle code review
 | ---- | ------ | ----- |
 | K. Bukum | @kbukum | Project direction, releases, core architecture |
 
-## Co-Maintainers Wanted
+## Where help is most useful
 
 Toven is currently maintained by a single core maintainer. Co-maintainers are welcome as the project grows, especially around:
 
@@ -17,7 +17,7 @@ Toven is currently maintained by a single core maintainer. Co-maintainers are we
 - Security, release automation, and supply-chain hardening.
 - Documentation and contributor experience.
 
-## How Maintainers Are Added
+## How maintainers are added
 
 New maintainers are added through a pull request that updates this file. Candidates are typically long-term contributors who have demonstrated:
 
@@ -26,9 +26,9 @@ New maintainers are added through a pull request that updates this file. Candida
 - Constructive, responsive code review.
 - Commitment to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-## Becoming Inactive or Stepping Down
+## Becoming inactive or stepping down
 
-A maintainer who has been inactive for 6 months may be moved to an emeritus section by the remaining maintainers. Maintainers may also step down explicitly by opening a pull request to update this file.
+A maintainer who has been inactive for 6 months may be moved to an emeritus section by the remaining maintainers. Maintainers may also step down by opening a pull request that updates this file.
 
 ## Emeritus Maintainers
 
