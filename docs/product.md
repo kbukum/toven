@@ -1,5 +1,7 @@
 # Core concepts
 
+This page explains the model behind Toven: repository-owned tasks, module-aware planning, and guarded execution.
+
 Toven is an argv-first planner and executor for repositories containing multiple modules. It adds repository discovery, graph-aware selection, scheduling, caching, coverage aggregation, and release coordination without taking ownership of the commands a repository runs.
 
 ## Repository-owned commands
@@ -13,7 +15,7 @@ selector = ["-p", "{module.package}"]
 fan_out = "batchable"
 ```
 
-Running `toven test --nocapture` appends `--nocapture` at `{args}` unchanged.
+Running `toven test -- --nocapture` appends `--nocapture` at `{args}` unchanged.
 
 ## Modules and workspaces
 
@@ -22,9 +24,13 @@ A module is the smallest discovered unit Toven plans. Rust modules are Cargo pac
 Canonical module references include the ecosystem:
 
 ```text
+command:repo
 rust:toven-engine
-go:cache-redis
 ```
+
+## Current workspace shape
+
+The current Toven workspace is a Cargo workspace over `crates/*` and `apps/*`. Today that means `crates/toven-cli`, `toven-command`, `toven-core`, `toven-engine`, `toven-exec`, `toven-go`, `toven-model`, `toven-ports`, `toven-release`, `toven-runtime`, `toven-rust`, `toven-semver`, `toven-testkit`, `toven-vcs`, and `toven-version`, plus the thin binaries in `apps/toven`, `apps/toven-rs`, and `apps/toven-go`.
 
 ## Dependency graph
 
@@ -38,6 +44,20 @@ Every task follows two phases:
 2. **Apply:** execute planned units, observe readiness, update successful cache records, and report results.
 
 Read-only commands stop after planning. Task commands apply unless `--dry-run` or `--explain` is set.
+
+This is the normal plan/apply flow.
+
+```mermaid
+flowchart LR
+    A[toven.toml] --> B[Plan]
+    C[Workspace metadata] --> B
+    B --> D[Dependency graph and selected scope]
+    D --> E[Rendered argv and cache decision]
+    E --> F[Apply]
+    F --> G[stdout tables and JSONL]
+    F --> H[stderr progress and summaries]
+    F --> I[Cache updates]
+```
 
 ## Affected work
 
@@ -59,13 +79,11 @@ See [cache management](commands/cache.md).
 
 ## Release product
 
-Toven's release product is a reviewable decision followed by guarded mutation. The maintainer sees what changed, which modules join through dependency cascades, each proposed version and tag, changelog evidence, readiness results, publication order, hosted assets, and prerelease state before approval.
+Toven's release product is a reviewable decision followed by guarded mutation. Before approval, the maintainer can inspect what changed, which modules joined through dependency cascades, the proposed versions and tags, changelog evidence, readiness results, publication order, hosted assets, and prerelease state.
 
-Rust repositories use independent crate versions and can choose registry or tag-only outcomes. Go repositories release changed modules through root or path-prefixed tags and explicitly classify test-only and benchmark modules rather than relying on path heuristics. Toven itself is a tag-only Rust workspace distributed as compiled binaries; none of its crates are published to crates.io.
+Toven models release as an ordered **flow** of phases: select, bump, tag, package, sign, publish, host, image, and provenance. Toven itself follows the tag-only path: every current workspace package is `publish = false`, and the public release is the compiled binary set attached to a GitHub Release rather than crates published to crates.io.
 
-The release is modeled as a **flow**: an ordered set of phases — select, bump, tag, package, sign, publish, host, image, provenance — that the engine orchestrates. A service shipped as a container image is a first-class releasable module: the `image` phase builds it once, pushes it to a primary registry plus mirrors, and cosign-signs the digest; the `provenance` phase then verifies that SLSA build provenance — cut by the CI trusted builder — covers exactly what was published.
-
-Toven owns the flow and its guarantees. Each phase's *implementation* is a swappable seam, backed either **natively** (Toven's own code, the default) or **delegated** to the repository's existing tool (for example GoReleaser for Go packaging). A delegated tool is invoked argv-first while Toven still parses, guards, and reports around it. Delegation is per-phase and opt-in — Toven never hands the whole flow to an external tool.
+Each phase can be backed either **natively** by Toven or **delegated** to a repository tool for that phase only. Even when a phase is delegated, Toven still owns planning, guardrails, and reporting around it.
 
 The safety contract requires mutation-free previews, explicit approval, clean release trees, immutable published results, and forward-fix recovery. The exact policy lives in [release configuration](config/release.md) and the [release workflow](commands/release.md).
 

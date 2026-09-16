@@ -1,34 +1,46 @@
-# Command reference
+# Commands
 
-Start by listing the modules Toven discovered:
+Reference for Toven's built-in CLI commands and the pages that explain them.
+
+## Quickstart
+
+Start with the built-in help, then inspect the repository shape:
 
 ```bash
+toven --help
 toven modules
+toven doctor
 ```
 
-Toven accepts **reserved commands** and repository-defined **task names**. Run `toven <command> --help` for command-specific examples.
+Toven has a fixed set of **reserved commands**. Any other token is treated as a repository-defined task name from `toven.toml`. Run `toven <command> --help` for the exact CLI surface.
 
-## Command groups
+## Built-in commands
 
-| Goal | Command |
-|---|---|
-| Create or extend `toven.toml` | [`toven init`](init.md) |
-| Run a configured task | [`toven <task>`](run.md) |
-| Preview or explain work | [`plan`, `affected`, `explain`](inspect.md) |
-| Inspect modules, tasks, or dependencies | [`modules`, `tasks`, `graph`](inspect.md) |
-| Inspect or clear task-cache records | [`cache`](cache.md) |
-| Measure and gate coverage | [`coverage`](coverage.md) |
-| Audit required tools | [`doctor`](doctor.md) |
-| Lint a commit message or PR title | [`commit-lint`](commit-lint.md) |
-| Plan or execute a release | [`release`](release.md) |
-| Provision ecosystem drivers | [`driver`](driver.md) |
-| Provision drivers across composed repos | [`federation`](federation.md) |
-| Generate shell completion scripts | [`completions`](completions.md) |
+| Command | What it does | Docs |
+|---|---|---|
+| `run` | Run a task by name when the task name would otherwise shadow a reserved command | [`run`](run.md) |
+| `plan` | Preview what a task would run | [`inspect`](inspect.md) |
+| `release` | Plan, inspect, and publish releases | [`release`](release.md) |
+| `coverage` | Run coverage and gate it against configured thresholds | [`coverage`](coverage.md) |
+| `explain` | Show what a task would run and why | [`inspect`](inspect.md) |
+| `init` | Detect ecosystems and write or preview `toven.toml` | [`init`](init.md) |
+| `affected` | Project the affected-module set for a task | [`inspect`](inspect.md) |
+| `modules` | List discovered modules (`list`, `ls`) | [`inspect`](inspect.md) |
+| `graph` | Project the dependency graph (`deps`) | [`inspect`](inspect.md) |
+| `tasks` | List runnable tasks by ecosystem | [`inspect`](inspect.md) |
+| `doctor` | Audit required tools | [`doctor`](doctor.md) |
+| `commit-lint` | Lint a commit subject or PR title | [`commit-lint`](commit-lint.md) |
+| `completions` | Print shell completion scripts | [`completions`](completions.md) |
+| `driver` | Manage out-of-process drivers | [`driver`](driver.md) |
+| `federation` | Manage composed multi-repo driver state | [`federation`](federation.md) |
+| `cache` | Inspect or clear the local task cache | [`cache`](cache.md) |
+| `help` | Show built-in help for any command | Use `toven help <command>` or `toven <command> --help` |
 
 ## Help
 
 ```bash
 toven --help
+toven help doctor
 toven release --help
 ```
 

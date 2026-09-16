@@ -1,6 +1,19 @@
 # Architecture
 
-Toven is a hexagonal Rust workspace. Domain types sit at the center, ports define contracts, adapters integrate ecosystems and infrastructure, the engine coordinates plans and execution, and applications perform final wiring.
+Use this page to understand what lives where, which direction dependencies flow, and how a command becomes a plan, execution, and release output.
+
+Toven is a hexagonal Rust workspace. Domain types sit at the center, ports define contracts, adapters integrate ecosystems and infrastructure, the engine coordinates planning and execution, and applications do the final wiring.
+
+## Quick map
+
+If you are finding your way through the repository, start here:
+
+1. **Entry points:** `apps/toven`, `apps/toven-rs`, and `apps/toven-go` wire binaries.
+2. **CLI boundary:** `crates/toven-cli` owns command grammar and output streams.
+3. **Planning and execution:** `crates/toven-core`, `crates/toven-engine`, and `crates/toven-release` own the orchestration.
+4. **Ports and mechanisms:** `crates/toven-ports`, `crates/toven-exec`, `crates/toven-vcs`, and `crates/toven-runtime` define seams and shared execution machinery.
+5. **Ecosystem adapters:** `crates/toven-rust`, `crates/toven-go`, and `crates/toven-command` translate Rust, Go, and generic tool behavior into those seams.
+6. **Pure domain types:** `crates/toven-model` and `crates/toven-semver` stay at the bottom of the stack.
 
 ## Workspace layers
 
@@ -23,6 +36,8 @@ L4   apps/toven, apps/toven-rs, apps/toven-go
 ```
 
 Dependencies point downward only. `toven-semver` is a pure L0.5 toolkit — semver bump math and the release-tag codec, reusable by any layer, depending on no other Toven crate. `toven-exec`, `toven-vcs`, and `toven-runtime` are focused L1.5 utilities — `toven-exec` owns the concrete subprocess runners, `toven-vcs` owns the git mechanism behind the VCS ports, and `toven-runtime` owns the generic streaming, wave-scheduled, bounded-parallel unit-operation engine (shared GATHER → per-unit STREAM) that the streamed `release` verbs run on today (`run` and `coverage` are not yet migrated). `toven-version` is the L2 version-decision capability whose pure `plan_bumps` is the single path every bump flows through; the three engine crates share layer 2 above `toven-core`, with `toven-release` composing `toven-version` for its bump phase.
+
+This diagram shows the dependency direction across the workspace layers.
 
 ```mermaid
 flowchart TB
@@ -91,6 +106,8 @@ Only the thin `apps/*` binaries wire the ecosystem adapters (`toven-rust`, `tove
 
 ## Plan and apply
 
+This diagram shows how a CLI request turns into a validated plan, an execution pass, and final output.
+
 ```mermaid
 flowchart TB
     Input(["1 · INPUT"])
@@ -157,6 +174,8 @@ Batchable tasks combine compatible modules into one execution unit. Per-module t
 ## Multi-workspace graph and parallel execution
 
 Toven discovers each configured Rust workspace and Go module set independently, then composes their modules into one project graph. Native metadata supplies same-ecosystem edges; overlays supply cross-ecosystem edges.
+
+This diagram shows how independently discovered workspaces merge into one dependency graph and then execute in readiness waves.
 
 ```mermaid
 flowchart TB

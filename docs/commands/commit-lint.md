@@ -1,22 +1,33 @@
-# Lint a commit message
+# Commit lint
 
-Check a commit subject (or PR title) against the Conventional Commits grammar:
+Lint a commit subject or PR title against the Conventional Commits grammar Toven uses for changelogs.
+
+## Quickstart
+
+Check a commit subject directly:
 
 ```bash
 toven commit-lint "feat(cli): add commit-lint verb"
 ```
 
-`toven commit-lint` validates a subject line against the `type(scope)!: description` grammar Toven's release changelog relies on. It is the strict counterpart of the classification Toven already runs when it generates a changelog, so a subject that lints clean here is exactly one the changelog can group without falling through to `Other`.
+`toven commit-lint` validates a subject line against the `type(scope)!: description` grammar Toven's release changelog relies on.
 
 ## Syntax
 
 ```text
-toven commit-lint [MESSAGE] [OUTPUT_OPTIONS]
+toven commit-lint [OPTIONS] [MESSAGE]
 ```
+
+You can also read the message from stdin:
+
+```bash
+git log -1 --pretty=%B | toven commit-lint
+```
+
+Use `--output jsonl` for scripts:
 
 ```bash
 toven commit-lint "fix: correct the config-not-found error"
-git log -1 --pretty=%B | toven commit-lint
 toven commit-lint --output jsonl "feat(release)!: host the binary on GitHub Releases"
 ```
 

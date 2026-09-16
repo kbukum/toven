@@ -1,24 +1,24 @@
 # Concern ownership
 
-Shared concerns have one canonical implementation owner. Reuse the owner before adding behavior elsewhere.
+Use this page before adding shared behavior. Each concern has one canonical owner, and the default move is to reuse or improve that owner instead of duplicating the capability somewhere else.
 
 ## rskit-owned concerns
 
 | Concern | Owner |
 |---|---|
-| Application errors and results | rskit errors |
-| Validation primitives | rskit validation |
-| Filesystem operations | rskit filesystem |
-| Deterministic archive packaging (tar.gz/zip) | rskit filesystem |
-| Git operations | rskit Git |
-| Process execution and observation | rskit process |
-| Bounded async worker pool / concurrency primitive (`Pool`, `PoolConfig`) | rskit worker |
-| CLI palettes, themes, glyphs, and generic status/action rendering | rskit cli |
-| Subprocess lifetime: supervision, process-group isolation, termination/escalation, and non-orphaning reap (`ProcessSupervisor`, `LifecyclePolicy`) | rskit process |
-| CLI graceful shutdown: signal set → cooperative cancellation and second-signal force-exit (`ShutdownController`, `ShutdownPolicy`) | rskit cli |
-| General configuration primitives | rskit configuration |
-| Logging infrastructure | rskit logging |
-| SHA-256 digests (checksums/manifests) | rskit util |
+| Application errors and results | `rskit-errors` |
+| Validation primitives | `rskit-validation` |
+| Filesystem operations | `rskit-fs` |
+| Deterministic archive packaging (tar.gz/zip) | `rskit-fs` |
+| Git operations | `rskit-git` |
+| Process execution and observation | `rskit-process` |
+| Bounded async worker pool / concurrency primitive (`Pool`, `PoolConfig`) | `rskit-worker` |
+| CLI palettes, themes, glyphs, and generic status/action rendering | `rskit-cli` |
+| Subprocess lifetime: supervision, process-group isolation, termination/escalation, and non-orphaning reap (`ProcessSupervisor`, `LifecyclePolicy`) | `rskit-process` |
+| CLI graceful shutdown: signal set → cooperative cancellation and second-signal force-exit (`ShutdownController`, `ShutdownPolicy`) | `rskit-cli` |
+| General configuration primitives | `rskit-config` |
+| Logging infrastructure | `rskit-logging` |
+| SHA-256 digests (checksums/manifests) | `rskit-util` |
 
 When a shared capability is missing, improve rskit generically. Do not make rskit depend on Toven concepts.
 

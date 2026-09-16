@@ -1,6 +1,8 @@
-# Configuration guide
+# `toven.toml` configuration
 
-Toven reads one strict `toven.toml`. Unknown keys fail fast, so typos do not change a plan silently.
+Define project, ecosystem, and release settings in one strict `toven.toml`. Unknown keys fail fast, so typos do not change a plan silently.
+
+## Quickstart
 
 Start with the smallest file that names the project and enables an ecosystem:
 
@@ -66,25 +68,24 @@ dir = ".toven/cache"
 
 [toven.git]
 push_token_env = ["GITHUB_TOKEN", "GH_TOKEN"]
-
-[toven.drivers]
-go = { version = "0.4.1" }
 ```
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `report` | `"human"` or `"json"` | `"human"` | Default report format; the CLI override is `--output human|jsonl` |
+| `report` | `"human"` or `"json"` | `"human"` | Default report format; `json` emits JSON Lines, and the CLI override is `--output human|jsonl` |
 | `max_parallel` | integer | Engine default | Global concurrency ceiling |
 | `compute_budget` | `"auto"`, `"inherit"`, or integer | `"auto"` | CPU parallelism handed to each spawned tool (see [Compute budget](#compute-budget)) |
 | `view` | `"auto"`, `"tiles"`, `"panes"`, or `"stream"` | `"auto"` | Live per-unit output shape for interactive runs |
-| `include` | string list | `[]` | Committed TOML files merged beneath the canonical file as defaults |
-| `drivers` | table | `{}` | Out-of-process driver settings kept for federation |
+| `include` | string list | `[]` | Safe relative TOML file paths merged beneath the canonical file as defaults |
+| `drivers` | table | `{}` | Raw out-of-process driver settings kept for federation |
 | `cache.dir` | string | Engine default, with `TOVEN_CACHE_DIR` override | Task-cache root |
 | `git.push_token_env` | string list | `["GITHUB_TOKEN", "GH_TOKEN"]` | Environment variables checked, in order, for git push/fetch auth |
 
-Included files provide defaults. The canonical `toven.toml` wins on scalar and table conflicts, and included files must be committed.
+Included files provide defaults. The canonical `toven.toml` wins on scalar and table conflicts.
 
 `[toven.git].push_token_env` is forge-agnostic. The embedded git backend uses the first present, non-empty value as the HTTPS token password for engine-owned git network operations, including release pushes and planning fetches. If none are set, local development falls back to the ambient git transport.
+
+`[toven.drivers]` is intentionally untyped here. Toven preserves each driver subtree as raw TOML for federation and does not define a shared key set in the core loader.
 
 ## Compute budget
 
@@ -195,6 +196,7 @@ Every ecosystem also accepts these shared keys:
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `run_strategy` | `"leaf-to-top"` or `"unordered"` | Adapter default | Wave ordering for the ecosystem |
+| `compute_budget` | `"auto"`, `"inherit"`, or integer | Inherit from `[toven].compute_budget` | Ecosystem-specific compute-budget override |
 | `tasks` | table | `{}` | Complete authored task table |
 | `coverage` | table | See [coverage configuration](../commands/coverage.md#configure-thresholds) | Coverage policy |
 | `release` | table | See [release configuration](release.md) | Release policy |
@@ -271,6 +273,8 @@ line = 90.0
 ```
 
 Release overrides merge field by field over `[ecosystems.<id>.release]`. Coverage overrides follow the same pattern.
+
+`[modules."<ecosystem>:<name>".coverage]` accepts only threshold and `enforcement` keys. `exclude` and `profiles` are ecosystem-level coverage settings and fail validation inside a per-module override.
 
 ## Overlays
 

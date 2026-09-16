@@ -1,10 +1,10 @@
 # Governance
 
-This document describes how decisions are made in the Toven project.
+How Toven makes decisions, who can make them, and how releases and security issues are handled.
 
 ## Project Status
 
-Toven is in **alpha**. Backward compatibility is not guaranteed while the core planner, execution model, cache semantics, and discovery adapter interfaces are being finalized. Breaking changes are acceptable when they produce a cleaner long-term design.
+Toven is in **alpha**. Backward compatibility is not guaranteed while the core planner, execution model, cache semantics, and discovery adapter interfaces are still settling. Breaking changes are acceptable when they produce a cleaner long-term design.
 
 ## Roles
 
@@ -22,13 +22,13 @@ Maintainers have merge rights and are responsible for project direction, securit
 
 ## Decision Making
 
-Routine fixes and focused features require maintainer review through pull request. Significant architectural changes should start as an issue or discussion before implementation.
+Routine fixes and focused features land through pull request review. Significant architectural changes should start as an issue or discussion before implementation.
 
 Changes that affect the execution model, cache behavior, security posture, release process, or discovery adapter protocol require maintainer consensus.
 
 ## Release Process
 
-Releases are cut by maintainers. Each release includes a changelog entry. The `Release` workflow is dispatched manually and gated by a protected environment's required-reviewer approval; it creates the version tag itself and attaches signed build artifacts, an SBOM, and build provenance. See [self-hosting](docs/self-hosting.md).
+Releases are cut by maintainers. Each release includes a changelog entry. The `Release` workflow is dispatched manually and gated by a protected environment's required-reviewer approval; it creates the version tag itself and attaches signed build artifacts, an SBOM, and build provenance. See [self-hosting and CI](docs/self-hosting.md).
 
 ## Security Issues
 
@@ -36,4 +36,4 @@ Security issues follow the dedicated process in [SECURITY.md](SECURITY.md) and a
 
 ## Amendments
 
-This document may be amended by pull request.
+This document can be updated through a pull request.

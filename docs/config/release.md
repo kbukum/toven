@@ -1,5 +1,9 @@
 # Release configuration
 
+Configure how an ecosystem versions, tags, publishes, hosts, signs, and verifies a release.
+
+## Quickstart
+
 Release policy lives under `[ecosystems.<id>.release]`. A module can override it under `[modules."<ecosystem>:<name>".release]`.
 
 Run a read-only preview first:
@@ -35,7 +39,7 @@ readiness = ["clean-tree", "registry-idempotent"]
 required = true
 ```
 
-For a tag-only release, omit `registry` or set `publish = false` in the same block.
+For a tag-only release, omit `registry`. If a module inherits a registry from a broader default and must opt out, set `publish = false` in that module's override block.
 
 ## Full example
 
@@ -393,7 +397,7 @@ sign = true
 | Value | Meaning |
 |---|---|
 | `"toven"` | Toven bumps versions, writes the release commit, creates and pushes the tag, publishes, and cuts the hosted Release |
-| `"maintainer"` | A maintainer already created the tag and hosted Release; Toven verifies both exist, then publishes and verifies provenance. It never creates, edits, content-verifies, or attaches assets to the maintainer's Release |
+| `"maintainer"` | A maintainer owns the release tag and any hosted Release. Toven verifies those existing inputs, then runs the remaining configured publish and verification phases. It never creates, edits, content-verifies, or attaches assets to the maintainer's Release |
 
 In a maintainer-owned flow, the tag is an input. Toven never creates or moves it, mutates no manifest, and creates no release commit during publish. The manifest already declares the released version, so registry idempotency decides whether publish is still needed. The hosted Release is likewise an input: the hosted-Release phase only confirms a Release exists for the resolved tag and fails closed when it is missing — it never creates, edits, content-verifies, reconciles, or attaches assets to it, so the maintainer's authored notes, title, and flags are authoritative.
 

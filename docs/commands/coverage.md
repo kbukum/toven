@@ -1,6 +1,10 @@
-# Measure coverage
+# Coverage
 
-Run the coverage gate for Rust modules:
+Run the configured coverage task, aggregate the emitted profiles per module, and gate the result against the resolved thresholds.
+
+## Quickstart
+
+Run coverage across the Rust workspace:
 
 ```bash
 toven coverage --workspace rust
@@ -11,7 +15,7 @@ toven coverage --workspace rust
 ## Syntax
 
 ```text
-toven coverage [SELECTION_OPTIONS] [THRESHOLD_OPTIONS] [OUTPUT_OPTIONS]
+toven coverage [OPTIONS]
 ```
 
 ```bash
@@ -24,14 +28,9 @@ toven coverage --output jsonl
 
 ## Output and exit status
 
-The per-module verdict table uses stdout:
+In human mode, `coverage` writes measurement progress, per-module verdicts, and the final tally to stderr. With `--output jsonl`, stdout receives one JSON object per module.
 
-```text
-Module      Status  Line   Function  Region  Changed  Enforcement
-rust:core   passed  92.4%  88.0%     86.2%   -        block
-```
-
-Measurement progress and the per-module verdicts go to stderr. Human output lists one verdict line per module, followed by a tally that names the non-zero groups and the gate verdict:
+Human output lists one verdict line per module, followed by a tally that names the non-zero groups and the gate verdict:
 
 ```text
 Coverage
