@@ -2,7 +2,7 @@
 
 Toven's bar: behavioral, deterministic, failure paths covered, a regression test for every fix, tests added in the **same** change. This pass catches the classic vibe-coding tell — tests written after the fact that only assert the happy path the author already saw working.
 
-> **Run in a separate, clean-context agent** — never inline in the session that wrote the code. An independent reviewer re-derives every judgment from the code and the principles instead of trusting prior reasoning. A plan/spec may be passed in as a scope checklist only; it never excuses a baseline violation.
+Use the [review skill](../SKILL.md) for scope, execution, and finding format. This checklist does not require a separate agent.
 
 **Scope note.** *Changes mode:* every behavioral change in the diff must ship its test in the same diff. *Project mode:* assess coverage of each crate's public behavior and failure paths, audit for inline config strings and stranded doubles, and confirm `make coverage` holds.
 

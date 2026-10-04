@@ -2,13 +2,9 @@
 
 Standing, re-runnable **whole-project audit**, independent of any diff. Use it periodically, before a release, when onboarding to a crate, or whenever you want assurance the tree as a whole still honors the baseline. It sequences the same nine focused passes in [`references/`](./) but over the existing code rather than a change set.
 
-## Run this in a separate, clean-context agent
+## Execution
 
-**Always dispatch this audit to a fresh agent with no shared session context.** The point of a full audit is an independent read of the code as it exists — not filtered through whatever a prior session believed about it. Do not run it inline in a session that has been editing the same code.
-
-- Hand the agent: the crate(s)/area to audit (or "the whole workspace"), this file, and the [`references/`](./) folder.
-- The agent judges the code as written, against the principles in [`docs/engineering.md`](../../../../docs/engineering.md) and [`docs/architecture.md`](../../../../docs/architecture.md) — not against any session's recollection.
-- **Optional plan/roadmap check.** If there is a roadmap, phase plan, or release-readiness doc (e.g. under `tmp/` or an issue), pass it in *as context for intended state only* — "here is where the project is meant to be; flag where the tree has not caught up." It frames expectations; it never excuses a baseline violation.
+Follow [the review skill](../SKILL.md): direct review by default; independent agents only on request. Read current source and relevant contracts. A plan is a scope checklist, not a justification for a baseline violation.
 
 ## Pass 0 — Scope and context
 
@@ -21,21 +17,9 @@ ls crates
 for c in crates/*/Cargo.toml; do echo "== $c =="; rg '^toven-|^rskit-' "$c"; done
 ```
 
-## Passes — run in order
+## Passes
 
-Work the focused files top to bottom; each carries a "Project mode" scope note describing how to sweep the whole tree for that lens.
-
-1. [`00-structure-placement.md`](./00-structure-placement.md) — layering rules, port placement, `mod.rs` guard, file homes across every crate.
-2. [`01-rskit-reuse.md`](./01-rskit-reuse.md) — sweep for local forks of rskit-owned concerns (errors, config, validation, fs, git, process, logging, hashing). *(blocker class)*
-3. [`02-principles.md`](./02-principles.md) — print/panic/argv/security rules across the full library surface; spot-check end-to-end cascades.
-4. [`03-security-privacy.md`](./03-security-privacy.md) — audit untrusted surfaces (CLI argv/flags, config/repo-file loading, toolchain adapters, federation RPC) for trust-boundary validation, argv-only execution, bounded I/O, secret hygiene. *(blocker class)*
-5. [`04-quality.md`](./04-quality.md) — dead code, lingering compatibility shims, outdated patterns, style gates.
-6. [`05-tests-tdd.md`](./05-tests-tdd.md) — coverage of behavior and failure paths, fixtures vs. inline TOML, stranded doubles, determinism.
-7. [`06-docs-supply-chain.md`](./06-docs-supply-chain.md) — docs policy (`tmp/` refs, hard-wrapping), Conventional Commits, `Cargo.lock`, rskit pin/submodule parity, `cargo-deny`, SHA-pinned actions.
-8. [`07-comments-rustdoc.md`](./07-comments-rustdoc.md) — sweep all source prose: comments and `///` docs describe the current code, not plans/history; rewrite or delete the rest.
-9. [`08-cli-ux.md`](./08-cli-ux.md) — exercise every verb's `--help` and the common error/first-run paths: actionable errors, parser-scoped flags, user vocabulary, documented+pinned exit codes, labeled dry-runs.
-
-When you only need one lens across the project (e.g. a standalone security or TDD sweep), run that focused file directly with its "Project mode" note.
+Follow the trigger table and order in [the review skill](../SKILL.md). Use each checklist's project scope. Load applicable files only; report incomplete checks and stop acceptance on structural/reuse blockers.
 
 ## Findings
 

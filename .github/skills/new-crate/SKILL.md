@@ -1,10 +1,6 @@
 ---
 name: new-crate
-description: >-
-    Scaffold a new crate in Toven's hexagonal Cargo workspace the canonical way — place it in the
-    right layer (model/ports/engine/adapter/cli), honor the binding port-placement rule, wire the
-    workspace, inherit workspace lints (#![forbid(unsafe_code)], missing_docs), and add its shared
-    double to toven-testkit. Use when adding a capability, port, adapter, or crate to Toven.
+description: "toven: Add a Rust crate in the correct layer with workspace wiring, lints, docs, and shared tests."
 user-invocable: true
 ---
 

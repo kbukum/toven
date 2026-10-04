@@ -1,10 +1,6 @@
 ---
 name: validate
-description: >-
-    Build, test, lint, format-check, and structure-check Toven changes through cargo and make —
-    scoped to the crates that actually changed. Use whenever you need to validate a Toven change,
-    run tests for a crate, reproduce CI locally, or check the affected area of an edit before
-    committing.
+description: "toven: Run the repository's build, test, lint, and documentation gates scoped to the change."
 user-invocable: true
 ---
 

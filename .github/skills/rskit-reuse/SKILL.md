@@ -1,10 +1,6 @@
 ---
 name: rskit-reuse
-description: >-
-    Reuse the vendored rskit foundation before writing any shared concern in Toven (errors,
-    config, validation, filesystem, git, process, logging) — and when rskit is missing or
-    inadequate, improve rskit generically rather than forking a Toven-specific copy. Use before
-    adding cross-cutting infrastructure, or when a review flags a reimplemented concern.
+description: "toven: Reuse or enhance rskit before adding shared infrastructure to Toven."
 user-invocable: true
 ---
 
@@ -50,4 +46,4 @@ git submodule update --init --recursive
 cargo test -p <crate> --all-features -q
 ```
 
-For a real audit of a reuse claim, run the `review` skill's `01-rskit-reuse` pass in a fresh agent. Per repo workflow, **create the branch and make edits only** — the maintainer commits and pushes.
+For a real audit of a reuse claim, run the `review` skill's `01-rskit-reuse` pass directly (use an independent agent only when requested). Per repo workflow, **create the branch and make edits only** — the maintainer commits and pushes.

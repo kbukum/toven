@@ -2,7 +2,7 @@
 
 The single highest-value check, especially for vibe-coded work: **did the change reuse rskit, or quietly reimplement something rskit already owns?** AI-generated code defaults to writing a local helper rather than finding the canonical one, so assume duplication until proven otherwise. Treat findings here as a blocker class.
 
-> **Run in a separate, clean-context agent** — never inline in the session that wrote the code. An independent reviewer re-derives every judgment from the code and the principles instead of trusting prior reasoning. A plan/spec may be passed in as a scope checklist only; it never excuses a baseline violation.
+Use the [review skill](../SKILL.md) for scope, execution, and finding format. This checklist does not require a separate agent.
 
 **Scope note.** *Changes mode:* for each new helper/type/util in the diff, ask whether it is an rskit-owned concern. *Project mode:* sweep `crates/*/src` for the patterns below and reconcile each against the rskit owner — long-lived local forks are exactly what this pass exists to surface.
 

@@ -1,10 +1,6 @@
 ---
 name: apply-step
-description: >-
-    Apply a single step of a tmp/ plan — read the plan README and all previous steps for
-    accumulated context and decisions, then implement the current step test-first against
-    Toven's engineering baseline, validate the affected crates, and mark the step done. Use to
-    execute one specific plan step, or as the per-step unit that apply-plan drives.
+description: "toven: Implement one plan step test-first, validate its acceptance criteria, and record progress."
 user-invocable: true
 ---
 
@@ -16,13 +12,9 @@ user-invocable: true
 
 A path to one step file, e.g. `tmp/engine-plan-caching/02-cache-store.md`.
 
-## 1. Load full context before editing
+## 1. Load required context
 
-A step is not self-contained — earlier steps make naming, layering, and API decisions this step depends on. Read, in order:
-
-1. **`README.md`** of the plan folder — goal, dependency order, and the cross-cutting baseline rules that bind every step.
-2. **Every previous step** (`NN-*.md` with a lower number) — for the decisions and files they already established. Honor them; do not re-litigate or contradict a completed step.
-3. **The current step** — its scope, numbered actions, files touched, and acceptance criteria.
+Read the existing handoff first, then the plan README and current step. Check its dependency status and read only the earlier decisions/contracts it needs. Do not preload every earlier step or re-litigate completed decisions. If a required contract is missing or stale, inspect its owning source before editing.
 
 Confirm the current step's *Depends on* steps are `done` before starting. If a dependency is unfinished, stop and say so. Initialize the submodule if the step touches rskit reuse (`git submodule update --init --recursive`).
 
@@ -44,8 +36,10 @@ Keep the edit scoped to *this* step's `Files touched`; if you discover the step 
 ## 3. Validate, review, and mark done
 
 - **Validate** the affected crates with the `validate` skill (`cargo -p` + `make structure`), deterministic and green. A step does not land red.
-- **Review** the step's diff with the relevant `review` passes (structure/placement, rskit reuse, principles, quality, tests, docs, comments) — ideally in a fresh agent.
+- **Review** the step's diff with the relevant `review` passes (structure/placement, rskit reuse, principles, quality, tests, docs, comments) in the current agent; delegate only when the user requests it.
 - Only when acceptance criteria are genuinely met, flip the step's progress signal so `apply-plan` can resume: set `**Status:** done` and check its `- [x]` boxes. Do not mark a step done on a partial or red result.
+
+Update `handoff.md` with the completed capability, remaining work, exact next action, validation freshness, Git constraints, and owned resources. Keep it under 500 words.
 
 ## Repo workflow
 

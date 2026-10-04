@@ -2,7 +2,7 @@
 
 A dedicated pass because a vibe-coded path that "just works" usually skips boundary validation, and Toven's whole job is to turn untrusted repository files and user-owned argv into executed subprocesses — a gap here runs attacker-influenced input. The principle-level summary lives in pass `02`; this pass is the standing baseline. For a deeper sweep on security-sensitive changes, pair it with a dedicated security review.
 
-> **Run in a separate, clean-context agent** — never inline in the session that wrote the code. An independent reviewer re-derives every judgment from the code and the principles instead of trusting prior reasoning. A plan/spec may be passed in as a scope checklist only; it never excuses a baseline violation.
+Use the [review skill](../SKILL.md) for scope, execution, and finding format. This checklist does not require a separate agent.
 
 **Scope note.** *Changes mode:* trace each new input path from its trust boundary — user argv, `toven.toml`/config, discovered module manifests, federation wire frames — to where it flows into a path, a selector, a subprocess, or a deserialization. *Project mode:* audit Toven's untrusted surfaces: the CLI argv/flag boundary (`toven-cli`), config and repo-file loading and the ecosystem adapters that shell out to toolchains (`toven-engine`, `toven-rust`, `toven-go`, `toven-command`), and the federation RPC protocol (`toven-engine/src/federation/`). See the Security section of [`docs/engineering.md`](../../../../docs/engineering.md).
 
