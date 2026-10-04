@@ -1,9 +1,6 @@
 ---
 name: commit
-description: >-
-    Commit staged (or explicitly named) changes with a single compact, developer-friendly commit
-    message that states what changed — no Co-authored-by trailer, no plan/batch/PR numbers, no
-    tool or review narration. Use when asked to commit work in Toven.
+description: "toven: Commit the authorized staged change with a concise Conventional Commit message; only when asked."
 user-invocable: true
 ---
 

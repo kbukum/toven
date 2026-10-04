@@ -2,7 +2,7 @@
 
 Confirm every touched (or, in project mode, every existing) item lives in the right crate and layer, and that the hexagonal port rules hold. This is the first gate: misplaced code makes every later pass moot, so reject on failure here before going further.
 
-> **Run in a separate, clean-context agent** — never inline in the session that wrote the code. An independent reviewer re-derives every judgment from the code and the principles instead of trusting prior reasoning. A plan/spec may be passed in as a scope checklist only; it never excuses a baseline violation.
+Use the [review skill](../SKILL.md) for scope, execution, and finding format. This checklist does not require a separate agent.
 
 **Scope note.** *Changes mode:* check the crates the diff touches plus their affected area. *Project mode:* sweep each crate's `Cargo.toml` dependency block and `src/` tree; the layering and port-placement rules below are rules for the whole workspace, not just a diff.
 

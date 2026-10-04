@@ -1,10 +1,6 @@
 ---
 name: create-pr
-description: >-
-    Open a pull request that reads well for a reviewer — understand the change set at a high
-    level, fill the repo PR template honestly, and keep the description a concise, organized,
-    developer-friendly summary (no file-by-file dumps, no internal/batch/plan detail). Bound to
-    Toven's engineering baseline. Use only when explicitly asked to create or open a PR.
+description: "toven: Open a draft pull request using the repository template; only when explicitly asked."
 user-invocable: true
 ---
 

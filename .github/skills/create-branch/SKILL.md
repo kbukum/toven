@@ -1,10 +1,6 @@
 ---
 name: create-branch
-description: >-
-    Create a new git branch for a piece of work the canonical way — branch off an up-to-date
-    main by default (or an explicitly named base branch), and name it by the high-level change
-    only, never by internal/local scaffolding like batch numbers, plan numbers, or task IDs. Use
-    whenever you start new work, cut a branch, or are unsure what to name a branch.
+description: "toven: Create a change-named kbukum/ branch from an up-to-date main when starting new work."
 user-invocable: true
 ---
 

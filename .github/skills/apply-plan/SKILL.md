@@ -1,10 +1,6 @@
 ---
 name: apply-plan
-description: >-
-    Execute an existing plan folder under tmp/ from its first unfinished step onward — read the
-    plan's README for order and dependencies, then apply each remaining step in turn (via the
-    apply-step workflow), validating after each. Resumable and idempotent. Use when asked to
-    apply, execute, continue, or resume a plan.
+description: "toven: Resume an existing plan in dependency order, validating each bounded work order."
 user-invocable: true
 ---
 
@@ -22,6 +18,8 @@ ls -d tmp/*/
 
 ## 1. Read the plan and compute the remaining steps
 
+Read the existing handoff first. Verify current Git state and evidence freshness; then read the README, current step, and required dependency contracts only. Do not load all historical steps.
+
 - Read `tmp/<plan>/README.md` first: the goal, the ordered step index, the **dependency order**, and the cross-cutting baseline rules that bind every step.
 - List the step files and find each one's progress signal — the `**Status:**` field and the `- [ ]` / `- [x]` acceptance boxes that `create-plan` defines.
 
@@ -34,7 +32,9 @@ grep -n '\*\*Status:\*\*' tmp/<plan>/*.md
 
 ## 2. Apply each remaining step in order
 
-For each remaining step, in dependency order, run the **`apply-step` workflow** on that step file (read the README + all prior steps for context, apply the current step test-first, validate, then mark it done). Do not skip ahead; do not batch several steps into one undifferentiated change — each step stays a standalone, reviewable unit.
+Complete one bounded work order, checkpoint, and stop at the session boundary. Reuse the step's fresh validation evidence; repeat a command only if inputs changed or its result does not cover acceptance. Never skip a required gate.
+
+For each remaining step, in dependency order, run the **`apply-step` workflow** on that step file (read the README + required dependency contracts for context, apply the current step test-first, validate, then mark it done). Do not skip ahead; do not batch several steps into one undifferentiated change — each step stays a standalone, reviewable unit.
 
 Between steps:
 
@@ -43,7 +43,7 @@ Between steps:
 
 ## 3. Baseline and review
 
-Every step is executed against Toven's engineering baseline, not a looser plan-local standard. After a step (or a coherent group of steps) lands, run the `review` skill's passes over the diff in a fresh, clean-context agent. Treat a green `validate` run as necessary but not sufficient.
+Every step is executed against Toven's engineering baseline, not a looser plan-local standard. After a step (or a coherent group of steps) lands, run the `review` skill's passes over the diff in the current agent (delegate only when requested). Treat a green `validate` run as necessary but not sufficient.
 
 ## Repo workflow
 

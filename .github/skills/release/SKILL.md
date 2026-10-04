@@ -1,13 +1,6 @@
 ---
 name: release
-description: >-
-    Cut a release of Toven — decide the semver bump, update the CHANGELOG, set the workspace
-    version, run the full pre-release gate and supply-chain sweep, land the version commit on
-    protected `main` through a reviewed PR, then dispatch the gated Release workflow whose
-    `toven release publish` step creates the tag and hosted Release with per-target signed
-    binaries, SBOM, and provenance. Toven ships tagged, signed binary artifacts (all crates are
-    publish = false) — it does not publish to crates.io. Use when preparing or publishing a Toven
-    release or checking release readiness.
+description: "toven: Prepare or publish a release through the repository's version, validation, and supply-chain gates."
 user-invocable: true
 ---
 
@@ -50,7 +43,7 @@ cargo build --locked --release -p toven --target "$host"
 cargo run --locked -p toven -- release package --target "$host"   # writes dist/toven-<host>.<ext>
 ```
 
-Also run the `review` project audit in a fresh agent before a release. Treat green gates as necessary but not sufficient.
+Also run the `review` project audit directly (use an independent agent only when requested) before a release. Treat green gates as necessary but not sufficient.
 
 ## Step 2 — Decide the version
 

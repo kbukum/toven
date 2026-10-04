@@ -2,7 +2,7 @@
 
 Toven is a command-line tool; its user surface *is* the product. This pass reviews everything a user reads or types — help text, error messages, flags, exit codes, and first-run flow — against the standard that a competent user should never have to guess or read the source.
 
-> **Run in a separate, clean-context agent** — ideally with the built binary in hand (`cargo run -p toven -- …`). Judge the surface as a new user would: run the verbs, hit the errors, read the `--help`. A plan may scope the review; it never excuses a UX defect.
+Use the [review skill](../SKILL.md) for scope, execution, and finding format. This checklist does not require a separate agent.
 
 **Scope note.** *Changes mode:* review the user-facing surface touched by the diff — new/changed flags, help strings, error text, exit paths. *Project mode:* exercise every verb's `--help`, the common error paths (no config, unknown task, unknown module), and the new-user path (`init` → first run). This pass is about the user's experience, not internal structure; it complements pass 02's output/flag discipline rather than repeating it.
 

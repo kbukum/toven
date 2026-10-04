@@ -2,7 +2,7 @@
 
 Each item here is a hard principle from [`docs/engineering.md`](../../../../docs/engineering.md), not a preference. This is where vibe coding usually drifts.
 
-> **Run in a separate, clean-context agent** — never inline in the session that wrote the code. An independent reviewer re-derives every judgment from the code and the principles instead of trusting prior reasoning. A plan/spec may be passed in as a scope checklist only; it never excuses a baseline violation.
+Use the [review skill](../SKILL.md) for scope, execution, and finding format. This checklist does not require a separate agent.
 
 **Scope note.** *Changes mode:* walk the cascade list you built for the diff and grep the touched crates. *Project mode:* the print/panic/argv/security rules below hold for the entire library surface — sweep all of `crates/toven-{model,ports,engine,rust,go,command}/src`, not just a diff.
 

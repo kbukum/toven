@@ -2,7 +2,7 @@
 
 Catch debt and drift that compiles cleanly but should not land. None of this is style-bikeshedding — it maps to Toven's pre-stable, redesign-first stance.
 
-> **Run in a separate, clean-context agent** — never inline in the session that wrote the code. An independent reviewer re-derives every judgment from the code and the principles instead of trusting prior reasoning. A plan/spec may be passed in as a scope checklist only; it never excuses a baseline violation.
+Use the [review skill](../SKILL.md) for scope, execution, and finding format. This checklist does not require a separate agent.
 
 **Scope note.** *Changes mode:* judge the diff against simpler alternatives and check the style gates on touched public items. *Project mode:* hunt for dead code, lingering compatibility shims, and outdated patterns across the crate(s) — accumulated leftover code is exactly what a full audit should find.
 

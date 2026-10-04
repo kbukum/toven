@@ -1,11 +1,6 @@
 ---
 name: fix-issue
-description: >-
-    Fix a GitHub issue the canonical way — understand and reproduce the reported problem,
-    investigate it to its root cause against Toven's engineering baseline, plan the fix, then
-    implement it completely (redesign/refactor as needed, no backward-compatibility shims while
-    pre-stable), validate the affected crates, and reference the issue. Use when asked to fix,
-    resolve, or work on a GitHub issue.
+description: "toven: Investigate a GitHub issue, fix its root cause, and validate affected behavior."
 user-invocable: true
 ---
 
@@ -63,7 +58,7 @@ cargo clippy -p <crate> --all-targets --all-features -- -D warnings
 make structure
 ```
 
-Confirm the regression test from step 2 now passes and the original reproduction no longer triggers the symptom. Then have the [`review`](../review/SKILL.md) skill's passes run over the diff in a fresh, clean-context agent — a green `validate` is necessary but not sufficient.
+Confirm the regression test from step 2 now passes and the original reproduction no longer triggers the symptom. Then have the [`review`](../review/SKILL.md) skill's passes run over the diff directly (use an independent agent only when requested) — a green `validate` is necessary but not sufficient.
 
 ## 6. Land and reference the issue
 

@@ -2,7 +2,7 @@
 
 Every comment and `///` doc earns its place by explaining the code as it exists now. This pass sweeps all prose in the source and rewrites or deletes anything that documents history, plans, or the author's process instead of the code.
 
-> **Run in a separate, clean-context agent** — never inline in the session that wrote the code. An independent reader judges each comment against the code in front of it, with no memory of why it was written. A plan/spec may be passed in as a scope checklist only; it never excuses a baseline violation.
+Use the [review skill](../SKILL.md) for scope, execution, and finding format. This checklist does not require a separate agent.
 
 **Scope note.** *Changes mode:* review every comment and rustdoc touched by (or owed by) the diff, including comments left outdated by a code change. *Project mode:* sweep all prose across `crates/*/src`, `crates/*/tests`, and any other first-party source — module headers (`//!`), item docs (`///`), and inline (`//`) comments alike. This pass is about prose, not code; never weaken a check from another pass to make a comment "true".
 
