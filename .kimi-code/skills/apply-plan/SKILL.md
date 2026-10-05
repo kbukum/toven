@@ -1,6 +1,6 @@
 ---
 name: apply-plan
-description: Resume an existing plan in dependency order, validating each bounded work order.
+description: Implement an existing plan in dependency order, completing and validating each step.
 user-invocable: true
 ---
 

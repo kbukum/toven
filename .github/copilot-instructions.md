@@ -16,7 +16,7 @@ Argv-first development/CI task planner. `crates/*` owns capabilities; `apps/*` o
 
 ## Work and validation
 
-Read only the matching [skill](skills/README.md) and relevant reference sections. Preserve worktree/index changes; commit, amend, push, or open draft PRs only when authorized. Multi-step recovery lives in `tmp/plans/<task>/handoff.md`; read current work and required dependency contracts, not every past step.
+Read only the matching [skill](skills/README.md) and relevant reference sections. Preserve worktree/index changes; commit, amend, push, or open draft PRs only when authorized. Keep plans in `tmp/<plan>/`, reusing existing folders. Apply each selected step fully; record progress in the step, not routine handoffs.
 
 Use [validate](skills/validate/SKILL.md) for scoped Cargo checks. `make check` is the canonical full gate; `make fmt-check`, `make structure`, `make doc`, `make deny`, and `make coverage` cover specific concerns. Initialize submodules only if required and absent. Prose-only edits need documentation checks, not a full build.
 

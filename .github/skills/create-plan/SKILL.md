@@ -6,26 +6,21 @@ user-invocable: true
 
 # Plan a change
 
-Planning writes task documents only: no source edits, branch changes, staging, commits, or PRs. Apply the [baseline](../../copilot-instructions.md); a plan cannot weaken it.
+Create `tmp/<plan>/`, or use the existing folder the user supplied. Planning changes documents only, not implementation or Git state.
 
-## Scope and storage
+## Keep it small
 
-Investigate the current owning modules and contracts before deciding. Record the goal, non-goals, constraints, decisions, and measurable acceptance. Prefer owner-level outcomes over prescriptive filenames or code recipes; investigate exact implementation at apply time. Name known removal targets when needed to prove complete replacement.
+- `README.md`: goal, scope, and the ordered steps.
+- `01-topic.md`, `02-topic.md`, etc.: outcome, dependencies, implementation outline, and acceptance checks.
 
-Reuse the existing task folder. New plans live in gitignored `tmp/plans/<task>/`, named for the change. Update `tmp/plans/README.md` and the task README; update `tmp/README.md` if it indexes plans. Never link stable docs to temporary task notes.
+Use `Status: pending` and `Depends on:` in each step. Keep steps reviewable: one step per PR, unless the user combines related steps. A small single-step plan can stay in its README.
 
-## Executable shape
+No required `plans/` layer, parent indexes, handoff, or extra document set. Add supporting material only when it helps the work.
 
-- `README.md`: goal, scope, ordered step index, dependencies, and links to binding rules.
-- `NN-topic.md`: one reviewable step/PR with `**Status:** pending`, `**Depends on:**`, scope, owner-level work order, removals, and `- [ ]` acceptance checks. Numbering orders documents, not branch names. Use work orders within a step to bound sessions; do not split one step across multiple PRs.
-- `handoff.md`: under 500 words; branch/Git restrictions, current capabilities, decisions, remaining work, next action, evidence freshness/paths, owned resources, and continuation prompt.
+## Make it useful
 
-A small single-step plan may keep the work order in its README. Add separate context, decisions, current-state, references, or open-question documents only when their content is needed; avoid empty boilerplate and repeated policy.
+Inspect the relevant source first. Describe the intended behavior, owning modules, important decisions, and how success and failure will be verified. Include affected callers and removal of replaced paths. Prefer plain language and outcomes over file-by-file recipes.
 
-## Acceptance and continuation
+Follow the [project standards](../../copilot-instructions.md). Link required [validation](../validate/SKILL.md) rather than copying rules into every step. Preserve useful existing decisions and evidence; update stale notes instead of adding competing instructions.
 
-Order dependencies before consumers. Require test-first behavior/failure coverage, canonical ownership, correct layering, complete dependent call-site/removal updates, and the relevant [validation](../validate/SKILL.md) and [review](../review/SKILL.md) checks. Use the repository's real gate names and integration evidence; do not claim a configured threshold from an old example. Keep required release/Changeset and UI acceptance where applicable. Link rules once rather than copying the baseline into every step.
-
-A step becomes `done` only when its acceptance is verified. The handoff should let the next session read the current step and needed dependency contracts, not every previous step. Keep capability summaries rather than transcripts; flag evidence predating edits. Finish one bounded work order, checkpoint, and stop.
-
-Apply later with [apply-plan](../apply-plan/SKILL.md) or [apply-step](../apply-step/SKILL.md).
+Apply a numbered file with [apply-step](../apply-step/SKILL.md), or the whole folder with [apply-plan](../apply-plan/SKILL.md).

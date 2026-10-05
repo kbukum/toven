@@ -6,7 +6,7 @@ Skill names/descriptions are discovery context; bodies load on activation; refer
 
 | Skill | Use when |
 |---|---|
-| [apply-plan](apply-plan/SKILL.md) | Resume an existing plan in dependency order, validating each bounded work order. |
+| [apply-plan](apply-plan/SKILL.md) | Implement an existing plan in dependency order, completing and validating each step. |
 | [apply-step](apply-step/SKILL.md) | Implement one plan step test-first, validate its acceptance criteria, and record progress. |
 | [commit](commit/SKILL.md) | Commit the authorized staged change with a concise Conventional Commit message; only when asked. |
 | [create-branch](create-branch/SKILL.md) | Create a change-named kbukum/ branch from an up-to-date main when starting new work. |
