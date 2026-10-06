@@ -2,7 +2,7 @@
 //! shared by the ecosystem default (`[ecosystems.<id>].coverage`) and the
 //! per-module override (`[modules.<name>.coverage]`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
@@ -110,6 +110,43 @@ impl CoverageConfig {
         Ok(())
     }
 
+    /// Check every `exclude` and profile `modules` entry against the module
+    /// names discovered for this ecosystem.
+    ///
+    /// Entries are bare, ecosystem-local module names: the block is already
+    /// scoped to one ecosystem. An entry that names no discovered module is a
+    /// typo or a stale name, and silently ignoring it would leave that module
+    /// gated, so it fails instead. A qualified `<ecosystem>:<name>` entry gets a
+    /// hint to use the bare name.
+    ///
+    /// # Errors
+    /// Rejects the first entry that matches no name in `known`.
+    pub fn validate_module_names(&self, field: &str, known: &BTreeSet<&str>) -> AppResult<()> {
+        let excludes = self
+            .exclude
+            .iter()
+            .enumerate()
+            .map(|(index, name)| (format!("{field}.exclude[{index}]"), name));
+        let profiles = self.profiles.iter().flat_map(|(profile, config)| {
+            config.modules.iter().enumerate().map(move |(index, name)| {
+                (format!("{field}.profiles.{profile}.modules[{index}]"), name)
+            })
+        });
+        for (entry_field, name) in excludes.chain(profiles) {
+            if known.contains(name.as_str()) {
+                continue;
+            }
+            let message = match name.split_once(':') {
+                Some((_, bare)) if known.contains(bare) => format!(
+                    "'{name}' is qualified; use the bare module name '{bare}' (this block is already scoped to one ecosystem)"
+                ),
+                _ => format!("'{name}' matches no discovered module in this ecosystem"),
+            };
+            return Err(AppError::invalid_input(entry_field, message));
+        }
+        Ok(())
+    }
+
     /// Validate a per-module `[modules.<ref>.coverage]` override.
     ///
     /// A per-module override may set only the threshold floors and the
@@ -210,6 +247,70 @@ mod tests {
         )
         .expect("parses");
         assert!(config.validate("ecosystems.rust.coverage").is_err());
+    }
+
+    fn known<'a>(names: &[&'a str]) -> std::collections::BTreeSet<&'a str> {
+        names.iter().copied().collect()
+    }
+
+    #[test]
+    fn module_names_accept_discovered_bare_names() {
+        let config = parse(
+            r#"
+            exclude = ["gen-go"]
+
+            [profiles.security]
+            modules = ["auth"]
+            "#,
+        )
+        .expect("parses");
+        config
+            .validate_module_names("ecosystems.go.coverage", &known(&["gen-go", "auth"]))
+            .expect("known names are valid");
+    }
+
+    #[test]
+    fn module_names_reject_an_unknown_exclude() {
+        let config = parse(r#"exclude = ["gen-og"]"#).expect("parses");
+        let error = config
+            .validate_module_names("ecosystems.go.coverage", &known(&["gen-go"]))
+            .expect_err("typo rejected");
+        let message = error.to_string();
+        assert!(
+            message.contains("ecosystems.go.coverage.exclude[0]"),
+            "{message}"
+        );
+        assert!(message.contains("gen-og"), "{message}");
+    }
+
+    #[test]
+    fn module_names_hint_the_bare_form_for_a_qualified_entry() {
+        let config = parse(r#"exclude = ["rust:generated"]"#).expect("parses");
+        let error = config
+            .validate_module_names("ecosystems.rust.coverage", &known(&["generated"]))
+            .expect_err("qualified form rejected");
+        assert!(
+            error.to_string().contains("bare module name 'generated'"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn module_names_reject_an_unknown_profile_module() {
+        let config = parse(
+            r#"
+            [profiles.security]
+            modules = ["auth", "authz"]
+            "#,
+        )
+        .expect("parses");
+        let error = config
+            .validate_module_names("ecosystems.rust.coverage", &known(&["auth"]))
+            .expect_err("unknown profile module rejected");
+        assert!(
+            error.to_string().contains("profiles.security.modules[1]"),
+            "{error}"
+        );
     }
 
     #[test]

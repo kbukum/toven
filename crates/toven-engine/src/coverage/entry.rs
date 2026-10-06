@@ -12,10 +12,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use rskit_errors::AppResult;
-use toven_model::{Module, ModuleKey};
+use toven_model::{AbsPath, Module, ModuleKey};
 use toven_ports::{Provider, Reporter};
 
 use super::aggregate::{CoverageInputs, aggregate};
+use super::goimport::GoImportRoots;
 use super::read::{COVERAGE_DIR, read_profiles};
 use super::report::CoverageReport;
 use super::settings::{CoverageOverrides, ResolvedCoverageSettings};
@@ -24,7 +25,7 @@ use toven_core::config::Document;
 use toven_core::federation::baseline::MemberVcsReaders;
 use toven_core::federation::resolve::PathDriverLocator;
 use toven_core::plan::affected::{active_modules, changed_for_members};
-use toven_core::plan::{PlanRequest, Selection, prepare_front};
+use toven_core::plan::{PlanContext, PlanRequest, Selection, prepare_front};
 
 /// Aggregate and gate the coverage profiles emitted for `request`'s scope.
 ///
@@ -54,12 +55,7 @@ pub fn coverage_report(
         reporter,
     )?;
 
-    for (_, ecosystem, adapter) in context.adapters.iter() {
-        adapter
-            .common()
-            .coverage
-            .validate(&format!("ecosystems.{ecosystem}.coverage"))?;
-    }
+    validate_settings(&context)?;
 
     let active = active_modules(request, &context.graph, &context.federation, readers)?;
     let scope: Vec<Module> = context
@@ -91,10 +87,18 @@ pub fn coverage_report(
     }
 
     let changed = changed_files(request, readers)?;
-    let profiles = read_profiles(&request.project_root.as_path().join(COVERAGE_DIR))?;
+    // Map Go import paths and attribute files against every discovered module,
+    // not just the active scope, so an unselected module's files land with
+    // their real owner and are dropped instead of crediting an active parent.
+    let go_roots = GoImportRoots::from_modules(&context.federation.modules);
+    let profiles = read_profiles(
+        &request.project_root.as_path().join(COVERAGE_DIR),
+        &go_roots,
+    )?;
 
     let report = aggregate(&CoverageInputs {
         project_root: request.project_root.as_path(),
+        owners: &context.federation.modules,
         modules: &scope,
         profiles: &profiles,
         settings: &settings,
@@ -107,6 +111,46 @@ pub fn coverage_report(
     emit_verdicts(reporter, &report)?;
 
     Ok(report)
+}
+
+/// Check every ecosystem's coverage config against the discovered modules,
+/// without running anything.
+///
+/// The CLI calls this before the coverage task, so a typo in `exclude` or a
+/// profile's `modules` fails fast instead of after a full measurement.
+/// [`coverage_report`] repeats the check over its own discovery.
+///
+/// # Errors
+/// Propagates configuration/discovery/graph failures, an invalid ecosystem
+/// coverage config, and an `exclude`/profile entry naming no discovered module.
+pub fn validate_coverage_config(
+    project_root: &AbsPath,
+    document: &Document,
+    providers: &[&dyn Provider],
+    reporter: &mut dyn Reporter,
+) -> AppResult<()> {
+    let locator = PathDriverLocator::new();
+    let context = prepare_front(project_root, document, providers, &locator, reporter)?;
+    validate_settings(&context)
+}
+
+/// Validate each adapter's coverage block and its module names against the
+/// modules that adapter discovered.
+fn validate_settings(context: &PlanContext) -> AppResult<()> {
+    for (member, ecosystem, adapter) in context.adapters.iter() {
+        let field = format!("ecosystems.{ecosystem}.coverage");
+        let coverage = &adapter.common().coverage;
+        coverage.validate(&field)?;
+        let known: BTreeSet<&str> = context
+            .federation
+            .modules
+            .iter()
+            .filter(|module| module.member.as_ref() == member && &module.id.ecosystem == ecosystem)
+            .map(|module| module.id.name.as_str())
+            .collect();
+        coverage.validate_module_names(&field, &known)?;
+    }
+    Ok(())
 }
 
 /// The changed-file set (workspace-relative) under a changed selection; `None`

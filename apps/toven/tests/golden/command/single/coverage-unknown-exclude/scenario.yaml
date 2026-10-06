@@ -1,0 +1,9 @@
+# A coverage `exclude` entry that names no discovered module fails before the
+# coverage task runs: no measurement output, only the config error.
+repo: command/single
+steps:
+  - id: 01-coverage-unknown-exclude
+    argv: [coverage]
+    config: toven.coverage-typo.toml
+    exit: 2
+    stderr: { match: normalized }

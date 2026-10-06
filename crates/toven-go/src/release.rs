@@ -23,7 +23,7 @@ use toven_ports::{
     Visibility,
 };
 
-use crate::exec::{go_command, run_go_json};
+use crate::exec::GoTool;
 
 /// The `CycloneDX` Go SBOM tool Toven invokes argv-first for the Go `sbom`
 /// phase (the [`SbomProducer`] implementation below).
@@ -105,6 +105,11 @@ impl GoVcsTarget {
             root: None,
             reachable_tags,
         }
+    }
+
+    /// The shared invocation seam for this target's `go` calls.
+    fn go(&self) -> GoTool {
+        GoTool::new(self.runner.clone())
     }
 
     /// Pin the repository working root instead of resolving the process working
@@ -245,22 +250,22 @@ impl ManifestMutator for GoVcsTarget {
         let manifest = safe_join(&self.working_root()?, &manifest_rel).map_err(|error| {
             AppError::invalid_input("release.go_mod", error.to_string()).with_cause(error)
         })?;
+        // Run in the module's own directory so Go picks the same toolchain
+        // (from the enclosing `go.work` or `go.mod`) as discovery does.
+        let working_root = self.working_root()?;
+        let module_dir = manifest.parent().unwrap_or(&working_root).to_path_buf();
+        let go = self.go();
         for (import_path, version) in &mutation.dep_floor_import_updates {
-            let working_root = self.working_root()?;
-            let invocation = go_command(
+            let invocation = GoTool::command(
                 [
                     "mod".to_string(),
                     "edit".to_string(),
                     format!("-require={import_path}@v{version}"),
                     manifest.display().to_string(),
                 ],
-                &working_root,
+                &module_dir,
             );
-            run_go_json(
-                invocation,
-                "go mod edit dependency floor",
-                self.runner.as_ref(),
-            )?;
+            go.run_json(invocation, "go mod edit dependency floor")?;
         }
         let staged = RepoPath::new(manifest_rel).map_err(|error| {
             AppError::invalid_input("release.go_mod", error.to_string()).with_cause(error)
@@ -497,6 +502,35 @@ mod tests {
             .expect_err("missing Go import-path mapping rejected");
 
         assert!(error.to_string().contains("Go import paths"));
+    }
+
+    #[test]
+    fn apply_release_edits_go_mod_from_the_module_directory() {
+        // Go picks its toolchain from the `go.work` or `go.mod` enclosing its
+        // working directory, so the floor edit runs inside the module, as
+        // discovery does.
+        let workspace = toven_testkit::TestWorkspace::new("go-release-floor-dir");
+        let runner = Arc::new(FakeToolRunner::new().with_stdout(""));
+        let target = GoVcsTarget::new(runner.clone(), Vec::new()).with_root(workspace.path());
+        let mut mutation = ReleaseMutation::version(Version::new(1, 1, 0));
+        let core = module("core", "core");
+        mutation
+            .dep_floor_updates
+            .insert(core.id, Version::new(1, 1, 0));
+        mutation
+            .dep_floor_import_updates
+            .insert("example.com/core".to_string(), Version::new(1, 1, 0));
+
+        target
+            .apply_release(&module("app", "services/app"), &mutation)
+            .expect("floor edit");
+
+        let requests = runner.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].working_dir(),
+            Some(workspace.path().join("services/app").as_path())
+        );
     }
 
     #[test]

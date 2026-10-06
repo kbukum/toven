@@ -18,13 +18,16 @@ use rskit_cli::{ExitCode, Tone};
 use rskit_errors::AppResult;
 use toven_core::config::ViewMode;
 use toven_core::plan::PlanRequest;
-use toven_engine::coverage::{COVERAGE_DIR, CoverageOverrides, CoverageReport, coverage_report};
+use toven_engine::coverage::{
+    COVERAGE_DIR, CoverageOverrides, CoverageReport, coverage_report, validate_coverage_config,
+};
 use toven_exec::ProcessSupervisor;
 use toven_model::OutcomeSummary;
 use toven_ports::{ComputeBudget, Provider, TaskIntent};
 
 use crate::commands::run::WatchFlags;
 use crate::commands::selection::TaskSelection;
+use crate::commands::support::QuietReporter;
 use crate::flags::{Cli, DEFAULT_WATCH_DEBOUNCE_MS, OutputKind};
 use crate::host::{Project, Report, new_run_id, resolve_output};
 use crate::report::stderr_theme;
@@ -45,6 +48,15 @@ pub(crate) fn execute(
 ) -> AppResult<ExitCode> {
     let selection = coverage_selection(cli);
     let overrides = build_overrides(cli);
+
+    // Reject a bad coverage config (for example a typo in `exclude`) before
+    // clearing the previous profiles or running the measurement.
+    validate_coverage_config(
+        &project.project_root,
+        &project.document,
+        providers,
+        &mut QuietReporter,
+    )?;
 
     // The task's argv writes its profiles into the Toven-owned staging dir. Clear
     // it first so aggregation gates only this run's profiles — a stale profile from

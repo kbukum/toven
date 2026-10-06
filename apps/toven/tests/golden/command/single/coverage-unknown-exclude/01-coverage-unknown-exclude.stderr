@@ -1,0 +1,1 @@
+error[INVALID_INPUT]: invalid ecosystems.command.coverage.exclude[0]: 'ap' matches no discovered module in this ecosystem

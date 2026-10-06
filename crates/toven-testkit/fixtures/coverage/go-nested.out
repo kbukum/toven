@@ -1,0 +1,5 @@
+mode: set
+example.com/runlab/go-services/cmd/gateway/main.go:10.20,14.2 3 1
+example.com/runlab/go-services/cmd/gateway/main.go:16.2,18.3 2 0
+example.com/runlab/gen/go/api/v1/api.pb.go:5.10,9.2 3 1
+example.com/runlab/tools/lint.go:3.1,4.2 1 1

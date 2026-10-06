@@ -1,12 +1,14 @@
 //! Shared `go` process invocation.
 //!
-//! Discovery (`go mod edit -json`) and module-set resolution (`go work edit
-//! -json`) both shell out to `go` through the same captured, bounded, timed-out
-//! path. Every invocation goes through the injected [`ToolRunner`] seam (never a
-//! shell string) and returns typed data + typed errors: no panics, no printing.
+//! Discovery (`go mod edit -json`), module-set resolution (`go work edit
+//! -json`), and release manifest edits all run `go` through one [`GoTool`]: the
+//! injected [`ToolRunner`] seam (never a shell string). Every call is captured,
+//! bounded, and timed out, and returns typed data + typed errors: no panics, no
+//! printing.
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
@@ -16,31 +18,6 @@ use toven_ports::{InvocationEnvironment, ToolInvocation, ToolRunner};
 /// process invocation.
 pub(crate) const GO_TOOL: &str = "go";
 
-/// A `go` invocation pinned to the locally installed toolchain.
-///
-/// Discovery only *reads* manifests (`go mod edit -json` / `go work edit
-/// -json`), yet Go's default `GOTOOLCHAIN=auto` still consults the `go`
-/// directive in `go.mod`/`go.work` and downloads a newer toolchain when the
-/// declared version exceeds the installed one. Pinning `GOTOOLCHAIN=local`
-/// keeps discovery hermetic and offline: reading a manifest never triggers a
-/// network toolchain download (the local `go` parses any newer directive), so
-/// module resolution stays deterministic regardless of the repo's declared Go
-/// version. Every other environment variable (`PATH`, `HOME`, …) is inherited.
-pub(crate) fn go_command<I, S>(args: I, working_dir: &Path) -> ToolInvocation
-where
-    I: IntoIterator<Item = S>,
-    S: Into<String>,
-{
-    let mut env = BTreeMap::new();
-    env.insert("GOTOOLCHAIN".to_string(), "local".to_string());
-    let full_argv = std::iter::once(GO_TOOL.to_string())
-        .chain(args.into_iter().map(Into::into))
-        .collect();
-    ToolInvocation::new(full_argv)
-        .with_working_dir(working_dir)
-        .with_environment(InvocationEnvironment::inherit_parent(env))
-}
-
 /// Hard bound on retained `go` JSON output (16 MiB). Large enough for big
 /// manifests, bounded so a runaway process cannot exhaust memory.
 const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -48,113 +25,178 @@ const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 /// Wall-clock bound on a single `go mod edit` / `go work edit` invocation.
 const EDIT_TIMEOUT: Duration = Duration::new(120, 0);
 
-/// Run a captured, bounded, timed-out `go` invocation and return its stdout,
-/// surfacing timeout / non-zero exit as typed errors.
-///
-/// # Errors
-/// Returns a typed error when the process times out, overflows its output
-/// bound, or exits non-zero.
-pub(crate) fn run_go_json(
-    invocation: ToolInvocation,
-    label: &str,
-    runner: &dyn ToolRunner,
-) -> AppResult<String> {
-    let invocation = invocation
-        .with_timeout(EDIT_TIMEOUT)
-        .with_max_output_bytes(MAX_OUTPUT_BYTES);
+/// The runner every Toven-owned `go` invocation uses.
+#[derive(Clone)]
+pub(crate) struct GoTool {
+    runner: Arc<dyn ToolRunner>,
+}
 
-    let outcome = runner.run(&invocation)?;
-    if outcome.timed_out {
-        return Err(AppError::new(
-            ErrorCode::Timeout,
-            format!("`{label}` timed out"),
-        ));
+impl GoTool {
+    /// Wrap the injected runner for Toven's own `go` reads and edits.
+    #[must_use]
+    pub(crate) const fn new(runner: Arc<dyn ToolRunner>) -> Self {
+        Self { runner }
     }
-    // `go mod edit -json` reads the repository's own module graph, so a failure
-    // is a repository/config fault (`Internal`), not a downstream-service outage.
-    outcome.require_read_success(&format!("go tool `go` ({label})"))?;
-    Ok(outcome.stdout)
+
+    /// A `go` invocation that inherits the user's environment unchanged.
+    ///
+    /// Toven does not set `GOTOOLCHAIN`: the user's value, or Go's own default
+    /// (`auto`, which follows the `go`/`toolchain` lines of the enclosing
+    /// `go.mod`/`go.work`), applies exactly as it does for the user's tasks, so
+    /// discovery reads manifests with the same Go that builds them.
+    #[must_use]
+    pub(crate) fn command<I, S>(args: I, working_dir: &Path) -> ToolInvocation
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let full_argv = std::iter::once(GO_TOOL.to_string())
+            .chain(args.into_iter().map(Into::into))
+            .collect();
+        ToolInvocation::new(full_argv)
+            .with_working_dir(working_dir)
+            .with_environment(InvocationEnvironment::inherit_parent(BTreeMap::new()))
+    }
+
+    /// Run a captured, bounded, timed-out `go` invocation and return its
+    /// stdout, surfacing timeout / non-zero exit as typed errors.
+    ///
+    /// # Errors
+    /// Returns a typed error when the process times out, overflows its output
+    /// bound, or exits non-zero. A non-zero exit carries a toolchain hint,
+    /// because the usual cause is a Go too old to read the repository's
+    /// manifests.
+    pub(crate) fn run_json(&self, invocation: ToolInvocation, label: &str) -> AppResult<String> {
+        let invocation = invocation
+            .with_timeout(EDIT_TIMEOUT)
+            .with_max_output_bytes(MAX_OUTPUT_BYTES);
+
+        let outcome = self.runner.run(&invocation)?;
+        if outcome.timed_out {
+            return Err(AppError::new(
+                ErrorCode::Timeout,
+                format!("`{label}` timed out"),
+            ));
+        }
+        // `go mod edit -json` reads the repository's own module graph, so a failure
+        // is a repository/config fault (`Internal`), not a downstream-service outage.
+        outcome
+            .require_read_success(&format!("go tool `go` ({label})"))
+            .map_err(|error| {
+                let exited_non_zero = outcome.exit_code.is_some_and(|code| code != 0);
+                with_toolchain_hint(error, exited_non_zero)
+            })?;
+        Ok(outcome.stdout)
+    }
+}
+
+/// Add the toolchain hint to a `go` that exited non-zero.
+fn with_toolchain_hint(error: AppError, exited_non_zero: bool) -> AppError {
+    if exited_non_zero {
+        error.hint(
+            "Hint: Toven runs `go` with your environment, so it uses the `go` on PATH and your \
+             GOTOOLCHAIN setting. If that Go is older than the repository needs, put a newer `go` \
+             first on PATH or set GOTOOLCHAIN (for example GOTOOLCHAIN=go1.27.1, or auto).",
+        )
+    } else {
+        error
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::sync::Arc;
 
     use rskit_errors::ErrorCode;
     use toven_ports::InvocationEnvPolicy;
     use toven_testkit::doubles::FakeToolRunner;
 
-    use super::{go_command, run_go_json};
+    use super::{EDIT_TIMEOUT, GoTool, MAX_OUTPUT_BYTES};
+
+    fn tool(runner: FakeToolRunner) -> (GoTool, Arc<FakeToolRunner>) {
+        let runner = Arc::new(runner);
+        (GoTool::new(runner.clone()), runner)
+    }
 
     #[test]
-    fn go_invocation_preserves_parent_environment_with_local_toolchain_override() {
-        let invocation = go_command(["mod", "edit", "-json", "go.mod"], Path::new("/repo"));
+    fn go_invocation_inherits_the_user_environment_unchanged() {
+        let invocation = GoTool::command(["mod", "edit", "-json", "go.mod"], Path::new("/repo"));
 
         assert_eq!(
             invocation.argv,
-            vec![
-                "go".to_string(),
-                "mod".to_string(),
-                "edit".to_string(),
-                "-json".to_string(),
-                "go.mod".to_string(),
-            ]
+            ["go", "mod", "edit", "-json", "go.mod"].map(String::from)
         );
         assert_eq!(invocation.working_dir(), Some(Path::new("/repo")));
         assert_eq!(
             invocation.environment.policy,
             InvocationEnvPolicy::InheritParent
         );
-        assert_eq!(
-            invocation.environment.vars.get("GOTOOLCHAIN"),
-            Some(&"local".to_string())
-        );
+        // No override: the user's GOTOOLCHAIN (or Go's own default) applies.
+        assert!(invocation.environment.vars.is_empty());
     }
 
     #[test]
-    fn run_go_json_uses_the_injected_tool_runner() {
-        let runner = FakeToolRunner::new()
-            .with_exit_code(Some(2))
-            .with_stderr("edit failed");
+    fn run_json_uses_the_injected_tool_runner() {
+        let (go, runner) = tool(
+            FakeToolRunner::new()
+                .with_exit_code(Some(2))
+                .with_stderr("edit failed"),
+        );
 
-        let error = run_go_json(
-            go_command(["work", "edit"], Path::new("/repo")),
-            "go work edit",
-            &runner,
-        )
-        .expect_err("non-zero go is rejected");
+        let error = go
+            .run_json(
+                GoTool::command(["work", "edit"], Path::new("/repo")),
+                "go work edit",
+            )
+            .expect_err("non-zero go is rejected");
 
         // A `go mod edit` failure is a repository/config fault, so it classifies
-        // `Internal` — matching the pre-seam behavior, not the delegated-tool
-        // `ExternalService`.
+        // `Internal` — not the delegated-tool `ExternalService`.
         assert_eq!(error.code(), ErrorCode::Internal);
         let requests = runner.requests();
         assert_eq!(requests.len(), 1);
-        assert_eq!(
-            requests[0].argv,
-            vec!["go".to_string(), "work".to_string(), "edit".to_string()]
-        );
-        assert_eq!(requests[0].timeout, Some(super::EDIT_TIMEOUT));
-        assert_eq!(requests[0].max_output_bytes, Some(super::MAX_OUTPUT_BYTES));
+        assert_eq!(requests[0].argv, ["go", "work", "edit"].map(String::from));
+        assert_eq!(requests[0].timeout, Some(EDIT_TIMEOUT));
+        assert_eq!(requests[0].max_output_bytes, Some(MAX_OUTPUT_BYTES));
     }
 
     #[test]
-    fn run_go_json_output_that_overflows_the_bound_fails_closed() {
+    fn non_zero_exit_hints_at_the_toolchain() {
+        let (go, _) = tool(
+            FakeToolRunner::new()
+                .with_exit_code(Some(1))
+                .with_stderr("go: errors parsing go.mod: unknown block type: tool"),
+        );
+        let error = go
+            .run_json(
+                GoTool::command(["mod", "edit"], Path::new("/repo")),
+                "go mod edit",
+            )
+            .expect_err("rejected");
+        assert!(error.to_string().contains("GOTOOLCHAIN"), "{error}");
+    }
+
+    #[test]
+    fn run_json_output_that_overflows_the_bound_fails_closed() {
         // A truncated `go mod edit -json` capture is incomplete JSON; the seam
         // must reject it rather than hand a cut document to the caller.
-        let runner = FakeToolRunner::new()
-            .with_exit_code(Some(0))
-            .with_stdout("{ \"Module\": {")
-            .with_truncated(true, false);
+        let (go, _) = tool(
+            FakeToolRunner::new()
+                .with_exit_code(Some(0))
+                .with_stdout("{ \"Module\": {")
+                .with_truncated(true, false),
+        );
 
-        let error = run_go_json(
-            go_command(["mod", "edit", "-json", "go.mod"], Path::new("/repo")),
-            "go mod edit",
-            &runner,
-        )
-        .expect_err("a truncated capture is rejected");
+        let error = go
+            .run_json(
+                GoTool::command(["mod", "edit", "-json", "go.mod"], Path::new("/repo")),
+                "go mod edit",
+            )
+            .expect_err("a truncated capture is rejected");
 
         assert_eq!(error.code(), ErrorCode::Internal);
         assert!(error.to_string().contains("exceeded"), "{error}");
+        assert!(!error.to_string().contains("GOTOOLCHAIN"), "{error}");
     }
 }

@@ -13,6 +13,7 @@ use rskit_errors::{AppError, AppResult};
 use rskit_fs::sync_io::dir;
 use rskit_fs::sync_io::file::read_string_bounded;
 
+use super::goimport::GoImportRoots;
 use super::profile::{CoverageFormat, CoverageProfile};
 use super::{goprofile, lcov};
 
@@ -24,12 +25,16 @@ pub const COVERAGE_DIR: &str = "target/toven/coverage";
 /// The maximum profile file size read, bounding untrusted input (64 MiB).
 const MAX_PROFILE_BYTES: u64 = 64 * 1024 * 1024;
 
-/// Read and parse every coverage profile in `dir_path`.
+/// Read and parse every coverage profile in `dir_path`, mapping Go import
+/// paths to repo-relative paths through `go_roots`.
 ///
 /// # Errors
 /// Propagates a missing or empty profile directory, a directory-listing failure,
 /// a bounded-read failure, or a profile parse error.
-pub(super) fn read_profiles(dir_path: &Path) -> AppResult<Vec<CoverageProfile>> {
+pub(super) fn read_profiles(
+    dir_path: &Path,
+    go_roots: &GoImportRoots,
+) -> AppResult<Vec<CoverageProfile>> {
     if !dir::exists(dir_path)? {
         return Err(no_profiles_error(dir_path));
     }
@@ -41,7 +46,7 @@ pub(super) fn read_profiles(dir_path: &Path) -> AppResult<Vec<CoverageProfile>> 
         let contents = read_string_bounded(&entry.path, MAX_PROFILE_BYTES)?;
         let profile = match CoverageFormat::detect(&contents) {
             CoverageFormat::Lcov => lcov::parse(&contents)?,
-            CoverageFormat::GoProfile => goprofile::parse(&contents)?,
+            CoverageFormat::GoProfile => goprofile::parse(&contents, go_roots)?,
         };
         profiles.push(profile);
     }
@@ -63,6 +68,7 @@ fn no_profiles_error(dir_path: &Path) -> AppError {
 
 #[cfg(test)]
 mod tests {
+    use super::super::goimport::GoImportRoots;
     use super::read_profiles;
     use rskit_fs::TempDir;
     use rskit_fs::sync_io::dir::create_all;
@@ -81,7 +87,7 @@ mod tests {
             .expect("write lcov");
         write_atomic_replace(&dir.join("go.out"), go.as_bytes(), "read-test").expect("write go");
 
-        let profiles = read_profiles(&dir).expect("reads");
+        let profiles = read_profiles(&dir, &GoImportRoots::default()).expect("reads");
         assert_eq!(profiles.len(), 2);
         assert!(
             profiles.iter().any(|profile| !profile.files.is_empty()),
@@ -92,8 +98,8 @@ mod tests {
     #[test]
     fn missing_directory_is_a_measurement_failure() {
         let temp = TempDir::new().expect("temp dir");
-        let error =
-            read_profiles(&temp.path().join("absent")).expect_err("missing profile rejected");
+        let error = read_profiles(&temp.path().join("absent"), &GoImportRoots::default())
+            .expect_err("missing profile rejected");
         assert!(
             error.to_string().contains("no coverage profiles"),
             "{error}"
@@ -105,7 +111,8 @@ mod tests {
         let temp = TempDir::new().expect("temp dir");
         let dir = temp.path().join("coverage");
         create_all(&dir).expect("mkdir");
-        let error = read_profiles(&dir).expect_err("empty profile rejected");
+        let error =
+            read_profiles(&dir, &GoImportRoots::default()).expect_err("empty profile rejected");
         assert!(
             error.to_string().contains("no coverage profiles"),
             "{error}"

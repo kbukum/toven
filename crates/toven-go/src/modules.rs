@@ -22,11 +22,10 @@ use rskit_git::IgnoreReader;
 use rskit_git::cli::GitCli;
 use serde::Deserialize;
 use toven_model::RepoPath;
-use toven_ports::ToolRunner;
 
 use crate::config::{GoConfig, Modules};
 use crate::detect::ROOT_MANIFEST;
-use crate::exec::{go_command, run_go_json};
+use crate::exec::GoTool;
 
 /// The workspace manifest that groups several modules into one build unit.
 pub(crate) const WORK_MANIFEST: &str = "go.work";
@@ -57,11 +56,11 @@ struct GoWorkEdit {
 pub(crate) fn resolve(
     config: &GoConfig,
     project_root: &Path,
-    runner: &dyn ToolRunner,
+    go: &GoTool,
 ) -> AppResult<Vec<String>> {
     match &config.modules {
         Modules::Explicit(list) => Ok(list.clone()),
-        Modules::Auto => discover_modules(project_root, runner),
+        Modules::Auto => discover_modules(project_root, go),
     }
 }
 
@@ -75,11 +74,8 @@ pub(crate) fn resolve(
 /// # Errors
 /// Propagates a `go.work` read/parse, directory-listing, path-resolution, or
 /// git-ignore failure.
-pub(crate) fn discover_modules(
-    project_root: &Path,
-    runner: &dyn ToolRunner,
-) -> AppResult<Vec<String>> {
-    if let Some(members) = go_work_members(project_root, runner)? {
+pub(crate) fn discover_modules(project_root: &Path, go: &GoTool) -> AppResult<Vec<String>> {
+    if let Some(members) = go_work_members(project_root, go)? {
         return Ok(members
             .iter()
             .map(manifest_in)
@@ -132,7 +128,7 @@ fn nested_modules(project_root: &Path) -> AppResult<Vec<String>> {
 /// `use` modules (an empty set would silently discover zero modules).
 pub(crate) fn go_work_members(
     project_root: &Path,
-    runner: &dyn ToolRunner,
+    go: &GoTool,
 ) -> AppResult<Option<BTreeSet<RepoPath>>> {
     let work_abs = safe_join(project_root, Path::new(WORK_MANIFEST)).map_err(|error| {
         AppError::new(ErrorCode::Internal, "failed to resolve go.work path").with_cause(error)
@@ -141,7 +137,7 @@ pub(crate) fn go_work_members(
         return Ok(None);
     }
 
-    let invocation = go_command(
+    let invocation = GoTool::command(
         [
             "work".to_string(),
             "edit".to_string(),
@@ -150,7 +146,7 @@ pub(crate) fn go_work_members(
         ],
         project_root,
     );
-    let stdout = run_go_json(invocation, "go work edit", runner)?;
+    let stdout = go.run_json(invocation, "go work edit")?;
     let edit: GoWorkEdit = rskit_codec::decode(&rskit_codec::JsonCodec::default(), &stdout)
         .map_err(|error| {
             AppError::new(
@@ -218,10 +214,17 @@ fn is_git_ignored(checker: Option<&GitCli>, manifest: &str) -> AppResult<bool> {
 #[cfg(test)]
 mod tests {
     use rskit_errors::ErrorCode;
+    use std::sync::Arc;
     use toven_model::RepoPath;
+
     use toven_testkit::doubles::FakeToolRunner;
 
     use super::{discover_modules, manifest_in};
+    use crate::exec::GoTool;
+
+    fn go(runner: FakeToolRunner) -> GoTool {
+        GoTool::new(Arc::new(runner))
+    }
 
     #[test]
     fn manifest_in_maps_root_and_nested_members() {
@@ -256,7 +259,7 @@ mod tests {
         let runner = FakeToolRunner::new().with_stdout(
             r#"{"Use":[{"DiskPath":"."},{"DiskPath":"cache"},{"DiskPath":"cache/redis"}]}"#,
         );
-        let manifests = discover_modules(workspace.path(), &runner).expect("discover");
+        let manifests = discover_modules(workspace.path(), &go(runner)).expect("discover");
         assert_eq!(manifests, ["cache/go.mod", "cache/redis/go.mod", "go.mod"]);
     }
 
@@ -272,7 +275,7 @@ mod tests {
             .unwrap();
 
         let runner = FakeToolRunner::new();
-        let manifests = discover_modules(workspace.path(), &runner).expect("discover");
+        let manifests = discover_modules(workspace.path(), &go(runner)).expect("discover");
         assert_eq!(manifests, ["auth/go.mod", "authz/go.mod", "go.mod"]);
     }
 
@@ -284,7 +287,7 @@ mod tests {
 
         let runner = FakeToolRunner::new().with_stdout(r"{}");
         let error =
-            discover_modules(workspace.path(), &runner).expect_err("empty go.work is rejected");
+            discover_modules(workspace.path(), &go(runner)).expect_err("empty go.work is rejected");
         assert_eq!(error.code(), ErrorCode::InvalidInput);
     }
 }

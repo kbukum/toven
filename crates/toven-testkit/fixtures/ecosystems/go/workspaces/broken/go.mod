@@ -1,5 +1,5 @@
 module example.com/broken
 
-go 1.26
+go 1.21
 
 require (
