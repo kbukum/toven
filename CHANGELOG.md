@@ -8,19 +8,25 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Changed
 
-- Toven's own Go reads (discovery and release `go mod edit`) no longer force `GOTOOLCHAIN=local`. They run with the user's environment, like tasks do, so a repository whose `go.mod` needs a newer Go than the one on `PATH` discovers with the same toolchain its tasks use (Go's default `auto`, or the user's `GOTOOLCHAIN`). Each `go.mod` is read from its own directory, and a failing read now explains the toolchain choice and how to fix it.
-- Coverage `exclude` and profile `modules` entries are now checked against the ecosystem's discovered modules. An unknown name fails the run before the coverage task starts, instead of being silently ignored, and an `ecosystem:name` entry fails with a hint to use the bare name.
-
 ### Deprecated
 
 ### Removed
 
 ### Fixed
 
+### Security
+
+## [0.1.0-alpha.11] - 2026-10-06
+
+### Changed
+
+- Toven's own Go reads (discovery and release `go mod edit`) no longer force `GOTOOLCHAIN=local`. They run with the user's environment, like tasks do, so a repository whose `go.mod` needs a newer Go than the one on `PATH` discovers with the same toolchain its tasks use (Go's default `auto`, or the user's `GOTOOLCHAIN`). Each `go.mod` is read from its own directory, and a failing read now explains the toolchain choice and how to fix it.
+- Coverage `exclude` and profile `modules` entries are now checked against the ecosystem's discovered modules. An unknown name fails the run before the coverage task starts, instead of being silently ignored, and an `ecosystem:name` entry fails with a hint to use the bare name.
+
+### Fixed
+
 - Go coverage profiles are now attributed to the right module. Go writes import paths into profiles; Toven maps them back to repository paths using each module's `go.mod` path, so nested modules (for example `go-services/` in a `go.work`) get their own coverage and the `changed_line` floor matches changed files. Coverage tasks no longer need to rewrite profile paths. Each profile format is credited only to its own ecosystem's modules, and a module at the repository root no longer competes with a module one directory down.
 - A missing baseline ref (for example the default `origin/main` in a repository without an `origin` remote) now fails with a hint to pass `--base <ref>` or set `[project].base_ref`.
-
-### Security
 
 ## [0.1.0-alpha.10] - 2026-08-25
 
