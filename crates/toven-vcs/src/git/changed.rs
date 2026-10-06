@@ -1,7 +1,7 @@
 //! `changed_since` — committed `base..HEAD` change detection.
 //!
-//! Composes two rskit-git primitives the port does *not* expose as one call:
-//! resolve the baseline ([`LogReader::merge_base`](rskit_git::LogReader) for
+//! Composes rskit-git primitives the port does *not* expose as one call:
+//! check the baseline exists (with a `--base` hint when it does not), resolve it ([`LogReader::merge_base`](rskit_git::LogReader) for
 //! `--merge-base`, the reference verbatim otherwise) then
 //! [`Differ::diff`](rskit_git::Differ) `base..HEAD`. Records are
 //! **repo-relative**.
@@ -12,20 +12,35 @@
 
 use std::path::PathBuf;
 
-use rskit_errors::AppResult;
-use rskit_git::{DiffEntry, Differ, FileStatus, LogReader, Repo};
+use rskit_errors::{AppError, AppResult, ErrorCode};
+use rskit_git::{DiffEntry, Differ, FileStatus, LogReader, Repo, Repository};
 use toven_ports::{BaselineMode, BaselineSpec, ChangeRecord};
 
 use super::convert::map_diff_status;
 
 /// Committed changes from the baseline described by `spec` up to `HEAD`.
 pub(super) fn changed_since(repo: &Repo, spec: &BaselineSpec) -> AppResult<Vec<ChangeRecord>> {
+    repo.resolve_ref(&spec.reference)
+        .map_err(|error| missing_baseline_hint(error, &spec.reference))?;
     let base = match spec.mode {
         BaselineMode::Explicit => spec.reference.clone(),
         BaselineMode::MergeBase => repo.merge_base(&spec.reference, "HEAD")?.to_string(),
     };
     let diff = repo.diff(&base, "HEAD")?;
     Ok(diff.into_iter().map(record_from_diff).collect())
+}
+
+/// Explain a baseline that does not resolve. The default `origin/main` is the
+/// usual trap: a repository with no `origin` remote (or not fetched) lacks it.
+fn missing_baseline_hint(error: AppError, reference: &str) -> AppError {
+    if error.code() != ErrorCode::NotFound {
+        return error;
+    }
+    error.hint(format!(
+        "Hint: the baseline '{reference}' does not exist in this repository (a missing or unfetched \
+         remote is the usual cause). Pass --base <ref> (for example --base main) or set \
+         [project].base_ref."
+    ))
 }
 
 /// Committed changes between two arbitrary revisions (`from..to`).

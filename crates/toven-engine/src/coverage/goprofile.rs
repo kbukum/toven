@@ -5,20 +5,25 @@
 //! `<file>:<startLine>.<col>,<endLine>.<col> <numStmts> <count>`. Go measures
 //! statement (line) coverage only, so function/region tallies stay `None` and
 //! the gate skips those dimensions for Go modules. Each statement span marks
-//! its covered lines, OR-merged across overlapping spans.
+//! its covered lines, OR-merged across overlapping spans. Record files are Go
+//! import paths; each is mapped to its repo-relative path through the
+//! discovered [`GoImportRoots`], and left as emitted when no module claims it.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use rskit_errors::{AppError, AppResult};
 
-use super::profile::{CoverageProfile, FileCoverage};
+use super::goimport::GoImportRoots;
+use super::profile::{CoverageFormat, CoverageProfile, FileCoverage};
 
-/// Parse a Go coverprofile into a normalized [`CoverageProfile`].
+/// Parse a Go coverprofile into a normalized [`CoverageProfile`], mapping
+/// import paths to repo-relative paths through `roots`.
 ///
 /// # Errors
 /// Rejects a record whose position/statement/count fields do not parse.
-pub(super) fn parse(contents: &str) -> AppResult<CoverageProfile> {
-    let mut files: BTreeMap<String, FileCoverage> = BTreeMap::new();
+pub(super) fn parse(contents: &str, roots: &GoImportRoots) -> AppResult<CoverageProfile> {
+    let mut files: BTreeMap<PathBuf, FileCoverage> = BTreeMap::new();
 
     for line in contents.lines() {
         let line = line.trim();
@@ -26,15 +31,19 @@ pub(super) fn parse(contents: &str) -> AppResult<CoverageProfile> {
             continue;
         }
         let record = parse_record(line)?;
+        let path = roots
+            .resolve(&record.file)?
+            .unwrap_or_else(|| PathBuf::from(&record.file));
         let file = files
-            .entry(record.file.clone())
-            .or_insert_with(|| FileCoverage::lines_only(&record.file, BTreeMap::new()));
+            .entry(path)
+            .or_insert_with_key(|path| FileCoverage::lines_only(path.clone(), BTreeMap::new()));
         for line_no in record.start_line..=record.end_line {
             file.observe_line(line_no, record.count > 0);
         }
     }
 
     Ok(CoverageProfile {
+        format: CoverageFormat::GoProfile,
         files: files.into_values().collect(),
     })
 }
@@ -111,7 +120,41 @@ fn go_error(detail: &str) -> AppError {
 
 #[cfg(test)]
 mod tests {
-    use super::parse;
+    use std::path::PathBuf;
+
+    use super::super::goimport::GoImportRoots;
+    use crate::coverage::test_support::go_module;
+
+    fn parse(contents: &str) -> rskit_errors::AppResult<super::CoverageProfile> {
+        super::parse(contents, &GoImportRoots::default())
+    }
+
+    #[test]
+    fn maps_import_paths_to_repo_paths_and_merges_by_file() {
+        let roots = GoImportRoots::from_modules(&[go_module(
+            "go-services",
+            "go-services",
+            "example.com/runlab/go-services",
+        )]);
+        let profile = super::parse(
+            "mode: set\n\
+             example.com/runlab/go-services/main.go:1.1,2.2 1 1\n\
+             example.com/runlab/go-services/main.go:4.1,4.2 1 0\n\
+             golang.org/x/text/a.go:1.1,1.2 1 1\n",
+            &roots,
+        )
+        .expect("parses");
+
+        let paths: Vec<PathBuf> = profile.files.iter().map(|file| file.path.clone()).collect();
+        assert_eq!(
+            paths,
+            vec![
+                PathBuf::from("go-services/main.go"),
+                PathBuf::from("golang.org/x/text/a.go"),
+            ]
+        );
+        assert_eq!(profile.files[0].line_counts().found, 3);
+    }
 
     #[test]
     fn parses_statement_spans_into_line_coverage() {

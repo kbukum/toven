@@ -159,7 +159,7 @@ The Rust adapter uses Cargo metadata. It discovers packages, workspace ownership
 
 ### Go
 
-The Go adapter uses offline `go mod edit -json` and `go work edit -json`. Repository-relative module roots provide stable identity, including modules with the same leaf directory name.
+The Go adapter uses `go mod edit -json` and `go work edit -json` with the user's environment unchanged, so `GOTOOLCHAIN` and Go's own toolchain selection apply as they do for tasks. Repository-relative module roots provide stable identity, including modules with the same leaf directory name.
 
 ### Overlays and federation
 

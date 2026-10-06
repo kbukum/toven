@@ -1,0 +1,18 @@
+# The single command repo with a coverage task and a misspelled `exclude`
+# entry. The task would fail if it ran, so the golden proves the config error
+# surfaces before any measurement.
+[project]
+name = "single-command"
+
+[toven]
+include = ["_profiles/command-tasks.toml"]
+
+[[ecosystems.command.modules]]
+name = "app"
+root = "."
+
+[ecosystems.command.coverage]
+exclude = ["ap"]
+
+[ecosystems.command.tasks.coverage]
+argv = ["false"]

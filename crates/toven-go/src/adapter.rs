@@ -10,6 +10,7 @@ use toven_ports::{
 
 use crate::config::GoConfig;
 use crate::discovery;
+use crate::exec::GoTool;
 use crate::release::GoVcsTarget;
 use crate::tasks;
 use crate::toolchain;
@@ -31,11 +32,16 @@ impl GoAdapter {
     pub fn new(config: GoConfig, runner: Arc<dyn ToolRunner>) -> Self {
         Self { config, runner }
     }
+
+    /// The shared invocation seam for this adapter's `go` calls.
+    fn go(&self) -> GoTool {
+        GoTool::new(self.runner.clone())
+    }
 }
 
 impl ConfiguredAdapter for GoAdapter {
     fn discover(&self, request: &DiscoverRequest) -> AppResult<DiscoverResponse> {
-        discovery::discover(&self.config, request, self.runner.as_ref())
+        discovery::discover(&self.config, request, &self.go())
     }
 
     fn toolchain_probe(&self) -> ToolchainProbe {

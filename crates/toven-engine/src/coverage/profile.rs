@@ -84,8 +84,11 @@ impl FileCoverage {
 }
 
 /// A parsed coverage profile: the per-file tallies emitted by one run.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct CoverageProfile {
+    /// The wire format the profile was parsed from. Attribution uses it to
+    /// credit Go profiles only to Go modules and LCOV only to the others.
+    pub(super) format: CoverageFormat,
     /// Per-file coverage records.
     pub(super) files: Vec<FileCoverage>,
 }

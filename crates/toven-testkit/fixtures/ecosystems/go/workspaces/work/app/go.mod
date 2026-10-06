@@ -1,6 +1,6 @@
 module example.com/app
 
-go 1.26
+go 1.21
 
 require example.com/core v0.0.0
 

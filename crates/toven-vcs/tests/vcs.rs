@@ -43,6 +43,27 @@ fn changed_since_reports_committed_diff_against_an_explicit_baseline() {
 }
 
 #[test]
+fn changed_since_a_missing_baseline_points_at_base() {
+    let ws = TestWorkspace::new("vcs-missing-baseline");
+    let scenario = assert_ok(GitScenario::init(ws.path()));
+    assert_ok(scenario.commit_file("src/lib.rs", "fn a() {}\n", "c1"));
+
+    let vcs = assert_ok(RskitGitVcs::open(ws.path()));
+    for spec in [
+        BaselineSpec::explicit("origin/main"),
+        BaselineSpec::merge_base("origin/main"),
+    ] {
+        let error = vcs
+            .changed_since(&spec)
+            .expect_err("a repo without the remote has no origin/main");
+        assert_eq!(error.code(), rskit_errors::ErrorCode::NotFound);
+        let message = error.to_string();
+        assert!(message.contains("'origin/main'"), "{message}");
+        assert!(message.contains("--base <ref>"), "{message}");
+    }
+}
+
+#[test]
 fn changed_since_merge_base_diffs_from_the_branch_point() {
     let ws = TestWorkspace::new("vcs-merge-base");
     let scenario = assert_ok(GitScenario::init(ws.path()));

@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 use rskit_errors::{AppError, AppResult};
 
-use super::profile::{Counts, CoverageProfile, FileCoverage};
+use super::profile::{Counts, CoverageFormat, CoverageProfile, FileCoverage};
 
 /// Parse an LCOV tracefile into a normalized [`CoverageProfile`].
 ///
@@ -69,7 +69,10 @@ pub(super) fn parse(contents: &str) -> AppResult<CoverageProfile> {
         file.regions = saw_regions.then_some(regions);
         files.push(file);
     }
-    Ok(CoverageProfile { files })
+    Ok(CoverageProfile {
+        format: CoverageFormat::Lcov,
+        files,
+    })
 }
 
 /// Split a `<line>,<hits>` record used by `DA`.

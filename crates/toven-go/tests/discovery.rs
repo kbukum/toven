@@ -199,3 +199,81 @@ fn modules_run_in_parallel_and_workspaces_carry_blast_radius() {
     let workspace = &response.workspaces[0];
     assert_eq!(workspace.blast_radius, ["go.sum"]);
 }
+
+#[test]
+fn discovery_leaves_the_go_toolchain_to_the_user_environment() {
+    let runner = Arc::new(
+        toven_testkit::doubles::FakeToolRunner::new()
+            .with_stdout(r#"{"Module":{"Path":"example.com/solo"},"Go":"1.27"}"#),
+    );
+    let raw = raw_subtree(&fixture_string("adapter/single-module.toml"));
+    let adapter = GoProvider::new(runner.clone())
+        .expect("provider")
+        .configure(raw)
+        .expect("configure");
+    let root = fixture("workspaces/single-module");
+    let request = DiscoverRequest::new(AbsPath::new(root).expect("absolute root"));
+
+    adapter.discover(&request).expect("discover");
+
+    let requests = runner.requests();
+    assert!(!requests.is_empty(), "discovery ran go");
+    for invocation in requests {
+        assert!(
+            !invocation.environment.vars.contains_key("GOTOOLCHAIN"),
+            "{:?}",
+            invocation.argv
+        );
+    }
+}
+
+#[test]
+fn go_mod_edit_runs_in_the_manifest_directory() {
+    // Go picks its toolchain (`GOTOOLCHAIN=auto`/`path`) from the `go.work` or
+    // `go.mod` enclosing its working directory, so each nested module is read
+    // from its own directory rather than the project root.
+    let module = || {
+        toven_ports::ToolOutcome::new(
+            Some(0),
+            r#"{"Module":{"Path":"example.com/any/v2"},"Go":"1.27"}"#,
+            "",
+        )
+    };
+    let runner = Arc::new(
+        toven_testkit::doubles::FakeToolRunner::new().with_outcomes([
+            toven_ports::ToolOutcome::new(
+                Some(0),
+                r#"{"Use":[{"DiskPath":"./alpha"},{"DiskPath":"./beta"}]}"#,
+                "",
+            ),
+            module(),
+            module(),
+        ]),
+    );
+    let raw = raw_subtree(&fixture_string("adapter/versioned-modules.toml"));
+    let adapter = GoProvider::new(runner.clone())
+        .expect("provider")
+        .configure(raw)
+        .expect("configure");
+    let root = fixture("workspaces/versioned");
+    let request = DiscoverRequest::new(AbsPath::new(root.clone()).expect("absolute root"));
+
+    adapter.discover(&request).expect("discover");
+
+    let edits: Vec<_> = runner
+        .requests()
+        .into_iter()
+        .filter(|invocation| invocation.argv.get(1).map(String::as_str) == Some("mod"))
+        .collect();
+    assert_eq!(edits.len(), 2, "one go mod edit per module");
+    for invocation in edits {
+        let manifest = std::path::PathBuf::from(invocation.argv.last().expect("manifest arg"));
+        assert_ne!(manifest.parent(), Some(root.as_path()), "nested manifest");
+        assert_eq!(
+            invocation.working_dir(),
+            manifest.parent(),
+            "{:?}",
+            invocation.argv
+        );
+    }
+}

@@ -157,6 +157,8 @@ With `go.work`, `"auto"` uses its members. Without `go.work`, Toven discovers th
 modules = ["go.mod", "auth/go.mod"]
 ```
 
+Toven reads `go.mod` and `go.work` with the `go` command and your environment, just like your tasks. It does not set `GOTOOLCHAIN`, so your value applies, or Go's default `auto`, which switches to the Go version your `go.mod` or `go.work` asks for (and may download it once). Each `go.mod` is read from its own directory, so that choice follows the `go` and `toolchain` lines Go would use there: the enclosing `go.work` when there is one, otherwise that module's `go.mod`. Set `GOTOOLCHAIN=local` if discovery must never download a toolchain. When the Go in use is too old to read your `go.mod`, the error says so and suggests a fix.
+
 ### Command
 
 ```toml
@@ -233,6 +235,19 @@ fail_if_output = false
 | `fail_if_output` | boolean | `false` | Treat any stdout output as failure |
 
 Toven keeps authored argv unchanged. Templates expand selectors and Toven variables, but they do not infer hidden flags.
+
+Every task runs with the project root as its working directory. Path variables other than `{project.root}` are relative to that root, so they stay stable across machines and in cache keys. If a command changes directory first (for example `sh -c 'cd {module.root} && …'`), a later relative path no longer points where you expect; use `{project.root}` to build an absolute path instead.
+
+| Variable | Value |
+|---|---|
+| `{args}` | Passthrough arguments after `--`, spliced as separate argv items |
+| `{project.root}` | Absolute path of the project root |
+| `{workspace.root}` | The module's workspace root, relative to the project root (`.` for the root) |
+| `{module.name}` | Module name |
+| `{module.package}` | Package name (Go module path, Cargo package); falls back to the module name |
+| `{module.root}` | Module directory, relative to the project root |
+| `{module.manifest}` | Manifest path, relative to the project root |
+| `{module.selector}` | The task's `selector` list, spliced as separate argv items |
 
 ## Groups and overrides
 

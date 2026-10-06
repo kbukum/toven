@@ -13,6 +13,12 @@ color = "auto"
 # or uncomment the line below:
 # rustc-wrapper = "sccache"
 
+[env]
+# Toven's `go` calls inherit the caller's GOTOOLCHAIN. Keep tests, goldens, and
+# `cargo run` offline by default so a fixture's `go` line never triggers a
+# toolchain download; an exported GOTOOLCHAIN still wins (no `force`).
+GOTOOLCHAIN = "local"
+
 [alias]
 # Convenience aliases mirroring the Makefile gate.
 xtest = "nextest run --workspace --all-targets --all-features"

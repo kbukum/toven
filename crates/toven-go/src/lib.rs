@@ -15,8 +15,10 @@
 //!   a [`GoVcsTarget`] that maps the root module to `vX.Y.Z` and submodules to
 //!   `<path>/vX.Y.Z`.
 //!
-//! Discovery reads each managed `go.mod` offline (no module graph resolution,
-//! no network). A root `go.work` is auto-detected both to enumerate the managed
+//! Discovery reads each managed `go.mod` without module graph resolution. It
+//! runs `go` with the user's environment unchanged, so `GOTOOLCHAIN` and Go's
+//! own toolchain selection apply exactly as they do for the user's tasks. A
+//! root `go.work` is auto-detected both to enumerate the managed
 //! modules under `modules = "auto"` and to group its members into one
 //! workspace. All work returns typed data + typed errors; no user-facing
 //! printing, no panics on runtime paths.
