@@ -51,7 +51,7 @@ jobs:
       # publish-train golden scenarios). mdbook + mdbook-mermaid back the
       # command-ecosystem `docs-build` gate the `doctor` audit requires.
       - name: Install task-graph tooling
-        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2
+        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2
         with:
           tool: cargo-nextest,ast-grep,mdbook,mdbook-mermaid
 
@@ -131,7 +131,7 @@ jobs:
         uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2.7.8
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2
+        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2
         with:
           tool: cargo-nextest
 
