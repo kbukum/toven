@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use rskit_fs::safe_join;
+use rskit_fs::{confine_existing_path, safe_join};
 use serde::Deserialize;
 use toven_model::{
     DepKind, EcosystemId, Edge, Module, ModuleRef, RepoPath, ToolchainTag, Workspace, WorkspaceId,
@@ -48,6 +48,8 @@ struct GoModEdit {
     module: GoModuleField,
     #[serde(rename = "Require")]
     require: Option<Vec<GoRequire>>,
+    #[serde(rename = "Replace")]
+    replace: Option<Vec<modules::GoReplacement>>,
 }
 
 /// Discover all Go modules, workspaces, and edges under `request.project_root`.
@@ -59,13 +61,14 @@ pub(crate) fn discover(
     let ecosystem = go_id()?;
     let project_root = request.project_root.as_path();
 
-    let work_members = modules::go_work_members(project_root, go)?;
+    let work = modules::go_work(project_root, go)?;
     let manifests = modules::resolve(config, project_root, go)?;
 
     let mut workspaces: BTreeMap<WorkspaceId, Workspace> = BTreeMap::new();
     let mut modules: BTreeMap<ModuleRef, Module> = BTreeMap::new();
     let mut by_path: BTreeMap<String, ModuleRef> = BTreeMap::new();
     let mut requires: Vec<(ModuleRef, String)> = Vec::new();
+    let mut replacements = BTreeMap::new();
 
     for manifest in &manifests {
         let edit = run_go_mod_edit(project_root, manifest, go)?;
@@ -89,8 +92,8 @@ pub(crate) fn discover(
             ));
         }
 
-        let (workspace_id, workspace_root, is_work) = match &work_members {
-            Some(members) if members.contains(&module_root) => (
+        let (workspace_id, workspace_root, is_work) = match &work {
+            Some(work) if work.members.contains(&module_root) => (
                 workspace_id_for(&RepoPath::new(".")?)?,
                 RepoPath::new(".")?,
                 true,
@@ -122,6 +125,36 @@ pub(crate) fn discover(
                 requires.push((id.clone(), req.path));
             }
         }
+        if let Some(replaces) = edit.replace {
+            replacements.insert(id, replaces);
+        }
+    }
+
+    let work_replacements = work.as_ref().map_or(&[][..], |work| &work.replacements);
+    if replacements
+        .values()
+        .flatten()
+        .chain(work_replacements)
+        .any(|replacement| replacement.local_target().is_some())
+    {
+        let roots: BTreeMap<ModuleRef, PathBuf> = modules
+            .values()
+            .map(|module| {
+                confine_existing_path(project_root, module.root.as_path())
+                    .map(|root| (module.id.clone(), root))
+            })
+            .collect::<AppResult<_>>()?;
+        let workspace_complete =
+            replacements_complete(project_root, work_replacements, &by_path, &roots)?;
+        for module in modules.values_mut() {
+            let local = replacements.get(&module.id).map_or(&[][..], Vec::as_slice);
+            let owner_root = safe_join(project_root, module.root.as_path()).map_err(|error| {
+                AppError::new(ErrorCode::Internal, "failed to resolve module root")
+                    .with_cause(error)
+            })?;
+            module.cache_inputs_complete =
+                workspace_complete && replacements_complete(&owner_root, local, &by_path, &roots)?;
+        }
     }
 
     let edges = build_edges(&modules, &by_path, &requires);
@@ -132,6 +165,29 @@ pub(crate) fn discover(
     response.modules = modules.into_values().collect();
     response.edges = edges;
     Ok(response)
+}
+
+/// A local replacement is represented only when its declared dependency edge
+/// points to the same discovered source directory. Never hash external inputs.
+fn replacements_complete(
+    owner_root: &Path,
+    replacements: &[modules::GoReplacement],
+    by_path: &BTreeMap<String, ModuleRef>,
+    roots: &BTreeMap<ModuleRef, PathBuf>,
+) -> AppResult<bool> {
+    for replacement in replacements {
+        let Some((package, directory)) = replacement.local_target() else {
+            continue;
+        };
+        let Some(tracked_root) = by_path.get(package).and_then(|id| roots.get(id)) else {
+            return Ok(false);
+        };
+        let target = rskit_fs::path::canonicalize(&owner_root.join(directory))?;
+        if &target != tracked_root {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// The canonical Go ecosystem id.

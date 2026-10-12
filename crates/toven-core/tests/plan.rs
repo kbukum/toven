@@ -64,6 +64,33 @@ fn rust_provider() -> FakeProvider {
     FakeProvider::new(eid("rust")).with_adapter(adapter)
 }
 
+fn cache_input_provider(complete: bool, fan_out: FanOut) -> FakeProvider {
+    let mut response = DiscoverResponse::new(eid("rust"));
+    response.workspaces.push(Workspace::new(
+        wsid("rust"),
+        RepoPath::new(".").expect("root"),
+        ToolchainTag::new("cargo"),
+    ));
+    let mut leaf = module("rust", "leaf", "leaf", "rust");
+    leaf.cache_inputs_complete = complete;
+    response.modules.push(leaf);
+    for name in ["middle", "app", "other"] {
+        response.modules.push(module("rust", name, name, "rust"));
+    }
+    for (from, to) in [("app", "middle"), ("middle", "leaf")] {
+        response.edges.push(Edge::new(
+            mref("rust", from),
+            mref("rust", to),
+            DepKind::Normal,
+        ));
+    }
+    let task = Task::new("test", vec!["cargo".into(), "test".into()], fan_out);
+    let adapter = FakeConfiguredAdapter::new(eid("rust"))
+        .with_response(response)
+        .with_tasks(vec![task]);
+    FakeProvider::new(eid("rust")).with_adapter(adapter)
+}
+
 /// The [`rust_provider`] discovery graph with no configured tasks.
 fn rust_provider_without_tasks() -> FakeProvider {
     let mut response = DiscoverResponse::new(eid("rust"));
@@ -529,6 +556,147 @@ fn force_mode_marks_every_unit_forced() {
             .iter()
             .all(|unit| unit.cache == CacheVerdict::Forced)
     );
+}
+
+#[test]
+fn incomplete_cache_inputs_disable_consumers_and_batches_even_in_force_mode() {
+    for fan_out in [FanOut::PerModule, FanOut::Batchable, FanOut::WholeWorkspace] {
+        for mode in [CacheMode::ReadWrite, CacheMode::Force] {
+            let provider = cache_input_provider(false, fan_out);
+            let providers: Vec<&dyn Provider> = vec![&provider];
+            let vcs = FakeVcsReader::new();
+            let digest = FakeSourceDigest::new();
+            let prober = ScriptedToolchainProber::new();
+            let cache = FakeCacheStore::new();
+            let mut reporter = RecordingReporter::new();
+            let readers =
+                MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+            let host = PlanHost::new(&readers, &digest, &prober, &cache);
+            let request = request(TaskIntent::resolve("test")).with_cache_mode(mode);
+            let plan = plan(&request, &document(), &providers, host, &mut reporter)
+                .expect("plan succeeds");
+            assert!(!plan.units.is_empty());
+            for unit in &plan.units {
+                if unit
+                    .members
+                    .iter()
+                    .any(|member| member.module.name.as_str() != "other")
+                {
+                    assert_eq!(unit.cache, CacheVerdict::Disabled, "{fan_out:?}, {mode:?}");
+                    assert!(unit.cache_key.is_none());
+                } else {
+                    assert_ne!(unit.cache, CacheVerdict::Disabled);
+                    assert!(unit.cache_key.is_some());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn incomplete_cache_inputs_cannot_hit_existing_success_records() {
+    let complete = cache_input_provider(true, FanOut::PerModule);
+    let incomplete = cache_input_provider(false, FanOut::PerModule);
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = ScriptedToolchainProber::new();
+    let mut cache = FakeCacheStore::new();
+    let mut reporter = RecordingReporter::new();
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let request = request(TaskIntent::resolve("test"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let baseline =
+        plan(&request, &document(), &[&complete], host, &mut reporter).expect("baseline");
+    for unit in baseline.units {
+        cache = cache.with_key(unit.cache_key.expect("cache key"));
+    }
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let result = plan(&request, &document(), &[&incomplete], host, &mut reporter).expect("plan");
+    for unit in result.units {
+        if unit.module.module.name.as_str() == "other" {
+            assert_eq!(unit.cache, CacheVerdict::Hit);
+        } else {
+            assert_eq!(unit.cache, CacheVerdict::Disabled);
+            assert!(unit.cache_key.is_none());
+        }
+    }
+}
+
+#[test]
+fn changed_selection_keeps_incomplete_inputs_and_transitive_consumers_active() {
+    let provider = cache_input_provider(false, FanOut::PerModule);
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
+    let mut reporter = RecordingReporter::new();
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let request = request(TaskIntent::resolve("test")).with_selection(Selection::Changed(Some(
+        toven_ports::BaselineSpec::explicit("main"),
+    )));
+    let result = plan(&request, &document(), &[&provider], host, &mut reporter).expect("plan");
+    let names: std::collections::BTreeSet<_> = result
+        .units
+        .iter()
+        .map(|unit| unit.module.module.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        std::collections::BTreeSet::from(["app", "leaf", "middle"])
+    );
+    assert!(
+        result
+            .units
+            .iter()
+            .all(|unit| unit.cache == CacheVerdict::Disabled)
+    );
+}
+
+#[test]
+fn workspace_task_cannot_hide_incomplete_inputs_behind_a_narrow_selector() {
+    let provider = cache_input_provider(false, FanOut::WholeWorkspace);
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
+    let mut reporter = RecordingReporter::new();
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let request = request(TaskIntent::resolve("test")).with_selection(Selection::Explicit {
+        targets: vec![ModuleSelector::parse("rust:other").expect("selector")],
+        include_dependents: false,
+        include_dependencies: false,
+    });
+    let result = plan(&request, &document(), &[&provider], host, &mut reporter).expect("plan");
+    assert_eq!(result.units.len(), 1);
+    assert_eq!(result.units[0].cache, CacheVerdict::Disabled);
+    assert!(result.units[0].cache_key.is_none());
+}
+
+#[test]
+fn workspace_cache_key_covers_unselected_workspace_sources() {
+    let provider = cache_input_provider(true, FanOut::WholeWorkspace);
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let changed_digest = FakeSourceDigest::new().with_absent_module(mref("rust", "leaf"));
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
+    let mut reporter = RecordingReporter::new();
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let request = request(TaskIntent::resolve("test")).with_selection(Selection::Explicit {
+        targets: vec![ModuleSelector::parse("rust:other").expect("selector")],
+        include_dependents: false,
+        include_dependencies: false,
+    });
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let baseline =
+        plan(&request, &document(), &[&provider], host, &mut reporter).expect("baseline");
+    let cache = cache.with_key(baseline.units[0].cache_key.clone().expect("key"));
+    let host = PlanHost::new(&readers, &changed_digest, &prober, &cache);
+    let result = plan(&request, &document(), &[&provider], host, &mut reporter).expect("plan");
+    assert_eq!(result.units.len(), 1);
+    assert_eq!(result.units[0].cache, CacheVerdict::Miss);
 }
 
 #[test]

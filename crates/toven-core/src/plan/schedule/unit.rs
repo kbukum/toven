@@ -34,6 +34,8 @@ pub(in crate::plan) struct PlannedUnit {
     /// Every module collapsed into this unit (always non-empty, contains
     /// `module`).
     pub(in crate::plan) members: Vec<ModuleKey>,
+    /// The invocation covers its workspace even when selection names a subset.
+    pub(in crate::plan) whole_workspace: bool,
     /// Name of the task this unit runs (its identity, the config table key).
     pub(in crate::plan) task: String,
     /// Provenance of the resolved task (which config layer won).
@@ -141,6 +143,7 @@ pub(super) fn plan_unit(
         id: id.to_string(),
         module: first.clone(),
         members: members.to_vec(),
+        whole_workspace: task.fan_out == FanOut::WholeWorkspace,
         task: task_name,
         origin: task.origin,
         workspace: representative.workspace.clone(),
