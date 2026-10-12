@@ -7,7 +7,7 @@
 //! then schedules the federated waves and bakes a static cache verdict into
 //! every unit.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::{AppError, AppResult};
 use toven_model::{EcosystemId, Event, ExecutionUnit, ModuleKey, Phase, Plan};
@@ -21,6 +21,13 @@ use super::configure::MemberAdapters;
 use super::host::PlanHost;
 use super::request::{PlanRequest, Selection};
 use super::{affected, discover, front, schedule, toolchain};
+
+type CacheWorkspace = (
+    Option<toven_model::MemberId>,
+    EcosystemId,
+    Option<toven_model::WorkspaceId>,
+);
+type WorkspaceModules = BTreeMap<CacheWorkspace, Vec<ModuleKey>>;
 
 /// A plan projected for `explain`, paired with the resolved display focus.
 ///
@@ -259,10 +266,13 @@ fn decide_cache(
     reporter: &mut dyn Reporter,
 ) -> AppResult<Vec<ExecutionUnit>> {
     let adjacency = cache::forward_adjacency(graph);
-    let unit_modules: Vec<ModuleKey> = scheduled
-        .units
+    let workspace_modules = workspace_cache_modules(federation);
+    let scopes = unit_cache_scopes(scheduled, &workspace_modules)?;
+    let unit_modules: Vec<ModuleKey> = scopes
         .iter()
-        .flat_map(|planned| planned.members.iter().cloned())
+        .flat_map(|members| members.iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
         .collect();
     let needed = cache::needed_modules(&unit_modules, &adjacency);
     let needed_modules: Vec<toven_model::Module> = federation
@@ -272,16 +282,25 @@ fn decide_cache(
         .cloned()
         .collect();
     let hashes = cache::source_hashes(&needed_modules, host.digest)?;
+    let incomplete: BTreeSet<_> = needed_modules
+        .iter()
+        .filter(|module| !module.cache_inputs_complete)
+        .map(toven_model::Module::key)
+        .collect();
     let passthrough_present = !request.passthrough.is_empty();
 
     let mut units = Vec::with_capacity(scheduled.units.len());
-    for planned in &scheduled.units {
+    for (planned, scope) in scheduled.units.iter().zip(scopes) {
         // Persistent units never cache; neither do units whose task opted out
         // (`cacheable = false`) — a mutating `*-fix` task, where a stale content-key
-        // hit would wrongly suppress the mutation. For the rest, `cache::verdict`
+        // hit would wrongly suppress the mutation. Incomplete mutable source
+        // closures also disable caching, regardless of task overrides or Force.
+        // For the rest, `cache::verdict`
         // derives the content key only when the verdict needs it (Force / ReadWrite),
         // skipping wasted digest work and avoidable I/O errors for Disabled units.
-        let (verdict, key) = if planned.persistent || !planned.cacheable {
+        let complete = incomplete.is_empty()
+            || cache::needed_modules(scope, &adjacency).is_disjoint(&incomplete);
+        let (verdict, key) = if planned.persistent || !planned.cacheable || !complete {
             (toven_model::CacheVerdict::Disabled, None)
         } else {
             cache::verdict(
@@ -291,7 +310,7 @@ fn decide_cache(
                 host.cache,
                 || {
                     let inputs = KeyInputs {
-                        modules: &planned.members,
+                        modules: scope,
                         base_argv: &planned.base_argv,
                         shared_inputs: &planned.shared_inputs,
                         toolchain_identity: &planned.toolchain_identity,
@@ -325,6 +344,45 @@ fn decide_cache(
         });
     }
     Ok(units)
+}
+
+fn workspace_cache_modules(federation: &discover::Federation) -> WorkspaceModules {
+    let mut workspaces = WorkspaceModules::new();
+    for module in &federation.modules {
+        let key = (
+            module.member.clone(),
+            module.id.ecosystem.clone(),
+            module.workspace.clone(),
+        );
+        workspaces.entry(key).or_default().push(module.key());
+    }
+    workspaces
+}
+
+fn unit_cache_scopes<'a>(
+    scheduled: &'a schedule::Scheduled,
+    workspaces: &'a WorkspaceModules,
+) -> AppResult<Vec<&'a [ModuleKey]>> {
+    scheduled
+        .units
+        .iter()
+        .map(|unit| {
+            if !unit.whole_workspace {
+                return Ok(unit.members.as_slice());
+            }
+            let key = (
+                unit.module.member.clone(),
+                unit.module.module.ecosystem.clone(),
+                unit.workspace.clone(),
+            );
+            workspaces.get(&key).map(Vec::as_slice).ok_or_else(|| {
+                AppError::new(
+                    rskit_errors::ErrorCode::Internal,
+                    format!("unit '{}' has no workspace source scope", unit.id),
+                )
+            })
+        })
+        .collect()
 }
 
 /// The key to persist for a unit: a freshly computed key is recorded only for a

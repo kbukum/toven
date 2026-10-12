@@ -83,7 +83,13 @@ A unit re-runs when any of these inputs change:
 - adapter toolchain identity
 - passthrough arguments when `cache_args = true`
 
-Persistent tasks and tasks with `cacheable = false` are never cached.
+Persistent tasks, tasks with `cacheable = false`, and units whose mutable dependencies are not fully represented in the discovered source graph are never cached. Discovery metadata must advertise complete inputs; missing metadata is not trusted. This restriction propagates to consumers and batched units; `--refresh` cannot override it.
+
+Go discovery checks local replacements in both `go.mod` and a root `go.work`. A replacement keeps caching only when its dependency edge resolves to the same discovered module directory. External or unrepresented local replacements run uncached without walking their source trees. Filesystem errors while resolving a represented replacement are surfaced rather than treated as verified inputs.
+
+Changed-work selection also keeps these modules and their consumers active: repository diffs cannot prove that an unrepresented dependency is unchanged.
+
+Workspace-wide tasks key and check the entire workspace's source closure, even when a selector names only one member. Batched selector-based tasks retain their selected-member scope.
 
 ## Force execution
 

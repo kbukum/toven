@@ -1252,6 +1252,7 @@ fn planned_unit(
         id: id.to_string(),
         module: toven_model::ModuleKey::bare(mref("rust", "m")),
         members: vec![toven_model::ModuleKey::bare(mref("rust", "m"))],
+        whole_workspace: cycle_co_schedulable,
         task: "test".to_string(),
         origin: TaskOrigin::AdapterDefault,
         workspace: None,

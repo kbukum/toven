@@ -1,0 +1,8 @@
+go 1.27
+
+use (
+    ./app
+    ./core
+)
+
+replace example.com/extra => ../replacements/core

@@ -48,7 +48,7 @@ pub enum CacheMode {
     /// Read existing records and write new ones (the default).
     #[default]
     ReadWrite,
-    /// Ignore existing records: every unit is
+    /// Ignore existing records: every cache-eligible unit is
     /// [`Forced`](toven_model::CacheVerdict::Forced).
     Force,
     /// Bypass the cache entirely: every unit is

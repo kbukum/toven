@@ -84,6 +84,107 @@ fn single_module_yields_one_module_and_workspace() {
 }
 
 #[test]
+fn external_local_replacement_marks_cache_inputs_incomplete() {
+    let response = discover("adapter/single-module.toml", "workspaces/replacements/app");
+    assert!(!response.modules[0].cache_inputs_complete);
+}
+
+#[test]
+fn discovered_local_replacement_keeps_its_dependency_edge() {
+    let response = discover("adapter/work-modules.toml", "workspaces/replacements");
+    assert_eq!(response.edges.len(), 1);
+    assert_eq!(response.edges[0].from.module, module_ref("app"));
+    assert_eq!(response.edges[0].to.module, module_ref("core"));
+    for module in &response.modules {
+        assert!(module.cache_inputs_complete);
+    }
+}
+
+#[test]
+fn external_workspace_replacement_marks_member_cache_inputs_incomplete() {
+    let response = discover("adapter/work-modules.toml", "workspaces/work-replacement");
+    assert_eq!(response.modules.len(), 2);
+    for module in &response.modules {
+        assert!(!module.cache_inputs_complete);
+    }
+}
+
+#[test]
+fn published_replacement_does_not_require_local_source() {
+    let response = discover(
+        "adapter/single-module.toml",
+        "workspaces/remote-replacement",
+    );
+    assert!(response.modules[0].cache_inputs_complete);
+}
+
+#[test]
+fn local_replacement_cannot_borrow_an_unrelated_module_digest() {
+    let response = discover(
+        "adapter/work-modules.toml",
+        "workspaces/redirected-replacement",
+    );
+    for module in &response.modules {
+        assert_eq!(
+            module.cache_inputs_complete,
+            module.id == module_ref("core")
+        );
+    }
+}
+
+#[test]
+fn malformed_replacement_metadata_is_a_discovery_error() {
+    for replacement in [
+        r#"{"Old":{"Path":"example.com/core"}}"#,
+        r#"{"New":{"Path":"../core"}}"#,
+        r#"{"Old":{"Path":"example.com/core"},"New":{"Path":"../core","Version":7}}"#,
+    ] {
+        let runner = Arc::new(
+            toven_testkit::doubles::FakeToolRunner::new().with_stdout(format!(
+                r#"{{"Module":{{"Path":"example.com/solo"}},"Replace":[{replacement}]}}"#
+            )),
+        );
+        let adapter = GoProvider::new(runner)
+            .expect("provider")
+            .configure(raw_subtree(&fixture_string("adapter/single-module.toml")))
+            .expect("configure");
+        let request = DiscoverRequest::new(
+            AbsPath::new(fixture("workspaces/single-module")).expect("absolute root"),
+        );
+        let error = adapter
+            .discover(&request)
+            .expect_err("invalid replacements cannot advertise complete cache inputs");
+        assert!(error.to_string().contains("go mod edit"), "{error}");
+    }
+}
+
+#[test]
+fn missing_represented_replacement_source_is_not_verified() {
+    let runner = Arc::new(
+        toven_testkit::doubles::FakeToolRunner::new().with_outcomes([
+            toven_ports::ToolOutcome::new(
+                Some(0),
+                r#"{"Module":{"Path":"example.com/app"},"Require":[{"Path":"example.com/core"}],
+                "Replace":[{"Old":{"Path":"example.com/core"},"New":{"Path":"../missing"}}]}"#,
+                "",
+            ),
+            toven_ports::ToolOutcome::new(Some(0), r#"{"Module":{"Path":"example.com/core"}}"#, ""),
+        ]),
+    );
+    let adapter = GoProvider::new(runner)
+        .expect("provider")
+        .configure(raw_subtree(&fixture_string("adapter/work-modules.toml")))
+        .expect("configure");
+    let request = DiscoverRequest::new(
+        AbsPath::new(fixture("workspaces/replacements")).expect("absolute root"),
+    );
+    let error = adapter
+        .discover(&request)
+        .expect_err("a represented but missing source must surface its filesystem error");
+    assert!(error.to_string().contains("missing"), "{error}");
+}
+
+#[test]
 fn go_work_groups_members_into_one_workspace_with_an_edge() {
     let response = discover("adapter/work-modules.toml", "workspaces/work");
 
