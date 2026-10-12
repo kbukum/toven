@@ -14,10 +14,14 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Fixed
 
+### Security
+
+## [0.1.0-alpha.12] - 2026-10-12
+
+### Fixed
+
 - Prevent stale task-cache hits when Go module or workspace replacements depend on unrepresented local source, including consumers and batched tasks.
 - Hash every workspace member for whole-workspace tasks, even with a narrow selector, and conservatively select modules whose mutable inputs cannot be verified unchanged.
-
-### Security
 
 ## [0.1.0-alpha.11] - 2026-10-06
 
