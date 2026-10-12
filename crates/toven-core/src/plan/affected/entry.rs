@@ -40,6 +40,8 @@ pub struct ActiveModules {
 /// paths (committed ∪ worktree) reported by every member reader to seed modules
 /// and returns the reverse-dependents closure, failing open to the full set
 /// (the [`FailOpen`](AttributionPolicy) task rule) on any unclassifiable path.
+/// Modules with incomplete mutable inputs also seed changed selections, since
+/// repository diffs cannot prove those dependencies unchanged.
 /// Each member reader uses its own resolved
 /// baseline; the single-repo project is the N=1 degenerate member.
 ///
@@ -112,7 +114,14 @@ fn resolve_changed(
     changed: &[ChangeRecord],
 ) -> AppResult<ActiveModules> {
     let full_activation = unclassified_paths(changed, federation);
-    let seeds = changed_seeds(changed, graph, federation, AttributionPolicy::FailOpen);
+    let mut seeds = changed_seeds(changed, graph, federation, AttributionPolicy::FailOpen);
+    seeds.extend(
+        federation
+            .modules
+            .iter()
+            .filter(|module| !module.cache_inputs_complete)
+            .map(Module::key),
+    );
     let modules = graph.closure(&seeds, dependents_filter(&request.intent))?;
     Ok(ActiveModules {
         modules,

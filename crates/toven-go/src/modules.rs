@@ -42,6 +42,41 @@ struct GoWorkUse {
 struct GoWorkEdit {
     #[serde(rename = "Use")]
     use_dirs: Option<Vec<GoWorkUse>>,
+    #[serde(rename = "Replace")]
+    replace: Option<Vec<GoReplacement>>,
+}
+
+/// A replacement directive shared by Go module and workspace manifests.
+#[derive(Debug, Deserialize)]
+pub(crate) struct GoReplacement {
+    #[serde(rename = "Old")]
+    old: GoReplacementTarget,
+    #[serde(rename = "New")]
+    new: GoReplacementTarget,
+}
+
+#[derive(Debug, Deserialize)]
+struct GoReplacementTarget {
+    #[serde(rename = "Path")]
+    path: String,
+    #[serde(rename = "Version", default)]
+    version: String,
+}
+
+impl GoReplacement {
+    /// The replaced package and local directory; versioned targets are immutable.
+    pub(crate) fn local_target(&self) -> Option<(&str, &str)> {
+        self.new
+            .version
+            .is_empty()
+            .then_some((self.old.path.as_str(), self.new.path.as_str()))
+    }
+}
+
+/// Workspace membership and replacement inputs from one parsed manifest.
+pub(crate) struct GoWork {
+    pub(crate) members: BTreeSet<RepoPath>,
+    pub(crate) replacements: Vec<GoReplacement>,
 }
 
 /// Resolve the effective repo-relative `go.mod` manifests for `config` under
@@ -130,6 +165,11 @@ pub(crate) fn go_work_members(
     project_root: &Path,
     go: &GoTool,
 ) -> AppResult<Option<BTreeSet<RepoPath>>> {
+    Ok(go_work(project_root, go)?.map(|work| work.members))
+}
+
+/// Parse workspace membership and replacements, propagating manifest failures.
+pub(crate) fn go_work(project_root: &Path, go: &GoTool) -> AppResult<Option<GoWork>> {
     let work_abs = safe_join(project_root, Path::new(WORK_MANIFEST)).map_err(|error| {
         AppError::new(ErrorCode::Internal, "failed to resolve go.work path").with_cause(error)
     })?;
@@ -170,7 +210,10 @@ pub(crate) fn go_work_members(
             ),
         ));
     }
-    Ok(Some(members))
+    Ok(Some(GoWork {
+        members,
+        replacements: edit.replace.unwrap_or_default(),
+    }))
 }
 
 /// The repo-relative `go.mod` inside a member root (`.` → `go.mod`, `agent` →

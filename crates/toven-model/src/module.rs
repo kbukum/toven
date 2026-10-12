@@ -42,19 +42,21 @@ pub struct Module {
     /// so only an adapter that can prove a module is library-only (no binary)
     /// excludes it from persistent `run` units. Consumed by the scheduler, not
     /// identity.
-    #[serde(default = "default_runnable", skip_serializing_if = "is_runnable")]
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
     pub runnable: bool,
+    /// Whether discovery represents every mutable dependency in the source
+    /// graph. False or absent metadata disables caching for this module and
+    /// its consumers.
+    #[serde(default)]
+    pub cache_inputs_complete: bool,
 }
 
-/// Serde default for [`Module::runnable`]: assume a module is runnable unless
-/// the discovering adapter proves otherwise.
-const fn default_runnable() -> bool {
+const fn default_true() -> bool {
     true
 }
 
-/// Serde skip helper: omit `runnable` from output when it holds its default.
 #[allow(clippy::trivially_copy_pass_by_ref)]
-const fn is_runnable(value: &bool) -> bool {
+const fn is_true(value: &bool) -> bool {
     *value
 }
 
@@ -74,6 +76,7 @@ impl Module {
             source_patterns: Vec::new(),
             resource_group: None,
             runnable: true,
+            cache_inputs_complete: true,
         }
     }
 
@@ -107,6 +110,8 @@ mod tests {
         let back: Module = serde_json::from_str(&json).unwrap();
         assert_eq!(module, back);
         assert!(back.runnable);
+        assert!(back.cache_inputs_complete);
+        assert!(json.contains("cache_inputs_complete"));
     }
 
     #[test]
@@ -121,5 +126,32 @@ mod tests {
         let back: Module = serde_json::from_str(&json).unwrap();
         assert!(!back.runnable);
         assert_eq!(module, back);
+    }
+
+    #[test]
+    fn incomplete_cache_inputs_round_trip() {
+        let mut module = Module::new(
+            ModuleRef::new(EcosystemId::new("go").unwrap(), "app").unwrap(),
+            RepoPath::new("app").unwrap(),
+        );
+        module.cache_inputs_complete = false;
+        let json = serde_json::to_string(&module).unwrap();
+        let back: Module = serde_json::from_str(&json).unwrap();
+        assert!(!back.cache_inputs_complete);
+        assert_eq!(module, back);
+    }
+
+    #[test]
+    fn discovery_without_cache_input_completeness_is_not_trusted() {
+        let module = Module::new(
+            ModuleRef::new(EcosystemId::new("go").unwrap(), "app").unwrap(),
+            RepoPath::new("app").unwrap(),
+        );
+        let mut json = serde_json::to_value(module).unwrap();
+        json.as_object_mut()
+            .unwrap()
+            .remove("cache_inputs_complete");
+        let back: Module = serde_json::from_value(json).unwrap();
+        assert!(!back.cache_inputs_complete);
     }
 }
