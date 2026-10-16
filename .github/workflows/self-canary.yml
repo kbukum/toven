@@ -73,7 +73,7 @@ jobs:
       # This set is exactly what `toven doctor` reports for the full task graph
       # (cargo, ast-grep, mdbook) plus the cargo plugins it sees only as `cargo`.
       - name: Install gate tooling
-        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
         with:
           tool: cargo-nextest,cargo-llvm-cov,cargo-audit,ast-grep,mdbook,mdbook-mermaid
       - name: Install cargo-deny
@@ -161,7 +161,7 @@ jobs:
           "${TOVEN_BIN}" release publish --dry-run --output jsonl | tee release-preview.jsonl
 
       - name: Upload the release preview evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: self-canary-release-preview
           path: release-preview.jsonl
@@ -218,7 +218,7 @@ jobs:
 
       - name: Install cross
         if: matrix.use_cross
-        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
         with:
           tool: cross
 
@@ -237,7 +237,7 @@ jobs:
         run: cargo run --locked -p toven -- release package --target ${{ matrix.target }} --output jsonl
 
       - name: Upload packaged archive
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: self-canary-archive-${{ matrix.target }}
           path: dist/*
@@ -293,7 +293,7 @@ jobs:
           cosign-release: v2.6.0
 
       - name: Download every packaged archive
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: self-canary-archive-*
           path: dist
@@ -342,7 +342,7 @@ jobs:
         run: ls -la dist
 
       - name: Upload the assembled release evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: self-canary-release-dist
           path: |
