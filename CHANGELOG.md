@@ -16,6 +16,21 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Security
 
+## [0.1.0-alpha.13] - 2026-10-18
+
+### Added
+
+- `toven affected` accepts `--output jsonl` and prints one `{module, workspace, path}` record per affected module, so CI can build job matrices without parsing a table. In this mode, the full-activation diagnostic moves to stderr.
+- `toven modules --output jsonl` records include `path`, the module root relative to the directory that holds `toven.toml`.
+
+### Fixed
+
+- JSON-lines module projections stop cleanly when the reader closes early (for example `| head`) instead of panicking.
+
+### Security
+
+- Update `zip` to 9.0.5 through rskit, fixing unsafe permission and symlink handling during extraction (RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369).
+
 ## [0.1.0-alpha.12] - 2026-10-12
 
 ### Fixed

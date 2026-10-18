@@ -1137,8 +1137,9 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
         ));
     }
     // `--output` selects the event-sink/projection format; the execution verbs, the
-    // release lifecycle actions, and the `tasks`/`modules` listings render a
-    // chooseable projection, but the other verbs print their own fixed rendering.
+    // release lifecycle actions, the `tasks`/`modules` listings and the `affected`
+    // projection render a chooseable format, but the other verbs print their own
+    // fixed rendering.
     if cli.output.is_some() && !accepts_output_format(&cli.command) {
         return Err(AppError::invalid_input(
             "flags",
@@ -1535,8 +1536,8 @@ const fn accepts_reporter_shaping(command: &Command) -> bool {
 }
 
 /// Whether `command` renders a projection whose format `--output` selects: the
-/// execution verbs, every release lifecycle action, `coverage`, and the
-/// `tasks`/`modules` listings.
+/// execution verbs, every release lifecycle action, `coverage`, the
+/// `tasks`/`modules` listings, and the `affected` projection.
 const fn accepts_output_format(command: &Command) -> bool {
     matches!(
         command,
@@ -1549,6 +1550,7 @@ const fn accepts_output_format(command: &Command) -> bool {
             | Command::Doctor { .. }
             | Command::CommitLint { .. }
             | Command::Modules
+            | Command::Affected { .. }
     )
 }
 
@@ -2487,6 +2489,12 @@ mod tests {
     #[test]
     fn output_format_accepted_on_the_modules_projection() {
         let cli = parse(["--output", "jsonl", "modules"].as_slice()).expect("parses");
+        assert!(super::gate(&cli).is_ok());
+    }
+
+    #[test]
+    fn output_format_accepted_on_the_affected_projection() {
+        let cli = parse(["--output", "jsonl", "affected", "test"].as_slice()).expect("parses");
         assert!(super::gate(&cli).is_ok());
     }
 

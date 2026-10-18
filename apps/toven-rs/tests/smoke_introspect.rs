@@ -282,6 +282,114 @@ fn modules_jsonl_emits_one_json_object_per_module_with_a_workspace_field() {
     assert_eq!(rows.len(), 4, "one object per discovered module");
     assert_eq!(rows[0]["module"], "rust:a-app");
     assert_eq!(rows[0]["workspace"], "rust:services/a");
+    assert_eq!(rows[0]["path"], "services/a/crates/a-app");
     assert_eq!(rows[3]["module"], "rust:b-core");
     assert_eq!(rows[3]["workspace"], "rust:services/b");
+    assert_eq!(rows[3]["path"], "services/b/crates/b-core");
+}
+
+fn jsonl_rows(stdout: &str) -> Vec<serde_json::Value> {
+    stdout
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str(line).expect("each line is valid JSON"))
+        .collect()
+}
+
+#[test]
+fn affected_jsonl_emits_the_selected_modules_with_their_paths() {
+    let sample = repo("rust/workspace-linear");
+    let out = toven_rs_ok(
+        &sample,
+        &[
+            "--output",
+            "jsonl",
+            "affected",
+            "build",
+            "--module",
+            "rust:corelib",
+            "--dependents",
+        ],
+    );
+    let rows = jsonl_rows(&out.stdout);
+    let modules: Vec<&str> = rows
+        .iter()
+        .map(|row| row["module"].as_str().expect("module"))
+        .collect();
+    assert_eq!(modules, vec!["rust:app", "rust:corelib"]);
+    assert_eq!(rows[0]["path"], "crates/app");
+    assert_eq!(rows[1]["path"], "crates/corelib");
+}
+
+#[test]
+fn affected_jsonl_keeps_stdout_pure_on_full_activation() {
+    // The full-activation note must not corrupt the JSON stream; it moves to stderr.
+    let sample = repo("rust/workspace-linear");
+    let scenario = toven_testkit::git::GitScenario::open(sample.root()).expect("open git tree");
+    scenario
+        .commit_file(
+            "toven.toml",
+            &format!(
+                "{}\n# unattributable root edit\n",
+                std::fs::read_to_string(sample.root().join("toven.toml")).expect("read toven.toml")
+            ),
+            "touch root config",
+        )
+        .expect("commit a root toven.toml change");
+
+    let out = toven_rs_ok(
+        &sample,
+        &["--output", "jsonl", "affected", "build", "--base", "HEAD~1"],
+    );
+    let rows = jsonl_rows(&out.stdout);
+    assert_eq!(rows.len(), 3, "every module is affected: {}", out.stdout);
+    out.expect_stderr_contains("full activation: toven.toml (affects all modules)");
+}
+
+#[test]
+fn jsonl_paths_are_relative_to_the_config_directory_under_a_nested_project_root() {
+    let sample =
+        toven_testkit::SampleRepo::materialize("rust/workspace-linear").expect("materialize");
+    let root = sample.root();
+    std::fs::create_dir(root.join("backend")).expect("create backend");
+    for entry in ["Cargo.toml", "crates"] {
+        std::fs::rename(root.join(entry), root.join("backend").join(entry)).expect("move entry");
+    }
+    let config = std::fs::read_to_string(root.join("toven.toml")).expect("read toven.toml");
+    std::fs::write(
+        root.join("toven.toml"),
+        config.replacen("[project]\n", "[project]\nroot = \"backend\"\n", 1),
+    )
+    .expect("write toven.toml");
+    sample.init_git().expect("init the fixture git tree");
+
+    let modules = jsonl_rows(&toven_rs_ok(&sample, &["--output", "jsonl", "modules"]).stdout);
+    let paths: Vec<&str> = modules
+        .iter()
+        .map(|row| row["path"].as_str().expect("path"))
+        .collect();
+    assert_eq!(
+        paths,
+        vec![
+            "backend/crates/app",
+            "backend/crates/corelib",
+            "backend/crates/util"
+        ]
+    );
+
+    let affected = toven_rs_ok(
+        &sample,
+        &[
+            "--output",
+            "jsonl",
+            "affected",
+            "build",
+            "--module",
+            "rust:corelib",
+        ],
+    );
+    assert_eq!(
+        jsonl_rows(&affected.stdout)[0]["path"],
+        "backend/crates/corelib"
+    );
 }

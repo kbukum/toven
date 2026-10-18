@@ -62,7 +62,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -73,7 +73,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -233,6 +233,12 @@ name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
+
+[[package]]
+name = "cfg_aliases"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
 name = "chrono"
@@ -511,7 +517,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1142,6 +1148,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix"
+version = "0.31.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
+dependencies = [
+ "bitflags",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+]
+
+[[package]]
 name = "notify"
 version = "8.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1607,7 +1625,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1679,9 +1697,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.151"
+version = "1.0.154"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
 dependencies = [
  "itoa",
  "memchr",
@@ -1785,7 +1803,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1866,7 +1884,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1940,9 +1958,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.19"
+version = "0.7.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "494815d09bf52b5548659851081238f0ca39ff638363907596da739561c62c52"
+checksum = "e464cf451ba96ebfc6f9b6542f17ee8b8956e33f1e40d9690624e59d7a7f8a4b"
 dependencies = [
  "bytes",
  "futures-core",
@@ -2006,7 +2024,7 @@ checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 
 [[package]]
 name = "toven"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "libtest-mimic",
  "rskit-cli",
@@ -2022,7 +2040,7 @@ dependencies = [
 
 [[package]]
 name = "toven-cli"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2049,7 +2067,7 @@ dependencies = [
 
 [[package]]
 name = "toven-command"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "rskit-codec",
  "rskit-config",
@@ -2063,7 +2081,7 @@ dependencies = [
 
 [[package]]
 name = "toven-core"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "rskit-codec",
  "rskit-config",
@@ -2084,7 +2102,7 @@ dependencies = [
 
 [[package]]
 name = "toven-engine"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "async-trait",
  "futures",
@@ -2111,7 +2129,7 @@ dependencies = [
 
 [[package]]
 name = "toven-exec"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "async-trait",
  "rskit-errors",
@@ -2126,7 +2144,7 @@ dependencies = [
 
 [[package]]
 name = "toven-go"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "rskit-cli",
  "rskit-codec",
@@ -2146,7 +2164,7 @@ dependencies = [
 
 [[package]]
 name = "toven-go-app"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "rskit-cli",
  "rskit-codec",
@@ -2164,7 +2182,7 @@ dependencies = [
 
 [[package]]
 name = "toven-model"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "rskit-errors",
  "rskit-fs",
@@ -2176,7 +2194,7 @@ dependencies = [
 
 [[package]]
 name = "toven-ports"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "async-trait",
  "futures",
@@ -2197,7 +2215,7 @@ dependencies = [
 
 [[package]]
 name = "toven-release"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "async-trait",
  "rskit-config",
@@ -2224,7 +2242,7 @@ dependencies = [
 
 [[package]]
 name = "toven-rs"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "rskit-cli",
  "rskit-errors",
@@ -2238,7 +2256,7 @@ dependencies = [
 
 [[package]]
 name = "toven-runtime"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "async-trait",
  "rskit-errors",
@@ -2249,7 +2267,7 @@ dependencies = [
 
 [[package]]
 name = "toven-rust"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "cargo_metadata",
  "rskit-cli",
@@ -2271,7 +2289,7 @@ dependencies = [
 
 [[package]]
 name = "toven-semver"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "rskit-errors",
  "rskit-version",
@@ -2280,7 +2298,7 @@ dependencies = [
 
 [[package]]
 name = "toven-testkit"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "async-trait",
  "futures",
@@ -2303,7 +2321,7 @@ dependencies = [
 
 [[package]]
 name = "toven-vcs"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "rskit-errors",
  "rskit-fs",
@@ -2316,7 +2334,7 @@ dependencies = [
 
 [[package]]
 name = "toven-version"
-version = "0.1.0-alpha.12"
+version = "0.1.0-alpha.13"
 dependencies = [
  "rskit-errors",
  "rskit-version",
@@ -2649,7 +2667,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3018,14 +3036,15 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "8.6.0"
+version = "9.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b"
+checksum = "6e04976da629d3b04204ba8105b396a193af8ad2583b2c79bfb3ab8af580a11e"
 dependencies = [
  "crc32fast",
  "flate2",
  "indexmap",
  "memchr",
+ "nix",
  "typed-path",
  "zopfli",
 ]

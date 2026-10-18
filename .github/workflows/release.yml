@@ -57,7 +57,7 @@ jobs:
         run: cargo run --locked -p toven -- release publish --dry-run --output jsonl | tee release-preview.jsonl
 
       - name: Upload preview evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-preview
           path: |
@@ -117,7 +117,7 @@ jobs:
 
       - name: Install cross
         if: matrix.use_cross
-        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
         with:
           tool: cross
 
@@ -136,7 +136,7 @@ jobs:
         run: cargo run --locked -p toven -- release package --target ${{ matrix.target }} --output jsonl
 
       - name: Upload packaged archive
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-archive-${{ matrix.target }}
           path: dist/*
@@ -175,7 +175,7 @@ jobs:
         run: cargo install cargo-cyclonedx --version 0.5.9
 
       - name: Download every packaged archive
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: release-archive-*
           path: dist
@@ -202,7 +202,7 @@ jobs:
         run: ls -la dist
 
       - name: Upload assembled release assets
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-dist
           path: dist/*
@@ -238,7 +238,7 @@ jobs:
           rustup override set "${RUST_VERSION}"
 
       - name: Download assembled release assets
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-dist
           path: dist
@@ -294,7 +294,7 @@ jobs:
         run: cargo run --locked -p toven -- release provenance --output jsonl | tee release-provenance.jsonl
 
       - name: Upload publish record
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-publish-record
           path: |
