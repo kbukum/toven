@@ -45,6 +45,16 @@ command:repo
 
 Repository-level changes that cannot be assigned to one module activate the full scope and include an explanatory diagnostic.
 
+For tooling such as a CI matrix, `--output jsonl` prints one record per affected module, in the same shape as `toven modules --output jsonl`. The full-activation diagnostic then goes to stderr, so stdout holds only records:
+
+```bash
+toven --output jsonl affected test --base origin/main --merge-base
+```
+
+```json
+{"module":"rust:toven-cli","workspace":"rust","path":"crates/toven-cli"}
+```
+
 ## Explain execution units
 
 ```text
@@ -80,9 +90,11 @@ toven modules --output jsonl
 Example JSONL stdout:
 
 ```json
-{"module":"rust:toven-cli","workspace":"rust"}
-{"module":"rust:toven-engine","workspace":"rust"}
+{"module":"rust:toven-cli","workspace":"rust","path":"crates/toven-cli"}
+{"module":"rust:toven-engine","workspace":"rust","path":"crates/toven-engine"}
 ```
+
+`path` is the module root relative to the directory that holds `toven.toml`, so it already includes `[project].root`. A module at that directory is `.`.
 
 Aliases: `toven list`, `toven ls`.
 

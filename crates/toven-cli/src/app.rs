@@ -254,6 +254,7 @@ fn dispatch(
                 &project,
                 intent_for(task),
                 &global_selection(cli),
+                cli.output,
             )
         }
         Command::Modules => {

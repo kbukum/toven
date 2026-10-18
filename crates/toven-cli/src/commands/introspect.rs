@@ -12,9 +12,10 @@
 //! schedulable.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 
 use rskit_cli::{ExitCode, OutputKV, OutputTable};
-use rskit_errors::{AppError, AppResult};
+use rskit_errors::{AppError, AppResult, ErrorCode};
 use toven_core::federation::resolve::PathDriverLocator;
 use toven_core::plan::{
     CacheMode, FocusedPlan, PlanHost, PlanRequest, Selection, dependency_graph, plan_focused,
@@ -24,7 +25,7 @@ use toven_engine::cache::NullCache;
 use toven_engine::source::FsSourceDigest;
 use toven_engine::toolchain::ProcessToolchainProber;
 use toven_exec::ProcessToolRunner;
-use toven_model::{Event, ExecutionUnit, Graph, ModuleKey, Plan};
+use toven_model::{Event, ExecutionUnit, Graph, ModuleKey, Plan, RepoPath};
 use toven_ports::{Provider, Reporter, TaskIntent};
 
 use crate::commands::selection::TaskSelection;
@@ -33,20 +34,40 @@ use crate::host::{Project, new_run_id, resolve_output};
 
 /// A quiet [`Reporter`]: introspection prints its projection on stdout, while
 /// warnings still go to stderr so warn-and-skip diagnostics are visible.
-struct QuietReporter;
+///
+/// The full-activation note explains the human `affected` table, so it rides
+/// stdout there; a JSON-lines projection keeps stdout to its records and the note
+/// moves to stderr.
+struct QuietReporter {
+    structured: bool,
+}
+
+impl QuietReporter {
+    const fn human() -> Self {
+        Self { structured: false }
+    }
+
+    const fn for_output(output: OutputKind) -> Self {
+        Self {
+            structured: matches!(output, OutputKind::Jsonl),
+        }
+    }
+}
 
 impl Reporter for QuietReporter {
     fn emit(&mut self, event: &Event) -> AppResult<()> {
         match event {
             Event::Warning { message } => eprintln!("warning: {message}"),
-            // An introspection projection is machine-readable stdout, so the full-activation reason
-            // rides the same stream as the projection it explains (the `affected` table), never
-            // mixed onto stderr.
             Event::FullActivation { paths } => {
-                println!(
+                let note = format!(
                     "full activation: {} (affects all modules)",
                     paths.join(", ")
                 );
+                if self.structured {
+                    eprintln!("{note}");
+                } else {
+                    println!("{note}");
+                }
             }
             _ => {}
         }
@@ -69,9 +90,12 @@ fn build_plan(
     intent: TaskIntent,
     baseline: &BaselineFlags,
     selection: Selection,
+    reporter: QuietReporter,
 ) -> AppResult<Plan> {
-    build_focused_plan(providers, project, intent, baseline, selection, None)
-        .map(|focused| focused.plan)
+    build_focused_plan(
+        providers, project, intent, baseline, selection, None, reporter,
+    )
+    .map(|focused| focused.plan)
 }
 
 /// Build the plan for the scope `selection` and, when `focus` is given, resolve
@@ -91,6 +115,7 @@ fn build_focused_plan(
     baseline: &BaselineFlags,
     selection: Selection,
     focus: Option<&Selection>,
+    mut reporter: QuietReporter,
 ) -> AppResult<FocusedPlan> {
     let request = PlanRequest::new(
         new_run_id()?,
@@ -108,7 +133,6 @@ fn build_focused_plan(
     let cache = NullCache;
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
 
-    let mut reporter = QuietReporter;
     plan_focused(
         &request,
         focus,
@@ -126,7 +150,7 @@ fn build_focused_plan(
 /// Propagates Configure/Discover/Graph failures.
 fn build_graph(providers: &[&dyn Provider], project: &Project) -> AppResult<Graph> {
     let locator = PathDriverLocator::new();
-    let mut reporter = QuietReporter;
+    let mut reporter = QuietReporter::human();
     dependency_graph(
         &project.project_root,
         &project.document,
@@ -152,7 +176,7 @@ pub(crate) fn modules(
     output: Option<OutputKind>,
 ) -> AppResult<ExitCode> {
     let graph = build_graph(providers, project)?;
-    let rows = module_rows(&graph);
+    let rows = module_rows(&graph, Path::new(&project.document.project.root))?;
     match resolve_output(output, &project.document) {
         OutputKind::Jsonl => render_modules_jsonl(&rows)?,
         OutputKind::Human => render_modules_human(&rows),
@@ -162,17 +186,42 @@ pub(crate) fn modules(
 
 /// `toven affected <task>`: the modules with a scheduled unit for `task`.
 ///
+/// Renders a titled table by default, or under `--output jsonl` one record per
+/// affected module with the same `{module, workspace, path}` schema as
+/// `toven modules`, so CI can fan work out without parsing a table.
+///
 /// # Errors
-/// Propagates [`build_plan`] failures.
+/// Propagates [`build_plan`] and [`build_graph`] failures, or a serialization
+/// failure in the jsonl projection.
 pub(crate) fn affected(
     providers: &[&dyn Provider],
     project: &Project,
     intent: TaskIntent,
     selection: &TaskSelection,
+    output: Option<OutputKind>,
 ) -> AppResult<ExitCode> {
+    let output = resolve_output(output, &project.document);
     let resolved = selection.resolve(project.document.project.base_ref.as_deref())?;
-    let plan = build_plan(providers, project, intent, &selection.baseline, resolved)?;
-    print_module_table("Affected", plan_module_names(&plan));
+    let plan = build_plan(
+        providers,
+        project,
+        intent,
+        &selection.baseline,
+        resolved,
+        QuietReporter::for_output(output),
+    )?;
+    let names = plan_module_names(&plan);
+    match output {
+        OutputKind::Jsonl => {
+            let graph = build_graph(providers, project)?;
+            render_modules_jsonl(&affected_rows(
+                &graph,
+                Path::new(&project.document.project.root),
+                &names,
+            )?)?;
+        }
+        OutputKind::Human => print_module_table("Affected", names),
+    }
     Ok(ExitCode::Success)
 }
 
@@ -223,6 +272,7 @@ pub(crate) fn explain(
         &selection.baseline,
         scope,
         focus.as_ref(),
+        QuietReporter::human(),
     )?;
 
     if plan.units.is_empty() {
@@ -294,23 +344,67 @@ fn print_module_table(title: &str, modules: Vec<String>) {
     println!("{table}");
 }
 
-/// A discovered module paired with its owning workspace, for the `modules`
-/// projection. Serializes directly as the stable `jsonl` record schema.
+/// A discovered module paired with its owning workspace and root path,
+/// for the `modules` and `affected` projections. Serializes directly as the
+/// stable `jsonl` record schema.
 #[derive(serde::Serialize)]
 struct ModuleRow {
     module: String,
     workspace: Option<String>,
+    path: String,
 }
 
-/// The sorted module set with each module's owning workspace.
-fn module_rows(graph: &Graph) -> Vec<ModuleRow> {
+/// The sorted module set with each module's owning workspace and root.
+///
+/// Module roots are project-relative; `project_root` (the validated
+/// `[project].root`) prefixes them so `path` is relative to the directory that
+/// holds `toven.toml`, where Toven runs.
+///
+/// # Errors
+/// Propagates an invalid joined path (never expected: both parts are validated
+/// relative paths).
+fn module_rows(graph: &Graph, project_root: &Path) -> AppResult<Vec<ModuleRow>> {
     graph
         .modules()
-        .map(|module| ModuleRow {
-            module: module.key().to_string(),
-            workspace: module.workspace.as_ref().map(ToString::to_string),
+        .map(|module| {
+            let path = RepoPath::new(project_root.join(module.root.as_path()))?;
+            Ok(ModuleRow {
+                module: module.key().to_string(),
+                workspace: module.workspace.as_ref().map(ToString::to_string),
+                path: path.to_string(),
+            })
         })
         .collect()
+}
+
+/// The module rows named by `names` (a plan's sorted module set), in graph
+/// order.
+///
+/// # Errors
+/// Returns an internal error when a planned module is missing from the graph,
+/// rather than silently dropping it from the projection.
+fn affected_rows(
+    graph: &Graph,
+    project_root: &Path,
+    names: &[String],
+) -> AppResult<Vec<ModuleRow>> {
+    let wanted: BTreeSet<&str> = names.iter().map(String::as_str).collect();
+    let rows: Vec<ModuleRow> = module_rows(graph, project_root)?
+        .into_iter()
+        .filter(|row| wanted.contains(row.module.as_str()))
+        .collect();
+    if rows.len() != wanted.len() {
+        let found: BTreeSet<&str> = rows.iter().map(|row| row.module.as_str()).collect();
+        let missing: Vec<&str> = wanted.difference(&found).copied().collect();
+        return Err(AppError::new(
+            ErrorCode::Internal,
+            format!(
+                "planned modules missing from the discovered graph: {}",
+                missing.join(", ")
+            ),
+        ));
+    }
+    Ok(rows)
 }
 
 /// Render the module set as a titled table with a Workspace column.
@@ -328,13 +422,26 @@ fn render_modules_human(rows: &[ModuleRow]) {
 /// Render the module set as one JSON object per module line (a stable schema).
 ///
 /// # Errors
-/// Propagates a serialization failure (never expected for these plain fields).
+/// Propagates a serialization or stdout write failure.
 fn render_modules_jsonl(rows: &[ModuleRow]) -> AppResult<()> {
-    for row in rows {
-        let line = serde_json::to_string(row).map_err(AppError::internal)?;
-        println!("{line}");
+    write_modules_jsonl(&mut std::io::stdout().lock(), rows)
+}
+
+/// Write one JSON record per row. A reader that closes early (`toven … | head`)
+/// ends the projection cleanly instead of failing it.
+///
+/// # Errors
+/// Propagates a serialization failure or any write failure other than a broken
+/// pipe.
+fn write_modules_jsonl(out: &mut impl std::io::Write, rows: &[ModuleRow]) -> AppResult<()> {
+    let written = rows.iter().try_for_each(|row| {
+        serde_json::to_writer(&mut *out, row).map_err(std::io::Error::from)?;
+        out.write_all(b"\n")
+    });
+    match written.and_then(|()| out.flush()) {
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        result => result.map_err(AppError::internal),
     }
-    Ok(())
 }
 
 /// The sorted, de-duplicated module set referenced by a plan's units.
@@ -370,12 +477,18 @@ fn render_graph_text(graph: &Graph) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use toven_model::{DepKind, EcosystemId, Edge, Graph, MemberId, Module, ModuleRef, RepoPath};
 
-    use super::{ModuleRow, module_rows, render_graph_text};
+    use super::{ModuleRow, affected_rows, module_rows, render_graph_text, write_modules_jsonl};
 
     fn module(name: &str) -> Module {
         Module::new(mref(name), RepoPath::new(format!("crates/{name}")).unwrap())
+    }
+
+    fn rows(graph: &Graph) -> Vec<ModuleRow> {
+        module_rows(graph, Path::new(".")).expect("rows")
     }
 
     fn module_keys(rows: &[ModuleRow]) -> Vec<&str> {
@@ -405,16 +518,13 @@ mod tests {
 
     #[test]
     fn module_names_are_sorted_and_deduplicated() {
-        assert_eq!(
-            module_keys(&module_rows(&graph())),
-            vec!["rust:app", "rust:core"]
-        );
+        assert_eq!(module_keys(&rows(&graph())), vec!["rust:app", "rust:core"]);
     }
 
     #[test]
     fn module_names_include_member_scope_when_present() {
         assert_eq!(
-            module_keys(&module_rows(&federated_graph())),
+            module_keys(&rows(&federated_graph())),
             vec!["core/rust:core", "gateway/rust:app"]
         );
     }
@@ -426,7 +536,7 @@ mod tests {
         core.workspace = Some(WorkspaceId::new("core").unwrap());
         let app = module("app");
         let graph = Graph::build(vec![core, app], Vec::new()).expect("valid graph");
-        let rows = module_rows(&graph);
+        let rows = rows(&graph);
         assert_eq!(rows[0].module, "rust:app");
         assert_eq!(rows[0].workspace, None);
         assert_eq!(rows[1].module, "rust:core");
@@ -438,17 +548,95 @@ mod tests {
         // `modules --output jsonl` is a stable domain schema on stdout, one
         // record per row — deliberately *not* routed through the Event stream.
         // Guard that contract: the record must never carry an `event`
-        // discriminator, and its shape stays exactly `{module, workspace}`.
+        // discriminator, and its shape stays exactly `{module, workspace, path}`.
         let row = ModuleRow {
             module: "rust:core".to_string(),
             workspace: Some("core".to_string()),
+            path: "crates/core".to_string(),
         };
         let value = serde_json::to_value(&row).expect("serialize");
         let object = value.as_object().expect("object");
         assert!(object.get("event").is_none(), "not an Event record");
-        assert_eq!(object.len(), 2);
+        assert_eq!(object.len(), 3);
         assert_eq!(value["module"], "rust:core");
         assert_eq!(value["workspace"], "core");
+        assert_eq!(value["path"], "crates/core");
+    }
+
+    #[test]
+    fn module_rows_carry_the_module_root_path() {
+        let rows = rows(&graph());
+        assert_eq!(rows[0].path, "crates/app");
+        assert_eq!(rows[1].path, "crates/core");
+    }
+
+    #[test]
+    fn module_row_paths_are_relative_to_the_config_directory() {
+        let root = Module::new(mref("root"), RepoPath::new(".").unwrap());
+        let graph = Graph::build(vec![module("core"), root], Vec::new()).expect("valid graph");
+        let rows = module_rows(&graph, Path::new("backend")).expect("rows");
+        assert_eq!(module_keys(&rows), vec!["rust:core", "rust:root"]);
+        assert_eq!(rows[0].path, "backend/crates/core");
+        assert_eq!(rows[1].path, "backend");
+    }
+
+    #[test]
+    fn root_module_path_is_dot_when_the_project_root_is_the_config_directory() {
+        let root = Module::new(mref("root"), RepoPath::new(".").unwrap());
+        let graph = Graph::build(vec![root], Vec::new()).expect("valid graph");
+        assert_eq!(rows(&graph)[0].path, ".");
+    }
+
+    #[test]
+    fn affected_rows_keep_only_planned_modules_in_order() {
+        let names = vec!["rust:core".to_string()];
+        let rows = affected_rows(&graph(), Path::new("."), &names).expect("rows");
+        assert_eq!(module_keys(&rows), vec!["rust:core"]);
+        assert_eq!(rows[0].path, "crates/core");
+    }
+
+    #[test]
+    fn affected_rows_reject_a_planned_module_missing_from_the_graph() {
+        let names = vec!["rust:core".to_string(), "rust:ghost".to_string()];
+        let Err(error) = affected_rows(&graph(), Path::new("."), &names) else {
+            panic!("a missing planned module must fail");
+        };
+        assert!(error.to_string().contains("rust:ghost"), "{error}");
+    }
+
+    struct FailingWriter(std::io::ErrorKind);
+
+    impl std::io::Write for FailingWriter {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::from(self.0))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn jsonl_writes_one_record_per_line() {
+        let mut out = Vec::new();
+        write_modules_jsonl(&mut out, &rows(&graph())).expect("write");
+        let text = String::from_utf8(out).expect("utf8");
+        assert_eq!(
+            text,
+            "{\"module\":\"rust:app\",\"workspace\":null,\"path\":\"crates/app\"}\n{\"module\":\"rust:core\",\"workspace\":null,\"path\":\"crates/core\"}\n"
+        );
+    }
+
+    #[test]
+    fn jsonl_stops_cleanly_when_the_reader_closes() {
+        let mut out = FailingWriter(std::io::ErrorKind::BrokenPipe);
+        assert!(write_modules_jsonl(&mut out, &rows(&graph())).is_ok());
+    }
+
+    #[test]
+    fn jsonl_reports_other_write_failures() {
+        let mut out = FailingWriter(std::io::ErrorKind::PermissionDenied);
+        assert!(write_modules_jsonl(&mut out, &rows(&graph())).is_err());
     }
 
     #[test]
