@@ -72,7 +72,20 @@ fn validate_project(project: &ProjectConfig) -> AppResult<()> {
     if let Some(base_ref) = &project.base_ref {
         reject_unicode_controls("project.base_ref", base_ref)?;
     }
+    for (index, glob) in project.global_inputs.iter().enumerate() {
+        validate_global_input(&format!("project.global_inputs[{index}]"), glob)?;
+    }
     Ok(())
+}
+
+/// Validate a global-input glob: a non-empty, root-relative pattern with no
+/// traversal. Wildcards are checked as literal characters of a safe path.
+fn validate_global_input(field: &str, glob: &str) -> AppResult<()> {
+    validate_required_trimmed(field, glob)?;
+    reject_unicode_controls(field, glob)?;
+    let literal = glob.replace(['*', '?'], "x");
+    validate_safe_path(&literal)
+        .map_err(|error| AppError::invalid_input(field, error.to_string()).with_cause(error))
 }
 
 /// Validate the reserved `[toven]` settings.

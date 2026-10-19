@@ -43,12 +43,12 @@ impl CoverageMetrics {
 
         for file in files {
             lines.add(file.line_counts());
-            if let Some(counts) = file.functions {
-                functions.add(counts);
+            if let Some(tally) = &file.functions {
+                functions.add(tally.counts());
                 saw_functions = true;
             }
-            if let Some(counts) = file.regions {
-                regions.add(counts);
+            if let Some(tally) = &file.regions {
+                regions.add(tally.counts());
                 saw_regions = true;
             }
             if changed.is_some_and(|set| set.contains(&file.path)) {
@@ -71,7 +71,7 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::CoverageMetrics;
-    use crate::coverage::profile::{Counts, FileCoverage};
+    use crate::coverage::profile::{Counts, FileCoverage, Tally};
 
     fn file(path: &str, hit: u32, found: u32) -> FileCoverage {
         let mut lines = BTreeMap::new();
@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn function_dimension_present_when_measured() {
         let mut a = file("a.rs", 5, 10);
-        a.functions = Some(Counts { found: 4, hit: 3 });
+        a.functions = Some(Tally::from_counts(Counts { found: 4, hit: 3 }));
         let metrics = CoverageMetrics::compute(&[&a], None);
         assert!((metrics.function.expect("function") - 75.0).abs() < 1e-9);
     }

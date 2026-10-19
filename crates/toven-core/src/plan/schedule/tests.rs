@@ -190,6 +190,7 @@ fn workspace_module_without_resolved_toolchain_is_rejected() {
         workspaces: vec![workspace("rust")],
         modules: vec![module("rust", "app", "rust")],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -223,6 +224,7 @@ fn leaf_to_top_orders_dependencies_before_dependents() {
             mref("rust", "errors"),
             DepKind::Normal,
         )],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -250,6 +252,7 @@ fn unordered_collapses_intra_ecosystem_edges_into_one_wave() {
             mref("rust", "errors"),
             DepKind::Normal,
         )],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -274,6 +277,7 @@ fn overlay_edges_are_never_dropped_even_under_unordered() {
             mref("rust", "shared"),
             DepKind::Overlay,
         )],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -299,6 +303,7 @@ fn whole_workspace_collapses_modules_into_one_unit() {
             module("rust", "errors", "rust"),
         ],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -324,6 +329,7 @@ fn batchable_splits_distinct_workspaces_in_one_ecosystem() {
             module("rust", "plugin", "contrib"),
         ],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -362,6 +368,7 @@ fn batchable_groups_members_and_keeps_distinct_ecosystems_apart() {
             module("go", "api", "go"),
         ],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -418,6 +425,7 @@ fn batchable_single_workspace_chain_stays_one_batched_unit() {
                 DepKind::Normal,
             ),
         ],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -466,6 +474,7 @@ fn external_dependent_waves_after_an_unsplit_multi_layer_batch() {
             ),
             Edge::new(mref("go", "api"), mref("rust", "core0"), DepKind::Overlay),
         ],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -544,6 +553,7 @@ fn facade_back_dependency_splits_a_workspace_across_layers_into_a_dag() {
                 DepKind::Normal,
             ),
         ],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -639,6 +649,7 @@ fn whole_workspace_facade_cycle_co_schedules_the_cycle_into_one_wave() {
                 DepKind::Normal,
             ),
         ],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -719,6 +730,7 @@ fn whole_workspace_facade_cycle_without_closure_capability_fails_closed() {
                 DepKind::Normal,
             ),
         ],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -768,6 +780,7 @@ fn group_task_override_workspace_closure_true_and_false() {
                 DepKind::Normal,
             ),
         ],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
 
@@ -866,6 +879,7 @@ fn whole_workspace_acyclic_dependency_orders_units_across_waves() {
             mref("rust", "base"),
             DepKind::Normal,
         )],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -903,6 +917,7 @@ fn named_extra_task_is_selected_by_its_addressable_name() {
         workspaces: vec![workspace("rust")],
         modules: vec![module("rust", "app", "rust")],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -946,6 +961,7 @@ fn group_override_applies_to_a_named_extra_by_its_addressable_name() {
         workspaces: vec![workspace("rust")],
         modules: vec![module("rust", "app", "rust")],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -1005,6 +1021,7 @@ fn group_task_override_applies_to_members_only() {
             module("rust", "errors", "rust"),
         ],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -1065,6 +1082,7 @@ fn same_name_group_overrides_from_distinct_scopes_do_not_collapse() {
             module("rust", "errors", "rust"),
         ],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -1137,6 +1155,7 @@ fn group_run_strategy_override_relaxes_members_only() {
             mref("rust", "errors"),
             DepKind::Normal,
         )],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -1193,6 +1212,7 @@ fn run_task_skips_library_only_modules() {
         workspaces: vec![workspace("rust")],
         modules: vec![app, lib],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();
@@ -1224,6 +1244,7 @@ fn non_run_tasks_never_filter_library_only_modules() {
         workspaces: vec![workspace("rust")],
         modules: vec![app, lib],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let mut adapters = ConfiguredSet::new();

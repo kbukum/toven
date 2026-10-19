@@ -444,6 +444,7 @@ mod tests {
                 name: "demo".to_string(),
                 root: ".".to_string(),
                 base_ref: None,
+                global_inputs: Vec::new(),
             },
             toven: TovenConfig::default(),
             groups: BTreeMap::new(),

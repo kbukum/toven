@@ -19,6 +19,11 @@ pub struct ProjectConfig {
     /// Git ref the change baseline is computed against (e.g. `origin/main`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_ref: Option<String>,
+    /// Root-relative `*`/`?` globs for repo-wide inputs (CI workflows, build
+    /// scripts, lint config). A changed path matching one activates every
+    /// module for task selection; release ignores it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub global_inputs: Vec<String>,
 }
 
 /// The default workspace root: the directory holding `toven.toml`.

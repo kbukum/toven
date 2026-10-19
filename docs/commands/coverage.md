@@ -75,6 +75,10 @@ Rust supports line, function, and region metrics. Go coverage supplies line metr
 
 A Go coverage task can be a plain `go test -coverprofile=target/toven/coverage/go-{module.name}.out …`. Go writes import paths (`example.com/repo/svc/x.go`) into the profile. Toven maps them back to repository paths using each discovered module's path from `go.mod`, so files in nested modules are attributed to the right module and matched against changed files. No path rewriting is needed in the task. Go profiles are only credited to Go modules and LCOV profiles only to the others, so a Go module and, say, a command module that share a directory never take each other's files. If two discovered modules declare the same Go module path (for example in two federation members), Toven cannot tell their files apart and the report fails with an error instead of guessing.
 
+### Files measured more than once
+
+Several profiles can measure the same file, for example per-module Go runs with a shared `-coverpkg`. Toven counts the file once. A line counts as covered when any run covered it. LCOV functions and branches merge the same way when the tracefile has per-item `FN`/`FNDA` and `BRDA` records. When it only has the `FNF`/`FNH`/`BRF`/`BRH` summaries, items cannot be matched, so Toven keeps the larger count instead of adding them.
+
 Threshold precedence:
 
 ```text
@@ -92,3 +96,5 @@ CLI override > module override > named profile > ecosystem setting > adapter def
 | `--enforcement block\|advisory` | Override failure policy |
 
 Percentages must be in `0..=100`. Selection options match [task selection](run.md#select-scope).
+
+The coverage task fans out like any run, so it uses the configured [compute budget](../config/README.md#compute-budget); `--compute-budget <auto|inherit|N>` overrides it for one run.

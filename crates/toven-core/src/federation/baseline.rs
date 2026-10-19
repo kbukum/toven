@@ -349,6 +349,7 @@ mod tests {
                 name: "umbrella".to_string(),
                 root: ".".to_string(),
                 base_ref: Some("origin/main".to_string()),
+                global_inputs: Vec::new(),
             },
             toven: TovenConfig::default(),
             groups: BTreeMap::new(),

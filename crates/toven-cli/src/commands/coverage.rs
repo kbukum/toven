@@ -23,7 +23,7 @@ use toven_engine::coverage::{
 };
 use toven_exec::ProcessSupervisor;
 use toven_model::OutcomeSummary;
-use toven_ports::{ComputeBudget, Provider, TaskIntent};
+use toven_ports::{Provider, TaskIntent};
 
 use crate::commands::run::WatchFlags;
 use crate::commands::selection::TaskSelection;
@@ -151,11 +151,9 @@ fn measure(
         },
         Some(ViewMode::Stream),
         None,
-        // `--compute-budget` is a run/watch-only flag and is rejected on
-        // `toven coverage`, so opt coverage out explicitly rather than let the
-        // resolver silently fall back to `[toven].compute_budget` — otherwise
-        // coverage would apply a budget it gives no way to override.
-        Some(ComputeBudget::Inherit),
+        // Per-module coverage tasks fan out like any run, so they share its
+        // CPU budget: the flag, else `[toven].compute_budget`.
+        cli.compute_budget,
         selection,
     )
 }

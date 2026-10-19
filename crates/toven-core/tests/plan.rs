@@ -179,6 +179,7 @@ fn document() -> Document {
             name: "toven".to_string(),
             root: ".".to_string(),
             base_ref: None,
+            global_inputs: Vec::new(),
         },
         toven: TovenConfig::default(),
         groups: BTreeMap::new(),
@@ -1041,11 +1042,11 @@ fn an_unknown_task_still_errors_when_no_ecosystem_defines_it() {
 }
 
 #[test]
-fn narrowing_to_a_task_defining_ecosystem_clears_the_full_activation_diagnostic() {
-    // An unclassified changed path forces fail-closed full activation of every
-    // module. Because `structure` lives only in the command ecosystem, the set is
-    // then narrowed to command:repo — so this is no longer a full activation and
-    // the misleading `FullActivation` event must not be emitted.
+fn narrowing_to_a_task_defining_ecosystem_keeps_the_full_activation_diagnostic() {
+    // A changed global input forces fail-open full activation of every module.
+    // `structure` lives only in the command ecosystem, so the set narrows to
+    // command:repo — still every module that defines the task, so the
+    // `FullActivation` event must explain why it ran.
     let rust = rust_provider();
     let command = command_provider();
     let providers: Vec<&dyn Provider> = vec![&rust, &command];
@@ -1059,16 +1060,12 @@ fn narrowing_to_a_task_defining_ecosystem_clears_the_full_activation_diagnostic(
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let request =
         request(TaskIntent::resolve("structure")).with_selection(Selection::ChangedPaths(vec![
-            "unowned/loose-file.txt".to_string(),
+            ".github/workflows/ci.yml".to_string(),
         ]));
-    let plan = plan(
-        &request,
-        &two_ecosystem_document(),
-        &providers,
-        host,
-        &mut reporter,
-    )
-    .expect("structure plans over the command ecosystem alone");
+    let mut document = two_ecosystem_document();
+    document.project.global_inputs = vec![".github/workflows/*".to_string()];
+    let plan = plan(&request, &document, &providers, host, &mut reporter)
+        .expect("structure plans over the command ecosystem alone");
 
     assert!(
         plan.units.iter().all(|unit| unit
@@ -1078,11 +1075,11 @@ fn narrowing_to_a_task_defining_ecosystem_clears_the_full_activation_diagnostic(
         "structure must narrow to the command ecosystem"
     );
     assert!(
-        !reporter
+        reporter
             .events()
             .iter()
             .any(|event| matches!(event, Event::FullActivation { .. })),
-        "a narrowed plan must not emit a FullActivation event"
+        "a narrowed full run must still emit a FullActivation event"
     );
 }
 

@@ -160,6 +160,7 @@ mod tests {
             workspaces: Vec::new(),
             modules: vec![core, services],
             edges: Vec::new(),
+            global_inputs: Vec::new(),
             warnings: Vec::new(),
         };
 

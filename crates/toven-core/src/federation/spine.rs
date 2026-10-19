@@ -125,7 +125,7 @@ fn configure_member(
 /// are appended, and the response is rebased into umbrella coordinates
 /// (member-scoped identity + umbrella-relative paths) before being unioned.
 /// Cross-member overlay edges declared on the umbrella are resolved against the
-/// union and appended.
+/// union and appended; umbrella `global_inputs` join the members' rebased ones.
 ///
 /// # Errors
 /// Propagates an adapter discovery failure, a malformed overlay endpoint, an
@@ -137,11 +137,17 @@ pub(crate) fn discover_all(
     adapters: &MemberAdapters,
 ) -> AppResult<Federation> {
     let mut union = Federation::default();
+    union
+        .global_inputs
+        .extend_from_slice(composed.global_inputs());
     for member in composed.members() {
         let mut member_federation = discover_member(umbrella_root, member, adapters)?;
         union.workspaces.append(&mut member_federation.workspaces);
         union.modules.append(&mut member_federation.modules);
         union.edges.append(&mut member_federation.edges);
+        union
+            .global_inputs
+            .append(&mut member_federation.global_inputs);
         union.warnings.append(&mut member_federation.warnings);
     }
 
@@ -173,6 +179,9 @@ fn discover_member(
     })?;
     let mut federation = discover::union(member.discover_root(), set)?;
     discover::append_overlays(&mut federation, &member.document().overlays)?;
+    federation
+        .global_inputs
+        .clone_from(&member.document().project.global_inputs);
     if let Some(id) = member_id {
         let prefix = member_prefix(umbrella_root.as_path(), member.discover_root().as_path())?;
         rebase_member(&mut federation, id, &prefix)?;

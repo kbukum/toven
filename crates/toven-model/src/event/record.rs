@@ -55,13 +55,14 @@ pub enum Event {
         /// Human-readable, actionable warning text.
         message: String,
     },
-    /// The changed-path selection could not attribute one or more paths to a
-    /// module, so every module was activated (fail-closed). Advisory: it
+    /// The changed-path selection saw one or more repo-wide paths (a project
+    /// global input, or a path no module could claim), so every module was
+    /// activated (fail-open). Advisory: it
     /// explains *why* a full run was planned and never changes the outcome.
     /// Empty `paths` is never emitted — the event fires only when a full
     /// activation was forced.
     FullActivation {
-        /// The changed paths that no module or workspace could claim.
+        /// The changed paths that forced the full activation.
         paths: Vec<String>,
     },
 
