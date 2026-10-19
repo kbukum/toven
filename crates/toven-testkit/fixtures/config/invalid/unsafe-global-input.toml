@@ -1,0 +1,8 @@
+# Rejected: `[project].global_inputs` globs are root-relative, so a traversal
+# escape must fail structural validation.
+[project]
+name = "broken"
+global_inputs = ["../shared/*"]
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]

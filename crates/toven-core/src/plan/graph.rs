@@ -362,6 +362,7 @@ mod tests {
             workspaces: Vec::new(),
             modules,
             edges,
+            global_inputs: Vec::new(),
             warnings: Vec::new(),
         }
     }

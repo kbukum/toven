@@ -319,3 +319,63 @@ fn changed_selection_attributes_changes_to_the_owning_member() {
         plan.units[0].id
     );
 }
+
+#[test]
+fn umbrella_global_inputs_activate_every_member() {
+    // An umbrella-level `global_inputs` pattern is umbrella-relative and wins
+    // over module ownership, so a change it matches inside one member activates
+    // every member's modules.
+    let ws = workspace("umbrella-global-inputs");
+    ws.write_file(
+        "repos/core/toven.toml",
+        b"[project]\nname = \"core\"\nbase_ref = \"main\"\n[ecosystems.rust]\nmanifests = [\"Cargo.toml\"]\n",
+    )
+    .expect("core toml");
+    ws.write_file(
+        "repos/services/toven.toml",
+        b"[project]\nname = \"services\"\nbase_ref = \"main\"\n[ecosystems.rust]\nmanifests = [\"Cargo.toml\"]\n",
+    )
+    .expect("services toml");
+    let (root, document) = load_umbrella(
+        &ws,
+        "[project]\nname = \"umbrella\"\nglobal_inputs = [\"repos/core/crates/core/shared.toml\"]\n\n[[members]]\nname = \"core\"\nroot = \"repos/core\"\n\n[[members]]\nname = \"services\"\nroot = \"repos/services\"\n",
+    );
+
+    let rust = rust_core_provider();
+    let providers: Vec<&dyn Provider> = vec![&rust];
+    let core_vcs = FakeVcsReader::new().with_changed_since(vec![ChangeRecord::new(
+        "crates/core/shared.toml",
+        ChangeStatus::Modified,
+    )]);
+    let services_vcs = FakeVcsReader::new();
+    let readers = MemberVcsReaders::new(vec![
+        MemberVcsReader::new(
+            Some(toven_model::MemberId::new("core").expect("member")),
+            "repos/core",
+            Some(BaselineSpec::explicit("main")),
+            &core_vcs,
+        ),
+        MemberVcsReader::new(
+            Some(toven_model::MemberId::new("services").expect("member")),
+            "repos/services",
+            Some(BaselineSpec::explicit("main")),
+            &services_vcs,
+        ),
+    ]);
+    let digest = FakeSourceDigest::new();
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let mut reporter = RecordingReporter::new();
+
+    let request = PlanRequest::new("run-1", "umbrella", TaskIntent::resolve("test"), root)
+        .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
+    let plan = plan(&request, &document, &providers, host, &mut reporter).expect("plan succeeds");
+
+    let members: BTreeSet<&str> = plan
+        .units
+        .iter()
+        .filter_map(|unit| unit.id.split_once('/').map(|(member, _)| member))
+        .collect();
+    assert_eq!(members, BTreeSet::from(["core", "services"]));
+}

@@ -32,6 +32,10 @@ fn loads_full_polyglot_document() {
 
     assert_eq!(document.project.name, "acme-monorepo");
     assert_eq!(document.project.base_ref.as_deref(), Some("origin/main"));
+    assert_eq!(
+        document.project.global_inputs,
+        [".github/workflows/*", "Makefile"]
+    );
     assert_eq!(document.toven.report, ReportFormat::Json);
     assert_eq!(document.toven.max_parallel, Some(8));
     assert_eq!(

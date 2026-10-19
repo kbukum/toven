@@ -133,6 +133,9 @@ pub struct TaskFlags {
     pub verbose: u8,
     /// `-q`/`--quiet` repeat count.
     pub quiet: u8,
+    /// `-h`/`--help` in the Toven prefix: show help instead of running the task.
+    /// `toven <task> -- --help` forwards help to the tool instead.
+    pub help: bool,
 }
 
 /// A resolved bare-task invocation: the task name, its execution flags, and the
@@ -211,6 +214,7 @@ pub fn parse_task(tokens: &[String]) -> AppResult<TaskInvocation> {
             "--workspace" => flags.workspaces.push(value_for("--workspace", &mut iter)?),
             "-v" | "--verbose" => flags.verbose = flags.verbose.saturating_add(1),
             "-q" | "--quiet" => flags.quiet = flags.quiet.saturating_add(1),
+            "-h" | "--help" => flags.help = true,
             "--config" => flags.config = Some(PathBuf::from(value_for("--config", &mut iter)?)),
             "--output" => flags.output = Some(parse_output(&value_for("--output", &mut iter)?)?),
             "--color" => flags.color = Some(parse_color(&value_for("--color", &mut iter)?)?),
@@ -408,6 +412,26 @@ mod tests {
         assert!(invocation.flags.dry_run);
         // The Toven-looking `--dry-run` after the first task arg is not re-parsed.
         assert_eq!(invocation.passthrough, vec!["--nocapture", "--dry-run"]);
+    }
+
+    #[test]
+    fn help_in_the_prefix_asks_for_help_instead_of_running_the_task() {
+        for flag in ["--help", "-h"] {
+            let invocation =
+                parse_task(&tokens(&["tidy-fix", "--no-cache", flag])).expect("parses");
+            assert!(invocation.flags.help, "{flag}");
+            assert!(invocation.passthrough.is_empty());
+        }
+    }
+
+    #[test]
+    fn help_after_the_prefix_or_separator_is_forwarded_to_the_task() {
+        let forwarded = parse_task(&tokens(&["test", "--", "--help"])).expect("parses");
+        assert!(!forwarded.flags.help);
+        assert_eq!(forwarded.passthrough, vec!["--help"]);
+        let argument = parse_task(&tokens(&["test", "./...", "-h"])).expect("parses");
+        assert!(!argument.flags.help);
+        assert_eq!(argument.passthrough, vec!["./...", "-h"]);
     }
 
     #[test]

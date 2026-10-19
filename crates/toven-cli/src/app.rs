@@ -324,6 +324,33 @@ fn plan_command(
     )
 }
 
+/// Print help for a bare task without running it. The `run` verb's help documents
+/// every flag a bare task accepts.
+fn task_help(task: &str) -> AppResult<ExitCode> {
+    use std::io::Write;
+
+    let mut stdout = std::io::stdout().lock();
+    writeln!(stdout, "{}", task_help_text(task)).map_err(AppError::internal)?;
+    Ok(ExitCode::Success)
+}
+
+/// The help for a bare task: a short note plus `toven run --help`, rendered
+/// from the built command so global options and the binary name are included.
+fn task_help_text(task: &str) -> String {
+    use clap::CommandFactory;
+
+    let mut command = Cli::command();
+    command.build();
+    let help = command
+        .find_subcommand_mut("run")
+        .map(|run| run.render_long_help().to_string())
+        .unwrap_or_default();
+    format!(
+        "`toven {task}` runs the `{task}` task, the same as `toven run {task}`.\n\
+         Use `toven {task} -- --help` to pass `--help` to the task's tool.\n\n{help}"
+    )
+}
+
 /// Dispatch a bare argv-first task: re-parse its trailing flags + passthrough,
 /// then merge them with the pre-token global flags and run.
 fn dispatch_task(
@@ -334,6 +361,9 @@ fn dispatch_task(
 ) -> AppResult<ExitCode> {
     let invocation = grammar::parse_task(tokens)?;
     let flags = &invocation.flags;
+    if flags.help {
+        return task_help(&invocation.task);
+    }
 
     // Trailing task flags land in `Command::External` tokens, so the pre-token
     // `gate` never sees them — enforce the APPLY-execution flag combination
@@ -525,6 +555,21 @@ fn intent_for(task: &str) -> TaskIntent {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn task_help_lists_the_run_options() {
+        let help = super::task_help_text("tidy");
+        assert!(help.contains("`toven tidy` runs the `tidy` task"), "{help}");
+        assert!(help.contains("Usage: toven run [OPTIONS] <TASK>"), "{help}");
+        for flag in [
+            "--dry-run",
+            "--module <SELECTOR>",
+            "--workspace <SELECTOR>",
+            "--compute-budget <BUDGET>",
+        ] {
+            assert!(help.contains(flag), "missing {flag}: {help}");
+        }
+    }
+
     use super::{INIT_SUBCOMMAND, SERVE_SUBCOMMAND, is_init_invocation, is_serve_invocation};
     use std::ffi::OsString;
 

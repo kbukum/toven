@@ -26,6 +26,9 @@ pub struct Federation {
     pub modules: Vec<Module>,
     /// Intra-ecosystem edges plus the config overlay edges.
     pub edges: Vec<Edge>,
+    /// Root-relative globs whose change activates every module (task
+    /// selection only; release ignores them).
+    pub(crate) global_inputs: Vec<String>,
     /// Non-fatal warnings surfaced by adapters during discovery.
     pub(crate) warnings: Vec<String>,
 }

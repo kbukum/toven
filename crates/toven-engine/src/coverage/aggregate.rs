@@ -7,8 +7,9 @@
 //! longest matching prefix. Only modules that can produce the profile's format
 //! are candidates: a Go profile goes to `go.mod` modules, an LCOV profile to
 //! the others. When two candidates share that root, a selected module wins over
-//! an unselected one, then the lower module key. Only selected modules are
-//! reported; files that match no candidate, or belong to an unselected module,
+//! an unselected one, then the lower module key. A file measured by several
+//! profiles counts once, covered where any of them covered it. Only selected
+//! modules are reported; files that match no candidate, or belong to an unselected module,
 //! are ignored. This composes with Toven's affected planning: under
 //! `--changed`, `changed` carries the changed files and each module's
 //! `changed_line` metric is folded over only those.
@@ -77,14 +78,14 @@ pub(super) fn aggregate(inputs: &CoverageInputs<'_>) -> CoverageReport {
 }
 
 /// Bucket every profile file under the candidate module whose root is its
-/// longest prefix.
+/// longest prefix. A file several profiles measured is merged into one entry.
 fn attribute(
     project_root: &Path,
     modules: &[Module],
     selected: &BTreeSet<ModuleKey>,
     profiles: &[CoverageProfile],
 ) -> BTreeMap<ModuleKey, Vec<FileCoverage>> {
-    let mut buckets: BTreeMap<ModuleKey, Vec<FileCoverage>> = BTreeMap::new();
+    let mut buckets: BTreeMap<ModuleKey, BTreeMap<PathBuf, FileCoverage>> = BTreeMap::new();
     for profile in profiles {
         let candidates: Vec<&Module> = modules
             .iter()
@@ -93,13 +94,21 @@ fn attribute(
         for file in &profile.files {
             let relative = normalize(&file.path, project_root);
             if let Some(module) = longest_match(&relative, &candidates, selected) {
-                let mut attributed = file.clone();
-                attributed.path = relative;
-                buckets.entry(module.key()).or_default().push(attributed);
+                let files = buckets.entry(module.key()).or_default();
+                if let Some(seen) = files.get_mut(&relative) {
+                    seen.merge(file);
+                } else {
+                    let mut attributed = file.clone();
+                    attributed.path.clone_from(&relative);
+                    files.insert(relative, attributed);
+                }
             }
         }
     }
     buckets
+        .into_iter()
+        .map(|(key, files)| (key, files.into_values().collect()))
+        .collect()
 }
 
 /// Make an absolute path under `project_root` workspace-relative; strip a
@@ -170,7 +179,7 @@ mod tests {
 
     use super::{CoverageInputs, aggregate};
     use crate::coverage::gate::ModuleStatus;
-    use crate::coverage::profile::{CoverageFormat, CoverageProfile, FileCoverage};
+    use crate::coverage::profile::{Counts, CoverageFormat, CoverageProfile, FileCoverage, Tally};
     use crate::coverage::settings::ResolvedCoverageSettings;
     use crate::coverage::test_support::go_module;
     use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
@@ -553,5 +562,40 @@ mod tests {
                 .iter()
                 .any(|outcome| outcome.dimension.as_str() == "changed-line" && !outcome.passed)
         );
+    }
+
+    #[test]
+    fn a_file_measured_by_several_profiles_merges_into_one() {
+        // Per-module runs can each measure a shared file (Go `-coverpkg`). The
+        // module counts the file once, covered where any run covered it.
+        let core = module("core", "crates/core");
+        let run = |hits: std::ops::RangeInclusive<u32>| CoverageProfile {
+            format: CoverageFormat::Lcov,
+            files: vec![FileCoverage {
+                path: "crates/core/src/lib.rs".into(),
+                lines: (1..=10).map(|line| (line, hits.contains(&line))).collect(),
+                functions: Some(Tally::from_counts(Counts { found: 4, hit: 1 })),
+                regions: None,
+            }],
+        };
+        let mut second = run(5..=8);
+        second.files[0].functions = Some(Tally::from_counts(Counts { found: 4, hit: 3 }));
+        let mut resolved = BTreeMap::new();
+        resolved.insert(core.key(), settings(80.0, Enforcement::Block));
+        let modules = [core];
+
+        let report = aggregate(&CoverageInputs {
+            project_root: std::path::Path::new("/repo"),
+            owners: &modules,
+            modules: &modules,
+            profiles: &[run(1..=4), second],
+            settings: &resolved,
+            changed: None,
+        });
+
+        let verdict = &report.modules[0];
+        assert!((verdict.metrics.line - 80.0).abs() < 1e-9);
+        assert!((verdict.metrics.function.expect("function") - 75.0).abs() < 1e-9);
+        assert_eq!(verdict.status, ModuleStatus::Passed);
     }
 }

@@ -49,6 +49,8 @@ Use `--` to pass a colliding flag:
 toven test --workspace rust -- --dry-run
 ```
 
+`-h`/`--help` among Toven's options prints help instead of running the task. Use `toven <task> -- --help` to show the tool's own help.
+
 Inspect the resulting argv:
 
 ```bash

@@ -119,6 +119,7 @@ fn prefix_paths(federation: &mut Federation, prefix: &Path) -> AppResult<()> {
         }
         prefix_globs(prefix, &mut module.source_patterns);
     }
+    prefix_globs(prefix, &mut federation.global_inputs);
     Ok(())
 }
 
@@ -213,6 +214,7 @@ mod tests {
                 ModuleRef::new(EcosystemId::new("rust").unwrap(), "errors").unwrap(),
                 DepKind::Normal,
             )],
+            global_inputs: vec![".github/workflows/*".to_string()],
             warnings: Vec::new(),
         }
     }
@@ -240,6 +242,10 @@ mod tests {
         assert_eq!(workspace.id.as_str(), "billing/rust");
         assert_eq!(workspace.root.as_path(), Path::new("repos/billing"));
         assert_eq!(workspace.blast_radius, ["repos/billing/Cargo.lock"]);
+        assert_eq!(
+            federation.global_inputs,
+            ["repos/billing/.github/workflows/*"]
+        );
 
         let edge = &federation.edges[0];
         assert_eq!(edge.from.member(), Some(&member));

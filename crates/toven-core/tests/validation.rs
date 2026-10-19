@@ -86,6 +86,12 @@ fn unsafe_cache_dir_is_rejected() {
 }
 
 #[test]
+fn unsafe_global_input_is_rejected() {
+    // A global-input glob is root-relative; a traversal escape fails at load.
+    assert_rejected("invalid/unsafe-global-input.toml", &["rust"]);
+}
+
+#[test]
 fn malformed_overlay_ref_is_rejected() {
     assert_rejected("invalid/malformed-overlay.toml", &["rust", "go"]);
 }

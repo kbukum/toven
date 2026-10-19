@@ -74,6 +74,7 @@ fn longest_prefix_seeds_the_changed_module_and_its_dependents() {
             mref("rust", "errors"),
             DepKind::Normal,
         )],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
@@ -112,6 +113,7 @@ fn blast_radius_glob_activates_the_whole_workspace() {
             module("rust", "errors", "crates/errors", Some("rust")),
         ],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
@@ -144,6 +146,7 @@ fn dirty_worktree_changes_seed_the_affected_set() {
             mref("rust", "errors"),
             DepKind::Normal,
         )],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
@@ -188,6 +191,7 @@ fn closure_spans_ecosystems_via_overlay() {
             mref("rust", "shared"),
             DepKind::Overlay,
         )],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
@@ -212,6 +216,7 @@ fn unclassifiable_path_fails_open_and_activates_all_modules() {
             module("rust", "errors", "crates/errors", Some("rust")),
         ],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
@@ -235,6 +240,7 @@ fn an_attributable_change_reports_no_full_activation() {
             module("rust", "errors", "crates/errors", Some("rust")),
         ],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
@@ -280,6 +286,7 @@ fn member_readers_prefix_repo_changes_before_classification() {
             member_key("core", "rust", "shared"),
             DepKind::Overlay,
         )],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
@@ -325,6 +332,7 @@ fn member_without_a_baseline_falls_back_to_the_request_spec() {
         workspaces: vec![rust_workspace_with_blast()],
         modules: vec![shared],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
@@ -362,6 +370,7 @@ fn member_without_a_baseline_and_no_request_fallback_is_rejected() {
         workspaces: vec![rust_workspace_with_blast()],
         modules: vec![shared],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
@@ -394,6 +403,7 @@ fn changed_records_for_module_keeps_only_owned_and_workspace_changes() {
         workspaces: vec![rust_workspace_with_blast()],
         modules: vec![app.clone(), errors, foreign],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let changes = vec![
@@ -426,6 +436,7 @@ fn app_and_errors_federation() -> (Federation, Graph) {
             mref("rust", "errors"),
             DepKind::Normal,
         )],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
@@ -472,6 +483,7 @@ fn app_dev_dep_errors_federation() -> (Federation, Graph) {
             mref("rust", "errors"),
             DepKind::Dev,
         )],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
@@ -742,6 +754,7 @@ fn app_lib_other_federation() -> (Federation, Graph) {
             Edge::new(mref("rust", "lib"), mref("rust", "base"), DepKind::Normal),
             Edge::new(mref("rust", "other"), mref("rust", "base"), DepKind::Normal),
         ],
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
@@ -780,6 +793,7 @@ fn ambiguous_federation() -> (Federation, Graph) {
             module("go", "core", "go/core", Some("go")),
         ],
         edges: Vec::new(),
+        global_inputs: Vec::new(),
         warnings: Vec::new(),
     };
     let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();

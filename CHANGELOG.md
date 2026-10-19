@@ -16,6 +16,23 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Security
 
+## [0.1.0-alpha.14] - 2026-10-18
+
+### Added
+
+- `[project].global_inputs` lists repo-wide files (CI workflows, build scripts, lint config). A change to one runs every module in affected selection and is named in the full-activation note. An umbrella's own patterns apply across every member. Release ignores them.
+
+### Changed
+
+- The full-activation note now also appears when a task runs only in some ecosystems, since every module that defines the task still runs.
+- `toven <task> --help` prints help instead of running the task with `--help` passed to the tool, which could run a mutating task. `toven <task> -- --help` still forwards it.
+- `toven coverage` uses the configured compute budget and accepts `--compute-budget`. Before, it ran every per-module coverage task with each tool's full default parallelism, overloading the machine.
+
+### Fixed
+
+- A changed path now belongs to every module rooted at the deepest matching directory. Before, when modules from different ecosystems shared a root (for example a Go module and a command module at `.`), only one owned the change, so affected runs could miss modules or fail with `has no '<task>' task`.
+- `toven coverage` counts a file once when several profiles measure it. Lines, and LCOV functions and branches with per-item records, count as covered where any run covered them. Before, each copy was counted separately, so per-module runs that share files (such as Go `-coverpkg`) reported coverage too low.
+
 ## [0.1.0-alpha.13] - 2026-10-18
 
 ### Added

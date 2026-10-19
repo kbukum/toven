@@ -55,8 +55,12 @@ pub enum AttributionPolicy {
 /// How one changed path was attributed to workspace/module ownership.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) enum Classification {
-    /// Attributed to a single module by longest-prefix root match.
-    Module(ModuleKey),
+    /// Attributed by longest-prefix root match. Modules from different
+    /// ecosystems may share a root, so every module at the deepest matching
+    /// root owns the path (never empty).
+    Module(BTreeSet<ModuleKey>),
+    /// Matched a project `global_inputs` glob (repo-wide input: every module).
+    Global,
     /// Matched a workspace blast-radius glob (whole-workspace invalidation).
     Workspace(WorkspaceId),
     /// Could not be attributed — resolved per the caller's [`AttributionPolicy`].
@@ -65,28 +69,42 @@ pub(crate) enum Classification {
 
 /// Resolve which module (or workspace, or none) owns a changed record.
 ///
-/// Blast-radius globs win first (whole-workspace invalidation), then the module
-/// whose root is the longest path-prefix of the record's path (or its
-/// pre-rename path). A record no module root or blast-radius glob can claim is
+/// Project `global_inputs` globs win first (a repo-wide input such as a CI
+/// workflow owns no module but may affect all of them), then blast-radius globs (whole-workspace invalidation), then the
+/// modules whose root is the longest path-prefix of the record's path (or its
+/// pre-rename path); modules sharing that root all own it. A record no module root or blast-radius glob can claim is
 /// [`Classification::Unclassified`], which callers resolve per their
 /// [`AttributionPolicy`].
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn owning_module(record: &ChangeRecord, federation: &Federation) -> Classification {
+    let paths = record_paths(record);
+    if paths.iter().any(|path| {
+        federation
+            .global_inputs
+            .iter()
+            .any(|glob| glob_matches(glob, path))
+    }) {
+        return Classification::Global;
+    }
     for path in record_paths(record) {
         if let Some(workspace) = blast_match(path, &federation.workspaces) {
             return Classification::Workspace(workspace);
         }
     }
-    let mut best: Option<(ModuleKey, usize)> = None;
+    let mut best: Option<(BTreeSet<ModuleKey>, usize)> = None;
     for path in record_paths(record) {
-        if let Some((reference, depth)) = longest_prefix(path, &federation.modules)
-            && best.as_ref().is_none_or(|(_, current)| depth > *current)
-        {
-            best = Some((reference, depth));
+        if let Some((owners, depth)) = longest_prefix(path, &federation.modules) {
+            match &mut best {
+                Some((current_owners, current)) if depth == *current => {
+                    current_owners.extend(owners);
+                }
+                Some((_, current)) if depth < *current => {}
+                _ => best = Some((owners, depth)),
+            }
         }
     }
-    best.map_or(Classification::Unclassified, |(reference, _)| {
-        Classification::Module(reference)
+    best.map_or(Classification::Unclassified, |(owners, _)| {
+        Classification::Module(owners)
     })
 }
 
@@ -110,16 +128,14 @@ pub fn changed_seeds(
     let mut seeds = BTreeSet::new();
     for record in changed {
         match owning_module(record, federation) {
-            Classification::Module(reference) => {
-                seeds.insert(reference);
-            }
+            Classification::Module(owners) => seeds.extend(owners),
             Classification::Workspace(workspace) => match policy {
                 AttributionPolicy::FailOpen => {
                     seeds.extend(modules_in_workspace(&workspace, federation));
                 }
                 AttributionPolicy::FailClosed => {}
             },
-            Classification::Unclassified => match policy {
+            Classification::Global | Classification::Unclassified => match policy {
                 AttributionPolicy::FailOpen => return graph.modules().map(Module::key).collect(),
                 AttributionPolicy::FailClosed => {}
             },
@@ -128,8 +144,9 @@ pub fn changed_seeds(
     seeds
 }
 
-/// The changed paths that no module root or workspace blast-radius glob could
-/// claim.
+/// The changed paths that force full activation: those matching a project
+/// `global_inputs` glob plus those no module root or workspace blast-radius glob
+/// could claim.
 ///
 /// A non-empty result is exactly the condition under which
 /// [`changed_seeds`] with [`AttributionPolicy::FailOpen`] activates every
@@ -143,7 +160,7 @@ pub(crate) fn unclassified_paths(changed: &[ChangeRecord], federation: &Federati
         .filter(|record| {
             matches!(
                 owning_module(record, federation),
-                Classification::Unclassified
+                Classification::Global | Classification::Unclassified
             )
         })
         .map(|record| record.path.display().to_string())
@@ -178,9 +195,9 @@ fn record_belongs_to_module(
     federation: &Federation,
 ) -> bool {
     match owning_module(record, federation) {
-        Classification::Module(reference) => reference == module.key(),
+        Classification::Module(owners) => owners.contains(&module.key()),
         Classification::Workspace(workspace) => module.workspace.as_ref() == Some(&workspace),
-        Classification::Unclassified => false,
+        Classification::Global | Classification::Unclassified => false,
     }
 }
 
@@ -210,15 +227,21 @@ fn blast_globs(workspace: &Workspace) -> Vec<&str> {
     workspace.blast_radius.iter().map(String::as_str).collect()
 }
 
-/// The module whose root is the longest path-prefix of `path` (and its depth).
-fn longest_prefix(path: &Path, modules: &[Module]) -> Option<(ModuleKey, usize)> {
-    let mut best: Option<(ModuleKey, usize)> = None;
+/// The modules whose root is the longest path-prefix of `path` (and its depth).
+fn longest_prefix(path: &Path, modules: &[Module]) -> Option<(BTreeSet<ModuleKey>, usize)> {
+    let mut best: Option<(BTreeSet<ModuleKey>, usize)> = None;
     for module in modules {
         let root = module.root.as_path();
+        if !(root == Path::new(".") || path.starts_with(root)) {
+            continue;
+        }
         let depth = prefix_depth(root);
-        let matches = root == Path::new(".") || path.starts_with(root);
-        if matches && best.as_ref().is_none_or(|(_, current)| depth > *current) {
-            best = Some((module.key(), depth));
+        match &mut best {
+            Some((owners, current)) if depth == *current => {
+                owners.insert(module.key());
+            }
+            Some((_, current)) if depth < *current => {}
+            _ => best = Some((BTreeSet::from([module.key()]), depth)),
         }
     }
     best
@@ -280,6 +303,7 @@ mod tests {
                 module("rust", "app-core", "crates/app-core", Some("rust")),
             ],
             edges: Vec::new(),
+            global_inputs: Vec::new(),
             warnings: Vec::new(),
         }
     }
@@ -294,9 +318,96 @@ mod tests {
         let record = ChangeRecord::new("crates/app-core/src/lib.rs", ChangeStatus::Modified);
 
         match owning_module(&record, &federation) {
-            Classification::Module(reference) => assert_eq!(reference, key("rust", "app-core")),
+            Classification::Module(owners) => {
+                assert_eq!(owners, BTreeSet::from([key("rust", "app-core")]));
+            }
             _ => panic!("expected longest-prefix module attribution"),
         }
+    }
+
+    #[test]
+    fn modules_sharing_the_deepest_root_all_own_the_path() {
+        let federation = Federation {
+            workspaces: Vec::new(),
+            modules: vec![
+                module("command", "repo", ".", None),
+                module("go", "kit", ".", None),
+                module("go", "nested", "nested", None),
+            ],
+            edges: Vec::new(),
+            global_inputs: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let graph = graph_of(&federation);
+        let changed = [ChangeRecord::new(
+            "resilience/admission.go",
+            ChangeStatus::Modified,
+        )];
+
+        let seeds = changed_seeds(&changed, &graph, &federation, AttributionPolicy::FailOpen);
+
+        assert_eq!(
+            seeds,
+            BTreeSet::from([key("command", "repo"), key("go", "kit")]),
+            "every module rooted at the deepest matching prefix owns the path"
+        );
+        let kit = &federation.modules[1];
+        assert_eq!(
+            changed_records_for_module(kit, &changed, &federation).len(),
+            1,
+            "a tied owner keeps the record for its changelog"
+        );
+    }
+
+    fn rooted_federation_with_global_inputs() -> Federation {
+        Federation {
+            workspaces: Vec::new(),
+            modules: vec![
+                module("go", "kit", ".", None),
+                module("go", "tool", "tool", None),
+            ],
+            edges: Vec::new(),
+            global_inputs: vec![".github/workflows/*".to_string(), "Makefile".to_string()],
+            warnings: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn global_input_fails_open_to_every_module() {
+        let federation = rooted_federation_with_global_inputs();
+        let graph = graph_of(&federation);
+        let changed = [ChangeRecord::new(
+            ".github/workflows/ci.yml",
+            ChangeStatus::Modified,
+        )];
+
+        let seeds = changed_seeds(&changed, &graph, &federation, AttributionPolicy::FailOpen);
+
+        assert_eq!(
+            seeds,
+            BTreeSet::from([key("go", "kit"), key("go", "tool")]),
+            "a global input activates every module, not just the root owner"
+        );
+        assert_eq!(
+            unclassified_paths(&changed, &federation),
+            [".github/workflows/ci.yml"],
+            "the full run names the global input that forced it"
+        );
+    }
+
+    #[test]
+    fn global_input_fails_closed_for_release() {
+        let federation = rooted_federation_with_global_inputs();
+        let graph = graph_of(&federation);
+        let changed = [ChangeRecord::new("Makefile", ChangeStatus::Modified)];
+
+        let seeds = changed_seeds(&changed, &graph, &federation, AttributionPolicy::FailClosed);
+
+        assert!(seeds.is_empty(), "a global input is not release-relevant");
+        assert!(
+            changed_records_for_module(&federation.modules[0], &changed, &federation).is_empty(),
+            "a global input never lands in a module changelog"
+        );
     }
 
     #[test]
@@ -319,7 +430,9 @@ mod tests {
             .with_old_path("crates/app/src/lib.rs");
 
         match owning_module(&record, &federation) {
-            Classification::Module(reference) => assert_eq!(reference, key("rust", "app")),
+            Classification::Module(owners) => {
+                assert_eq!(owners, BTreeSet::from([key("rust", "app")]));
+            }
             _ => panic!("expected pre-rename path to attribute ownership"),
         }
     }

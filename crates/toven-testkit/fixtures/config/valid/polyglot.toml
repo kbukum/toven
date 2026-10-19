@@ -3,6 +3,7 @@
 name = "acme-monorepo"
 root = "."
 base_ref = "origin/main"
+global_inputs = [".github/workflows/*", "Makefile"]
 
 [toven]
 report = "json"

@@ -69,6 +69,7 @@ pub struct ComposedFederation {
     members: Vec<ComposedMember>,
     overlays: Vec<OverlayConfig>,
     groups: BTreeMap<String, GroupConfig>,
+    global_inputs: Vec<String>,
 }
 
 impl ComposedFederation {
@@ -89,6 +90,14 @@ impl ComposedFederation {
     #[must_use]
     pub const fn groups(&self) -> &BTreeMap<String, GroupConfig> {
         &self.groups
+    }
+
+    /// The umbrella-level `[project].global_inputs`, umbrella-relative (empty in
+    /// the degenerate case, where the lone document's patterns are the
+    /// member's own).
+    #[must_use]
+    pub fn global_inputs(&self) -> &[String] {
+        &self.global_inputs
     }
 }
 
@@ -119,19 +128,24 @@ pub fn compose_members(
         composed.push(compose_one(document, member, loaded, canonical)?);
     }
 
-    // Only a real umbrella (members carry an id) layers a cross-member overlay /
-    // group set; the degenerate member keeps its overlays/groups member-local.
+    // Only a real umbrella (members carry an id) layers cross-member overlays,
+    // groups and global inputs; the degenerate member keeps them member-local.
     let is_umbrella = members.iter().any(|member| member.id().is_some());
-    let (overlays, groups) = if is_umbrella {
-        (document.overlays.clone(), document.groups.clone())
+    let (overlays, groups, global_inputs) = if is_umbrella {
+        (
+            document.overlays.clone(),
+            document.groups.clone(),
+            document.project.global_inputs.clone(),
+        )
     } else {
-        (Vec::new(), BTreeMap::new())
+        (Vec::new(), BTreeMap::new(), Vec::new())
     };
 
     Ok(ComposedFederation {
         members: composed,
         overlays,
         groups,
+        global_inputs,
     })
 }
 
@@ -235,6 +249,7 @@ mod tests {
                 name: "umbrella".to_string(),
                 root: ".".to_string(),
                 base_ref: None,
+                global_inputs: Vec::new(),
             },
             toven: TovenConfig::default(),
             groups: BTreeMap::new(),

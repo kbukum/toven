@@ -152,10 +152,8 @@ pub(super) fn all_modules(graph: &Graph) -> BTreeSet<ModuleKey> {
 ///   so scheduling raises that same unknown-task error (and the CLI its typo
 ///   hint) exactly as before.
 ///
-/// When the set *is* narrowed, the `full_activation`
-/// diagnostic is cleared: the plan no longer activates every module, so carrying
-/// the forced-full-activation paths would make the CLI emit a misleading
-/// `FullActivation` event. The diagnostic is kept only when nothing is dropped.
+/// The `full_activation` diagnostic survives narrowing: a forced full run still
+/// activates every module that defines the task, and the CLI must say why.
 #[allow(clippy::redundant_pub_crate)]
 pub fn restrict_to_task_defining(
     active: ActiveModules,
@@ -172,14 +170,14 @@ pub fn restrict_to_task_defining(
         .filter(|key| ecosystem_defines_task(adapters, key, wanted))
         .cloned()
         .collect();
-    // No active ecosystem defines the task, or every one does: nothing is
-    // narrowed, so the set and its full-activation diagnostic stay untouched.
-    if defining.is_empty() || defining.len() == active.modules.len() {
+    // No active ecosystem defines the task: keep the set so scheduling raises
+    // the unknown-task error.
+    if defining.is_empty() {
         return active;
     }
     ActiveModules {
         modules: defining,
-        full_activation: Vec::new(),
+        full_activation: active.full_activation,
     }
 }
 

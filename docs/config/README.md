@@ -45,6 +45,7 @@ Generate a starter file with [`toven init`](../commands/init.md).
 name = "example"
 root = "."
 base_ref = "origin/main"
+global_inputs = [".github/workflows/*", "Makefile", "toven.toml"]
 ```
 
 | Key | Type | Default | Meaning |
@@ -52,6 +53,9 @@ base_ref = "origin/main"
 | `name` | string | Required | Human-facing project name |
 | `root` | string | `"."` | Workspace root, resolved relative to `toven.toml` |
 | `base_ref` | string | None | Git ref used when affected commands do not receive `--base` |
+| `global_inputs` | array of globs | `[]` | Repo-wide files, relative to `root`. A change to one runs every module in affected selection. `*` and `?` match across `/`. In an umbrella, the umbrella's patterns are relative to the umbrella root and activate every member; each member's own patterns are relative to that member. Release ignores them |
+
+Changed files belong to the modules whose root is their longest prefix; modules from different ecosystems that share a root all own the file. Files under a root module (`root = "."`) such as CI workflows or build scripts would otherwise only select that module and its dependents, so list them in `global_inputs`.
 
 ## Runtime settings
 

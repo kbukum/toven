@@ -1205,14 +1205,11 @@ pub fn gate(cli: &Cli) -> AppResult<()> {
     reject_apply_only_flag(cli.timeout.is_some(), "--timeout", &cli.command, verb)?;
     reject_apply_only_flag(cli.jobs.is_some(), "--jobs", &cli.command, verb)?;
     // `--compute-budget` bounds the CPU parallelism handed to each spawned tool
-    // during APPLY fan-out, so — like `--jobs` — it is meaningful only on the
-    // task-APPLY verbs that actually run units; elsewhere it is a silent no-op.
-    reject_apply_only_flag(
-        cli.compute_budget.is_some(),
-        "--compute-budget",
-        &cli.command,
-        verb,
-    )?;
+    // during APPLY fan-out, so it is meaningful on the task-APPLY verbs and on
+    // `coverage`, which runs its task the same way; elsewhere it is a no-op.
+    if cli.compute_budget.is_some() && !matches!(cli.command, Command::Coverage) {
+        reject_apply_only_flag(true, "--compute-budget", &cli.command, verb)?;
+    }
     gate_watch_flags(cli, verb)?;
     // `--base`/`--merge-base` only shape changed selection, and
     // `--module`/`--workspace`/`--with-dependents` shape explicit selection — both
@@ -2378,6 +2375,8 @@ mod tests {
         for args in [
             ["--compute-budget", "8", "run", "test"].as_slice(),
             ["--compute-budget", "inherit", "test"].as_slice(),
+            // `coverage` fans its task out per module like any run.
+            ["--compute-budget", "8", "coverage"].as_slice(),
         ] {
             assert!(super::gate(&parse(args).unwrap()).is_ok(), "{args:?}");
         }
