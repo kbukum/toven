@@ -73,7 +73,7 @@ jobs:
       # This set is exactly what `toven doctor` reports for the full task graph
       # (cargo, ast-grep, mdbook) plus the cargo plugins it sees only as `cargo`.
       - name: Install gate tooling
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
         with:
           tool: cargo-nextest,cargo-llvm-cov,cargo-audit,ast-grep,mdbook,mdbook-mermaid
       - name: Install cargo-deny
@@ -218,7 +218,7 @@ jobs:
 
       - name: Install cross
         if: matrix.use_cross
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
         with:
           tool: cross
 
