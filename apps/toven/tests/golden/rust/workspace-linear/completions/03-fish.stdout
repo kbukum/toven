@@ -1615,6 +1615,7 @@ complete -c toven -n "__fish_toven_using_subcommand tasks" -l yes -d 'Release bu
 complete -c toven -n "__fish_toven_using_subcommand tasks" -l print -d 'Init only: render the `toven.toml` to stdout and write nothing'
 complete -c toven -n "__fish_toven_using_subcommand tasks" -l auto-install -d 'Driver/federation only: provision missing drivers automatically'
 complete -c toven -n "__fish_toven_using_subcommand tasks" -s h -l help -d 'Print help (see more with \'--help\')'
+complete -c toven -n "__fish_toven_using_subcommand doctor" -l profile -d 'Also run the `[doctor.checks]` that list this profile (repeatable). Checks without profiles always run' -r
 complete -c toven -n "__fish_toven_using_subcommand doctor" -l config -d 'Path to the `toven.toml` config (otherwise discovered upward from the cwd)' -r -F
 complete -c toven -n "__fish_toven_using_subcommand doctor" -l output -d 'Output format: `human` tables or machine-readable `jsonl` (defaults to the `[toven].report` setting)' -r -f -a "human\t'Human-readable terminal rendering'
 jsonl\t'Machine-parseable JSON-lines Event stream'"

@@ -18,6 +18,7 @@ use toven_core::config::{CanonicalRegistry, Document, ReportFormat, load};
 use toven_core::federation::{OpenMemberVcsReaders, open_project_vcs};
 use toven_core::vcs::BaselineFlags;
 use toven_engine::cache;
+use toven_engine::output::PassingOutput;
 use toven_model::AbsPath;
 use toven_ports::Provider;
 
@@ -47,6 +48,14 @@ impl Project {
     /// Propagates cache-root resolution failures (traversal / platform dir).
     pub(crate) fn cache_root(&self) -> AppResult<PathBuf> {
         cache::resolve_root(&self.project_root, self.cache_dir())
+    }
+
+    /// Resolve where this project's per-run unit logs live.
+    ///
+    /// # Errors
+    /// Propagates the same resolution failures as [`Self::cache_root`].
+    pub(crate) fn logs_root(&self) -> AppResult<PathBuf> {
+        cache::resolve_logs_root(&self.project_root, self.cache_dir())
     }
 
     /// Open one deduped git reader/writer per composed member repo.
@@ -206,6 +215,19 @@ impl Report {
     #[must_use]
     pub(crate) const fn forces_stream_output(self) -> bool {
         matches!(self.format, Format::Jsonl)
+    }
+
+    /// Whether a passing unit's raw output is printed.
+    ///
+    /// Only `-v` streams it; the default and `-q` keep a passing unit quiet and
+    /// print just a failing unit's tail, with the full output in its unit log.
+    #[must_use]
+    pub(crate) const fn passing_output(self) -> PassingOutput {
+        if matches!(self.verbosity, Verbosity::Verbose) {
+            PassingOutput::Show
+        } else {
+            PassingOutput::Hide
+        }
     }
 
     /// The stderr palette for the live raw-output renderer, folding `--color`

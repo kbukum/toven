@@ -1586,6 +1586,7 @@ set edit:completion:arg-completer[toven] = {|@words|
             cand --help 'Print help (see more with ''--help'')'
         }
         &'toven;doctor'= {
+            cand --profile 'Also run the `[doctor.checks]` that list this profile (repeatable). Checks without profiles always run'
             cand --config 'Path to the `toven.toml` config (otherwise discovered upward from the cwd)'
             cand --output 'Output format: `human` tables or machine-readable `jsonl` (defaults to the `[toven].report` setting)'
             cand --color 'When to colorize human output: `auto` (default), `always`, or `never`. `NO_COLOR` always wins over `always`. Accepted on every command; commands that produce no colorized output simply ignore it'

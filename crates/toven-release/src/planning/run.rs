@@ -277,6 +277,8 @@ mod tests {
             members: Vec::new(),
             hooks: BTreeMap::new(),
             units: BTreeMap::new(),
+            sets: BTreeMap::new(),
+            doctor: toven_core::config::DoctorConfig::default(),
         }
     }
 

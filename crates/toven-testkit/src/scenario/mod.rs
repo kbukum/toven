@@ -24,5 +24,5 @@ pub use model::{
     Cmp, Effect, GitCommit, GitScript, GitTag, MatcherKind, Requires, Scenario, Step,
     StreamExpectation,
 };
-pub use report::{Report, StepOutcome, StepStatus};
+pub use report::{Report, SkipPolicy, StepOutcome, StepStatus};
 pub use run::{CACHE_DIR_ENV, apply_git_script, run_scenario, run_scenario_with};

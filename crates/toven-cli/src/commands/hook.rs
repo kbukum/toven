@@ -17,7 +17,7 @@ use toven_ports::{HookInvocation, HookRunner, HooksConfig, Provider, TaskIntent}
 
 use crate::commands::run::WatchFlags;
 use crate::commands::selection::TaskSelection;
-use crate::flags::Cli;
+use crate::flags::ExecutionArgs;
 use crate::host::{Project, Report};
 
 /// Run `body` wrapped in its lifecycle `hooks`: every `before` reference first
@@ -60,7 +60,7 @@ pub(crate) struct CliHookRunner<'a> {
     providers: &'a [&'a dyn Provider],
     supervisor: &'a std::sync::Arc<toven_exec::ProcessSupervisor>,
     project: &'a Project,
-    cli: &'a Cli,
+    execution: &'a ExecutionArgs,
 }
 
 impl<'a> CliHookRunner<'a> {
@@ -69,13 +69,13 @@ impl<'a> CliHookRunner<'a> {
         providers: &'a [&'a dyn Provider],
         supervisor: &'a std::sync::Arc<toven_exec::ProcessSupervisor>,
         project: &'a Project,
-        cli: &'a Cli,
+        execution: &'a ExecutionArgs,
     ) -> Self {
         Self {
             providers,
             supervisor,
             project,
-            cli,
+            execution,
         }
     }
 }
@@ -90,9 +90,9 @@ impl CliHookRunner<'_> {
     /// mapped to a typed error by the caller.
     fn run_task(&self, reference: &str, passthrough: Vec<String>) -> AppResult<ExitCode> {
         let report = Report::resolve(
-            self.cli.output,
-            self.cli.verbosity(),
-            self.cli.color_choice(),
+            self.execution.output,
+            self.execution.verbosity(),
+            self.execution.color_choice(),
             &self.project.document,
         );
         crate::commands::run::execute(
@@ -100,20 +100,20 @@ impl CliHookRunner<'_> {
             self.supervisor,
             self.project,
             report,
-            TaskIntent::resolve(reference),
+            vec![TaskIntent::resolve(reference)],
             passthrough,
             true,
-            self.cli.no_cache,
-            self.cli.refresh,
-            self.cli.timeout,
+            self.execution.no_cache,
+            self.execution.refresh,
+            self.execution.timeout,
             false,
             WatchFlags {
                 enabled: false,
                 debounce_ms: 0,
             },
             None,
-            self.cli.jobs,
-            self.cli.compute_budget,
+            self.execution.jobs,
+            self.execution.compute_budget,
             &TaskSelection::default(),
         )
     }

@@ -3,12 +3,11 @@
 //! override (`[modules.<name>.release]`).
 
 use rskit_errors::{AppError, AppResult};
-use rskit_util::Template;
 use serde::{Deserialize, Serialize};
 use toven_model::Entrypoint;
 
 use crate::release::Visibility;
-use crate::template::ReleaseVar;
+use crate::template::ReleaseTemplate;
 
 use super::{
     BaselineSourceConfig, BumpLevel, ChangelogConfig, DependentVersion, HostConfig, ImageConfig,
@@ -196,7 +195,10 @@ impl ReleaseConfig {
             ("commit_message", &self.commit_message),
         ] {
             if let Some(value) = template {
-                validate_template(&format!("{field}.{name}"), value)?;
+                let parsed = validate_template(&format!("{field}.{name}"), value)?;
+                if name == "tag_format" {
+                    parsed.validate_tag_shape()?;
+                }
             }
         }
         if let Some(prerelease) = &self.prerelease {
@@ -274,16 +276,12 @@ impl ReleaseConfig {
     }
 }
 
-/// Validate a tag/commit template against the [`ReleaseVar`] vocabulary.
-fn validate_template(field: &str, value: &str) -> AppResult<()> {
+/// Validate a tag/commit template against the [`ReleaseVar`](crate::template::ReleaseVar) vocabulary.
+fn validate_template(field: &str, value: &str) -> AppResult<ReleaseTemplate> {
     if value.trim().is_empty() {
         return Err(AppError::invalid_input(field, "must not be blank"));
     }
-    Template::parse(value, ReleaseVar::ALL).map_err(|error| {
-        AppError::invalid_input(field, format!("invalid release template: {error}"))
-            .with_cause(error)
-    })?;
-    Ok(())
+    ReleaseTemplate::parse(field, value)
 }
 
 /// Reject a present-but-blank optional string field.
@@ -381,6 +379,29 @@ mod tests {
             .validate("ecosystems.rust.release")
             .expect_err("bad placeholder rejected");
         assert!(error.to_string().contains("tag_format"), "{error}");
+    }
+
+    #[test]
+    fn validate_rejects_a_tag_format_with_a_bad_tag_shape() {
+        for text in ["release", "{version}-{version}", "{channel}/v{version}"] {
+            let config = parse(&format!("tag_format = \"{text}\"")).expect("parses");
+            let error = config
+                .validate("ecosystems.rust.release")
+                .expect_err("bad tag shape rejected at load");
+            assert!(error.to_string().contains("tag_format"), "{text}: {error}");
+        }
+    }
+
+    #[test]
+    fn validate_allows_channel_in_tag_and_commit_messages() {
+        let config = parse(
+            r#"
+            tag_message = "release {version} ({channel})"
+            commit_message = "chore: release {channel}"
+            "#,
+        )
+        .expect("parses");
+        config.validate("ecosystems.rust.release").expect("valid");
     }
 
     #[test]

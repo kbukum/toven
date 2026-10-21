@@ -28,7 +28,7 @@ make check
 make coverage
 ```
 
-`make check` is the canonical gate. It runs formatting, clippy, workspace tests, rustdoc, the declare-only structure guard, the dependency and license audit, release-platform verification, and a release build. `make coverage` enforces the configured coverage floor.
+`make check` is the canonical gate. It runs formatting, clippy, workspace tests, rustdoc, the declare-only structure guard, the dependency and license audit, and a release build. `make coverage` enforces the configured coverage floor. `make verify-release-platform` is the focused release go/no-go: it fails on an empty scenario filter or a scenario skipped for a missing tool.
 
 If you are working on packaging or release behavior, `toven release package --target <triple>` archives a built binary into its declared hosted-release asset without publishing it.
 

@@ -120,6 +120,17 @@ mod tests {
     }
 
     #[test]
+    fn group_override_preserves_the_base_task_module_scope() {
+        let mut default = default_test_task();
+        default.modules = vec!["app".into()];
+        let over = TaskOverride {
+            argv: Some(vec!["cargo".into(), "test".into()]),
+            ..TaskOverride::default()
+        };
+        assert_eq!(merge_task(&default, &over).modules, ["app"]);
+    }
+
+    #[test]
     fn shared_inputs_union_dedups_and_appends() {
         let over = TaskOverride {
             shared_inputs: vec!["Cargo.lock".into(), "build.rs".into()],

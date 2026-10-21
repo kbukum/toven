@@ -19,4 +19,4 @@ mod tests;
 
 pub use changed::changed_for_members;
 #[allow(clippy::redundant_pub_crate)]
-pub use entry::{active_modules, restrict_to_task_defining};
+pub use entry::{ActiveModules, ExplicitScope, active_modules, restrict_to_task_defining};

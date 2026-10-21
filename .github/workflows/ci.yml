@@ -80,7 +80,7 @@ jobs:
         run: make doctor
 
       # The non-test gates (fmt-check, lint, structure, doc, deny,
-      # verify-release-platform-filter, release-dry-run) plus doctests. The
+      # release-dry-run) plus doctests. The
       # nextest suite runs separately in the sharded `test` job below; together
       # they equal `make check`. Doctests are not sharded (nextest does not run
       # them) so they stay here, once per toolchain run.

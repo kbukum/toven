@@ -17,3 +17,17 @@ root = "worker"
 # Overrides the shared grammar for this repo's test task.
 [ecosystems.command.tasks.test]
 argv = ["echo", "multi-task test override"]
+
+# A named set: `toven verify` plans both tasks into one run.
+[sets.verify]
+tasks = ["build", "test"]
+
+# Scoped to `web` only: a task list with `--module command:worker` skips them,
+# while either alone (or both together) on `worker` is a typed error.
+[ecosystems.command.tasks.lint]
+argv = ["echo", "multi-task lint"]
+modules = ["web"]
+
+[ecosystems.command.tasks.audit]
+argv = ["echo", "multi-task audit"]
+modules = ["web"]

@@ -8,7 +8,9 @@ use common::eid;
 use toven_core::config::{Document, GroupConfig, ProjectConfig, TovenConfig};
 use toven_core::federation::MemberVcsReaders;
 use toven_core::federation::resolve::PathDriverLocator;
-use toven_core::plan::{CacheMode, PlanHost, PlanRequest, Selection, dependency_graph, plan};
+use toven_core::plan::{
+    CacheMode, PlanHost, PlanRequest, Selection, dependency_graph, plan, plan_focused,
+};
 use toven_model::{
     AbsPath, CacheVerdict, DepKind, Edge, Event, Module, ModuleRef, ModuleSelector, Phase, Plan,
     RepoPath, TaskOrigin, ToolchainTag, Workspace, WorkspaceId,
@@ -65,14 +67,19 @@ fn rust_provider() -> FakeProvider {
 }
 
 fn cache_input_provider(complete: bool, fan_out: FanOut) -> FakeProvider {
+    let mut leaf = module("rust", "leaf", "leaf", "rust");
+    leaf.cache_inputs_complete = complete;
+    leaf_chain_provider(leaf, fan_out)
+}
+
+/// `app -> middle -> leaf` plus an unrelated `other`, around a custom `leaf`.
+fn leaf_chain_provider(leaf: toven_model::Module, fan_out: FanOut) -> FakeProvider {
     let mut response = DiscoverResponse::new(eid("rust"));
     response.workspaces.push(Workspace::new(
         wsid("rust"),
         RepoPath::new(".").expect("root"),
         ToolchainTag::new("cargo"),
     ));
-    let mut leaf = module("rust", "leaf", "leaf", "rust");
-    leaf.cache_inputs_complete = complete;
     response.modules.push(leaf);
     for name in ["middle", "app", "other"] {
         response.modules.push(module("rust", name, name, "rust"));
@@ -189,6 +196,8 @@ fn document() -> Document {
         members: Vec::new(),
         hooks: std::collections::BTreeMap::new(),
         units: std::collections::BTreeMap::new(),
+        sets: std::collections::BTreeMap::new(),
+        doctor: toven_core::config::DoctorConfig::default(),
     }
 }
 
@@ -655,6 +664,39 @@ fn changed_selection_keeps_incomplete_inputs_and_transitive_consumers_active() {
 }
 
 #[test]
+fn external_roots_stay_affected_but_keep_caching() {
+    let mut leaf = module("rust", "leaf", "leaf", "rust");
+    leaf.external_roots = vec!["../sibling".to_string()];
+    let provider = leaf_chain_provider(leaf, FanOut::PerModule);
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
+    let mut reporter = RecordingReporter::new();
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let request = request(TaskIntent::resolve("test")).with_selection(Selection::Changed(Some(
+        toven_ports::BaselineSpec::explicit("main"),
+    )));
+    let result = plan(&request, &document(), &[&provider], host, &mut reporter).expect("plan");
+    let names: std::collections::BTreeSet<_> = result
+        .units
+        .iter()
+        .map(|unit| unit.module.module.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        std::collections::BTreeSet::from(["app", "leaf", "middle"])
+    );
+    assert!(
+        result
+            .units
+            .iter()
+            .all(|unit| unit.cache != CacheVerdict::Disabled)
+    );
+}
+
+#[test]
 fn workspace_task_cannot_hide_incomplete_inputs_behind_a_narrow_selector() {
     let provider = cache_input_provider(false, FanOut::WholeWorkspace);
     let vcs = FakeVcsReader::new();
@@ -881,6 +923,48 @@ fn plain_task_does_not_propagate_dev_edges() {
     );
 }
 
+/// A task list's focus is the union of every task's closure: `--dependencies`
+/// on `deploy,my-test` reaches the dev-only prerequisite through the test task,
+/// even though the first task does not cross dev edges.
+#[test]
+fn a_task_list_focus_unions_every_tasks_closure() {
+    let provider = dev_dep_provider();
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
+    let mut reporter = RecordingReporter::new();
+
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let request =
+        request(TaskIntent::resolve("deploy")).with_also(vec![TaskIntent::resolve("my-test")]);
+    let focus = Selection::Explicit {
+        targets: vec![ModuleSelector::parse("rust:app").expect("selector")],
+        include_dependents: false,
+        include_dependencies: true,
+    };
+    let focused = plan_focused(
+        &request,
+        Some(&focus),
+        &document(),
+        &providers,
+        host,
+        &mut reporter,
+    )
+    .expect("plan succeeds");
+
+    let names: std::collections::BTreeSet<&str> = focused
+        .focus
+        .as_ref()
+        .expect("focus resolved")
+        .iter()
+        .map(|key| key.module.name.as_str())
+        .collect();
+    assert_eq!(names, std::collections::BTreeSet::from(["app", "errors"]));
+}
+
 /// Two ecosystems that tag the **same** task name with conflicting recognized
 /// kinds: `rust` calls `verify` a `test`, `go` calls it a `build`.
 fn conflicting_kind_providers() -> (FakeProvider, FakeProvider) {
@@ -1017,6 +1101,95 @@ fn a_task_activates_only_the_ecosystems_that_define_it() {
     );
 }
 
+/// The [`rust_provider`] graph whose per-module `test` task applies only to
+/// `modules`.
+fn rust_provider_with_task_modules(modules: &[&str]) -> FakeProvider {
+    let mut response = DiscoverResponse::new(eid("rust"));
+    response.workspaces.push(Workspace::new(
+        wsid("rust"),
+        RepoPath::new(".").expect("root"),
+        ToolchainTag::new("cargo"),
+    ));
+    response
+        .modules
+        .push(module("rust", "errors", "crates/errors", "rust"));
+    response
+        .modules
+        .push(module("rust", "app", "crates/app", "rust"));
+    response.edges.push(Edge::new(
+        mref("rust", "app"),
+        mref("rust", "errors"),
+        DepKind::Normal,
+    ));
+    let mut task = Task::new(
+        "test",
+        vec!["cargo".to_string(), "test".to_string()],
+        FanOut::PerModule,
+    );
+    task.modules = modules.iter().map(ToString::to_string).collect();
+    let adapter = FakeConfiguredAdapter::new(eid("rust"))
+        .with_response(response)
+        .with_tasks(vec![task]);
+    FakeProvider::new(eid("rust")).with_adapter(adapter)
+}
+
+fn plan_task_modules(modules: &[&str], selection: Selection) -> rskit_errors::AppResult<Plan> {
+    let provider = rust_provider_with_task_modules(modules);
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
+    let mut reporter = RecordingReporter::new();
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    plan(
+        &request(TaskIntent::resolve("test")).with_selection(selection),
+        &document(),
+        &providers,
+        host,
+        &mut reporter,
+    )
+}
+
+#[test]
+fn a_task_with_modules_plans_only_those_modules() {
+    let plan = plan_task_modules(&["app"], Selection::All).expect("plans");
+    let members: Vec<_> = plan
+        .units
+        .iter()
+        .flat_map(|unit| unit.members.iter().map(|key| key.module().name.clone()))
+        .collect();
+    assert_eq!(members, ["app"]);
+}
+
+#[test]
+fn an_explicitly_selected_module_outside_task_modules_is_rejected() {
+    let error = plan_task_modules(
+        &["app"],
+        Selection::Explicit {
+            targets: vec![ModuleSelector::parse("rust:errors").expect("selector")],
+            include_dependents: false,
+            include_dependencies: false,
+        },
+    )
+    .expect_err("an excluded module cannot be forced");
+    let message = error.to_string();
+    assert!(message.contains("applies only to"), "{message}");
+    assert!(message.contains("errors"), "{message}");
+}
+
+#[test]
+fn task_modules_naming_no_discovered_module_are_rejected() {
+    let error = plan_task_modules(&["ap"], Selection::All).expect_err("typo rejected");
+    let message = error.to_string();
+    assert!(
+        message.contains("ecosystems.rust.tasks.test.modules"),
+        "{message}"
+    );
+    assert!(message.contains("'ap'"), "{message}");
+}
+
 #[test]
 fn an_unknown_task_still_errors_when_no_ecosystem_defines_it() {
     let rust = rust_provider();
@@ -1032,6 +1205,73 @@ fn an_unknown_task_still_errors_when_no_ecosystem_defines_it() {
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let error = plan(
         &request(TaskIntent::resolve("bogus")),
+        &two_ecosystem_document(),
+        &providers,
+        host,
+        &mut reporter,
+    )
+    .expect_err("a task no ecosystem defines is rejected");
+    assert!(error.to_string().contains("has no 'bogus' task"), "{error}");
+}
+
+#[test]
+fn a_task_list_skips_a_task_another_ecosystem_defines_on_an_explicit_selection() {
+    // `structure` lives only in the command ecosystem; listing it beside `test`
+    // on an explicitly selected Rust module plans just the Rust test.
+    let rust = rust_provider();
+    let command = command_provider();
+    let providers: Vec<&dyn Provider> = vec![&rust, &command];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
+    let mut reporter = RecordingReporter::new();
+
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let request = request(TaskIntent::resolve("test"))
+        .with_also(vec![TaskIntent::resolve("structure")])
+        .with_selection(Selection::Explicit {
+            targets: vec![ModuleSelector::parse("rust:app").expect("selector")],
+            include_dependents: false,
+            include_dependencies: false,
+        });
+    let plan = plan(
+        &request,
+        &two_ecosystem_document(),
+        &providers,
+        host,
+        &mut reporter,
+    )
+    .expect("the list plans the task that applies");
+
+    let ids: Vec<&str> = plan.units.iter().map(|unit| unit.id.as_str()).collect();
+    assert!(!ids.is_empty(), "the Rust test must be planned");
+    assert!(ids.iter().all(|id| id.ends_with("#test")), "{ids:?}");
+}
+
+#[test]
+fn a_task_list_naming_a_task_no_ecosystem_defines_still_errors() {
+    let rust = rust_provider();
+    let command = command_provider();
+    let providers: Vec<&dyn Provider> = vec![&rust, &command];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
+    let mut reporter = RecordingReporter::new();
+
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let request = request(TaskIntent::resolve("test"))
+        .with_also(vec![TaskIntent::resolve("bogus")])
+        .with_selection(Selection::Explicit {
+            targets: vec![ModuleSelector::parse("rust:app").expect("selector")],
+            include_dependents: false,
+            include_dependencies: false,
+        });
+    let error = plan(
+        &request,
         &two_ecosystem_document(),
         &providers,
         host,

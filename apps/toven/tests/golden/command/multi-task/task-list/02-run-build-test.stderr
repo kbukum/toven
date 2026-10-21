@@ -1,0 +1,12 @@
+run build,test on multi-task-command
+plan: 4 units in 1 wave
+  ok command:web#build
+  ok command:web#test
+  ok command:worker#build
+  ok command:worker#test
+summary
+      planned:  4
+          ran:  4
+       cached:  0
+  duration-ms:  <DUR>
+       status:  ok

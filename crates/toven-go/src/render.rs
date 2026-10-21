@@ -206,6 +206,7 @@ fn base_entry(argv: Vec<String>, selector: Vec<String>, fan_out: FanOut) -> Task
         cacheable: true,
         fail_if_output: false,
         shared_inputs: shared_inputs(),
+        modules: Vec::new(),
     }
 }
 

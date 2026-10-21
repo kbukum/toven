@@ -151,6 +151,7 @@ mod tests {
             cacheable: true,
             fail_if_output: false,
             shared_inputs: Vec::new(),
+            modules: Vec::new(),
         }
     }
 

@@ -438,6 +438,81 @@ fn persistent_readiness_failure_blocks_dependents() {
     assert_eq!(stats.blocked_units, 1);
 }
 
+/// Run `plan` with unit logs, returning the contents of the `log` the
+/// `unit-finished` event carried for `unit_id`.
+fn finished_log(plan: &Plan, runner: Arc<FakeCommandRunner>, unit_id: &str) -> Option<String> {
+    let root = TestWorkspace::new("unit-logs");
+    let logs = toven_engine::output::UnitLogs::create(root.path(), "run-1", 3).expect("logs");
+    let mut output = UnitOutputChannel::new(RecordingRawOutputSink::new()).with_logs(logs);
+    let runner_port: Arc<dyn CommandRunner> = runner;
+    let cache = RecordingCacheWriter::new();
+    let mut reporter = RecordingReporter::new();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .expect("runtime");
+    runtime
+        .block_on(apply(
+            plan,
+            runner_port,
+            &cache,
+            &mut reporter,
+            &mut output,
+            ApplyOptions::default(),
+            tokio_util::sync::CancellationToken::new(),
+        ))
+        .expect("apply succeeds");
+    let log = reporter.events().iter().find_map(|event| match event {
+        Event::UnitFinished {
+            unit_id: id, log, ..
+        } if id == unit_id => log.clone(),
+        _ => None,
+    })?;
+    Some(std::fs::read_to_string(log).expect("log file"))
+}
+
+fn service_output() -> Vec<UnitOutput> {
+    vec![UnitOutput {
+        unit_id: "service".to_string(),
+        stream: OutputStream::Stderr,
+        bytes: b"listening\n".to_vec(),
+    }]
+}
+
+#[test]
+fn a_persistent_unit_that_fails_readiness_reports_its_log() {
+    let mut service = unit("service");
+    service.persistent = true;
+    service.cache = CacheVerdict::Disabled;
+    service.cache_key = None;
+    let plan = Plan::new(vec![service], vec![vec!["service".into()]]);
+    let runner = FakeCommandRunner::new()
+        .with_persistent_failure("service")
+        .with_output("service", service_output());
+
+    let log = finished_log(&plan, Arc::new(runner), "service").expect("log path");
+    assert!(log.contains("listening"), "{log}");
+}
+
+#[test]
+fn a_torn_down_persistent_unit_reports_its_log() {
+    let mut service = unit("service");
+    service.persistent = true;
+    service.cache = CacheVerdict::Disabled;
+    service.cache_key = None;
+    let mut test = unit("test");
+    test.depends_on = vec!["service".to_string()];
+    let plan = Plan::new(
+        vec![service, test],
+        vec![vec!["service".into()], vec!["test".into()]],
+    );
+    let runner = FakeCommandRunner::new().with_output("service", service_output());
+
+    let log = finished_log(&plan, Arc::new(runner), "service").expect("log path");
+    assert!(log.contains("listening"), "{log}");
+}
+
 #[test]
 fn failed_dependent_drains_persistent_service_immediately() {
     let mut service = unit("service");
@@ -734,6 +809,70 @@ fn serial_run_with_a_persistent_unit_keeps_normal_output_buffered() {
 }
 
 #[test]
+fn quiet_runs_stream_normal_units_from_the_runner_and_print_only_failure_tails() {
+    assert_quiet_output(false);
+    assert_quiet_output(true);
+}
+
+fn assert_quiet_output(concurrent_live: bool) {
+    // Quiet output keeps only a bounded tail per unit, so the runner must stream
+    // (never capture the whole output in memory, which a chatty unit such as
+    // coverage would overflow) even when units run in parallel.
+    let plan = Plan::new(
+        vec![unit("pass"), unit("fail")],
+        vec![vec!["pass".into(), "fail".into()]],
+    );
+    let runner = Arc::new(
+        FakeCommandRunner::new()
+            .with_output("pass", vec![chunk("pass", OutputStream::Stdout, b"ok\n")])
+            .with_output("fail", vec![chunk("fail", OutputStream::Stderr, b"boom\n")])
+            .with_failure("fail"),
+    );
+    let sink = RecordingRawOutputSink::new();
+    sink.set_concurrent_live(concurrent_live);
+    let mut output = UnitOutputChannel::new(sink.clone())
+        .with_passing_output(toven_engine::output::PassingOutput::Hide, 5);
+    let runner_port: Arc<dyn CommandRunner> = runner.clone();
+    let cache = RecordingCacheWriter::new();
+    let mut reporter = RecordingReporter::new();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .expect("runtime");
+    runtime
+        .block_on(apply(
+            &plan,
+            runner_port,
+            &cache,
+            &mut reporter,
+            &mut output,
+            ApplyOptions {
+                max_parallel: 2,
+                fail_fast: false,
+                ..ApplyOptions::default()
+            },
+            tokio_util::sync::CancellationToken::new(),
+        ))
+        .expect("apply succeeds");
+
+    let mut streamed = runner.streamed();
+    streamed.sort();
+    assert_eq!(streamed, vec!["fail".to_string(), "pass".to_string()]);
+    assert!(
+        sink.live_chunks().is_empty(),
+        "quiet output prints nothing live"
+    );
+    assert_eq!(
+        sink.blocks(),
+        vec![(
+            "fail".to_string(),
+            vec![chunk("fail", OutputStream::Stderr, b"boom\n")]
+        )],
+    );
+}
+
+#[test]
 fn cache_writes_only_successful_cacheable_units() {
     let success = unit("success");
     let mut forced = unit("forced");
@@ -958,6 +1097,64 @@ fn fail_fast_cancels_persistent_unit_waiting_for_readiness() {
 }
 
 #[test]
+fn a_quiet_chatty_process_logs_every_byte_through_a_full_bridge() {
+    // A real child far chattier than the bridge holds: the reader must wait for the
+    // consumer instead of dropping chunks, so the unit log keeps the whole output.
+    const TOTAL: usize = 3_000_000;
+    let workspace = TestWorkspace::new("quiet-chatty");
+    let runner: Arc<dyn CommandRunner> = Arc::new(toven_engine::apply::ProcessCommandRunner::new(
+        workspace.path(),
+    ));
+    let mut chatty = unit("chatty");
+    chatty.argv = vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        format!("head -c {TOTAL} /dev/zero"),
+    ];
+    let plan = Plan::new(vec![chatty], vec![vec!["chatty".into()]]);
+    let logs = toven_engine::output::UnitLogs::create(workspace.path(), "run-1", 3).expect("logs");
+    let mut output = UnitOutputChannel::new(RecordingRawOutputSink::new())
+        .with_passing_output(toven_engine::output::PassingOutput::Hide, 5)
+        .with_logs(logs);
+    let cache = RecordingCacheWriter::new();
+    let mut reporter = RecordingReporter::new();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .expect("runtime");
+
+    let stats = runtime
+        .block_on(apply(
+            &plan,
+            runner,
+            &cache,
+            &mut reporter,
+            &mut output,
+            ApplyOptions {
+                live_output_capacity: 1,
+                ..ApplyOptions::default()
+            },
+            tokio_util::sync::CancellationToken::new(),
+        ))
+        .expect("apply succeeds");
+
+    assert_eq!(stats.dropped_output_chunks, 0);
+    let log = reporter
+        .events()
+        .iter()
+        .find_map(|event| match event {
+            Event::UnitFinished { log, .. } => log.clone(),
+            _ => None,
+        })
+        .expect("the unit reports its log");
+    assert_eq!(
+        std::fs::metadata(log).expect("log file").len(),
+        TOTAL as u64
+    );
+}
+
+#[test]
 fn process_command_runner_smoke_covers_argv_cwd_capture_nonzero_and_readiness() {
     let workspace = TestWorkspace::new("process-command-runner");
     let runner = toven_engine::apply::ProcessCommandRunner::new(workspace.path());
@@ -1023,13 +1220,8 @@ fn process_command_runner_smoke_covers_argv_cwd_capture_nonzero_and_readiness() 
     .with_readiness(ExecutionReadiness::OutputContains("ready".to_string()))
     .with_readiness_timeout(Duration::from_secs(2))
     .with_environment(environment);
-    let live = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-    let observer = {
-        let live = std::sync::Arc::clone(&live);
-        toven_ports::OutputObserver::new(move |chunk| {
-            live.lock().expect("live poisoned").push(chunk);
-        })
-    };
+    let (live_tx, mut live) = tokio::sync::mpsc::channel(64);
+    let observer = toven_ports::OutputObserver::new(live_tx);
     let started = runtime
         .block_on(runner.start_persistent(
             &persistent,
@@ -1041,12 +1233,11 @@ fn process_command_runner_smoke_covers_argv_cwd_capture_nonzero_and_readiness() 
         toven_ports::StartOutcome::Ready { process, .. } => process.shutdown().expect("shutdown"),
         toven_ports::StartOutcome::FailedReadiness { .. } => panic!("readiness should succeed"),
     }
-    assert!(
-        live.lock()
-            .expect("live poisoned")
-            .iter()
-            .any(|chunk| chunk.bytes == b"ready")
-    );
+    let mut seen = Vec::new();
+    while let Ok(chunk) = live.try_recv() {
+        seen.push(chunk);
+    }
+    assert!(seen.iter().any(|chunk| chunk.bytes == b"ready"));
 }
 
 #[cfg(unix)]
@@ -1068,15 +1259,8 @@ fn process_command_runner_pty_gives_the_child_a_real_terminal() {
     let environment = toven_ports::InvocationEnvironment::explicit(env);
 
     // The live observer receives the merged terminal stream as it arrives.
-    let live = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
-    let observer = {
-        let live = Arc::clone(&live);
-        toven_ports::OutputObserver::new(move |chunk: UnitOutput| {
-            live.lock()
-                .expect("live poisoned")
-                .extend_from_slice(&chunk.bytes);
-        })
-    };
+    let (live_tx, mut live) = tokio::sync::mpsc::channel::<UnitOutput>(64);
+    let observer = toven_ports::OutputObserver::new(live_tx).with_terminal();
 
     let invocation = toven_ports::Invocation::new(
         "tty",
@@ -1100,7 +1284,11 @@ fn process_command_runner_pty_gives_the_child_a_real_terminal() {
     assert!(outcome.success);
     assert!(outcome.output.is_empty());
 
-    let rendered = String::from_utf8(live.lock().expect("live poisoned").clone()).expect("utf8");
+    let mut bytes = Vec::new();
+    while let Ok(chunk) = live.try_recv() {
+        bytes.extend_from_slice(&chunk.bytes);
+    }
+    let rendered = String::from_utf8(bytes).expect("utf8");
     assert!(
         rendered.contains("tty") && !rendered.contains("notty"),
         "child must see a real terminal, got: {rendered:?}"
@@ -1144,7 +1332,7 @@ fn process_command_runner_readiness_command_inherits_invocation_environment() {
     .with_readiness_timeout(Duration::from_secs(2))
     .with_environment(environment);
 
-    let observer = toven_ports::OutputObserver::new(|_chunk| {});
+    let observer = toven_ports::OutputObserver::none();
     let started = runtime
         .block_on(runner.start_persistent(
             &persistent,
@@ -1156,6 +1344,144 @@ fn process_command_runner_readiness_command_inherits_invocation_environment() {
         toven_ports::StartOutcome::Ready { process, .. } => process.shutdown().expect("shutdown"),
         toven_ports::StartOutcome::FailedReadiness { output } => {
             panic!("readiness command should inherit PATH and succeed, got: {output:?}")
+        }
+    }
+}
+
+#[test]
+fn cancellation_does_not_hide_in_flight_runner_errors() {
+    for fail_fast in [false, true] {
+        let plan = Plan::new(
+            vec![unit("first"), unit("boom")],
+            vec![vec!["first".into(), "boom".into()]],
+        );
+        let runner = Arc::new(
+            FakeCommandRunner::new()
+                .with_failure("first")
+                .with_blocking("boom")
+                .with_error("boom"),
+        );
+        let cache = RecordingCacheWriter::new();
+        let mut reporter = RecordingReporter::new();
+        let sink = RecordingRawOutputSink::new();
+        sink.set_concurrent_live(true);
+        let mut output = UnitOutputChannel::new(sink.clone());
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+        let result = runtime.block_on(async {
+            let watcher = (!fail_fast).then(|| {
+                let runner = Arc::clone(&runner);
+                let cancel = cancel.clone();
+                tokio::spawn(async move {
+                    while !runner.started().contains(&"boom".to_string()) {
+                        tokio::task::yield_now().await;
+                    }
+                    cancel.cancel();
+                })
+            });
+            let result = tokio::time::timeout(
+                Duration::from_secs(5),
+                apply(
+                    &plan,
+                    runner,
+                    &cache,
+                    &mut reporter,
+                    &mut output,
+                    ApplyOptions {
+                        max_parallel: 2,
+                        fail_fast,
+                        ..ApplyOptions::default()
+                    },
+                    cancel,
+                ),
+            )
+            .await
+            .expect("cancelled APPLY must remain bounded");
+            if let Some(watcher) = watcher {
+                watcher.await.unwrap();
+            }
+            result
+        });
+        let error = result.expect_err("cancellation cannot swallow an infrastructure failure");
+        assert_eq!(error.code(), rskit_errors::ErrorCode::Internal);
+        assert!(error.to_string().contains("scripted runner error"));
+        assert!(reporter.events().iter().any(|event| matches!(
+            event,
+            Event::UnitFinished { unit_id, status: UnitStatus::Failed, .. } if unit_id == "boom"
+        )));
+        assert!(
+            sink.ends()
+                .contains(&("boom".to_owned(), UnitStatus::Failed))
+        );
+    }
+}
+
+#[test]
+fn output_delivery_policy_is_independent_of_verbosity() {
+    let workspace = TestWorkspace::new("apply-output-policy");
+    let mut descendant = unit("descendant");
+    descendant.argv = vec![
+        "sh".into(),
+        "-c".into(),
+        "sleep 30 2>/dev/null & printf hello; exit 0".into(),
+    ];
+    let mut other = unit("other");
+    other.argv = vec!["sh".into(), "-c".into(), "exit 0".into()];
+    let plan = Plan::new(
+        vec![descendant, other],
+        vec![vec!["descendant".into(), "other".into()]],
+    );
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    for quiet in [false, true] {
+        let runner = Arc::new(toven_exec::ProcessCommandRunner::new(workspace.path()));
+        let cache = RecordingCacheWriter::new();
+        let mut reporter = RecordingReporter::new();
+        let sink = RecordingRawOutputSink::new();
+        let mut output = UnitOutputChannel::new(sink.clone());
+        if quiet {
+            output = output.with_passing_output(toven_engine::output::PassingOutput::Hide, 200);
+        }
+        let result = runtime.block_on(async {
+            tokio::time::timeout(
+                Duration::from_secs(15),
+                apply(
+                    &plan,
+                    runner,
+                    &cache,
+                    &mut reporter,
+                    &mut output,
+                    ApplyOptions {
+                        max_parallel: 2,
+                        ..ApplyOptions::default()
+                    },
+                    tokio_util::sync::CancellationToken::new(),
+                ),
+            )
+            .await
+            .expect("observed completion must remain bounded")
+        });
+        result.expect("both verbosity modes end the lingering group and finish delivery");
+        for id in ["descendant", "other"] {
+            assert!(reporter.events().iter().any(|event| matches!(
+                event,
+                Event::UnitFinished { unit_id, status: UnitStatus::Succeeded, .. } if unit_id == id
+            )));
+        }
+        if !quiet {
+            let delivered: Vec<u8> = sink
+                .live_chunks()
+                .into_iter()
+                .chain(sink.blocks().into_iter().flat_map(|(_, chunks)| chunks))
+                .filter(|chunk| chunk.unit_id == "descendant")
+                .flat_map(|chunk| chunk.bytes)
+                .collect();
+            assert_eq!(delivered, b"hello");
         }
     }
 }
@@ -1201,6 +1527,13 @@ fn wave_error_still_tears_down_held_persistent_processes() {
     ));
 
     assert!(result.is_err(), "wave error must propagate to the caller");
+    assert!(
+        reporter.events().iter().any(|event| matches!(
+            event,
+            Event::UnitFinished { unit_id, status: UnitStatus::Failed, .. } if unit_id == "boom"
+        )),
+        "the failing runner must still finish its unit lifecycle"
+    );
     assert_eq!(
         runner.shutdowns(),
         vec!["service".to_string()],

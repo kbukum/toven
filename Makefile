@@ -15,7 +15,7 @@ export NEXTEST_PROFILE ?= default
 # binary for speed with `make TOVEN=toven check`.
 TOVEN ?= cargo run --quiet --locked -p toven --
 
-.PHONY: check doctor fmt fmt-check lint test test-nextest doctest structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark golden bless verify-release-platform-filter release-dry-run release-plan act-ci act-supply-chain act-release-readiness check-static
+.PHONY: check doctor fmt fmt-check lint test test-nextest doctest structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark golden bless verify-release-platform release-dry-run release-plan act-ci act-supply-chain act-release-readiness check-static
 
 # Canonical local/CI gate for the virtual workspace. Every non-exempt gate
 # resolves through Toven (see the tmp/toven-self-application plan); `fmt-check`
@@ -26,7 +26,7 @@ check: check-static test
 # runs this per toolchain while sharding the nextest suite across runners with
 # `cargo nextest ... --partition`; locally `make check` still runs the identical
 # set of gates via the `check -> check-static + test` composition.
-check-static: fmt-check lint structure doc deny verify-release-platform-filter release-dry-run
+check-static: fmt-check lint structure doc deny release-dry-run
 
 # Whole-graph tool audit: report every tool the resolved task graph needs and
 # fail closed if any is missing (never installs). This is the single source of
@@ -104,16 +104,15 @@ bless:
 	RSKIT_BLESS=1 cargo nextest run --profile $(NEXTEST_PROFILE) --locked -p toven --test golden
 	$(MAKE) golden
 
-# Prove the release fixture wrapper fails closed when its filter matches no
-# scenarios. Match the diagnostic as well as the nonzero exit so an unrelated
-# cargo failure cannot satisfy the regression.
-verify-release-platform-filter:
-	@output="$$(TOVEN_RELEASE_SCENARIO_FILTER='no-such-release-scenario' ./scripts/verify-release-platform.sh 2>&1)"; status=$$?; \
-	if [ "$$status" -eq 0 ] || ! printf '%s\n' "$$output" | grep -F "matched no release scenarios" >/dev/null; then \
-		printf '%s\n' "$$output"; \
-		echo "verify-release-platform-filter: expected a fail-closed zero-match result" >&2; \
-		exit 1; \
-	fi
+# Representative release go/no-go: the release engine and fixture matrix, then
+# the Rust + Go CLI release scenarios. Each run uses `--no-tests=fail`, so a
+# renamed scenario that leaves the filter matching nothing fails instead of
+# passing green, and TOVEN_GOLDEN_REQUIRE_TOOLS=1 fails a scenario skipped for a
+# missing toolchain. Not part of `check`: the same tests already run in `test`.
+RELEASE_SCENARIOS ?= publish-train/release-
+verify-release-platform:
+	cargo nextest run --profile $(NEXTEST_PROFILE) --locked --no-tests=fail -p toven-release -p toven-ports -E 'package(toven-release) | binary(release_fixture_matrix)'
+	TOVEN_GOLDEN_REQUIRE_TOOLS=1 cargo nextest run --profile $(NEXTEST_PROFILE) --locked --no-tests=fail -p toven --test golden -E 'test(~$(RELEASE_SCENARIOS))'
 
 # Toven-driven cargo-deny gate. The repo-declared rust `deny` task
 # (`[ecosystems.rust.tasks.deny]`) owns the argv; `deny.toml` is one of its

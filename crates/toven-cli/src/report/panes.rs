@@ -205,6 +205,12 @@ impl RawOutputSink for PaneRawSink {
     }
 
     fn block(&mut self, unit_id: &str, chunks: &[UnitOutput]) -> AppResult<()> {
+        if let Some(pane) = self.panes.get_mut(unit_id) {
+            for chunk in chunks {
+                pane.write(&chunk.bytes)?;
+            }
+            return Ok(());
+        }
         self.tiles.block(unit_id, chunks)
     }
 
@@ -403,6 +409,34 @@ mod tests {
         assert_eq!(rec.writes, vec![("a".to_string(), b"a-out\n".to_vec())]);
         assert_eq!(rec.finished.len(), 1);
         assert_eq!(rec.finished[0].0, "a");
+        drop(rec);
+    }
+
+    #[test]
+    fn quiet_failure_blocks_reach_the_units_pane() {
+        let launcher = FakeLauncher::default();
+        let rec = launcher.rec.clone();
+        let mut sink = PaneRawSink::new(
+            Box::new(launcher),
+            2,
+            Palette::new(false),
+            TilesRawSink::hidden(),
+        );
+        sink.begin_unit("quiet", "quiet").unwrap();
+        sink.block("quiet", &[chunk("quiet", b"failure diagnostic\n")])
+            .unwrap();
+        sink.end_unit("quiet", UnitStatus::Failed).unwrap();
+        sink.finish_run().unwrap();
+
+        let rec = rec.lock().unwrap();
+        assert_eq!(
+            rec.writes,
+            vec![("quiet".to_owned(), b"failure diagnostic\n".to_vec())]
+        );
+        assert_eq!(
+            rec.finished,
+            vec![("quiet".to_owned(), "failed quiet".into())]
+        );
         drop(rec);
     }
 

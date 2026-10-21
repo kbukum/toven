@@ -15,6 +15,7 @@
 //! structural-vs-semantic split, and the two-registry ecosystem-id dispatch.
 
 mod dispatch;
+mod doctor;
 mod document;
 mod group;
 mod load;
@@ -24,12 +25,14 @@ mod overlay;
 mod project;
 mod reference;
 mod registry;
+mod sets;
 mod settings;
 mod units;
 mod validate;
 mod verb;
 
 pub use dispatch::{Dispatch, dispatch};
+pub use doctor::{DoctorCheckConfig, DoctorConfig};
 pub use document::Document;
 pub use group::{GroupConfig, Guardrails};
 pub use load::{Loaded, load};
@@ -39,5 +42,6 @@ pub use overlay::{OverlayConfig, OverlayRef};
 pub use project::ProjectConfig;
 pub use reference::ModuleRefSyntax;
 pub use registry::CanonicalRegistry;
+pub use sets::{TASK_LIST_SEPARATOR, TaskSetConfig};
 pub use settings::{CacheConfig, GitConfig, ReportFormat, TovenConfig, ViewMode};
 pub use verb::VerbId;

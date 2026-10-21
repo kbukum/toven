@@ -35,48 +35,25 @@ pub async fn apply<S: RawOutputSink>(
     options: ApplyOptions,
     cancel: CancellationToken,
 ) -> AppResult<RunStats> {
-    // Bounded bridge between persistent reader threads and the APPLY consumer so
-    // the queue cannot grow without limit when the consumer falls behind.
+    // Bounded bridge from every output producer to the APPLY consumer. Producers
+    // wait for capacity, so a slow consumer applies backpressure instead of losing
+    // output, and the queue cannot grow without limit.
     let (live_tx, live_rx) = tokio::sync::mpsc::channel(options.live_output_capacity.max(1));
-    // Chunks dropped because the bridge was full and the producer could not block;
-    // surfaced via `RunStats::dropped_output_chunks` so loss is never silent.
-    let dropped = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let observer = {
-        let dropped = Arc::clone(&dropped);
-        OutputObserver::new(move |chunk| {
-            // On a dedicated OS reader thread (production rskit-process path) we can block,
-            // applying lossless backpressure down to the child's pipe. Inside an async
-            // runtime (e.g. a test/in-process producer) blocking is forbidden, so fall back
-            // to a non-blocking send and account for any drop instead of deadlocking the
-            // runtime.
-            if tokio::runtime::Handle::try_current().is_err() {
-                // Blocking send applies lossless backpressure when the bridge is full,
-                // and only errors once the receiver is gone (the APPLY consumer has
-                // torn down). Such a chunk is genuinely undeliverable, so count it —
-                // keeping the "loss is never silent" contract honest on this path too.
-                if live_tx.blocking_send(chunk).is_err() {
-                    dropped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                }
-            } else if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) =
-                live_tx.try_send(chunk)
-            {
-                dropped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            }
-        })
-    };
-    // Stream normal-unit output live when the sink de-interleaves concurrent output
-    // by unit (one region per unit), or when no two units can run concurrently (a
-    // single-unit plan or strictly serial execution). Otherwise chunks from
-    // parallel units would interleave, so they stay buffered into deterministic
-    // per-unit blocks.
-    let stream_normal_live =
-        super::options::stream_normal_live(&options, plan, output.supports_concurrent_live());
+    let observer = OutputObserver::new(live_tx);
+    let dropped = observer.dropped();
+    // Every producer uses the bridge; only presentation varies between live regions, buffered blocks, and quiet tails.
+    let normal = super::options::normal_output(
+        &options,
+        plan,
+        output.supports_concurrent_live(),
+        output.hides_passing(),
+    );
     let pool = ApplyPool::new(
         runner,
         options.max_parallel,
         options.environment.clone(),
         observer,
-        stream_normal_live,
+        normal,
         options.unit_timeout,
     );
     Walker::new(plan, cache, reporter, output, options, dropped, cancel)

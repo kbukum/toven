@@ -6,6 +6,8 @@
 //! at config load — never a hard stop (a later-reserved word must not break an
 //! existing config) — pointing at the `toven run <task>` escape hatch.
 
+use rskit_errors::{AppError, AppResult};
+
 use crate::grammar::is_reserved;
 
 /// A single collision warning: a user-addressable task name equals a reserved
@@ -48,9 +50,46 @@ where
         .collect()
 }
 
+/// Reject a `[sets.<name>]` whose name a bare `toven <name>` could not reach
+/// unambiguously: a reserved built-in word or an addressable task name.
+///
+/// Unlike a task shadow (a warning), a set is new config with no escape
+/// hatch, so the clash is a hard error at load.
+///
+/// # Errors
+/// Returns [`AppError::invalid_input`] naming the first clashing set.
+pub fn reject_set_clashes<'a, S, T>(set_names: S, task_names: T) -> AppResult<()>
+where
+    S: IntoIterator<Item = &'a str>,
+    T: IntoIterator<Item = &'a str>,
+{
+    let tasks: std::collections::BTreeSet<&str> = task_names.into_iter().collect();
+    for name in set_names {
+        let clash = if is_reserved(name) {
+            "a built-in toven command"
+        } else if tasks.contains(name) {
+            "a task"
+        } else {
+            continue;
+        };
+        return Err(AppError::invalid_input(
+            format!("sets.{name}"),
+            format!("set '{name}' has the same name as {clash}; rename the set"),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::detect;
+    use super::{detect, reject_set_clashes};
+
+    #[test]
+    fn a_set_cannot_reuse_a_reserved_word_or_task_name() {
+        reject_set_clashes(["verify"], ["e2e"]).unwrap();
+        assert!(reject_set_clashes(["graph"], []).is_err());
+        assert!(reject_set_clashes(["e2e"], ["e2e"]).is_err());
+    }
 
     #[test]
     fn flags_a_task_named_like_a_reserved_word() {

@@ -1551,12 +1551,16 @@ _toven() {
             return 0
             ;;
         toven__subcmd__doctor)
-            opts="-j -v -q -h --ensure --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
+            opts="-j -v -q -h --ensure --profile --config --output --color --view --dry-run --explain --fail-fast --no-cache --refresh --timeout --jobs --compute-budget --base --merge-base --module --workspace --dependents --dependencies --watch --watch-debounce-ms --verbose --quiet --no-push --patch --minor --major --set-version --pre --offline --out-dir --target --binary --download --no-run --line --function --region --changed-line --enforcement --force --root --non-interactive --yes --print --format --auto-install --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --config)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0

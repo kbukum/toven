@@ -172,6 +172,7 @@ fn task_table(use_nextest: bool, shared_inputs: &[String]) -> BTreeMap<String, T
             cacheable: true,
             fail_if_output: false,
             shared_inputs: shared_inputs.to_vec(),
+            modules: Vec::new(),
         },
     );
     tasks.insert("doc".to_string(), doc_entry(shared_inputs));
@@ -227,6 +228,7 @@ fn coverage_entry(shared_inputs: &[String]) -> TaskEntry {
         cacheable: false,
         fail_if_output: false,
         shared_inputs: shared_inputs.to_vec(),
+        modules: Vec::new(),
     }
 }
 
@@ -302,6 +304,7 @@ fn fan_out_entry(subcommand: &str, fan_out: FanOut, shared_inputs: &[String]) ->
         cacheable: true,
         fail_if_output: false,
         shared_inputs: shared_inputs.to_vec(),
+        modules: Vec::new(),
     }
 }
 
@@ -330,6 +333,7 @@ fn whole_workspace_entry(subcommand: &str, extra: &[&str], shared_inputs: &[Stri
         cacheable: true,
         fail_if_output: false,
         shared_inputs: shared_inputs.to_vec(),
+        modules: Vec::new(),
     }
 }
 
@@ -381,6 +385,7 @@ fn vuln_entry(shared_inputs: &[String]) -> TaskEntry {
         cacheable: true,
         fail_if_output: false,
         shared_inputs: shared_inputs.to_vec(),
+        modules: Vec::new(),
     }
 }
 fn run_entry(shared_inputs: &[String]) -> TaskEntry {

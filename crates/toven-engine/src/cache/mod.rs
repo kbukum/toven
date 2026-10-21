@@ -12,4 +12,4 @@ mod root;
 
 pub use fs::FsContentCache;
 pub use null::NullCache;
-pub use root::{CACHE_DIR_ENV, CACHE_FORMAT_VERSION, resolve_root};
+pub use root::{CACHE_DIR_ENV, CACHE_FORMAT_VERSION, resolve_logs_root, resolve_root};

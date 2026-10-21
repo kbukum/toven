@@ -66,9 +66,9 @@ fn render_human(catalog: &TaskCatalog, detail: bool) {
         if detail {
             for task in &eco.tasks {
                 let mut kv = OutputKV::new();
-                kv.add("ecosystem", eco.ecosystem.clone())
+                kv.add("ecosystem", eco.ecosystem.to_string())
                     .add("task", task.name.clone())
-                    .add("kind", task.kind.clone())
+                    .add("kind", task.kind.as_str().to_string())
                     .add("origin", task.origin.as_str().to_string())
                     .add("fan-out", task.fan_out.as_str().to_string())
                     .add("persistent", task.persistent.to_string())
@@ -99,7 +99,7 @@ fn render_human(catalog: &TaskCatalog, detail: bool) {
 fn render_jsonl(catalog: &TaskCatalog) -> AppResult<()> {
     for eco in &catalog.ecosystems {
         for task in &eco.tasks {
-            let line = serde_json::to_string(&TaskRecord::project(&eco.ecosystem, task))
+            let line = serde_json::to_string(&TaskRecord::project(eco.ecosystem.as_str(), task))
                 .map_err(AppError::internal)?;
             println!("{line}");
         }
@@ -125,7 +125,7 @@ impl<'a> TaskRecord<'a> {
         Self {
             ecosystem,
             task: &task.name,
-            kind: &task.kind,
+            kind: task.kind.as_str(),
             origin: task.origin.as_str(),
             fan_out: task.fan_out.as_str(),
             persistent: task.persistent,

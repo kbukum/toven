@@ -3,7 +3,7 @@
 //! `block` call order), while persistent units live-tail in arrival order, even
 //! when their chunks interleave.
 
-use toven_engine::output::{OutputMode, UnitOutputChannel};
+use toven_engine::output::{OutputMode, UnitOutcome, UnitOutputChannel};
 use toven_model::{OutputStream, UnitOutput};
 use toven_testkit::RecordingRawOutputSink;
 
@@ -32,8 +32,8 @@ fn interleaved_parallel_units_group_per_unit() {
     channel.push(chunk("b", b"b2")).unwrap();
 
     // Finish order drives block order; "b" completes before "a".
-    channel.finish("b").unwrap();
-    channel.finish("a").unwrap();
+    channel.finish("b", UnitOutcome::Passed).unwrap();
+    channel.finish("a", UnitOutcome::Passed).unwrap();
 
     // Persistent unit streamed live, in arrival order.
     assert_eq!(

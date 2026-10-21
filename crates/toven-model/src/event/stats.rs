@@ -35,10 +35,10 @@ pub struct RunStats {
     pub cache_disabled: usize,
     /// Cache decisions forced to execute.
     pub cache_forced: usize,
-    /// Live persistent-output chunks dropped because the bounded output bridge
-    /// was full and the producer could not block (e.g. an async-runtime
-    /// producer). Zero on the blocking-backpressure path; non-zero surfaces
-    /// otherwise-silent output loss.
+    /// Live output chunks that could not be delivered because the output
+    /// consumer had already gone away. Producers wait for bridge capacity, so
+    /// this stays zero in a normal run; non-zero surfaces otherwise-silent
+    /// output loss.
     pub dropped_output_chunks: usize,
     /// Total wall time in milliseconds, once the run completes.
     #[serde(default, skip_serializing_if = "Option::is_none")]

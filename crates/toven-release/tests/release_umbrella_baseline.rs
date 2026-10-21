@@ -625,10 +625,19 @@ fn independent_versions_provider() -> FakeProvider {
             // registry reports a lower 0.1.0 for every crate.
             FakeReleaseTarget::new()
                 .with_declared_version(Version::new(0, 2, 0))
-                .with_published_versions(vec![Version::new(0, 1, 0)]),
+                .with_published_versions(vec![Version::new(0, 1, 0)])
+                .with_manifest_version(SUITE_MANIFEST, Version::new(0, 3, 0))
+                .with_manifest_version(CORE_MANIFEST, Version::new(0, 2, 0))
+                .with_manifest_version(UTIL_MANIFEST, Version::new(0, 5, 0)),
         );
     FakeProvider::new(eid()).with_adapter(adapter)
 }
+
+/// The committed manifests of [`independent_versions_repo`]: each crate's own
+/// independent version, none of them the umbrella tag's `1.0.0`.
+const SUITE_MANIFEST: &str = "[package]\nname = \"suite\"\nversion = \"0.3.0\"\n";
+const CORE_MANIFEST: &str = "[package]\nname = \"core\"\nversion = \"0.2.0\"\n";
+const UTIL_MANIFEST: &str = "[package]\nname = \"util\"\nversion = \"0.5.0\"\n";
 
 /// A repository whose single umbrella tag is `v1.0.0` but whose crates carry
 /// **independent** versions in their committed manifests (`core = 0.2.0`), with
@@ -657,31 +666,19 @@ fn independent_versions_repo() -> (TestWorkspace, AbsPath, Document) {
     // Each crate declares its OWN independent version in its manifest — the
     // umbrella tag `v1.0.0` is not any crate's version.
     scenario
-        .commit_file(
-            "crates/suite/Cargo.toml",
-            "[package]\nname = \"suite\"\nversion = \"0.3.0\"\n",
-            "suite manifest",
-        )
+        .commit_file("crates/suite/Cargo.toml", SUITE_MANIFEST, "suite manifest")
         .expect("suite manifest");
     scenario
         .commit_file("crates/suite/src/lib.rs", "//! suite\n", "baseline suite")
         .expect("suite baseline");
     scenario
-        .commit_file(
-            "crates/core/Cargo.toml",
-            "[package]\nname = \"core\"\nversion = \"0.2.0\"\n",
-            "core manifest",
-        )
+        .commit_file("crates/core/Cargo.toml", CORE_MANIFEST, "core manifest")
         .expect("core manifest");
     scenario
         .commit_file("crates/core/src/lib.rs", "pub fn a() {}\n", "baseline core")
         .expect("core baseline");
     scenario
-        .commit_file(
-            "crates/util/Cargo.toml",
-            "[package]\nname = \"util\"\nversion = \"0.5.0\"\n",
-            "util manifest",
-        )
+        .commit_file("crates/util/Cargo.toml", UTIL_MANIFEST, "util manifest")
         .expect("util manifest");
     scenario
         .commit_file("crates/util/src/lib.rs", "pub fn b() {}\n", "baseline util")

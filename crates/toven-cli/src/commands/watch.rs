@@ -22,6 +22,7 @@ use toven_core::federation::MemberVcsReaders;
 use toven_core::plan::PlanRequest;
 use toven_engine::apply::ApplyOptions;
 use toven_engine::cache::FsContentCache;
+use toven_engine::output::PassingOutput;
 use toven_engine::watch::{RskitFsWatch, WatchSession};
 use toven_ports::{Provider, Reporter, SourceDigest, ToolchainProber};
 
@@ -41,6 +42,8 @@ pub(crate) struct LiveOutput {
     pub(crate) palette: Palette,
     /// Where the tmux pane launcher keeps per-unit temp files.
     pub(crate) pane_dir: PathBuf,
+    /// Whether a passing unit's raw output is printed.
+    pub(crate) passing: PassingOutput,
 }
 
 /// The injected inputs a watched run drives its PLAN→APPLY loop with.
@@ -124,6 +127,8 @@ pub(crate) async fn run_watch(run: WatchRun<'_>, sink: &mut dyn Reporter) -> App
             unit_count: 0,
             max_parallel: apply_options.max_parallel,
             pane_dir: &run.live.pane_dir,
+            passing: run.live.passing,
+            run_id: &run.request.run_id,
         },
     )?;
     let runner = host.runner;

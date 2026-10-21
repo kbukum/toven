@@ -25,7 +25,6 @@
 //! - [`project`] — open one deduped rskit-git reader/writer per member repo.
 //! - [`member_repo`] — release-agnostic per-member repo VCS handles.
 //! - [`spine`] — the N-member Configure → Discover spine that unions members.
-//! - [`sync`] — explicit member-repo provisioning (clone + clean-tree guard).
 
 pub mod baseline;
 pub mod compose;
@@ -40,7 +39,6 @@ pub mod remote;
 pub mod resolve;
 pub mod serve;
 pub mod spine;
-pub mod sync;
 
 pub use baseline::{MemberVcsReaders, OpenMemberVcsReaders};
 pub use project::open_project_vcs;

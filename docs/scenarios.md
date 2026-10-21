@@ -61,8 +61,10 @@ The sequence inspects versions, runs release checks, creates local evidence arti
 For a deterministic representative fixture go/no-go across Rust and Go release trains (plan/status/readiness/SBOM/depgraphs/dry-run plus independent-policy and failure matrices), run:
 
 ```bash
-scripts/verify-release-platform.sh
+make verify-release-platform
 ```
+
+It fails when the scenario filter matches nothing or when a scenario is skipped because a required tool is missing. Narrow it with `RELEASE_SCENARIOS=<pattern>`.
 
 For isolated real-repository rehearsals with local bare remotes and controlled forge/registry command doubles, run:
 

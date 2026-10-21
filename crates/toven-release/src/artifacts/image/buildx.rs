@@ -63,28 +63,11 @@ impl ImagePhase for BuildxImagePhase {
         // immutable guard distinguish an idempotent re-run from a divergent tag.
         let built = self.build_digest(root, request, &references)?;
 
-        // Immutable guard: compare each existing tag to the built digest. A tag
-        // already at the built digest is an idempotent re-run; a tag at a
-        // *different* digest fails closed — recovery is a forward-fix version,
-        // never a moved tag.
-        let mut all_present = true;
-        for reference in &references {
-            match self.resolve_digest(root, reference)? {
-                Some(existing) if existing == built => {}
-                Some(existing) => {
-                    return Err(AppError::invalid_input(
-                        "release.image",
-                        format!(
-                            "image tag '{reference}' already exists at digest {existing}, not the \
-                             built {built}; releases are immutable — cut a forward-fix version \
-                             rather than move the tag"
-                        ),
-                    ));
-                }
-                None => all_present = false,
-            }
-        }
-        if all_present {
+        let existing = references
+            .iter()
+            .map(|reference| Ok((reference.clone(), self.resolve_digest(root, reference)?)))
+            .collect::<AppResult<Vec<_>>>()?;
+        if immutable_tag_outcome(&built, &existing)? == ImageOutcome::AlreadyComplete {
             return Ok(toven_ports::ImagePublishOutcome::new(
                 ImageOutcome::AlreadyComplete,
                 built,
@@ -123,6 +106,41 @@ impl ImagePhase for BuildxImagePhase {
             return Ok(None);
         }
         Err(process_failure("release.image.inspect", "docker", &outcome))
+    }
+}
+
+/// The immutable-tag guard: decide a publish from the `built` digest and the
+/// digest each reference already holds (`None` when the tag is missing).
+///
+/// Every tag already at the built digest is an idempotent re-run
+/// ([`ImageOutcome::AlreadyComplete`]); any missing tag needs a push
+/// ([`ImageOutcome::Pushed`]).
+///
+/// # Errors
+/// Fails closed when any tag holds a *different* digest: releases are
+/// immutable, so recovery is a forward-fix version, never a moved tag.
+pub(super) fn immutable_tag_outcome(
+    built: &str,
+    existing: &[(String, Option<String>)],
+) -> AppResult<ImageOutcome> {
+    for (reference, digest) in existing {
+        if let Some(digest) = digest
+            && digest != built
+        {
+            return Err(AppError::invalid_input(
+                "release.image",
+                format!(
+                    "image tag '{reference}' already exists at digest {digest}, not the built \
+                     {built}; releases are immutable — cut a forward-fix version rather than \
+                     move the tag"
+                ),
+            ));
+        }
+    }
+    if existing.iter().all(|(_, digest)| digest.is_some()) {
+        Ok(ImageOutcome::AlreadyComplete)
+    } else {
+        Ok(ImageOutcome::Pushed)
     }
 }
 

@@ -1,7 +1,7 @@
 /// The outcome of one scenario session.
 #[derive(Debug, Clone)]
 pub enum Report {
-    /// A required toolchain was absent; the scenario was skipped green.
+    /// A required toolchain was absent; the scenario was skipped.
     Skipped {
         /// The first missing toolchain program (e.g. `cargo`).
         tool: String,
@@ -15,15 +15,40 @@ pub enum Report {
 }
 
 impl Report {
-    /// Whether every executed step passed (or blessed), or the scenario was
-    /// skipped.
-    #[must_use]
-    pub fn is_green(&self) -> bool {
+    /// Map the report onto a pass/fail verdict.
+    ///
+    /// A failed step always fails, carrying its diff. A skip (the whole
+    /// scenario or one step, for a missing toolchain) passes under
+    /// [`SkipPolicy::Allow`] and fails under [`SkipPolicy::Fail`], so a gate
+    /// that must exercise every scenario cannot pass on an under-provisioned
+    /// host.
+    ///
+    /// # Errors
+    ///
+    /// Returns the failure message naming the failed or skipped step.
+    pub fn verdict(&self, policy: SkipPolicy) -> Result<(), String> {
+        if let Some(step) = self.failure()
+            && let StepStatus::Failed { message } = &step.status
+        {
+            return Err(format!("step '{}' failed:\n{message}", step.id));
+        }
+        if policy == SkipPolicy::Allow {
+            return Ok(());
+        }
         match self {
-            Self::Skipped { .. } => true,
+            Self::Skipped { tool } => Err(format!(
+                "scenario skipped: requires `{tool}` which is not on PATH"
+            )),
             Self::Completed { steps } => steps
                 .iter()
-                .all(|step| !matches!(step.status, StepStatus::Failed { .. })),
+                .find_map(|step| match &step.status {
+                    StepStatus::Skipped { tool } => Some(Err(format!(
+                        "step '{}' skipped: requires `{tool}` which is not on PATH",
+                        step.id
+                    ))),
+                    _ => None,
+                })
+                .unwrap_or(Ok(())),
         }
     }
 
@@ -35,6 +60,37 @@ impl Report {
             Self::Completed { steps } => steps
                 .iter()
                 .find(|step| matches!(step.status, StepStatus::Failed { .. })),
+        }
+    }
+}
+
+/// Whether a skipped scenario or step (missing toolchain) passes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SkipPolicy {
+    /// A skip passes; the default for local and sharded test runs.
+    #[default]
+    Allow,
+    /// A skip fails; for gates that must exercise every selected scenario.
+    Fail,
+}
+
+impl SkipPolicy {
+    /// The environment switch that selects [`SkipPolicy::Fail`] when set to `1`.
+    pub const ENV: &'static str = "TOVEN_GOLDEN_REQUIRE_TOOLS";
+
+    /// Read the policy from [`Self::ENV`].
+    #[must_use]
+    pub fn from_env() -> Self {
+        Self::from_value(std::env::var(Self::ENV).ok().as_deref())
+    }
+
+    /// Parse the policy from the raw [`Self::ENV`] value.
+    #[must_use]
+    pub fn from_value(value: Option<&str>) -> Self {
+        if value == Some("1") {
+            Self::Fail
+        } else {
+            Self::Allow
         }
     }
 }
@@ -55,8 +111,8 @@ pub enum StepStatus {
     Passed,
     /// At least one golden was regenerated (bless mode); everything else held.
     Blessed,
-    /// The step's required toolchain was absent; the step was skipped green
-    /// and later steps still ran.
+    /// The step's required toolchain was absent; the step was skipped and
+    /// later steps still ran.
     Skipped {
         /// The first missing toolchain program (e.g. `cargo-cyclonedx`).
         tool: String,

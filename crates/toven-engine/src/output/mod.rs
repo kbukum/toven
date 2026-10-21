@@ -14,7 +14,16 @@
 //! lives in `toven-ports`, beside [`Reporter`](toven_ports::Reporter); the CLI
 //! provides the concrete, terminal-bound sink). The APPLY exec layer feeds it
 //! `UnitOutput` chunks plus lifecycle signals.
+//!
+//! A quiet policy ([`PassingOutput::Hide`]) prints nothing for a passing unit
+//! and only a bounded tail for a failing one, while [`UnitLogs`] keeps every
+//! unit's full output in a private per-run log file.
 
 mod channel;
+mod log;
+mod tail;
 
-pub use channel::{OutputMode, UnitOutputChannel};
+pub use channel::{
+    DEFAULT_FAILURE_TAIL_LINES, OutputMode, PassingOutput, UnitOutcome, UnitOutputChannel,
+};
+pub use log::UnitLogs;

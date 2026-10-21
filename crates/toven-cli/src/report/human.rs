@@ -69,8 +69,9 @@ impl<W: Write> HumanReporter<W> {
 
     /// Whether an event is rendered at the given verbosity level.
     ///
-    /// Run start/finish always render; the plan line and terminal per-unit
-    /// results are suppressed only at [`Verbosity::Quiet`]; and the per-phase,
+    /// Run start/finish always render; the plan line and passing per-unit
+    /// results are suppressed only at [`Verbosity::Quiet`], which still shows a
+    /// failed unit and its log; and the per-phase,
     /// cache-decision, and intermediate unit-lifecycle lines render only at
     /// [`Verbosity::Verbose`].
     const fn renders(level: Verbosity, event: &Event) -> bool {
@@ -80,20 +81,26 @@ impl<W: Write> HumanReporter<W> {
             | Event::Warning { .. }
             | Event::FullActivation { .. }
             | Event::ToolAudited { .. }
+            | Event::CheckAudited { .. }
             | Event::DoctorFinished { .. }
             | Event::WatchStarted { .. }
             | Event::WatchTriggered { .. }
             | Event::WatchRescan
             | Event::WatchStopped => true,
-            Event::PlanPrepared { .. } | Event::UnitFinished { .. } => {
+            // Quiet hides passing units but keeps every failure and its log path.
+            Event::UnitFinished { status, .. } => {
                 !matches!(level, Verbosity::Quiet)
+                    || matches!(
+                        status,
+                        UnitStatus::Failed | UnitStatus::FailedReadiness | UnitStatus::TimedOut
+                    )
             }
-            // The per-module release/coverage narration is the primary output of
-            // its verb (and the whole of a `--dry-run`), so it renders like a
-            // terminal unit result — shown at Normal, collapsed only at Quiet.
-            // The examining progress line is in-flight status at the same class:
-            // it fills the silent decision gap at Normal, suppressed at Quiet.
-            Event::ModuleReleaseExamining { .. }
+            // The plan line and the per-module release/coverage narration (the primary
+            // output of their verbs, and the whole of a `--dry-run`) render like a
+            // terminal unit result: shown at Normal, collapsed only at Quiet. The
+            // examining progress line fills the silent decision gap at Normal.
+            Event::PlanPrepared { .. }
+            | Event::ModuleReleaseExamining { .. }
             | Event::ModuleReleaseResolved { .. }
             | Event::ModuleReleaseStaged { .. }
             | Event::ModuleCoverageFinished { .. } => !matches!(level, Verbosity::Quiet),
@@ -447,6 +454,7 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
                 unit_id,
                 status,
                 exit_code,
+                log,
             } => {
                 // Name the non-zero exit on the failure line so a reader sees *why* the
                 // unit failed without correlating against the separate output stream; the
@@ -467,7 +475,13 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
                 };
                 let prefix = format!("  {} ", status_label(*status));
                 let line = self.labeled_line(&prefix, status_label(*status), &detail, tone);
-                self.write_line(&line)
+                self.write_line(&line)?;
+                // A failure points at its full output; a passing unit's log stays quiet.
+                if let (Tone::Error, Some(log)) = (tone, log) {
+                    let line = self.labeled_line("    log ", "log", log, Tone::Dim);
+                    self.write_line(&line)?;
+                }
+                Ok(())
             }
             Event::ModuleReleaseExamining { module } => self.write_release_examining(module),
             Event::ModuleReleaseResolved {
@@ -525,9 +539,37 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
                 program,
                 status,
             } => self.write_tool_audited(label, program, status),
-            Event::DoctorFinished { checked, missing } => {
-                let detail = format!("{checked} checked, {missing} missing");
-                let (label, tone) = if *missing == 0 {
+            Event::CheckAudited { id, failure, fix } => {
+                let Some(failure) = failure else {
+                    let line = self.labeled_line(
+                        "  check ",
+                        "Passed",
+                        &format!("{id}: ok"),
+                        Tone::Success,
+                    );
+                    return self.write_line(&line);
+                };
+                let detail = fix.as_ref().map_or_else(
+                    || format!("{id}: {failure}"),
+                    |fix| format!("{id}: {failure} (fix: {fix})"),
+                );
+                let line = self.labeled_line("  check ", "Failed", &detail, Tone::Error);
+                self.write_line(&line)
+            }
+            Event::DoctorFinished {
+                checked,
+                missing,
+                checks,
+                failed,
+            } => {
+                let detail = if *checks > 0 {
+                    format!(
+                        "{checked} checked, {missing} missing, {checks} checks, {failed} failed"
+                    )
+                } else {
+                    format!("{checked} checked, {missing} missing")
+                };
+                let (label, tone) = if *missing == 0 && *failed == 0 {
                     ("Healthy", Tone::Success)
                 } else {
                     ("Incomplete", Tone::Error)
@@ -734,6 +776,7 @@ summary (dry run — no tasks executed)
                 unit_id: "u1".into(),
                 status: UnitStatus::Succeeded,
                 exit_code: None,
+                log: None,
             },
             Event::RunFinished { summary },
         ];
@@ -862,6 +905,7 @@ summary
                 unit_id: "u".into(),
                 status,
                 exit_code: None,
+                log: None,
             }]);
             assert_eq!(output, expected, "status {status:?}");
         }
@@ -876,6 +920,7 @@ summary
             unit_id: "command:boom#check".into(),
             status: UnitStatus::Failed,
             exit_code: Some(3),
+            log: None,
         }]);
         assert_eq!(output, "  failed command:boom#check (exit 3)\n");
     }
@@ -910,6 +955,7 @@ summary
                     unit_id: "u".into(),
                     status,
                     exit_code: None,
+                    log: None,
                 })
                 .expect("emit");
             let output = String::from_utf8(reporter.into_inner()).expect("utf8");
@@ -961,6 +1007,7 @@ summary
                     unit_id: "u".into(),
                     status: UnitStatus::Succeeded,
                     exit_code: None,
+                    log: None,
                 })
                 .expect("emit");
             let output = String::from_utf8(reporter.into_inner()).expect("utf8");
@@ -1004,6 +1051,7 @@ summary
                 unit_id: "srv".into(),
                 status: UnitStatus::TornDown,
                 exit_code: None,
+                log: None,
             },
         ];
         let output = render(&events);
@@ -1322,6 +1370,7 @@ summary
                 unit_id: "rust:core#build".into(),
                 status: UnitStatus::Succeeded,
                 exit_code: None,
+                log: None,
             },
             Event::RunFinished {
                 summary: RunStats::new(1),
@@ -1339,6 +1388,25 @@ summary
         for noise in ["phase ", "plan:", "cache ", "  start ", "  ok "] {
             assert!(!output.contains(noise), "quiet leaked {noise:?}: {output}");
         }
+    }
+
+    #[test]
+    fn quiet_keeps_a_failed_unit_and_its_log() {
+        let events = [Event::UnitFinished {
+            unit_id: "rust:core#test".into(),
+            status: UnitStatus::Failed,
+            exit_code: Some(3),
+            log: Some("/cache/logs/run-1/core.log".into()),
+        }];
+        let output = render_at(Verbosity::Quiet, &events);
+        assert!(
+            output.contains("failed rust:core#test (exit 3)"),
+            "{output}"
+        );
+        assert!(
+            output.contains("log /cache/logs/run-1/core.log"),
+            "{output}"
+        );
     }
 
     #[test]

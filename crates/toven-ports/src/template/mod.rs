@@ -3,9 +3,11 @@
 //! [`CommandTemplate`].
 
 mod command;
+mod release;
 mod release_var;
 mod var;
 
 pub use command::CommandTemplate;
+pub use release::ReleaseTemplate;
 pub use release_var::ReleaseVar;
 pub use var::TaskVar;

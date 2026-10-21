@@ -1,0 +1,1 @@
+error[INVALID_INPUT]: task 'lint' applies only to command modules web; 'worker' is not one of them

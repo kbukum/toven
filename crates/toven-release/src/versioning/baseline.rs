@@ -204,13 +204,12 @@ mod tests {
         let mut module = module("core", "crates/core");
         module.manifest = Some(RepoPath::new("crates/core/Cargo.toml").expect("manifest path"));
         let source = BaselineSource::umbrella_tag(TagScheme::new("v", ""));
-        let version_source = FakeReleaseTarget::new();
+        let manifest = "[package]\nname = \"core\"\nversion = \"0.2.0\"\n";
+        let version_source =
+            FakeReleaseTarget::new().with_manifest_version(manifest, Version::new(0, 2, 0));
         let tags = vec![tag("v1.4.0", "umbrella")];
-        let reader = FakeVcsReader::new().with_file_at_ref(
-            "umbrella",
-            "crates/core/Cargo.toml",
-            "[package]\nname = \"core\"\nversion = \"0.2.0\"\n",
-        );
+        let reader =
+            FakeVcsReader::new().with_file_at_ref("umbrella", "crates/core/Cargo.toml", manifest);
 
         let baseline =
             resolve_baseline(&module, &source, &reader, &version_source, &tags).expect("resolve");
@@ -234,14 +233,13 @@ mod tests {
         module.manifest = Some(RepoPath::new("crates/core/Cargo.toml").expect("manifest path"));
         let source =
             BaselineSource::registry(BaselineSource::umbrella_tag(TagScheme::new("v", "")));
-        let version_source =
-            FakeReleaseTarget::new().with_published_versions(vec![Version::new(0, 2, 0)]);
+        let manifest = "[package]\nname = \"core\"\nversion = \"0.2.0\"\n";
+        let version_source = FakeReleaseTarget::new()
+            .with_published_versions(vec![Version::new(0, 2, 0)])
+            .with_manifest_version(manifest, Version::new(0, 2, 0));
         let tags = vec![tag("v1.4.0", "umbrella")];
-        let reader = FakeVcsReader::new().with_file_at_ref(
-            "umbrella",
-            "crates/core/Cargo.toml",
-            "[package]\nname = \"core\"\nversion = \"0.2.0\"\n",
-        );
+        let reader =
+            FakeVcsReader::new().with_file_at_ref("umbrella", "crates/core/Cargo.toml", manifest);
 
         let baseline =
             resolve_baseline(&module, &source, &reader, &version_source, &tags).expect("resolve");

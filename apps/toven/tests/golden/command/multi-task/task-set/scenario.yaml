@@ -1,0 +1,14 @@
+# A `[sets.verify]` entry runs like a task: bare `toven verify` plans the set's
+# tasks into one run. `affected` and `explain` expand lists and sets the same
+# way; an explain focus shows each task's units on the focused module.
+repo: command/multi-task
+steps:
+  - id: 01-run-verify-set
+    argv: [--jobs, "1", verify]
+    stderr: { match: normalized }
+  - id: 02-affected-verify-set
+    argv: [affected, verify]
+    stdout: { match: normalized }
+  - id: 03-explain-list-on-module
+    argv: [explain, "lint,test", --module, "command:worker"]
+    stdout: { match: normalized }

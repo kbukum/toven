@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use rskit_errors::AppResult;
+use rskit_errors::{AppError, AppResult};
 use toven_model::{DepKind, Graph, Module, ModuleKey};
 use toven_ports::{ChangeRecord, ChangeStatus, TaskIntent, TaskKind};
 
@@ -119,7 +119,9 @@ fn resolve_changed(
         federation
             .modules
             .iter()
-            .filter(|module| !module.cache_inputs_complete)
+            // Version control cannot see an incomplete or external input, so
+            // those modules always count as changed; the cache keeps reruns cheap.
+            .filter(|module| !module.cache_inputs_complete || !module.external_roots.is_empty())
             .map(Module::key),
     );
     let modules = graph.closure(&seeds, dependents_filter(&request.intent))?;
@@ -134,6 +136,16 @@ pub(super) fn all_modules(graph: &Graph) -> BTreeSet<ModuleKey> {
     graph.modules().map(Module::key).collect()
 }
 
+/// How an [`Explicit`](Selection::Explicit) selection meets a task that some
+/// selected modules do not run.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ExplicitScope {
+    /// The only requested task: a selected module without it is an error.
+    Strict,
+    /// One task of a list or set: it runs on the selected modules it applies to.
+    Narrow,
+}
+
 /// Narrow an active set to the modules whose ecosystem defines the addressed
 /// task.
 ///
@@ -142,51 +154,113 @@ pub(super) fn all_modules(graph: &Graph) -> BTreeSet<ModuleKey> {
 /// (all-modules or changed) selection this keeps just the modules whose
 /// ecosystem's authoritative config task table declares `intent.name()`, so the
 /// task runs wherever it is defined instead of failing every active ecosystem
-/// that happens to lack it.
+/// that happens to lack it. A task whose `modules` list is set also drops the
+/// modules it does not name.
 ///
 /// Two behaviours are deliberately preserved:
-/// - An [`Explicit`](Selection::Explicit) selection is returned unchanged — a
-///   user who names a target that lacks the task should see the typed
-///   per-ecosystem "has no `<task>` task" error, not a silently empty plan.
+/// - Under [`ExplicitScope::Strict`] (a single task) an
+///   [`Explicit`](Selection::Explicit) selection is returned unchanged — a
+///   user who names a target that lacks the task (or that the task's `modules`
+///   excludes) should see a typed scheduling error, not a silently empty plan.
+///   Under [`ExplicitScope::Narrow`] (one task of a list or set) the explicit
+///   selection narrows like a broad one, so `build,lint -m worker` runs the
+///   build even though `lint` is scoped to other modules; the caller rejects a
+///   list in which no task applies to any selected module.
 /// - When *no* active ecosystem defines the task the set is returned unchanged,
 ///   so scheduling raises that same unknown-task error (and the CLI its typo
-///   hint) exactly as before.
+///   hint) exactly as before. Under [`ExplicitScope::Narrow`] this applies only
+///   when no ecosystem at all defines it; otherwise the task is skipped.
 ///
 /// The `full_activation` diagnostic survives narrowing: a forced full run still
 /// activates every module that defines the task, and the CLI must say why.
+///
+/// # Errors
+/// A `modules` entry on the requested task that names no discovered module of
+/// its ecosystem.
 #[allow(clippy::redundant_pub_crate)]
 pub fn restrict_to_task_defining(
     active: ActiveModules,
     request: &PlanRequest,
+    federation: &Federation,
     adapters: &MemberAdapters,
-) -> ActiveModules {
-    if matches!(request.selection, Selection::Explicit { .. }) {
-        return active;
-    }
+    explicit: ExplicitScope,
+) -> AppResult<ActiveModules> {
     let wanted = request.intent.name();
+    check_task_modules(federation, adapters, wanted)?;
+    if explicit == ExplicitScope::Strict && matches!(request.selection, Selection::Explicit { .. })
+    {
+        return Ok(active);
+    }
     let defining: BTreeSet<ModuleKey> = active
         .modules
         .iter()
-        .filter(|key| ecosystem_defines_task(adapters, key, wanted))
+        .filter(|key| task_entry(adapters, key, wanted).is_some())
         .cloned()
         .collect();
     // No active ecosystem defines the task: keep the set so scheduling raises
-    // the unknown-task error.
+    // the unknown-task error. In a list, a task some other ecosystem defines
+    // simply has nothing to run on the selected modules.
     if defining.is_empty() {
-        return active;
+        let defined_elsewhere = explicit == ExplicitScope::Narrow
+            && adapters
+                .iter()
+                .any(|(_, _, adapter)| adapter.common().tasks.contains_key(wanted));
+        if !defined_elsewhere {
+            return Ok(active);
+        }
     }
-    ActiveModules {
-        modules: defining,
+    // A task limited to some modules skips the rest; that may leave nothing to run.
+    let applicable = defining
+        .into_iter()
+        .filter(|key| {
+            task_entry(adapters, key, wanted).is_some_and(|entry| {
+                entry.modules.is_empty() || entry.modules.contains(&key.module().name)
+            })
+        })
+        .collect();
+    Ok(ActiveModules {
+        modules: applicable,
         full_activation: active.full_activation,
-    }
+    })
 }
 
-/// Whether the configured adapter that owns `key` declares a `task` entry in its
-/// authoritative config task table.
-fn ecosystem_defines_task(adapters: &MemberAdapters, key: &ModuleKey, task: &str) -> bool {
+/// The config entry for `task` in the adapter that owns `key`, if it declares one.
+fn task_entry<'a>(
+    adapters: &'a MemberAdapters,
+    key: &ModuleKey,
+    task: &str,
+) -> Option<&'a toven_ports::TaskEntry> {
     adapters
         .get(key.member(), &key.module().ecosystem)
-        .is_some_and(|adapter| adapter.common().tasks.contains_key(task))
+        .and_then(|adapter| adapter.common().tasks.get(task))
+}
+
+/// Reject a `modules` list on `task` that names a module its ecosystem did not
+/// discover, so a typo never silently disables the task.
+fn check_task_modules(
+    federation: &Federation,
+    adapters: &MemberAdapters,
+    task: &str,
+) -> AppResult<()> {
+    for (member, ecosystem, adapter) in adapters.iter() {
+        let Some(entry) = adapter.common().tasks.get(task) else {
+            continue;
+        };
+        for name in &entry.modules {
+            let known = federation.modules.iter().any(|module| {
+                module.member.as_ref() == member
+                    && module.id.ecosystem == *ecosystem
+                    && module.id.name == *name
+            });
+            if !known {
+                return Err(AppError::invalid_input(
+                    format!("ecosystems.{ecosystem}.tasks.{task}.modules"),
+                    format!("'{name}' is not a discovered {ecosystem} module"),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The reverse-dependents edge filter for `intent`.

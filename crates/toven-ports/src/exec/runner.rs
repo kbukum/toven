@@ -23,9 +23,7 @@ pub trait CommandRunner: Send + Sync {
     /// the observer as they arrive and returns an empty [`RunOutcome::output`]
     /// — the caller has already surfaced the bytes. When `live` is `None`, the
     /// runner captures output and returns it in the [`RunOutcome`] for the
-    /// caller to buffer (the deterministic per-unit grouping used under
-    /// parallelism). The engine streams live only when no two units can run
-    /// concurrently, so live chunks never interleave.
+    /// caller to buffer. APPLY always uses the observer for consistent delivery guarantees; its output channel separately chooses live rendering, per-unit blocks, or quiet failure tails.
     ///
     /// # Errors
     /// Propagates a spawn/IO failure. A non-zero exit is *not* an error: it is

@@ -12,6 +12,9 @@ use super::{
 };
 use toven_ports::{CompositeUnitConfig, HooksConfig};
 
+use super::doctor::DoctorConfig;
+use super::sets::TaskSetConfig;
+
 /// The whole `toven.toml`, parsed strictly.
 ///
 /// `#[serde(deny_unknown_fields)]` rejects any stray top-level key for free:
@@ -56,9 +59,31 @@ pub struct Document {
     /// only known units and to be acyclic; execution is resolved by the engine.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub units: BTreeMap<String, CompositeUnitConfig>,
+    /// Named task sets, keyed by set name (`[sets.<name>]`). A set runs its
+    /// tasks together in one plan, like a comma-separated task list.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub sets: BTreeMap<String, TaskSetConfig>,
+    /// Project health checks `toven doctor` runs beside its tool audit
+    /// (`[doctor.checks.<id>]`).
+    #[serde(default, skip_serializing_if = "is_default_doctor")]
+    pub doctor: DoctorConfig,
+}
+
+fn is_default_doctor(doctor: &DoctorConfig) -> bool {
+    doctor.checks.is_empty()
 }
 
 impl Document {
+    /// Expand a task-list token — one task, a comma-separated list, or a set
+    /// name — into its distinct task names, first occurrence first.
+    ///
+    /// # Errors
+    /// Returns [`AppError::invalid_input`](rskit_errors::AppError::invalid_input)
+    /// for an empty list entry.
+    pub fn task_list(&self, token: &str) -> rskit_errors::AppResult<Vec<String>> {
+        super::sets::expand_task_list(token, &self.sets)
+    }
+
     /// The composed lifecycle hooks for `verb`, honoring umbrella precedence.
     ///
     /// A release mutation (`bump`/`tag`/`publish`) inherits the umbrella

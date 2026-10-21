@@ -8,6 +8,8 @@ toven modules
 
 Inspection commands are read-only. Use them before executing unfamiliar configuration. There is no `toven inspect` command; this page groups `plan`, `affected`, `explain`, `modules`, `graph`, and `tasks`.
 
+`plan`, `affected` and `explain` accept the same task forms as `toven run`: one task, a comma list (`build,test`) or a `[sets.<name>]` set. A list or set shows the combined plan, its affected modules, or its units.
+
 ## Plan a task
 
 ```text

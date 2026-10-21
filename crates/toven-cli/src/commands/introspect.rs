@@ -87,19 +87,20 @@ impl Reporter for QuietReporter {
 fn build_plan(
     providers: &[&dyn Provider],
     project: &Project,
-    intent: TaskIntent,
+    intents: Vec<TaskIntent>,
     baseline: &BaselineFlags,
     selection: Selection,
     reporter: QuietReporter,
 ) -> AppResult<Plan> {
     build_focused_plan(
-        providers, project, intent, baseline, selection, None, reporter,
+        providers, project, intents, baseline, selection, None, reporter,
     )
     .map(|focused| focused.plan)
 }
 
-/// Build the plan for the scope `selection` and, when `focus` is given, resolve
-/// it to the module keys `explain` narrows its shown units to.
+/// Build the plan for `intents` (a task, or every task of a list or set) over
+/// the scope `selection` and, when `focus` is given, resolve it to the module
+/// keys `explain` narrows its shown units to.
 ///
 /// Caching is disabled and the reporter is quiet except for warnings, matching
 /// [`build_plan`]. The `focus` selection never changes what is planned — the
@@ -107,22 +108,31 @@ fn build_plan(
 /// unit.
 ///
 /// # Errors
-/// Propagates PLAN-spine failures and any focus selector-resolution failure.
+/// Returns an invalid-input error when `intents` is empty, else propagates
+/// PLAN-spine failures and any focus selector-resolution failure.
 fn build_focused_plan(
     providers: &[&dyn Provider],
     project: &Project,
-    intent: TaskIntent,
+    intents: Vec<TaskIntent>,
     baseline: &BaselineFlags,
     selection: Selection,
     focus: Option<&Selection>,
     mut reporter: QuietReporter,
 ) -> AppResult<FocusedPlan> {
+    let mut intents = intents.into_iter();
+    let Some(intent) = intents.next() else {
+        return Err(AppError::invalid_input(
+            "task",
+            "at least one task is required",
+        ));
+    };
     let request = PlanRequest::new(
         new_run_id()?,
         project.document.project.name.clone(),
         intent,
         project.project_root.clone(),
     )
+    .with_also(intents.collect())
     .with_cache_mode(CacheMode::Disabled)
     .with_selection(selection);
 
@@ -184,7 +194,8 @@ pub(crate) fn modules(
     Ok(ExitCode::Success)
 }
 
-/// `toven affected <task>`: the modules with a scheduled unit for `task`.
+/// `toven affected <task>`: the modules with a scheduled unit for `task`, or
+/// for any task of a list or set.
 ///
 /// Renders a titled table by default, or under `--output jsonl` one record per
 /// affected module with the same `{module, workspace, path}` schema as
@@ -196,7 +207,7 @@ pub(crate) fn modules(
 pub(crate) fn affected(
     providers: &[&dyn Provider],
     project: &Project,
-    intent: TaskIntent,
+    intents: Vec<TaskIntent>,
     selection: &TaskSelection,
     output: Option<OutputKind>,
 ) -> AppResult<ExitCode> {
@@ -205,7 +216,7 @@ pub(crate) fn affected(
     let plan = build_plan(
         providers,
         project,
-        intent,
+        intents,
         &selection.baseline,
         resolved,
         QuietReporter::for_output(output),
@@ -244,8 +255,8 @@ pub(crate) fn graph(
     Ok(ExitCode::Success)
 }
 
-/// `toven explain <task>`: the planned units for `task`, optionally focused to
-/// a `--module`/`--workspace` selection.
+/// `toven explain <task>`: the planned units for `task` (or every task of a list
+/// or set), optionally focused to a `--module`/`--workspace` selection.
 ///
 /// An explicit selection focuses the projection: the plan is built over the
 /// full active set (so each shown unit is the *real* batched unit) and only the
@@ -260,15 +271,19 @@ pub(crate) fn graph(
 pub(crate) fn explain(
     providers: &[&dyn Provider],
     project: &Project,
-    intent: TaskIntent,
+    intents: Vec<TaskIntent>,
     selection: &TaskSelection,
 ) -> AppResult<ExitCode> {
     let (scope, focus) = selection.resolve_explain(project.document.project.base_ref.as_deref())?;
-    let task_name = intent.name().to_string();
+    let task_name = intents
+        .iter()
+        .map(TaskIntent::name)
+        .collect::<Vec<_>>()
+        .join(",");
     let FocusedPlan { plan, focus } = build_focused_plan(
         providers,
         project,
-        intent,
+        intents,
         &selection.baseline,
         scope,
         focus.as_ref(),

@@ -40,6 +40,17 @@ pub(super) fn effective_tasks(
         let config_tasks = config_tasks(adapter, ecosystem)?;
         let default = select_task(&config_tasks, intent)
             .ok_or_else(|| unknown_task_error(ecosystem, intent, &config_tasks))?;
+        if !default.modules.is_empty() && !default.modules.contains(&module.id.name) {
+            return Err(AppError::new(
+                rskit_errors::ErrorCode::InvalidInput,
+                format!(
+                    "task '{}' applies only to {ecosystem} modules {}; '{}' is not one of them",
+                    intent.name(),
+                    default.modules.join(", "),
+                    module.id.name
+                ),
+            ));
+        }
         let effective = match overrides.task(key, intent.name()) {
             Some((group, over)) => {
                 let mut merged = merge_task(&default, over);

@@ -17,7 +17,9 @@ use rskit_errors::AppResult;
 use rskit_process::ProcessSupervisor;
 use toven_core::config::ViewMode;
 use toven_engine::apply::ProcessCommandRunner;
-use toven_engine::output::UnitOutputChannel;
+use toven_engine::output::{
+    DEFAULT_FAILURE_TAIL_LINES, PassingOutput, UnitLogs, UnitOutputChannel,
+};
 use toven_ports::{CommandRunner, RawOutputSink};
 
 use crate::host::Project;
@@ -42,7 +44,14 @@ pub(crate) struct LiveApplyBinding<'a> {
     pub(crate) max_parallel: usize,
     /// Where the tmux pane launcher keeps its per-unit temp files.
     pub(crate) pane_dir: &'a Path,
+    /// Whether a passing unit's raw output is printed.
+    pub(crate) passing: PassingOutput,
+    /// The run id that names this run's unit-log directory.
+    pub(crate) run_id: &'a str,
 }
+
+/// How many runs' unit logs are kept under the cache root.
+const KEPT_LOG_RUNS: usize = 20;
 
 /// The assembled live-output APPLY host: the injected command runner and the
 /// per-unit output channel the verb drives its APPLY loop with.
@@ -65,8 +74,12 @@ pub(crate) struct LiveApplyHost {
 /// installed shutdown handle, so a process-level stop reaps every child this
 /// runner spawns as the backstop behind cooperative cancellation.
 ///
+/// Every unit's full output is also written to a private per-run log beside
+/// the cache store, so a quiet run can name the log of a failing unit.
+///
 /// # Errors
-/// Propagates a live-view binding failure (PTY/pane setup).
+/// Propagates a live-view binding failure (PTY/pane setup) or a unit-log
+/// directory failure.
 pub(crate) fn build_live_apply_host(
     project: &Project,
     supervisor: &Arc<ProcessSupervisor>,
@@ -83,6 +96,9 @@ pub(crate) fn build_live_apply_host(
         binding.pane_dir,
     )?;
     let runner: Arc<dyn CommandRunner> = Arc::new(configured_runner);
-    let output = UnitOutputChannel::new(raw_sink);
+    let logs = UnitLogs::create(&project.logs_root()?, binding.run_id, KEPT_LOG_RUNS)?;
+    let output = UnitOutputChannel::new(raw_sink)
+        .with_passing_output(binding.passing, DEFAULT_FAILURE_TAIL_LINES)
+        .with_logs(logs);
     Ok(LiveApplyHost { runner, output })
 }

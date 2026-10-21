@@ -11,8 +11,8 @@ use toven_ports::{AssetDownloader, Provider, Reporter, SignatureVerifier, Versio
 use toven_runtime::{Completed, UnitOperation, UnitSpec};
 
 use super::assets::{
-    BUNDLE_NAME, MANIFEST_NAME, archive_assets, asset_file_name, binary_stem, build_tag,
-    decide_version, digest_hex, extract_binary, parse_manifest, require_identity, safe_join_asset,
+    BUNDLE_NAME, MANIFEST_NAME, archive_assets, asset_file_name, binary_stem, decide_version,
+    digest_hex, extract_binary, hosted_release, parse_manifest, require_identity, safe_join_asset,
 };
 use crate::planning::plan::{release_targets, resolve_release_settings};
 use toven_core::config::Document;
@@ -196,12 +196,6 @@ impl VerifyInputs {
         let settings = resolve_release_settings(&context, &targets)?;
 
         let expected_version = decide_version(&context, &targets, &settings)?;
-        let representative = settings.values().next().ok_or_else(|| {
-            AppError::invalid_input(
-                "release.verify",
-                "no releasable modules resolved; nothing to verify",
-            )
-        })?;
 
         let declared = crate::artifacts::assets::declared_release_assets(&settings);
         let archives = archive_assets(&declared);
@@ -222,6 +216,8 @@ impl VerifyInputs {
             .collect::<AppResult<Vec<_>>>()?;
 
         let (mode, tag, plan) = if options.download {
+            let hosted = hosted_release(&context, &targets, &settings, &expected_version)?;
+            let representative = hosted.settings;
             let identity = require_identity(
                 representative,
                 "identity",
@@ -232,7 +228,7 @@ impl VerifyInputs {
                 "issuer",
                 representative.sign.issuer.as_deref(),
             )?;
-            let tag = build_tag(representative.tag_format.as_deref(), &expected_version);
+            let tag = hosted.tag;
 
             let scratch = TempDir::new()?;
             let dest = scratch.path();

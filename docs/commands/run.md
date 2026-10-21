@@ -20,6 +20,17 @@ toven check --workspace rust
 toven run structure
 ```
 
+## Several tasks in one run
+
+Name several tasks in one comma-separated token, or name a `[sets.<name>]` set (see [configuration](../config/README.md#task-sets)):
+
+```bash
+toven run build,test,lint
+toven verify
+```
+
+Toven plans the tasks into one plan and runs them side by side. List order is not run order. A `--` passthrough needs exactly one task. With `--module`, each task runs on the selected modules it applies to and skips the rest, including modules of an ecosystem that lacks the task (see the task `modules` key). The run fails only if no task applies to any selected module.
+
 ## What happens during a run
 
 A run loads configuration, discovers modules, builds the dependency graph, selects scope, renders argv, checks cache records, and executes misses in dependency waves.
@@ -33,11 +44,17 @@ ok rust:cli test
 summary: 2 passed
 ```
 
+A passing unit prints nothing beyond its status line, including in live views. A failing unit prints the last 200 lines of its output and a `log` line naming the file with its full output. Use `-v` to show every unit's output. It streams live when units run one at a time or in a live view (tiles, panes); parallel units on a plain terminal print each unit's output as one block when it finishes. Persistent services always show output. Quiet units and stdout-gated checks use separate pipes, even on a terminal, so stderr cannot trip a stdout-only check.
+
+A slow output consumer applies backpressure instead of dropping chunks. Every output mode uses the same delivery policy, independent of verbosity and terminal layout. If output cannot reach EOF and finish delivery within the process's post-exit grace period, the unit fails and the run stops rather than claiming a complete log. This includes a descendant that keeps the output pipe open after its parent exits. Toven still tears down held services and reports the failure and log path.
+
+Each run keeps its unit logs in a private (owner-only) directory under `<cache base>/logs/run-<id>/`, beside the cache store. Logs preserve raw bytes; failure tails treat CR, LF and CRLF as line endings and cap each displayed line. Toven keeps the newest 20 runs and never removes a run that is still writing logs, such as a long `watch` session or a run in another terminal. With `--output jsonl`, the `unit-finished` event carries the same path in its `log` field.
+
 With `--output jsonl`, Toven events use stdout and child output uses stderr.
 
 ## Pass task arguments
 
-Toven consumes recognized options at the start of the task argument list. The first token it does not own, and everything after it, is appended unchanged at `{args}`.
+Toven consumes recognized options at the start of the task argument list, in the same forms `toven run` accepts (`--timeout 5s`, `--timeout=5s`, `-j4`, `-vv`). The first token it does not own, and everything after it, is appended unchanged at `{args}`. A short-flag cluster with any letter Toven does not own, such as `-vx`, is passed through whole.
 
 ```bash
 toven test --workspace rust integration --nocapture

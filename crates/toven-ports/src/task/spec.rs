@@ -67,6 +67,11 @@ pub struct Task {
     /// default).
     #[serde(default)]
     pub shared_inputs: Vec<String>,
+    /// The ecosystem's module names this task applies to; empty means every
+    /// module. Default selection skips the others, and explicitly selecting
+    /// one is an error.
+    #[serde(default)]
+    pub modules: Vec<String>,
     /// Orthogonal persistence flag; the `Run` kind seeds this true at init.
     #[serde(default)]
     pub persistent: bool,
@@ -108,6 +113,7 @@ impl Task {
             cacheable: true,
             fail_if_output: false,
             shared_inputs: Vec::new(),
+            modules: Vec::new(),
             persistent: false,
             readiness: Readiness::Started,
             readiness_timeout: DEFAULT_READINESS_TIMEOUT,

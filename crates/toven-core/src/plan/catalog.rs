@@ -12,7 +12,8 @@
 use std::collections::HashSet;
 
 use rskit_errors::AppResult;
-use toven_ports::{FanOut, Provider, TaskOrigin};
+use toven_model::EcosystemId;
+use toven_ports::{FanOut, Provider, TaskKind, TaskOrigin};
 
 use super::configure::configure;
 use crate::config::Document;
@@ -48,7 +49,7 @@ impl TaskCatalog {
 #[non_exhaustive]
 pub struct EcosystemTasks {
     /// The ecosystem id (`rust`, `go`, …).
-    pub ecosystem: String,
+    pub ecosystem: EcosystemId,
     /// The resolved tasks, in the adapter's declaration order.
     pub tasks: Vec<TaskSummary>,
 }
@@ -60,9 +61,9 @@ pub struct TaskSummary {
     /// The canonical name a user types after `toven`/`toven run` — the task's
     /// identity (the config table key).
     pub name: String,
-    /// The task's recognized kind name (`build`, `test`, …, or `default` for a
-    /// task with no recognized kind).
-    pub kind: String,
+    /// The task's recognized kind ([`TaskKind::Default`] when none is
+    /// recognized).
+    pub kind: TaskKind,
     /// Where this resolved task came from (adapter default / project / group).
     pub origin: TaskOrigin,
     /// The intrinsic fan-out capability.
@@ -96,7 +97,7 @@ pub fn task_catalog(document: &Document, providers: &[&dyn Provider]) -> AppResu
             .map(|(key, entry)| entry.materialize(ecosystem.as_str(), key).map(summarize))
             .collect::<AppResult<Vec<_>>>()?;
         ecosystems.push(EcosystemTasks {
-            ecosystem: ecosystem.to_string(),
+            ecosystem: ecosystem.clone(),
             tasks,
         });
     }
@@ -107,7 +108,7 @@ pub fn task_catalog(document: &Document, providers: &[&dyn Provider]) -> AppResu
 fn summarize(task: toven_ports::Task) -> TaskSummary {
     TaskSummary {
         name: task.name,
-        kind: task.kind.as_str().to_string(),
+        kind: task.kind,
         origin: task.origin,
         fan_out: task.fan_out,
         persistent: task.persistent,
@@ -121,7 +122,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use toven_model::EcosystemId;
-    use toven_ports::{FanOut, Provider, Task, TaskOrigin};
+    use toven_ports::{FanOut, Provider, Task, TaskKind, TaskOrigin};
     use toven_testkit::{FakeConfiguredAdapter, FakeProvider};
 
     use super::task_catalog;
@@ -151,6 +152,8 @@ mod tests {
             members: Vec::new(),
             hooks: std::collections::BTreeMap::new(),
             units: std::collections::BTreeMap::new(),
+            sets: std::collections::BTreeMap::new(),
+            doctor: crate::config::DoctorConfig::default(),
         }
     }
 
@@ -187,7 +190,7 @@ mod tests {
 
         assert_eq!(catalog.ecosystems.len(), 1);
         let rust = &catalog.ecosystems[0];
-        assert_eq!(rust.ecosystem, "rust");
+        assert_eq!(rust.ecosystem, EcosystemId::new("rust").unwrap());
         let names: Vec<&str> = rust.tasks.iter().map(|t| t.name.as_str()).collect();
         // Tasks now materialize from the config task table, so they surface in the
         // table's canonical (sorted) key order, not adapter insertion order.
@@ -197,6 +200,8 @@ mod tests {
         // Every task materialized from the config table is Project-origin.
         assert_eq!(rust.tasks[0].origin, TaskOrigin::Project);
         assert_eq!(rust.tasks[1].origin, TaskOrigin::Project);
+        assert_eq!(rust.tasks[1].kind, TaskKind::Format);
+        assert_eq!(rust.tasks[0].kind, TaskKind::Default);
         assert_eq!(catalog.names(), ["bench", "format", "lint"]);
     }
 

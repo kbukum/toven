@@ -70,8 +70,8 @@ pub fn plan(
 /// resolves, against the same discovered graph, which modules the caller wants
 /// to inspect. This keeps `explain --module X` showing the *real* batched unit
 /// `X` belongs to rather than a synthetic single-module cut. Focus resolution
-/// reuses the recognized intent, so its dependency/dependents closures honor
-/// the same kind-aware edge rules.
+/// reuses each task's recognized intent, so its dependency/dependents closures
+/// honor the same kind-aware edge rules; a task list's focus is their union.
 ///
 /// # Errors
 /// Propagates any phase failure (configure/discover/graph/affected/toolchain/
@@ -94,78 +94,181 @@ pub fn plan_focused(
         reporter,
     )?;
 
-    // Recognition is config-authoritative: the addressed task's `kind` attribute
-    // supersedes the name-derived default so a renamed task (`my-test` with `kind =
-    // "test"`) drives the kind-aware dev-edge rule below.
-    let recognized = recognize_intent(request, &context.adapters)?;
-    let request = recognized.as_ref().unwrap_or(request);
-
-    reporter.emit(&Event::PhaseStarted {
-        phase: Phase::Affected,
-    })?;
-    let active = affected::active_modules(request, &context.graph, &context.federation, host.vcs)?;
-    let active = affected::restrict_to_task_defining(active, request, &context.adapters);
-    if !active.full_activation.is_empty() {
-        reporter.emit(&Event::FullActivation {
-            paths: active.full_activation.clone(),
-        })?;
-    }
-    reporter.emit(&Event::PhaseFinished {
-        phase: Phase::Affected,
-    })?;
-
-    reporter.emit(&Event::PhaseStarted {
-        phase: Phase::Toolchain,
-    })?;
-    let toolchains = toolchain::resolve(
-        &request.project_root,
-        &context.federation,
-        &active.modules,
-        &context.adapters,
-        host.prober,
-        &request.intent,
-    )?;
-    reporter.emit(&Event::PhaseFinished {
-        phase: Phase::Toolchain,
-    })?;
-
-    reporter.emit(&Event::PhaseStarted {
-        phase: Phase::Schedule,
-    })?;
-    let active_list: Vec<ModuleKey> = active.modules.iter().cloned().collect();
-    let scheduled = schedule::schedule(
-        request,
-        &context.federation,
-        &active_list,
-        &context.adapters,
-        &context.group_overrides,
-        &toolchains,
-    )?;
-    let units = decide_cache(
-        request,
-        &context.federation,
-        &context.graph,
-        &scheduled,
-        host,
-        reporter,
-    )?;
-    reporter.emit(&Event::PhaseFinished {
-        phase: Phase::Schedule,
-    })?;
+    // Every requested task is planned against the one discovered federation and
+    // merged into a single plan: units are task-qualified (`module#task`), so the
+    // tasks never collide and run side by side under one scheduler. The phases
+    // run task-by-task inside each phase so every phase is reported once.
+    let requests = request
+        .split_by_intent()
+        .into_iter()
+        .map(|single| {
+            // Recognition is config-authoritative: the addressed task's `kind`
+            // attribute supersedes the name-derived default so a renamed task
+            // (`my-test` with `kind = "test"`) drives the kind-aware dev-edge rule.
+            Ok(recognize_intent(&single, &context.adapters)?.unwrap_or(single))
+        })
+        .collect::<AppResult<Vec<_>>>()?;
+    let (units, waves) = plan_intents(&requests, &context, host, reporter)?;
+    ensure_unique_unit_ids(&units)?;
 
     reporter.emit(&Event::PlanPrepared {
-        waves: scheduled.waves.len(),
+        waves: waves.len(),
         units: units.len(),
     })?;
 
+    // Each task's closure follows its own kind-aware edge rules; a list's
+    // focus is their union.
     let focus = focus
-        .map(|selection| resolve_focus(request, selection, &context, host))
+        .map(|selection| {
+            requests
+                .iter()
+                .try_fold(BTreeSet::new(), |mut keys, single| {
+                    keys.extend(resolve_focus(single, selection, &context, host)?);
+                    Ok::<_, AppError>(keys)
+                })
+        })
         .transpose()?;
 
     Ok(FocusedPlan {
-        plan: Plan::new(units, scheduled.waves),
+        plan: Plan::new(units, waves),
         focus,
     })
+}
+
+/// Plan every recognized single-task request (Affected→Schedule) against the
+/// prepared federation, merging units and same-index waves into one plan.
+fn plan_intents(
+    requests: &[PlanRequest],
+    context: &front::PlanContext,
+    host: PlanHost<'_>,
+    reporter: &mut dyn Reporter,
+) -> AppResult<(Vec<ExecutionUnit>, Vec<Vec<String>>)> {
+    reporter.emit(&Event::PhaseStarted {
+        phase: Phase::Affected,
+    })?;
+    let explicit = if requests.len() > 1 {
+        affected::ExplicitScope::Narrow
+    } else {
+        affected::ExplicitScope::Strict
+    };
+    let mut actives = Vec::with_capacity(requests.len());
+    for request in requests {
+        let active =
+            affected::active_modules(request, &context.graph, &context.federation, host.vcs)?;
+        let active = affected::restrict_to_task_defining(
+            active,
+            request,
+            &context.federation,
+            &context.adapters,
+            explicit,
+        )?;
+        if !active.full_activation.is_empty() {
+            reporter.emit(&Event::FullActivation {
+                paths: active.full_activation.clone(),
+            })?;
+        }
+        actives.push(active);
+    }
+    ensure_some_task_applies(requests, &actives, explicit)?;
+    reporter.emit(&Event::PhaseFinished {
+        phase: Phase::Affected,
+    })?;
+
+    reporter.emit(&Event::PhaseStarted {
+        phase: Phase::Toolchain,
+    })?;
+    let mut toolchains = Vec::with_capacity(requests.len());
+    for (request, active) in requests.iter().zip(&actives) {
+        toolchains.push(toolchain::resolve(
+            &request.project_root,
+            &context.federation,
+            &active.modules,
+            &context.adapters,
+            host.prober,
+            &request.intent,
+        )?);
+    }
+    reporter.emit(&Event::PhaseFinished {
+        phase: Phase::Toolchain,
+    })?;
+
+    reporter.emit(&Event::PhaseStarted {
+        phase: Phase::Schedule,
+    })?;
+    let mut units = Vec::new();
+    let mut waves: Vec<Vec<String>> = Vec::new();
+    for ((request, active), toolchains) in requests.iter().zip(&actives).zip(&toolchains) {
+        let active_list: Vec<ModuleKey> = active.modules.iter().cloned().collect();
+        let scheduled = schedule::schedule(
+            request,
+            &context.federation,
+            &active_list,
+            &context.adapters,
+            &context.group_overrides,
+            toolchains,
+        )?;
+        units.extend(decide_cache(
+            request,
+            &context.federation,
+            &context.graph,
+            &scheduled,
+            host,
+            reporter,
+        )?);
+        for (index, wave) in scheduled.waves.into_iter().enumerate() {
+            match waves.get_mut(index) {
+                Some(merged) => merged.extend(wave),
+                None => waves.push(wave),
+            }
+        }
+    }
+    reporter.emit(&Event::PhaseFinished {
+        phase: Phase::Schedule,
+    })?;
+    Ok((units, waves))
+}
+
+/// Reject a task list whose tasks all skip every explicitly selected module, so
+/// a narrowed list never turns a mistyped selection into an empty success.
+fn ensure_some_task_applies(
+    requests: &[PlanRequest],
+    actives: &[affected::ActiveModules],
+    explicit: affected::ExplicitScope,
+) -> AppResult<()> {
+    let Some(first) = requests.first() else {
+        return Ok(());
+    };
+    if explicit != affected::ExplicitScope::Narrow
+        || !matches!(first.selection, Selection::Explicit { .. })
+        || actives.iter().any(|active| !active.modules.is_empty())
+    {
+        return Ok(());
+    }
+    let tasks: Vec<&str> = requests
+        .iter()
+        .map(|request| request.intent.name())
+        .collect();
+    Err(AppError::new(
+        rskit_errors::ErrorCode::InvalidInput,
+        format!(
+            "none of the tasks {} applies to the selected modules",
+            tasks.join(", ")
+        ),
+    ))
+}
+
+/// Reject a merged plan in which two tasks produced the same unit id.
+fn ensure_unique_unit_ids(units: &[ExecutionUnit]) -> AppResult<()> {
+    let mut seen = BTreeSet::new();
+    for unit in units {
+        if !seen.insert(unit.id.as_str()) {
+            return Err(AppError::new(
+                rskit_errors::ErrorCode::Internal,
+                format!("two planned tasks produced the same unit '{}'", unit.id),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Resolve an `explain` display focus to concrete module keys.
@@ -188,8 +291,15 @@ fn resolve_focus(
         &context.federation,
         host.vcs,
     )
-    .map(|active| {
-        affected::restrict_to_task_defining(active, &focus_request, &context.adapters).modules
+    .and_then(|active| {
+        affected::restrict_to_task_defining(
+            active,
+            &focus_request,
+            &context.federation,
+            &context.adapters,
+            affected::ExplicitScope::Strict,
+        )
+        .map(|active| active.modules)
     })
 }
 

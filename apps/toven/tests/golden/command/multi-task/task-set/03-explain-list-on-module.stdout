@@ -1,0 +1,10 @@
+            unit:  command:worker#test
+  representative:  command:worker
+         modules:  command:worker
+          target:  command:worker
+            task:  test
+          origin:  project
+            argv:  ["echo", "multi-task test override"]
+      persistent:  false
+      depends_on:  
+

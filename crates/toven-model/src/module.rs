@@ -49,6 +49,12 @@ pub struct Module {
     /// its consumers.
     #[serde(default)]
     pub cache_inputs_complete: bool,
+    /// Project-relative directories outside the module graph that this module
+    /// builds from (for example a Go `replace` to a sibling checkout). They may
+    /// start with `..`. Their content joins the module's source identity, and
+    /// because version control cannot see them the module is always affected.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub external_roots: Vec<String>,
 }
 
 const fn default_true() -> bool {
@@ -77,6 +83,7 @@ impl Module {
             resource_group: None,
             runnable: true,
             cache_inputs_complete: true,
+            external_roots: Vec::new(),
         }
     }
 

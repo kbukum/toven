@@ -259,6 +259,8 @@ mod tests {
             members,
             hooks: BTreeMap::new(),
             units: BTreeMap::new(),
+            sets: BTreeMap::new(),
+            doctor: crate::config::DoctorConfig::default(),
         }
     }
 

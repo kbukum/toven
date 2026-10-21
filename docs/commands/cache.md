@@ -85,7 +85,7 @@ A unit re-runs when any of these inputs change:
 
 Persistent tasks, tasks with `cacheable = false`, and units whose mutable dependencies are not fully represented in the discovered source graph are never cached. Discovery metadata must advertise complete inputs; missing metadata is not trusted. This restriction propagates to consumers and batched units; `--refresh` cannot override it.
 
-Go discovery checks local replacements in both `go.mod` and a root `go.work`. A replacement keeps caching only when its dependency edge resolves to the same discovered module directory. External or unrepresented local replacements run uncached without walking their source trees. Filesystem errors while resolving a represented replacement are surfaced rather than treated as verified inputs.
+Go discovery checks local replacements in both `go.mod` and a root `go.work`. A replacement that points at the same package's discovered module is covered by that module's own hash. Any other local replacement, such as a sibling checkout (`replace example.com/kit => ../../kit`), becomes an external root of the module: its tree is hashed into the module's cache key, and the module always counts as changed for `--base` selection because version control cannot see it. A cache hit keeps that rerun cheap. A missing external directory is an error, not a silent miss. A replacement that points at the project root or one of its parents, other than a module discovered there, is a discovery error, since hashing it would fold the whole project into every key.
 
 Changed-work selection also keeps these modules and their consumers active: repository diffs cannot prove that an unrepresented dependency is unchanged.
 

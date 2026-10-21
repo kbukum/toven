@@ -587,6 +587,8 @@ mod tests {
             members: Vec::new(),
             hooks: std::collections::BTreeMap::new(),
             units: std::collections::BTreeMap::new(),
+            sets: std::collections::BTreeMap::new(),
+            doctor: toven_core::config::DoctorConfig::default(),
         }
     }
 

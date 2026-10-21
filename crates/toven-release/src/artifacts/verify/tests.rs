@@ -60,6 +60,8 @@ fn document() -> Document {
         members: Vec::new(),
         hooks: std::collections::BTreeMap::new(),
         units: std::collections::BTreeMap::new(),
+        sets: std::collections::BTreeMap::new(),
+        doctor: toven_core::config::DoctorConfig::default(),
     }
 }
 
@@ -75,8 +77,27 @@ fn request(root: &Path) -> PlanRequest {
 /// A provider whose ecosystem declares `assets` and the given `sign` config,
 /// with a release target reporting `VERSION`.
 fn provider(assets: Vec<&str>, sign: SignConfig) -> FakeProvider {
+    provider_with_tag_format(assets, sign, None)
+}
+
+/// [`provider`] with an optional configured `tag_format`.
+fn provider_with_tag_format(
+    assets: Vec<&str>,
+    sign: SignConfig,
+    tag_format: Option<&str>,
+) -> FakeProvider {
+    provider_for(&["cli"], assets, sign, tag_format)
+}
+
+/// [`provider_with_tag_format`] discovering the named modules.
+fn provider_for(
+    modules: &[&str],
+    assets: Vec<&str>,
+    sign: SignConfig,
+    tag_format: Option<&str>,
+) -> FakeProvider {
     let mut response = DiscoverResponse::new(eid("rust"));
-    response.modules = vec![module("cli")];
+    response.modules = modules.iter().map(|name| module(name)).collect();
     let common = CommonEcosystemConfig {
         release: ReleaseConfig {
             host: Some(HostConfig {
@@ -85,6 +106,7 @@ fn provider(assets: Vec<&str>, sign: SignConfig) -> FakeProvider {
                 ..HostConfig::default()
             }),
             sign: Some(sign),
+            tag_format: tag_format.map(str::to_string),
             ..ReleaseConfig::default()
         },
         ..CommonEcosystemConfig::default()
@@ -279,15 +301,155 @@ fn stage_remote(tamper: bool) -> (TempDir, String) {
 }
 
 fn signed_provider() -> FakeProvider {
-    let sign = SignConfig {
+    provider(vec![LINUX_ARCHIVE], signed_sign())
+}
+
+fn signed_sign() -> SignConfig {
+    SignConfig {
         enabled: true,
         signer: None,
         identity: Some(
             "https://github.com/kbukum/toven/.github/workflows/release.yml@.*".to_string(),
         ),
         issuer: Some("https://token.actions.githubusercontent.com".to_string()),
-    };
-    provider(vec![LINUX_ARCHIVE], sign)
+    }
+}
+
+#[test]
+fn download_verify_fetches_the_tag_the_release_target_builds() {
+    let (_remote, remote_path) = stage_remote(false);
+    let root = TempDir::new().unwrap();
+    let provider = provider_with_tag_format(
+        vec![LINUX_ARCHIVE],
+        signed_sign(),
+        Some("{ecosystem}/{module}@{version}"),
+    );
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+    let mut reporter = RecordingReporter::new();
+    let downloader = FakeAssetDownloader::from_dir(remote_path);
+    let verifier = FakeSignatureVerifier::new();
+    let probe = FakeVersionProbe::reporting(format!("toven {VERSION}"));
+
+    let report = release_verify(
+        &request(root.path()),
+        &document(),
+        &providers,
+        &readers,
+        VerifyOptions {
+            download: true,
+            run: false,
+        },
+        &downloader,
+        &verifier,
+        &probe,
+        &mut reporter,
+    )
+    .unwrap();
+
+    let expected = format!("rust/cli@{VERSION}");
+    assert_eq!(report.tag.as_deref(), Some(&*expected));
+    assert_eq!(downloader.tags(), vec![expected]);
+}
+
+/// A document whose per-module override for `key` is set by `apply`.
+fn document_with(key: &str, apply: fn(&mut toven_core::config::ModuleConfig)) -> Document {
+    let mut document = document();
+    let mut config = toven_core::config::ModuleConfig::default();
+    apply(&mut config);
+    document.modules.insert(key.to_string(), config);
+    document
+}
+
+/// Download-verify `modules` (each tagged `{module}-v{version}`) under
+/// `document`, returning the downloaded tags or the error.
+fn download_tags(modules: &[&str], document: &Document) -> Result<Vec<String>, String> {
+    download_tags_formatted(modules, document, "{module}-v{version}")
+}
+
+/// [`download_tags`] with every module tagged by `tag_format`.
+fn download_tags_formatted(
+    modules: &[&str],
+    document: &Document,
+    tag_format: &str,
+) -> Result<Vec<String>, String> {
+    let (_remote, remote_path) = stage_remote(false);
+    let root = TempDir::new().unwrap();
+    let provider = provider_for(
+        modules,
+        vec![LINUX_ARCHIVE],
+        signed_sign(),
+        Some(tag_format),
+    );
+    let providers: Vec<&dyn Provider> = vec![&provider];
+    let reader = FakeVcsReader::new();
+    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
+    let mut reporter = RecordingReporter::new();
+    let downloader = FakeAssetDownloader::from_dir(remote_path);
+    let probe = FakeVersionProbe::reporting(format!("toven {VERSION}"));
+    release_verify(
+        &request(root.path()),
+        document,
+        &providers,
+        &readers,
+        VerifyOptions {
+            download: true,
+            run: false,
+        },
+        &downloader,
+        &FakeSignatureVerifier::new(),
+        &probe,
+        &mut reporter,
+    )
+    .map(|_| downloader.tags())
+    .map_err(|error| error.to_string())
+}
+
+#[test]
+fn download_verify_fetches_the_umbrella_release_of_a_train() {
+    let document = document_with("rust:toven", |config| {
+        config.release.umbrella = Some(true);
+    });
+    let tags = download_tags(&["core", "toven"], &document).unwrap();
+    assert_eq!(tags, vec![format!("toven-v{VERSION}")]);
+}
+
+#[test]
+fn download_verify_skips_modules_that_do_not_release() {
+    let document = document_with("rust:aaa", |config| {
+        config.release.exclude = Some(true);
+        config.release.host = Some(toven_ports::HostConfig {
+            assets: Some(Vec::new()),
+            ..toven_ports::HostConfig::default()
+        });
+    });
+    let tags = download_tags(&["aaa", "cli"], &document).unwrap();
+    assert_eq!(tags, vec![format!("cli-v{VERSION}")]);
+}
+
+#[test]
+fn download_verify_fails_when_hosted_releases_differ() {
+    let error = download_tags(&["api", "cli"], &document()).unwrap_err();
+    assert!(
+        error.contains(&format!("api-v{VERSION}")) && error.contains(&format!("cli-v{VERSION}")),
+        "{error}"
+    );
+}
+
+#[test]
+fn download_verify_fails_when_one_tag_names_releases_on_different_forges() {
+    let document = document_with("rust:api", |config| {
+        config.release.host = Some(toven_ports::HostConfig {
+            forge: Some("gitlab".to_string()),
+            ..toven_ports::HostConfig::default()
+        });
+    });
+    let error = download_tags_formatted(&["api", "cli"], &document, "v{version}").unwrap_err();
+    assert!(
+        error.contains("github") && error.contains("gitlab"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -320,7 +482,8 @@ fn download_verify_signature_then_checksum_then_run() {
     .unwrap();
 
     assert_eq!(report.mode, VerifyMode::Download);
-    assert_eq!(report.tag.as_deref(), Some(&*format!("v{VERSION}")));
+    // No `tag_format`: the tag follows the release target's default scheme.
+    assert_eq!(report.tag.as_deref(), Some(&*format!("rust/cli@{VERSION}")));
     assert_eq!(report.assets[0].checksum_ok, Some(true));
     assert_eq!(report.assets[0].signature_ok, Some(true));
     assert!(report.assets[0].ran);

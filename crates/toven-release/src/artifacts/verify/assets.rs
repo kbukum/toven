@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -193,13 +193,104 @@ pub(super) fn require_identity<'a>(
     })
 }
 
-/// Build the release tag from the configured tag format (default `v{version}`)
-/// by substituting the decided version.
-#[allow(clippy::literal_string_with_formatting_args)]
-pub(super) fn build_tag(tag_format: Option<&str>, version: &Version) -> String {
-    tag_format
-        .unwrap_or("v{version}")
-        .replace("{version}", &version.to_string())
+/// The hosted Release that download-verify fetches: its tag and the settings of
+/// the module that cuts it.
+pub(super) struct HostedRelease<'a> {
+    pub(super) tag: String,
+    pub(super) settings: &'a ResolvedReleaseSettings,
+    forge: &'a str,
+    member: Option<toven_model::MemberId>,
+}
+
+impl HostedRelease<'_> {
+    /// Whether `other` is the same hosted Release: the host phase keys a
+    /// Release by forge, member repo and tag, so a shared tag alone is not.
+    fn same_release(&self, other: &Self) -> bool {
+        self.forge == other.forge && self.member == other.member && self.tag == other.tag
+    }
+
+    fn label(&self) -> String {
+        let release = format!("{} on {}", self.tag, self.forge);
+        let Some(member) = &self.member else {
+            return release;
+        };
+        format!("{release} ({member})")
+    }
+}
+
+/// The hosted Release for `version`, chosen as the host phase chooses: only a
+/// releasing module with a forge cuts one, and in an umbrella train only the
+/// umbrella module does. Every such module must name the same Release (forge,
+/// member repo and tag); otherwise the archives could live on any of them, so
+/// this fails rather than guesses.
+pub(super) fn hosted_release<'a>(
+    context: &toven_core::plan::PlanContext,
+    targets: &crate::ReleaseTargets,
+    settings: &'a BTreeMap<toven_model::ModuleKey, ResolvedReleaseSettings>,
+    version: &Version,
+) -> AppResult<HostedRelease<'a>> {
+    let cutting: Vec<_> = context
+        .federation
+        .modules
+        .iter()
+        .filter_map(|module| {
+            let resolved = settings.get(&module.key())?;
+            let forge = resolved.host.forge.as_deref()?;
+            resolved
+                .publication
+                .releases()
+                .then_some((module, resolved, forge))
+        })
+        .collect();
+    let umbrella_members: BTreeSet<_> = cutting
+        .iter()
+        .filter(|(_, resolved, _)| resolved.umbrella)
+        .map(|(module, _, _)| &module.member)
+        .collect();
+    let mut releases: Vec<HostedRelease<'a>> = Vec::new();
+    for (module, resolved, forge) in cutting {
+        if !resolved.umbrella && umbrella_members.contains(&module.member) {
+            continue;
+        }
+        let target = targets
+            .get(&(module.member.clone(), module.id.ecosystem.clone()))
+            .ok_or_else(|| {
+                AppError::invalid_input(
+                    "release.target",
+                    format!("module '{}' has no release target", module.key()),
+                )
+            })?;
+        let scheme = target.tag_scheme(module, resolved.tag_format.as_deref())?;
+        let tag = crate::model::tag::format(&scheme, version);
+        let release = HostedRelease {
+            tag,
+            settings: resolved,
+            forge,
+            member: module.member.clone(),
+        };
+        if !releases.iter().any(|known| known.same_release(&release)) {
+            releases.push(release);
+        }
+    }
+    match releases.len() {
+        0 => Err(AppError::invalid_input(
+            "release.verify",
+            "no releasable module cuts a hosted Release to verify against",
+        )),
+        1 => Ok(releases.remove(0)),
+        _ => Err(AppError::invalid_input(
+            "release.verify",
+            format!(
+                "modules cut different hosted Releases ({}); verify needs a single Release \
+                 (declare an umbrella module or a shared tag_format)",
+                releases
+                    .iter()
+                    .map(HostedRelease::label)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        )),
+    }
 }
 
 /// Resolve a declared project-relative asset to an absolute path, mapping a

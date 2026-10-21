@@ -3,9 +3,10 @@
 //! Release-engine tests script image-publish outcomes and record calls here
 //! instead of shelling to a real `docker buildx`/`cosign`. It is `Clone`
 //! (shared state via `Arc<Mutex<…>>`) so a test can hold a recording handle
-//! while the engine drives a boxed copy. It can be scripted to already hold a
-//! tag at a digest (so the immutable preview and the divergent-tag fail-closed
-//! path are exercised offline) or to fail outright.
+//! while the engine drives a boxed copy. It can be scripted to report the
+//! digest a tag already holds (for previews and provenance) or to fail
+//! outright. It returns data only: the immutable divergent-tag rule lives in
+//! the real publisher and is tested there.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -27,8 +28,8 @@ pub struct ImageCall {
 struct FakeImageState {
     digest: String,
     outcome: ImageOutcome,
-    /// A digest an existing tag already points at (scripts the preview and the
-    /// divergent-tag fail-closed path).
+    /// The digest `resolve_digest` reports for references without their own
+    /// entry.
     existing_digest: Option<String>,
     reference_digests: BTreeMap<String, String>,
     fail: Option<String>,
@@ -88,8 +89,7 @@ impl FakeImagePhase {
     }
 
     /// Script the digest an existing tag already points at, as reported by
-    /// `resolve_digest`. When it differs from the built digest, `publish_image`
-    /// fails closed on the divergent tag.
+    /// `resolve_digest`.
     #[must_use]
     pub fn with_existing_digest(self, digest: impl Into<String>) -> Self {
         self.state().existing_digest = Some(digest.into());
@@ -133,18 +133,6 @@ impl ImagePhase for FakeImagePhase {
         if let Some(message) = &state.fail {
             return Err(AppError::new(ErrorCode::Internal, message.clone()));
         }
-        if let Some(existing) = &state.existing_digest
-            && existing != &state.digest
-        {
-            return Err(AppError::invalid_input(
-                "release.image",
-                format!(
-                    "tag already exists at digest {existing}, not the built {}; releases are \
-                     immutable — cut a forward-fix version rather than move the tag",
-                    state.digest
-                ),
-            ));
-        }
         Ok(ImagePublishOutcome::new(
             state.outcome,
             state.digest.clone(),
@@ -184,18 +172,6 @@ mod tests {
             .expect("ok");
         assert_eq!(outcome.digest, "sha256:abc");
         assert_eq!(outcome.outcome, ImageOutcome::Pushed);
-        assert_eq!(phase.calls().len(), 1);
-    }
-
-    #[test]
-    fn divergent_existing_tag_fails_closed() {
-        let phase = FakeImagePhase::new()
-            .with_digest("sha256:new")
-            .with_existing_digest("sha256:old");
-        let error = phase
-            .publish_image(Path::new("/repo"), &request())
-            .expect_err("divergent tag fails");
-        assert!(error.to_string().contains("immutable"), "{error}");
         assert_eq!(phase.calls().len(), 1);
     }
 

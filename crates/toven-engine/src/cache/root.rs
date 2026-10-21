@@ -45,11 +45,39 @@ pub fn resolve_root(project_root: &AbsPath, configured_dir: Option<&str>) -> App
     })
 }
 
+/// Directory, beside the format-versioned store, that holds per-run unit logs.
+const LOGS_DIR: &str = "logs";
+
+/// Resolve the unit-log root for a workspace: the same base as
+/// [`resolve_root`] but outside its format-version segment, so logs are never
+/// mistaken for cache records and survive a cache-format bump.
+///
+/// # Errors
+/// The same as [`resolve_root`].
+pub fn resolve_logs_root(
+    project_root: &AbsPath,
+    configured_dir: Option<&str>,
+) -> AppResult<PathBuf> {
+    let base = resolve_base_with(project_root, configured_dir, || {
+        rskit_util::env::get_non_empty(CACHE_DIR_ENV)
+    })?;
+    Ok(base.join(LOGS_DIR))
+}
+
 /// Resolve the cache root with an injected environment override accessor.
 ///
 /// Keeps the precedence logic deterministically testable without mutating
 /// process environment state.
 fn resolve_root_with(
+    project_root: &AbsPath,
+    configured_dir: Option<&str>,
+    env_override: impl Fn() -> Option<String>,
+) -> AppResult<PathBuf> {
+    Ok(resolve_base_with(project_root, configured_dir, env_override)?.join(CACHE_FORMAT_VERSION))
+}
+
+/// Resolve the unversioned cache base under the documented precedence.
+fn resolve_base_with(
     project_root: &AbsPath,
     configured_dir: Option<&str>,
     env_override: impl Fn() -> Option<String>,
@@ -62,7 +90,7 @@ fn resolve_root_with(
                 format!("{CACHE_DIR_ENV} must be an absolute path"),
             ));
         }
-        return Ok(base.join(CACHE_FORMAT_VERSION));
+        return Ok(base);
     }
     if let Some(dir) = configured_dir.filter(|dir| !dir.is_empty()) {
         let base = safe_join(project_root.as_path(), dir).map_err(|error| {
@@ -71,18 +99,16 @@ fn resolve_root_with(
                 format!("cache dir '{dir}' escapes the project root: {error}"),
             )
         })?;
-        return Ok(base.join(CACHE_FORMAT_VERSION));
+        return Ok(base);
     }
     let digest = hash_hex(project_root.as_path().to_string_lossy().as_bytes());
     let workspace_id = &digest[..16];
-    Ok(app_cache_dir(APP_NAME)?
-        .join(workspace_id)
-        .join(CACHE_FORMAT_VERSION))
+    Ok(app_cache_dir(APP_NAME)?.join(workspace_id))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{CACHE_FORMAT_VERSION, resolve_root_with};
+    use super::{CACHE_FORMAT_VERSION, LOGS_DIR, resolve_base_with, resolve_root_with};
     use std::path::Path;
     use toven_model::AbsPath;
 
@@ -149,5 +175,14 @@ mod tests {
         let resolved = resolve_root_with(&root(), None, || None).expect("resolved");
         assert!(resolved.ends_with(CACHE_FORMAT_VERSION));
         assert!(!resolved.starts_with(root().as_path()));
+    }
+
+    #[test]
+    fn logs_sit_beside_the_versioned_store() {
+        let base = resolve_base_with(&root(), Some("local"), || None).expect("base");
+        let store = resolve_root_with(&root(), Some("local"), || None).expect("store");
+        assert_eq!(store, base.join(CACHE_FORMAT_VERSION));
+        assert_ne!(base.join(LOGS_DIR), store);
+        assert!(!base.join(LOGS_DIR).starts_with(&store));
     }
 }

@@ -16,8 +16,8 @@ use toven_testkit::SampleRepo;
 use toven_testkit::fixtures::scenario_path;
 use toven_testkit::git::GitScenario;
 use toven_testkit::scenario::{
-    GitCommit, GitScript, GitTag, Report, StepStatus, apply_git_script, discover_scenarios,
-    run_scenario_with,
+    GitCommit, GitScript, GitTag, Report, SkipPolicy, StepStatus, apply_git_script,
+    discover_scenarios, run_scenario_with,
 };
 
 /// A deterministic stand-in for the `toven` binary: behavior keyed by argv[0],
@@ -105,6 +105,23 @@ fn golden_mismatch_names_step_and_stream() {
     };
     assert!(message.contains("01-echo"), "names the step: {message}");
     assert!(message.contains("stdout"), "names the stream: {message}");
+
+    let verdict = report
+        .verdict(SkipPolicy::Allow)
+        .expect_err("a failed step fails the verdict under any skip policy");
+    assert!(verdict.contains("step '01-echo' failed"), "{verdict}");
+    assert!(
+        verdict.contains(message.as_str()),
+        "carries the diff: {verdict}"
+    );
+}
+
+#[test]
+fn skip_policy_reads_the_required_tools_switch() {
+    assert_eq!(SkipPolicy::from_value(None), SkipPolicy::Allow);
+    assert_eq!(SkipPolicy::from_value(Some("")), SkipPolicy::Allow);
+    assert_eq!(SkipPolicy::from_value(Some("0")), SkipPolicy::Allow);
+    assert_eq!(SkipPolicy::from_value(Some("1")), SkipPolicy::Fail);
 }
 
 #[test]
@@ -153,10 +170,15 @@ fn missing_toolchain_skips_green() {
     let scenario = scenario_path("engine/requires-cargo").unwrap();
 
     let report = run_scenario_with(&binary, &scenario, GoldenMode::Verify, |_| false).unwrap();
-    let Report::Skipped { tool } = report else {
+    let Report::Skipped { tool } = &report else {
         panic!("expected a skipped report, got {report:?}");
     };
     assert_eq!(tool, "cargo");
+    assert_eq!(report.verdict(SkipPolicy::Allow), Ok(()));
+    let message = report
+        .verdict(SkipPolicy::Fail)
+        .expect_err("a required-tools run fails a skipped scenario");
+    assert!(message.contains("`cargo`"), "names the tool: {message}");
 
     // With the toolchain present the same scenario runs.
     let report = run_scenario_with(&binary, &scenario, GoldenMode::Verify, |tool| {
@@ -193,7 +215,15 @@ fn step_gate_skips_only_the_gated_step() {
         "later steps still run: {:?}",
         steps[2].1
     );
-    assert!(report.is_green());
+    assert_eq!(report.verdict(SkipPolicy::Allow), Ok(()));
+    let message = report
+        .verdict(SkipPolicy::Fail)
+        .expect_err("a required-tools run fails a skipped step");
+    assert!(message.contains("02-gated"), "names the step: {message}");
+    assert!(
+        message.contains("`cargo-cyclonedx`"),
+        "names the tool: {message}"
+    );
 }
 
 #[test]

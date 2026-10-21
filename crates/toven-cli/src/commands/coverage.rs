@@ -68,11 +68,14 @@ pub(crate) fn execute(
     rskit_fs::sync_io::dir::create_all(&staging)?;
 
     let measured = measure(providers, supervisor, project, cli, &selection)?;
-    let output = resolve_output(cli.output, &project.document);
+    let output = resolve_output(cli.execution.output, &project.document);
     // In human mode the per-module verdicts render as an indented list under
     // this header; JSONL mode stays events-only.
     if matches!(output, OutputKind::Human) {
-        eprintln!("{}", stderr_theme(cli.color_choice()).heading("Coverage"));
+        eprintln!(
+            "{}",
+            stderr_theme(cli.execution.color_choice()).heading("Coverage")
+        );
     }
     let report = stream(providers, project, cli, &selection, &overrides)?;
 
@@ -87,7 +90,11 @@ pub(crate) fn execute(
         };
         eprintln!(
             "{}",
-            stderr_theme(cli.color_choice()).action("Finished", &summary_line(&report), tone,)
+            stderr_theme(cli.execution.color_choice()).action(
+                "Finished",
+                &summary_line(&report),
+                tone,
+            )
         );
     }
 
@@ -129,8 +136,8 @@ fn measure(
 ) -> AppResult<ExitCode> {
     let report = Report::resolve(
         Some(OutputKind::Human),
-        cli.verbosity(),
-        cli.color_choice(),
+        cli.execution.verbosity(),
+        cli.execution.color_choice(),
         &project.document,
     );
     crate::commands::run::execute(
@@ -138,7 +145,7 @@ fn measure(
         supervisor,
         project,
         report,
-        TaskIntent::resolve(COVERAGE_TASK),
+        vec![TaskIntent::resolve(COVERAGE_TASK)],
         Vec::new(),
         false,
         false,
@@ -153,7 +160,7 @@ fn measure(
         None,
         // Per-module coverage tasks fan out like any run, so they share its
         // CPU budget: the flag, else `[toven].compute_budget`.
-        cli.compute_budget,
+        cli.execution.compute_budget,
         selection,
     )
 }
@@ -180,9 +187,9 @@ fn stream(
     let opened = project.open_member_vcs(providers, &selection.baseline)?;
     let readers = opened.readers();
     let report = Report::resolve(
-        cli.output,
-        cli.verbosity(),
-        cli.color_choice(),
+        cli.execution.output,
+        cli.execution.verbosity(),
+        cli.execution.color_choice(),
         &project.document,
     );
     let mut reporter = report.reporter();
@@ -199,11 +206,11 @@ fn stream(
 /// Build the coverage selection from the global selection flags.
 fn coverage_selection(cli: &Cli) -> TaskSelection {
     TaskSelection {
-        baseline: cli.baseline_flags(),
-        modules: cli.module.clone(),
-        workspaces: cli.workspace.clone(),
-        with_dependents: cli.with_dependents,
-        with_dependencies: cli.with_dependencies,
+        baseline: cli.execution.baseline_flags(),
+        modules: cli.execution.module.clone(),
+        workspaces: cli.execution.workspace.clone(),
+        with_dependents: cli.execution.with_dependents,
+        with_dependencies: cli.execution.with_dependencies,
     }
 }
 
