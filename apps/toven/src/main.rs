@@ -1,7 +1,7 @@
 //! `toven` — the umbrella CLI bundling every first-party adapter.
 //!
-//! Explicit constructor wiring (no DI container): build the Rust, Go, and
-//! command providers, hand the bundled set to the shared [`toven_cli::run`]
+//! Explicit constructor wiring (no DI container): build the Rust, Go, JavaScript,
+//! and command providers, hand the bundled set to the shared [`toven_cli::run`]
 //! dispatcher, and exit with the resulting process code. A repository selects
 //! whichever ecosystems it declares in `toven.toml`; unused adapters simply
 //! contribute no configured sections.
@@ -13,6 +13,7 @@ use rskit_cli::ExitCode as CliExit;
 use toven_command::CommandProvider;
 use toven_exec::{LifecyclePolicy, ProcessSupervisor, ProcessToolRunner};
 use toven_go::GoProvider;
+use toven_js::JsProvider;
 use toven_ports::{Provider, ToolRunner};
 use toven_rust::RustProvider;
 
@@ -34,8 +35,9 @@ fn wire_and_run() -> rskit_errors::AppResult<CliExit> {
     let runner: Arc<dyn ToolRunner> =
         Arc::new(ProcessToolRunner::new().with_supervisor(Arc::clone(&supervisor)));
     let rust = RustProvider::new(runner.clone())?;
-    let go = GoProvider::new(runner)?;
+    let go = GoProvider::new(runner.clone())?;
+    let js = JsProvider::new(runner)?;
     let command = CommandProvider::new()?;
-    let providers: Vec<&dyn Provider> = vec![&rust, &go, &command];
+    let providers: Vec<&dyn Provider> = vec![&rust, &go, &js, &command];
     Ok(toven_cli::run(&providers, &supervisor))
 }

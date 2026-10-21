@@ -1,0 +1,10 @@
+            unit:  command:app#test
+  representative:  command:app
+         modules:  command:app
+          target:  command:app
+            task:  test
+          origin:  project
+            argv:  ["echo", "command test app"]
+      persistent:  false
+      depends_on:  command:lib#test, command:lib#build
+

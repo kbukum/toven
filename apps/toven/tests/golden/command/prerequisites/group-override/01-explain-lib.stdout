@@ -1,0 +1,20 @@
+            unit:  command:lib#test
+  representative:  command:lib
+         modules:  command:lib
+          target:  command:lib
+            task:  test
+          origin:  group
+            argv:  ["echo", "command test lib"]
+      persistent:  false
+      depends_on:  command:core#test, command:core#build, command:lib#build
+
+            unit:  command:lib#build
+  representative:  command:lib
+         modules:  command:lib
+          target:  command:lib
+            task:  build
+          origin:  project
+            argv:  ["sh", "-c", "mkdir -p lib/dist && echo built > lib/dist/out"]
+      persistent:  false
+      depends_on:  command:core#build
+

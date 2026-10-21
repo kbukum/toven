@@ -1,0 +1,1 @@
+error[INVALID_INPUT]: invalid groups.apps.guardrails: group 'apps' does not allow dependency 'rust:app' -> 'rust:corelib' (in group 'core')

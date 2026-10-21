@@ -1,0 +1,7 @@
+run test on prerequisites-command
+plan: 5 units in 3 waves
+summary (dry run — no tasks executed)
+  planned:  5
+      ran:  0
+   cached:  0
+   status:  ok

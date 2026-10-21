@@ -86,6 +86,7 @@ pub(super) fn parse(contents: &str) -> AppResult<CoverageProfile> {
     }
     Ok(CoverageProfile {
         format: CoverageFormat::Lcov,
+        producer: None,
         files,
     })
 }

@@ -5,7 +5,7 @@
 //! via [`ScriptedToolchainProber::calls`] (a total call count, not
 //! per-workspace).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -25,6 +25,7 @@ pub struct ScriptedToolchainProber {
     calls: AtomicUsize,
     absent: BTreeSet<String>,
     version: Option<String>,
+    versions: BTreeMap<String, String>,
 }
 
 impl ScriptedToolchainProber {
@@ -50,6 +51,18 @@ impl ScriptedToolchainProber {
         self
     }
 
+    /// Script the version string one program's probe returns, overriding the
+    /// shared [`with_version`](Self::with_version) for that program only.
+    #[must_use]
+    pub fn with_program_version(
+        mut self,
+        program: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.versions.insert(program.into(), version.into());
+        self
+    }
+
     /// The number of probe invocations recorded so far.
     #[must_use]
     pub fn calls(&self) -> usize {
@@ -65,6 +78,9 @@ impl ToolchainProber for ScriptedToolchainProber {
                 ErrorCode::NotFound,
                 format!("'{}' is not installed or on PATH", probe.program),
             ));
+        }
+        if let Some(version) = self.versions.get(&probe.program) {
+            return Ok(version.clone());
         }
         Ok(self.version.clone().unwrap_or_else(|| "v1".to_string()))
     }

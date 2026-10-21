@@ -36,6 +36,15 @@ pub fn merge_task(default: &Task, over: &TaskOverride) -> Task {
     if let Some(fan_out) = over.fan_out {
         merged.fan_out = fan_out;
     }
+    if let Some(requires) = &over.requires {
+        merged.requires.clone_from(requires);
+    }
+    if let Some(depends_on) = &over.depends_on {
+        merged.depends_on.clone_from(depends_on);
+    }
+    if let Some(outputs) = &over.outputs {
+        merged.outputs.clone_from(outputs);
+    }
     if let Some(workspace_closure) = over.workspace_closure {
         merged.workspace_closure = workspace_closure;
     }
@@ -174,5 +183,56 @@ mod tests {
         };
         let merged = merge_task(&default, &over_true);
         assert!(merged.workspace_closure);
+    }
+
+    #[test]
+    fn depends_on_replaces_the_default_prerequisites() {
+        let parse = |value: &str| crate::task::TaskDependency::parse(value).expect("dependency");
+        let mut default = default_test_task();
+        default.depends_on = vec![parse("^build")];
+        let inherited = merge_task(&default, &TaskOverride::default());
+        assert_eq!(inherited.depends_on, default.depends_on);
+
+        let replaced = merge_task(
+            &default,
+            &TaskOverride {
+                depends_on: Some(vec![parse("^build"), parse("build")]),
+                ..TaskOverride::default()
+            },
+        );
+        assert_eq!(replaced.depends_on, [parse("^build"), parse("build")]);
+    }
+
+    #[test]
+    fn outputs_replace_the_default_outputs() {
+        let mut default = default_test_task();
+        default.outputs = vec!["dist".into()];
+        assert_eq!(
+            merge_task(&default, &TaskOverride::default()).outputs,
+            ["dist"]
+        );
+        let over = TaskOverride {
+            outputs: Some(vec![".next".into()]),
+            ..TaskOverride::default()
+        };
+        assert_eq!(merge_task(&default, &over).outputs, [".next"]);
+    }
+
+    #[test]
+    fn requires_replaces_the_default_set() {
+        let bin = toven_model::Capability::new("bin").expect("capability");
+        let mut default = default_test_task();
+        default.requires.insert(bin);
+        let inherited = merge_task(&default, &TaskOverride::default());
+        assert_eq!(inherited.requires, default.requires);
+
+        let cleared = merge_task(
+            &default,
+            &TaskOverride {
+                requires: Some(std::collections::BTreeSet::new()),
+                ..TaskOverride::default()
+            },
+        );
+        assert!(cleared.requires.is_empty());
     }
 }

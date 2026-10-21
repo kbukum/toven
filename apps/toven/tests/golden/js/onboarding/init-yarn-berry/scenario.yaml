@@ -1,0 +1,10 @@
+# `init --print` on a yarn-berry workspace writes the js task table for that
+# package manager: the standard scripts as gates, `^build` before builds,
+# tests, and type checks, `dist` outputs, and a frozen `install` task.
+repo: js/onboarding-yarn-berry
+steps:
+  - id: 01-init-print
+    argv: [init, --print]
+    stdout: { match: normalized }
+    effects:
+      - path_absent: toven.toml

@@ -1,0 +1,26 @@
+# A group task override replaces `depends_on` for its members only: `lib`'s
+# tests also wait for its own build, while `app`'s tests keep the ecosystem
+# default and only wait for `lib`'s build. A group override that closes a cycle
+# with the ecosystem table is rejected before planning.
+repo: command/prerequisites
+steps:
+  - id: 01-explain-lib
+    argv: [--module, "command:lib", explain, test]
+    config: toven.group.toml
+    stdout: { match: normalized }
+  - id: 02-explain-app
+    argv: [--module, "command:app", explain, test]
+    config: toven.group.toml
+    stdout: { match: normalized }
+  - id: 03-run-lib
+    argv: [--module, "command:lib", test]
+    config: toven.group.toml
+    stderr: { match: normalized }
+    effects:
+      - file_exists: core/dist/out
+      - file_exists: lib/dist/out
+  - id: 04-cycle
+    argv: [plan, test]
+    config: toven.group-cycle.toml
+    exit: 2
+    stderr: { match: normalized }

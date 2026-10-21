@@ -1,0 +1,9 @@
+# One graph across Go, js, and command modules. Overlays add the edges native
+# metadata cannot express: `web` imports `gen/ts` through a tsconfig alias, and
+# `gen/ts` is generated from the Go API.
+repo: polyglot/web-stack
+requires: [go]
+steps:
+  - id: 01-graph
+    argv: [graph]
+    stdout: { match: exact }

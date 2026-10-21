@@ -4,7 +4,7 @@ A dedicated pass because a vibe-coded path that "just works" usually skips bound
 
 Use the [review skill](../SKILL.md) for scope, execution, and finding format. This checklist does not require a separate agent.
 
-**Scope note.** *Changes mode:* trace each new input path from its trust boundary — user argv, `toven.toml`/config, discovered module manifests, federation wire frames — to where it flows into a path, a selector, a subprocess, or a deserialization. *Project mode:* audit Toven's untrusted surfaces: the CLI argv/flag boundary (`toven-cli`), config and repo-file loading and the ecosystem adapters that shell out to toolchains (`toven-engine`, `toven-rust`, `toven-go`, `toven-command`), and the federation RPC protocol (`toven-engine/src/federation/`). See the Security section of [`docs/engineering.md`](../../../../docs/engineering.md).
+**Scope note.** *Changes mode:* trace each new input path from its trust boundary — user argv, `toven.toml`/config, discovered module manifests, federation wire frames — to where it flows into a path, a selector, a subprocess, or a deserialization. *Project mode:* audit Toven's untrusted surfaces: the CLI argv/flag boundary (`toven-cli`), config and repo-file loading and the ecosystem adapters that shell out to toolchains (`toven-engine`, `toven-rust`, `toven-go`, `toven-js`, `toven-command`), and the federation RPC protocol (`toven-engine/src/federation/`). See the Security section of [`docs/engineering.md`](../../../../docs/engineering.md).
 
 ## Checks
 

@@ -1,0 +1,2 @@
+{"group":"apps","description":"Shipped binaries","allow_groups":["foundation"],"members":[{"module":"rust:app","workspace":"rust","path":"crates/app"}]}
+{"group":"foundation","description":"Shared building blocks","allow_groups":[],"members":[{"module":"rust:corelib","workspace":"rust","path":"crates/corelib"},{"module":"rust:util","workspace":"rust","path":"crates/util"}]}

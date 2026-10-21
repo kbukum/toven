@@ -51,14 +51,19 @@ pub(super) fn resolve(
                 AppError::invalid_input("workspace.root", error.to_string()).with_cause(error)
             })?;
         // Probe every tool the addressed task needs in this workspace, surfacing
-        // a typed error for the first *absent* one; the workspace's version
-        // identity is stamped from the first probe that reports a version.
+        // a typed error for the first *absent* one. The workspace's version
+        // identity joins every reported version in probe order, so a change to
+        // any of them (the runtime or the package manager) invalidates the cache.
         let mut tag = workspace.toolchain.clone();
-        for probe in adapter.toolchain_probes_for(intent) {
+        let mut versions = Vec::new();
+        for probe in adapter.toolchain_probes_for(&workspace.toolchain, intent)? {
             let version = prober.probe(&probe, &root)?;
-            if !version.is_empty() && tag.version.is_none() {
-                tag = tag.with_version(version);
+            if !version.is_empty() {
+                versions.push(version);
             }
+        }
+        if tag.version.is_none() && !versions.is_empty() {
+            tag = tag.with_version(versions.join(" + "));
         }
         resolved.insert(workspace_id, tag);
     }
@@ -134,12 +139,80 @@ fn find_workspace<'a>(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
-    use toven_model::{EcosystemId, MemberId, Module, ModuleRef, RepoPath, WorkspaceId};
+    use toven_model::{
+        AbsPath, EcosystemId, MemberId, Module, ModuleRef, RepoPath, ToolchainTag, Workspace,
+        WorkspaceId,
+    };
+    use toven_ports::{ConfiguredAdapter, TaskIntent, ToolchainProbe};
+    use toven_testkit::{FakeConfiguredAdapter, ScriptedToolchainProber};
 
-    use super::active_workspaces;
+    use super::{active_workspaces, resolve};
+    use crate::plan::configure::MemberAdapters;
     use crate::plan::discover::Federation;
+
+    #[test]
+    fn each_workspace_probes_its_own_driver_and_joins_every_version() {
+        let js = EcosystemId::new("js").unwrap();
+        let mut modules = Vec::new();
+        let mut workspaces = Vec::new();
+        for (name, tool) in [("web", "bun"), ("lib", "pnpm")] {
+            let id = WorkspaceId::new(format!("js:{name}")).unwrap();
+            let mut module = Module::new(
+                ModuleRef::new(js.clone(), name).unwrap(),
+                RepoPath::new(name).unwrap(),
+            );
+            module.workspace = Some(id.clone());
+            modules.push(module);
+            workspaces.push(Workspace::new(
+                id,
+                RepoPath::new(name).unwrap(),
+                ToolchainTag::new(tool),
+            ));
+        }
+        let active = modules.iter().map(Module::key).collect();
+        let federation = Federation {
+            workspaces,
+            modules,
+            edges: Vec::new(),
+            global_inputs: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let mut adapters = MemberAdapters::default();
+        let mut set: BTreeMap<EcosystemId, Box<dyn ConfiguredAdapter>> = BTreeMap::new();
+        let adapter = FakeConfiguredAdapter::new(js.clone())
+            .with_probe(ToolchainProbe::new(
+                "node",
+                "node",
+                vec!["--version".to_string()],
+            ))
+            .with_driver_probe();
+        set.insert(js, Box::new(adapter));
+        adapters.insert(None, set);
+
+        let resolved = resolve(
+            &AbsPath::new("/repo").unwrap(),
+            &federation,
+            &active,
+            &adapters,
+            &ScriptedToolchainProber::new()
+                .with_program_version("node", "node 1")
+                .with_program_version("bun", "bun 1")
+                .with_program_version("pnpm", "pnpm 1"),
+            &TaskIntent::resolve("test"),
+        )
+        .expect("resolves");
+
+        let version = |id: &str| {
+            resolved[&WorkspaceId::new(id).unwrap()]
+                .version
+                .clone()
+                .expect("versioned")
+        };
+        assert_eq!(version("js:web"), "node 1 + bun 1");
+        assert_eq!(version("js:lib"), "node 1 + pnpm 1");
+    }
 
     fn module(member: &str, name: &str, workspace: &str) -> Module {
         let mut module = Module::new(

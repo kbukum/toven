@@ -1,0 +1,7 @@
+# A Bun workspace with a `workspace:*` edge (`web -> std`), for js discovery,
+# graph projection, and the standalone `toven-js` app.
+[project]
+name = "bun-workspace-js"
+
+[ecosystems.js]
+roots = "auto"

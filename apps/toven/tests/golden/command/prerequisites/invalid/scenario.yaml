@@ -1,0 +1,19 @@
+# Prerequisites are validated at configure time: an unknown target, a
+# persistent prerequisite, and a cycle are each rejected before planning.
+repo: command/prerequisites
+steps:
+  - id: 01-unknown-target
+    argv: [plan, test]
+    config: toven.unknown.toml
+    exit: 2
+    stderr: { match: normalized }
+  - id: 02-persistent-prerequisite
+    argv: [plan, test]
+    config: toven.persistent.toml
+    exit: 2
+    stderr: { match: normalized }
+  - id: 03-cycle
+    argv: [plan, test]
+    config: toven.cycle.toml
+    exit: 2
+    stderr: { match: normalized }

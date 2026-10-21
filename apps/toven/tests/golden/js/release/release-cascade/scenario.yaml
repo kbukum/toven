@@ -1,0 +1,41 @@
+# npm release cascade on a plainworks-shaped workspace: only `@plain/core`
+# changed since every package's `name@version` tag, so its dependents join
+# the train through cascade bumps, in dependency order. The dry-run is
+# mutation-free; the real bump rewrites each version and internal range in
+# place (keeping each file's own indentation and inline objects, and leaving
+# `workspace:^` alone) and stages the manifests.
+repo: js/release-train
+git:
+  commits:
+    - msg: "touch core"
+      touch:
+        - packages/core/index.js
+  tags:
+    - { name: "@plain/core@0.1.0", at: 0 }
+    - { name: "@plain/ui@0.3.0", at: 0 }
+    - { name: "@plain/cli@1.2.0", at: 0 }
+    - { name: "@plain/docs@0.0.0", at: 0 }
+steps:
+  - id: 01-release-plan-jsonl
+    argv: [release, plan, --output, jsonl]
+    stdout: { match: normalized }
+  - id: 02-release-publish-dry-run
+    argv: [release, publish, --dry-run, --output, jsonl]
+    stdout: { match: normalized }
+    # --dry-run rehearses only: no manifest write and no release tag.
+    effects:
+      - file_matches: { path: packages/core/package.json, golden: core.before.json }
+      - git_tag_absent: "@plain/core@0.2.0"
+      - git_tag_absent: "@plain/ui@0.3.1"
+  - id: 03-release-publish-dry-run-pre
+    argv: [release, publish, --dry-run, --output, jsonl, --pre, beta]
+    stdout: { match: normalized }
+  - id: 04-release-bump
+    argv: [release, bump, --yes]
+    stderr: { match: normalized }
+    effects:
+      - file_matches: { path: packages/core/package.json, golden: core.after.json }
+      - file_matches: { path: packages/ui/package.json, golden: ui.after.json }
+      - file_matches: { path: packages/cli/package.json, golden: cli.after.json }
+      - file_matches: { path: packages/docs/package.json, golden: docs.after.json }
+      - git_tag_absent: "@plain/core@0.2.0"

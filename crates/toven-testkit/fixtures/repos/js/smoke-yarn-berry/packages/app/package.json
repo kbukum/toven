@@ -1,0 +1,7 @@
+{
+  "name": "@acme/app",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": { "@acme/core": "^1.0.0" },
+  "scripts": { "test": "node test.js" }
+}

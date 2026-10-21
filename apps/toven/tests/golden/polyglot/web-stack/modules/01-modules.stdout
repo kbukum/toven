@@ -1,0 +1,10 @@
+
+Modules
+┌───────────────┬───────────┐
+│ Module        │ Workspace │
+├───────────────┼───────────┤
+│ command:proto │ command   │
+│ go:api        │ go:api    │
+│ js:gen-ts     │ js:gen/ts │
+│ js:web        │ js:web    │
+└───────────────┴───────────┘

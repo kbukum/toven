@@ -1,0 +1,13 @@
+# An npm workspace pinned to npm 10.9.0 with no install, for the doctor
+# scenario. `bin/` holds stand-in `node` and `npm` scripts; the scenario puts
+# them first on PATH so the reported versions are fixed.
+[project]
+name = "js-doctor"
+
+[ecosystems.js]
+roots = "auto"
+
+[ecosystems.js.tasks.test]
+argv = ["npm", "--prefix", "{module.root}", "run", "test", "--", "{args}"]
+fan_out = "per-module"
+requires = ["script:test"]

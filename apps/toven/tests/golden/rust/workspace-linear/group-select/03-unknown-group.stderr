@@ -1,0 +1,1 @@
+error[INVALID_INPUT]: invalid group: group selector 'fundation' matches no declared group. Did you mean 'foundation'? Declared groups: apps, foundation.

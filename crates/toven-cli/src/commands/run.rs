@@ -136,7 +136,7 @@ pub(crate) fn execute(
     let opened = project.open_member_vcs(providers, &selection.baseline)?;
     let readers = opened.readers();
     let digest = FsSourceDigest::new(&project.project_root);
-    let cache = FsContentCache::new(project.cache_root()?);
+    let cache = FsContentCache::new(project.cache_root()?, &project.project_root);
 
     // The shared process supervisor is created once at the app composition root
     // and injected here (the same instance the ecosystem providers' tool runner
@@ -437,6 +437,7 @@ mod tests {
             fail_if_output: false,
             cache,
             cache_key: None,
+            outputs: Vec::new(),
             depends_on: Vec::new(),
             resource_group: None,
         }

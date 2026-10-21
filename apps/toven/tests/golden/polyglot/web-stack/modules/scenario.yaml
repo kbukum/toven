@@ -1,0 +1,9 @@
+# A runlab-shaped repo: Go, two independent Bun roots, and a command module
+# list as one module set. Go discovery shells out to `go`; js discovery is
+# offline.
+repo: polyglot/web-stack
+requires: [go]
+steps:
+  - id: 01-modules
+    argv: [modules]
+    stdout: { match: normalized }

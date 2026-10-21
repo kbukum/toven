@@ -1,0 +1,29 @@
+[package]
+name = "toven-js-app"
+description = "Toven for JavaScript/TypeScript workspaces: the engine + the js adapter wired into a standalone CLI"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "toven-js"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+toven-cli.workspace = true
+toven-exec.workspace = true
+toven-ports.workspace = true
+toven-js.workspace = true
+rskit-cli.workspace = true
+rskit-errors.workspace = true
+
+[dev-dependencies]
+toven-testkit.workspace = true
+
+[lints]
+workspace = true

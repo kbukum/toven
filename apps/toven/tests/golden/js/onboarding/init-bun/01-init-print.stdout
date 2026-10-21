@@ -1,0 +1,79 @@
+[project]
+name = "repo"
+root = "."
+base_ref = "main"
+
+# Smart defaults fill in tasks, run strategy, and toolchain probes.
+# Uncomment to override, e.g.:
+#   run_strategy = "leaf-to-top"
+[ecosystems.js]
+roots = "auto"
+
+[ecosystems.js.coverage]
+changed_line = 85.0
+enforcement = "advisory"
+line = 80.0
+
+[ecosystems.js.tasks.build]
+argv = ["bun", "run", "--cwd", "{module.root}", "build", "{args}"]
+depends_on = ["^build"]
+fan_out = "per-module"
+outputs = ["dist"]
+requires = ["script:build"]
+shared_inputs = ["bun.lock", "package.json"]
+
+[ecosystems.js.tasks.coverage]
+argv = ["bun", "run", "--cwd", "{module.root}", "test", "--coverage.enabled", "--coverage.reporter=lcovonly", "--coverage.reportsDirectory={project.root}/target/toven/coverage/js-{module.name}", "{args}"]
+cacheable = false
+depends_on = ["^build"]
+fan_out = "per-module"
+kind = "coverage"
+requires = ["script:test"]
+
+[ecosystems.js.tasks.dev]
+argv = ["bun", "run", "--cwd", "{module.root}", "dev", "{args}"]
+cacheable = false
+fan_out = "per-module"
+kind = "run"
+persistent = true
+requires = ["script:dev"]
+
+[ecosystems.js.tasks.format]
+argv = ["bun", "run", "--cwd", "{module.root}", "format", "{args}"]
+cacheable = false
+fan_out = "per-module"
+requires = ["script:format"]
+
+[ecosystems.js.tasks.format-check]
+argv = ["bun", "run", "--cwd", "{module.root}", "format:check", "{args}"]
+fan_out = "per-module"
+kind = "format"
+requires = ["script:format:check"]
+shared_inputs = ["bun.lock", "package.json"]
+
+[ecosystems.js.tasks.install]
+argv = ["bun", "install", "--cwd", "{workspace.root}", "--frozen-lockfile"]
+cacheable = false
+fan_out = "whole-workspace"
+workspace_closure = true
+
+[ecosystems.js.tasks.lint]
+argv = ["bun", "run", "--cwd", "{module.root}", "lint", "{args}"]
+fan_out = "per-module"
+requires = ["script:lint"]
+shared_inputs = ["bun.lock", "package.json"]
+
+[ecosystems.js.tasks.test]
+argv = ["bun", "run", "--cwd", "{module.root}", "test", "{args}"]
+depends_on = ["^build"]
+fan_out = "per-module"
+requires = ["script:test"]
+shared_inputs = ["bun.lock", "package.json"]
+
+[ecosystems.js.tasks.typecheck]
+argv = ["bun", "run", "--cwd", "{module.root}", "typecheck", "{args}"]
+depends_on = ["^build"]
+fan_out = "per-module"
+kind = "check"
+requires = ["script:typecheck"]
+shared_inputs = ["bun.lock", "package.json"]

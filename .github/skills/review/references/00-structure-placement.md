@@ -14,7 +14,7 @@ Dependencies flow **downward only**, never upward:
 |-------|----------|------|
 | L0 | `toven-model` | pure vocabulary + graph/topo/wave algorithms (the dependency root) |
 | L1 | `toven-ports` | port traits + the shared surface behind them |
-| L2 | `toven-engine`, adapters (`toven-rust`/`toven-go`/`toven-command`) | coordination + concrete adapters over the ports |
+| L2 | `toven-engine`, adapters (`toven-rust`/`toven-go`/`toven-js`/`toven-command`) | coordination + concrete adapters over the ports |
 | L3 | `toven-cli` (and the `toven` library facade) | CLI taxonomy, argv dispatch, stdio/Event projections |
 | L4 | `apps/*` | thin wiring binaries |
 

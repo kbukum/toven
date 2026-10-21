@@ -77,8 +77,9 @@ The umbrella binary detects linked ecosystems:
 
 - Rust: Cargo manifests and workspaces
 - Go: `go.mod` and `go.work`
+- JavaScript and TypeScript: `package.json` roots, with the package manager detected from the pin and lockfile
 
-`manifests = "auto"` and `modules = "auto"` repeat discovery during each plan. Use explicit lists when the managed set must stay fixed.
+`manifests = "auto"`, `modules = "auto"`, and `roots = "auto"` repeat discovery during each plan. Use explicit lists when the managed set must stay fixed.
 
 ## Options
 

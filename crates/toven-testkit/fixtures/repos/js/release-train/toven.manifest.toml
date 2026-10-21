@@ -1,0 +1,16 @@
+# Changesets coexistence: Changesets writes the versions, and Toven tags and
+# publishes exactly the manifest version when it is ahead of the last tag.
+[project]
+name = "js-release-train"
+
+[ecosystems.js]
+roots = "auto"
+
+[ecosystems.js.release]
+strategy = "manifest"
+# Changesets already bumps the dependents it needs to; Toven only re-floors
+# the rest instead of cutting versions Changesets did not write.
+dependent_version = "upgrade"
+push = false
+registry = "npmjs"
+offline = true

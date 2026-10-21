@@ -51,6 +51,9 @@ pub enum ModuleSelector {
     /// A whole workspace by id pattern: every module the matching workspace
     /// owns.
     WholeWorkspace(NamePattern),
+    /// Every member of the `[groups.*]` declarations whose name matches the
+    /// pattern.
+    Group(NamePattern),
 }
 
 impl ModuleSelector {
@@ -92,6 +95,17 @@ impl ModuleSelector {
             "workspace",
         )?)))
     }
+
+    /// Build a group selector from a `--group` name-pattern token.
+    ///
+    /// The token is one group-name pattern (exact or `*`/`?` glob), never split
+    /// on `:`/`/`.
+    ///
+    /// # Errors
+    /// Returns [`AppError::invalid_input`] when the token is empty.
+    pub fn group(token: &str) -> AppResult<Self> {
+        Ok(Self::Group(NamePattern::parse(non_empty(token, "group")?)))
+    }
 }
 
 /// The `NamePattern` for a name segment, rejecting an empty segment.
@@ -126,6 +140,7 @@ impl fmt::Display for ModuleSelector {
             Self::Ecosystem { ecosystem, name } => write!(formatter, "{ecosystem}:{name}"),
             Self::Workspace { workspace, name } => write!(formatter, "{workspace}/{name}"),
             Self::WholeWorkspace(workspace) => write!(formatter, "{workspace}"),
+            Self::Group(group) => write!(formatter, "group {group}"),
         }
     }
 }
@@ -244,5 +259,13 @@ mod tests {
             "rust:core".parse::<ModuleSelector>().unwrap(),
             ModuleSelector::parse("rust:core").unwrap()
         );
+    }
+
+    #[test]
+    fn group_selector_keeps_the_whole_token_as_one_pattern() {
+        let selector = ModuleSelector::group("domain-*").expect("group");
+        assert_eq!(selector, ModuleSelector::Group(name("domain-*")));
+        assert_eq!(selector.to_string(), "group domain-*");
+        assert!(ModuleSelector::group("").is_err());
     }
 }

@@ -30,7 +30,7 @@ rust:toven-engine
 
 ## Current workspace shape
 
-The current Toven workspace is a Cargo workspace over `crates/*` and `apps/*`. Today that means `crates/toven-cli`, `toven-command`, `toven-core`, `toven-engine`, `toven-exec`, `toven-go`, `toven-model`, `toven-ports`, `toven-release`, `toven-runtime`, `toven-rust`, `toven-semver`, `toven-testkit`, `toven-vcs`, and `toven-version`, plus the thin binaries in `apps/toven`, `apps/toven-rs`, and `apps/toven-go`.
+The current Toven workspace is a Cargo workspace over `crates/*` and `apps/*`. Today that means `crates/toven-cli`, `toven-command`, `toven-core`, `toven-engine`, `toven-exec`, `toven-go`, `toven-js`, `toven-model`, `toven-ports`, `toven-release`, `toven-runtime`, `toven-rust`, `toven-semver`, `toven-testkit`, `toven-vcs`, and `toven-version`, plus the thin binaries in `apps/toven`, `apps/toven-rs`, `apps/toven-go`, and `apps/toven-js`.
 
 ## Dependency graph
 

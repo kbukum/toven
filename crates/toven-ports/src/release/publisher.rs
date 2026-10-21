@@ -35,4 +35,26 @@ pub trait Publisher {
         credentials: &ReleaseCredentials,
         visibility: Visibility,
     ) -> AppResult<PublishOutcome>;
+
+    /// Check at plan time, before any mutation, that this target can publish
+    /// `module` to `registry` with `visibility`.
+    ///
+    /// Called once per module whose resolved publication policy is a registry
+    /// publish. A target rejects a registry value it cannot address or an
+    /// exposure the registry cannot honor with a typed `release.registry` /
+    /// `release.visibility` error, so the mismatch fails before a tag or
+    /// commit. [`publish`](Self::publish) still enforces the same rules as the
+    /// last line of defense. The default accepts every combination.
+    ///
+    /// # Errors
+    /// A typed invalid-input error naming the rejected setting.
+    fn validate_publication(
+        &self,
+        module: &Module,
+        registry: &str,
+        visibility: Visibility,
+    ) -> AppResult<()> {
+        let _ = (module, registry, visibility);
+        Ok(())
+    }
 }

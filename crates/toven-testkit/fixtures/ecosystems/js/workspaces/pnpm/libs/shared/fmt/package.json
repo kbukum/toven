@@ -1,0 +1,5 @@
+{
+  "name": "@acme/fmt",
+  "version": "1.0.0",
+  "dependencies": { "ui": "workspace:@acme/ui@*" }
+}

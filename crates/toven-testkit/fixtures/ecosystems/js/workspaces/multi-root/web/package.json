@@ -1,0 +1,6 @@
+{
+  "name": "web",
+  "packageManager": "yarn@4.5.0",
+  "dependencies": { "@acme/std": "file:../vendor/std-1.0.0.tgz" },
+  "scripts": { "build": "vite build" }
+}

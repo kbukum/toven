@@ -7,4 +7,4 @@
 {"event":"module-release-examining","module":"rust:train-core"}
 {"event":"module-release-resolved","module":"rust:train-core","current_version":"0.1.0","planned_version":"0.1.0","level":"minor","reason":"initial-release","tag":"train-core/v0.1.0","publication":"registry","up_to_date":false}
 {"event":"module-release-examining","module":"rust:train-cli"}
-{"event":"module-release-resolved","module":"rust:train-cli","current_version":"0.1.0","level":"patch","reason":"no-change","up_to_date":false}
+{"event":"module-release-resolved","module":"rust:train-cli","current_version":"0.1.0","level":"patch","reason":"dependency-cascade","publication":"excluded","up_to_date":false}

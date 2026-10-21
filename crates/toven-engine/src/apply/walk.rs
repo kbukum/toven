@@ -434,6 +434,14 @@ impl<'a, S: RawOutputSink> Walker<'a, S> {
                     Ok(true)
                 }
             }
+            WorkOutcome::Cancelled { output } => {
+                // Keep the output produced before the stop, but leave the unit `Pending`: the
+                // `cancel_unscheduled` sweep emits its single terminal `Cancelled` event and
+                // finishes its channel, exactly as for a unit that never started.
+                self.drain_live_output(live_output)?;
+                self.route_output_chunks(output)?;
+                Ok(false)
+            }
             WorkOutcome::TimedOut { output } => {
                 self.drain_live_output(live_output)?;
                 self.route_output(unit_id, output, UnitOutcome::Failed)?;

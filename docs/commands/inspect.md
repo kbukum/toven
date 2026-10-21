@@ -6,7 +6,7 @@ Start by listing modules:
 toven modules
 ```
 
-Inspection commands are read-only. Use them before executing unfamiliar configuration. There is no `toven inspect` command; this page groups `plan`, `affected`, `explain`, `modules`, `graph`, and `tasks`.
+Inspection commands are read-only. Use them before executing unfamiliar configuration. There is no `toven inspect` command; this page groups `plan`, `affected`, `explain`, `modules`, `groups`, `graph`, and `tasks`.
 
 `plan`, `affected` and `explain` accept the same task forms as `toven run`: one task, a comma list (`build,test`) or a `[sets.<name>]` set. A list or set shows the combined plan, its affected modules, or its units.
 
@@ -99,6 +99,23 @@ Example JSONL stdout:
 `path` is the module root relative to the directory that holds `toven.toml`, so it already includes `[project].root`. A module at that directory is `.`.
 
 Aliases: `toven list`, `toven ls`.
+
+## List groups
+
+```bash
+toven groups
+toven groups --output jsonl
+```
+
+`toven groups` lists each declared [`[groups.<name>]`](../config/README.md#groups-and-overrides) with its description, the groups it may depend on (`null` in JSON when unrestricted), and its members. The human view is a summary table followed by one members line per group. Group guardrails are checked first, so a layering violation fails here too. Scripts that need a domain list (module indexes, per-domain checks) should read this instead of keeping their own copy.
+
+Example JSONL stdout, one record per group:
+
+```json
+{"group":"apps","description":"Shipped binaries","allow_groups":["foundation"],"members":[{"module":"rust:app","workspace":"rust","path":"crates/app"}]}
+```
+
+Members use the same record shape as `toven modules --output jsonl`.
 
 ## Render the dependency graph
 

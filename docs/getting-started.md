@@ -5,7 +5,7 @@ This guide onboards a repository, shows what Toven discovered, and runs one task
 ## Prerequisites
 
 - Toven installed and available on `PATH`
-- A Git repository containing a Rust workspace, Go modules, or both
+- A Git repository containing a Rust workspace, Go modules, JavaScript or TypeScript packages, or a mix
 - The language tools required by the repository
 
 See [installation](installation.md) before continuing.
@@ -54,6 +54,22 @@ base_ref = "origin/main"
 [ecosystems.rust]
 manifests = "auto"
 ```
+
+A JavaScript or TypeScript repository gets one task per package script, run through the detected package manager, plus an `install` task:
+
+```toml
+[ecosystems.js]
+roots = "auto"
+
+[ecosystems.js.tasks.test]
+argv = ["pnpm", "--dir", "{module.root}", "run", "test", "{args}"]
+depends_on = ["^build"]
+fan_out = "per-module"
+requires = ["script:test"]
+shared_inputs = ["package.json", "pnpm-lock.yaml"]
+```
+
+`requires` runs the task only in packages that declare the script, and `depends_on = ["^build"]` builds workspace dependencies first. `shared_inputs` lists the root manifest and lockfile, so a dependency bump invalidates cached results. Run `toven doctor` to check that dependencies are installed.
 
 Generated task tables remain repository-owned. Toven executes the configured argv without silently adding flags. See the [configuration guide](config/README.md).
 

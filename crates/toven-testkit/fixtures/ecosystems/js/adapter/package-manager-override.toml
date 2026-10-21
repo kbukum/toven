@@ -1,0 +1,5 @@
+# Force npm for `tools/gen`, overriding its yarn pin and lockfile.
+exclude = ["examples"]
+
+[package_manager]
+"tools/gen" = "npm"

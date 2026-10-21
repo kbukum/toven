@@ -6,7 +6,7 @@
 //! of that this phase resolves every `[groups.*]` membership against the
 //! now-known module set and enforces group guardrails against the real edges.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::{AppError, AppResult};
 use toven_model::{Graph, MemberId, ModuleKey, ModuleRef};
@@ -24,6 +24,83 @@ use super::overrides::GroupOverrides;
 /// referencing an unknown module, a self-edge, or a dependency cycle.
 pub(super) fn build(federation: &Federation) -> AppResult<Graph> {
     Graph::build(federation.modules.clone(), federation.edges.clone())
+}
+
+/// Every declared `[groups.*]`, by name, with its resolved members.
+///
+/// Same-named groups from different scopes (a member-local group and an
+/// umbrella group both called `core`) merge under the one name, so a
+/// `--group core` selection reaches every module either declaration names.
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub struct GroupIndex(BTreeMap<String, GroupEntry>);
+
+/// One group as declared and resolved: what it is, which groups it may depend
+/// on, and the modules it owns.
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub struct GroupEntry {
+    /// The declared description (the first scope that sets one wins).
+    pub description: Option<String>,
+    /// Groups the members may depend on (`guardrails.allow_groups`); `None`
+    /// leaves group dependencies unrestricted. Same-named groups show the
+    /// union of their lists, or `None` when any of them is unrestricted;
+    /// each scope still enforces its own list.
+    pub allow_groups: Option<BTreeSet<String>>,
+    /// The resolved member modules.
+    pub members: BTreeSet<ModuleKey>,
+}
+
+impl GroupIndex {
+    /// Build an index from explicit `(name, members)` pairs.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn from_groups<I, S>(groups: I) -> Self
+    where
+        I: IntoIterator<Item = (S, BTreeSet<ModuleKey>)>,
+        S: Into<String>,
+    {
+        let mut index = Self::default();
+        for (name, members) in groups {
+            index.add(
+                name.into(),
+                GroupEntry {
+                    members,
+                    ..GroupEntry::default()
+                },
+            );
+        }
+        index
+    }
+
+    /// The declared group names, sorted.
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.0.keys().map(String::as_str)
+    }
+
+    /// Every `(name, entry)` pair, sorted by name.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &GroupEntry)> {
+        self.0.iter().map(|(name, entry)| (name.as_str(), entry))
+    }
+
+    fn add(&mut self, name: String, entry: GroupEntry) {
+        let merged = match self.0.entry(name) {
+            std::collections::btree_map::Entry::Vacant(slot) => {
+                slot.insert(entry);
+                return;
+            }
+            std::collections::btree_map::Entry::Occupied(slot) => slot.into_mut(),
+        };
+        if merged.description.is_none() {
+            merged.description = entry.description;
+        }
+        merged.allow_groups = match (merged.allow_groups.take(), entry.allow_groups) {
+            (Some(mut allowed), Some(more)) => {
+                allowed.extend(more);
+                Some(allowed)
+            }
+            _ => None,
+        };
+        merged.members.extend(entry.members);
+    }
 }
 
 /// Run semantic config validation against the real graph, returning the
@@ -49,23 +126,23 @@ pub(super) fn build(federation: &Federation) -> AppResult<Graph> {
 pub(super) fn validate_semantics(
     graph: &Graph,
     composed: &ComposedFederation,
-) -> AppResult<GroupOverrides> {
-    let mut overrides = GroupOverrides::default();
+) -> AppResult<(GroupOverrides, GroupIndex)> {
+    let mut resolved = (GroupOverrides::default(), GroupIndex::default());
     for member in composed.members() {
         validate_groups(
             graph,
             &member.document().groups,
             GroupScope::Member(member.member().id()),
-            &mut overrides,
+            &mut resolved,
         )?;
     }
     validate_groups(
         graph,
         composed.groups(),
         GroupScope::Umbrella,
-        &mut overrides,
+        &mut resolved,
     )?;
-    Ok(overrides)
+    Ok(resolved)
 }
 
 /// The coordinate scope a group's references resolve in.
@@ -81,17 +158,33 @@ enum GroupScope<'a> {
 }
 
 /// Validate one group set (membership + guardrails) in `scope`, recording each
-/// group's scope overrides against its resolved members.
+/// group's scope overrides and membership against its resolved members.
 fn validate_groups(
     graph: &Graph,
-    groups: &std::collections::BTreeMap<String, GroupConfig>,
+    groups: &BTreeMap<String, GroupConfig>,
     scope: GroupScope<'_>,
-    overrides: &mut GroupOverrides,
+    (overrides, index): &mut (GroupOverrides, GroupIndex),
 ) -> AppResult<()> {
+    let mut resolved = BTreeMap::new();
     for (name, group) in groups {
-        let members = resolve_members(name, group, graph, scope)?;
-        enforce_guardrails(name, group, &members, graph, scope)?;
-        overrides.record(&override_identity(name, scope), group, &members)?;
+        resolved.insert(name.as_str(), resolve_members(name, group, graph, scope)?);
+    }
+    for (name, group) in groups {
+        let members = &resolved[name.as_str()];
+        enforce_guardrails(name, group, members, &resolved, graph, scope)?;
+        overrides.record(&override_identity(name, scope), group, members)?;
+        index.add(
+            name.clone(),
+            GroupEntry {
+                description: group.description.clone(),
+                allow_groups: group
+                    .guardrails
+                    .allow_groups
+                    .as_ref()
+                    .map(|groups| groups.iter().cloned().collect()),
+                members: members.clone(),
+            },
+        );
     }
     Ok(())
 }
@@ -259,22 +352,24 @@ fn enforce_guardrails(
     name: &str,
     group: &GroupConfig,
     members: &BTreeSet<ModuleKey>,
+    groups: &BTreeMap<&str, BTreeSet<ModuleKey>>,
     graph: &Graph,
     scope: GroupScope<'_>,
 ) -> AppResult<()> {
     let field = format!("groups.{name}.guardrails");
-    let forbid = resolve_refs(
-        &format!("{field}.forbid"),
-        &group.guardrails.forbid,
-        graph,
-        scope,
-    )?;
-    let allow = resolve_refs(
-        &format!("{field}.allow"),
-        &group.guardrails.allow,
-        graph,
-        scope,
-    )?;
+    let guardrails = &group.guardrails;
+    let forbid = resolve_refs(&format!("{field}.forbid"), &guardrails.forbid, graph, scope)?;
+    let mut allowed = resolve_refs(&format!("{field}.allow"), &guardrails.allow, graph, scope)?;
+    for allowed_group in guardrails.allow_groups.iter().flatten() {
+        let group_members = groups.get(allowed_group.as_str()).ok_or_else(|| {
+            AppError::invalid_input(
+                format!("{field}.allow_groups"),
+                format!("references unknown group '{allowed_group}'"),
+            )
+        })?;
+        allowed.extend(group_members.iter().cloned());
+    }
+    let restricted = !guardrails.allow.is_empty() || guardrails.allow_groups.is_some();
 
     for edge in graph.edges() {
         if !members.contains(&edge.from) {
@@ -289,17 +384,33 @@ fn enforce_guardrails(
                 ),
             ));
         }
-        if !allow.is_empty() && !members.contains(&edge.to) && !allow.contains(&edge.to) {
+        if restricted && !members.contains(&edge.to) && !allowed.contains(&edge.to) {
             return Err(AppError::invalid_input(
                 &field,
                 format!(
-                    "group '{name}' allowlist excludes dependency '{}' -> '{}'",
-                    edge.from, edge.to
+                    "group '{name}' does not allow dependency '{}' -> '{}'{}",
+                    edge.from,
+                    edge.to,
+                    owning_groups(&edge.to, groups)
                 ),
             ));
         }
     }
     Ok(())
+}
+
+/// ` (in group 'a', 'b')` for a key some groups own, else ` (in no group)`.
+fn owning_groups(key: &ModuleKey, groups: &BTreeMap<&str, BTreeSet<ModuleKey>>) -> String {
+    let owners: Vec<String> = groups
+        .iter()
+        .filter(|(_, members)| members.contains(key))
+        .map(|(name, _)| format!("'{name}'"))
+        .collect();
+    if owners.is_empty() {
+        " (in no group)".to_string()
+    } else {
+        format!(" (in group {})", owners.join(", "))
+    }
 }
 
 /// Resolve a list of (optionally member-qualified) guardrail refs to graph
@@ -326,9 +437,45 @@ mod tests {
 
     use crate::config::GroupConfig;
 
-    use super::{GroupScope, build, validate_groups};
+    use super::{GroupEntry, GroupIndex, GroupScope, build, validate_groups};
     use crate::plan::discover::Federation;
     use crate::plan::overrides::GroupOverrides;
+
+    fn restricted_to(groups: &[&str]) -> GroupEntry {
+        GroupEntry {
+            allow_groups: Some(groups.iter().map(ToString::to_string).collect()),
+            ..GroupEntry::default()
+        }
+    }
+
+    #[test]
+    fn same_named_groups_union_their_allowed_groups() {
+        let mut index = GroupIndex::default();
+        index.add("apps".to_string(), restricted_to(&["core"]));
+        index.add("apps".to_string(), restricted_to(&["infra"]));
+        let (_, entry) = index.iter().next().unwrap();
+        let allowed: Vec<&str> = entry
+            .allow_groups
+            .iter()
+            .flatten()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(allowed, ["core", "infra"]);
+    }
+
+    #[test]
+    fn an_unrestricted_same_named_group_shows_the_merge_unrestricted() {
+        for (first, second) in [
+            (restricted_to(&["core"]), GroupEntry::default()),
+            (GroupEntry::default(), restricted_to(&["core"])),
+        ] {
+            let mut index = GroupIndex::default();
+            index.add("apps".to_string(), first);
+            index.add("apps".to_string(), second);
+            let (_, entry) = index.iter().next().unwrap();
+            assert_eq!(entry.allow_groups, None);
+        }
+    }
 
     /// Validate one group set in `scope`, discarding the collected overrides.
     fn validate_only(
@@ -336,8 +483,8 @@ mod tests {
         groups: &BTreeMap<String, GroupConfig>,
         scope: GroupScope<'_>,
     ) -> AppResult<()> {
-        let mut overrides = GroupOverrides::default();
-        validate_groups(graph, groups, scope, &mut overrides)
+        let mut resolved = (GroupOverrides::default(), GroupIndex::default());
+        validate_groups(graph, groups, scope, &mut resolved)
     }
 
     fn mref(ecosystem: &str, name: &str) -> ModuleRef {
@@ -415,6 +562,48 @@ mod tests {
         restricted.guardrails.allow = vec!["rust:other".to_string()];
 
         assert!(validate_local(&graph, &one_group("apps", restricted)).is_err());
+    }
+
+    #[test]
+    fn allow_groups_admits_dependencies_into_the_named_groups_only() {
+        let graph = build(&app_depends_on_errors()).unwrap();
+        let mut apps = group(&["rust:app"]);
+        apps.guardrails.allow_groups = Some(vec!["core".to_string()]);
+        let mut groups = one_group("apps", apps.clone());
+        groups.insert("core".to_string(), group(&["rust:errors"]));
+        assert!(validate_local(&graph, &groups).is_ok());
+
+        apps.guardrails.allow_groups = Some(vec!["other".to_string()]);
+        let mut groups = one_group("apps", apps);
+        groups.insert("core".to_string(), group(&["rust:errors"]));
+        groups.insert("other".to_string(), group(&[]));
+        let message = validate_local(&graph, &groups).unwrap_err().to_string();
+        assert!(message.contains("does not allow dependency"), "{message}");
+        assert!(message.contains("(in group 'core')"), "{message}");
+    }
+
+    #[test]
+    fn empty_allow_groups_forbids_dependencies_into_any_other_group() {
+        let graph = build(&app_depends_on_errors()).unwrap();
+        let mut apps = group(&["rust:app"]);
+        apps.guardrails.allow_groups = Some(Vec::new());
+        let mut groups = one_group("apps", apps);
+        groups.insert("core".to_string(), group(&["rust:errors"]));
+
+        let message = validate_local(&graph, &groups).unwrap_err().to_string();
+        assert!(message.contains("does not allow dependency"), "{message}");
+    }
+
+    #[test]
+    fn allow_groups_naming_an_unknown_group_is_rejected() {
+        let graph = build(&app_depends_on_errors()).unwrap();
+        let mut apps = group(&["rust:app"]);
+        apps.guardrails.allow_groups = Some(vec!["missing".to_string()]);
+
+        let message = validate_local(&graph, &one_group("apps", apps))
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("unknown group 'missing'"), "{message}");
     }
 
     #[test]

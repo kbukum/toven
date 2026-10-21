@@ -35,6 +35,7 @@ shared_inputs = ["Cargo.lock"]
 argv = ["cargo", "run", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
 fan_out = "per-module"
 persistent = true
+requires = ["bin"]
 selector = ["-p", "{module.package}"]
 shared_inputs = ["Cargo.lock"]
 

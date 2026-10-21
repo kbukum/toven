@@ -1,0 +1,6 @@
+{
+  "name": "@acme/app",
+  "version": "1.0.0",
+  "dependencies": { "@acme/core": "*" },
+  "scripts": { "test": "vitest run" }
+}

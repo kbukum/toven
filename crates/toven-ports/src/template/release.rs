@@ -122,6 +122,7 @@ fn module_value(placeholder: ReleaseVar, module: &Module) -> AppResult<String> {
     match placeholder {
         ReleaseVar::Ecosystem => Ok(module.id.ecosystem.as_str().to_string()),
         ReleaseVar::Module => Ok(module.id.name.clone()),
+        ReleaseVar::Package => Ok(module.package_name().to_string()),
         other => Err(AppError::new(
             rskit_errors::ErrorCode::Internal,
             format!("release template placeholder {{{other}}} has no module value"),
@@ -174,6 +175,21 @@ mod tests {
         assert_eq!(
             template.tag_scheme(&module()).unwrap(),
             TagScheme::new("rust/core@", "-x")
+        );
+    }
+
+    #[test]
+    fn package_renders_the_registry_name_or_falls_back_to_the_module() {
+        let template = ReleaseTemplate::parse("f", "{package}@{version}").unwrap();
+        assert_eq!(
+            template.render(&module(), &version(), None).unwrap(),
+            "core@1.2.0-rc.1"
+        );
+        let mut scoped = module();
+        scoped.package = Some("@acme/core".to_string());
+        assert_eq!(
+            template.tag_scheme(&scoped).unwrap(),
+            TagScheme::new("@acme/core@", "")
         );
     }
 

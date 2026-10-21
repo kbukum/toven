@@ -2,12 +2,12 @@
 //! facts the Cache-decision phase folds into the content key, and the gating
 //! edges.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult};
 use toven_model::{
-    AbsPath, ExecutionReadiness, Module, ModuleKey, ToolchainTag, Workspace, WorkspaceId,
+    AbsPath, ExecutionReadiness, Module, ModuleKey, RepoPath, ToolchainTag, Workspace, WorkspaceId,
 };
 use toven_ports::{CommandTemplate, FanOut, Readiness, TaskOrigin, TaskVar};
 
@@ -56,6 +56,8 @@ pub(in crate::plan) struct PlannedUnit {
     pub(in crate::plan) shared_inputs: Vec<String>,
     /// Whether passthrough args enter the key.
     pub(in crate::plan) cache_args: bool,
+    /// Declared outputs resolved under every member's root, repo-relative.
+    pub(in crate::plan) outputs: Vec<RepoPath>,
     /// Whether this unit's result may be cached (a mutating `*-fix` task
     /// authors `false`, forcing a
     /// [`Disabled`](toven_model::CacheVerdict::Disabled) verdict).
@@ -138,6 +140,7 @@ pub(super) fn plan_unit(
     // closed.
     let cycle_co_schedulable = task.fan_out == FanOut::WholeWorkspace && task.workspace_closure;
     let resource_group = representative.resource_group.clone();
+    let outputs = member_outputs(id, &modules, &task.outputs)?;
 
     Ok(PlannedUnit {
         id: id.to_string(),
@@ -154,6 +157,7 @@ pub(super) fn plan_unit(
         base_argv,
         shared_inputs: task.shared_inputs.clone(),
         cache_args: task.cache_args,
+        outputs,
         cacheable: task.cacheable,
         fail_if_output: task.fail_if_output,
         toolchain_identity,
@@ -161,6 +165,24 @@ pub(super) fn plan_unit(
         cycle_co_schedulable,
         resource_group,
     })
+}
+
+/// Resolve the task's module-relative `outputs` under every member's root.
+fn member_outputs(id: &str, modules: &[&Module], outputs: &[String]) -> AppResult<Vec<RepoPath>> {
+    let mut resolved = BTreeSet::new();
+    for module in modules {
+        for output in outputs {
+            let path = RepoPath::new(module.root.as_path().join(output)).map_err(|error| {
+                AppError::invalid_input(
+                    "outputs",
+                    format!("unit '{id}' output '{output}' must stay inside its module"),
+                )
+                .with_cause(error)
+            })?;
+            resolved.insert(path);
+        }
+    }
+    Ok(resolved.into_iter().collect())
 }
 
 /// Resolve each member key to its module, failing closed on an unknown key.

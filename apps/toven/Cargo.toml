@@ -1,6 +1,6 @@
 [package]
 name = "toven"
-description = "Toven — the umbrella CLI bundling the Rust, Go, and command adapters"
+description = "Toven — the umbrella CLI bundling the Rust, Go, JavaScript, and command adapters"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -20,6 +20,7 @@ toven-exec.workspace = true
 toven-ports.workspace = true
 toven-rust.workspace = true
 toven-go.workspace = true
+toven-js.workspace = true
 toven-command.workspace = true
 rskit-cli.workspace = true
 rskit-errors.workspace = true
@@ -32,6 +33,7 @@ vendored-openssl = [
     "toven-cli/vendored-openssl",
     "toven-rust/vendored-openssl",
     "toven-go/vendored-openssl",
+    "toven-js/vendored-openssl",
 ]
 
 [dev-dependencies]

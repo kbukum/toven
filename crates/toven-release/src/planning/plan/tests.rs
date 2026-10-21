@@ -522,7 +522,19 @@ fn go_registry_publication_is_rejected_during_release_resolution() {
 /// Drive `release_plan` against one rust `core` module whose ecosystem
 /// release config is `release`, returning the resolution result.
 fn plan_with_release_config(release: ReleaseConfig) -> rskit_errors::AppResult<crate::ReleasePlan> {
-    let core = module("core", "crates/core");
+    plan_core_with(release, FakeReleaseTarget::new(), |_| {})
+}
+
+/// Drive `release_plan` against one rust `core` module, adjusted by `shape`,
+/// whose ecosystem release config is `release` and whose release target is
+/// `target`.
+fn plan_core_with(
+    release: ReleaseConfig,
+    target: FakeReleaseTarget,
+    shape: impl FnOnce(&mut Module),
+) -> rskit_errors::AppResult<crate::ReleasePlan> {
+    let mut core = module("core", "crates/core");
+    shape(&mut core);
     let mut response = DiscoverResponse::new(eid("rust"));
     response.modules = vec![core];
     let common = CommonEcosystemConfig {
@@ -532,7 +544,7 @@ fn plan_with_release_config(release: ReleaseConfig) -> rskit_errors::AppResult<c
     let adapter = FakeConfiguredAdapter::new(eid("rust"))
         .with_response(response)
         .with_common(common)
-        .with_release_target(FakeReleaseTarget::new());
+        .with_release_target(target);
     let provider = FakeProvider::new(eid("rust")).with_adapter(adapter);
     let providers: Vec<&dyn Provider> = vec![&provider];
     let request = PlanRequest::new(
@@ -575,6 +587,105 @@ fn private_visibility_to_a_public_only_registry_is_rejected() {
     let message = error.to_string();
     assert!(message.contains("release.visibility"), "{message}");
     assert!(message.contains("public-only"), "{message}");
+}
+
+#[test]
+fn a_registry_module_is_validated_by_its_target_before_any_mutation() {
+    let target = FakeReleaseTarget::new();
+    let plan = plan_core_with(
+        ReleaseConfig {
+            registry: Some("npmjs".into()),
+            ..ReleaseConfig::default()
+        },
+        target.clone(),
+        |_| {},
+    )
+    .expect("an accepted publication plans");
+    assert!(matches!(
+        plan.entries[0].publication,
+        PublicationPolicy::Registry { .. }
+    ));
+    let validated: Vec<_> = target
+        .calls()
+        .into_iter()
+        .filter_map(|call| match call {
+            toven_testkit::ReleaseCall::ValidatePublication {
+                module, registry, ..
+            } => Some((module, registry)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(validated, vec![(mref("core"), "npmjs".to_string())]);
+}
+
+#[test]
+fn a_publication_the_target_rejects_fails_the_plan() {
+    let error = plan_core_with(
+        ReleaseConfig {
+            registry: Some("ftp://example".into()),
+            ..ReleaseConfig::default()
+        },
+        FakeReleaseTarget::new().with_publication_rejection("unsupported registry"),
+        |_| {},
+    )
+    .expect_err("the target's rejection fails the plan");
+    assert!(
+        error.to_string().contains("unsupported registry"),
+        "{error}"
+    );
+}
+
+#[test]
+fn an_unpublishable_module_is_excluded_by_default() {
+    // A manifest that forbids publication (npm `"private": true`) stays out of
+    // the release unless config opts it in, the way npm, pnpm, Yarn, and
+    // Changesets treat private workspace packages: no version, tag, or target
+    // call.
+    let target = FakeReleaseTarget::new();
+    let plan = plan_core_with(
+        ReleaseConfig {
+            registry: Some("npmjs".into()),
+            ..ReleaseConfig::default()
+        },
+        target.clone(),
+        |module| module.unpublishable = true,
+    )
+    .expect("an unpublishable module plans");
+    assert!(plan.entries.is_empty(), "{:?}", plan.entries);
+    assert!(
+        !target
+            .calls()
+            .iter()
+            .any(|call| matches!(call, toven_testkit::ReleaseCall::ValidatePublication { .. })),
+        "an excluded module is never validated for publication"
+    );
+}
+
+#[test]
+fn an_unpublishable_module_opted_in_with_exclude_false_is_tag_only() {
+    // An explicit `exclude = false` opts a private package into versioning and
+    // tagging; it still never reaches the registry its ecosystem configures,
+    // and the target is not asked to validate a publish it will never make.
+    let target = FakeReleaseTarget::new();
+    let plan = plan_core_with(
+        ReleaseConfig {
+            registry: Some("npmjs".into()),
+            exclude: Some(false),
+            ..ReleaseConfig::default()
+        },
+        target.clone(),
+        |module| module.unpublishable = true,
+    )
+    .expect("an opted-in unpublishable module plans");
+    assert_eq!(plan.entries[0].publication, PublicationPolicy::TagOnly);
+    assert!(!plan.entries[0].publish_needed);
+    assert!(
+        !target
+            .calls()
+            .iter()
+            .any(|call| matches!(call, toven_testkit::ReleaseCall::ValidatePublication { .. })),
+        "a tag-only module is never validated for publication"
+    );
 }
 
 #[test]

@@ -95,11 +95,13 @@ impl<W: Write> HumanReporter<W> {
                         UnitStatus::Failed | UnitStatus::FailedReadiness | UnitStatus::TimedOut
                     )
             }
-            // The plan line and the per-module release/coverage narration (the primary
-            // output of their verbs, and the whole of a `--dry-run`) render like a
-            // terminal unit result: shown at Normal, collapsed only at Quiet. The
-            // examining progress line fills the silent decision gap at Normal.
+            // The plan line, skipped-module notes, and the per-module release/coverage
+            // narration (the primary output of their verbs, and the whole of a
+            // `--dry-run`) render like a terminal unit result: shown at Normal,
+            // collapsed only at Quiet. The examining progress line fills the silent
+            // decision gap at Normal.
             Event::PlanPrepared { .. }
+            | Event::ModuleSkipped { .. }
             | Event::ModuleReleaseExamining { .. }
             | Event::ModuleReleaseResolved { .. }
             | Event::ModuleReleaseStaged { .. }
@@ -432,6 +434,16 @@ impl<W: Write + Send> Reporter for HumanReporter<W> {
                 let line = self.labeled_line("plan: ", "Planning", &detail, Tone::Info);
                 self.write_line(&line)
             }
+            Event::ModuleSkipped {
+                module,
+                task,
+                reason,
+                missing,
+            } => {
+                let detail = skipped_detail(module, task, reason, missing);
+                let line = self.labeled_line("skip: ", "Skipping", &detail, Tone::Dim);
+                self.write_line(&line)
+            }
             Event::CacheDecided { unit_id, verdict } => {
                 let detail = format!("{unit_id}: {}", verdict_label(*verdict));
                 let tone = if matches!(verdict, CacheVerdict::Hit) {
@@ -668,6 +680,19 @@ fn format_measurements(measurements: &[CoverageMeasurement]) -> String {
         .join(", ")
 }
 
+/// The shared skip wording: which module, which task, and why.
+pub(crate) fn skipped_detail(module: &str, task: &str, reason: &str, missing: &[String]) -> String {
+    if missing.is_empty() {
+        let why = if reason == "not-listed" {
+            "runs only on its listed modules"
+        } else {
+            "is not eligible"
+        };
+        return format!("{module} ({task} {why})");
+    }
+    format!("{module} ({task} needs {})", missing.join(", "))
+}
+
 #[cfg(test)]
 mod tests {
     use toven_model::{
@@ -703,6 +728,29 @@ mod tests {
                 "warning must render at {level:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_skipped_module_names_the_missing_capability_unless_quiet() {
+        let skipped = Event::ModuleSkipped {
+            module: "js:packages-std".into(),
+            task: "test".into(),
+            reason: "missing-capabilities".into(),
+            missing: vec!["script:test".into()],
+        };
+        let output = render_at(Verbosity::Normal, std::slice::from_ref(&skipped));
+        assert_eq!(output, "skip: js:packages-std (test needs script:test)\n");
+        assert!(render_at(Verbosity::Quiet, &[skipped]).is_empty());
+        let unlisted = Event::ModuleSkipped {
+            module: "go:tools".into(),
+            task: "test".into(),
+            reason: "not-listed".into(),
+            missing: Vec::new(),
+        };
+        assert_eq!(
+            render_at(Verbosity::Normal, &[unlisted]),
+            "skip: go:tools (test runs only on its listed modules)\n"
+        );
     }
 
     #[test]

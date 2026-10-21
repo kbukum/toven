@@ -1,0 +1,6 @@
+{
+  "name": "acme-tasks",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": { "lint": "eslint ." }
+}

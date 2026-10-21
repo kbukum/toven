@@ -72,6 +72,7 @@ fn build_module(
     if let Some(manifest) = &declared.manifest {
         module.manifest = Some(RepoPath::new(manifest.as_str())?);
     }
+    module.capabilities.clone_from(&declared.capabilities);
     // Each declared module serializes on its own resource group by default; the
     // adapter infers no shared contention between independent commands.
     module.resource_group = Some(format!("{COMMAND_TOOL}:{}", declared.name));
@@ -111,7 +112,9 @@ mod tests {
 
     use toven_model::EcosystemId;
 
-    use super::{build_edges, command_id};
+    use toven_model::{Capability, WorkspaceId};
+
+    use super::{build_edges, build_module, command_id};
     use crate::config::DeclaredModule;
 
     fn declared(name: &str, depends_on: &[&str]) -> DeclaredModule {
@@ -120,7 +123,18 @@ mod tests {
             root: name.to_string(),
             manifest: None,
             depends_on: depends_on.iter().map(ToString::to_string).collect(),
+            capabilities: BTreeSet::new(),
         }
+    }
+
+    #[test]
+    fn declared_capabilities_reach_the_module() {
+        let mut site = declared("site", &[]);
+        site.capabilities.insert(Capability::new("bin").unwrap());
+        let id = toven_model::ModuleRef::new(command_id().unwrap(), "site").unwrap();
+        let workspace = WorkspaceId::new("command").unwrap();
+        let module = build_module(&id, &workspace, &site).expect("module");
+        assert!(module.provides([&Capability::new("bin").unwrap()]));
     }
 
     #[test]

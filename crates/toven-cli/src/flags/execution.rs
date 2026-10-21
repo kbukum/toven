@@ -107,9 +107,20 @@ pub struct ExecutionArgs {
         help_heading = "Selection"
     )]
     pub workspace: Vec<String>,
+    /// Execution/affected/explain verbs and bare tasks: activate every member
+    /// of a `[groups.*]` declaration, by name or glob (`core`, `domain-*`),
+    /// bypassing changed-selection (repeatable). Ineligible members are
+    /// skipped.
+    #[arg(
+        long = "group",
+        global = true,
+        value_name = "SELECTOR",
+        help_heading = "Selection"
+    )]
+    pub group: Vec<String>,
     /// Execution/affected/explain verbs and bare tasks: with `--module`/
-    /// `--workspace`, also activate the reverse-dependents closure (everything
-    /// that depends on the selection).
+    /// `--workspace`/`--group`, also activate the reverse-dependents closure
+    /// (everything that depends on the selection).
     #[arg(
         long = "dependents",
         alias = "with-dependents",
@@ -118,7 +129,7 @@ pub struct ExecutionArgs {
     )]
     pub with_dependents: bool,
     /// Execution/affected/explain verbs and bare tasks: with `--module`/
-    /// `--workspace`, also activate the forward-dependencies closure
+    /// `--workspace`/`--group`, also activate the forward-dependencies closure
     /// (everything the selection needs).
     #[arg(long = "dependencies", global = true, help_heading = "Selection")]
     pub with_dependencies: bool,
@@ -160,6 +171,8 @@ impl ExecutionArgs {
         module.extend(task.module);
         let mut workspace = self.workspace;
         workspace.extend(task.workspace);
+        let mut group = self.group;
+        group.extend(task.group);
         Self {
             config: task.config.or(self.config),
             output: task.output.or(self.output),
@@ -177,6 +190,7 @@ impl ExecutionArgs {
             merge_base: self.merge_base || task.merge_base,
             module,
             workspace,
+            group,
             with_dependents: self.with_dependents || task.with_dependents,
             with_dependencies: self.with_dependencies || task.with_dependencies,
             watch: self.watch || task.watch,

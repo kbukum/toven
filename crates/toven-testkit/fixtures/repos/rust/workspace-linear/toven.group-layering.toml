@@ -1,0 +1,24 @@
+# `--config` variant whose layering is broken: `app` depends on `corelib`, but
+# `apps` only allows dependencies into `base`.
+[project]
+name = "workspace-linear-rust"
+
+[toven]
+include = ["_profiles/rust-tasks.toml"]
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+
+[groups.base]
+ecosystem = "rust"
+modules = ["util"]
+
+[groups.core]
+ecosystem = "rust"
+modules = ["corelib"]
+guardrails.allow_groups = ["base"]
+
+[groups.apps]
+ecosystem = "rust"
+modules = ["app"]
+guardrails.allow_groups = ["base"]

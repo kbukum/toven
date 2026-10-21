@@ -34,6 +34,7 @@ fn unit(id: &str) -> ExecutionUnit {
         fail_if_output: false,
         cache: CacheVerdict::Miss,
         cache_key: Some(format!("key-{id}")),
+        outputs: Vec::new(),
         depends_on: Vec::new(),
         resource_group: None,
     }

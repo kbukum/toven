@@ -1,0 +1,24 @@
+# `--config` variant over the same tree that declares `[groups.*]`, so
+# `--group` selection can address the leaf crates by one name, and
+# `toven groups` can list them with their layering.
+[project]
+name = "workspace-linear-rust"
+
+[toven]
+include = ["_profiles/rust-tasks.toml"]
+
+[ecosystems.rust]
+manifests = ["Cargo.toml"]
+run_strategy = "leaf-to-top"
+
+[groups.foundation]
+description = "Shared building blocks"
+ecosystem = "rust"
+modules = ["util", "corelib"]
+guardrails.allow_groups = []
+
+[groups.apps]
+description = "Shipped binaries"
+ecosystem = "rust"
+modules = ["app"]
+guardrails.allow_groups = ["foundation"]

@@ -96,6 +96,7 @@ fn explicit_selection_flags_on_a_non_selection_verb_are_gated_to_usage() {
     // execution/`affected` verbs perform; on `modules` they are rejected.
     assert_eq!(run(&["--module", "rust:core", "modules"]), ExitCode::Usage);
     assert_eq!(run(&["--workspace", "rust", "modules"]), ExitCode::Usage);
+    assert_eq!(run(&["--group", "core", "modules"]), ExitCode::Usage);
     assert_eq!(run(&["--with-dependents", "modules"]), ExitCode::Usage);
 }
 

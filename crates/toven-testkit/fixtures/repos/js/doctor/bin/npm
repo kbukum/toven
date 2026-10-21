@@ -1,0 +1,3 @@
+#!/bin/sh
+# A stand-in `npm` that reports a version other than the `packageManager` pin.
+echo 11.0.0

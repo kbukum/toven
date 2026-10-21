@@ -1,0 +1,2 @@
+# An author-frozen root list.
+roots = ["web/package.json", "docs/package.json"]

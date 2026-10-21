@@ -179,6 +179,10 @@ pub(super) struct CoverageProfile {
     /// The wire format the profile was parsed from. Attribution uses it to
     /// credit Go profiles only to Go modules and LCOV only to the others.
     pub(super) format: CoverageFormat,
+    /// The `<ecosystem>-<module>` that staged the profile, read from its file
+    /// or directory name. Relative LCOV paths are resolved against that
+    /// module's root; `None` when the name names no producer.
+    pub(super) producer: Option<String>,
     /// Per-file coverage records.
     pub(super) files: Vec<FileCoverage>,
 }

@@ -1,0 +1,17 @@
+# `--group` activates a group's members; `--dependents` widens to everything
+# that depends on them; an unknown group lists the declared groups.
+repo: rust/workspace-linear
+steps:
+  - id: 01-group
+    argv: [--group, foundation, affected, build]
+    config: toven.groups.toml
+    stdout: { match: normalized }
+  - id: 02-group-dependents
+    argv: [--group, foundation, --dependents, affected, build]
+    config: toven.groups.toml
+    stdout: { match: normalized }
+  - id: 03-unknown-group
+    argv: [--group, fundation, affected, build]
+    config: toven.groups.toml
+    exit: 2
+    stderr: { match: normalized }

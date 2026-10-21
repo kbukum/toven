@@ -15,7 +15,7 @@
 use std::io::{Read, Write};
 
 use rskit_errors::AppResult;
-use toven_ports::{ConfiguredAdapter, Provider};
+use toven_ports::{ConfiguredAdapter, Provider, TaskIntent};
 
 use super::protocol::codec::{self, MAX_FRAME_BYTES};
 use super::protocol::envelope::{Capabilities, Hello, Request, Response, Welcome, WireError};
@@ -263,6 +263,26 @@ fn answer(adapter: &dyn ConfiguredAdapter, request: Request) -> Response {
             )),
         },
         Request::ToolchainProbe => Response::ToolchainProbe(adapter.toolchain_probe()),
+        Request::ToolchainProbes {
+            toolchain,
+            task,
+            kind,
+        } => match adapter
+            .toolchain_probes_for(&toolchain, &TaskIntent::resolve(task).with_kind(kind))
+        {
+            Ok(probes) => Response::ToolchainProbes(probes),
+            Err(error) => Response::Error(WireError::new(
+                error.code().as_str(),
+                error.message().to_string(),
+            )),
+        },
+        Request::Doctor { project_root } => match adapter.doctor(&project_root) {
+            Ok(scope) => Response::Doctor(scope),
+            Err(error) => Response::Error(WireError::new(
+                error.code().as_str(),
+                error.message().to_string(),
+            )),
+        },
         Request::RunStrategy { kind } => Response::RunStrategy(adapter.run_strategy_default(kind)),
         // Handled by the caller before reaching here.
         Request::Shutdown => Response::Bye,

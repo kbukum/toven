@@ -1,0 +1,1 @@
+error[INVALID_INPUT]: invalid ecosystems.command.tasks.test.depends_on: task 'test' depends on 'serve', but 'serve' is persistent and never finishes. Remove it from `depends_on`.

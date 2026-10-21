@@ -1,9 +1,8 @@
 //! Aggregation: attribute emitted profile files to modules, fold each module's
 //! metrics, and gate them into a [`CoverageReport`].
 //!
-//! File attribution keys on the workspace-relative file path: an emitted path
-//! is normalized (an absolute path under the project root is made relative) and
-//! attributed to the discovered module whose repo-relative `root` is its
+//! File attribution keys on the repo-relative file path (the `locate` step has
+//! already made every emitted path repo-relative) and attributes it to the discovered module whose repo-relative `root` is its
 //! longest matching prefix. Only modules that can produce the profile's format
 //! are candidates: a Go profile goes to `go.mod` modules, an LCOV profile to
 //! the others. When two candidates share that root, a selected module wins over
@@ -28,8 +27,6 @@ use super::settings::ResolvedCoverageSettings;
 
 /// The inputs to a coverage aggregation.
 pub(super) struct CoverageInputs<'a> {
-    /// Project root, used to make absolute emitted paths workspace-relative.
-    pub(super) project_root: &'a Path,
     /// Every discovered module. Files are attributed against all of them, so a
     /// file owned by an unselected module is never credited to a selected one.
     pub(super) owners: &'a [Module],
@@ -50,12 +47,7 @@ pub(super) struct CoverageInputs<'a> {
 #[must_use]
 pub(super) fn aggregate(inputs: &CoverageInputs<'_>) -> CoverageReport {
     let selected: BTreeSet<ModuleKey> = inputs.modules.iter().map(Module::key).collect();
-    let attributed = attribute(
-        inputs.project_root,
-        inputs.owners,
-        &selected,
-        inputs.profiles,
-    );
+    let attributed = attribute(inputs.owners, &selected, inputs.profiles);
 
     let mut modules = Vec::new();
     for module in inputs.modules {
@@ -80,7 +72,6 @@ pub(super) fn aggregate(inputs: &CoverageInputs<'_>) -> CoverageReport {
 /// Bucket every profile file under the candidate module whose root is its
 /// longest prefix. A file several profiles measured is merged into one entry.
 fn attribute(
-    project_root: &Path,
     modules: &[Module],
     selected: &BTreeSet<ModuleKey>,
     profiles: &[CoverageProfile],
@@ -92,15 +83,12 @@ fn attribute(
             .filter(|module| produces(profile.format, module))
             .collect();
         for file in &profile.files {
-            let relative = normalize(&file.path, project_root);
-            if let Some(module) = longest_match(&relative, &candidates, selected) {
+            if let Some(module) = longest_match(&file.path, &candidates, selected) {
                 let files = buckets.entry(module.key()).or_default();
-                if let Some(seen) = files.get_mut(&relative) {
+                if let Some(seen) = files.get_mut(&file.path) {
                     seen.merge(file);
                 } else {
-                    let mut attributed = file.clone();
-                    attributed.path.clone_from(&relative);
-                    files.insert(relative, attributed);
+                    files.insert(file.path.clone(), file.clone());
                 }
             }
         }
@@ -109,16 +97,6 @@ fn attribute(
         .into_iter()
         .map(|(key, files)| (key, files.into_values().collect()))
         .collect()
-}
-
-/// Make an absolute path under `project_root` workspace-relative; strip a
-/// leading `./`. A path already relative is returned as-is.
-fn normalize(path: &Path, project_root: &Path) -> PathBuf {
-    let stripped = path
-        .strip_prefix(project_root)
-        .or_else(|_| path.strip_prefix("./"))
-        .unwrap_or(path);
-    stripped.to_path_buf()
 }
 
 /// Whether `module` can have produced a profile in `format`: Go profiles come
@@ -222,6 +200,7 @@ mod tests {
         let cli = module("cli", "crates/core/cli");
         let profile = CoverageProfile {
             format: CoverageFormat::Lcov,
+            producer: None,
             files: vec![
                 file("crates/core/src/lib.rs", 9, 10),
                 file("crates/core/cli/src/main.rs", 5, 10),
@@ -233,7 +212,6 @@ mod tests {
 
         let modules = [core.clone(), cli.clone()];
         let report = aggregate(&CoverageInputs {
-            project_root: std::path::Path::new("/repo"),
             owners: &modules,
             modules: &modules,
             profiles: &[profile],
@@ -282,7 +260,6 @@ mod tests {
         }
 
         let report = aggregate(&CoverageInputs {
-            project_root: std::path::Path::new("/repo"),
             owners: &modules,
             modules: &modules,
             profiles: &[profile],
@@ -327,7 +304,6 @@ mod tests {
             std::iter::once(PathBuf::from("go-services/cmd/gateway/main.go")).collect();
 
         let report = aggregate(&CoverageInputs {
-            project_root: std::path::Path::new("/repo"),
             owners: &modules,
             modules: &modules,
             profiles: &[profile],
@@ -340,29 +316,6 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_absolute_emitted_paths() {
-        let core = module("core", "crates/core");
-        let profile = CoverageProfile {
-            format: CoverageFormat::Lcov,
-            files: vec![file("/repo/crates/core/src/lib.rs", 10, 10)],
-        };
-        let mut resolved = BTreeMap::new();
-        resolved.insert(core.key(), settings(90.0, Enforcement::Block));
-        let modules = [core];
-
-        let report = aggregate(&CoverageInputs {
-            project_root: std::path::Path::new("/repo"),
-            owners: &modules,
-            modules: &modules,
-            profiles: &[profile],
-            settings: &resolved,
-            changed: None,
-        });
-        assert_eq!(report.modules.len(), 1);
-        assert_eq!(report.modules[0].status, ModuleStatus::Passed);
-    }
-
-    #[test]
     fn an_out_of_scope_nested_module_is_not_credited_to_its_active_parent() {
         // A stale or whole-workspace profile can carry a nested module's files.
         // When only the parent is selected, those files still belong to the
@@ -371,6 +324,7 @@ mod tests {
         let nested = module("nested", "nested");
         let profile = CoverageProfile {
             format: CoverageFormat::Lcov,
+            producer: None,
             files: vec![file("src/lib.rs", 10, 10), file("nested/src/lib.rs", 0, 10)],
         };
         let mut resolved = BTreeMap::new();
@@ -379,7 +333,6 @@ mod tests {
         let scope = [root];
 
         let report = aggregate(&CoverageInputs {
-            project_root: std::path::Path::new("/repo"),
             owners: &owners,
             modules: &scope,
             profiles: &[profile],
@@ -405,16 +358,17 @@ mod tests {
         resolved.insert(command.key(), settings(0.0, Enforcement::Block));
 
         let report = aggregate(&CoverageInputs {
-            project_root: std::path::Path::new("/repo"),
             owners: &modules,
             modules: &modules,
             profiles: &[
                 CoverageProfile {
                     format: CoverageFormat::GoProfile,
+                    producer: None,
                     files: vec![file("cmd/main.go", 5, 10)],
                 },
                 CoverageProfile {
                     format: CoverageFormat::Lcov,
+                    producer: None,
                     files: vec![file("src/lib.rs", 10, 10)],
                 },
             ],
@@ -446,11 +400,11 @@ mod tests {
         resolved.insert(selected.key(), settings(100.0, Enforcement::Block));
 
         let report = aggregate(&CoverageInputs {
-            project_root: std::path::Path::new("/repo"),
             owners: &owners,
             modules: &scope,
             profiles: &[CoverageProfile {
                 format: CoverageFormat::Lcov,
+                producer: None,
                 files: vec![file("src/lib.rs", 10, 10)],
             }],
             settings: &resolved,
@@ -472,6 +426,7 @@ mod tests {
         let app = module("app", "apps/app");
         let workspace_profile = CoverageProfile {
             format: CoverageFormat::Lcov,
+            producer: None,
             files: vec![
                 file("crates/core/src/lib.rs", 10, 10),
                 // Covered by core's tests exercising app, attributed to app by path.
@@ -484,7 +439,6 @@ mod tests {
         let modules = [core, app.clone()];
 
         let shared = aggregate(&CoverageInputs {
-            project_root: std::path::Path::new("/repo"),
             owners: &modules,
             modules: &modules,
             profiles: &[workspace_profile],
@@ -506,11 +460,11 @@ mod tests {
         // never attributes that cross-module coverage — app would be unmeasured
         // (skipped), which is exactly the number the shared measurement rescues.
         let isolated = aggregate(&CoverageInputs {
-            project_root: std::path::Path::new("/repo"),
             owners: &modules,
             modules: &modules,
             profiles: &[CoverageProfile {
                 format: CoverageFormat::Lcov,
+                producer: None,
                 files: vec![file("crates/core/src/lib.rs", 10, 10)],
             }],
             settings: &resolved,
@@ -530,6 +484,7 @@ mod tests {
         let core = module("core", "crates/core");
         let profile = CoverageProfile {
             format: CoverageFormat::Lcov,
+            producer: None,
             files: vec![
                 file("crates/core/src/lib.rs", 10, 10),
                 file("crates/core/src/new.rs", 1, 10),
@@ -544,7 +499,6 @@ mod tests {
         let modules = [core];
 
         let report = aggregate(&CoverageInputs {
-            project_root: std::path::Path::new("/repo"),
             owners: &modules,
             modules: &modules,
             profiles: &[profile],
@@ -571,6 +525,7 @@ mod tests {
         let core = module("core", "crates/core");
         let run = |hits: std::ops::RangeInclusive<u32>| CoverageProfile {
             format: CoverageFormat::Lcov,
+            producer: None,
             files: vec![FileCoverage {
                 path: "crates/core/src/lib.rs".into(),
                 lines: (1..=10).map(|line| (line, hits.contains(&line))).collect(),
@@ -585,7 +540,6 @@ mod tests {
         let modules = [core];
 
         let report = aggregate(&CoverageInputs {
-            project_root: std::path::Path::new("/repo"),
             owners: &modules,
             modules: &modules,
             profiles: &[run(1..=4), second],

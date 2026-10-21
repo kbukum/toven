@@ -30,52 +30,84 @@ const MAX_CHANGELOG_BYTES: u64 = 4 * 1024 * 1024;
 /// Temp-file prefix for the atomic changelog rewrite.
 const CHANGELOG_TEMP_PREFIX: &str = "toven-changelog";
 
-/// Apply every planned entry's manifest mutation, returning the repo-relative
-/// paths each entry rewrote in plan order.
+/// The manifest writes of one release: each entry's rewritten paths in plan
+/// order, plus the shared paths its targets rewrote once for the whole release
+/// (a refreshed lockfile).
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) struct ManifestWrites {
+    /// Per-module rewritten manifest paths in plan order.
+    pub(crate) per_module: MutatedManifests,
+    /// Paths a target's [`finalize_release`](toven_ports::ManifestMutator::finalize_release)
+    /// rewrote, in target first-seen order.
+    pub(crate) shared: Vec<RepoPath>,
+}
+
+impl ManifestWrites {
+    /// The ordered, de-duplicated set staged into the release commit (or the
+    /// PR-first index): every per-module path, then every shared path.
+    ///
+    /// Duplicates are collapsed in first-seen order: a single-version
+    /// workspace routes every member's version bump to one shared
+    /// workspace-root manifest, so many entries report the same path. Staging
+    /// it once keeps the staged set and the release commit honest.
+    #[must_use]
+    pub(crate) fn staged_paths(&self) -> Vec<RepoPath> {
+        let mut seen = BTreeSet::new();
+        self.per_module
+            .iter()
+            .flat_map(|(_, paths)| paths.iter())
+            .chain(self.shared.iter())
+            .filter(|path| seen.insert((*path).clone()))
+            .cloned()
+            .collect()
+    }
+}
+
+/// Apply every planned entry's manifest mutation, then let each target finish
+/// the release once over the modules it rewrote.
 ///
 /// This is the manifest-write sliver both the APPLY transaction and the `bump`
 /// verb run before their divergent tails. A mutation-free entry (a Go tag-only
-/// cut) contributes an empty path list. `stats.mutated_modules` is incremented
-/// once per entry.
+/// cut) contributes an empty path list and is not passed to its target's
+/// finalize step; a target with no rewritten module is not finalized at all.
+/// `stats.mutated_modules` is incremented once per entry.
 ///
 /// # Errors
-/// Propagates a missing module/target or a manifest-mutation failure.
+/// Propagates a missing module/target, a manifest-mutation failure, or a
+/// finalize failure.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn mutate_manifests(
     plan: &ReleasePlan,
     module_by_ref: &BTreeMap<ModuleKey, &Module>,
     targets: &crate::ReleaseTargets,
     stats: &mut ReleaseStats,
-) -> AppResult<MutatedManifests> {
-    let mut mutated = Vec::with_capacity(plan.entries.len());
+) -> AppResult<ManifestWrites> {
+    let mut per_module = Vec::with_capacity(plan.entries.len());
+    let mut rewritten: Vec<(TargetKey, Vec<&Module>)> = Vec::new();
     for entry in &plan.entries {
         let module = crate::execution::apply::module_for(module_by_ref, &entry.module)?;
         let target = crate::execution::apply::target_for(targets, module)?;
         let paths = target.apply_release(module, &entry.mutation)?;
         stats.mutated_modules += 1;
-        mutated.push((entry.module.clone(), paths));
+        if !paths.is_empty() {
+            let key = (module.member.clone(), module.id.ecosystem.clone());
+            match rewritten.iter_mut().find(|(existing, _)| *existing == key) {
+                Some((_, modules)) => modules.push(module),
+                None => rewritten.push((key, vec![module])),
+            }
+        }
+        per_module.push((entry.module.clone(), paths));
     }
-    Ok(mutated)
+    let mut shared = Vec::new();
+    for (_, modules) in &rewritten {
+        let target = crate::execution::apply::target_for(targets, modules[0])?;
+        shared.extend(target.finalize_release(modules)?);
+    }
+    Ok(ManifestWrites { per_module, shared })
 }
 
-/// Flatten the per-entry rewritten manifest paths into the ordered set staged
-/// into the release commit (or the PR-first index).
-///
-/// Duplicates are collapsed in first-seen order: a single-version workspace
-/// routes every member's version bump to one shared workspace-root manifest, so
-/// many entries report the same path. Staging it once keeps the staged set and
-/// the release commit honest.
-#[must_use]
-#[allow(clippy::redundant_pub_crate)]
-pub(crate) fn staged_paths(mutated: &[(ModuleKey, Vec<RepoPath>)]) -> Vec<RepoPath> {
-    let mut seen = BTreeSet::new();
-    mutated
-        .iter()
-        .flat_map(|(_, paths)| paths.iter())
-        .filter(|path| seen.insert((*path).clone()))
-        .cloned()
-        .collect()
-}
+/// The release-target key: one target per `(member, ecosystem)`.
+type TargetKey = (Option<toven_model::MemberId>, toven_model::EcosystemId);
 
 /// Roll each opted-in changelog once, moving its documented `## [Unreleased]`
 /// body under a versioned `## [version] - date` heading, and return the
@@ -138,7 +170,15 @@ pub(crate) fn roll_changelogs(
 mod tests {
     use toven_model::{ModuleKey, ModuleRef, RepoPath};
 
-    use super::staged_paths;
+    use super::ManifestWrites;
+
+    fn staged_paths(per_module: &[(ModuleKey, Vec<RepoPath>)]) -> Vec<RepoPath> {
+        ManifestWrites {
+            per_module: per_module.to_vec(),
+            shared: Vec::new(),
+        }
+        .staged_paths()
+    }
 
     fn key(name: &str) -> ModuleKey {
         ModuleKey::bare(ModuleRef::parse(name).expect("module ref"))
@@ -167,5 +207,16 @@ mod tests {
             (key("rust:lib"), vec![lib.clone()]),
         ];
         assert_eq!(staged_paths(&mutated), vec![app, lib]);
+    }
+
+    #[test]
+    fn staged_paths_appends_shared_paths_once() {
+        let app = RepoPath::new("packages/app/package.json").unwrap();
+        let lock = RepoPath::new("package-lock.json").unwrap();
+        let writes = ManifestWrites {
+            per_module: vec![(key("js:app"), vec![app.clone()])],
+            shared: vec![lock.clone(), app.clone()],
+        };
+        assert_eq!(writes.staged_paths(), vec![app, lock]);
     }
 }

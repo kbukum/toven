@@ -1,0 +1,5 @@
+{
+  "name": "acme-smoke",
+  "private": true,
+  "workspaces": ["packages/*"]
+}

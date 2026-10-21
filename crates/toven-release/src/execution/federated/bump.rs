@@ -207,9 +207,10 @@ fn bump_prepare_member(
     use crate::execution::mutate;
 
     let mut stats = ReleaseStats::new(plan.entries.len());
-    let mutated_manifests = mutate::mutate_manifests(plan, module_by_ref, targets, &mut stats)?;
+    let writes = mutate::mutate_manifests(plan, module_by_ref, targets, &mut stats)?;
     let rolled = mutate::roll_changelogs(plan, root, date)?;
-    let mut changed = mutate::staged_paths(&mutated_manifests);
+    let mut changed = writes.staged_paths();
+    let mutated_manifests = writes.per_module;
     changed.extend(rolled.iter().cloned());
     let references = member_version_references(plan);
     let synced = version_sync::sync_version_references(&references, versions, root)?;

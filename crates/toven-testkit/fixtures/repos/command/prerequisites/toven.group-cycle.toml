@@ -1,0 +1,38 @@
+# Invalid group override variant (cycle): `artifact` makes `build` wait for
+# `test` while `test` waits for `build` on the same module.
+[project]
+name = "prerequisites-command"
+
+[toven]
+include = ["_profiles/command-tasks.toml"]
+
+[[ecosystems.command.modules]]
+name = "core"
+root = "core"
+
+[[ecosystems.command.modules]]
+name = "lib"
+root = "lib"
+depends_on = ["core"]
+
+[[ecosystems.command.modules]]
+name = "app"
+root = "app"
+depends_on = ["lib"]
+
+
+[ecosystems.command.tasks.build]
+argv = ["sh", "-c", "mkdir -p {module.root}/dist && echo built > {module.root}/dist/out"]
+outputs = ["dist/out"]
+depends_on = ["^build"]
+
+[ecosystems.command.tasks.test]
+argv = ["echo", "command test {module.name}"]
+depends_on = ["build"]
+
+[groups.artifact]
+ecosystem = "command"
+modules = ["lib"]
+
+[groups.artifact.tasks.build]
+depends_on = ["test"]

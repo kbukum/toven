@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use toven_model::{ExecutionUnit, UnitOutput};
 use toven_ports::{
     CommandRunner, Invocation, InvocationEnvPolicy, InvocationEnvironment, OutputObserver,
-    StartOutcome,
+    RunOutcome, StartOutcome,
 };
 
 use super::persistent::held::SharedHeldProcess;
@@ -28,6 +28,12 @@ pub(super) enum WorkOutcome {
         /// signal termination). Carried so a failure can name the exit.
         exit_code: Option<i32>,
         /// Raw output chunks.
+        output: Vec<UnitOutput>,
+    },
+    /// A normal unit was stopped by fail-fast or an external cancel before it
+    /// finished.
+    Cancelled {
+        /// Raw output chunks captured before the cancellation.
         output: Vec<UnitOutput>,
     },
     /// A normal unit exceeded its per-unit timeout and was cancelled.
@@ -169,14 +175,7 @@ impl Handler<WorkItem, WorkOutcome> for WorkHandler {
                 tokio::pin!(run);
                 tokio::select! {
                     biased;
-                    result = &mut run => {
-                        let outcome = result?;
-                        Ok(WorkOutcome::Normal {
-                            success: outcome.success,
-                            exit_code: outcome.exit_code,
-                            output: outcome.output,
-                        })
-                    }
+                    result = &mut run => Ok(normal_outcome(result?)),
                     () = tokio::time::sleep(timeout) => {
                         cancel.cancel();
                         // We deliberately cancelled this unit, so a `Cancelled` error (the fake/cooperative path) or an `Ok` killed-process outcome (the rskit-process path) both mean "timed out": salvage any captured output and report the timeout as an explicit failure verdict. Any *other* error is a genuine spawn/IO/teardown failure unrelated to our cancellation — propagate it with its cause rather than masking it as a timeout.
@@ -189,13 +188,27 @@ impl Handler<WorkItem, WorkOutcome> for WorkHandler {
                     }
                 }
             } else {
-                let outcome = self.runner.run(&invocation, cancel, live).await?;
-                Ok(WorkOutcome::Normal {
-                    success: outcome.success,
-                    exit_code: outcome.exit_code,
-                    output: outcome.output,
-                })
+                Ok(normal_outcome(
+                    self.runner.run(&invocation, cancel, live).await?,
+                ))
             }
+        }
+    }
+}
+
+/// Map a finished normal run to its work outcome. Only fail-fast or an external
+/// cancel can stop a run before its timeout fires, so a cancelled run here is
+/// reported as cancelled, never as a failure.
+fn normal_outcome(outcome: RunOutcome) -> WorkOutcome {
+    if outcome.cancelled {
+        WorkOutcome::Cancelled {
+            output: outcome.output,
+        }
+    } else {
+        WorkOutcome::Normal {
+            success: outcome.success,
+            exit_code: outcome.exit_code,
+            output: outcome.output,
         }
     }
 }

@@ -1,0 +1,4 @@
+{
+  "name": "docs",
+  "dependencies": { "web": "link:../web", "gone": "file:../gone" }
+}

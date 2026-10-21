@@ -1,7 +1,10 @@
 //! Discovered module model (identity + topology, language-agnostic).
 
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 
+use crate::capability::Capability;
 use crate::identity::{MemberId, ModuleKey, ModuleRef, RepoPath, WorkspaceId};
 
 /// A discovered module, independent of language-specific manifests.
@@ -37,33 +40,29 @@ pub struct Module {
     /// unit unguarded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resource_group: Option<String>,
-    /// Whether this module has an executable target a `run`-kind task can
-    /// launch. Adapter-set during discovery; defaults `true` (assume runnable)
-    /// so only an adapter that can prove a module is library-only (no binary)
-    /// excludes it from persistent `run` units. Consumed by the scheduler, not
-    /// identity.
-    #[serde(default = "default_true", skip_serializing_if = "is_true")]
-    pub runnable: bool,
+    /// What this module provides (`bin`, `script:test`). Adapter-set during
+    /// discovery and matched against a task's required capabilities: a module
+    /// lacking one is not eligible for that task. Opaque to the model.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub capabilities: BTreeSet<Capability>,
     /// Whether discovery represents every mutable dependency in the source
     /// graph. False or absent metadata disables caching for this module and
     /// its consumers.
     #[serde(default)]
     pub cache_inputs_complete: bool,
-    /// Project-relative directories outside the module graph that this module
-    /// builds from (for example a Go `replace` to a sibling checkout). They may
-    /// start with `..`. Their content joins the module's source identity, and
-    /// because version control cannot see them the module is always affected.
+    /// Project-relative files or directories outside the module graph that
+    /// this module builds from (for example a Go `replace` to a sibling
+    /// checkout, or a packed JavaScript tarball). They may start with `..`.
+    /// Their content joins the module's source identity, and because version
+    /// control cannot see them the module is always affected.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub external_roots: Vec<String>,
-}
-
-const fn default_true() -> bool {
-    true
-}
-
-#[allow(clippy::trivially_copy_pass_by_ref)]
-const fn is_true(value: &bool) -> bool {
-    *value
+    /// Whether the module's manifest forbids registry publication (an npm
+    /// `"private": true` package). Adapter-set during discovery; release
+    /// excludes such a module unless config sets `exclude = false`, which makes
+    /// it tag-only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unpublishable: bool,
 }
 
 impl Module {
@@ -81,10 +80,26 @@ impl Module {
             member: None,
             source_patterns: Vec::new(),
             resource_group: None,
-            runnable: true,
+            capabilities: BTreeSet::new(),
             cache_inputs_complete: true,
             external_roots: Vec::new(),
+            unpublishable: false,
         }
+    }
+
+    /// The registry package name (`@acme/core`), or the module name when the
+    /// module declares none.
+    #[must_use]
+    pub fn package_name(&self) -> &str {
+        self.package.as_deref().unwrap_or(&self.id.name)
+    }
+
+    /// Whether this module provides every capability in `required`.
+    #[must_use]
+    pub fn provides<'a>(&self, required: impl IntoIterator<Item = &'a Capability>) -> bool {
+        required
+            .into_iter()
+            .all(|capability| self.capabilities.contains(capability))
     }
 
     /// The graph key for this module: its identity scoped by its `member`.
@@ -102,6 +117,7 @@ impl Module {
 #[cfg(test)]
 mod tests {
     use super::Module;
+    use crate::capability::Capability;
     use crate::identity::{EcosystemId, ModuleRef, RepoPath};
 
     #[test]
@@ -112,27 +128,32 @@ mod tests {
         );
         let json = serde_json::to_string(&module).unwrap();
         assert!(!json.contains("package"));
-        // `runnable` defaults true and is skipped when it holds that default.
-        assert!(!json.contains("runnable"));
+        assert!(!json.contains("capabilities"));
         let back: Module = serde_json::from_str(&json).unwrap();
         assert_eq!(module, back);
-        assert!(back.runnable);
         assert!(back.cache_inputs_complete);
         assert!(json.contains("cache_inputs_complete"));
     }
 
     #[test]
-    fn a_non_runnable_module_round_trips_the_flag() {
+    fn capabilities_round_trip_and_gate_requirements() {
         let mut module = Module::new(
-            ModuleRef::new(EcosystemId::new("rust").unwrap(), "errors").unwrap(),
-            RepoPath::new("core/errors").unwrap(),
+            ModuleRef::new(EcosystemId::new("js").unwrap(), "std").unwrap(),
+            RepoPath::new("packages/std").unwrap(),
         );
-        module.runnable = false;
+        let test = Capability::new("script:test").unwrap();
+        let build = Capability::new("script:build").unwrap();
+        module.capabilities.insert(test.clone());
         let json = serde_json::to_string(&module).unwrap();
-        assert!(json.contains("runnable"));
+        assert!(
+            json.contains("\"capabilities\":[\"script:test\"]"),
+            "{json}"
+        );
         let back: Module = serde_json::from_str(&json).unwrap();
-        assert!(!back.runnable);
         assert_eq!(module, back);
+        assert!(back.provides([]));
+        assert!(back.provides([&test]));
+        assert!(!back.provides([&test, &build]));
     }
 
     #[test]
@@ -160,5 +181,31 @@ mod tests {
             .remove("cache_inputs_complete");
         let back: Module = serde_json::from_value(json).unwrap();
         assert!(!back.cache_inputs_complete);
+    }
+
+    #[test]
+    fn unpublishable_round_trips_and_is_omitted_when_false() {
+        let mut module = Module::new(
+            ModuleRef::new(EcosystemId::new("js").unwrap(), "tools").unwrap(),
+            RepoPath::new("tools").unwrap(),
+        );
+        let json = serde_json::to_string(&module).unwrap();
+        assert!(!json.contains("unpublishable"), "{json}");
+        module.unpublishable = true;
+        let json = serde_json::to_string(&module).unwrap();
+        let back: Module = serde_json::from_str(&json).unwrap();
+        assert!(back.unpublishable);
+        assert_eq!(module, back);
+    }
+
+    #[test]
+    fn package_name_prefers_the_registry_name() {
+        let mut module = Module::new(
+            ModuleRef::new(EcosystemId::new("js").unwrap(), "core").unwrap(),
+            RepoPath::new("packages/core").unwrap(),
+        );
+        assert_eq!(module.package_name(), "core");
+        module.package = Some("@acme/core".to_string());
+        assert_eq!(module.package_name(), "@acme/core");
     }
 }

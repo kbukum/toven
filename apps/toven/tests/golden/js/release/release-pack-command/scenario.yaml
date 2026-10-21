@@ -1,0 +1,25 @@
+# A repository-owned pack command (`[ecosystems.js.pack]`) is accepted at
+# load and leaves the publish plan unchanged; a pack command keyed by a
+# directory that is not a JavaScript root fails closed, so a typo can never
+# fall back to the package manager's own pack.
+repo: js/release-train
+git:
+  commits:
+    - msg: "touch core"
+      touch:
+        - packages/core/index.js
+  tags:
+    - { name: "@plain/core@0.1.0", at: 0 }
+    - { name: "@plain/ui@0.3.0", at: 0 }
+    - { name: "@plain/cli@1.2.0", at: 0 }
+    - { name: "@plain/docs@0.0.0", at: 0 }
+steps:
+  - id: 01-publish-dry-run
+    argv: [release, publish, --dry-run, --output, jsonl]
+    config: toven.pack.toml
+    stdout: { match: normalized }
+  - id: 02-unknown-root
+    argv: [release, plan]
+    config: toven.pack-typo.toml
+    exit: 2
+    stderr: { match: normalized }

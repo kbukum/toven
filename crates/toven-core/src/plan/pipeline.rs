@@ -20,7 +20,7 @@ use super::cache::{self, KeyInputs};
 use super::configure::MemberAdapters;
 use super::host::PlanHost;
 use super::request::{PlanRequest, Selection};
-use super::{affected, discover, front, schedule, toolchain};
+use super::{affected, discover, front, prerequisites, schedule, toolchain};
 
 type CacheWorkspace = (
     Option<toven_model::MemberId>,
@@ -108,12 +108,12 @@ pub fn plan_focused(
             Ok(recognize_intent(&single, &context.adapters)?.unwrap_or(single))
         })
         .collect::<AppResult<Vec<_>>>()?;
-    let (units, waves) = plan_intents(&requests, &context, host, reporter)?;
-    ensure_unique_unit_ids(&units)?;
+    let plan = plan_intents(&requests, &context, host, reporter)?;
+    ensure_unique_unit_ids(&plan.units)?;
 
     reporter.emit(&Event::PlanPrepared {
-        waves: waves.len(),
-        units: units.len(),
+        waves: plan.waves.len(),
+        units: plan.units.len(),
     })?;
 
     // Each task's closure follows its own kind-aware edge rules; a list's
@@ -129,50 +129,29 @@ pub fn plan_focused(
         })
         .transpose()?;
 
-    Ok(FocusedPlan {
-        plan: Plan::new(units, waves),
-        focus,
-    })
+    Ok(FocusedPlan { plan, focus })
 }
 
 /// Plan every recognized single-task request (Affected→Schedule) against the
-/// prepared federation, merging units and same-index waves into one plan.
+/// prepared federation, merging units, waves, and skipped modules into one
+/// plan.
+///
+/// After Affected, each task's `depends_on` pulls prerequisite tasks onto the
+/// modules that need them; after Schedule, their units are linked and the
+/// merged waves re-levelled so prerequisites run first. Without prerequisites
+/// the tasks run side by side in same-index waves.
 fn plan_intents(
-    requests: &[PlanRequest],
+    original: &[PlanRequest],
     context: &front::PlanContext,
     host: PlanHost<'_>,
     reporter: &mut dyn Reporter,
-) -> AppResult<(Vec<ExecutionUnit>, Vec<Vec<String>>)> {
-    reporter.emit(&Event::PhaseStarted {
-        phase: Phase::Affected,
-    })?;
-    let explicit = if requests.len() > 1 {
+) -> AppResult<Plan> {
+    let explicit = if original.len() > 1 {
         affected::ExplicitScope::Narrow
     } else {
         affected::ExplicitScope::Strict
     };
-    let mut actives = Vec::with_capacity(requests.len());
-    for request in requests {
-        let active =
-            affected::active_modules(request, &context.graph, &context.federation, host.vcs)?;
-        let active = affected::restrict_to_task_defining(
-            active,
-            request,
-            &context.federation,
-            &context.adapters,
-            explicit,
-        )?;
-        if !active.full_activation.is_empty() {
-            reporter.emit(&Event::FullActivation {
-                paths: active.full_activation.clone(),
-            })?;
-        }
-        actives.push(active);
-    }
-    ensure_some_task_applies(requests, &actives, explicit)?;
-    reporter.emit(&Event::PhaseFinished {
-        phase: Phase::Affected,
-    })?;
+    let (requests, actives, needs) = affected_phase(original, context, host, explicit, reporter)?;
 
     reporter.emit(&Event::PhaseStarted {
         phase: Phase::Toolchain,
@@ -197,12 +176,14 @@ fn plan_intents(
     })?;
     let mut units = Vec::new();
     let mut waves: Vec<Vec<String>> = Vec::new();
+    let mut skipped = Vec::new();
     for ((request, active), toolchains) in requests.iter().zip(&actives).zip(&toolchains) {
         let active_list: Vec<ModuleKey> = active.modules.iter().cloned().collect();
         let scheduled = schedule::schedule(
             request,
             &context.federation,
             &active_list,
+            &active.named,
             &context.adapters,
             &context.group_overrides,
             toolchains,
@@ -215,6 +196,20 @@ fn plan_intents(
             host,
             reporter,
         )?);
+        for skip in &scheduled.skipped {
+            reporter.emit(&Event::ModuleSkipped {
+                module: skip.module.to_string(),
+                task: skip.task.clone(),
+                reason: skip.reason.code().to_string(),
+                missing: skip
+                    .reason
+                    .missing()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
+            })?;
+        }
+        skipped.extend(scheduled.skipped);
         for (index, wave) in scheduled.waves.into_iter().enumerate() {
             match waves.get_mut(index) {
                 Some(merged) => merged.extend(wave),
@@ -222,17 +217,20 @@ fn plan_intents(
             }
         }
     }
+    let waves = prerequisites::link(&mut units, waves, &needs)?;
     reporter.emit(&Event::PhaseFinished {
         phase: Phase::Schedule,
     })?;
-    Ok((units, waves))
+    let plan = Plan::new(units, waves).with_skipped(skipped);
+    ensure_some_task_applies(original, &plan, explicit)?;
+    Ok(plan)
 }
 
-/// Reject a task list whose tasks all skip every explicitly selected module, so
-/// a narrowed list never turns a mistyped selection into an empty success.
+/// Reject a task list with an explicit selection that plans nothing, so a
+/// narrowed list never turns a mistyped selection into an empty success.
 fn ensure_some_task_applies(
     requests: &[PlanRequest],
-    actives: &[affected::ActiveModules],
+    plan: &Plan,
     explicit: affected::ExplicitScope,
 ) -> AppResult<()> {
     let Some(first) = requests.first() else {
@@ -240,7 +238,7 @@ fn ensure_some_task_applies(
     };
     if explicit != affected::ExplicitScope::Narrow
         || !matches!(first.selection, Selection::Explicit { .. })
-        || actives.iter().any(|active| !active.modules.is_empty())
+        || !plan.units.is_empty()
     {
         return Ok(());
     }
@@ -255,6 +253,67 @@ fn ensure_some_task_applies(
             tasks.join(", ")
         ),
     ))
+}
+
+/// The Affected phase: each request's active modules, then the prerequisite
+/// expansion that adds the tasks and modules `depends_on` pulls in.
+fn affected_phase(
+    requests: &[PlanRequest],
+    context: &front::PlanContext,
+    host: PlanHost<'_>,
+    explicit: affected::ExplicitScope,
+    reporter: &mut dyn Reporter,
+) -> AppResult<(
+    Vec<PlanRequest>,
+    Vec<affected::ActiveModules>,
+    prerequisites::Needs,
+)> {
+    reporter.emit(&Event::PhaseStarted {
+        phase: Phase::Affected,
+    })?;
+    let mut actives = Vec::with_capacity(requests.len());
+    for request in requests {
+        let active = affected::active_modules(
+            request,
+            &context.graph,
+            &context.federation,
+            &context.groups,
+            host.vcs,
+        )?;
+        let active = affected::restrict_to_task_defining(
+            active,
+            request,
+            &context.federation,
+            &context.adapters,
+            explicit,
+        )?;
+        if !active.full_activation.is_empty() {
+            reporter.emit(&Event::FullActivation {
+                paths: active.full_activation.clone(),
+            })?;
+        }
+        actives.push(active);
+    }
+    let expanded = prerequisites::expand(
+        requests.to_vec(),
+        actives,
+        &prerequisites::Scope {
+            federation: &context.federation,
+            adapters: &context.adapters,
+            overrides: &context.group_overrides,
+        },
+    )?;
+    let requests = expanded
+        .requests
+        .iter()
+        .map(|single| {
+            Ok(recognize_intent(single, &context.adapters)?.unwrap_or_else(|| single.clone()))
+        })
+        .collect::<AppResult<Vec<_>>>()?;
+    reporter.emit(&Event::PhaseFinished {
+        phase: Phase::Affected,
+    })?;
+    Ok((requests, expanded.actives, expanded.needs))
 }
 
 /// Reject a merged plan in which two tasks produced the same unit id.
@@ -289,6 +348,7 @@ fn resolve_focus(
         &focus_request,
         &context.graph,
         &context.federation,
+        &context.groups,
         host.vcs,
     )
     .and_then(|active| {
@@ -417,6 +477,7 @@ fn decide_cache(
                 request.cache_mode,
                 planned.cache_args,
                 passthrough_present,
+                &planned.outputs,
                 host.cache,
                 || {
                     let inputs = KeyInputs {
@@ -449,6 +510,7 @@ fn decide_cache(
             fail_if_output: planned.fail_if_output,
             cache: verdict,
             cache_key: cacheable_key(verdict, key),
+            outputs: planned.outputs.clone(),
             depends_on: planned.depends_on.clone(),
             resource_group: planned.resource_group.clone(),
         });

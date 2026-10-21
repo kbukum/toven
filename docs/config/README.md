@@ -165,6 +165,75 @@ modules = ["go.mod", "auth/go.mod"]
 
 Toven reads `go.mod` and `go.work` with the `go` command and your environment, just like your tasks. It does not set `GOTOOLCHAIN`, so your value applies, or Go's default `auto`, which switches to the Go version your `go.mod` or `go.work` asks for (and may download it once). Each `go.mod` is read from its own directory, so that choice follows the `go` and `toolchain` lines Go would use there: the enclosing `go.work` when there is one, otherwise that module's `go.mod`. Set `GOTOOLCHAIN=local` if discovery must never download a toolchain. When the Go in use is too old to read your `go.mod`, the error says so and suggests a fix.
 
+### JavaScript and TypeScript
+
+```toml
+[ecosystems.js]
+roots = "auto"
+exclude = ["examples"]
+
+[ecosystems.js.package_manager]
+"tools/legacy" = "npm"
+
+[ecosystems.js.pack]
+"." = ["bun", "scripts/pack.ts", "{module.root}", "--destination", "{destination}"]
+```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `roots` | `"auto"` or string list | `"auto"` | Root `package.json` files to manage |
+| `exclude` | string list | `[]` | Repo-relative directories skipped by discovery |
+| `package_manager` | table of root directory → `"npm"`, `"pnpm"`, `"yarn"`, or `"bun"` | `{}` | Per-root package manager override; the key is the root directory (`"."` for the repository root), and a key that is not a root is an error |
+| `pack` | table of root directory → argv list | `{}` | Per-root release pack command that replaces the package manager's `pack`; see [release packing](release.md#registry-tag-only-and-excluded-modules) |
+
+A root is a directory with its own install: one `package.json` plus its lockfile and workspace settings. One repository can hold several independent roots, each with its own package manager. `"auto"` walks the project, skipping `node_modules`, hidden directories, Git-ignored directories, and `exclude`. The repository-root `package.json` is a root. A nested `package.json` that a root's workspace patterns select is a member of that root. Any other nested `package.json` becomes its own root when it has a lockfile, a workspace definition, or a `packageManager` pin, and is ignored otherwise. A `package.json` outside every root is always a root. Use an explicit list to freeze the set; a listed root that another root also selects as a member is an error:
+
+```toml
+[ecosystems.js]
+roots = ["web/package.json", "gen/ts/package.json"]
+```
+
+Workspace members come from the `workspaces` field (a list, or an object with `packages`) or, for pnpm, `pnpm-workspace.yaml`. Patterns support `*`, `**`, and `!` exclusions.
+
+Each root's package manager comes from the `package_manager` override, then the `packageManager` pin, then `devEngines.packageManager`, then the one lockfile present. Yarn 1 and Yarn 2+ (Berry) are told apart by the pin, or by `.yarnrc.yml` when there is no pin. With no signal at all, `pnpm-workspace.yaml` selects pnpm, `.yarnrc.yml` selects Yarn, and otherwise npm is used. Disagreeing signals, such as a pin for pnpm next to `package-lock.json` or two lockfiles from different tools, fail with the fix instead of a guess.
+
+Every member is a module, and so is the root package when it has a `name` or `scripts`, or is not a workspace. A module's name is its repo-relative directory with `/` replaced by `-` (`packages/std` → `packages-std`); the repository-root package uses its unscoped package name (`@acme/platform` → `platform`). `{module.package}` is the full npm name. Each module records a `script:<name>` capability per script, so a task can use `requires = ["script:test"]`. A workspace root's script that a member also declares (`"test": "turbo run test"`) is an orchestrator over the members, so it is not one of the root package's capabilities. Package names must be unique within a root.
+
+A dependency becomes an edge when it resolves to a discovered package: `workspace:` by name, alias, or path; `file:`, `link:`, and `portal:` paths at a package root; and a plain range whose same-root package version satisfies it. pnpm resolves plain ranges from the registry unless `link-workspace-packages` is on, so for pnpm such an edge can be extra; it only adds ordering, never removes it. `catalog:`, `npm:` aliases, Git, and URL specs never link. `devDependencies` give dev edges; `dependencies`, `peerDependencies`, and `optionalDependencies` give normal edges. Path dependencies outside the module graph are cache inputs; see [cache](../commands/cache.md). Use [overlays](#overlays) for edges `package.json` cannot express, such as a tsconfig path alias.
+
+`toven init` writes a task per script it finds, run through the detected package manager in each package that declares the script. It asks which scripts become tasks (standard names are preselected) and whether `build`, `test`, and `typecheck` build workspace dependencies first. For an npm workspace it writes, in part:
+
+```toml
+[ecosystems.js.tasks.build]
+argv = ["npm", "--prefix", "{module.root}", "run", "build", "--", "{args}"]
+depends_on = ["^build"]
+fan_out = "per-module"
+outputs = ["dist"]
+requires = ["script:build"]
+
+[ecosystems.js.tasks.typecheck]
+argv = ["npm", "--prefix", "{module.root}", "run", "typecheck", "--", "{args}"]
+depends_on = ["^build"]
+fan_out = "per-module"
+kind = "check"
+requires = ["script:typecheck"]
+
+[ecosystems.js.tasks.install]
+argv = ["npm", "--prefix", "{workspace.root}", "ci"]
+cacheable = false
+fan_out = "whole-workspace"
+workspace_closure = true
+```
+
+- `typecheck` is a `check` task, `format:check` becomes `format-check`, and `dev` is a persistent `run` task.
+- `build` declares `outputs = ["dist"]` when a package with a `build` script points an entry point, export, executable, or published file into `dist`.
+- `format`, `dev`, and any non-standard script you select are not cached, because Toven cannot tell that they are pure.
+- `install` runs each root's frozen-lockfile install. Toven never installs on its own; run `toven install` or the install command `toven doctor` suggests.
+- When every package's `test` script runs the same runner (Vitest, Jest, or `bun test`), `init` also writes an uncached `coverage` task that adds the runner's LCOV flags to the `test` script, plus an advisory `[ecosystems.js.coverage]` starter block. See [JavaScript profiles](../commands/coverage.md#javascript-profiles).
+- For now, every root must use the same package manager for `init` to write the table, and each task runs once per package rather than batching packages into one call.
+
+Discovery reads `package.json`, `pnpm-workspace.yaml`, and lockfile presence directly, with bounded reads. It needs no `node_modules`, no network, and no package manager binary, and it never runs a command. Each root's lockfile, `package.json`, `.npmrc`, and its manager's settings file (`pnpm-workspace.yaml`, `.yarnrc.yml`, or `bunfig.toml`) affect every package in that root. The toolchain identity is the Node.js version plus the package manager version, or the Bun version alone.
+
 ### Command
 
 ```toml
@@ -193,6 +262,7 @@ label = "npm"
 | `modules[].root` | string | Required | Repo-relative module root |
 | `modules[].manifest` | string | None | Informational manifest path |
 | `modules[].depends_on` | string list | `[]` | Other declared command modules this module depends on |
+| `modules[].capabilities` | string list | `[]` | Capabilities this module provides, matched by a task's `requires` |
 | `toolchain.program` | string | Derived from the first task | Program used for toolchain probing |
 | `toolchain.args` | string list | `[]` | Probe arguments |
 | `toolchain.label` | string | `program` | Human-readable diagnostic label |
@@ -208,6 +278,8 @@ Every ecosystem also accepts these shared keys:
 | `tasks` | table | `{}` | Complete authored task table |
 | `coverage` | table | See [coverage configuration](../commands/coverage.md#configure-thresholds) | Coverage policy |
 | `release` | table | See [release configuration](release.md) | Release policy |
+
+The adapter default `run_strategy` depends on the task kind. `format`, `lint` and `vuln` are unordered everywhere. Go and JavaScript also run `test` and `coverage` unordered. Rust runs every kind except `run` and plain tasks unordered, because one cargo invocation already builds its path dependencies in order. Everything else runs leaf-to-top.
 
 ## Tasks
 
@@ -238,8 +310,11 @@ fail_if_output = false
 | `cacheable` | boolean | `true` | Allow successful result reuse |
 | `cache_args` | boolean | `false` | Include passthrough args in cache keys |
 | `shared_inputs` | string list | `[]` | Repository files that invalidate every matching unit |
-| `modules` | string list | `[]` (every module) | Module names in this ecosystem the task runs on. A default or changed selection skips the others. Explicitly selecting one is an error when the task runs alone, including a set or list of one task. When it runs with other tasks, it just skips that module, and the run is an error only if no task applies to any selected module. A name that matches no discovered module is an error |
+| `modules` | string list | `[]` (every module) | Module names in this ecosystem the task runs on; see [where a task runs](#where-a-task-runs) |
+| `requires` | string list | `[]` | Capabilities a module must provide to run this task; see [where a task runs](#where-a-task-runs) |
 | `fail_if_output` | boolean | `false` | Treat any stdout output as failure |
+| `depends_on` | string list | `[]` | Tasks that must finish first: `"build"` on the same module, `"^build"` on each module this one depends on; see [task prerequisites](#task-prerequisites) |
+| `outputs` | string list | `[]` | Files the task produces, relative to the module root; a cached result replays only while they exist |
 
 Toven keeps authored argv unchanged. Templates expand selectors and Toven variables, but they do not infer hidden flags.
 
@@ -256,10 +331,54 @@ Every task runs with the project root as its working directory. Path variables o
 | `{module.manifest}` | Manifest path, relative to the project root |
 | `{module.selector}` | The task's `selector` list, spliced as separate argv items |
 
+### Where a task runs
+
+By default a task runs on every module of its ecosystem. Two keys narrow that:
+
+- `modules` names the modules the task runs on. A name that matches no discovered module is an error, so a typo never silently disables the task.
+- `requires` lists capabilities a module must provide. Discovery reports what each module provides: a Rust package with a binary target provides `bin`, and command modules list theirs in `capabilities`.
+
+A module the task does not apply to is skipped, and the plan, `explain`, and JSONL output say which module was skipped and why. Modules reached through `--dependents`, `--dependencies`, a glob, or a whole workspace are skipped the same way. Naming such a module exactly with `--module` is an error instead when the task runs alone. In a task list or set it is skipped too, and the run fails only if no task applies to any selected module.
+
+```toml
+[ecosystems.rust.tasks.run]
+argv = ["cargo", "run", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
+persistent = true
+requires = ["bin"]
+selector = ["-p", "{module.package}"]
+```
+
+A group task override that sets `requires` replaces the whole list.
+
+### Task prerequisites
+
+`depends_on` lists tasks that must finish before this one. A bare name runs that task on the same module first. A name with `^` runs it first on every module this module depends on. Toven adds the prerequisite units to the plan, orders them into earlier waves, and follows each prerequisite's own `depends_on` too.
+
+```toml
+[ecosystems.command.tasks.build]
+argv = ["sh", "-c", "mkdir -p {module.root}/dist && echo built > {module.root}/dist/out"]
+depends_on = ["^build"]
+outputs = ["dist/out"]
+
+[ecosystems.command.tasks.test]
+argv = ["echo", "test {module.name}"]
+depends_on = ["^build"]
+```
+
+With modules `app -> lib -> core`, `toven --module command:app test` runs `core#build`, then `lib#build`, then `app#test`.
+
+- A prerequisite must be a task in the same ecosystem, must not be `persistent` (it would never finish), and the tasks must not form a cycle. `"^build"` on `build` itself is fine, because it walks down the module graph.
+- Prerequisites run without the passthrough args given after `--`; those belong to the requested task.
+- A module the prerequisite task does not apply to (see [where a task runs](#where-a-task-runs)) is skipped, and its own prerequisites still run.
+- A group task override may replace `depends_on` for its members only, such as a package whose tests read its own build output (`depends_on = ["^build", "build"]`). It is checked against each member's task table with the same rules, so a group also cannot make a task `persistent` while a task on the same module, or on a module that depends on it, still waits for it. A group can also replace `outputs`, such as an app whose build writes `.next` instead of `dist`.
+
+`outputs` makes the cache check the files a task produces. A cached result replays only when every listed file still exists with the size and modification time it had when it was recorded; otherwise the task runs again. Outputs must be git-ignored: the source hash skips ignored files, and a tracked output would change the source hash every time the task runs.
+
 ## Groups and overrides
 
 ```toml
 [groups.integration]
+description = "Cross-crate integration tests"
 ecosystem = "rust"
 modules = ["rust:toven-cli"]
 run_strategy = "unordered"
@@ -269,16 +388,23 @@ argv = ["cargo", "nextest", "run", "--profile", "ci"]
 
 [groups.integration.guardrails]
 forbid = ["rust:toven-engine"]
+allow_groups = ["core"]
 ```
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
+| `description` | string | None | What the group is; shown by `toven groups` |
 | `ecosystem` | string | None | Default ecosystem for bare module names |
 | `modules` | string list | `[]` | Group members, bare names or `ecosystem:module` refs |
 | `run_strategy` | `"leaf-to-top"` or `"unordered"` | Inherit | Group-scoped wave-ordering override |
 | `tasks` | table | `{}` | Sparse task overrides |
 | `guardrails.forbid` | string list | `[]` | Fully qualified edges the group must not depend on |
 | `guardrails.allow` | string list | `[]` | Optional fully qualified edge allowlist |
+| `guardrails.allow_groups` | string list | Unset | Groups in the same file the members may depend on; `[]` allows none |
+
+Group dependencies come from the real module graph; you never list them by hand. Guardrails only limit them. When `allow` is non-empty or `allow_groups` is set, every dependency that leaves the group must land in an allowed group or edge, so `allow_groups` enforces layering (for example, `core` may not depend on `apps`), and `allow_groups = []` keeps the lowest layer free of other groups. Only direct dependencies are checked, and `allow_groups` is not transitive: list every group the members depend on directly. `toven groups` lists each group with its layering.
+
+A group is also a named selection: `toven test --group integration` runs the task on its members (see [select scope](../commands/run.md#select-scope)). Same-named groups declared by a federation member and by the umbrella select together.
 
 Group task entries are sparse overrides over existing ecosystem tasks. Scalars and lists replace the base value, except `shared_inputs`, which is additive. If two groups override the same task or run strategy for one module, config resolution fails.
 

@@ -1,0 +1,32 @@
+# js tasks run only where the script exists, build dependencies first, and
+# cache by package inputs: only `core` has `build`, only `app` has `test`, and
+# the root has only `lint`, so testing builds `core` first, then tests `app`,
+# and skips the rest. The warm run replays both units; editing `core`'s source
+# invalidates its build and the test of `app`, which depends on it.
+repo: js/tasks
+requires: [node, npm]
+steps:
+  - id: 01-plan-test
+    argv: [plan, test]
+    stderr: { match: normalized }
+  - id: 02-explain-app
+    argv: [--module, "js:packages-app", explain, test]
+    stdout: { match: normalized }
+  - id: 03-lint-root-only
+    argv: [lint]
+    stderr: { match: normalized }
+  - id: 04-cold
+    argv: [test]
+    stderr: { match: normalized }
+    effects:
+      - file_exists: packages/core/dist/index.js
+      - path_absent: packages/app/dist
+  - id: 05-warm
+    argv: [test]
+    stderr: { match: normalized }
+  - id: 06-edit-core
+    argv: [--no-cache, --module, "js:packages-core", edit]
+    stderr: { match: normalized }
+  - id: 07-after-edit
+    argv: [test]
+    stderr: { match: normalized }

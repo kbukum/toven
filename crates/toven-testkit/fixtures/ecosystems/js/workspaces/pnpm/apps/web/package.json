@@ -1,0 +1,5 @@
+{
+  "name": "web",
+  "dependencies": { "@acme/ui": "workspace:^", "react": "catalog:" },
+  "devDependencies": { "@acme/ui": "workspace:*" }
+}

@@ -4,6 +4,7 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use toven_core::federation::baseline::MemberVcsReaders;
 use toven_core::plan::PlanContext;
 use toven_model::{EcosystemId, MemberId, ModuleKey};
+use toven_ports::PublicationPolicy;
 
 use super::validation::{
     validate_ecosystem_publication, validate_phase_backing_supported,
@@ -105,10 +106,30 @@ pub(crate) fn resolve_release_settings(
             .modules
             .get(&module.id.to_string())
             .map(|entry| &entry.release);
-        let resolved_settings = ResolvedReleaseSettings::resolve(&ecosystem, over)?;
+        let mut resolved_settings = ResolvedReleaseSettings::resolve(&ecosystem, over)?;
+        // A manifest that forbids publication (npm `"private": true`) stays out
+        // of the release unless config sets `exclude = false`, the way npm,
+        // pnpm, Yarn, and Changesets skip private workspace packages. Opted in,
+        // it is versioned and tagged but never reaches a registry.
+        if module.unpublishable {
+            let explicit_exclude = over.and_then(|over| over.exclude).or(ecosystem.exclude);
+            if explicit_exclude.is_none() {
+                resolved_settings.publication = PublicationPolicy::Excluded;
+            } else if matches!(
+                resolved_settings.publication,
+                PublicationPolicy::Registry { .. }
+            ) {
+                resolved_settings.publication = PublicationPolicy::TagOnly;
+            }
+        }
         validate_ecosystem_publication(module, &resolved_settings)?;
         validate_visibility_compat(module, &resolved_settings)?;
         validate_phase_backing_supported(module, &resolved_settings)?;
+        if let PublicationPolicy::Registry { registry } = &resolved_settings.publication
+            && let Some(target) = targets.get(&(module.member.clone(), module.id.ecosystem.clone()))
+        {
+            target.validate_publication(module, registry, resolved_settings.visibility)?;
+        }
         resolved.insert(module.key(), resolved_settings);
     }
     apply_adapter_release_defaults(context, targets, &mut resolved);

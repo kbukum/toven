@@ -14,7 +14,7 @@ use crate::federation::spine;
 
 use super::configure::MemberAdapters;
 use super::discover::Federation;
-use super::graph;
+use super::graph::{self, GroupIndex};
 use super::overrides::GroupOverrides;
 
 /// Validated shared state produced before a PLAN tail diverges.
@@ -27,6 +27,8 @@ pub struct PlanContext {
     pub federation: Federation,
     /// The dependency graph built and semantically validated over the union.
     pub graph: Graph,
+    /// Every declared `[groups.*]` with its resolved members.
+    pub groups: GroupIndex,
     pub(crate) group_overrides: GroupOverrides,
 }
 
@@ -54,6 +56,7 @@ pub fn prepare(
         phase: Phase::Configure,
     })?;
     let (adapters, configure_warnings) = spine::configure_all(&composed, providers, locator)?;
+    super::prerequisites::validate(&adapters)?;
     // Surface absent-driver skips while still in Configure, before discovery can
     // fail: a warn-and-skip is observable even on a later failure, never silently
     // dropped, and keeps the phase attribution accurate.
@@ -84,7 +87,8 @@ pub fn prepare(
         phase: Phase::Graph,
     })?;
     let graph = graph::build(&federation)?;
-    let group_overrides = graph::validate_semantics(&graph, &composed)?;
+    let (group_overrides, groups) = graph::validate_semantics(&graph, &composed)?;
+    super::prerequisites::validate_overrides(&adapters, &federation, &group_overrides)?;
     reporter.emit(&Event::PhaseFinished {
         phase: Phase::Graph,
     })?;
@@ -94,6 +98,7 @@ pub fn prepare(
         adapters,
         federation,
         graph,
+        groups,
         group_overrides,
     })
 }
@@ -119,4 +124,24 @@ pub fn dependency_graph(
     reporter: &mut dyn Reporter,
 ) -> AppResult<Graph> {
     prepare(project_root, document, providers, locator, reporter).map(|context| context.graph)
+}
+
+/// Build the validated graph together with every declared `[groups.*]`
+/// resolved against it, for group introspection.
+///
+/// Runs the same Configure → Discover → Graph front half as
+/// [`dependency_graph`]; group guardrails are enforced on the way.
+///
+/// # Errors
+/// Propagates configuration, discovery, graph construction, or semantic
+/// validation failures.
+pub fn group_index(
+    project_root: &AbsPath,
+    document: &Document,
+    providers: &[&dyn Provider],
+    locator: &dyn DriverLocator,
+    reporter: &mut dyn Reporter,
+) -> AppResult<(Graph, GroupIndex)> {
+    prepare(project_root, document, providers, locator, reporter)
+        .map(|context| (context.graph, context.groups))
 }

@@ -1,0 +1,36 @@
+# plainworks' `bun run verify` as one Toven set. Toven drops the root's Turbo
+# orchestrator scripts and runs each gate only where the package declares the
+# script: root-only `lint` and `check-versions` once on the root, `^build`
+# before every typecheck and test, `check-packaging` after the package's own
+# build, and `check-production` on the app. The warm run replays every cached
+# unit. Coverage gates read each package's own LCOV, and the prerelease publish
+# set covers the public packages in dependency order (private apps and tooling
+# are excluded).
+repo: js/plainworks-shape
+requires: [bun]
+steps:
+  - id: 01-modules
+    argv: [modules]
+    stdout: { match: normalized }
+  - id: 02-plan-verify
+    argv: [plan, verify]
+    stderr: { match: normalized }
+  - id: 03-explain-ui-test
+    argv: [--module, "js:packages-ui", explain, test]
+    stdout: { match: normalized }
+  - id: 04-verify-cold
+    argv: [verify]
+    stderr: { match: normalized }
+    effects:
+      - file_exists: packages/std/dist/index.js
+      - file_exists: apps/host/dist/index.js
+      - path_absent: internal/vitest-config/dist
+  - id: 05-verify-warm
+    argv: [verify]
+    stderr: { match: normalized }
+  - id: 06-coverage
+    argv: [coverage]
+    stderr: { match: normalized }
+  - id: 07-release-publish-dry-run
+    argv: [release, publish, --dry-run, --output, jsonl]
+    stdout: { match: normalized }

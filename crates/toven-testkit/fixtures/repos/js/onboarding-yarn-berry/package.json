@@ -1,0 +1,7 @@
+{
+  "name": "acme",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "packageManager": "yarn@4.6.0",
+  "scripts": { "lint": "eslint .", "format": "prettier --write .", "format:check": "prettier --check .", "prepare": "husky" }
+}

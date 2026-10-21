@@ -19,6 +19,7 @@ use toven_model::{
 };
 use toven_ports::{DiscoverRequest, DiscoverResponse, ToolInvocation, ToolRunner};
 
+use crate::capabilities;
 use crate::config::RustConfig;
 use crate::discovery::blast;
 use crate::manifests;
@@ -174,7 +175,9 @@ fn fold_metadata(
         module.package = Some(name.clone());
         module.manifest = Some(manifest);
         module.workspace = Some(workspace_id.clone());
-        module.runnable = has_runnable_target(package);
+        if has_runnable_target(package) {
+            module.capabilities.insert(capabilities::bin()?);
+        }
         blast::annotate_module(&mut module, &workspace_root);
         modules.insert(id, module);
 
@@ -213,8 +216,8 @@ fn build_edges(
 /// Whether a package exposes a `bin` target `cargo run` can launch by default.
 /// The `run` task argv is `cargo run … -p {package}` with no `--example`, so an
 /// example target is not launchable this way; library- and example-only crates
-/// have no default runnable, and the scheduler drops a persistent `run` unit
-/// against them.
+/// have no default runnable and do not report the `bin` capability the `run`
+/// task requires.
 fn has_runnable_target(package: &cargo_metadata::Package) -> bool {
     package.targets.iter().any(cargo_metadata::Target::is_bin)
 }

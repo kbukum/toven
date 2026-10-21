@@ -32,8 +32,8 @@ const CANONICAL: &[CanonicalEcosystem] = &[
         label: "Command",
     },
     CanonicalEcosystem {
-        id: "ts",
-        label: "TypeScript",
+        id: "js",
+        label: "JavaScript/TypeScript",
     },
     CanonicalEcosystem {
         id: "python",
@@ -73,6 +73,8 @@ mod tests {
         assert!(is_canonical("command"));
         assert_eq!(label("command"), Some("Command"));
         assert_eq!(label("python"), Some("Python"));
+        assert_eq!(label("js"), Some("JavaScript/TypeScript"));
+        assert!(!is_canonical("ts"));
     }
 
     #[test]

@@ -18,10 +18,11 @@ pub struct ReleaseMutation {
     /// Sibling deps whose declared version floor this manifest must rewrite
     /// (the cascade: when a dep bumps, every dependent re-floors).
     pub dep_floor_updates: BTreeMap<ModuleRef, Version>,
-    /// Go import paths whose required versions must be raised in this manifest.
+    /// Registry package names (Go import paths, npm package names) whose
+    /// required versions must be raised in this manifest.
     ///
     /// Ecosystem adapters use this normalized projection when a model-level
-    /// dependency reference does not contain the package's import path.
+    /// dependency reference does not contain the package's registry name.
     pub dep_floor_import_updates: BTreeMap<String, Version>,
 }
 

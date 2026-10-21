@@ -1,0 +1,16 @@
+{"event":"phase-started","phase":"configure"}
+{"event":"phase-finished","phase":"configure"}
+{"event":"phase-started","phase":"discover"}
+{"event":"phase-finished","phase":"discover"}
+{"event":"phase-started","phase":"graph"}
+{"event":"phase-finished","phase":"graph"}
+{"event":"module-release-examining","module":"js:packages-core"}
+{"event":"module-release-resolved","module":"js:packages-core","current_version":"0.1.0","planned_version":"0.2.0","level":"minor","reason":"changed","tag":"@plain/core@0.2.0","publication":"registry","up_to_date":false}
+{"event":"module-release-examining","module":"js:release-train"}
+{"event":"module-release-resolved","module":"js:release-train","level":"patch","reason":"no-change","up_to_date":false}
+{"event":"module-release-examining","module":"js:packages-ui"}
+{"event":"module-release-resolved","module":"js:packages-ui","current_version":"0.3.0","planned_version":"0.3.1","level":"patch","reason":"dependency-cascade","tag":"@plain/ui@0.3.1","publication":"registry","up_to_date":false}
+{"event":"module-release-examining","module":"js:packages-cli"}
+{"event":"module-release-resolved","module":"js:packages-cli","current_version":"1.2.0","planned_version":"1.2.1","level":"patch","reason":"dependency-cascade","tag":"@plain/cli@1.2.1","publication":"registry","up_to_date":false}
+{"event":"module-release-examining","module":"js:packages-docs"}
+{"event":"module-release-resolved","module":"js:packages-docs","current_version":"0.0.0","planned_version":"0.0.1","level":"patch","reason":"dependency-cascade","tag":"@plain/docs@0.0.1","publication":"tag-only","up_to_date":false}

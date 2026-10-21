@@ -91,6 +91,17 @@ impl RunResult {
         self
     }
 
+    /// Assert that `stderr` does not contain `needle`, returning `&self` for
+    /// chaining.
+    pub fn expect_stderr_not_contains(&self, needle: &str) -> &Self {
+        assert!(
+            !self.stderr.contains(needle),
+            "{}",
+            self.diagnostic(&format!("expected stderr not to contain {needle:?}"))
+        );
+        self
+    }
+
     /// Assert that `stdout` equals `expected` exactly, returning `&self` for
     /// chaining.
     ///

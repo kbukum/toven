@@ -1,9 +1,11 @@
 //! Doctor: audit the tools the resolved task graph needs.
 //!
 //! `doctor` answers "does this repository have the tools its tasks will run?"
-//! It reuses the [Configure](toven_core::plan) phase to bake every declared
-//! ecosystem's [`ConfiguredAdapter`](toven_ports::ConfiguredAdapter), then — per
-//! resolved task — collects the [`ToolchainProbe`]s that task needs (the same
+//! [`scan`] reuses the [Configure](toven_core::plan) phase to bake every declared
+//! ecosystem's [`ConfiguredAdapter`](toven_ports::ConfiguredAdapter), asks each
+//! for its [`doctor`](toven_ports::ConfiguredAdapter::doctor) scope (the
+//! toolchains the repository uses plus the ecosystem's health checks), then — per
+//! resolved task and toolchain — collects the [`ToolchainProbe`]s that task needs (the same
 //! per-task probe seam the planner uses via
 //! [`toolchain_probes_for`](toven_ports::ConfiguredAdapter::toolchain_probes_for))
 //! and evaluates each through the injected [`ToolchainProber`], **without
@@ -19,7 +21,7 @@ use std::collections::BTreeSet;
 
 use rskit_errors::{AppResult, ErrorCode};
 use toven_model::{AbsPath, ToolStatus};
-use toven_ports::{Provider, TaskIntent, ToolchainProbe, ToolchainProber};
+use toven_ports::{EcosystemCheck, Provider, TaskIntent, ToolchainProbe, ToolchainProber};
 
 use toven_core::config::Document;
 use toven_core::plan::configure::configure;
@@ -83,87 +85,106 @@ impl ToolAudit {
     }
 }
 
-/// Audit the tools the resolved task graph of `document` needs.
+/// What `toven doctor` checks in one repository: the tools the resolved task
+/// graph needs and the ecosystems' own health checks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct DoctorScan {
+    /// The de-duplicated tool probes, in ecosystem, task, then probe order.
+    pub probes: Vec<ToolchainProbe>,
+    /// Every ecosystem's health checks, each id prefixed with its ecosystem
+    /// (`js/install`).
+    pub checks: Vec<EcosystemCheck>,
+}
+
+/// Configure every declared ecosystem once and collect what `doctor` checks.
 ///
-/// Configures every declared ecosystem, collects the de-duplicated probe set
-/// across every resolved task, and classifies each probe by running it through
-/// `prober` in `project_root`. A probe that finds its program yields
-/// [`ToolStatus::Present`] (with a version when one is parseable); a spawn
-/// `NotFound` yields [`ToolStatus::Missing`].
+/// Each ecosystem's [`doctor`](toven_ports::ConfiguredAdapter::doctor) scope
+/// names the toolchains this repository uses (a Bun repository audits `bun`,
+/// not `node`); every resolved task is asked for its probes under each of
+/// those toolchains. De-duplication is by `(program, args)`, so a tool many
+/// tasks share is probed once and the first label seen wins.
+///
+/// # Errors
+/// Propagates configuration failures and any adapter's `doctor` or
+/// `toolchain_probes_for` failure.
+pub fn scan(
+    project_root: &AbsPath,
+    document: &Document,
+    providers: &[&dyn Provider],
+) -> AppResult<DoctorScan> {
+    let configured = configure(document, providers)?;
+    let mut probes = Vec::new();
+    let mut checks = Vec::new();
+    let mut seen: BTreeSet<(String, Vec<String>)> = BTreeSet::new();
+    for (ecosystem, adapter) in &configured {
+        let scope = adapter.doctor(project_root)?;
+        for (key, entry) in &adapter.common().tasks {
+            let task = entry.materialize(ecosystem.as_str(), key)?;
+            let intent = TaskIntent::resolve(&task.name).with_kind(task.kind);
+            for toolchain in &scope.toolchains {
+                for probe in adapter.toolchain_probes_for(toolchain, &intent)? {
+                    if seen.insert((probe.program.clone(), probe.args.clone())) {
+                        probes.push(probe);
+                    }
+                }
+            }
+        }
+        for mut check in scope.checks {
+            check.id = format!("{ecosystem}/{}", check.id);
+            checks.push(check);
+        }
+    }
+    Ok(DoctorScan { probes, checks })
+}
+
+/// Classify every probe by running it through `runner` in `project_root`.
+///
+/// A probe that finds its program yields [`ToolStatus::Present`] (with a
+/// version when one is parseable); a spawn `NotFound` yields
+/// [`ToolStatus::Missing`].
 ///
 /// This is the batch form: it returns the fully-classified [`ToolAudit`] once
 /// every probe has run. Use [`audit_streaming`] to observe each outcome the
-/// moment its probe completes (so a caller's reporter can stream results live
-/// instead of buffering the whole audit).
+/// moment its probe completes.
 ///
 /// # Errors
-/// Propagates configuration failures and any probe failure that is *not* a
-/// missing tool — a hang, a permission error, or an output overrun is a hard
-/// error, never silently reported as "missing".
+/// Propagates any probe failure that is *not* a missing tool — a hang, a
+/// permission error, or an output overrun is a hard error, never silently
+/// reported as "missing".
 pub fn audit(
     project_root: &AbsPath,
-    document: &Document,
-    providers: &[&dyn Provider],
-    prober: &dyn ToolchainProber,
+    probes: &[ToolchainProbe],
+    runner: &dyn ToolchainProber,
 ) -> AppResult<ToolAudit> {
-    audit_streaming(project_root, document, providers, prober, &mut |_| Ok(()))
+    audit_streaming(project_root, probes, runner, &mut |_| Ok(()))
 }
 
-/// Audit the resolved task graph's tools, invoking `on_outcome` for each tool
-/// the instant its probe is classified.
+/// Classify every probe, invoking `on_outcome` for each tool the instant its
+/// probe is classified.
 ///
-/// Identical in result to [`audit`] — same deterministic probe set and order,
-/// same returned [`ToolAudit`] — but each [`ToolProbeOutcome`] is handed to
-/// `on_outcome` *before the next probe runs*, so a caller (the `doctor` verb)
-/// can report each result before the whole graph is probed. The engine stays
-/// tool-agnostic: it never prints and knows nothing of the reporter; the
-/// callback is the only seam.
+/// Identical in result to [`audit`], but each [`ToolProbeOutcome`] is handed
+/// to `on_outcome` *before the next probe runs*, so a caller (the `doctor`
+/// verb) can report each result before every tool is probed. The engine never
+/// prints; the callback is the only seam.
 ///
 /// # Errors
-/// Propagates configuration failures, any non-missing probe failure, and any
-/// error `on_outcome` itself returns (a failed emit aborts the audit).
+/// Propagates any non-missing probe failure and any error `on_outcome` itself
+/// returns (a failed emit aborts the audit).
 pub fn audit_streaming(
     project_root: &AbsPath,
-    document: &Document,
-    providers: &[&dyn Provider],
-    prober: &dyn ToolchainProber,
+    probes: &[ToolchainProbe],
+    runner: &dyn ToolchainProber,
     on_outcome: &mut dyn FnMut(&ToolProbeOutcome) -> AppResult<()>,
 ) -> AppResult<ToolAudit> {
-    let needed = collect_probes(document, providers)?;
-    let mut tools = Vec::with_capacity(needed.len());
-    for probe in needed {
-        let status = classify(prober, &probe, project_root)?;
-        let outcome = ToolProbeOutcome::new(probe.label, probe.program, status);
+    let mut tools = Vec::with_capacity(probes.len());
+    for probe in probes {
+        let status = classify(runner, probe, project_root)?;
+        let outcome = ToolProbeOutcome::new(probe.label.clone(), probe.program.clone(), status);
         on_outcome(&outcome)?;
         tools.push(outcome);
     }
     Ok(ToolAudit::new(tools))
-}
-
-/// Collect the de-duplicated probe set across every resolved task of every
-/// configured ecosystem, preserving a deterministic order.
-///
-/// De-duplication is by `(program, args)` so a tool many tasks share is probed
-/// once; the first label seen for that key wins.
-fn collect_probes(
-    document: &Document,
-    providers: &[&dyn Provider],
-) -> AppResult<Vec<ToolchainProbe>> {
-    let configured = configure(document, providers)?;
-    let mut probes = Vec::new();
-    let mut seen: BTreeSet<(String, Vec<String>)> = BTreeSet::new();
-    for (ecosystem, adapter) in &configured {
-        for (key, entry) in &adapter.common().tasks {
-            let task = entry.materialize(ecosystem.as_str(), key)?;
-            let intent = TaskIntent::resolve(&task.name).with_kind(task.kind);
-            for probe in adapter.toolchain_probes_for(&intent) {
-                if seen.insert((probe.program.clone(), probe.args.clone())) {
-                    probes.push(probe);
-                }
-            }
-        }
-    }
-    Ok(probes)
 }
 
 /// Run one probe and classify its outcome, mapping only a spawn `NotFound` to
@@ -194,12 +215,37 @@ mod tests {
     use std::path::Path;
 
     use rskit_errors::{AppError, AppResult, ErrorCode};
+    use toven_model::ToolchainTag;
     use toven_model::{AbsPath, EcosystemId, ToolStatus};
-    use toven_ports::{FanOut, Provider, Task, ToolchainProbe, ToolchainProber};
+    use toven_ports::{
+        CheckVerdict, DoctorScope, EcosystemCheck, FanOut, Provider, Task, ToolchainProbe,
+        ToolchainProber,
+    };
     use toven_testkit::{FakeConfiguredAdapter, FakeProvider, ScriptedToolchainProber};
 
-    use super::{audit, audit_streaming};
+    use super::{DoctorScan, ToolAudit, ToolProbeOutcome, scan};
     use toven_core::config::{Document, ProjectConfig, TovenConfig};
+
+    fn audit(
+        root: &AbsPath,
+        document: &Document,
+        providers: &[&dyn Provider],
+        prober: &dyn ToolchainProber,
+    ) -> AppResult<ToolAudit> {
+        let DoctorScan { probes, .. } = scan(root, document, providers)?;
+        super::audit(root, &probes, prober)
+    }
+
+    fn audit_streaming(
+        root: &AbsPath,
+        document: &Document,
+        providers: &[&dyn Provider],
+        prober: &dyn ToolchainProber,
+        on_outcome: &mut dyn FnMut(&ToolProbeOutcome) -> AppResult<()>,
+    ) -> AppResult<ToolAudit> {
+        let DoctorScan { probes, .. } = scan(root, document, providers)?;
+        super::audit_streaming(root, &probes, prober, on_outcome)
+    }
 
     fn eid(id: &str) -> EcosystemId {
         EcosystemId::new(id).unwrap()
@@ -435,5 +481,59 @@ mod tests {
         .expect_err("a failed emit aborts the audit");
 
         assert_eq!(error.code(), ErrorCode::Internal);
+    }
+
+    fn programs(scan: &DoctorScan) -> Vec<&str> {
+        scan.probes
+            .iter()
+            .map(|probe| probe.program.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn the_doctor_scope_names_the_toolchains_each_task_is_probed_under() {
+        let adapter = |scope: DoctorScope| {
+            let adapter = FakeConfiguredAdapter::new(eid("js"))
+                .with_probe(ToolchainProbe::new(
+                    "node",
+                    "node",
+                    vec!["--version".into()],
+                ))
+                .with_driver_probe()
+                .with_tasks(vec![Task::new(
+                    "test",
+                    vec!["run".into()],
+                    FanOut::PerModule,
+                )])
+                .with_doctor(scope);
+            FakeProvider::new(eid("js")).with_adapter(adapter)
+        };
+        let document = document_with(&["js"]);
+
+        let both = adapter(DoctorScope::new(vec![
+            ToolchainTag::new("pnpm"),
+            ToolchainTag::new("bun"),
+        ]));
+        let found = scan(&root(), &document, &[&both]).expect("scan");
+        assert_eq!(programs(&found), ["node", "pnpm", "bun"]);
+
+        let none = adapter(DoctorScope::new(Vec::new()));
+        let found = scan(&root(), &document, &[&none]).expect("scan");
+        assert!(found.probes.is_empty(), "no toolchain means no probe");
+    }
+
+    #[test]
+    fn ecosystem_checks_are_prefixed_with_their_ecosystem() {
+        let scope = DoctorScope::new(Vec::new()).with_check(
+            EcosystemCheck::new("web/install", CheckVerdict::Passed).with_fix("npm ci"),
+        );
+        let provider = FakeProvider::new(eid("js"))
+            .with_adapter(FakeConfiguredAdapter::new(eid("js")).with_doctor(scope));
+
+        let found = scan(&root(), &document_with(&["js"]), &[&provider]).expect("scan");
+
+        assert_eq!(found.checks.len(), 1);
+        assert_eq!(found.checks[0].id, "js/web/install");
+        assert_eq!(found.checks[0].fix.as_deref(), Some("npm ci"));
     }
 }

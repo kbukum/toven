@@ -310,7 +310,8 @@ impl CommandRunner for FakeCommandRunner {
                 () = cancel.cancelled() => {
                     self.log.lock().expect("log poisoned").cancelled.push(unit_id.clone());
                     self.leave(&unit_id);
-                    return Err(error.unwrap_or_else(|| AppError::cancelled("normal run")));
+                    // Mirror the real runner: a cancelled run is an outcome, not an error.
+                    return error.map_or_else(|| Ok(RunOutcome::cancelled(Vec::new())), Err);
                 }
                 () = tokio::time::sleep(Duration::from_secs(10)) => {}
             }

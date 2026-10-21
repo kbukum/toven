@@ -241,28 +241,57 @@ impl<'a> BumpPlanner<'a> {
         let current = input.current_version.clone();
         self.decision.insert(input);
 
-        // An excluded module stays entirely outside the release — even when a
-        // workspace-wide override forces it: no seed, no cascade activation,
-        // and above all no recorded planned version, so a dependent's floor
-        // can never cascade toward a version that is never mutated or tagged.
-        let releases = self
-            .decision
-            .config(&reference)
-            .is_none_or(|config| config.publication.releases());
-        if !releases {
-            self.next += 1;
-            return Ok(BumpResolution {
-                module: reference,
-                current_version: current,
-                entry: None,
-            });
-        }
-
         let dep_floor_updates = dep_floor_updates(
             &reference,
             self.decision.cfg.graph.edges(),
             &self.planned_versions,
         );
+
+        // An excluded module stays outside the release, even when a
+        // workspace-wide override forces it: no seed, no cascade activation,
+        // and above all no recorded planned version, so a dependent's floor
+        // can never cascade toward a version that is never mutated or tagged.
+        // It still raises its own floors on released dependencies so its
+        // manifest stays installable (a private app on a bumped library).
+        let releases = self
+            .decision
+            .config(&reference)
+            .is_none_or(|config| config.publication.releases());
+        if !releases {
+            let baseline = self.decision.input(&reference)?.baseline.clone();
+            let entry = (!dep_floor_updates.is_empty()).then(|| {
+                let cascade_origin = triggering_dependency(
+                    &reference,
+                    self.decision.cfg.graph.edges(),
+                    &self.planned_versions,
+                )
+                .and_then(|dependency| self.cascade_roots.get(&dependency).cloned());
+                BumpEntry {
+                    module: reference.clone(),
+                    current_version: current.clone(),
+                    planned_version: None,
+                    level: BumpLevel::Patch,
+                    reason: BumpReason::DependencyCascade,
+                    winning_input: BumpSource::Cascade,
+                    cascade_origin,
+                    prerelease_channel: None,
+                    up_to_date: false,
+                    publish_needed: false,
+                    dep_floor_updates,
+                    topo_rank: *self.ranks.get(&reference).unwrap_or(&usize::MAX),
+                    baseline,
+                }
+            });
+            if let Some(entry) = &entry {
+                self.entries.push(entry.clone());
+            }
+            self.next += 1;
+            return Ok(BumpResolution {
+                module: reference,
+                current_version: current,
+                entry,
+            });
+        }
         let forces = self.decision.cfg.overrides.forces(&reference.module);
         let is_seed = self.decision.changed.contains(&reference) || forces;
         let active = is_seed || !dep_floor_updates.is_empty();
@@ -1448,6 +1477,55 @@ mod tests {
             leaf.dep_floor_updates.is_empty(),
             "no floor cascade toward the excluded module's never-cut version: {:?}",
             leaf.dep_floor_updates
+        );
+    }
+
+    #[test]
+    fn an_excluded_dependent_still_raises_its_floor_on_a_released_dependency() {
+        // A private app depending on a released library must keep an
+        // installable manifest: it plans no own version, tag, or publication,
+        // but its range on the library moves (the way Changesets rewrites the
+        // ranges of private packages it never versions).
+        let core = {
+            let mut input = dep_input("core", DependentVersion::Bump);
+            input.changed = true;
+            input
+        };
+        let mut app = dep_input("app", DependentVersion::Bump);
+        app.config.publication = PublicationPolicy::Excluded;
+        app.changed = true;
+        let leaf = dep_input("leaf", DependentVersion::Bump);
+        let (core_key, app_key, leaf_key) = (key("core"), key("app"), key("leaf"));
+        let edges = vec![
+            Edge::new(app_key.clone(), core_key, DepKind::Normal),
+            Edge::new(leaf_key.clone(), app_key.clone(), DepKind::Normal),
+        ];
+        let graph = Graph::build(vec![module("core"), module("app"), module("leaf")], edges)
+            .expect("graph");
+        let overrides = BumpOverrides::new();
+        let inputs = vec![core, app, leaf];
+
+        let plan = plan_bumps(
+            &inputs,
+            &BumpConfig {
+                graph: &graph,
+                branches: &no_branches(),
+                policy: BumpPolicy::SemverCascade,
+                overrides: &overrides,
+                intent: CutIntent::Bump,
+            },
+        )
+        .expect("plan");
+
+        let by_module = |k: &ModuleKey| plan.entries.iter().find(|e| &e.module == k);
+        let app_entry = by_module(&app_key).expect("the excluded dependent re-floors");
+        assert_eq!(app_entry.planned_version, None, "no own version");
+        assert!(!app_entry.publish_needed && !app_entry.up_to_date);
+        assert_eq!(app_entry.reason, BumpReason::DependencyCascade);
+        assert_eq!(app_entry.dep_floor_updates.len(), 1, "floors only on core");
+        assert!(
+            by_module(&leaf_key).is_none(),
+            "an excluded module never cascades: it plans no version to floor on"
         );
     }
 

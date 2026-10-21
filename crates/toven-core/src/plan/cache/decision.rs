@@ -6,7 +6,7 @@
 //! resolves to `Hit`/`Miss` by querying the [`CacheStore`].
 
 use rskit_errors::AppResult;
-use toven_model::CacheVerdict;
+use toven_model::{CacheVerdict, RepoPath};
 use toven_ports::CacheStore;
 
 use super::super::request::CacheMode;
@@ -17,6 +17,9 @@ use super::super::request::CacheMode;
 /// `ReadWrite` units uncacheable (`Disabled`), since unhashed user args would
 /// otherwise alias distinct runs to one record (poisoning the cache) or allow
 /// stale cache hits with different arguments.
+///
+/// A `ReadWrite` lookup hits only when the store also confirms the unit's
+/// declared `outputs` are still present and unchanged.
 ///
 /// The content key is computed lazily via `compute_key` and only when the
 /// verdict actually needs it (a `Force` record or a `ReadWrite` store lookup):
@@ -32,6 +35,7 @@ pub(in crate::plan) fn verdict<F>(
     mode: CacheMode,
     cache_args: bool,
     passthrough_present: bool,
+    outputs: &[RepoPath],
     cache: &dyn CacheStore,
     compute_key: F,
 ) -> AppResult<(CacheVerdict, Option<String>)>
@@ -51,7 +55,7 @@ where
                 return Ok((CacheVerdict::Disabled, None));
             }
             let key = compute_key()?;
-            let verdict = if cache.contains(&key)? {
+            let verdict = if cache.contains(&key, outputs)? {
                 CacheVerdict::Hit
             } else {
                 CacheVerdict::Miss
@@ -73,7 +77,7 @@ mod tests {
     fn disabled_mode_yields_disabled_without_deriving_a_key() {
         let cache = FakeCacheStore::new();
         let computed = Cell::new(false);
-        let (decided, key) = verdict(CacheMode::Disabled, true, true, &cache, || {
+        let (decided, key) = verdict(CacheMode::Disabled, true, true, &[], &cache, || {
             computed.set(true);
             Ok("k".to_string())
         })
@@ -90,7 +94,7 @@ mod tests {
     fn readwrite_passthrough_without_cache_args_disables_without_key() {
         let cache = FakeCacheStore::new();
         let computed = Cell::new(false);
-        let (decided, key) = verdict(CacheMode::ReadWrite, false, true, &cache, || {
+        let (decided, key) = verdict(CacheMode::ReadWrite, false, true, &[], &cache, || {
             computed.set(true);
             Ok("k".to_string())
         })
@@ -106,7 +110,7 @@ mod tests {
     #[test]
     fn force_mode_derives_key_and_marks_forced() {
         let cache = FakeCacheStore::new();
-        let (decided, key) = verdict(CacheMode::Force, false, false, &cache, || {
+        let (decided, key) = verdict(CacheMode::Force, false, false, &[], &cache, || {
             Ok("k".to_string())
         })
         .unwrap();
@@ -118,7 +122,7 @@ mod tests {
     fn force_passthrough_without_cache_args_disables_without_key() {
         let cache = FakeCacheStore::new();
         let computed = Cell::new(false);
-        let (decided, key) = verdict(CacheMode::Force, false, true, &cache, || {
+        let (decided, key) = verdict(CacheMode::Force, false, true, &[], &cache, || {
             computed.set(true);
             Ok("k".to_string())
         })
@@ -132,9 +136,24 @@ mod tests {
     }
 
     #[test]
+    fn readwrite_checks_declared_outputs_with_the_store() {
+        let outputs = vec![super::RepoPath::new("pkg/dist").unwrap()];
+        let stale = FakeCacheStore::new().with_key("k").with_stale_outputs("k");
+        let (decided, _) = verdict(CacheMode::ReadWrite, false, false, &outputs, &stale, || {
+            Ok("k".to_string())
+        })
+        .unwrap();
+        assert_eq!(decided, CacheVerdict::Miss, "stale outputs re-run the unit");
+        assert_eq!(
+            stale.queried_with_outputs(),
+            vec![("k".to_string(), outputs)]
+        );
+    }
+
+    #[test]
     fn readwrite_resolves_hit_and_miss_against_the_store() {
         let present = FakeCacheStore::new().with_key("k");
-        let (decided, key) = verdict(CacheMode::ReadWrite, false, false, &present, || {
+        let (decided, key) = verdict(CacheMode::ReadWrite, false, false, &[], &present, || {
             Ok("k".to_string())
         })
         .unwrap();
@@ -142,7 +161,7 @@ mod tests {
         assert_eq!(key.as_deref(), Some("k"));
 
         let empty = FakeCacheStore::new();
-        let (decided, key) = verdict(CacheMode::ReadWrite, false, false, &empty, || {
+        let (decided, key) = verdict(CacheMode::ReadWrite, false, false, &[], &empty, || {
             Ok("k".to_string())
         })
         .unwrap();

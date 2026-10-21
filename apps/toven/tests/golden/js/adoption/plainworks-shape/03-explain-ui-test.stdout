@@ -1,0 +1,20 @@
+            unit:  js:packages-ui#test
+  representative:  js:packages-ui
+         modules:  js:packages-ui
+          target:  js:packages-ui
+            task:  test
+          origin:  project
+            argv:  ["echo", "test packages-ui"]
+      persistent:  false
+      depends_on:  js:packages-std#build, js:packages-testkit#build
+
+            unit:  js:packages-ui#build
+  representative:  js:packages-ui
+         modules:  js:packages-ui
+          target:  js:packages-ui
+            task:  build
+          origin:  project
+            argv:  ["sh", "-c", "mkdir -p packages/ui/dist && cp packages/ui/src/index.js packages/ui/dist/index.js && echo build packages-ui"]
+      persistent:  false
+      depends_on:  js:packages-std#build, js:packages-testkit#build
+

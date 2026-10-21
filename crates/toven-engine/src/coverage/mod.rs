@@ -16,6 +16,7 @@ mod gate;
 mod goimport;
 mod goprofile;
 mod lcov;
+mod locate;
 mod metrics;
 mod profile;
 mod read;

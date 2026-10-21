@@ -106,6 +106,16 @@ fn remote_adapter_round_trips_the_port_surface_over_the_serve_double() {
     assert_eq!(response.ecosystem, eid("go"));
     assert_eq!(response.schema_version, request.schema_version);
 
+    // The per-workspace probe query is a live RPC answered by the driver.
+    let probes = remote
+        .toolchain_probes_for(
+            &toven_model::ToolchainTag::new("go"),
+            &toven_ports::TaskIntent::resolve("build"),
+        )
+        .expect("probes round-trip");
+    assert_eq!(probes.len(), 1);
+    assert_eq!(probes[0].program, "go");
+
     // Dropping the adapter sends a graceful Shutdown; the server loop ends Ok.
     drop(remote);
     join.wait().expect("serve loop exits cleanly");

@@ -1,1 +1,1 @@
-error[INVALID_INPUT]: task 'lint' applies only to command modules web; 'worker' is not one of them
+error[INVALID_INPUT]: module 'command:worker' cannot run task 'lint': the task applies only to web. Select one of them, or change the task's `modules`.

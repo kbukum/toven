@@ -1,0 +1,3 @@
+{"kind":"publish","module":"js:packages-std","publication":"registry","registry":"npmjs","version":"0.1.0-alpha.1","decision":"would-publish"}
+{"kind":"publish","module":"js:packages-testkit","publication":"registry","registry":"npmjs","version":"0.1.0-alpha.1","decision":"would-publish"}
+{"kind":"publish","module":"js:packages-ui","publication":"registry","registry":"npmjs","version":"0.1.0-alpha.1","decision":"would-publish"}

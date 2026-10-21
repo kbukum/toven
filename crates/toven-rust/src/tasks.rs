@@ -9,14 +9,19 @@ use toven_ports::{RunStrategy, TaskKind};
 
 /// The per-kind default wave-ordering policy.
 ///
-/// Compilation-bearing kinds (`build`/`check`/`test`/`doc`/`run`) respect the
-/// dependency graph; `format`/`lint`/`vuln` are independent and collapse into
-/// one wave.
+/// Every cargo kind collapses into a single wave. One cargo invocation resolves
+/// and compiles its path dependencies itself in dependency order (and stops
+/// dependents of a failed crate), including path dependencies that live in a
+/// sibling workspace, so a Toven dependency barrier between cargo units only
+/// serialises otherwise-independent work.
+///
+/// `run` keeps dependency order so dependencies start first, and a plain
+/// `default` task keeps it because its argv has no known ordering of its own.
 #[must_use]
 pub(crate) const fn default_run_strategy(kind: TaskKind) -> RunStrategy {
     match kind {
-        TaskKind::Format | TaskKind::Lint | TaskKind::Vuln => RunStrategy::Unordered,
-        _ => RunStrategy::LeafToTop,
+        TaskKind::Run | TaskKind::Default => RunStrategy::LeafToTop,
+        _ => RunStrategy::Unordered,
     }
 }
 
@@ -27,16 +32,31 @@ mod tests {
     use super::default_run_strategy;
 
     #[test]
-    fn run_strategy_defaults_by_kind() {
+    fn cargo_kinds_collapse_into_one_wave() {
+        for kind in [
+            TaskKind::Build,
+            TaskKind::Check,
+            TaskKind::Format,
+            TaskKind::Lint,
+            TaskKind::Test,
+            TaskKind::Coverage,
+            TaskKind::Doc,
+            TaskKind::Vuln,
+        ] {
+            assert_eq!(
+                default_run_strategy(kind),
+                RunStrategy::Unordered,
+                "{kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn run_and_plain_tasks_keep_dependency_order() {
+        assert_eq!(default_run_strategy(TaskKind::Run), RunStrategy::LeafToTop);
         assert_eq!(
-            default_run_strategy(TaskKind::Build),
+            default_run_strategy(TaskKind::Default),
             RunStrategy::LeafToTop
         );
-        assert_eq!(
-            default_run_strategy(TaskKind::Format),
-            RunStrategy::Unordered
-        );
-        assert_eq!(default_run_strategy(TaskKind::Lint), RunStrategy::Unordered);
-        assert_eq!(default_run_strategy(TaskKind::Vuln), RunStrategy::Unordered);
     }
 }

@@ -1,0 +1,14 @@
+            unit:  command:app#serve
+  representative:  command:app
+         modules:  command:app
+            task:  serve
+          origin:  project
+            argv:  ["echo", "command serve"]
+      persistent:  false
+      depends_on:  
+
+  skipped:  command:lib
+     task:  serve
+   reason:  missing-capabilities
+  missing:  bin
+

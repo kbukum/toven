@@ -444,7 +444,7 @@ fn build_edges(
 }
 
 /// The repo-relative directory containing a manifest (the module root).
-fn manifest_parent(manifest: &RepoPath) -> AppResult<RepoPath> {
+pub(crate) fn manifest_parent(manifest: &RepoPath) -> AppResult<RepoPath> {
     match manifest.as_path().parent() {
         Some(parent) if !parent.as_os_str().is_empty() => RepoPath::new(parent),
         _ => RepoPath::new("."),

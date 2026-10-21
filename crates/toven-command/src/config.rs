@@ -1,6 +1,9 @@
 //! [`CommandConfig`] — the parsed, declarative `[ecosystems.command]` schema.
 
+use std::collections::BTreeSet;
+
 use serde::Deserialize;
+use toven_model::Capability;
 use toven_ports::CommonEcosystemConfig;
 
 /// The strict, parsed `[ecosystems.command]` configuration.
@@ -45,6 +48,10 @@ pub struct DeclaredModule {
     /// edges). Each must reference a declared module.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub depends_on: Vec<String>,
+    /// Capabilities this module provides; a task's `requires` runs only on
+    /// modules that provide every listed capability.
+    #[serde(default)]
+    pub capabilities: BTreeSet<Capability>,
 }
 
 /// An explicit toolchain probe declaration (`[ecosystems.command.toolchain]`).

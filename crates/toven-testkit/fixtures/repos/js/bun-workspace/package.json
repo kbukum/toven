@@ -1,0 +1,6 @@
+{
+  "name": "bun-workspace",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": { "lint": "biome check ." }
+}

@@ -1,0 +1,6 @@
+command:proto
+go:api
+js:gen-ts
+  -> command:proto
+js:web
+  -> js:gen-ts

@@ -1,0 +1,72 @@
+# A runlab-shaped repository: a Go service, two independent Bun roots, and a
+# `proto` command module under one toven.toml. `web` reaches `gen/ts` through a
+# tsconfig path alias, and `gen/ts` is generated from `proto`; overlays record
+# both edges that native metadata cannot express. `web` installs a packed
+# plainworks tarball through a `file:` range, so the tarball is a cache input of
+# every `web` task. runlab packs it into `target/`; the fixture keeps it in
+# `vendor/` because this repository ignores `target/`. The js tasks replace
+# runlab's `sh -c "cd web && bun run …"` command tasks, with stand-in argv so
+# scenarios need no package manager.
+[project]
+name = "web-stack-polyglot"
+
+# One unit at a time keeps the scenario output order deterministic.
+[toven]
+include = ["_profiles/go-tasks.toml", "_profiles/command-tasks.toml"]
+max_parallel = 1
+
+[ecosystems.go]
+modules = ["api/go.mod"]
+
+[ecosystems.js]
+roots = "auto"
+
+[[ecosystems.command.modules]]
+name = "proto"
+root = "proto"
+
+[[overlays]]
+from = { ecosystem = "js", module = "web" }
+to = { ecosystem = "js", module = "gen-ts" }
+
+[[overlays]]
+from = { ecosystem = "js", module = "gen-ts" }
+to = { ecosystem = "command", module = "proto" }
+
+[ecosystems.js.tasks.build]
+argv = ["sh", "-c", "mkdir -p {module.root}/dist && echo build {module.name} > {module.root}/dist/index.js && echo build {module.name}"]
+fan_out = "per-module"
+outputs = ["dist"]
+requires = ["script:build"]
+
+[ecosystems.js.tasks.typecheck]
+argv = ["echo", "typecheck {module.name}"]
+fan_out = "per-module"
+kind = "check"
+requires = ["script:typecheck"]
+
+[ecosystems.js.tasks.check]
+argv = ["echo", "check {module.name}"]
+fan_out = "per-module"
+requires = ["script:check"]
+
+[ecosystems.js.tasks.lint]
+argv = ["echo", "lint {module.name}"]
+fan_out = "per-module"
+requires = ["script:lint"]
+
+[ecosystems.js.tasks.test]
+argv = ["echo", "test {module.name}"]
+fan_out = "per-module"
+requires = ["script:test"]
+
+# Stands in for `make web-deps` repacking a changed plainworks checkout.
+[ecosystems.js.tasks.repack]
+argv = ["sh", "-c", "echo repacked >> {project.root}/vendor/plainworks/std.tgz"]
+cacheable = false
+fan_out = "per-module"
+requires = ["script:build"]
+
+# runlab's `make verify`, with its web and gen/ts gates as js tasks.
+[sets.verify]
+tasks = ["build", "lint", "check", "typecheck", "test"]

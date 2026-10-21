@@ -1,0 +1,16 @@
+{
+  "name": "@runlab/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@plainworks/std": "file:../vendor/plainworks/std.tgz",
+    "react": "^19.2.8"
+  }
+}

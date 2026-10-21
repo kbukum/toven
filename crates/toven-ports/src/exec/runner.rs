@@ -28,6 +28,9 @@ pub trait CommandRunner: Send + Sync {
     /// # Errors
     /// Propagates a spawn/IO failure. A non-zero exit is *not* an error: it is
     /// a [`RunOutcome`] with `success = false` so the wave walk can gate on it.
+    /// A run stopped through `cancel` before it finished is not an error
+    /// either: it is [`RunOutcome::cancelled`], keeping any output produced
+    /// before the stop.
     async fn run(
         &self,
         invocation: &Invocation,

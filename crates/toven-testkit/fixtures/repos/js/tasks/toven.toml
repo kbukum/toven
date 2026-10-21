@@ -1,0 +1,34 @@
+# An npm workspace (`app -> core`) with the task shape `toven init` writes
+# (`requires`, `^build`, `dist` outputs), but stand-in argv so scenarios need
+# no package manager. Only `core` has `build`, only `app` has `test`, and the
+# root has only `lint`.
+[project]
+name = "js-tasks"
+
+[ecosystems.js]
+roots = "auto"
+
+[ecosystems.js.tasks.build]
+argv = ["sh", "-c", "mkdir -p {module.root}/dist && cp {module.root}/src/index.js {module.root}/dist/index.js && echo build {module.name}"]
+depends_on = ["^build"]
+fan_out = "per-module"
+outputs = ["dist"]
+requires = ["script:build"]
+
+[ecosystems.js.tasks.test]
+argv = ["echo", "test {module.name}"]
+depends_on = ["^build"]
+fan_out = "per-module"
+requires = ["script:test"]
+
+[ecosystems.js.tasks.lint]
+argv = ["echo", "lint {module.name}"]
+fan_out = "per-module"
+requires = ["script:lint"]
+
+# Edits `core`'s source so a scenario can prove the change invalidates the
+# cached build and the tests of `core` and of `app`, which depends on it.
+[ecosystems.js.tasks.edit]
+argv = ["sh", "-c", "echo 'export const changed = true;' >> {module.root}/src/index.js"]
+cacheable = false
+fan_out = "per-module"

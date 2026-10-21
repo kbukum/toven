@@ -1204,14 +1204,25 @@ fn an_unknown_task_still_errors_when_no_ecosystem_defines_it() {
     let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
     let host = PlanHost::new(&readers, &digest, &prober, &cache);
     let error = plan(
-        &request(TaskIntent::resolve("bogus")),
+        &request(TaskIntent::resolve("structur")),
         &two_ecosystem_document(),
         &providers,
         host,
         &mut reporter,
     )
     .expect_err("a task no ecosystem defines is rejected");
-    assert!(error.to_string().contains("has no 'bogus' task"), "{error}");
+    // The error names every selected ecosystem, not just the first module's,
+    // and suggests the nearest task any of them defines.
+    let message = error.to_string();
+    assert!(
+        message.contains("ecosystems 'command', 'rust' have no 'structur' task"),
+        "{message}"
+    );
+    assert!(message.contains("Did you mean 'structure'?"), "{message}");
+    assert_eq!(
+        error.details().get("missing_task"),
+        Some(&serde_json::Value::from("structur"))
+    );
 }
 
 #[test]

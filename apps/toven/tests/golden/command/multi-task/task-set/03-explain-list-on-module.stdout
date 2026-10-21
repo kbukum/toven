@@ -8,3 +8,7 @@
       persistent:  false
       depends_on:  
 
+  skipped:  command:worker
+     task:  lint
+   reason:  not-listed
+

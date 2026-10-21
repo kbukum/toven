@@ -1,0 +1,28 @@
+# An npm workspace (`app -> core`) whose test runners write LCOV paths
+# relative to the package they ran in, as Vitest, Jest, c8, and `bun test` do.
+# The coverage task stands in for the runner: it copies each package's
+# checked-in `profile.lcov` into Toven's staging directory under the
+# `js-<module>` producer name, so scenarios need no package manager. `app`'s
+# profile also measures `../core/src/index.js`, and the root package has no
+# `test`, so no file may be credited to it.
+[project]
+name = "js-coverage"
+
+# One unit at a time keeps the scenario output order deterministic.
+[toven]
+max_parallel = 1
+
+[ecosystems.js]
+roots = "auto"
+
+[ecosystems.js.coverage]
+line = 75.0
+changed_line = 90.0
+enforcement = "block"
+
+[ecosystems.js.tasks.coverage]
+argv = ["sh", "-c", "mkdir -p \"$1\" && cp \"$2/profile.lcov\" \"$1/lcov.info\"", "sh", "{project.root}/target/toven/coverage/js-{module.name}", "{module.root}"]
+cacheable = false
+fan_out = "per-module"
+kind = "coverage"
+requires = ["script:test"]

@@ -160,12 +160,15 @@ impl ProcessCommandRunner {
             &result.stdout_bytes,
             &result.stderr_bytes,
         );
-        Ok(gate_outcome(
-            invocation.fail_if_output,
-            result.success(),
-            result.exit_code,
-            !result.stdout_bytes.is_empty(),
-            output,
+        Ok(cancel_aware(
+            result.cancelled,
+            gate_outcome(
+                invocation.fail_if_output,
+                result.success(),
+                result.exit_code,
+                !result.stdout_bytes.is_empty(),
+                output,
+            ),
         ))
     }
 
@@ -192,12 +195,15 @@ impl ProcessCommandRunner {
             .with_io(ProcessIo::observed(io))
             .with_lifecycle_policy(invocation.lifecycle);
         let result = run_with_cancel_supervised(&self.supervisor, &spec, &config, cancel).await?;
-        Ok(gate_outcome(
-            invocation.fail_if_output,
-            result.success(),
-            result.exit_code,
-            stdout_seen.load(Ordering::Relaxed),
-            Vec::new(),
+        Ok(cancel_aware(
+            result.cancelled,
+            gate_outcome(
+                invocation.fail_if_output,
+                result.success(),
+                result.exit_code,
+                stdout_seen.load(Ordering::Relaxed),
+                Vec::new(),
+            ),
         ))
     }
 
@@ -228,12 +234,15 @@ impl ProcessCommandRunner {
             .with_io(ProcessIo::pty(io))
             .with_lifecycle_policy(invocation.lifecycle);
         let result = run_with_cancel_supervised(&self.supervisor, &spec, &config, cancel).await?;
-        Ok(gate_outcome(
-            invocation.fail_if_output,
-            result.success(),
-            result.exit_code,
-            stdout_seen.load(Ordering::Relaxed),
-            Vec::new(),
+        Ok(cancel_aware(
+            result.cancelled,
+            gate_outcome(
+                invocation.fail_if_output,
+                result.success(),
+                result.exit_code,
+                stdout_seen.load(Ordering::Relaxed),
+                Vec::new(),
+            ),
         ))
     }
 
@@ -465,6 +474,16 @@ fn output(unit_id: &str, stdout: &[u8], stderr: &[u8]) -> Vec<UnitOutput> {
         });
     }
     output
+}
+
+/// Report a run stopped through its cancellation token as cancelled, whatever
+/// its exit status, keeping the output produced before the stop.
+fn cancel_aware(cancelled: bool, outcome: RunOutcome) -> RunOutcome {
+    if cancelled {
+        RunOutcome::cancelled(outcome.output)
+    } else {
+        outcome
+    }
 }
 
 /// Resolve a run's final outcome, applying the `fail_if_output` gate.

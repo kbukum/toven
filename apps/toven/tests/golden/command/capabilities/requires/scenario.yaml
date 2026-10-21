@@ -1,0 +1,21 @@
+# A task's `requires` runs it only on modules that provide every listed
+# capability. Broad selections skip the rest with a reason (plan, explain and
+# jsonl); naming an ineligible module exactly is an error.
+repo: command/capabilities
+steps:
+  - id: 01-plan-skips-lib
+    argv: [plan, serve]
+    stderr: { match: normalized }
+  - id: 02-explain-lists-skip
+    argv: [explain, serve]
+    stdout: { match: normalized }
+  - id: 03-plan-jsonl
+    argv: [--output, jsonl, plan, serve]
+    stdout: { match: exact }
+  - id: 04-named-ineligible-fails
+    argv: [--module, "command:lib", plan, serve]
+    exit: 2
+    stderr: { match: normalized }
+  - id: 05-run-app-only
+    argv: [serve]
+    stderr: { match: normalized }

@@ -1,0 +1,28 @@
+# Invalid prerequisites variant (cycle); see toven.toml for the module chain.
+[project]
+name = "prerequisites-command"
+
+[toven]
+include = ["_profiles/command-tasks.toml"]
+
+[[ecosystems.command.modules]]
+name = "core"
+root = "core"
+
+[[ecosystems.command.modules]]
+name = "lib"
+root = "lib"
+depends_on = ["core"]
+
+[[ecosystems.command.modules]]
+name = "app"
+root = "app"
+depends_on = ["lib"]
+
+[ecosystems.command.tasks.build]
+argv = ["echo", "command build"]
+depends_on = ["test"]
+
+[ecosystems.command.tasks.test]
+argv = ["echo", "command test"]
+depends_on = ["build"]

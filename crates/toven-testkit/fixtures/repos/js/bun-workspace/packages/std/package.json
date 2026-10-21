@@ -1,0 +1,5 @@
+{
+  "name": "@acme/std",
+  "version": "1.0.0",
+  "scripts": { "build": "tsc -b", "test": "bun test" }
+}

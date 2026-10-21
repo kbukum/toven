@@ -29,7 +29,7 @@ toven cache path
 Example stdout:
 
 ```text
-/Users/example/Library/Caches/toven/<workspace-hash>/v3
+/Users/example/Library/Caches/toven/<workspace-hash>/v4
 ```
 
 Path precedence:
@@ -58,7 +58,7 @@ toven cache stats
 Example stdout:
 
 ```text
-       path:  /Users/example/Library/Caches/toven/<workspace-hash>/v3
+       path:  /Users/example/Library/Caches/toven/<workspace-hash>/v4
     entries:  24
       bytes:  18432
   truncated:  false
@@ -86,6 +86,7 @@ A unit re-runs when any of these inputs change:
 Persistent tasks, tasks with `cacheable = false`, and units whose mutable dependencies are not fully represented in the discovered source graph are never cached. Discovery metadata must advertise complete inputs; missing metadata is not trusted. This restriction propagates to consumers and batched units; `--refresh` cannot override it.
 
 Go discovery checks local replacements in both `go.mod` and a root `go.work`. A replacement that points at the same package's discovered module is covered by that module's own hash. Any other local replacement, such as a sibling checkout (`replace example.com/kit => ../../kit`), becomes an external root of the module: its tree is hashed into the module's cache key, and the module always counts as changed for `--base` selection because version control cannot see it. A cache hit keeps that rerun cheap. A missing external directory is an error, not a silent miss. A replacement that points at the project root or one of its parents, other than a module discovered there, is a discovery error, since hashing it would fold the whole project into every key.
+JavaScript discovery treats `file:`, `link:`, and `portal:` dependencies the same way. A path at a discovered package root is an edge. Any other path outside the declaring package, such as a packed tarball (`file:../target/std.tgz`) or a sibling checkout, becomes an external root; a single file is hashed as one input. A path that does not exist yet (a tarball a sibling task will pack) is reported as a warning, and the module is not cached.
 
 Changed-work selection also keeps these modules and their consumers active: repository diffs cannot prove that an unrepresented dependency is unchanged.
 

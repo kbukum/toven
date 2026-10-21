@@ -7,13 +7,26 @@ use rskit_util::strings::{Ambiguity, resolve_unique};
 use toven_model::{Graph, Module, ModuleKey, ModuleRef, ModuleSelector, NamePattern};
 
 use crate::plan::discover::Federation;
+use crate::plan::graph::GroupIndex;
+
+/// The seed module keys an explicit selection resolved to.
+#[derive(Debug, Default)]
+pub(super) struct ExplicitSeeds {
+    /// Every module a selector matched.
+    pub(super) seeds: BTreeSet<ModuleKey>,
+    /// Modules named by an exact (non-glob, non-whole-workspace) selector: the
+    /// user asked for these specifically, so an ineligible one is an error
+    /// rather than a skip.
+    pub(super) named: BTreeSet<ModuleKey>,
+}
 
 /// Resolve the user-named [`ModuleSelector`] targets to seed module keys.
 ///
 /// Each selector is matched against the discovered graph: a bare name resolves
 /// across every ecosystem, an ecosystem/workspace-qualified name scopes the
 /// match, a glob expands to its explicit set, and a whole-workspace pattern
-/// activates every module its matching workspaces own. Canonical
+/// activates every module its matching workspaces own, and a group pattern
+/// activates every member of its matching `[groups.*]`. Canonical
 /// `ecosystem:name` identity is unchanged — only the accepted *input* is
 /// relaxed.
 ///
@@ -29,58 +42,71 @@ pub(super) fn explicit_seeds(
     targets: &[ModuleSelector],
     graph: &Graph,
     federation: &Federation,
-) -> AppResult<BTreeSet<ModuleKey>> {
-    let mut seeds = BTreeSet::new();
+    groups: &GroupIndex,
+) -> AppResult<ExplicitSeeds> {
+    let mut resolved = ExplicitSeeds::default();
     for target in targets {
-        match target {
-            ModuleSelector::Name(pattern) => {
-                seeds.extend(resolve_name(pattern, graph)?);
+        let exact = match target {
+            ModuleSelector::Name(pattern)
+            | ModuleSelector::Ecosystem { name: pattern, .. }
+            | ModuleSelector::Workspace { name: pattern, .. } => {
+                matches!(pattern, NamePattern::Exact(_))
             }
-            ModuleSelector::Ecosystem { ecosystem, name } => {
-                let matches = matching_keys(graph, |key| {
-                    key.module().ecosystem == *ecosystem && name.matches(&key.module().name)
-                });
-                if matches.is_empty() {
-                    return Err(unknown_module_error(target, graph));
-                }
-                seeds.extend(matches);
-            }
-            ModuleSelector::Workspace { workspace, name } => {
-                let matches: Vec<ModuleKey> = federation
-                    .modules
-                    .iter()
-                    .filter(|module| {
-                        module.workspace.as_ref() == Some(workspace)
-                            && name.matches(&module.id.name)
-                    })
-                    .map(Module::key)
-                    .collect();
-                if matches.is_empty() {
-                    return Err(unknown_module_error(target, graph));
-                }
-                seeds.extend(matches);
-            }
-            ModuleSelector::WholeWorkspace(pattern) => {
-                let matches: Vec<ModuleKey> = federation
-                    .modules
-                    .iter()
-                    .filter(|module| {
-                        module
-                            .workspace
-                            .as_ref()
-                            .is_some_and(|id| pattern.matches(id.as_str()))
-                    })
-                    .map(Module::key)
-                    .collect();
-                if matches.is_empty() {
-                    return Err(unknown_workspace_error(pattern, federation));
-                }
-                seeds.extend(matches);
-            }
-            _ => return Err(unsupported_selector_error(target)),
+            _ => false,
+        };
+        let matched = target_keys(target, graph, federation, groups)?;
+        if exact {
+            resolved.named.extend(matched.iter().cloned());
         }
+        resolved.seeds.extend(matched);
     }
-    Ok(seeds)
+    Ok(resolved)
+}
+
+/// Resolve one selector to the module keys it matches.
+fn target_keys(
+    target: &ModuleSelector,
+    graph: &Graph,
+    federation: &Federation,
+    groups: &GroupIndex,
+) -> AppResult<Vec<ModuleKey>> {
+    let matches = match target {
+        ModuleSelector::Name(pattern) => return resolve_name(pattern, graph),
+        ModuleSelector::Ecosystem { ecosystem, name } => matching_keys(graph, |key| {
+            key.module().ecosystem == *ecosystem && name.matches(&key.module().name)
+        }),
+        ModuleSelector::Workspace { workspace, name } => federation
+            .modules
+            .iter()
+            .filter(|module| {
+                module.workspace.as_ref() == Some(workspace) && name.matches(&module.id.name)
+            })
+            .map(Module::key)
+            .collect(),
+        ModuleSelector::WholeWorkspace(pattern) => {
+            let matches: Vec<ModuleKey> = federation
+                .modules
+                .iter()
+                .filter(|module| {
+                    module
+                        .workspace
+                        .as_ref()
+                        .is_some_and(|id| pattern.matches(id.as_str()))
+                })
+                .map(Module::key)
+                .collect();
+            if matches.is_empty() {
+                return Err(unknown_workspace_error(pattern, federation));
+            }
+            return Ok(matches);
+        }
+        ModuleSelector::Group(pattern) => return group_keys(pattern, groups),
+        _ => return Err(unsupported_selector_error(target)),
+    };
+    if matches.is_empty() {
+        return Err(unknown_module_error(target, graph));
+    }
+    Ok(matches)
 }
 
 /// Resolve a bare [`Name`](ModuleSelector::Name) pattern to its module keys.
@@ -114,6 +140,37 @@ fn resolve_name(pattern: &NamePattern, graph: &Graph) -> AppResult<Vec<ModuleKey
             )
         }
     }
+}
+
+/// Every member of the groups whose name matches `pattern`.
+///
+/// # Errors
+/// A pattern matching no declared group, listing the declared groups.
+fn group_keys(pattern: &NamePattern, groups: &GroupIndex) -> AppResult<Vec<ModuleKey>> {
+    let mut matched_group = false;
+    let mut keys = BTreeSet::new();
+    for (_, entry) in groups.iter().filter(|(name, _)| pattern.matches(name)) {
+        matched_group = true;
+        keys.extend(entry.members.iter().cloned());
+    }
+    if !matched_group {
+        let available: Vec<String> = groups.names().map(str::to_string).collect();
+        let hint = if available.is_empty() {
+            " No [groups.*] are declared.".to_string()
+        } else {
+            let nearest = rskit_util::strings::nearest(
+                &pattern.to_string(),
+                available.iter().map(String::as_str),
+            )
+            .map_or_else(String::new, |name| format!(" Did you mean '{name}'?"));
+            format!("{nearest} Declared groups: {}.", available.join(", "))
+        };
+        return Err(AppError::invalid_input(
+            "group",
+            format!("group selector '{pattern}' matches no declared group.{hint}"),
+        ));
+    }
+    Ok(keys.into_iter().collect())
 }
 
 /// Every module key satisfying `keep`, in graph order.

@@ -43,6 +43,7 @@ When a shared capability is missing, improve rskit generically. Do not make rski
 | Keyless release signing/verification policy (cosign orchestration) | `toven-release` |
 | Rust ecosystem behavior | `toven-rust` |
 | Go ecosystem behavior | `toven-go` |
+| JavaScript/TypeScript ecosystem behavior | `toven-js` |
 | CLI parsing and user-facing output; installs the rskit `ShutdownController` and subscribes the runner's `ProcessSupervisor` as the shutdown backstop | `toven-cli` |
 | Shared fixtures and port doubles | `toven-testkit` |
 

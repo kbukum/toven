@@ -111,7 +111,7 @@ post = ["docs-build"]
 | `strategy` | `"semver-cascade"` or `"manifest"` | `"semver-cascade"` | How the next version is chosen |
 | `level` | `"patch"`, `"minor"`, `"major"`, or `"auto"` | `"auto"` | Bump for changed modules |
 | `dependent_version` | `"bump"` or `"upgrade"` | `"bump"` | Whether a dependent gets its own release after a dependency floor changes |
-| `tag_format` | template string | Adapter tag scheme | Release tag template; Rust accepts it, Go rejects it |
+| `tag_format` | template string | Adapter tag scheme | Release tag template; Rust and JavaScript accept it, Go rejects it |
 | `tag_mode` | `"per-module"`, `"umbrella"`, or `"both"` | Adapter default | Which tags the train creates (see [Tag modes and baseline sources](#tag-modes-and-baseline-sources)) |
 | `baseline` | `"own-tag"`, `"umbrella-tag"`, `"registry"`, or `"registry+umbrella"` | Adapter default | Where change detection anchors this module's baseline |
 | `tag_message` | template string | Lightweight tag | Annotated-tag message template |
@@ -123,19 +123,19 @@ post = ["docs-build"]
 | `push_branch` | boolean | `true` | Push the release commit branch as well as tags |
 | `remote` | string | `"origin"` | Git remote for release pushes |
 | `branches` | string list | Any branch | Allowed release branches; an empty list permits any branch |
-| `registry` | string | None | Rust registry target; `"crates-io"` uses cargo's default registry |
+| `registry` | string | None | Registry target. Rust: `"crates-io"` or a named Cargo registry. JavaScript: `"npmjs"` or a registry URL |
 | `publish` | boolean | Registry-driven | `false` selects tag-only publication |
-| `exclude` | boolean | `false` | Remove the module from release planning, tagging, publishing, and hosting |
+| `exclude` | boolean | `false` (`true` for `"private": true` JavaScript packages) | Never version, tag, publish, or host the module; it still raises its ranges on released in-repo dependencies |
 | `entrypoint` | `"toven"` or `"maintainer"` | `"toven"` | Who creates the tag and hosted Release |
 | `umbrella` | boolean | `false` | Mark the module as the aggregate hosted-Release representative for its train |
 | `offline` | boolean | `false` | Anchor idempotency on tags and skip registry lookups in status |
-| `token_env` | string | None | Environment variable that holds the registry publish token |
+| `token_env` | string | None | Environment variable that holds the registry publish token; unset falls back to the tool's own credentials |
 | `visibility` | `"public"`, `"private"`, or `"internal"` | `"public"` | Intended registry exposure |
 | `readiness` | string list | `[]` | Named fail-closed preflight checks |
 | `version_references` | array of tables | None | Files whose version tokens `release bump` keeps in lock-step with the resolved versions |
 | `on_resolved` | string list | None | Bump mid-mutation task references, each handed the resolved version map |
 
-Templates accept release variables such as `{ecosystem}`, `{module}`, `{version}`, and `{channel}`. Unknown placeholders, blank names, and unsafe paths fail config validation. Unsupported readiness checks fail closed.
+Templates accept release variables such as `{ecosystem}`, `{module}`, `{package}`, `{version}`, and `{channel}`. `{package}` is the package's registry name (such as `@scope/core`), or the module name when the package has none. Unknown placeholders, blank names, and unsafe paths fail config validation. Unsupported readiness checks fail closed.
 
 Project-level lifecycle hooks (`pre`/`post` task references around a verb) live under `[hooks.<verb>]`, not the release config — see [Lifecycle hooks](README.md#lifecycle-hooks).
 
@@ -288,19 +288,23 @@ Hosted Release rehearsal is mutation-free. Real hosted Release creation runs aft
 
 ## Registry, tag-only, and excluded modules
 
-| Policy | Rust | Go |
-|---|---|---|
-| Registry | Publish the crate, then verify the immutable registry version | Not applicable |
-| Tag-only | Create the immutable tag without registry publication | The tag is the release |
-| Excluded module | Do not version, tag, publish, or host | Do not version or tag |
+| Policy | Rust | Go | JavaScript |
+|---|---|---|---|
+| Registry | Publish the crate, then verify the immutable registry version | Not applicable | Pack and publish the package to the npm registry |
+| Tag-only | Create the immutable tag without registry publication | The tag is the release | Create the tag; a `"private": true` package opted in with `exclude = false` is tag-only |
+| Excluded module | Do not version, tag, publish, or host | Do not version or tag | Do not version, tag, or publish; the default for `"private": true` packages |
 
 Toven resolves publication from `exclude`, `publish`, and `registry`:
 
 - `registry = "crates-io"` selects Rust publication to crates.io.
 - `registry = "<name>"` selects a named alternate Cargo registry. Toven runs `cargo publish --registry <name>` and forwards the token through `CARGO_REGISTRIES_<NAME>_TOKEN`, where the name is uppercased and non-alphanumerics become `_`. The registry must be configured in Cargo.
-- No `registry` selects tag-only publication. Rust crates are not published by default.
+- `registry = "npmjs"` selects JavaScript publication to `https://registry.npmjs.org/`. Any other value is a registry URL: `https://`, or `http://` only on a loopback host, with no credentials, query, or fragment.
+- No `registry` selects tag-only publication. Rust crates and JavaScript packages are not published by default.
+- A package marked `"private": true` in `package.json` is excluded by default, like `npm publish --workspaces`, `pnpm -r publish`, `yarn workspaces foreach --no-private`, and Changesets' default `privatePackages`. This covers a versionless workspace root too. An explicit `exclude = false`, on the ecosystem or the module, opts private packages in: they are versioned and tagged but never published, like `lerna version`.
+- A JavaScript package is packed by its root's package manager, unless `[ecosystems.js.pack]` gives that root its own pack command (an argv list keyed by the root directory, `"."` for the repository root). Use it when the repository builds its tarballs itself, for example to strip repo-only export conditions. Toven runs the command once per package from the repository root, argv-only and with a 10-minute timeout. `{module.root}` is the package's repo-relative directory and `{destination}` is an empty directory the command must write exactly one `.tgz` into; the command must pass `{destination}`. A key that is not a JavaScript root is an error, so a typo never falls back to the default pack.
 - `publish = false` is an explicit tag-only declaration. In a per-module override, it can narrow an inherited ecosystem registry to tag-only for that module.
 - `exclude = true` removes the module from release planning. In a per-module override, it can narrow an inherited ecosystem registry to excluded for that module.
+- An excluded module still moves its ranges on in-repo dependencies that release, so the workspace stays installable. It gets no version, tag, or publication of its own and never cascades to its dependents. Changesets and cargo-release do the same for packages they never version.
 
 Contradictions are rejected inside one block. Go cannot declare a registry. A block cannot combine `registry` with `publish = false`. An excluded module cannot declare registry publication, hosted assets, an image block, or `umbrella = true`.
 
@@ -311,6 +315,8 @@ Per-module narrowing is allowed because overrides merge field by field and the r
 `visibility` records intended release exposure: `public`, `private`, or `internal`. It resolves like other release fields; ecosystem values are inherited, and module values override them.
 
 Toven enforces visibility only where a target can violate it. crates.io is public-only, so a `private` or `internal` release targeting crates.io fails at plan time with a typed `release.visibility` error. The crates.io adapter enforces the same rule at the toolchain boundary. A tag-only release may carry any visibility, and a named alternate registry is assumed to support its own access controls.
+
+On an npm registry, `public` publishes with `--access public` and `private` publishes with `--access restricted`, which npm allows only for scoped (`@scope/name`) packages. An unscoped `private` package and `internal` fail at plan time with a typed error, because npm has no matching access level.
 
 Tag pushes and hosted forge Releases follow the remote repository's visibility. A forge Release has no independent public/private setting.
 
@@ -455,7 +461,7 @@ flowchart LR
 
 ### Per-ecosystem defaults
 
-The defaults encode the difference between the two registry models. For **Rust**, crates.io is the registry and git tags are traceability, so the default is `tag_mode = "both"` with a `baseline = "registry+umbrella"` anchor: per-crate tags plus one umbrella `v{version}` tag, and gating on `max(crates.io max published, version-at-the-umbrella-tag)`. For **Go**, per-module tags *are* the registry — `go get` needs them — so the default is `tag_mode = "per-module"` with `baseline = "own-tag"`.
+The defaults encode the difference between the two registry models. For **Rust**, crates.io is the registry and git tags are traceability, so the default is `tag_mode = "both"` with a `baseline = "registry+umbrella"` anchor: per-crate tags plus one umbrella `v{version}` tag, and gating on `max(crates.io max published, version-at-the-umbrella-tag)`. For **Go**, per-module tags *are* the registry — `go get` needs them — so the default is `tag_mode = "per-module"` with `baseline = "own-tag"`. For **JavaScript**, the npm registry is the source of truth and every package carries its own version, so the default is `tag_mode = "per-module"` with `baseline = "registry"`, and tags follow npm's `{package}@{version}` convention.
 
 A Rust workspace with a single umbrella `vX.Y.Z` tag, per-crate crates.io history, and only some crates changed bumps just the changed crates and their dependency cascade: the registry+umbrella anchor gives each crate a real baseline even though it has no per-crate tag.
 
