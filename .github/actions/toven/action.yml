@@ -9,17 +9,17 @@ description: >-
   skipping re-download. It is a convenience and consistency layer, never a
   second release engine.
 
-# Pin this action by immutable commit SHA in consumers, e.g.
-#   uses: kbukum/toven/.github/actions/toven@<commit-sha> # v0.1.0-alpha.3
-# The `version` input selects which released binary to install and is
-# independent of the action SHA; pin both.
+# Pin this action by the immutable commit SHA of a Toven release, e.g.
+#   uses: kbukum/toven/.github/actions/toven@<release-commit-sha> # v0.1.0-alpha.3
+# By default it installs the release that commit belongs to (the version in
+# Toven's root Cargo.toml at that SHA), so the SHA is the only pin to bump.
 inputs:
   version:
     description: >-
       Immutable Toven release tag to install (e.g. v0.1.0-alpha.3). When empty,
-      the latest published release (including prereleases) is resolved and
-      caching is disabled; pinning an explicit version is strongly recommended
-      for reproducible, supply-chain-safe builds.
+      the action installs the release matching its own pinned commit: the
+      workspace version in Toven's root Cargo.toml at that SHA. Set it only to
+      install a different release than the action's own.
     required: false
     default: ""
   repo:
@@ -63,8 +63,8 @@ inputs:
   cache:
     description: >-
       Reuse a previously installed binary from the runner tool cache
-      (${RUNNER_TOOL_CACHE}/toven/<version>/<target>) when an explicit version
-      is pinned, skipping the download and verification on a hit.
+      (${RUNNER_TOOL_CACHE}/toven/<version>/<target>), skipping the download
+      and verification on a hit.
     required: false
     default: "true"
 
@@ -93,9 +93,26 @@ runs:
       run: |
         set -euo pipefail
 
+        # Default to the release this action's pinned commit belongs to, read
+        # from [workspace.package] in Toven's root Cargo.toml at that SHA, so a
+        # consumer pins one thing (the action SHA) and never drifts from it.
         version="${INPUT_VERSION}"
         if [ -z "${version}" ]; then
-          echo "::warning title=Toven version not pinned::No 'version' input; installing the latest release and disabling caching. Pin an immutable tag for reproducible builds." >&2
+          manifest="${GITHUB_ACTION_PATH}/../../../Cargo.toml"
+          if [ ! -f "${manifest}" ]; then
+            echo "::error::cannot derive the Toven version: ${manifest} is missing; set the 'version' input" >&2
+            exit 1
+          fi
+          derived="$(awk '
+            /^\[/ { in_pkg = ($0 == "[workspace.package]") }
+            in_pkg && /^version[[:space:]]*=/ {
+              sub(/^version[[:space:]]*=[[:space:]]*"/, ""); sub(/".*$/, ""); print; exit
+            }' "${manifest}")"
+          if ! printf '%s' "${derived}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::cannot derive the Toven version from ${manifest} (got '${derived}'); set the 'version' input" >&2
+            exit 1
+          fi
+          version="v${derived}"
         fi
 
         # Resolve the Rust target triple unless one is pinned, mirroring
@@ -117,12 +134,7 @@ runs:
           target="${arch_part}-${os_part}"
         fi
 
-        # Caching only applies when an explicit version is pinned (a moving
-        # "latest" cannot be keyed safely).
-        cache_enabled="false"
-        if [ "${INPUT_CACHE}" = "true" ] && [ -n "${version}" ]; then
-          cache_enabled="true"
-        fi
+        cache_enabled="${INPUT_CACHE}"
 
         # Choose the install directory: caller override wins; otherwise a
         # versioned tool-cache path when caching, else a temp directory.
@@ -149,6 +161,7 @@ runs:
         fi
 
         {
+          echo "version=${version}"
           echo "target=${target}"
           echo "install-dir=${install_dir}"
           echo "cache-hit=${cache_hit}"
@@ -166,7 +179,7 @@ runs:
       if: steps.setup.outputs.cache-hit != 'true'
       shell: bash
       env:
-        INPUT_VERSION: ${{ inputs.version }}
+        RESOLVED_VERSION: ${{ steps.setup.outputs.version }}
         INPUT_REPO: ${{ inputs.repo }}
         RESOLVED_TARGET: ${{ steps.setup.outputs.target }}
         RESOLVED_DIR: ${{ steps.setup.outputs.install-dir }}
@@ -183,10 +196,7 @@ runs:
           exit 1
         fi
 
-        set -- --repo "${INPUT_REPO}" --dir "${RESOLVED_DIR}"
-        if [ -n "${INPUT_VERSION}" ]; then
-          set -- "$@" --version "${INPUT_VERSION}"
-        fi
+        set -- --repo "${INPUT_REPO}" --dir "${RESOLVED_DIR}" --version "${RESOLVED_VERSION}"
         if [ -n "${RESOLVED_TARGET}" ]; then
           set -- "$@" --target "${RESOLVED_TARGET}"
         fi
