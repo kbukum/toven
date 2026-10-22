@@ -176,12 +176,11 @@ The current GitHub host adapter is **immutable create-or-verify**: it creates th
 
 The reusable action at `.github/actions/toven` wraps the install-and-run step into one pinned `uses:` line. It reuses `scripts/install.sh` bundled at the action's pinned commit — no second download or verification path — and adds a runner tool-cache, cosign auto-install, unchanged argument forwarding, and typed `toven`/`version`/`cache-hit` outputs. It never publishes: release policy stays in `toven.toml` and Toven itself, behind each repository's approved release environment.
 
-Consumers pin both the action (by commit SHA) and the binary (by `version`):
+Consumers pin the action by the commit SHA of a Toven release. The action installs that release's binary by default, so the SHA is the only pin and Dependabot can bump it like any other action:
 
 ```yaml
-- uses: kbukum/toven/.github/actions/toven@<commit-sha> # v0.1.0-alpha.3
+- uses: kbukum/toven/.github/actions/toven@<release-commit-sha> # v0.1.0-alpha.3
   with:
-    version: v0.1.0-alpha.3
     args: modules
 ```
 

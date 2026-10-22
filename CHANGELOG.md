@@ -16,6 +16,12 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Security
 
+## [0.1.0-alpha.16] - 2026-10-22
+
+### Changed
+
+- The GitHub action installs the release matching its own pinned commit when `version` is empty, so consumers pin only the action SHA and Dependabot can bump it. It no longer falls back to the latest release.
+
 ## [0.1.0-alpha.15] - 2026-10-22
 
 ### Added

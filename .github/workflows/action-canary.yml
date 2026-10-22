@@ -57,11 +57,12 @@ jobs:
 
       # Install via the local action and immediately run a discovery command
       # through it, proving argument forwarding and the pinned install together.
+      # No `version` input: the action must derive the release from its own
+      # checkout (the tag above), as consumers pinning only the SHA rely on.
       - name: Install Toven and run discovery via the action
         id: toven
         uses: ./.github/actions/toven
         with:
-          version: ${{ env.TOVEN_VERSION }}
           args: modules
 
       - name: Confirm the action's outputs
