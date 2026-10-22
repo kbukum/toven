@@ -1,9 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use rskit_util::Template;
 use toven_model::{Module, ModuleKey};
-use toven_ports::{ReleaseVar, VcsWriter};
+use toven_ports::{ReleaseTemplate, VcsWriter};
 
 use crate::{ReleasePlan, ReleaseStats};
 
@@ -86,6 +85,8 @@ pub(crate) fn tag_releases(
     Ok(())
 }
 
+/// Render a tag/commit annotation template; `{channel}` is the entry's
+/// prerelease channel (empty for a stable release).
 pub(super) fn render_template(
     template: &str,
     field: &str,
@@ -93,25 +94,11 @@ pub(super) fn render_template(
     version: &rskit_version::semver::Version,
     entry: &crate::ReleaseEntry,
 ) -> AppResult<String> {
-    let parsed = Template::parse(template, ReleaseVar::ALL).map_err(|error| {
-        AppError::invalid_input(field, format!("invalid release template: {error}"))
-            .with_cause(error)
-    })?;
-    parsed
-        .render_with(|placeholder| match placeholder {
-            ReleaseVar::Version => Ok(version.to_string()),
-            ReleaseVar::Ecosystem => Ok(module.id.ecosystem.to_string()),
-            ReleaseVar::Module => Ok(module.id.name.clone()),
-            ReleaseVar::Channel => Ok(entry.prerelease_channel.clone().unwrap_or_default()),
-            _ => Err(AppError::new(
-                ErrorCode::Internal,
-                "unknown release template placeholder",
-            )),
-        })
-        .map_err(|error| {
-            AppError::invalid_input(field, format!("failed to render release template: {error}"))
-                .with_cause(error)
-        })
+    ReleaseTemplate::parse(field, template)?.render(
+        module,
+        version,
+        entry.prerelease_channel.as_deref(),
+    )
 }
 
 /// Render one module's optional annotation template.

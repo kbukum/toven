@@ -77,6 +77,10 @@ pub struct TaskEntry {
     /// Task-level extra cache inputs (workspace-relative plain paths).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shared_inputs: Vec<String>,
+    /// Module names, within this ecosystem, the task applies to; empty means
+    /// every module.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modules: Vec<String>,
 }
 
 /// The default fan-out for a task entry when `fan_out` is omitted.
@@ -137,6 +141,7 @@ impl TaskEntry {
         task.cacheable = self.cacheable;
         task.fail_if_output = self.fail_if_output;
         task.shared_inputs.clone_from(&self.shared_inputs);
+        task.modules.clone_from(&self.modules);
         task.persistent = self.persistent;
         task.readiness = self.readiness.clone();
         if let Some(secs) = self.readiness_timeout_secs {
@@ -173,7 +178,24 @@ mod tests {
             cacheable: true,
             fail_if_output: false,
             shared_inputs: Vec::new(),
+            modules: Vec::new(),
         }
+    }
+
+    #[test]
+    fn modules_round_trip_and_materialize() {
+        let mut entry = entry(&["go", "test"]);
+        entry.modules = vec!["services".into()];
+        let serialized = toml::to_string(&entry).expect("serializes");
+        assert!(
+            serialized.contains("modules = [\"services\"]"),
+            "{serialized}"
+        );
+        let back: TaskEntry = toml::from_str(&serialized).expect("parses");
+        let task = back.materialize("go", "test").expect("materializes");
+        assert_eq!(task.modules, ["services"]);
+        let empty = toml::to_string(&self::entry(&["go", "test"])).expect("serializes");
+        assert!(!empty.contains("modules"), "{empty}");
     }
 
     #[test]

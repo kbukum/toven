@@ -84,9 +84,51 @@ fn single_module_yields_one_module_and_workspace() {
 }
 
 #[test]
-fn external_local_replacement_marks_cache_inputs_incomplete() {
+fn external_local_replacement_becomes_an_external_root() {
     let response = discover("adapter/single-module.toml", "workspaces/replacements/app");
-    assert!(!response.modules[0].cache_inputs_complete);
+    assert!(response.modules[0].cache_inputs_complete);
+    assert_eq!(response.modules[0].external_roots, ["../core"]);
+}
+
+#[test]
+fn local_replacement_cannot_hash_the_project_or_its_ancestors() {
+    for directory in [".", ".."] {
+        let runner = Arc::new(toven_testkit::doubles::FakeToolRunner::new().with_stdout(
+            format!(
+                r#"{{"Module":{{"Path":"example.com/solo"}},"Replace":[{{"Old":{{"Path":"example.com/other"}},"New":{{"Path":"{directory}"}}}}]}}"#
+            ),
+        ));
+        let adapter = GoProvider::new(runner)
+            .expect("provider")
+            .configure(raw_subtree(&fixture_string("adapter/single-module.toml")))
+            .expect("configure");
+        let request = DiscoverRequest::new(
+            AbsPath::new(fixture("workspaces/single-module")).expect("absolute root"),
+        );
+        let error = adapter
+            .discover(&request)
+            .expect_err("recursive external root rejected");
+        assert!(error.to_string().contains("project root"), "{error}");
+        assert!(error.to_string().contains("example.com/other"), "{error}");
+    }
+}
+
+#[test]
+fn replacement_of_the_discovered_root_module_is_tracked() {
+    let runner = Arc::new(toven_testkit::doubles::FakeToolRunner::new().with_stdout(
+        r#"{"Module":{"Path":"example.com/solo"},"Replace":[{"Old":{"Path":"example.com/solo"},"New":{"Path":"."}}]}"#,
+    ));
+    let adapter = GoProvider::new(runner)
+        .expect("provider")
+        .configure(raw_subtree(&fixture_string("adapter/single-module.toml")))
+        .expect("configure");
+    let request = DiscoverRequest::new(
+        AbsPath::new(fixture("workspaces/single-module")).expect("absolute root"),
+    );
+    let response = adapter
+        .discover(&request)
+        .expect("root module covers its own hash");
+    assert!(response.modules[0].external_roots.is_empty());
 }
 
 #[test]
@@ -97,15 +139,17 @@ fn discovered_local_replacement_keeps_its_dependency_edge() {
     assert_eq!(response.edges[0].to.module, module_ref("core"));
     for module in &response.modules {
         assert!(module.cache_inputs_complete);
+        assert!(module.external_roots.is_empty());
     }
 }
 
 #[test]
-fn external_workspace_replacement_marks_member_cache_inputs_incomplete() {
+fn external_workspace_replacement_is_an_external_root_of_every_member() {
     let response = discover("adapter/work-modules.toml", "workspaces/work-replacement");
     assert_eq!(response.modules.len(), 2);
     for module in &response.modules {
-        assert!(!module.cache_inputs_complete);
+        assert!(module.cache_inputs_complete);
+        assert_eq!(module.external_roots, ["../replacements/core"]);
     }
 }
 
@@ -116,6 +160,7 @@ fn published_replacement_does_not_require_local_source() {
         "workspaces/remote-replacement",
     );
     assert!(response.modules[0].cache_inputs_complete);
+    assert!(response.modules[0].external_roots.is_empty());
 }
 
 #[test]
@@ -125,10 +170,12 @@ fn local_replacement_cannot_borrow_an_unrelated_module_digest() {
         "workspaces/redirected-replacement",
     );
     for module in &response.modules {
-        assert_eq!(
-            module.cache_inputs_complete,
-            module.id == module_ref("core")
-        );
+        let expected: &[&str] = if module.id == module_ref("app") {
+            &["../work/core"]
+        } else {
+            &[]
+        };
+        assert_eq!(module.external_roots, expected);
     }
 }
 
@@ -159,7 +206,51 @@ fn malformed_replacement_metadata_is_a_discovery_error() {
 }
 
 #[test]
-fn missing_represented_replacement_source_is_not_verified() {
+fn an_unconfirmed_missing_replacement_warns_and_disables_caching() {
+    let runner = Arc::new(toven_testkit::doubles::FakeToolRunner::new().with_stdout(
+        r#"{"Module":{"Path":"example.com/solo"},"Replace":[{"Old":{"Path":"example.com/optional"},"New":{"Path":"../missing"}}]}"#,
+    ));
+    let adapter = GoProvider::new(runner)
+        .expect("provider")
+        .configure(raw_subtree(&fixture_string("adapter/single-module.toml")))
+        .expect("configure");
+    let request = DiscoverRequest::new(
+        AbsPath::new(fixture("workspaces/single-module")).expect("absolute root"),
+    );
+    let response = adapter
+        .discover(&request)
+        .expect("unused replacement may be ignored by Go");
+    assert!(!response.modules[0].cache_inputs_complete);
+    assert!(response.modules[0].external_roots.is_empty());
+    assert_eq!(response.warnings.len(), 1);
+    assert!(response.warnings[0].contains("example.com/optional"));
+    assert!(response.warnings[0].contains("caching disabled"));
+}
+
+#[test]
+fn a_file_local_replacement_is_a_discovery_error() {
+    let runner = Arc::new(toven_testkit::doubles::FakeToolRunner::new().with_stdout(
+        r#"{"Module":{"Path":"example.com/solo"},"Replace":[{"Old":{"Path":"example.com/core"},"New":{"Path":"./go.mod"}}]}"#,
+    ));
+    let adapter = GoProvider::new(runner)
+        .expect("provider")
+        .configure(raw_subtree(&fixture_string("adapter/single-module.toml")))
+        .expect("configure");
+    let request = DiscoverRequest::new(
+        AbsPath::new(fixture("workspaces/single-module")).expect("absolute root"),
+    );
+    let error = adapter
+        .discover(&request)
+        .expect_err("a replacement must name a directory");
+    assert_eq!(error.code(), rskit_errors::ErrorCode::InvalidInput);
+    let message = error.to_string();
+    assert!(message.contains("example.com/core"), "{message}");
+    assert!(message.contains("'./go.mod'"), "{message}");
+    assert!(message.contains("not a directory"), "{message}");
+}
+
+#[test]
+fn missing_local_replacement_is_a_discovery_error() {
     let runner = Arc::new(
         toven_testkit::doubles::FakeToolRunner::new().with_outcomes([
             toven_ports::ToolOutcome::new(
@@ -180,8 +271,16 @@ fn missing_represented_replacement_source_is_not_verified() {
     );
     let error = adapter
         .discover(&request)
-        .expect_err("a represented but missing source must surface its filesystem error");
-    assert!(error.to_string().contains("missing"), "{error}");
+        .expect_err("a missing local replacement is a discovery error");
+    assert_eq!(
+        error.code(),
+        rskit_errors::ErrorCode::InvalidInput,
+        "{error}"
+    );
+    let message = error.to_string();
+    assert!(message.contains("example.com/core"), "{message}");
+    assert!(message.contains("'../missing'"), "{message}");
+    assert!(message.contains("does not exist"), "{message}");
 }
 
 #[test]
@@ -375,6 +474,31 @@ fn go_mod_edit_runs_in_the_manifest_directory() {
             manifest.parent(),
             "{:?}",
             invocation.argv
+        );
+    }
+}
+
+#[test]
+fn a_submodule_replacing_the_root_module_keeps_its_edge_without_external_roots() {
+    let response = discover(
+        "adapter/root-and-sub-modules.toml",
+        "workspaces/root-replacement",
+    );
+    assert_eq!(response.modules.len(), 2);
+    assert_eq!(response.edges.len(), 1, "{:?}", response.edges);
+    let root = response
+        .modules
+        .iter()
+        .find(|module| module.root.to_string() == ".")
+        .expect("root module");
+    assert_eq!(response.edges[0].to.module, root.id);
+    assert_ne!(response.edges[0].from.module, root.id);
+    for module in &response.modules {
+        assert!(module.cache_inputs_complete);
+        assert!(
+            module.external_roots.is_empty(),
+            "{:?}",
+            module.external_roots
         );
     }
 }

@@ -83,7 +83,7 @@ pub use config::{
 pub use discover::{DISCOVERY_SCHEMA_VERSION, DiscoverContext, DiscoverRequest, DiscoverResponse};
 pub use driver::{DriverLocator, DriverWizard};
 pub use exec::{
-    CommandRunner, ForwardEnvAs, HeldProcess, Invocation, InvocationEnvPolicy,
+    CommandRunner, DroppedOutput, ForwardEnvAs, HeldProcess, Invocation, InvocationEnvPolicy,
     InvocationEnvironment, OutputObserver, RunOutcome, StartOutcome, ToolInvocation, ToolOutcome,
     ToolRunner, Truncation,
 };
@@ -106,7 +106,7 @@ pub use task::{
     DEFAULT_READINESS_TIMEOUT, FanOut, Readiness, Task, TaskIntent, TaskKind, TaskOrigin,
     ToolchainProbe,
 };
-pub use template::{CommandTemplate, ReleaseVar, TaskVar};
+pub use template::{CommandTemplate, ReleaseTemplate, ReleaseVar, TaskVar};
 pub use toolchain::ToolchainProber;
 pub use toven_model::{Backing, Composite, Unit};
 pub use vcs::{

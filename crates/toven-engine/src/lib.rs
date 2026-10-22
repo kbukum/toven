@@ -44,6 +44,7 @@ pub mod apply;
 pub mod cache;
 pub mod coverage;
 pub mod doctor;
+pub mod health;
 pub mod init;
 pub mod output;
 pub mod source;

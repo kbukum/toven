@@ -1,0 +1,3 @@
+# Go adapter config for a root module plus a nested submodule that replaces
+# the root module with `../`, as multi-module kits such as gokit do.
+modules = ["go.mod", "sub/go.mod"]

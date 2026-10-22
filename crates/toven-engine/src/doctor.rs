@@ -174,8 +174,14 @@ fn classify(
     project_root: &AbsPath,
 ) -> AppResult<ToolStatus> {
     match prober.probe(probe, project_root.as_path()) {
+        // A version banner can run to many lines (licence text); the first
+        // non-blank line carries the version.
         Ok(version) => Ok(ToolStatus::Present {
-            version: (!version.is_empty()).then_some(version),
+            version: version
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .map(str::to_string),
         }),
         Err(error) if error.code() == ErrorCode::NotFound => Ok(ToolStatus::Missing),
         Err(error) => Err(error),
@@ -223,6 +229,8 @@ mod tests {
             members: Vec::new(),
             hooks: std::collections::BTreeMap::new(),
             units: std::collections::BTreeMap::new(),
+            sets: std::collections::BTreeMap::new(),
+            doctor: toven_core::config::DoctorConfig::default(),
         }
     }
 
@@ -295,6 +303,23 @@ mod tests {
         assert_eq!(audit.tools.len(), 1);
         assert_eq!(audit.tools[0].status, ToolStatus::Present { version: None });
         assert!(audit.is_healthy());
+    }
+
+    #[test]
+    fn a_multi_line_version_banner_keeps_its_first_line() {
+        let rust = provider_probing("rust", "cargo");
+        let providers: Vec<&dyn Provider> = vec![&rust];
+        let prober = ScriptedToolchainProber::new().with_version("\ntool 9.11\nCopyright\n");
+
+        let audit =
+            audit(&root(), &document_with(&["rust"]), &providers, &prober).expect("audit succeeds");
+
+        assert_eq!(
+            audit.tools[0].status,
+            ToolStatus::Present {
+                version: Some("tool 9.11".to_string())
+            }
+        );
     }
 
     #[test]

@@ -16,11 +16,10 @@ use rskit_cli::{ErrorRenderer, ExitCode};
 use rskit_errors::{AppError, AppResult};
 use toven_core::config::VerbId;
 use toven_core::plan::addressable_task_names;
-use toven_core::vcs::BaselineFlags;
 use toven_exec::ProcessSupervisor;
 use toven_ports::{Provider, TaskIntent};
 
-use crate::flags::{Cli, Command, GraphFormat};
+use crate::flags::{Cli, Command, ExecutionArgs, GraphFormat};
 use crate::host::{Project, Report};
 use crate::{collision, commands, flags, grammar, host};
 
@@ -146,11 +145,11 @@ fn clap_exit(error: &clap::Error) -> ExitCode {
 /// Gate flag applicability, then route the parsed verb to its command module.
 /// Resolve the reporter binding for an execution verb from the global flags and
 /// the loaded project document.
-fn resolve_report(cli: &Cli, project: &Project) -> Report {
+fn resolve_report(execution: &ExecutionArgs, project: &Project) -> Report {
     Report::resolve(
-        cli.output,
-        cli.verbosity(),
-        cli.color_choice(),
+        execution.output,
+        execution.verbosity(),
+        execution.color_choice(),
         &project.document,
     )
 }
@@ -165,7 +164,7 @@ fn resolve_report(cli: &Cli, project: &Project) -> Report {
 fn with_hooks(
     providers: &[&dyn Provider],
     supervisor: &Arc<ProcessSupervisor>,
-    cli: &Cli,
+    execution: &ExecutionArgs,
     project: &Project,
     verb: VerbId,
     body: impl FnOnce() -> AppResult<ExitCode>,
@@ -174,7 +173,7 @@ fn with_hooks(
     if hooks.is_empty() {
         return body();
     }
-    let runner = commands::hook::CliHookRunner::new(providers, supervisor, project, cli);
+    let runner = commands::hook::CliHookRunner::new(providers, supervisor, project, execution);
     commands::hook::run_with_lifecycle(&hooks, &runner, body)
 }
 
@@ -199,33 +198,25 @@ fn dispatch(
         Command::External(tokens) => dispatch_task(providers, supervisor, cli, tokens),
         Command::Run { task, passthrough } => {
             let project = load(providers, cli, true)?;
-            with_hooks(providers, supervisor, cli, &project, VerbId::Run, || {
-                let report = resolve_report(cli, &project);
-                commands::run::execute(
-                    providers,
-                    supervisor,
-                    &project,
-                    report,
-                    intent_for(task),
-                    passthrough.clone(),
-                    cli.fail_fast,
-                    cli.no_cache,
-                    cli.refresh,
-                    cli.timeout,
-                    cli.is_plan_only(),
-                    global_watch(cli),
-                    cli.view.map(Into::into),
-                    cli.jobs,
-                    cli.compute_budget,
-                    &global_selection(cli),
-                )
-            })
+            run_tasks(
+                providers,
+                supervisor,
+                &cli.execution,
+                &project,
+                task,
+                passthrough.clone(),
+            )
         }
         Command::Plan { task } => {
             let project = load(providers, cli, true)?;
-            with_hooks(providers, supervisor, cli, &project, VerbId::Plan, || {
-                plan_command(providers, supervisor, cli, &project, task)
-            })
+            with_hooks(
+                providers,
+                supervisor,
+                &cli.execution,
+                &project,
+                VerbId::Plan,
+                || plan_command(providers, supervisor, cli, &project, task),
+            )
         }
         Command::Release { action } => {
             let project = load(providers, cli, false)?;
@@ -236,7 +227,7 @@ fn dispatch(
             with_hooks(
                 providers,
                 supervisor,
-                cli,
+                &cli.execution,
                 &project,
                 VerbId::Coverage,
                 || commands::coverage::execute(providers, supervisor, &project, cli),
@@ -244,22 +235,27 @@ fn dispatch(
         }
         Command::Explain { task } => {
             let project = load(providers, cli, false)?;
-            let selection = global_selection(cli);
-            commands::introspect::explain(providers, &project, intent_for(task), &selection)
+            let selection = task_selection(&cli.execution);
+            commands::introspect::explain(
+                providers,
+                &project,
+                intents_for(&project, task)?,
+                &selection,
+            )
         }
         Command::Affected { task } => {
             let project = load(providers, cli, false)?;
             commands::introspect::affected(
                 providers,
                 &project,
-                intent_for(task),
-                &global_selection(cli),
-                cli.output,
+                intents_for(&project, task)?,
+                &task_selection(&cli.execution),
+                cli.execution.output,
             )
         }
         Command::Modules => {
             let project = load(providers, cli, false)?;
-            commands::introspect::modules(providers, &project, cli.output)
+            commands::introspect::modules(providers, &project, cli.execution.output)
         }
         Command::Graph => {
             let project = load(providers, cli, false)?;
@@ -271,17 +267,30 @@ fn dispatch(
         }
         Command::Tasks { name } => {
             let project = load(providers, cli, false)?;
-            commands::tasks::tasks(providers, &project, name.as_deref(), cli.output)
+            commands::tasks::tasks(providers, &project, name.as_deref(), cli.execution.output)
         }
-        Command::Doctor { ensure } => {
+        Command::Doctor { ensure, profile } => {
             let project = load(providers, cli, false)?;
-            with_hooks(providers, supervisor, cli, &project, VerbId::Doctor, || {
-                let report = resolve_report(cli, &project);
-                commands::doctor::doctor(providers, &project, report, *ensure || cli.auto_install)
-            })
+            with_hooks(
+                providers,
+                supervisor,
+                &cli.execution,
+                &project,
+                VerbId::Doctor,
+                || {
+                    let report = resolve_report(&cli.execution, &project);
+                    commands::doctor::doctor(
+                        providers,
+                        &project,
+                        report,
+                        *ensure || cli.auto_install,
+                        profile,
+                    )
+                },
+            )
         }
         Command::CommitLint { message } => {
-            commands::commit_lint::commit_lint(message.as_deref(), cli.output)
+            commands::commit_lint::commit_lint(message.as_deref(), cli.execution.output)
         }
         Command::Completions { shell } => Ok(commands::completions::completions(*shell)),
         Command::Cache { action } => {
@@ -300,27 +309,27 @@ fn plan_command(
     project: &Project,
     task: &str,
 ) -> AppResult<ExitCode> {
-    let report = resolve_report(cli, project);
+    let report = resolve_report(&cli.execution, project);
     commands::run::execute(
         providers,
         supervisor,
         project,
         report,
-        intent_for(task),
+        intents_for(project, task)?,
         Vec::new(),
-        cli.fail_fast,
-        cli.no_cache,
-        cli.refresh,
-        cli.timeout,
+        cli.execution.fail_fast,
+        cli.execution.no_cache,
+        cli.execution.refresh,
+        cli.execution.timeout,
         true,
         commands::run::WatchFlags {
             enabled: false,
             debounce_ms: flags::DEFAULT_WATCH_DEBOUNCE_MS,
         },
         None,
-        cli.jobs,
-        cli.compute_budget,
-        &global_selection(cli),
+        cli.execution.jobs,
+        cli.execution.compute_budget,
+        &task_selection(&cli.execution),
     )
 }
 
@@ -351,8 +360,8 @@ fn task_help_text(task: &str) -> String {
     )
 }
 
-/// Dispatch a bare argv-first task: re-parse its trailing flags + passthrough,
-/// then merge them with the pre-token global flags and run.
+/// Dispatch a bare argv-first task: parse its flag prefix, merge it over the
+/// pre-token globals, and run it exactly like `toven run <task>`.
 fn dispatch_task(
     providers: &[&dyn Provider],
     supervisor: &Arc<ProcessSupervisor>,
@@ -360,95 +369,61 @@ fn dispatch_task(
     tokens: &[String],
 ) -> AppResult<ExitCode> {
     let invocation = grammar::parse_task(tokens)?;
-    let flags = &invocation.flags;
-    if flags.help {
+    if invocation.help {
         return task_help(&invocation.task);
     }
+    // The trailing flags arrive inside `Command::External`, so `gate` never saw
+    // them: check the merged set before loading the project.
+    let execution = cli.execution.clone().for_task(invocation.flags)?;
+    let project = load_with_config(providers, execution.config.as_deref(), true)?;
+    run_tasks(
+        providers,
+        supervisor,
+        &execution,
+        &project,
+        &invocation.task,
+        invocation.passthrough,
+    )
+    .map_err(|error| advise_builtin_typo(&invocation.task, error))
+}
 
-    // Trailing task flags land in `Command::External` tokens, so the pre-token
-    // `gate` never sees them — enforce the APPLY-execution flag combination
-    // invariants here on the merged global+task values, before the project load.
-    let watch_enabled = cli.watch || flags.watch;
-    let plan_only = cli.is_plan_only() || flags.dry_run || flags.explain;
-    let debounce_present = flags.watch_debounce_ms.is_some() || cli.watch_debounce_ms.is_some();
-    flags::gate_apply_flag_combination(
-        watch_enabled,
-        cli.fail_fast || flags.fail_fast,
-        flags.timeout.or(cli.timeout).is_some(),
-        plan_only,
-        debounce_present,
-    )?;
-
-    let config = flags.config.clone().or_else(|| cli.config.clone());
-    let project = load_with_config(providers, config.as_deref(), true)?;
-
-    let output = flags.output.or(cli.output);
-    let verbosity = flags::Verbosity::for_execution(
-        cli.verbose.saturating_add(flags.verbose),
-        cli.quiet.saturating_add(flags.quiet),
-        cli.explain || flags.explain,
-    );
-    let color = flags.color.or(cli.color).unwrap_or_default();
-    let report = Report::resolve(output, verbosity, color, &project.document);
-    let fail_fast = cli.fail_fast || flags.fail_fast;
-    let no_cache = cli.no_cache || flags.no_cache;
-    let refresh = cli.refresh || flags.refresh;
-    // Trailing task flags bypass the pre-token `gate`, so enforce the same
-    // `--refresh`/`--no-cache` contradiction here on the merged values.
-    if refresh && no_cache {
-        return Err(flags::refresh_no_cache_conflict());
-    }
-    let unit_timeout = flags.timeout.or(cli.timeout);
-
-    let mut baseline = BaselineFlags::new().with_merge_base(cli.merge_base || flags.merge_base);
-    if let Some(reference) = flags.base.clone().or_else(|| cli.base.clone()) {
-        baseline = baseline.with_base(reference);
-    }
-
-    let mut modules = cli.module.clone();
-    modules.extend(flags.modules.iter().cloned());
-    let mut workspaces = cli.workspace.clone();
-    workspaces.extend(flags.workspaces.iter().cloned());
-    let selection = commands::selection::TaskSelection {
-        baseline,
-        modules,
-        workspaces,
-        with_dependents: cli.with_dependents || flags.with_dependents,
-        with_dependencies: cli.with_dependencies || flags.with_dependencies,
-    };
-
-    let watch = commands::run::WatchFlags {
-        enabled: watch_enabled,
-        debounce_ms: flags
-            .watch_debounce_ms
-            .or(cli.watch_debounce_ms)
-            .unwrap_or(flags::DEFAULT_WATCH_DEBOUNCE_MS),
-    };
-    let view = flags.view.or(cli.view).map(Into::into);
-    let jobs = flags.jobs.or(cli.jobs);
-    let compute_budget = flags.compute_budget.or(cli.compute_budget);
-
-    with_hooks(providers, supervisor, cli, &project, VerbId::Run, || {
-        commands::run::execute(
-            providers,
-            supervisor,
-            &project,
-            report,
-            intent_for(&invocation.task),
-            invocation.passthrough,
-            fail_fast,
-            no_cache,
-            refresh,
-            unit_timeout,
-            plan_only,
-            watch,
-            view,
-            jobs,
-            compute_budget,
-            &selection,
-        )
-        .map_err(|error| advise_builtin_typo(&invocation.task, error))
-    })
+/// Run `task` with its run hooks: the shared body of `toven run <task>` and a
+/// bare `toven <task>`.
+fn run_tasks(
+    providers: &[&dyn Provider],
+    supervisor: &Arc<ProcessSupervisor>,
+    execution: &ExecutionArgs,
+    project: &Project,
+    task: &str,
+    passthrough: Vec<String>,
+) -> AppResult<ExitCode> {
+    with_hooks(
+        providers,
+        supervisor,
+        execution,
+        project,
+        VerbId::Run,
+        || {
+            commands::run::execute(
+                providers,
+                supervisor,
+                project,
+                resolve_report(execution, project),
+                intents_for(project, task)?,
+                passthrough,
+                execution.fail_fast,
+                execution.no_cache,
+                execution.refresh,
+                execution.timeout,
+                execution.is_plan_only(),
+                watch_flags(execution),
+                execution.view.map(Into::into),
+                execution.jobs,
+                execution.compute_budget,
+                &task_selection(execution),
+            )
+        },
+    )
 }
 
 /// When a bare-task dispatch fails because the token is not a resolvable task,
@@ -479,25 +454,24 @@ fn advise_builtin_typo(task: &str, error: AppError) -> AppError {
     ))
 }
 
-/// Bundle the pre-token global watch flags for the reserved execution verbs.
-fn global_watch(cli: &Cli) -> commands::run::WatchFlags {
+/// The watch settings an execution verb runs with.
+fn watch_flags(execution: &ExecutionArgs) -> commands::run::WatchFlags {
     commands::run::WatchFlags {
-        enabled: cli.watch,
-        debounce_ms: cli
+        enabled: execution.watch,
+        debounce_ms: execution
             .watch_debounce_ms
             .unwrap_or(flags::DEFAULT_WATCH_DEBOUNCE_MS),
     }
 }
 
-/// Bundle the pre-token global selection flags for the reserved execution
-/// verbs.
-fn global_selection(cli: &Cli) -> commands::selection::TaskSelection {
+/// The module selection an execution verb runs with.
+fn task_selection(execution: &ExecutionArgs) -> commands::selection::TaskSelection {
     commands::selection::TaskSelection {
-        baseline: cli.baseline_flags(),
-        modules: cli.module.clone(),
-        workspaces: cli.workspace.clone(),
-        with_dependents: cli.with_dependents,
-        with_dependencies: cli.with_dependencies,
+        baseline: execution.baseline_flags(),
+        modules: execution.module.clone(),
+        workspaces: execution.workspace.clone(),
+        with_dependents: execution.with_dependents,
+        with_dependencies: execution.with_dependencies,
     }
 }
 
@@ -509,7 +483,7 @@ fn load(
 ) -> AppResult<Project> {
     load_with_config(
         providers,
-        cli.config.as_deref(),
+        cli.execution.config.as_deref(),
         warn_task_dispatch_collisions,
     )
 }
@@ -523,14 +497,16 @@ fn load_with_config(
 ) -> AppResult<Project> {
     let config_path = host::discover_config(config)?;
     let project = host::load_project(&config_path, providers)?;
+    let sets = project.document.sets.keys().map(String::as_str);
+    collision::reject_set_clashes(sets, [])?;
     if warn_task_dispatch_collisions {
-        warn_collisions(&project, providers);
+        warn_collisions(&project, providers)?;
     }
     Ok(project)
 }
 
 /// Emit a stderr warning for every argv-first task name that shadows a reserved
-/// verb.
+/// verb, and reject a set named like an addressable task.
 ///
 /// Only argv-first task dispatch surfaces (`toven <task>`, `toven run <task>`,
 /// and `toven plan <task>`) need this warning. Introspection/cache verbs do not
@@ -539,13 +515,28 @@ fn load_with_config(
 /// Best-effort: a configuration that cannot even enumerate its task names will
 /// surface that same error from the verb's own PLAN call with full context, so
 /// the warning pass stays silent rather than pre-empting it.
-fn warn_collisions(project: &Project, providers: &[&dyn Provider]) {
+fn warn_collisions(project: &Project, providers: &[&dyn Provider]) -> AppResult<()> {
     let Ok(names) = addressable_task_names(&project.document, providers) else {
-        return;
+        return Ok(());
     };
     for collision in collision::detect(names.iter().map(String::as_str)) {
         eprintln!("{}", collision.message());
     }
+    collision::reject_set_clashes(
+        project.document.sets.keys().map(String::as_str),
+        names.iter().map(String::as_str),
+    )
+}
+
+/// Expand a run token — one task, a comma list (`build,test`), or a
+/// configured `[sets.<name>]` — into the intents one plan runs together.
+fn intents_for(project: &Project, token: &str) -> AppResult<Vec<TaskIntent>> {
+    Ok(project
+        .document
+        .task_list(token)?
+        .iter()
+        .map(|task| intent_for(task))
+        .collect())
 }
 
 /// Resolve a task token to its [`TaskIntent`] (name + recognized kind).

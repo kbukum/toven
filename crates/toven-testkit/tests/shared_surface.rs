@@ -134,6 +134,7 @@ fn recording_reporter_captures_event_order() {
             unit_id: "u1".into(),
             status: UnitStatus::Succeeded,
             exit_code: None,
+            log: None,
         },
     ] {
         reporter.emit(&event).expect("emits");
@@ -150,6 +151,7 @@ fn recording_reporter_captures_event_order() {
                 unit_id: "u1".into(),
                 status: UnitStatus::Succeeded,
                 exit_code: None,
+                log: None,
             },
         ],
     );

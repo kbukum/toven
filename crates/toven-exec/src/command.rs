@@ -91,10 +91,10 @@ impl ProcessCommandRunner {
 
     /// Render live-streamed commands on a pseudoterminal of the given size.
     ///
-    /// When set, a unit whose output streams live (serial or single-unit runs)
+    /// When set, a unit whose output is displayed live
     /// executes attached to a real terminal, so it renders exactly as it would
     /// interactively — colors, progress bars, and other tty-gated output are
-    /// preserved. Buffered (parallel) units keep deterministic pipe capture.
+    /// preserved. Quiet output and stdout-gated checks keep separate pipes.
     /// Leaving this unset keeps the pipe-backed behavior for every unit, which
     /// is the correct choice when output is redirected or captured (no tty).
     #[cfg(unix)]
@@ -171,7 +171,7 @@ impl ProcessCommandRunner {
 
     /// Stream stdout/stderr through `observer` as the process runs (no
     /// capture), returning an empty [`RunOutcome::output`] because the bytes
-    /// were already surfaced live. Used when no two units can run concurrently.
+    /// were already delivered to the output channel.
     async fn run_streaming(
         &self,
         invocation: &Invocation,
@@ -247,7 +247,10 @@ impl ProcessCommandRunner {
         observer: OutputObserver,
     ) -> AppResult<RunOutcome> {
         #[cfg(unix)]
-        if let Some(size) = self.pty_size {
+        if let Some(size) = self.pty_size
+            && observer.is_terminal()
+            && !invocation.fail_if_output
+        {
             return self
                 .run_streaming_pty(invocation, spec, cancel, observer, size)
                 .await;
@@ -421,19 +424,19 @@ fn process_observer(unit_id: &str, output: OutputObserver) -> PersistentOutputOb
         .with_stdout_bytes({
             let output = output.clone();
             move |bytes| {
-                output.emit(UnitOutput {
+                output.emit_blocking(UnitOutput {
                     unit_id: stdout_unit.clone(),
                     stream: OutputStream::Stdout,
                     bytes: bytes.to_vec(),
-                });
+                })
             }
         })
         .with_stderr_bytes(move |bytes| {
-            output.emit(UnitOutput {
+            output.emit_blocking(UnitOutput {
                 unit_id: stderr_unit.clone(),
                 stream: OutputStream::Stderr,
                 bytes: bytes.to_vec(),
-            });
+            })
         })
 }
 
@@ -505,24 +508,96 @@ fn streaming_observer(
             if !bytes.is_empty() {
                 stdout_seen.store(true, Ordering::Relaxed);
             }
-            stdout_sink.emit(UnitOutput {
+            let sink = stdout_sink.clone();
+            let chunk = UnitOutput {
                 unit_id: stdout_id.clone(),
                 stream: OutputStream::Stdout,
-                bytes: bytes.to_vec(),
-            });
+                bytes,
+            };
+            async move { sink.emit(chunk).await }
         })
         .with_stderr_bytes(move |bytes| {
-            stderr_sink.emit(UnitOutput {
+            let sink = stderr_sink.clone();
+            let chunk = UnitOutput {
                 unit_id: stderr_id.clone(),
                 stream: OutputStream::Stderr,
-                bytes: bytes.to_vec(),
-            });
+                bytes,
+            };
+            async move { sink.emit(chunk).await }
         })
 }
 
 #[cfg(test)]
 mod tests {
     use super::{ProcessCommandRunner, gate_outcome};
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn quiet_streaming_keeps_pipes_even_when_a_pty_is_configured() {
+        assert_stderr_gate(false).await;
+        assert_stderr_gate(true).await;
+    }
+
+    #[cfg(unix)]
+    async fn assert_stderr_gate(terminal: bool) {
+        use toven_model::OutputStream;
+        use toven_ports::{CommandRunner, Invocation, OutputObserver};
+
+        let runner = ProcessCommandRunner::new(".").with_pty(rskit_process::PtySize::default());
+        let invocation = Invocation::new(
+            "unit",
+            vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                "printf 'diagnostic\\n' >&2".into(),
+            ],
+        )
+        .with_fail_if_output(true);
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
+        let observer = OutputObserver::new(sender);
+        let observer = if terminal {
+            observer.with_terminal()
+        } else {
+            observer
+        };
+        let outcome = runner
+            .run(
+                &invocation,
+                tokio_util::sync::CancellationToken::new(),
+                Some(observer),
+            )
+            .await
+            .expect("run");
+        assert!(outcome.success, "stderr must not trip the stdout gate");
+        let chunk = receiver.recv().await.expect("stderr");
+        assert_eq!(chunk.stream, OutputStream::Stderr);
+        assert_eq!(chunk.bytes, b"diagnostic\n");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn quiet_streaming_does_not_give_the_child_a_terminal() {
+        use toven_ports::{CommandRunner, Invocation, OutputObserver};
+
+        let runner = ProcessCommandRunner::new(".").with_pty(rskit_process::PtySize::default());
+        let invocation = Invocation::new(
+            "unit",
+            vec!["/bin/sh".into(), "-c".into(), "test ! -t 1".into()],
+        );
+        let (sender, _receiver) = tokio::sync::mpsc::channel(8);
+        let outcome = runner
+            .run(
+                &invocation,
+                tokio_util::sync::CancellationToken::new(),
+                Some(OutputObserver::new(sender)),
+            )
+            .await
+            .expect("run");
+        assert!(
+            outcome.success,
+            "quiet output must not enable terminal rendering"
+        );
+    }
 
     #[test]
     fn runner_does_not_inherit_the_rskit_process_default_timeout() {

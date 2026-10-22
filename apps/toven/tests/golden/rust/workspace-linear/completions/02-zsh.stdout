@@ -1371,7 +1371,7 @@ dot\:"Graphviz DOT"))' \
 '--auto-install[Driver/federation only\: provision missing drivers automatically]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
-':task -- Task to explain:_default' \
+':task -- Task, comma list of tasks, or `\[sets\]` name to explain:_default' \
 && ret=0
 ;;
 (init)
@@ -1498,7 +1498,7 @@ dot\:"Graphviz DOT"))' \
 '--auto-install[Driver/federation only\: provision missing drivers automatically]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
-':task -- Task whose blast radius is projected:_default' \
+':task -- Task, comma list of tasks, or `\[sets\]` name whose blast radius is projected:_default' \
 && ret=0
 ;;
 (modules)
@@ -1882,6 +1882,7 @@ dot\:"Graphviz DOT"))' \
 ;;
 (doctor)
 _arguments "${_arguments_options[@]}" : \
+'*--profile=[Also run the \`\[doctor.checks\]\` that list this profile (repeatable). Checks without profiles always run]:NAME:_default' \
 '--config=[Path to the \`toven.toml\` config (otherwise discovered upward from the cwd)]:PATH:_files' \
 '--output=[Output format\: \`human\` tables or machine-readable \`jsonl\` (defaults to the \`\[toven\].report\` setting)]:FORMAT:((human\:"Human-readable terminal rendering"
 jsonl\:"Machine-parseable JSON-lines Event stream"))' \

@@ -18,6 +18,7 @@
 use rskit_cli::ExitCode;
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use toven_engine::doctor::{ToolAudit, ToolProbeOutcome, audit_streaming};
+use toven_engine::health::{CheckOutcome, run_checks};
 use toven_engine::toolchain::ProcessToolchainProber;
 use toven_exec::ProcessToolRunner;
 use toven_model::{Event, ToolStatus};
@@ -25,7 +26,7 @@ use toven_ports::{Provider, Reporter};
 
 use crate::host::{Project, Report};
 
-/// `toven doctor [--ensure]`.
+/// `toven doctor [--ensure] [--profile <name>]...`.
 ///
 /// # Errors
 /// Propagates configuration/probe failures from the audit, and — when `ensure`
@@ -36,8 +37,13 @@ pub(crate) fn doctor(
     project: &Project,
     report: Report,
     ensure: bool,
+    profiles: &[String],
 ) -> AppResult<ExitCode> {
-    let prober = ProcessToolchainProber::new(std::sync::Arc::new(ProcessToolRunner::new()));
+    let runner: std::sync::Arc<dyn toven_ports::ToolRunner> =
+        std::sync::Arc::new(ProcessToolRunner::new());
+    let prober = ProcessToolchainProber::new(std::sync::Arc::clone(&runner));
+    // Reject an unknown profile before the slow tool audit runs.
+    project.document.doctor.selected(profiles)?;
     let mut reporter = report.reporter();
     // Emit each tool's verdict as its probe completes, so `doctor` reports
     // incrementally like a run rather than buffering the whole audit.
@@ -51,7 +57,26 @@ pub(crate) fn doctor(
             &mut |tool| emit_tool(sink, tool),
         )?
     };
-    finish_audit(&audited, ensure, reporter.as_mut())
+    let checks = {
+        let sink = reporter.as_mut();
+        run_checks(
+            &project.project_root,
+            &project.document.doctor,
+            profiles,
+            runner.as_ref(),
+            &mut |check| emit_check(sink, check),
+        )?
+    };
+    finish_audit(&audited, &checks, ensure, reporter.as_mut())
+}
+
+/// Emit one health check's verdict as an [`Event::CheckAudited`].
+fn emit_check(sink: &mut dyn Reporter, check: &CheckOutcome) -> AppResult<()> {
+    sink.emit(&Event::CheckAudited {
+        id: check.id.clone(),
+        failure: check.failure.clone(),
+        fix: check.failure.as_ref().and_then(|_| check.fix.clone()),
+    })
 }
 
 /// Emit one tool's verdict as an [`Event::ToolAudited`].
@@ -68,19 +93,41 @@ fn emit_tool(sink: &mut dyn Reporter, tool: &ToolProbeOutcome) -> AppResult<()> 
 /// typed unprovisionable error). Per-tool [`Event::ToolAudited`] events are
 /// emitted as each probe completes (see [`emit_tool`]), so this only closes the
 /// audit.
-fn finish_audit(audit: &ToolAudit, ensure: bool, sink: &mut dyn Reporter) -> AppResult<ExitCode> {
+fn finish_audit(
+    audit: &ToolAudit,
+    checks: &[CheckOutcome],
+    ensure: bool,
+    sink: &mut dyn Reporter,
+) -> AppResult<ExitCode> {
     let missing = audit.missing_count();
+    let failed: Vec<&str> = checks
+        .iter()
+        .filter(|check| !check.passed())
+        .map(|check| check.id.as_str())
+        .collect();
     sink.emit(&Event::DoctorFinished {
         checked: audit.tools.len(),
         missing,
+        checks: checks.len(),
+        failed: failed.len(),
     })?;
-    if missing == 0 {
+    if missing == 0 && failed.is_empty() {
         return Ok(ExitCode::Success);
     }
-    if ensure {
+    if !ensure {
+        return Ok(ExitCode::Failure);
+    }
+    if missing > 0 {
         return Err(unprovisionable(audit));
     }
-    Ok(ExitCode::Failure)
+    Err(AppError::new(
+        ErrorCode::Conflict,
+        format!(
+            "{} doctor check(s) failed [{}]; apply each check's fix and rerun `toven doctor`",
+            failed.len(),
+            failed.join(", ")
+        ),
+    ))
 }
 
 /// Project a fully-classified audit through `sink`: emit every per-tool verdict,
@@ -92,7 +139,7 @@ fn project_audit(audit: &ToolAudit, ensure: bool, sink: &mut dyn Reporter) -> Ap
     for tool in &audit.tools {
         emit_tool(sink, tool)?;
     }
-    finish_audit(audit, ensure, sink)
+    finish_audit(audit, &[], ensure, sink)
 }
 
 /// The typed, actionable error raised when `--ensure` cannot close the gap.

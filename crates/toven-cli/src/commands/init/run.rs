@@ -33,7 +33,7 @@ use crate::flags::Cli;
 /// invalid existing config, or a failed atomic write from the engine flow.
 pub(crate) fn execute(providers: &[&dyn Provider], cli: &Cli) -> AppResult<ExitCode> {
     let root = cli.root.clone().unwrap_or_else(|| PathBuf::from("."));
-    let color = cli.color_choice().into();
+    let color = cli.execution.color_choice().into();
     let answers = PromptAnswers::new(color, cli.non_interactive);
     let write = !cli.print;
     let outcome =

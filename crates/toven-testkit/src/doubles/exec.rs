@@ -34,6 +34,7 @@ struct RunLog {
     coactive: Vec<(String, Vec<String>)>,
     lifecycles: Vec<(String, LifecyclePolicy)>,
     environments: Vec<(String, InvocationEnvironment)>,
+    streamed: Vec<String>,
 }
 
 /// A scriptable [`CommandRunner`] that records scheduling behavior.
@@ -85,7 +86,8 @@ impl FakeCommandRunner {
 
     /// Script `unit_id`'s normal run to return a propagated runner error
     /// (`Err`), as opposed to a non-zero exit. Models spawn/IO failures that
-    /// abort the run rather than recording a unit failure.
+    /// abort the run. Combined with [`Self::with_blocking`], return the error
+    /// after cancellation instead of returning `Cancelled`.
     #[must_use]
     pub fn with_error(mut self, unit_id: impl Into<String>) -> Self {
         self.errors.insert(unit_id.into());
@@ -157,6 +159,13 @@ impl FakeCommandRunner {
     #[must_use]
     pub fn shutdowns(&self) -> Vec<String> {
         self.shutdowns.lock().expect("shutdowns poisoned").clone()
+    }
+
+    /// Normal unit ids the caller ran with a live observer (streamed rather
+    /// than captured), in call order.
+    #[must_use]
+    pub fn streamed(&self) -> Vec<String> {
+        self.log.lock().expect("log poisoned").streamed.clone()
     }
 
     /// The peak number of normal runs active at once.
@@ -251,16 +260,17 @@ impl HeldProcess for FakeHeldProcess {
             let count = self.teardown_chunks;
             let reader = std::thread::spawn(move || {
                 for index in 0..count {
-                    observer.emit(UnitOutput {
+                    observer.emit_blocking(UnitOutput {
                         unit_id: unit_id.clone(),
                         stream: OutputStream::Stdout,
                         bytes: format!("teardown-{index}").into_bytes(),
-                    });
+                    })?;
                 }
+                Ok::<(), AppError>(())
             });
             reader.join().map_err(|_| {
                 AppError::new(ErrorCode::Internal, "teardown reader thread panicked")
-            })?;
+            })??;
         }
         self.shutdowns
             .lock()
@@ -284,9 +294,15 @@ impl CommandRunner for FakeCommandRunner {
         self.enter(&unit_id);
         let output = self.output_for(&unit_id);
 
-        if self.errors.contains(&unit_id) {
+        let error = self
+            .errors
+            .contains(&unit_id)
+            .then(|| AppError::new(ErrorCode::Internal, "scripted runner error"));
+        if !self.blocking.contains(&unit_id)
+            && let Some(error) = error
+        {
             self.leave(&unit_id);
-            return Err(AppError::new(ErrorCode::Internal, "scripted runner error"));
+            return Err(error);
         }
 
         if self.blocking.contains(&unit_id) {
@@ -294,7 +310,7 @@ impl CommandRunner for FakeCommandRunner {
                 () = cancel.cancelled() => {
                     self.log.lock().expect("log poisoned").cancelled.push(unit_id.clone());
                     self.leave(&unit_id);
-                    return Err(AppError::cancelled("normal run"));
+                    return Err(error.unwrap_or_else(|| AppError::cancelled("normal run")));
                 }
                 () = tokio::time::sleep(Duration::from_secs(10)) => {}
             }
@@ -311,8 +327,13 @@ impl CommandRunner for FakeCommandRunner {
         // Streaming mode mirrors the real runner: emit each chunk live through the
         // observer and return an empty outcome rather than buffered chunks.
         let returned = if let Some(observer) = live {
+            self.log
+                .lock()
+                .expect("log poisoned")
+                .streamed
+                .push(unit_id.clone());
             for chunk in output {
-                observer.emit(chunk);
+                observer.emit(chunk).await?;
             }
             Vec::new()
         } else {
@@ -353,7 +374,7 @@ impl CommandRunner for FakeCommandRunner {
             return Ok(StartOutcome::FailedReadiness { output: chunks });
         }
         for chunk in chunks {
-            output.emit(chunk);
+            output.emit(chunk).await?;
         }
         let teardown_chunks = self
             .teardown_outputs

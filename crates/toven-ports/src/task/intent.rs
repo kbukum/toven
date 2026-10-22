@@ -50,3 +50,19 @@ impl TaskIntent {
         self.kind
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{TaskIntent, TaskKind};
+
+    #[test]
+    fn task_names_resolve_exactly_without_aliases() {
+        let short = TaskIntent::resolve("fmt");
+        let long = TaskIntent::resolve("format");
+        assert_eq!(short.kind(), TaskKind::Default);
+        assert_eq!(long.kind(), TaskKind::Format);
+        assert_eq!(short.name(), "fmt");
+        assert_eq!(long.name(), "format");
+        assert_ne!(short, long);
+    }
+}

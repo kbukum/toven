@@ -2,11 +2,10 @@
 //! registry plus mirrors, and signed (`[…release].image`).
 
 use rskit_errors::{AppError, AppResult};
-use rskit_util::Template;
 use rskit_validation::input::validate_safe_path;
 use serde::{Deserialize, Serialize};
 
-use crate::template::ReleaseVar;
+use crate::template::ReleaseTemplate;
 
 /// Default image tag template when none is configured: the released version.
 const DEFAULT_TAG_TEMPLATE: &str = "{version}";
@@ -17,7 +16,7 @@ const DEFAULT_TAG_TEMPLATE: &str = "{version}";
 /// A module that runs the image phase requires this block; the phase is
 /// unusable without it. `registry` is the primary registry and `mirrors` the
 /// additional registries the same digest is pushed to. `name`/`tag` are
-/// [`ReleaseVar`] templates (reusing the tag-template vocabulary), `context`
+/// [`ReleaseVar`](crate::template::ReleaseVar) templates (reusing the tag-template vocabulary), `context`
 /// and `dockerfile` locate the build, and `sign` (keyless cosign, default
 /// `true`) selects whether the pushed digest is signed.
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
@@ -112,12 +111,9 @@ impl ImageConfig {
     }
 }
 
-/// Validate a name/tag template against the [`ReleaseVar`] vocabulary.
+/// Validate a name/tag template against the [`ReleaseVar`](crate::template::ReleaseVar) vocabulary.
 fn validate_template(field: &str, value: &str) -> AppResult<()> {
-    Template::parse(value, ReleaseVar::ALL).map_err(|error| {
-        AppError::invalid_input(field, format!("invalid image template: {error}")).with_cause(error)
-    })?;
-    Ok(())
+    ReleaseTemplate::parse(field, value).map(drop)
 }
 
 const fn default_sign() -> bool {

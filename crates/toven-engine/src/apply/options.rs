@@ -92,9 +92,19 @@ impl Default for ApplyOptions {
     }
 }
 
-/// Whether normal-unit output should stream live for this run.
+/// How the channel presents normal-unit output.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(super) struct NormalOutput {
+    /// The channel shows chunks as they arrive ([`OutputMode::Live`]) instead
+    /// of as a per-unit block or, when quiet, a failure tail.
+    ///
+    /// [`OutputMode::Live`]: crate::output::OutputMode::Live
+    pub(super) live: bool,
+}
+
+/// Decide [`NormalOutput`] for this run.
 ///
-/// Live streaming a normal unit's output is safe only when concurrent chunks
+/// Showing a normal unit's output live is safe only when concurrent chunks
 /// cannot intermix on the same lines. That holds in two cases:
 ///
 /// - the sink de-interleaves output spatially (`sink_concurrent_live` — one
@@ -106,17 +116,15 @@ impl Default for ApplyOptions {
 ///   emitting live across the later normal-unit waves even under serial
 ///   execution).
 ///
-/// When neither holds, normal output is buffered into a deterministic per-unit
-/// block instead.
-pub(super) fn stream_normal_live(
+/// Otherwise the channel buffers normal output into per-unit blocks, or keeps only a failure tail when quiet. Every mode streams from the runner through the same bounded bridge, so delivery guarantees never depend on presentation.
+pub(super) fn normal_output(
     options: &ApplyOptions,
     plan: &toven_model::Plan,
     sink_concurrent_live: bool,
-) -> bool {
-    if sink_concurrent_live {
-        return true;
-    }
+    hides_passing: bool,
+) -> NormalOutput {
     let serial_or_single = options.max_parallel <= 1 || plan.units.len() <= 1;
     let has_persistent = plan.units.iter().any(|unit| unit.persistent);
-    serial_or_single && !has_persistent
+    let live = !hides_passing && (sink_concurrent_live || (serial_or_single && !has_persistent));
+    NormalOutput { live }
 }

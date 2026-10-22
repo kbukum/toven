@@ -73,7 +73,7 @@ pub(crate) fn execute(
     supervisor: &Arc<ProcessSupervisor>,
     project: &Project,
     report: Report,
-    intent: TaskIntent,
+    intents: Vec<TaskIntent>,
     passthrough: Vec<String>,
     fail_fast: bool,
     no_cache: bool,
@@ -86,8 +86,26 @@ pub(crate) fn execute(
     compute_budget: Option<ComputeBudget>,
     selection: &TaskSelection,
 ) -> AppResult<ExitCode> {
+    let mut intents = intents.into_iter();
+    let Some(intent) = intents.next() else {
+        return Err(AppError::invalid_input(
+            "task",
+            "a run needs at least one task",
+        ));
+    };
+    let also: Vec<TaskIntent> = intents.collect();
+    if !also.is_empty() && !passthrough.is_empty() {
+        return Err(AppError::invalid_input(
+            "passthrough",
+            "`--` arguments need exactly one task; run each task on its own",
+        ));
+    }
     let run_id = new_run_id()?;
-    let intent_name = intent.name().to_string();
+    let intent_name = std::iter::once(&intent)
+        .chain(&also)
+        .map(TaskIntent::name)
+        .collect::<Vec<_>>()
+        .join(",");
     let effective_view = view.unwrap_or(project.document.toven.view);
     // Per-run scratch for the tmux pane launcher. A randomized, 0700, owned
     // `TempDir` (rather than a predictable `toven-panes-{run_id}-{pid}` path in
@@ -103,6 +121,7 @@ pub(crate) fn execute(
         intent,
         project.project_root.clone(),
     )
+    .with_also(also)
     .with_passthrough(passthrough)
     .with_selection(selection.resolve(project.document.project.base_ref.as_deref())?);
     // `--no-cache` bypasses the cache entirely (no read, no write); `--refresh`
@@ -269,6 +288,7 @@ async fn run_supervised(run: TaskRun<'_>, sink: &mut dyn Reporter) -> AppResult<
                     force_stream: run.report.forces_stream_output(),
                     palette: run.report.stderr_palette(),
                     pane_dir: run.pane_dir,
+                    passing: run.report.passing_output(),
                 },
                 cancel,
             },
@@ -297,6 +317,7 @@ async fn run_supervised(run: TaskRun<'_>, sink: &mut dyn Reporter) -> AppResult<
             return Err(error);
         }
     };
+    let run_id = run.run_id.clone();
     buffered.commit(&Event::RunStarted {
         run_id: run.run_id,
         intent: run.intent_name,
@@ -346,6 +367,8 @@ async fn run_supervised(run: TaskRun<'_>, sink: &mut dyn Reporter) -> AppResult<
             unit_count: plan.units.len(),
             max_parallel: options.max_parallel,
             pane_dir: &run.pane_dir,
+            passing: run.report.passing_output(),
+            run_id: &run_id,
         },
     )?;
     let runner = host.runner;

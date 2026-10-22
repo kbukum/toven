@@ -1,6 +1,5 @@
 run build on single-command
 plan: 1 unit in 1 wave
-command build
   ok command:app#build
 summary
       planned:  1

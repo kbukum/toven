@@ -16,7 +16,8 @@ use toven_testkit::{
 };
 
 use super::buildx::{
-    BuildxImagePhase, buildx_build_argv, buildx_push_argv, inspect_argv, parse_metadata_digest,
+    BuildxImagePhase, buildx_build_argv, buildx_push_argv, immutable_tag_outcome, inspect_argv,
+    parse_metadata_digest,
 };
 use super::phase::{
     ImageModuleOutcome, ImageOptions, ImagePhaseStatus, image_operation, release_image,
@@ -57,6 +58,8 @@ fn document() -> Document {
         members: Vec::new(),
         hooks: std::collections::BTreeMap::new(),
         units: std::collections::BTreeMap::new(),
+        sets: std::collections::BTreeMap::new(),
+        doctor: toven_core::config::DoctorConfig::default(),
     }
 }
 
@@ -219,28 +222,56 @@ fn image_dry_run_fails_closed_on_divergent_primary_and_mirror_digests() {
     assert!(phase.calls().is_empty(), "preview must not push");
 }
 
-#[test]
-fn image_fails_closed_on_a_divergent_existing_tag() {
-    let provider = provider_with_image(Some(image_config()), Version::new(2, 0, 0));
-    let providers: Vec<&dyn Provider> = vec![&provider];
-    let reader = FakeVcsReader::new();
-    let readers = MemberVcsReaders::single(&reader, BaselineSpec::explicit("main"));
-    let phase = FakeImagePhase::new()
-        .with_digest("sha256:new")
-        .with_existing_digest("sha256:old");
-    let mut reporter = RecordingReporter::new();
+fn existing(entries: &[(&str, Option<&str>)]) -> Vec<(String, Option<String>)> {
+    entries
+        .iter()
+        .map(|(reference, digest)| ((*reference).to_string(), digest.map(str::to_string)))
+        .collect()
+}
 
-    let error = release_image(
-        &request(),
-        &document(),
-        &providers,
-        &readers,
-        &phase,
-        ImageOptions::default(),
-        &mut reporter,
+#[test]
+fn immutable_guard_is_already_complete_when_every_tag_holds_the_built_digest() {
+    let outcome = immutable_tag_outcome(
+        "sha256:built",
+        &existing(&[
+            ("ghcr.io/a:1", Some("sha256:built")),
+            ("docker.io/a:1", Some("sha256:built")),
+        ]),
+    )
+    .expect("idempotent re-run");
+    assert_eq!(outcome, ImageOutcome::AlreadyComplete);
+}
+
+#[test]
+fn immutable_guard_pushes_when_any_tag_is_missing() {
+    let outcome = immutable_tag_outcome(
+        "sha256:built",
+        &existing(&[
+            ("ghcr.io/a:1", Some("sha256:built")),
+            ("docker.io/a:1", None),
+        ]),
+    )
+    .expect("a missing mirror is pushed");
+    assert_eq!(outcome, ImageOutcome::Pushed);
+}
+
+#[test]
+fn immutable_guard_fails_closed_on_a_divergent_tag_even_when_another_is_missing() {
+    let error = immutable_tag_outcome(
+        "sha256:new",
+        &existing(&[("ghcr.io/a:1", None), ("docker.io/a:1", Some("sha256:old"))]),
     )
     .expect_err("a divergent tag must fail closed");
-    assert!(error.to_string().contains("immutable"), "{error}");
+    let message = error.to_string();
+    assert!(message.contains("immutable"), "{message}");
+    assert!(
+        message.contains("docker.io/a:1"),
+        "names the tag: {message}"
+    );
+    assert!(
+        message.contains("sha256:old"),
+        "names the existing digest: {message}"
+    );
 }
 
 #[test]

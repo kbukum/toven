@@ -34,6 +34,8 @@ Generate a starter file with [`toven init`](../commands/init.md).
 | `[modules."<ecosystem>:<name>"]` | No | Per-module release and coverage overrides |
 | `[groups.<name>]` | No | Named module sets, guardrails, run strategy, and sparse task overrides |
 | `[hooks.<verb>]` | No | Project-level `pre`/`post` lifecycle hooks that wrap a command |
+| `[sets.<name>]` | No | Named task lists that run together, such as `toven verify` |
+| `[doctor.checks.<id>]` | No | Project health checks that `toven doctor` runs; see [doctor](../commands/doctor.md#project-checks) |
 | `[units.<name>]` | No | User-declared composite units that chain existing units into one action |
 | `[[overlays]]` | No | Explicit dependency edges native metadata cannot express |
 | `[[members]]` | No | Federated repository members |
@@ -236,6 +238,7 @@ fail_if_output = false
 | `cacheable` | boolean | `true` | Allow successful result reuse |
 | `cache_args` | boolean | `false` | Include passthrough args in cache keys |
 | `shared_inputs` | string list | `[]` | Repository files that invalidate every matching unit |
+| `modules` | string list | `[]` (every module) | Module names in this ecosystem the task runs on. A default or changed selection skips the others. Explicitly selecting one is an error when the task runs alone, including a set or list of one task. When it runs with other tasks, it just skips that module, and the run is an error only if no task applies to any selected module. A name that matches no discovered module is an error |
 | `fail_if_output` | boolean | `false` | Treat any stdout output as failure |
 
 Toven keeps authored argv unchanged. Templates expand selectors and Toven variables, but they do not infer hidden flags.
@@ -365,6 +368,19 @@ Hooks are ordinary task references, resolved through the same task model as [`to
 The release family composes with its umbrella: `[hooks.release]` wraps `[hooks.bump]`, `[hooks.tag]`, and `[hooks.publish]`, with the specific verb innermost. For a `release bump`, the effective `pre` sequence is the umbrella's `pre` followed by `bump`'s `pre`, and the effective `post` sequence is `bump`'s `post` followed by the umbrella's `post`. A `release` reconcile that short-circuits (nothing to cut) skips the `post` hooks.
 
 For the bump-specific mid-mutation `on_resolved` seam — which runs *inside* the bump after versions are decided and is handed the resolved version map — see [Release configuration](release.md#bump-on-resolved-hooks).
+
+## Task sets
+
+`[sets.<name>]` names a list of tasks that run together. `toven <name>` then works like a task:
+
+```toml
+[sets.verify]
+tasks = ["lint", "typecheck", "test"]
+```
+
+Toven plans every task into one plan and runs them side by side, so list order is not run order. Keep tasks that change files (such as `fmt`) out of a set with tasks that read them.
+
+A set name must be a safe identifier. It cannot match a task kind (`build`, `test`, …), a configured task, or a built-in command, and its list cannot name another set or repeat a task.
 
 ## Composite units
 

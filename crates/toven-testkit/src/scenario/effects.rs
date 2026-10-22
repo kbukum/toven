@@ -120,6 +120,9 @@ fn path_exists(path: &Path) -> AppResult<bool> {
     }
 }
 
+/// Directory under the cache base that holds per-run unit logs, not records.
+const UNIT_LOGS_DIR: &str = "logs";
+
 /// Count regular files under `root` recursively; a missing directory counts
 /// as zero entries (a cold cache).
 fn count_files(root: &Path) -> AppResult<u64> {
@@ -134,7 +137,7 @@ fn count_files(root: &Path) -> AppResult<u64> {
     }
     let mut count = 0_u64;
     walk_tree_ignoring(root, WALK, |entry| {
-        if entry.is_file {
+        if entry.is_file && !entry.relative_path.starts_with(UNIT_LOGS_DIR) {
             count += 1;
         }
         Ok(WalkControl::Continue)

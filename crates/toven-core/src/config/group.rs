@@ -110,4 +110,11 @@ mod tests {
         let error = toml::from_str::<GroupConfig>(toml).expect_err("strict parse");
         assert!(error.to_string().contains("bogus"), "{error}");
     }
+
+    #[test]
+    fn group_task_cannot_override_ecosystem_module_scope() {
+        let error = toml::from_str::<GroupConfig>("[tasks.test]\nmodules = [\"app\"]")
+            .expect_err("module scope belongs to the ecosystem task");
+        assert!(error.to_string().contains("modules"), "{error}");
+    }
 }

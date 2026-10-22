@@ -9,6 +9,7 @@
 //! [`FakeConfiguredAdapter`](super::FakeConfiguredAdapter) can hand back a fresh
 //! boxed adapter from `release_target` on each call.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -17,8 +18,8 @@ use rskit_version::semver::Version;
 use toven_model::{Module, ModuleRef, RepoPath};
 use toven_ports::{
     Artifact, BaselineSourceConfig, ManifestMutator, Packager, PublishOutcome, Publisher,
-    ReleaseCredentials, ReleaseDefaults, ReleaseDefaultsSource, ReleaseMutation, SbomProducer,
-    TagGrammar, TagMode, TagScheme, VersionSource, Visibility,
+    ReleaseCredentials, ReleaseDefaults, ReleaseDefaultsSource, ReleaseMutation, ReleaseTemplate,
+    SbomProducer, TagGrammar, TagMode, TagScheme, VersionSource, Visibility,
 };
 
 /// A single call recorded by [`FakeReleaseTarget`].
@@ -67,6 +68,7 @@ pub struct FakeReleaseTarget {
 #[derive(Debug, Clone)]
 struct FakeReleaseState {
     declared: Option<Version>,
+    manifest_versions: BTreeMap<String, Version>,
     published: Vec<Version>,
     artifact_path: String,
     tag_scheme: Option<TagScheme>,
@@ -92,6 +94,7 @@ impl Default for FakeReleaseTarget {
         Self {
             inner: Arc::new(Mutex::new(FakeReleaseState {
                 declared: Some(Version::new(0, 1, 0)),
+                manifest_versions: BTreeMap::new(),
                 published: Vec::new(),
                 artifact_path: "dist/fake.pkg".to_string(),
                 tag_scheme: None,
@@ -123,6 +126,16 @@ impl FakeReleaseTarget {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Script the version [`VersionSource::version_in_manifest`] returns for
+    /// exactly this manifest body; any other body has no version.
+    #[must_use]
+    pub fn with_manifest_version(self, manifest: impl Into<String>, version: Version) -> Self {
+        self.state()
+            .manifest_versions
+            .insert(manifest.into(), version);
+        self
     }
 
     /// Set the version read from the manifest.
@@ -324,24 +337,8 @@ impl VersionSource for FakeReleaseTarget {
     }
 
     fn version_in_manifest(&self, manifest: &str) -> AppResult<Option<Version>> {
-        // A test double reads the version from a top-level `version = "X"` line
-        // of the committed manifest body — enough to anchor an umbrella-tag
-        // baseline on each module's own version without pulling a full TOML
-        // parser into the testkit.
-        Ok(manifest_leading_version(manifest))
+        Ok(self.state().manifest_versions.get(manifest).cloned())
     }
-}
-
-/// Parse the version from the first top-level `version = "X"` line of a manifest
-/// body, ignoring nested dependency `version` keys (whose line starts with the
-/// dependency name, not `version`). Returns `None` when no such line parses.
-fn manifest_leading_version(manifest: &str) -> Option<Version> {
-    manifest.lines().find_map(|line| {
-        let rest = line.trim().strip_prefix("version")?.trim_start();
-        let value = rest.strip_prefix('=')?.trim();
-        let quoted = value.strip_prefix('"')?.strip_suffix('"')?;
-        Version::parse(quoted).ok()
-    })
 }
 
 impl TagGrammar for FakeReleaseTarget {
@@ -355,7 +352,7 @@ impl TagGrammar for FakeReleaseTarget {
             return Ok(scheme);
         }
         if let Some(format) = tag_format {
-            return render_tag_format(format, module);
+            return ReleaseTemplate::parse("release.tag_format", format)?.tag_scheme(module);
         }
         Ok(TagScheme::new(
             format!("{}/{}@", module.id.ecosystem.as_str(), module.id.name),
@@ -471,24 +468,6 @@ impl SbomProducer for FakeReleaseTarget {
 
 fn fake_error(message: &str) -> AppError {
     AppError::new(ErrorCode::Internal, message.to_string())
-}
-
-/// Render a `tag_format` template into a prefix/suffix [`TagScheme`] for the
-/// double, substituting the module-scoped placeholders and splitting on
-/// `{version}`.
-#[allow(clippy::literal_string_with_formatting_args)]
-fn render_tag_format(format: &str, module: &Module) -> AppResult<TagScheme> {
-    let rendered = format
-        .replace("{ecosystem}", module.id.ecosystem.as_str())
-        .replace("{module}", &module.id.name)
-        .replace("{channel}", "");
-    let Some((prefix, suffix)) = rendered.split_once("{version}") else {
-        return Err(AppError::invalid_input(
-            "release.tag_format",
-            "release tag template must contain {version}",
-        ));
-    };
-    Ok(TagScheme::new(prefix, suffix))
 }
 
 #[cfg(test)]

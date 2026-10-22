@@ -23,6 +23,6 @@ mod tool;
 pub use environment::{InvocationEnvPolicy, InvocationEnvironment};
 pub use invocation::Invocation;
 pub use outcome::{HeldProcess, RunOutcome, StartOutcome};
-pub use output::OutputObserver;
+pub use output::{DroppedOutput, OutputObserver};
 pub use runner::CommandRunner;
 pub use tool::{ForwardEnvAs, ToolInvocation, ToolOutcome, ToolRunner, Truncation};

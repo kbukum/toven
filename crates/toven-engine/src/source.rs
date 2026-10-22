@@ -92,6 +92,25 @@ impl FsSourceDigest {
     }
 }
 
+impl FsSourceDigest {
+    /// Hash one project-relative external root. It sits outside the project
+    /// on purpose (discovery recorded it from the module's own build config),
+    /// so it is resolved and must be an existing directory rather than confined.
+    fn external_tree(&self, module: &Module, external: &str) -> AppResult<String> {
+        let root = rskit_fs::path::canonicalize(&self.project_root.join(external))?;
+        if !root.is_dir() {
+            return Err(AppError::new(
+                ErrorCode::NotFound,
+                format!(
+                    "module '{}' external root '{external}' is not a directory",
+                    module.id
+                ),
+            ));
+        }
+        Self::hash_tree(&root)
+    }
+}
+
 impl SourceDigest for FsSourceDigest {
     fn module(&self, module: &Module) -> AppResult<String> {
         let root = safe_join(&self.project_root, module.root.as_path()).map_err(|error| {
@@ -107,7 +126,17 @@ impl SourceDigest for FsSourceDigest {
                 ),
             ));
         }
-        Self::hash_tree(&root)
+        let tree = Self::hash_tree(&root)?;
+        if module.external_roots.is_empty() {
+            return Ok(tree);
+        }
+        let mut hasher = ContentHasher::new();
+        hasher.update_framed(b"module", tree.as_bytes());
+        for external in &module.external_roots {
+            hasher.update_framed(b"external", external.as_bytes());
+            hasher.update_framed(b"tree", self.external_tree(module, external)?.as_bytes());
+        }
+        Ok(hasher.finalize_hex())
     }
 
     fn path(&self, repo_relative: &Path) -> AppResult<String> {
@@ -184,6 +213,33 @@ mod tests {
         workspace.write_file("core/lib.rs", b"fn b() {}").unwrap();
         let after = digest.module(&module("core")).unwrap();
         assert_ne!(before, after);
+    }
+
+    #[test]
+    fn external_roots_join_the_module_digest() {
+        let workspace = TestWorkspace::new("source-digest-external");
+        workspace
+            .write_file("repo/core/lib.rs", b"fn a() {}")
+            .unwrap();
+        workspace
+            .write_file("sibling/lib.rs", b"fn s() {}")
+            .unwrap();
+        let root = AbsPath::new(workspace.path().join("repo")).unwrap();
+        let digest = FsSourceDigest::new(&root);
+        let plain = digest.module(&module("core")).unwrap();
+
+        let mut core = module("core");
+        core.external_roots = vec!["../sibling".to_string()];
+        let before = digest.module(&core).unwrap();
+        assert_ne!(plain, before);
+
+        workspace
+            .write_file("sibling/lib.rs", b"fn t() {}")
+            .unwrap();
+        assert_ne!(before, digest.module(&core).unwrap());
+
+        core.external_roots = vec!["../missing".to_string()];
+        assert!(digest.module(&core).is_err());
     }
 
     #[test]

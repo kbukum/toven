@@ -106,6 +106,10 @@ pub enum Event {
         /// channel, so this names the failure without duplicating that stream.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         exit_code: Option<i32>,
+        /// Path of the unit's full output log, when the run keeps unit logs
+        /// and the unit printed anything.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        log: Option<String>,
     },
 
     // ---- RELEASE level ----
@@ -212,14 +216,31 @@ pub enum Event {
         /// Whether the tool is present (and its version) or missing.
         status: ToolStatus,
     },
+    /// One `[doctor.checks.<id>]` health check was evaluated.
+    CheckAudited {
+        /// The check id.
+        id: String,
+        /// Why the check failed; absent when it passed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        failure: Option<String>,
+        /// The configured fix hint, reported with a failure.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fix: Option<String>,
+    },
     /// The `doctor` audit finished. Advisory summary: the process exit is
-    /// derived from `missing` by the CLI (non-zero when any required tool is
-    /// absent), so the count is the single source of truth.
+    /// derived from `missing` and `failed` by the CLI (non-zero when any
+    /// required tool is absent or a check fails).
     DoctorFinished {
         /// Total tools checked across the resolved task graph.
         checked: usize,
         /// How many of them were missing.
         missing: usize,
+        /// Health checks evaluated.
+        #[serde(default)]
+        checks: usize,
+        /// How many health checks failed.
+        #[serde(default)]
+        failed: usize,
     },
 
     // ---- WATCH level ----
@@ -281,11 +302,13 @@ mod tests {
             unit_id: "u1".into(),
             status: UnitStatus::Succeeded,
             exit_code: None,
+            log: None,
         });
         round_trip(&Event::UnitFinished {
             unit_id: "u2".into(),
             status: UnitStatus::Failed,
             exit_code: Some(2),
+            log: Some("/tmp/logs/run-1/u2.log".into()),
         });
         round_trip(&Event::RunFinished {
             summary: RunStats::new(3),
@@ -308,9 +331,16 @@ mod tests {
             program: "mdbook".into(),
             status: ToolStatus::Missing,
         });
+        round_trip(&Event::CheckAudited {
+            id: "go".into(),
+            failure: Some("expected go1.27".into()),
+            fix: Some("mise install".into()),
+        });
         round_trip(&Event::DoctorFinished {
             checked: 2,
             missing: 1,
+            checks: 1,
+            failed: 1,
         });
     }
 

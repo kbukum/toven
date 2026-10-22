@@ -1,0 +1,8 @@
+# A `--` passthrough tail needs exactly one task: with a task list it is a
+# typed input error, not a silent fan-out of the same arguments.
+repo: command/multi-task
+steps:
+  - id: 01-list-with-passthrough
+    argv: [run, "build,test", --, --flag]
+    exit: 2
+    stderr: { match: normalized }

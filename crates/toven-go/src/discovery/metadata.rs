@@ -131,31 +131,14 @@ pub(crate) fn discover(
     }
 
     let work_replacements = work.as_ref().map_or(&[][..], |work| &work.replacements);
-    if replacements
-        .values()
-        .flatten()
-        .chain(work_replacements)
-        .any(|replacement| replacement.local_target().is_some())
-    {
-        let roots: BTreeMap<ModuleRef, PathBuf> = modules
-            .values()
-            .map(|module| {
-                confine_existing_path(project_root, module.root.as_path())
-                    .map(|root| (module.id.clone(), root))
-            })
-            .collect::<AppResult<_>>()?;
-        let workspace_complete =
-            replacements_complete(project_root, work_replacements, &by_path, &roots)?;
-        for module in modules.values_mut() {
-            let local = replacements.get(&module.id).map_or(&[][..], Vec::as_slice);
-            let owner_root = safe_join(project_root, module.root.as_path()).map_err(|error| {
-                AppError::new(ErrorCode::Internal, "failed to resolve module root")
-                    .with_cause(error)
-            })?;
-            module.cache_inputs_complete =
-                workspace_complete && replacements_complete(&owner_root, local, &by_path, &roots)?;
-        }
-    }
+    let warnings = assign_external_roots(
+        project_root,
+        &mut modules,
+        &replacements,
+        work_replacements,
+        &by_path,
+        &requires,
+    )?;
 
     let edges = build_edges(&modules, &by_path, &requires);
 
@@ -164,30 +147,185 @@ pub(crate) fn discover(
     response.workspaces = workspaces.into_values().collect();
     response.modules = modules.into_values().collect();
     response.edges = edges;
+    response.warnings = warnings;
     Ok(response)
 }
 
-/// A local replacement is represented only when its declared dependency edge
-/// points to the same discovered source directory. Never hash external inputs.
-fn replacements_complete(
+/// Record each module's local replacement targets that the module graph does
+/// not track as `external_roots`, relative to the project root.
+fn assign_external_roots(
+    project_root: &Path,
+    modules: &mut BTreeMap<ModuleRef, Module>,
+    replacements: &BTreeMap<ModuleRef, Vec<modules::GoReplacement>>,
+    work_replacements: &[modules::GoReplacement],
+    by_path: &BTreeMap<String, ModuleRef>,
+    requires: &[(ModuleRef, String)],
+) -> AppResult<Vec<String>> {
+    if !replacements
+        .values()
+        .flatten()
+        .chain(work_replacements)
+        .any(|replacement| replacement.local_target().is_some())
+    {
+        return Ok(Vec::new());
+    }
+    let project = rskit_fs::path::canonicalize(project_root)?;
+    let roots: BTreeMap<ModuleRef, PathBuf> = modules
+        .values()
+        .map(|module| {
+            confine_existing_path(project_root, module.root.as_path())
+                .map(|root| (module.id.clone(), root))
+        })
+        .collect::<AppResult<_>>()?;
+    let dependencies: BTreeSet<_> = requires
+        .iter()
+        .map(|(_, package)| package.as_str())
+        .collect();
+    let shared = external_targets(
+        &project,
+        project_root,
+        work_replacements,
+        by_path,
+        &roots,
+        &dependencies,
+    )?;
+    let mut warnings = shared.warnings.clone();
+    for module in modules.values_mut() {
+        let local = replacements.get(&module.id).map_or(&[][..], Vec::as_slice);
+        let owner_root = safe_join(project_root, module.root.as_path()).map_err(|error| {
+            AppError::new(ErrorCode::Internal, "failed to resolve module root").with_cause(error)
+        })?;
+        let dependencies: BTreeSet<_> = requires
+            .iter()
+            .filter(|(owner, _)| owner == &module.id)
+            .map(|(_, package)| package.as_str())
+            .collect();
+        let local = external_targets(&project, &owner_root, local, by_path, &roots, &dependencies)?;
+        module.cache_inputs_complete &= shared.warnings.is_empty() && local.warnings.is_empty();
+        warnings.extend(local.warnings);
+        let mut targets = shared.targets.clone();
+        targets.extend(local.targets);
+        module.external_roots = outermost(targets)
+            .iter()
+            .map(|target| project_relative(&project, target))
+            .collect();
+    }
+    Ok(warnings)
+}
+
+#[derive(Default)]
+struct ReplacementInputs {
+    targets: BTreeSet<PathBuf>,
+    warnings: Vec<String>,
+}
+
+/// The canonical directories of local replacements the module graph does not
+/// already track.
+///
+/// A replacement is tracked only when it points at the discovered root of the
+/// same package, so that module's own digest covers it. Any other local target
+/// (a sibling checkout, or a directory that is not that package's module) is an
+/// external root the caller hashes separately.
+///
+/// # Errors
+/// A required local target that does not exist, any non-directory target, or an untracked one that is the
+/// project root or one of its ancestors: hashing it would fold the whole
+/// project (and its cache) into every key.
+///
+/// Offline manifest reads cannot prove whether a replacement absent from the owner's requirements is unused or required transitively. Missing unconfirmed targets produce a warning and disable caching rather than rejecting a potentially valid Go project.
+fn external_targets(
+    project: &Path,
     owner_root: &Path,
     replacements: &[modules::GoReplacement],
     by_path: &BTreeMap<String, ModuleRef>,
     roots: &BTreeMap<ModuleRef, PathBuf>,
-) -> AppResult<bool> {
+    required: &BTreeSet<&str>,
+) -> AppResult<ReplacementInputs> {
+    let mut inputs = ReplacementInputs::default();
     for replacement in replacements {
         let Some((package, directory)) = replacement.local_target() else {
             continue;
         };
-        let Some(tracked_root) = by_path.get(package).and_then(|id| roots.get(id)) else {
-            return Ok(false);
+        let path = owner_root.join(directory);
+        let target = match rskit_fs::path::canonicalize(&path) {
+            Ok(target) => target,
+            Err(error) if !path.try_exists().map_err(AppError::internal)? => {
+                let message = format!(
+                    "go replace of {package} points at '{directory}', which does not exist"
+                );
+                if required.contains(package) {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidInput,
+                        format!("{message}; check out the replacement or remove the replace"),
+                    )
+                    .with_cause(error));
+                }
+                inputs.warnings.push(format!(
+                    "{message}; it may be unused or required transitively, so caching disabled until the replacement is available or removed"
+                ));
+                continue;
+            }
+            Err(error) => return Err(error),
         };
-        let target = rskit_fs::path::canonicalize(&owner_root.join(directory))?;
-        if &target != tracked_root {
-            return Ok(false);
+        if !rskit_fs::sync_io::file::metadata(&target)?.is_dir {
+            return Err(AppError::new(
+                ErrorCode::InvalidInput,
+                format!(
+                    "go replace of {package} points at '{directory}', which is not a directory; replace it with a module directory instead"
+                ),
+            ));
+        }
+        let tracked = by_path.get(package).and_then(|id| roots.get(id));
+        if tracked == Some(&target) {
+            continue;
+        }
+        if project.starts_with(&target) {
+            return Err(AppError::new(
+                ErrorCode::InvalidInput,
+                format!(
+                    "go replace of {package} points at '{directory}', the project root or one of its ancestors; replace it with a module directory instead"
+                ),
+            ));
+        }
+        inputs.targets.insert(target);
+    }
+    Ok(inputs)
+}
+
+/// Drop every directory nested under another one in the set, so a subtree is
+/// hashed once (`../gokit` covers `../gokit/ai`).
+fn outermost(targets: BTreeSet<PathBuf>) -> Vec<PathBuf> {
+    let mut kept: Vec<PathBuf> = Vec::new();
+    for target in targets {
+        if !kept.iter().any(|root| target.starts_with(root)) {
+            kept.push(target);
         }
     }
-    Ok(true)
+    kept
+}
+
+/// `target` relative to `project`, using `..` to leave the project root, with
+/// `/` separators so the label is portable across checkouts.
+fn project_relative(project: &Path, target: &Path) -> String {
+    let project: Vec<_> = project.components().collect();
+    let target: Vec<_> = target.components().collect();
+    let shared = project
+        .iter()
+        .zip(&target)
+        .take_while(|(left, right)| left == right)
+        .count();
+    let parts: Vec<String> = std::iter::repeat_n("..".to_string(), project.len() - shared)
+        .chain(
+            target[shared..]
+                .iter()
+                .map(|part| part.as_os_str().to_string_lossy().into_owned()),
+        )
+        .collect();
+    if parts.is_empty() {
+        ".".to_string()
+    } else {
+        parts.join("/")
+    }
 }
 
 /// The canonical Go ecosystem id.

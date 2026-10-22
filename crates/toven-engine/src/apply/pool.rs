@@ -73,11 +73,11 @@ struct WorkHandler {
     runner: Arc<dyn CommandRunner>,
     environment: InvocationEnvironment,
     output: OutputObserver,
-    /// Stream normal-unit output live (through `output`) instead of capturing
-    /// it for a buffered block. Only set when nothing else can emit
-    /// concurrently (serial or single-unit execution and no held persistent
-    /// unit), so streamed chunks never interleave.
-    stream_normal_live: bool,
+    /// Stream normal-unit output through `output` (the bounded live bridge)
+    /// instead of capturing it whole. Chunks carry their `unit_id`, so the
+    /// channel decides how they render (see
+    /// [`normal_output`](super::options::normal_output)).
+    normal: super::options::NormalOutput,
     /// Optional wall-clock bound on any single normal unit; on expiry the
     /// unit's own cancellation token is fired so the runner tears the child
     /// down.
@@ -154,7 +154,12 @@ impl Handler<WorkItem, WorkOutcome> for WorkHandler {
                 }
             }
         } else {
-            let live = self.stream_normal_live.then(|| self.output.clone());
+            let observer = self.output.clone();
+            let live = Some(if self.normal.live {
+                observer.with_terminal()
+            } else {
+                observer
+            });
             if let Some(timeout) = self.unit_timeout {
                 // Bound the run: on expiry cancel this unit's own token and then await the
                 // runner to completion so the child is torn down (never dropped/leaked),
@@ -208,14 +213,14 @@ impl ApplyPool {
         max_parallel: usize,
         environment: InvocationEnvironment,
         output: OutputObserver,
-        stream_normal_live: bool,
+        normal: super::options::NormalOutput,
         unit_timeout: Option<Duration>,
     ) -> Self {
         let handler = Arc::new(WorkHandler {
             runner,
             environment,
             output,
-            stream_normal_live,
+            normal,
             unit_timeout,
         });
         let config = PoolConfig::new("toven-apply").with_size(max_parallel.max(1));

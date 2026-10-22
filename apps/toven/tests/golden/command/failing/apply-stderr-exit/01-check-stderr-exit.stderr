@@ -1,7 +1,9 @@
 run check on stderr-fail-command
 plan: 1 unit in 1 wave
+==> command:boom#check
 boom: deliberate failure
   failed command:boom#check (exit 3)
+    log <CACHE>/logs/run-1700000000/command_boom_check-9281e866.log
 summary
       planned:  1
           ran:  0

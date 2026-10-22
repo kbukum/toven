@@ -8,11 +8,7 @@
 //! so units can all stream live under full parallelism without their bytes
 //! intermixing. It reports
 //! [`supports_concurrent_live`](toven_ports::RawOutputSink::supports_concurrent_live),
-//! so the engine drives every unit through the
-//! [`begin_unit`](toven_ports::RawOutputSink::begin_unit) /
-//! [`live`](toven_ports::RawOutputSink::live) /
-//! [`end_unit`](toven_ports::RawOutputSink::end_unit) lifecycle instead of
-//! buffering normal units into blocks. On a failure it both replays the unit's
+//! so the engine drives every unit through the [`begin_unit`](toven_ports::RawOutputSink::begin_unit) / [`live`](toven_ports::RawOutputSink::live) / [`end_unit`](toven_ports::RawOutputSink::end_unit) lifecycle. Quiet failures feed their buffered tail into the same region before finishing. On a failure it both replays the unit's
 //! retained tail inline (immediate feedback) and retains it so
 //! [`finish_run`](toven_ports::RawOutputSink::finish_run) can re-surface every
 //! failure as one consolidated section above the run summary, un-buried by
@@ -139,10 +135,13 @@ impl RawOutputSink for TilesRawSink {
     }
 
     fn block(&mut self, unit_id: &str, chunks: &[UnitOutput]) -> AppResult<()> {
-        // Concurrent-live sinks stream every unit through the live lifecycle, so this
-        // path is only reached defensively (e.g. a spilled buffered block from a unit
-        // that was never live-tailed). Flush it to scrollback rather than dropping the
-        // output.
+        if self.summaries.contains_key(unit_id) {
+            for chunk in chunks {
+                self.live(chunk)?;
+            }
+            return Ok(());
+        }
+        // Unregistered blocks have no region to replay at end_unit.
         self.console.note(format!("==> {unit_id}"))?;
         for chunk in chunks {
             let text = String::from_utf8_lossy(&chunk.bytes);
@@ -157,6 +156,8 @@ impl RawOutputSink for TilesRawSink {
 
     fn begin_unit(&mut self, unit_id: &str, label: &str) -> AppResult<()> {
         self.console.begin(unit_id, label);
+        self.summaries
+            .insert(unit_id.to_owned(), SummaryScanner::default());
         self.counts.running += 1;
         self.refresh_header();
         Ok(())
@@ -316,6 +317,25 @@ mod tests {
         );
         // The consolidated epilogue renders without panicking (hidden console).
         sink.finish_run().unwrap();
+    }
+
+    #[test]
+    fn quiet_failure_blocks_are_retained_for_the_epilogue() {
+        let mut sink = TilesRawSink::hidden();
+        sink.begin_unit("quiet", "quiet").unwrap();
+        sink.block(
+            "quiet",
+            &[chunk("quiet", b"first diagnostic\nlast diagnostic\n")],
+        )
+        .unwrap();
+        sink.end_unit("quiet", UnitStatus::Failed).unwrap();
+
+        assert_eq!(
+            sink.failures[0].body,
+            vec!["first diagnostic", "last diagnostic"]
+        );
+        sink.finish_run().unwrap();
+        assert!(sink.failures.is_empty());
     }
 
     #[test]

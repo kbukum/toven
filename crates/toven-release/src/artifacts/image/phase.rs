@@ -3,12 +3,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use rskit_errors::{AppError, AppResult};
-use rskit_util::Template;
 use tokio_util::sync::CancellationToken;
 use toven_core::config::Document;
 use toven_core::federation::resolve::PathDriverLocator;
 use toven_core::plan::{PlanRequest, prepare_front};
-use toven_ports::{ImageOutcome, ImagePhase, ImageRequest, Provider, ReleaseVar, Reporter};
+use toven_ports::{ImageOutcome, ImagePhase, ImageRequest, Provider, ReleaseTemplate, Reporter};
 use toven_runtime::{Completed, UnitOperation, UnitSpec};
 
 use crate::planning::plan::{release_targets, resolve_release_settings};
@@ -472,30 +471,13 @@ fn registries(config: &toven_ports::ImageConfig) -> Vec<String> {
     registries
 }
 
-/// Render a name/tag template against the [`ReleaseVar`] vocabulary, using the
-/// module's declared version and an empty (stable) channel.
+/// Render a name/tag template for the module's declared version. An image is
+/// built from the declared (stable) version, so `{channel}` renders empty.
 fn render_template(
     template: &str,
     field: &str,
     module: &toven_model::Module,
     version: &rskit_version::semver::Version,
 ) -> AppResult<String> {
-    let parsed = Template::parse(template, ReleaseVar::ALL).map_err(|error| {
-        AppError::invalid_input(field, format!("invalid image template: {error}")).with_cause(error)
-    })?;
-    parsed
-        .render_with(|placeholder| match placeholder {
-            ReleaseVar::Version => Ok(version.to_string()),
-            ReleaseVar::Ecosystem => Ok(module.id.ecosystem.to_string()),
-            ReleaseVar::Module => Ok(module.id.name.clone()),
-            ReleaseVar::Channel => Ok(String::new()),
-            _ => Err(AppError::new(
-                rskit_errors::ErrorCode::Internal,
-                "unknown image template placeholder",
-            )),
-        })
-        .map_err(|error| {
-            AppError::invalid_input(field, format!("failed to render image template: {error}"))
-                .with_cause(error)
-        })
+    ReleaseTemplate::parse(field, template)?.render(module, version, None)
 }

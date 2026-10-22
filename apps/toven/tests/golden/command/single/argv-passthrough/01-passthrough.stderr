@@ -1,10 +1,29 @@
-run test on single-command
+run run-1700000000: test on single-command
+  phase configure: started
+  phase configure: done
+  phase discover: started
+  phase discover: done
+  phase graph: started
+  phase graph: done
+  phase affected: started
+  phase affected: done
+  phase toolchain: started
+  phase toolchain: done
+  phase schedule: started
+  cache command:app#test: disabled
+  phase schedule: done
 plan: 1 unit in 1 wave
+  start command:app#test
 passthrough --flag value
   ok command:app#test
 summary
-      planned:  1
-          ran:  1
-       cached:  0
-  duration-ms:  <DUR>
-       status:  ok
+           planned:  1
+               ran:  1
+            cached:  0
+            failed:  0
+           blocked:  0
+         cancelled:  0
+  failed-readiness:  0
+         timed-out:  0
+       duration-ms:  <DUR>
+            status:  ok

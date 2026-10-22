@@ -56,7 +56,7 @@ toven --config path/to/toven.toml modules
 
 ## Task passthrough
 
-For a bare task command, Toven consumes recognized options right after the task name. The first unrecognized token starts task argv passthrough.
+For a bare task command, Toven consumes recognized options right after the task name, in the same forms `toven run` accepts. The first unrecognized token starts task argv passthrough.
 
 ```bash
 toven test --module rust:core --nocapture
@@ -92,7 +92,7 @@ JSONL mode reserves stdout for one JSON object per line. Human framing stays on 
 | `--output human\|jsonl` | Select human tables or machine-readable JSONL |
 | `--color auto\|always\|never` | Control human status color |
 | `-v`, `--verbose` | Increase human verbosity on execution verbs; repeatable |
-| `-q`, `--quiet` | Reduce human verbosity on execution verbs; repeatable |
+| `-q`, `--quiet` | Reduce human verbosity on execution verbs; repeatable. A quiet run hides the plan line and passing units but still names each failed unit and its log |
 
 `NO_COLOR`, when set to a non-empty value, disables color.
 

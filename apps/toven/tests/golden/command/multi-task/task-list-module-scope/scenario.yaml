@@ -1,0 +1,17 @@
+# A task list narrows each task to the selected modules it applies to:
+# `lint` is scoped to `web`, so `build,lint` on `worker` plans only the build.
+# A single task on a module it excludes stays a typed error, and so does a
+# list in which no task applies to any selected module.
+repo: command/multi-task
+steps:
+  - id: 01-plan-list-on-excluded-module
+    argv: [--output, jsonl, --module, "command:worker", plan, "build,lint"]
+    stdout: { match: exact }
+  - id: 02-single-task-on-excluded-module
+    argv: [--module, "command:worker", plan, lint]
+    exit: 2
+    stderr: { match: normalized }
+  - id: 03-list-with-no-applicable-task
+    argv: [--module, "command:worker", plan, "lint,audit"]
+    exit: 2
+    stderr: { match: normalized }

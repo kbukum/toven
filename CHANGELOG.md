@@ -6,13 +6,27 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Added
 
+- Run several tasks as one plan with a comma list (`toven run build,test,lint`) or a named `[sets.<name>]` set (`toven verify`). The tasks run side by side in one plan; list order is not run order. `plan`, `affected` and `explain` accept the same lists and sets.
+- `[doctor.checks.<id>]` adds project health checks (a path, or an argv command with an optional whole-number version match) with fix hints, `--profile` tags and JSONL records. A failed command check shows its last stderr line, such as which port is busy.
+- Every run writes each unit's full output to a private log file, and the JSONL `unit-finished` event names it. Toven keeps the newest 20 runs and never prunes a run still in progress.
+- A Go module's local `replace` targets outside the module graph (such as a sibling checkout) are hashed into its cache key, so these modules can cache instead of always rerunning. Invalid targets fail discovery. A missing target not confirmed by the owner's requirements instead warns and disables caching, since offline discovery cannot tell an unused replacement from a transitive dependency.
+- A task's `modules` list limits it to the named modules of its ecosystem. Default and changed selections skip the others, and a name no module matches fails instead of silently disabling the task. Explicitly selecting an excluded module fails when the task runs alone; when it runs with other tasks, it just skips that module.
+
 ### Changed
+
+- A passing unit now prints only its status line instead of its output; use `-v` to show it. A failing unit, even under `--quiet`, prints its last lines, exit code and log path.
+- A bare task (`toven test ...`) now accepts the same flag forms as `toven run`, such as `--timeout=5s`, `-j4` and `-vv`, and its run hooks honor flags given after the task name. A short-flag cluster with an unknown letter (`-vx`), or a value flag joined to a word that is not its value (`go test -json`), passes through to the task whole. Flag combinations such as `--watch-debounce-ms` with `--watch` are checked after the global and task flags merge.
+- `commit-lint` is now a reserved word, so a task named `commit-lint` needs `toven run commit-lint`.
+- A `tag_format` without exactly one `{version}`, or with `{channel}`, now fails when the config loads instead of when a release cuts its tag.
 
 ### Deprecated
 
 ### Removed
 
 ### Fixed
+
+- Very chatty units apply backpressure instead of dropping output. Incomplete delivery after the process's post-exit grace period is an explicit error, not a successful run with a partial log. A background process that a task leaves running while it still holds the task's output is stopped after that grace period, so the task finishes with its full output instead of failing. Quiet output stays hidden in live views, and stdout-only checks keep stderr separate on terminals.
+- `toven release verify --download` fetched `v{version}` whenever `tag_format` was unset, and left `{module}` and `{ecosystem}` unfilled when it was set. It now picks the hosted Release the way the host step does (only releasing modules, and the umbrella module in an umbrella train) and fails when modules would cut different Releases.
 
 ### Security
 

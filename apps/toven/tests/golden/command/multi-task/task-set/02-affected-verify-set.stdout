@@ -1,0 +1,8 @@
+
+Affected
+┌────────────────┐
+│ Module         │
+├────────────────┤
+│ command:web    │
+│ command:worker │
+└────────────────┘

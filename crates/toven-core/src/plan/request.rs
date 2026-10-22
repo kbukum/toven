@@ -69,6 +69,10 @@ pub struct PlanRequest {
     pub project: String,
     /// The task to plan across the federation: its name plus recognized kind.
     pub intent: TaskIntent,
+    /// Further tasks planned into the same plan alongside `intent`. They are
+    /// independent: list order is not run order, and units of different tasks
+    /// only wait on each other through module dependencies within a task.
+    pub also: Vec<TaskIntent>,
     /// Absolute project root discovery and source hashing resolve against.
     pub project_root: AbsPath,
     /// User passthrough args, spliced verbatim at each task's `{args}` point.
@@ -93,11 +97,37 @@ impl PlanRequest {
             run_id: run_id.into(),
             project: project.into(),
             intent,
+            also: Vec::new(),
             project_root,
             passthrough: Vec::new(),
             selection: Selection::All,
             cache_mode: CacheMode::ReadWrite,
         }
+    }
+
+    /// Plan `also` alongside the primary intent in the same plan.
+    #[must_use]
+    pub fn with_also(mut self, also: Vec<TaskIntent>) -> Self {
+        self.also = also;
+        self
+    }
+
+    /// Every task this request plans, primary first.
+    pub fn intents(&self) -> impl Iterator<Item = &TaskIntent> {
+        std::iter::once(&self.intent).chain(&self.also)
+    }
+
+    /// One single-task request per planned task, primary first, each sharing
+    /// this request's selection, cache mode, and passthrough.
+    #[must_use]
+    pub fn split_by_intent(&self) -> Vec<Self> {
+        self.intents()
+            .map(|intent| Self {
+                intent: intent.clone(),
+                also: Vec::new(),
+                ..self.clone()
+            })
+            .collect()
     }
 
     /// Replace the passthrough args spliced at `{args}`.

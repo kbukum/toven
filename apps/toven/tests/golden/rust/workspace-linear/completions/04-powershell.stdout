@@ -1633,6 +1633,7 @@ Register-ArgumentCompleter -Native -CommandName 'toven' -ScriptBlock {
             break
         }
         'toven;doctor' {
+            [CompletionResult]::new('--profile', '--profile', [CompletionResultType]::ParameterName, 'Also run the `[doctor.checks]` that list this profile (repeatable). Checks without profiles always run')
             [CompletionResult]::new('--config', '--config', [CompletionResultType]::ParameterName, 'Path to the `toven.toml` config (otherwise discovered upward from the cwd)')
             [CompletionResult]::new('--output', '--output', [CompletionResultType]::ParameterName, 'Output format: `human` tables or machine-readable `jsonl` (defaults to the `[toven].report` setting)')
             [CompletionResult]::new('--color', '--color', [CompletionResultType]::ParameterName, 'When to colorize human output: `auto` (default), `always`, or `never`. `NO_COLOR` always wins over `always`. Accepted on every command; commands that produce no colorized output simply ignore it')
